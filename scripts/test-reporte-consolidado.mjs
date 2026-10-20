@@ -244,6 +244,19 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     && /vigentesAlDia\(\(asigsFrente as any\)\.asignaciones \?\? \[\], hasta\)/.test(card));
   ok('…con sus pastillas de agrupar y el filtro por categoría',
     /🏷️ Por categoría/.test(card) && /⛏️ Por frente/.test(card) && /soloCategorias/.test(card));
+
+  // ⛏️ El filtro por FRENTE (20-oct, mismo día: «poder seleccionar un frente o varios»).
+  const soloFrente = { ...OP, soloFrentes: ['frente norte'] };
+  eq('⭐ el filtro por FRENTE saca los demás (sin distinguir mayúsculas)',
+    [C.filasElegidas(FG, soloFrente).map((f) => f.id).sort().join(','), C.totalesConsolidado(FG, soloFrente).total],
+    ['a,b', 300]);
+  eq('…y «Sin frente» también se puede marcar (los sin asignación)',
+    C.filasElegidas(FG, { ...OP, soloFrentes: ['Sin frente'] }).map((f) => f.id), ['c']);
+  ok('…el archivo dice cuál frente', /solo FRENTE NORTE/.test(C.sufijoArchivoConsolidado({ ...OP, soloFrentes: ['FRENTE NORTE'] }))
+    && /solo 2 frentes/.test(C.sufijoArchivoConsolidado({ ...OP, soloFrentes: ['A', 'B'] })));
+  ok('…y la pantalla tiene sus pastillas (con FILTRADO)',
+    /SOLO ESTOS FRENTES/.test(card) && /soloFrentes/.test(card)
+    && /\(op\.soloFrentes \?\? \[\]\)\.length > 0/.test(card));
 }
 
 {

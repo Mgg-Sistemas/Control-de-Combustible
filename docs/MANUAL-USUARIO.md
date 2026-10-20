@@ -3828,7 +3828,9 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   frente»), cada bloque con su subtotal. Y junto al filtro de empresas está **🏷️ Solo estas
   categorías**: marca una (o varias) y todo el reporte —total, resumen y papel— sale solo de esa;
   se cruza con los filtros de empresa y de máquinas, cambia el total (FILTRADO) y el archivo dice
-  cuál.
+  cuál. **⛏️ Solo estos frentes (mismo día, a pedido):** igual pero por frente de trabajo — marca
+  uno o varios (también «Sin frente», para ver lo que no está asignado) y sale solo eso; mismo
+  comportamiento: se cruza con los demás filtros, FILTRADO, y el archivo dice cuál.
 - **🏢 Para una sola empresa (19/10/2026, mismo día, a pedido):** pastillas con las empresas del
   rango — marca una (o varias) y el papel sale **solo de esa**: su tabla, su resumen, sus totales.
   Filtrar **sí cambia el total**, el subtítulo dice **FILTRADO** y, con una sola, el **nombre del
