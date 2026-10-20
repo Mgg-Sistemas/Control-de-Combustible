@@ -150,5 +150,39 @@ eq('* los acentos no estorban',
   eq('* y la regla vive en UN solo lugar', aMano.length, 1);
 }
 
+/*
+ * LO MISMO, PERO PARA EL LISTERO (20-oct-2026).
+ *
+ * Pedido: «los listeros en el historial de viajes que les salga la placa de la
+ * maquinaria porque actualmente no la tienen, y además que tengan un buscador
+ * en ese historial por si necesitan buscar una máquina para saber cuánto lleva
+ * o lo que lleva».
+ *
+ * El listero NO ve la «Lista completa de viajes» (vive en el panel de nivel
+ * completo), así que ni la placa del chip ni el buscador de arriba le llegaban:
+ * su única lista es «Mis viajes», y ahí el título solo decía el código — el
+ * mismo problema de las treinta pastillas idénticas, un año después.
+ */
+{
+  const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ViajesCamionesScreen.tsx'), 'utf8');
+  ok('* la placa va en el TITULO de cada fila, con la escalera de placaDeTique',
+    scr.includes("placaDeTique(row, truck) !== SIN_DATO_TIQUE ? ` · ${placaDeTique(row, truck)}`"));
+  ok('* y no se repite abajo: ahi queda la empresa',
+    scr.includes('const placaArriba =') && scr.includes('`🏢 ${empresaDeTique(row, truck)}`'));
+  ok('* el buscador de «Mis viajes» mira codigo, placa, empresa, ticket y chofer',
+    /r\.machineCode, r\.placa, r\.empresa, r\.camionRef, r\.choferName, r\.folio/.test(scr));
+  ok('* ...y la lista que se pinta es la FILTRADA', scr.includes('misViajesFiltrados.map((row) => renderRow('));
+  // Lo que se pidio: «para saber cuanto lleva o lo que lleva» — buscando una
+  // maquina, el conteo y las toneladas del titulo son de ESA maquina.
+  ok('* el conteo y las toneladas del titulo son de lo que se esta viendo',
+    scr.includes('for (const r of misViajesFiltrados)')
+    && scr.includes("}, [misViajesFiltrados]);")
+    && scr.includes('${misViajesFiltrados.length}`}'));
+  ok('* buscando se dice de cuantos sale (nadie cree que perdio viajes)',
+    scr.includes('Mostrando {misViajesFiltrados.length} de {misViajesDisplay.length} viaje(s)'));
+  ok('* sin resultados NO se dice «no registras viajes»',
+    /Ninguno de tus \{misViajesDisplay\.length\} viaje\(s\) coincide/.test(scr));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-buscador-placa · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
