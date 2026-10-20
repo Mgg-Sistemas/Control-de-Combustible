@@ -20,6 +20,23 @@ export type ReqPdfData = {
   items: ReqPdfItem[];
   approved?: boolean;         // true si el requerimiento está APROBADO (muestra la firma)
   decidedBy?: string | null;  // nombre de quien aprobó (define la firma y el cargo)
+  // 📋 Datos DECLARADOS en el papel — pedido del cliente del 20-oct-2026: el
+  // formato debe decir quién lo solicitó, quién lo autorizó, si es para vehículo
+  // o maquinaria, a qué área va dirigido y un espacio de observaciones. Todos
+  // opcionales porque los ~500 requerimientos viejos no los tienen: lo vacío no
+  // se dibuja y esos papeles se ven exactamente igual que siempre.
+  /** 👤 Quién SOLICITÓ (persona declarada, 20-oct-2026) — distinto de `requestedBy`,
+   *  que es el usuario que lo registró en el sistema. */
+  solicitante?: string | null;
+  /** ✅ Quién AUTORIZÓ la compra (declarado en el papel) — distinto de `decidedBy`,
+   *  que es quien aprobó dentro del sistema. */
+  autorizadoPor?: string | null;
+  /** 🚜 Para qué es: «Maquinaria» o «Vehículo» (ya viene en palabras). */
+  destino?: string | null;
+  /** 🏢 Área a la que va dirigido (ADMINISTRATIVO, COCINA…). */
+  area?: string | null;
+  /** 📝 Observaciones / información adicional, al final del documento. */
+  observaciones?: string | null;
 };
 
 // Firma según QUIÉN aprueba: cada aprobador tiene su cargo y su firma escaneada.
@@ -48,6 +65,17 @@ const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-
       .tot{margin-top:12px;text-align:right;font-size:13px;font-weight:800;color:#16324F}
       .note{margin-top:10px;font-size:11px}
       .reqhead{font-size:13px;font-weight:800;color:#16324F;margin-bottom:2px}
+      /* Fichas de los datos declarados (20-oct-2026). Van en renglones de dos
+         para que entren en el ancho de la hoja sin empujar la tabla, y con el
+         gris/azul del resto del documento para que no parezcan un agregado.
+         El bloque entero solo existe si hay al menos un dato. */
+      .reqdatos{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+      .reqdato{flex:1 1 44%;min-width:200px;box-sizing:border-box;border:1px solid #c9d2dc;border-radius:6px;background:#f4f7fb;padding:5px 8px;font-size:11px;color:#333}
+      .reqdato .rot{display:block;font-size:9px;font-weight:800;color:#16324F;letter-spacing:.3px;text-transform:uppercase}
+      .reqdato .val{font-weight:700;color:#1a1a1a}
+      /* Observaciones: es texto libre que escribe la persona, así que pre-wrap
+         para que los saltos de línea salgan en el papel tal como los tecleó. */
+      .reqobs{margin-top:10px;font-size:11px;white-space:pre-wrap;border-top:1px solid #c9d2dc;padding-top:6px}
       /* La firma queda AL FONDO de la página: el cuerpo llena el alto y el espaciador
          (.push) empuja la firma hacia abajo. Si el contenido es largo, el espaciador
          se encoge y la firma cae justo debajo (sin romper la página). */
@@ -88,6 +116,35 @@ function reqTableHtml(d: ReqPdfData): { rows: string; totalUsd: number; hasImg: 
   return { rows, totalUsd, hasImg };
 }
 
+/** Fichas con los datos DECLARADOS en el papel (20-oct-2026): el cliente pidió que
+ *  el formato diga quién solicitó, quién autorizó, si es para maquinaria o vehículo
+ *  y a qué área va dirigido. No se sacan del subtítulo porque esos son los datos
+ *  del SISTEMA («Solicita» = quien lo registró, el aprobador = quien lo aprobó aquí):
+ *  estos los declara la persona y pueden ser otros.
+ *  Lo vacío NO sale, y si no viene ninguno no se dibuja ni el contenedor — de otro
+ *  modo los ~500 requerimientos viejos quedarían con un borde suelto arriba. */
+function reqDatosHtml(d: ReqPdfData): string {
+  const fichas: Array<[string, string]> = [
+    ['👤 Solicitado por', (d.solicitante || '').trim()],
+    ['✅ Autorizado por', (d.autorizadoPor || '').trim()],
+    ['🚜 Para', (d.destino || '').trim()],
+    ['🏢 Área', (d.area || '').trim()],
+  ];
+  const cards = fichas
+    .filter(([, valor]) => !!valor)
+    .map(([rotulo, valor]) => `<div class="reqdato"><span class="rot">${rotulo}</span><span class="val">${esc(valor)}</span></div>`)
+    .join('');
+  return cards ? `<div class="reqdatos">${cards}</div>` : '';
+}
+
+/** Observaciones AL FINAL del documento (20-oct-2026, «un espacio de observaciones»):
+ *  van después del total y de la nota porque son el cierre del papel, no un dato de
+ *  cabecera. Si vienen vacías no queda ni el rótulo. */
+function reqObsHtml(d: ReqPdfData): string {
+  const obs = (d.observaciones || '').trim();
+  return obs ? `<div class="reqobs"><b>📝 Observaciones:</b> ${esc(obs)}</div>` : '';
+}
+
 /** Encabezado de la tabla (con o sin la columna "Imagen"). */
 function reqTheadHtml(hasImg: boolean): string {
   return `<thead><tr><th style="width:26px" class="c">#</th><th>Producto</th>${hasImg ? '<th class="c" style="width:104px">Imagen</th>' : ''}<th class="c">Cantidad</th>` +
@@ -112,12 +169,14 @@ function reqBodyHtml(d: ReqPdfData, heading?: string): string {
         <div>
           ${heading ? `<div class="reqhead">${heading}</div>` : ''}
           ${d.title ? `<div class="note"><b>${esc(d.title)}</b></div>` : ''}
+          ${reqDatosHtml(d)}
           <table>
             ${reqTheadHtml(hasImg)}
             <tbody>${rows || `<tr><td colspan="${hasImg ? 6 : 5}" class="c">Sin ítems</td></tr>`}</tbody>
           </table>
           <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}</div>
           ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
+          ${reqObsHtml(d)}
         </div>
         <div class="push"></div>
         <div class="firma">
@@ -164,12 +223,14 @@ function reqSummaryBlockHtml(d: ReqPdfData, heading: string): string {
       <div class="reqsum">
         <div class="reqhead">${heading}</div>
         ${d.title ? `<div class="note"><b>${esc(d.title)}</b></div>` : ''}
+        ${reqDatosHtml(d)}
         <table>
           ${reqTheadHtml(hasImg)}
           <tbody>${rows || `<tr><td colspan="${hasImg ? 6 : 5}" class="c">Sin ítems</td></tr>`}</tbody>
         </table>
         <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}</div>
         ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
+        ${reqObsHtml(d)}
       </div>`;
 }
 
