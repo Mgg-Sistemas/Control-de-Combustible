@@ -243,7 +243,24 @@ ok('el manual en pantalla también', /CONTEO DE EQUIPOS: LO DESTILDADO YA NO SAL
 
 // ── LOGOS DEL CONTEO (24-sep-2026): checks propios, como el inventario ──
 ok('el conteo tiene su propio juego de logos', /const \[conteoLogos, setConteoLogos\] = useState<ReporteLogos>/.test(scr));
-ok('el membrete del conteo los recibe', /renaceShell\('CONTEO DE EQUIPOS'[\s\S]*?, \{\}, conteoLogos\)/.test(scr));
+// 20-oct-2026: el 4.º argumento dejó de ser `{}` — ahí va `sinFirmas`, la
+// pastilla que quita las rayas de «Empresa:» y «Responsable:» del membrete.
+ok('el membrete del conteo los recibe', /renaceShell\('CONTEO DE EQUIPOS'[\s\S]*?, \{ sinFirmas: o\.sinFirmas \}, conteoLogos\)/.test(scr));
+
+// ── 🚫 EMPRESA Y RESPONSABLE (20-oct-2026, a pedido: «un botón para que no
+//    salga» ese bloque del membrete, que son dos rayas para llenar a mano) ──
+{
+  const opc = fs.readFileSync(path.join(ROOT, 'src/lib/conteoTipoOpciones.ts'), 'utf8');
+  ok('🚫 la pastilla existe y nace APAGADA (el papel sale igual que siempre)',
+    /key: 'sinFirmas', chip: '🚫 Empresa y responsable'/.test(opc) && /sinFirmas: false,/.test(opc));
+  ok('🚫 ...y se declara en el nombre del archivo, como todas',
+    /archivo: 'sin firmas'/.test(opc));
+  ok('🚫 el membrete solo esconde el bloque cuando se pide',
+    /\$\{fields\.sinFirmas \? '' : `/.test(scr)
+    && /<div class="fld">Empresa:/.test(scr) && /<div class="fld">Responsable:/.test(scr));
+  ok('🚫 la bandera es OPCIONAL: los demás papeles con este membrete no cambian',
+    /sinFirmas\?: boolean/.test(scr));
+}
 ok('las pastillas estan en la pantalla del conteo', /¿Qué logos lleva el membrete\?/.test(scrCrudo));
 ok('arranca como salia siempre (Golden + Renace)', /setConteoLogos\] = useState<ReporteLogos>\(\{ sos: false, golden: true, renace: true, bcv: false \}\)/.test(scr));
 ok('lo del conteo NO toca los logos del inventario', /renaceShell\('INVENTARIO DE<br\/>MAQUINARIA', '', body, \{\}, tacLogos\)/.test(scr));

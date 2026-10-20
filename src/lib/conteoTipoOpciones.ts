@@ -38,6 +38,9 @@ export type OpcionesConteo = {
   sinCubicaje: boolean;
   /** Sin el cuadro de alcance del final. */
   sinAlcance: boolean;
+  /** Las rayas de «Empresa:» y «Responsable:» del membrete, para llenar a mano
+   *  (20-oct-2026, a pedido: un botón para que no salgan). */
+  sinFirmas: boolean;
 };
 
 /** El papel completo: no se oculta nada. Es el valor por defecto. */
@@ -52,6 +55,7 @@ export const OPCIONES_CONTEO_COMPLETO: OpcionesConteo = {
   sinClasificacion: false,
   sinCubicaje: false,
   sinAlcance: false,
+  sinFirmas: false,
 };
 
 export const PASTILLAS_CONTEO: { key: keyof OpcionesConteo; chip: string; largo: string; archivo: string }[] = [
@@ -68,6 +72,7 @@ export const PASTILLAS_CONTEO: { key: keyof OpcionesConteo; chip: string; largo:
   { key: 'sinTipos', chip: '🚫 Cantidad por tipo', largo: 'cantidad por tipo de equipo', archivo: 'sin tipos' },
   { key: 'sinClasificacion', chip: '🚫 Cantidad por clasificación', largo: 'cantidad por clasificación', archivo: 'sin clasificacion' },
   { key: 'sinAlcance', chip: '🚫 Alcance del informe', largo: 'cuadro de alcance', archivo: 'sin alcance' },
+  { key: 'sinFirmas', chip: '🚫 Empresa y responsable', largo: 'las rayas de empresa y responsable', archivo: 'sin firmas' },
 ];
 
 export function alternarConteo(o: OpcionesConteo, key: keyof OpcionesConteo): OpcionesConteo {
