@@ -4144,6 +4144,19 @@ hora»**:
 - **↺ Quitar el ajuste** devuelve el día a lo que cargó el inspector. Un ajuste tampoco se edita ni
   se borra: se anula o se reemplaza, siempre con motivo.
 
+> **🧾 Acomodar también CARGA la lectura cuando no existe (20/10/2026, a pedido: «necesito poder
+> cargar el horómetro de inicio y de cierre desde ahí»).** Hasta hoy este modal solo servía para
+> corregir una lectura que el inspector YA había cargado. Ahora, si ese día/turno el inspector no
+> cargó nada (o cargó solo el inicial), el modal lo dice claramente y lo que escribas en
+> **HORÓMETRO INICIAL** y **HORÓMETRO FINAL** **se carga como la lectura de ese día/turno**. Puedes
+> cargar el inicial, el final o ambos; si están los dos, el final no puede ser menor que el
+> inicial; coma y punto valen igual. **Los dos destinos siguen siendo los mismos**:
+> **«✎ Cambiar la lectura del inspector»** crea o corrige la lectura real (la ven el pago por
+> horómetro y los reportes, y queda marcada como cargada desde Control), y **«🧾 Solo para Control
+> de horómetros»** guarda el ajuste que manda solo en este control, como siempre. El **motivo sigue
+> siendo obligatorio** y queda grabado con el nombre de quien lo hizo. Y el aviso del modal sigue
+> siendo verdad: esto **no toca Control de jornadas ni sus horas**.
+
 **📄 Reporte de pago por horómetro.** PDF con el **resumen por empresa**, el **pago por máquina**
 (horas, precio/h, monto) y los **días por revisar**; el **detalle día por día** (con Inicio y Fin
 del horómetro, y los días ajustados marcados con su motivo) viene oculto y se enciende. Tiene sus
