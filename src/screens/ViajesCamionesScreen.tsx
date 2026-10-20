@@ -52,7 +52,7 @@ import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
 } from '../lib/ubicacionesObra';
-import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique } from '../lib/tique';
+import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique, SIN_DATO as SIN_DATO_TIQUE } from '../lib/tique';
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
@@ -1191,6 +1191,25 @@ export default function ViajesCamionesScreen() {
 
   /** Cuántos de los que se ven todavía NO están en el servidor (en cola o apartados). */
   const sinSubirEnPantalla = useMemo(() => misViajesDisplay.filter((r) => r.queued).length, [misViajesDisplay]);
+  // 🔎 BUSCADOR DE «MIS VIAJES» (20-oct-2026, a pedido: «que tengan un buscador
+  //    en ese historial por si necesitan buscar una máquina para saber cuánto
+  //    lleva o lo que lleva»). El listero NO ve la «Lista completa de viajes»
+  //    —vive en el panel de nivel completo— así que esta era su única lista y no
+  //    tenía forma de buscar. Busca por código, placa/serial congelados, empresa,
+  //    ticket, chofer y la seña del camión de fuera de catálogo.
+  const [misQ, setMisQ] = useState('');
+  const misViajesFiltrados = useMemo(() => {
+    const q = norm(misQ.trim());
+    if (!q) return misViajesDisplay;
+    return misViajesDisplay.filter((r) => {
+      const t = r.machineryId ? truckById.get(r.machineryId) : undefined;
+      return [r.machineCode, r.placa, r.empresa, r.camionRef, r.choferName, r.folio, t?.plate, t?.serial, t?.companyName]
+        .some((f) => f != null && norm(String(f)).includes(q));
+    });
+  }, [misViajesDisplay, misQ, truckById]);
+  // El conteo y las toneladas del título son de LO QUE SE ESTÁ VIENDO: buscar una
+  // máquina y que el título siga diciendo el total del día no respondería
+  // «cuánto lleva ESA máquina», que es justo para lo que se pidió el buscador.
   // ⚖️ LAS TONELADAS QUE LLEVA (19-oct-2026, a pedido: «ven la cantidad de
   // viajes que llevan, también deberían poder [ver] las ton que llevan»).
   // Suma de los NETOS de romana de los viajes en pantalla — también los que
@@ -1199,12 +1218,12 @@ export default function ViajesCamionesScreen() {
   // listero no crea que ese total incluye todo.
   const misTons = useMemo(() => {
     let kg = 0, pesados = 0, sinPeso = 0;
-    for (const r of misViajesDisplay) {
+    for (const r of misViajesFiltrados) {
       const n = r.pesoNetoKg ?? netoDe(r.pesoBrutoKg, r.pesoTaraKg);
       if (n != null && n > 0) { kg += n; pesados += 1; } else { sinPeso += 1; }
     }
     return { kg, pesados, sinPeso };
-  }, [misViajesDisplay]);
+  }, [misViajesFiltrados]);
   // ⚠️ Las insignias usan estos contadores, NO `queuedItems.length` crudo. Los
   //    crudos incluyen viajes que ya llegaron al servidor y todavía no salieron
   //    de la cola, así que la insignia decía «1 sin subir» mientras el título de
@@ -3890,15 +3909,29 @@ export default function ViajesCamionesScreen() {
     //    TICKET, no lo que diga el catálogo hoy. Si los dos no coinciden porque
     //    alguien corrigió la ficha después, el papel firmado en el CDT es el que
     //    manda, y quien mira la pantalla tiene que ver eso y no otra cosa.
+    // 20-oct-2026: si la placa YA subió al título, acá queda solo la empresa —
+    // repetirla dos veces en la misma fila es ruido en una pantalla de teléfono.
+    const placaArriba = !row.fueraCatalogo && placaDeTique(row, truck) !== SIN_DATO_TIQUE;
     const placaSerial = row.fueraCatalogo
       ? (row.camionRef ? `Anotado a mano · ${row.camionRef}` : 'Anotado a mano por el listero')
-      : `Placa ${placaDeTique(row, truck)} · ${empresaDeTique(row, truck)}`;
+      : placaArriba
+        ? `🏢 ${empresaDeTique(row, truck)}`
+        : `Placa ${placaDeTique(row, truck)} · ${empresaDeTique(row, truck)}`;
     const impresiones = vecesImpreso(row);
     return (
       <View key={row.id} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* ⭐ LA PLACA VA EN EL TÍTULO, PEGADA AL CÓDIGO (20-oct-2026, a pedido:
+              «que les salga la placa de la maquinaria»). Treinta camiones se
+              llaman todos «CAMION VOLTEO TORONTO»: con el código solo, el
+              listero no sabe cuál de ellos es. Es la placa CONGELADA en el
+              viaje (la que lleva el ticket), con la de la ficha de respaldo
+              para los viajes anteriores a la ticketera — la misma escalera de
+              `placaDeTique`. Debajo sigue la línea con la empresa. */}
           <Text style={{ color: colors.text, fontWeight: '700', flexShrink: 1 }}>
-            {row.fueraCatalogo ? '🚚' : '🚜'} {row.machineCode}{opts.showListero ? ` · ${row.listeroName}` : ''}
+            {row.fueraCatalogo ? '🚚' : '🚜'} {row.machineCode}
+            {!row.fueraCatalogo && placaDeTique(row, truck) !== SIN_DATO_TIQUE ? ` · ${placaDeTique(row, truck)}` : ''}
+            {opts.showListero ? ` · ${row.listeroName}` : ''}
           </Text>
           {/* La marca de "fuera de catálogo" va SIEMPRE, para el listero y para
               quien supervisa: un viaje contra un camión anotado a mano no se
@@ -4515,11 +4548,38 @@ export default function ViajesCamionesScreen() {
             mentiría al revés: haría creer que están todos en el sistema cuando
             algunos siguen en el teléfono. */}
         <SectionTitle>
-          {`${hayDeOtrosDias ? 'Mis viajes' : 'Mis viajes de hoy'} · ${misViajesDisplay.length}`}
+          {`${hayDeOtrosDias ? 'Mis viajes' : 'Mis viajes de hoy'} · ${misViajesFiltrados.length}`}
           {misTons.kg > 0 ? ` · ⚖️ ${tonTexto(misTons.kg, 1)}` : ''}
           {sinSubirEnPantalla > 0 ? ` (${sinSubirEnPantalla} sin subir)` : ''}
           {hayDeOtrosDias ? ' · incluye pendientes de días anteriores' : ''}
         </SectionTitle>
+        {/* 🔎 El buscador del listero (20-oct-2026). Solo aparece cuando ya hay
+            viajes: con la lista vacía sería un campo que no puede encontrar nada. */}
+        {misViajesDisplay.length > 0 ? (
+          <>
+            <TextInput
+              value={misQ}
+              onChangeText={setMisQ}
+              placeholder="🔎 Buscar máquina: placa, código, empresa, ticket…"
+              placeholderTextColor={colors.muted}
+              autoCorrect={false}
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 6, color: colors.text, fontSize: 13, marginBottom: 4 }}
+            />
+            {misQ.trim() ? (
+              // Buscando, el título cuenta SOLO lo encontrado: hay que decir de
+              // cuántos sale, para que nadie crea que perdió viajes.
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, flex: 1 }}>
+                  Mostrando {misViajesFiltrados.length} de {misViajesDisplay.length} viaje(s)
+                  {misTons.kg > 0 ? ` · ⚖️ ${tonTexto(misTons.kg, 1)}` : ''}
+                </Text>
+                <TouchableOpacity onPress={() => setMisQ('')}>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>✕ Limpiar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </>
+        ) : null}
         {/* Si hay viajes sin pesar, el total de toneladas NO los incluye y hay
             que decirlo — un total callado haría creer que ya está todo pesado. */}
         {misTons.kg > 0 && misTons.sinPeso > 0 ? (
@@ -4540,6 +4600,10 @@ export default function ViajesCamionesScreen() {
           </Text>
         ) : misViajesDisplay.length === 0 ? (
           <Text style={{ color: colors.muted }}>Todavía no registras viajes hoy.</Text>
+        ) : misViajesFiltrados.length === 0 ? (
+          // Sin resultados NO se dice «no registras viajes»: los tiene, la
+          // búsqueda es la que no encontró nada.
+          <Text style={{ color: colors.muted }}>Ninguno de tus {misViajesDisplay.length} viaje(s) coincide con «{misQ.trim()}».</Text>
         ) : (
           // Sin `maxHeight` ni ScrollView anidado: el recorte no ahorraba nada
           // (React Native renderiza igual todos los hijos, solo los tapaba) y en
@@ -4560,7 +4624,7 @@ export default function ViajesCamionesScreen() {
                 ⚠️ Y UN VIAJE EN COLA TAMPOCO SE BORRA ACÁ: todavía no existe en
                    el servidor, así que `borrarViaje` no tendría qué borrar. Lo
                    que se ve es una fila local esperando señal. */}
-            {misViajesDisplay.map((row) => renderRow(row, {
+            {misViajesFiltrados.map((row) => renderRow(row, {
               canEdit: !row.queued && isEditableByListero(row),
               canDelete: canFull && !row.queued,
             }))}
