@@ -346,7 +346,10 @@ const RENACE_NAVY = '#1F3864';
 // apaga con un check por reporte. Por omisión = como salía siempre (Golden Touch
 // + Venezuela Renace), para no cambiar los otros reportes que usan este membrete.
 export type ReporteLogos = { sos?: boolean; golden?: boolean; renace?: boolean; bcv?: boolean };
-function renaceShell(title: string, sub: string, body: string, fields: { empresa?: string; responsable?: string } = {}, logos: ReporteLogos = {}): string {
+// `sinFirmas` (20-oct-2026, a pedido): quita las dos rayas de «Empresa:» y
+// «Responsable:» del membrete — las que se llenan a mano. Es opcional y nace
+// apagada, así que todos los demás papeles que usan este membrete salen igual.
+function renaceShell(title: string, sub: string, body: string, fields: { empresa?: string; responsable?: string; sinFirmas?: boolean } = {}, logos: ReporteLogos = {}): string {
   const L = { sos: logos.sos ?? false, golden: logos.golden ?? true, renace: logos.renace ?? true, bcv: logos.bcv ?? false };
   // Logos que van a la IZQUIERDA del título (en el orden pedido: SOS, Golden, BCV).
   const leftLogos = [
@@ -399,8 +402,9 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
         <div class="fecha"><b>Fecha:</b> ${nowStamp()}</div>
       </div>
       <div class="rule"></div>
+      ${fields.sinFirmas ? '' : `
       <div class="fld">Empresa:<span>${fields.empresa ?? ''}</span></div>
-      <div class="fld">Responsable:<span>${fields.responsable ?? ''}</span></div>
+      <div class="fld">Responsable:<span>${fields.responsable ?? ''}</span></div>`}
       ${sub ? `<div class="sub">${sub}</div>` : ''}
       ${body}
       <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
@@ -3185,7 +3189,7 @@ export default function ReportsScreen({ route }: any) {
       ? ` (${ESTADO_CONTEO_ORDER.filter((k) => estadosSel.has(k)).map((k) => ESTADO_CONTEO_INFO[k].label.toLowerCase()).join(' + ')})`
       : '';
     await exportPdf(
-      renaceShell('CONTEO DE EQUIPOS', exclLbl, body, {}, conteoLogos),
+      renaceShell('CONTEO DE EQUIPOS', exclLbl, body, { sinFirmas: o.sinFirmas }, conteoLogos),
       `Conteo de equipos${porCategoria ? ' por categoria' : ''}${estadosArchivo}${maqFuera.size ? ' seleccion' : ''}${sufijoArchivoConteo(o)}`,
     );
   };
