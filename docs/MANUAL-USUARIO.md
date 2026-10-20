@@ -698,6 +698,14 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > sí o sí son los **equipos excluidos** a mano, porque ese número es de una selección y callarlo
 > sería mentir.
 
+> **🚫 Conteo de equipos: quitar «Empresa» y «Responsable» del membrete (20/10/2026, a pedido).**
+> En **«¿Qué se oculta en el PDF?»** hay una pastilla nueva **«🚫 Empresa y responsable»**: apaga
+> las **dos rayas en blanco** que salen arriba del papel para llenar a mano (*Empresa: ______ /
+> Responsable: ______*). **Nace apagada**, así que quien no la toque descarga el mismo papel de
+> siempre; encendida, el membrete queda solo con el logo, el título y la fecha. Como todas las
+> pastillas, se declara en el **nombre del archivo** («sin firmas») y **no cambia ningún total**.
+> ⚠️ Solo afecta a **este** reporte: los demás papeles con el mismo membrete siguen con sus rayas.
+
 > **🛠️ Conteo de equipos: lo destildado ya no sale (19/09/2026).** Se corrigió una falla: al
 > destildar máquinas en **"🚜 Escoger máquinas"** el rótulo decía bien *"15 de 18"*, pero el número
 > grande, los m³ y el **PDF seguían con las 18**. El conteo no se enteraba del cambio hasta que se
