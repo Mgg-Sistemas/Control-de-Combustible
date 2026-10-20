@@ -3866,7 +3866,11 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   **🏷️ Por categoría** (la clasificación del catálogo: Equipo de corte, Manejo de carga…) y
   **⛏️ Por frente de trabajo** (el frente **vigente** de Reportes → Frentes a la fecha final del
   rango — el que desde el 19/10 se queda hasta que lo reasignen; sin asignación sale en «Sin
-  frente»), cada bloque con su subtotal. Y junto al filtro de empresas está **🏷️ Solo estas
+  frente»), cada bloque con su subtotal. **🚛 Camiones sincronizados (20/10/2026, a pedido):** los
+  camiones se asignan en **Viajes de camiones → ⛏️ Frentes** (asignación diaria), y ese histórico
+  también alimenta este papel — el consolidado toma la **última asignación anotada** hasta la fecha
+  final del rango; si una misma ficha tuviera frente en los dos módulos, manda el de Reportes →
+  Frentes. Y junto al filtro de empresas está **🏷️ Solo estas
   categorías**: marca una (o varias) y todo el reporte —total, resumen y papel— sale solo de esa;
   se cruza con los filtros de empresa y de máquinas, cambia el total (FILTRADO) y el archivo dice
   cuál. **⛏️ Solo estos frentes (mismo día, a pedido):** igual pero por frente de trabajo — marca
