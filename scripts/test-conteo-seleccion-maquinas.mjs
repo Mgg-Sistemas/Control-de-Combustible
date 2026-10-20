@@ -167,8 +167,10 @@ ok('...y el cuadro usa ese conteo, no el del tipo', /count: porTipoListado\.get\
 ok('ya no se cuenta desde tipoMap en el PDF', !/count: tipoMap\.get\(k\)\?\.count/.test(scr));
 
 // Decirlo o no decirlo: el membrete siempre se imprime, el alcance se puede apagar.
-ok('el membrete avisa de los equipos excluidos', /const exclLbl = maqFuera\.size \? ` · \$\{maqFuera\.size\} equipo\(s\) excluido\(s\)`/.test(scr));
-ok('...y el membrete lo lleva puesto', /\$\{clasLbl\}\$\{exclLbl\}/.test(scr));
+// 20-oct-2026: el membrete ya no delata el alcance (tipos/estados/empresas van al
+// nombre del archivo), pero los EXCLUIDOS a mano siguen en el membrete sí o sí.
+ok('el membrete avisa de los equipos excluidos', /const exclLbl = maqFuera\.size \? `\$\{maqFuera\.size\} equipo\(s\) excluido\(s\)`/.test(scr));
+ok('...y el membrete lo lleva puesto (es lo ÚNICO que lleva)', /renaceShell\('CONTEO DE EQUIPOS', exclLbl, body/.test(scr));
 ok('el alcance también lo detalla', /textoExclusiones\(maquinasDeTipos\.length, maqFuera\.size\)/.test(scr));
 ok('el archivo se llama distinto si hubo selección', /maqFuera\.size \? ' seleccion' : ''/.test(scr));
 

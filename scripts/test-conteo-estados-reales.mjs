@@ -96,9 +96,18 @@ const L = cargarAbs(path.join(ROOT, 'src/lib/machineLiveStatus.ts'));
     && rep.includes('estadosSel.size === 0 ? src : src.filter((m) => estadosSel.has(m.estadoReal))'));
   ok('…y las pastillas viejas (todas/activas/inactivas) ya no existen',
     !rep.includes("'🟢 Solo activas'") && !rep.includes('tipoEstado'));
-  ok('el PDF dice qué estados se marcaron, con su nombre completo',
+  ok('el cuadro de alcance (apagable) dice qué estados se marcaron, con su nombre completo',
     rep.includes("? 'Todos los estados'")
     && rep.includes('ESTADO_CONTEO_ORDER.filter((k) => estadosSel.has(k))'));
+  // ⭐ 20-oct (mismo día): «que eso no salga en el reporte» — el MEMBRETE ya no
+  //    dice tipos/estados/empresas/eje; eso va al NOMBRE del archivo y al cuadro
+  //    de alcance. Lo único forzado en el membrete: los equipos excluidos a mano.
+  ok('⭐ el membrete ya NO delata el alcance (solo los equipos excluidos, sí o sí)',
+    rep.includes("renaceShell('CONTEO DE EQUIPOS', exclLbl, body")
+    && !rep.includes('${estadoLbl} · ${empLbl}'));
+  ok('…y los estados marcados van al NOMBRE del archivo',
+    rep.includes('const estadosArchivo = estadosSel.size')
+    && rep.includes('${estadosArchivo}'));
   ok('el detalle de una tarjeta filtra por el estado real y su PDF también',
     rep.includes('conteo.machinesAll.filter((m) => m.estadoReal === conteoDetail)')
     && rep.includes('conteo.machinesAll.filter((m) => m.estadoReal === kind)'));
