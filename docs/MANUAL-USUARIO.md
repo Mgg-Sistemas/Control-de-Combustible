@@ -512,6 +512,17 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 >   solo** cualquier jornada vieja abierta — bancada hasta su fin nominal — y queda en la
 >   bitácora como «cierre rezagado». Control puede corregir horas como siempre.
 > La regla de abajo sigue valiendo para el **cierre anticipado** (motivo obligatorio).
+> **🕐 La hora en que finalizó (20/10/2026, a pedido).** Al tocar **🏁 FINALIZAR JORNADA**, el
+> inspector puede escribir la **hora real en que la máquina paró** (ej. 17:00) — útil cuando se
+> llega a cerrar más tarde: las horas se cuentan **hasta esa hora**, no hasta el momento del
+> toque. Vacío = ahora mismo (el cierre de siempre). La hora no puede estar en el futuro ni ser
+> anterior al inicio de la jornada, declarar una hora pasada del fin del turno **no regala
+> horas** (topa a las 7), y si la hora declarada es anterior al fin del turno el cierre cuenta
+> como **anticipado** y pide su motivo. La vista previa dice cuántas horas van a quedar antes de
+> confirmar, y la hora declarada queda en la bitácora.
+> **⚠️ Regresión corregida el 20/10/2026:** una reescritura del 19/10 hizo que el barredor
+> ignorara el interruptor y cerrara todas las jornadas a las 7:00pm. Se repuso el candado: con el
+> interruptor apagado, el servidor no cierra nada.
 
 > **Cierre de jornada (regla firme):** el **DÍA cierra a las 7:00pm** y la **NOCHE a la 1:00am**
 > (permanencia de noche = 6h). **Excepción LUMINARIA:** las **luminarias** (torres/equipos de

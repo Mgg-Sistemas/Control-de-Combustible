@@ -23,6 +23,9 @@ import QrInactive from '../components/QrInactive';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts, calcularInicioJornada } from '../lib/jornada';
+// 🕐 La HORA DECLARADA de fin de la jornada (20-oct-2026, a pedido urgente:
+//    «que puedan colocar la hora en la que finalizó, por si finalizó antes»).
+import { resolverFinJornada } from '../lib/horaFinJornada';
 import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, businessRoundDateOf, ultimaJornadaRoundDate } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal, cerrarJornadasRezagadas } from '../lib/machineRounds';
@@ -434,6 +437,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [jornadaBusy, setJornadaBusy] = useState(false);
   const [finConfirm, setFinConfirm] = useState(false); // aviso de confirmación antes de finalizar
   const [motivoCierre, setMotivoCierre] = useState(''); // motivo OBLIGATORIO si se cierra antes de la hora de fin
+  // 🕐 Hora DECLARADA de fin (HH:MM, Caracas). Vacía = «ahora», como siempre fue.
+  // Si la máquina paró antes y el inspector llegó a cerrar después, acá pone la
+  // hora real y las horas se cuentan hasta AHÍ (regla pura: lib/horaFinJornada).
+  const [finTime, setFinTime] = useState('');
   // Horas ya registradas hoy en el round de la máquina abierta (para saber si el
   // turno del inspector ya se cumplió hoy → no puede reiniciarlo el mismo día).
   const [curRoundHours, setCurRoundHours] = useState<{ day: number; night: number }>({ day: 0, night: 0 });
@@ -584,7 +591,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
     if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); setMotivoCierre(''); return; }
-    setParadaOpen(false); setFinConfirm(false); setHoroFin(''); setMotivoCierre(''); setCerrarSinFinal(false); setIniciarSinHoro(false);
+    setParadaOpen(false); setFinConfirm(false); setHoroFin(''); setMotivoCierre(''); setCerrarSinFinal(false); setIniciarSinHoro(false); setFinTime('');
     // Limpia el formulario de PARADA (ambos caminos) al cambiar de máquina.
     setParadaTab('averia'); setCiMotivo('');
     setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaPhotoUp(false);
@@ -2090,7 +2097,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // inspector "SOS LA GUAIRA" (siempre activo) quedaba fuera; ya no — los cierres
   // anticipados de cualquier máquina/inspector deben registrar el motivo para que se
   // vea en el resumen de CERRADAS/FINALIZADAS.
-  const requiereMotivoCierre = (): boolean => !!ci && cierreAnticipado();
+  // 🕐 Desde el 20-oct-2026 lo anticipado se decide con la hora DECLARADA de fin
+  // (si la escribieron): cerrar a las 7:05pm diciendo «finalizó 17:00» ES un
+  // cierre anticipado y exige su motivo igual. Una hora mal escrita cae al reloj
+  // (el error puntual lo da resolverFinJornada al confirmar).
+  const finResuelto = () => {
+    const e = jornadaEndMs();
+    if (!jornadaStart || e == null) return null;
+    return resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs: e, texto: finTime });
+  };
+  const requiereMotivoCierre = (): boolean => {
+    if (!ci) return false;
+    const r = finResuelto();
+    return r?.ok ? r.anticipado : cierreAnticipado();
+  };
 
   const finalizarJornada = async () => {
     if (!ci || !jornadaStart || jornadaBusy) return;
@@ -2135,8 +2155,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const nominalEndMs = jornadaShift === 'night'
       ? new Date(roundDate + 'T07:00:00-04:00').getTime() + 86400000
       : new Date(roundDate + 'T19:00:00-04:00').getTime();
-    const cerroTarde = Date.now() > nominalEndMs;
-    const cierreEfectivoMs = Math.min(Date.now(), nominalEndMs);
+    // 🕐 HORA DECLARADA DE FIN (20-oct-2026, a pedido): si el inspector escribió la
+    //    hora real en que la máquina paró, el cierre efectivo sale de AHÍ (nunca del
+    //    futuro, nunca antes del inicio, y siempre topado al fin nominal — declarar
+    //    las 9pm no regala horas, igual que cerrar tarde de siempre).
+    const fin = resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs, texto: finTime });
+    if (!fin.ok) { setJornadaBusy(false); setNotice('❌ ' + fin.error); return; }
+    const cerroTarde = fin.finMs > nominalEndMs;
+    const cierreEfectivoMs = fin.efectivoMs; // = min(fin declarado u «ahora», nominal) — nunca pasa del nominal
     const ms = cierreEfectivoMs - new Date(jornadaStart).getTime();
     const horas = Math.max(0, Math.round((ms / 3600000) * 100) / 100);
     // La jornada se cierra contra el round_date en que se INICIÓ (no el de "hoy"):
@@ -2186,10 +2212,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (hfValid) void guardarLecturaHorometro(ci.id, roundDate, jornadaShift === 'night' ? 'night' : 'day', { final: hfNum, ...(horoFinPhoto ? { fotoFinalUrl: horoFinPhoto } : {}), origen: 'inspector' }).then((r) => { if (!r.ok) console.warn('horómetro de trabajo:', r.error); }).catch(() => {});
     setJornadaStart(null);
     setFinConfirm(false);
-    setHoroFin(''); setHoroFinPhoto(null); setMotivoCierre(''); setCerrarSinFinal(false);
+    setHoroFin(''); setHoroFinPhoto(null); setMotivoCierre(''); setCerrarSinFinal(false); setFinTime('');
     // ⚙️ Si cerró SIN horómetro final, ofrece ponerlo ahí mismo (botón de final olvidado).
     if (!hfValid) cargarLecturasDeMaquinaDia(ci.id, roundDate).then((ls) => setFinTardia(lecturaParaCompletarFinal(ls, roundDate))).catch(() => {});
-    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${cerroTarde ? ' · cerró tarde (bancó hasta el fin del turno)' : ''}${motivo ? ` · Motivo cierre: ${motivo}` : ''}${!hfValid && (horoIni || '').trim() !== '' ? ' · ⚠️ cerró SIN horómetro final (avisado)' : ''}`); // bitácora
+    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${fin.declarado ? ` · fin declarado ${finTime.trim()}` : ''}${cerroTarde ? ' · cerró tarde (bancó hasta el fin del turno)' : ''}${motivo ? ` · Motivo cierre: ${motivo}` : ''}${!hfValid && (horoIni || '').trim() !== '' ? ' · ⚠️ cerró SIN horómetro final (avisado)' : ''}`); // bitácora
     // Camión: al FINALIZAR la jornada, se registra su ENTRADA al patio.
     logTruckYardIfTruck(ci.id, ci.code, 'entrada', uid || null, fullName || null);
     // 📋 Log auditable del tramo trabajado (best-effort: no debe bloquear ni
@@ -3800,6 +3826,43 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
                       </Text>
+                      {/* 🕐 HORA DECLARADA DE FIN (20-oct-2026, a pedido urgente): si la
+                          máquina paró antes, acá va la hora real y las horas se cuentan
+                          hasta AHÍ. Vacío = ahora mismo (el cierre de siempre). */}
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>🕐 Hora en que finalizó (opcional)</Text>
+                      <TextInput
+                        value={finTime}
+                        onChangeText={setFinTime}
+                        placeholder={`${nowHHMM()} (ahora)`}
+                        placeholderTextColor={colors.muted}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        style={[input, { marginBottom: 2 }]}
+                      />
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                        Si la máquina paró antes, escribe esa hora (ej. 17:00): las horas se cuentan hasta ahí. Vacío = ahora mismo.
+                      </Text>
+                      {(() => {
+                        // Vista previa en vivo de lo que va a bancar con esa hora — o el
+                        // error antes de confirmar (hora futura, anterior al inicio, mal
+                        // escrita), para que no sorprenda al tocar «Sí, finalizar».
+                        const e = jornadaEndMs();
+                        if (!finTime.trim() || e == null || !jornadaStart) return null;
+                        const r = resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs: e, texto: finTime, nowMs: nowTick });
+                        if (!r.ok) {
+                          return (
+                            <View style={{ backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                              <Text style={{ color: colors.dangerSoftText, fontWeight: '700', fontSize: 12 }}>⚠️ {r.error}</Text>
+                            </View>
+                          );
+                        }
+                        const h = Math.min(12, Math.max(0, (r.efectivoMs - new Date(jornadaStart).getTime()) / 3600000));
+                        return (
+                          <Text style={{ color: colors.infoSoftText, fontSize: 12, marginBottom: spacing.sm, textAlign: 'center' }}>
+                            🕐 Con esa hora, este tramo: <Text style={{ fontWeight: '900' }}>{h.toFixed(2)} h</Text>{r.finMs > e ? ' (topado al fin del turno)' : ''}
+                          </Text>
+                        );
+                      })()}
                       {requiereMotivoCierre() ? (
                         <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
                           <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12, marginBottom: 4 }}>
@@ -3843,7 +3906,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         return <View style={{ marginBottom: spacing.sm }} />;
                       })()}
                       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                        <TouchableOpacity onPress={() => { setFinConfirm(false); setMotivoCierre(''); setCerrarSinFinal(false); }} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
+                        <TouchableOpacity onPress={() => { setFinConfirm(false); setMotivoCierre(''); setCerrarSinFinal(false); setFinTime(''); }} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
                           <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={finalizarJornada} disabled={jornadaBusy} style={{ flex: 1, backgroundColor: cerrarSinFinal && !(horoFin || '').trim() ? '#B45309' : '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
@@ -3852,7 +3915,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       </View>
                     </View>
                   ) : (
-                    <TouchableOpacity onPress={() => { setCerrarSinFinal(false); setFinConfirm(true); }} disabled={jornadaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
+                    <TouchableOpacity onPress={() => { setCerrarSinFinal(false); setFinTime(''); setFinConfirm(true); }} disabled={jornadaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '800' }}>🏁 FINALIZAR JORNADA</Text>
                     </TouchableOpacity>
                   )}
