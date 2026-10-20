@@ -3221,6 +3221,38 @@ trazado: quién lo pidió, quién lo aprobó y cuándo se recibió.
 > trigger; las políticas de la campana ya estaban); mientras no se corra, el requerimiento **se
 > guarda igual** (sin responsable) y el sistema lo dice.
 
+> **👤 Quién lo solicitó, quién lo autorizó, para qué y para qué área (20/10/2026, a pedido del
+> cliente).** En **Compras → "📝 Requerimiento" → "Nuevo requerimiento"** hay **cinco campos
+> nuevos**, y **todos son OPCIONALES**: un requerimiento sin ellos **se guarda igual que siempre**,
+> y los que ya existían **se ven igual**.
+>
+> - **👤 Solicitado por** — la **persona que pidió la compra**. Se elige de la lista de la
+>   **NÓMINA** (salen primero los **activos**, y hay buscador por **nombre, cédula, cargo o área**).
+>   **La nómina solo se LEE:** este formulario **no la toca** ni le agrega a nadie. Si la persona
+>   **no está** en la nómina, **escribes el nombre a mano** y, al guardarlo, queda registrado en
+>   **CONTACTOS** (el catálogo de Compras/Ventas), **sin documento** y **sin** marcarlo como cliente
+>   ni proveedor. Si ese nombre **ya existe** (en nómina o en contactos) **no se duplica**: el
+>   sistema **avisa** y usa el que ya está.
+> - **✅ Autorizado por** — igual que el anterior (misma lista de nómina y misma opción de
+>   escribirlo a mano). **Ojo con la diferencia:** esto es quien autorizó la compra **en la
+>   realidad**, y **no es lo mismo** que quien la **aprueba dentro del sistema** — eso sigue siendo
+>   el **jefe**, con su firma en el PDF.
+> - **🚜 Para** — si el requerimiento es para **Maquinaria** o para **Vehículo**.
+> - **🏢 Área a la que va dirigido** — administrativo, cocina, almacén, etc. La lista **se arma
+>   sola** con las áreas que **ya existen en la nómina** más las que **se hayan usado en
+>   requerimientos anteriores**; si falta una, **la escribes**.
+> - **📝 Observaciones** — **al final** del formulario, texto libre para cualquier información
+>   adicional.
+>
+> Los cinco **salen impresos en el 🧾 PDF del requerimiento**: los **cuatro primeros** en un bloque
+> **arriba de la tabla de productos**, y las **observaciones al final**. **Lo que dejes vacío no sale
+> en el papel.**
+>
+> ⚠️ **No confundir *«Solicita»* con *«Solicitado por»*:** el PDF **ya decía *Solicita***, que es el
+> **usuario del sistema** que **registró** el requerimiento, y **eso no cambió**. ***Solicitado
+> por*** es la **persona que pidió la compra** (puede ser un operador que ni usa el sistema). Son
+> **dos datos distintos** y ahora **salen los dos**.
+
 > **🔢 Los productos van numerados (16/10/2026, a pedido).** Al armar el requerimiento, cada
 > producto lleva su **número** (1, 2, 3…) junto a la etiqueta *Del inventario / Producto NUEVO*,
 > y el mismo número aparece en el **detalle** del requerimiento ya creado y al **📥 Recibir**.

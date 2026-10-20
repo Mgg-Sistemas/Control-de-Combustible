@@ -840,6 +840,19 @@ export interface InventoryRequirement {
   // aparte para que sobreviva si el usuario se elimina (misma regla que supervisor_name).
   responsable_id?: string | null;
   responsable_nombre?: string | null;
+  // 👤 Quién SOLICITÓ y quién AUTORIZÓ, declarados en el papel (20-oct-2026).
+  // Ojo con la diferencia, que es el punto de que existan: `requested_by_name` es
+  // el USUARIO que lo registró y `decided_by_name` el que aprobó EN EL SISTEMA;
+  // estos dos son las PERSONAS (un operador que pidió el repuesto no usa la app).
+  // El `employee_id` es una referencia SUELTA a la nómina (sin llave foránea): la
+  // nómina no se toca, y el nombre copiado sobrevive si la ficha se da de baja.
+  solicitante_nombre?: string | null;
+  solicitante_employee_id?: string | null;
+  autorizado_nombre?: string | null;
+  autorizado_employee_id?: string | null;
+  destino_tipo?: string | null;       // 'vehiculo' | 'maquinaria'
+  area?: string | null;               // área a la que va dirigido (ADMINISTRATIVO, COCINA…)
+  observaciones?: string | null;      // información adicional, al final del formato
   decided_by: string | null;
   decided_by_name: string | null;
   decided_at: string | null;

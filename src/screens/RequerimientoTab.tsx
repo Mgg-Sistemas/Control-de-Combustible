@@ -22,6 +22,14 @@ import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplie
 import { exportPdf, urlToDataUri } from '../lib/pdf';
 import { pickAndUploadRequirementFile, captureAndUploadPhoto } from '../lib/photo';
 import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
+// 👤 Quién solicitó / quién autorizó, para qué (vehículo o maquinaria), a qué
+//    área, y las observaciones del final (20-oct-2026, a pedido).
+import { PersonaNominaPicker } from '../components/PersonaNominaPicker';
+import {
+  areasSugeridas, camposRequerimiento, contactoDesdeNombre, destinoLabel, personasDeNomina,
+  DESTINOS, SIN_PERSONA, faltaColumnaNueva,
+  type PersonaElegida, type PersonaNomina,
+} from '../lib/requerimientoPersonas';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -119,6 +127,66 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       } catch { setAlmacenistas([]); }
     })();
   }, [createOpen]);
+
+  // 👤 SOLICITÓ / AUTORIZÓ / PARA QUÉ / ÁREA / OBSERVACIONES (20-oct-2026, a pedido).
+  // La nómina SOLO SE LEE (ni un insert ni un update sobre `employees`): la ficha
+  // elegida se copia al requerimiento. Lo único que llega a escribirse es un
+  // CONTACTO, y solo si el usuario escribe un nombre que no está en ninguna lista.
+  const [solicitante, setSolicitante] = useState<PersonaElegida>(SIN_PERSONA);
+  const [autorizado, setAutorizado] = useState<PersonaElegida>(SIN_PERSONA);
+  const [destino, setDestino] = useState<string | null>(null);
+  const [area, setArea] = useState<string>('');
+  const [areaLibre, setAreaLibre] = useState(false);     // escribir un área que no está en la lista
+  const [observaciones, setObservaciones] = useState('');
+  const [personas, setPersonas] = useState<PersonaNomina[]>([]);
+  const [contactosLista, setContactosLista] = useState<{ id: string; name: string }[]>([]);
+  const [cargandoNomina, setCargandoNomina] = useState(false);
+  useEffect(() => {
+    if (!createOpen) return;
+    (async () => {
+      setCargandoNomina(true);
+      // Si alguna lectura falla, se sigue con la lista vacía: el nombre siempre se
+      // puede escribir a mano, así que el formulario nunca se queda trancado.
+      // Ojo: el builder de supabase-js es un `PromiseLike`, no una `Promise` — no
+      // tiene `.catch`. El segundo callback de `then` es el que atrapa el fallo.
+      const [emp, cont] = await Promise.all([
+        supabase.from('employees').select('id, first_name, last_name, cedula, cargo, department, status')
+          .then((r) => r.data ?? [], () => [] as any[]),
+        supabase.from('contactos').select('id, name').then((r) => r.data ?? [], () => [] as any[]),
+      ]);
+      setPersonas(personasDeNomina(emp as any[]));
+      setContactosLista((cont as any[]).map((c) => ({ id: String(c.id), name: String(c.name ?? '') })));
+      setCargandoNomina(false);
+    })();
+  }, [createOpen]);
+  // Las áreas que se ofrecen: las de la nómina + las ya usadas en requerimientos.
+  // No hay catálogo nuevo que mantener (dos listas se desincronizan en una semana).
+  const areas = React.useMemo(
+    () => areasSugeridas(personas.map((p) => p.area), (reqs ?? []).map((r) => r.area)),
+    [personas, reqs],
+  );
+  /**
+   * Guarda en CONTACTOS un nombre escrito a mano. Devuelve el aviso si NO quedó.
+   * El `.select('id')` es obligatorio: la RLS de `contactos` pide permiso de
+   * compras/ventas/contactos, y a quien solo tiene inventario le rechaza la fila
+   * SIN error y con 0 filas — el clásico borrado que finge éxito, al revés.
+   */
+  const guardarContacto = async (nombre: string): Promise<string | null> => {
+    const fila = contactoDesdeNombre(nombre);
+    if (!fila) return null;
+    const { data, error } = await supabase.from('contactos')
+      .insert({ ...fila, created_by: uid ?? null }).select('id');
+    if (error) {
+      return /duplicate|unique/i.test(error.message)
+        ? null // ya estaba: el nombre igual queda en el requerimiento
+        : `El nombre quedó en el requerimiento, pero no se pudo agregar a Contactos: ${error.message}`;
+    }
+    if (!data || data.length === 0) {
+      return 'El nombre quedó en el requerimiento, pero no se agregó a Contactos (no tienes permiso de Compras ni de Contactos).';
+    }
+    setContactosLista((p) => [...p, { id: String(data[0].id), name: nombre }]);
+    return null;
+  };
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);                    // error visible DENTRO del Modal (el toast queda tapado)
   const [subiendoId, setSubiendoId] = useState<string | null>(null);              // formato subiendo
@@ -182,6 +250,15 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
+  /** Deja el formulario en blanco. En UNA función: con 12 campos, resetear a mano
+   *  en cada salida terminaba dejando alguno pegado del requerimiento anterior. */
+  const limpiarForm = () => {
+    setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null);
+    setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
+    setSolicitante(SIN_PERSONA); setAutorizado(SIN_PERSONA);
+    setDestino(null); setArea(''); setAreaLibre(false); setObservaciones('');
+  };
+
   const crear = async () => {
     setFormErr(null);
     const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => ({
@@ -198,19 +275,31 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (editId) {
       const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
       const base = { title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, items, ...adj };
+      // 👤 Solicitante, autorizado, destino, área y observaciones (20-oct-2026).
+      const conResp = { ...base, responsable_id: respId, responsable_nombre: respNombre };
+      const nuevos = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones });
       let respGuardado = true;
-      let { error } = await supabase.from('inventory_requirements')
-        .update({ ...base, responsable_id: respId, responsable_nombre: respNombre })
-        .eq('id', editId);
+      let nuevosGuardados = true;
+      let { error } = await supabase.from('inventory_requirements').update({ ...conResp, ...nuevos }).eq('id', editId);
+      // Si el SQL del 20-oct todavía no se corrió, se guarda SIN esos campos en vez
+      // de perder la edición entera (mismo trato que tuvo el responsable el 17-oct).
+      if (error && faltaColumnaNueva(error.message)) {
+        nuevosGuardados = false;
+        ({ error } = await supabase.from('inventory_requirements').update(conResp).eq('id', editId));
+      }
       if (error && faltaColResp(error.message)) {
         respGuardado = false;
         ({ error } = await supabase.from('inventory_requirements').update(base).eq('id', editId));
       }
       setBusy(false);
       if (error) { setFormErr(error.message); return toast.error(error.message); }
-      setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
+      setCreateOpen(false); limpiarForm();
       refetch();
-      toast.success(respGuardado ? 'Requerimiento actualizado.' : 'Requerimiento actualizado (el responsable no se guardó: falta correr el SQL).');
+      const faltas = [!respGuardado ? 'el responsable' : '', !nuevosGuardados ? 'quién solicitó/autorizó, el área y las observaciones' : '']
+        .filter(Boolean).join(' ni ');
+      toast.success(faltas
+        ? `Requerimiento actualizado (no se guardó ${faltas}: falta correr el SQL).`
+        : 'Requerimiento actualizado.');
       return;
     }
     // CREAR: código correlativo (REQ-000N). Se lee el máximo actual; si la lectura
@@ -225,6 +314,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     // y el requerimiento se guarda igual — el AVISO al almacenista sí se envía.
     let respCampos: Record<string, any> = respId ? { responsable_id: respId, responsable_nombre: respNombre } : {};
     let respFaltaSql = false;
+    // 👤 Lo pedido el 20-oct: quién solicitó, quién autorizó, para qué, a qué área
+    //    y las observaciones. Mismo trato defensivo que el responsable.
+    let nuevosCampos: Record<string, any> = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones });
+    let nuevosFaltaSql = false;
     for (let intento = 0; intento < 6 && !saved; intento++) {
       const { data: codeRows, error: readErr } = await supabase.from('inventory_requirements').select('code');
       if (readErr || !codeRows) {
@@ -237,11 +330,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // leemos el código REAL que quedó para mostrarlo.
       const { data: inserted, error } = await supabase.from('inventory_requirements').insert({
         code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, status: 'pendiente', items,
-        requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos,
+        requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos, ...nuevosCampos,
       }).select('id, code').single();
       if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; saved = true; break; }
       // Falta la columna del responsable: se reintenta SIN ella (mismo número).
       if (Object.keys(respCampos).length && faltaColResp(error.message)) { respCampos = {}; respFaltaSql = true; intento--; continue; }
+      // Faltan las columnas del 20-oct: igual, se reintenta sin ellas.
+      if (Object.keys(nuevosCampos).length && faltaColumnaNueva(error.message)) { nuevosCampos = {}; nuevosFaltaSql = true; intento--; continue; }
       // Código ya usado (índice único): reintenta con el siguiente número.
       if (/duplicate key|already exists|unique|_code_key|23505/i.test(error.message)) continue;
       setBusy(false);
@@ -256,10 +351,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     // exige is_staff() y los almacenistas son rol base 'conductor' — un aviso
     // insertado desde el cliente se les caía EN SILENCIO (borrados-que-fingen-éxito,
     // versión insert). El trigger es SECURITY DEFINER y no depende de quién crea.
-    setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
+    setCreateOpen(false); limpiarForm();
     refetch();
-    toast.success(respFaltaSql
-      ? `Requerimiento ${code} enviado. ⚠️ El responsable no se guardó (falta correr el SQL); el aviso sí se envió.`
+    const sinSql = [
+      respFaltaSql ? 'el responsable' : '',
+      nuevosFaltaSql ? 'quién solicitó/autorizó, el área y las observaciones' : '',
+    ].filter(Boolean).join(' ni ');
+    toast.success(sinSql
+      ? `Requerimiento ${code} enviado. ⚠️ No se guardó ${sinSql} (falta correr el SQL); el aviso sí se envió.`
       : `Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
   };
 
@@ -272,6 +371,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setSupplierId(r.supplier_id ?? null);
     setRespId(r.responsable_id ?? null);
     setRespNombre(r.responsable_nombre ?? null);
+    // 👤 Lo del 20-oct. Un requerimiento viejo no los trae: quedan en blanco y el
+    //    formulario se ve igual que siempre.
+    setSolicitante({ nombre: r.solicitante_nombre ?? null, employeeId: r.solicitante_employee_id ?? null });
+    setAutorizado({ nombre: r.autorizado_nombre ?? null, employeeId: r.autorizado_employee_id ?? null });
+    setDestino(r.destino_tipo ?? null);
+    setArea(r.area ?? '');
+    setAreaLibre(false);
+    setObservaciones(r.observaciones ?? '');
     setFormato(r.attachment_url ? { url: r.attachment_url, kind: (r.attachment_type as 'image' | 'pdf') || 'image', name: r.attachment_name || 'formato' } : null);
     let s = 0;
     setRows(r.items.map((it) => ({
@@ -488,6 +595,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       await exportPdf(requerimientoHtml({
         code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
         company: companyName(r.company_id), requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+        /* 👤 Lo declarado en el papel (20-oct-2026). Lo vacío no sale impreso. */
+        solicitante: r.solicitante_nombre ?? null, autorizadoPor: r.autorizado_nombre ?? null,
+        destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: r.observaciones ?? null,
         approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
         items: await itemsToPdf(r),
       }), `Requerimiento ${r.code ?? dmyOf(r.created_at)}`);
@@ -574,6 +684,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         const toReqPdfData = async (r: (typeof filteredReqs)[number]): Promise<ReqPdfData> => ({
           code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
           company: companyName(r.company_id), requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+        /* 👤 Lo declarado en el papel (20-oct-2026). Lo vacío no sale impreso. */
+        solicitante: r.solicitante_nombre ?? null, autorizadoPor: r.autorizado_nombre ?? null,
+        destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: r.observaciones ?? null,
           approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
           items: await itemsToPdf(r),
         });
@@ -768,7 +881,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       })()}
 
       {/* ── Crear requerimiento ── */}
-      <Modal visible={createOpen} animationType="slide" onRequestClose={() => { setCreateOpen(false); setEditId(null); }}>
+      <Modal visible={createOpen} animationType="slide" onRequestClose={() => { setCreateOpen(false); limpiarForm(); }}>
         <Screen>
           <ScrollView keyboardShouldPersistTaps="handled">
             <SectionTitle>{editId ? 'Editar requerimiento' : 'Nuevo requerimiento'}</SectionTitle>
@@ -844,6 +957,70 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   <Text style={{ color: colors.muted, fontSize: 11 }}>No hay usuarios con rol de almacenista todavía (se asigna en Usuarios).</Text>
                 ) : null}
               </View>
+
+              {/* 👤 QUIÉN LO SOLICITÓ Y QUIÉN LO AUTORIZÓ (20-oct-2026, a pedido).
+                  Salen de la NÓMINA —que acá solo se lee— y, si la persona no está,
+                  se escribe y queda en Contactos. No se confunden con «Solicita»
+                  (el usuario que registra) ni con quien aprueba en el sistema. */}
+              <PersonaNominaPicker
+                titulo="Solicitado por"
+                ayuda="👥 De la lista de la nómina. Si la persona no está, escribe su nombre y queda en Contactos."
+                icono="👤"
+                valor={solicitante}
+                onElegir={setSolicitante}
+                personas={personas}
+                contactos={contactosLista}
+                onGuardarContacto={guardarContacto}
+                cargando={cargandoNomina}
+              />
+              <PersonaNominaPicker
+                titulo="Autorizado por"
+                ayuda="✅ Quién autorizó la compra. La aprobación dentro del sistema la sigue dando el jefe."
+                icono="✅"
+                valor={autorizado}
+                onElegir={setAutorizado}
+                personas={personas}
+                contactos={contactosLista}
+                onGuardarContacto={guardarContacto}
+                cargando={cargandoNomina}
+              />
+
+              {/* 🚜 ¿Para qué es? Vehículo o maquinaria. Se puede dejar sin elegir. */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>¿Para qué es?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[{ key: null as string | null, chip: 'Sin especificar' }, ...DESTINOS].map((d) => {
+                  const on = destino === d.key;
+                  return (
+                    <TouchableOpacity key={d.key ?? '__none__'} onPress={() => setDestino(d.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{d.chip}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* 🏢 Área a la que va dirigido. La lista sale de las áreas que YA
+                  existen (nómina + requerimientos anteriores); si falta una, se
+                  escribe con «✏️ Otra» — sin catálogo nuevo que mantener. */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Área a la que va dirigido</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                <TouchableOpacity onPress={() => { setArea(''); setAreaLibre(false); }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: !area && !areaLibre ? colors.brand : colors.border, backgroundColor: !area && !areaLibre ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: !area && !areaLibre ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>Sin área</Text>
+                </TouchableOpacity>
+                {areas.map((a) => {
+                  const on = !areaLibre && area === a;
+                  return (
+                    <TouchableOpacity key={a} onPress={() => { setArea(a); setAreaLibre(false); }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🏢 {a}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity onPress={() => { setAreaLibre(true); }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: areaLibre ? colors.brand : colors.border, backgroundColor: areaLibre ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: areaLibre ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Otra</Text>
+                </TouchableOpacity>
+              </View>
+              {areaLibre ? (
+                <TextInput value={area} onChangeText={setArea} placeholder="Escribe el área (ej. ADMINISTRACIÓN)" placeholderTextColor={colors.muted} autoCapitalize="characters" style={[inp, { marginTop: 6 }]} />
+              ) : null}
             </Card>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
@@ -937,13 +1114,29 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </TouchableOpacity>
             </Card>
 
+            {/* 📝 OBSERVACIONES — al final, como se pidió: «un espacio de
+                observaciones para escribir cualquier cosa que necesite o
+                información adicional». Sale impreso al final del formato. */}
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>📝 Observaciones (opcional)</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Cualquier información adicional. Sale al final del formato que ve el jefe.</Text>
+              <TextInput
+                value={observaciones}
+                onChangeText={setObservaciones}
+                placeholder="Escribe aquí lo que haga falta…"
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { minHeight: 80, textAlignVertical: 'top' }]}
+              />
+            </Card>
+
             {formErr ? (
               <View style={{ marginTop: spacing.sm, backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
                 <Text style={{ color: colors.dangerSoftText, fontWeight: '700', fontSize: 13 }}>⚠️ {formErr}</Text>
               </View>
             ) : null}
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
-              <TouchableOpacity onPress={() => { setCreateOpen(false); setEditId(null); setFormato(null); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => { setCreateOpen(false); limpiarForm(); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 2, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : (editId ? '💾 Guardar cambios' : '📤 Enviar al jefe')}</Text></TouchableOpacity>
             </View>
           </ScrollView>
