@@ -33,6 +33,13 @@ import {
   estadoConteoDe, type EstadoConteo,
   JornadaEntry, AveriaEntry, InspByShiftEntry,
 } from '../lib/machineLiveStatus';
+// 🏷️ Qué estados muestra cada tarjeta de categoría (20-oct-2026, configurable).
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  TARJETA_TOTAL, CLAVE_GUARDADO_TARJETAS,
+  estadosDeTarjeta, alternarEstadoTarjeta, leerConfigTarjetas,
+  type ConfigTarjetas, type EstadoTarjeta,
+} from '../lib/tarjetasCatalogo';
 import { generalCompanies } from '../lib/companies';
 import { edificioCanonico, edificioLabel } from '../lib/edificios';
 import MachineQuickScreen from './MachineQuickScreen';
@@ -578,7 +585,13 @@ export default function EquiposScreen({ navigation, route }: any) {
 
   // Selector de tipo (se muestra al pulsar "+ Agregar" o "Lote") y detalle activas/inactivas.
   const [kindChooser, setKindChooser] = useState<null | 'add' | 'batch'>(null);
-  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'retirada' | 'averiada' | 'espera' | 'transferida'>(null);
+  // 'parada' entró el 20-oct-2026: las tarjetas por categoría pueden mostrar
+  // «Paradas» como renglón propio, y su toque abre esta lista.
+  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'retirada' | 'averiada' | 'parada' | 'espera' | 'transferida'>(null);
+  // Cuando una tarjeta muestra «Paradas» aparte, su renglón «Operativas» abre la
+  // lista SIN las paradas — si no, el número del renglón y el largo de la lista
+  // no cuadrarían. Los cubos de arriba siguen abriendo la lista completa.
+  const [detailSinParadas, setDetailSinParadas] = useState(false);
   const [detailQuery, setDetailQuery] = useState(''); // buscador del detalle (por todas las características)
   useEffect(() => { setDetailQuery(''); }, [detailStatus]); // limpia el buscador al abrir/cerrar el detalle
 
@@ -613,18 +626,39 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Detalle acotado a UNA categoría (14-oct-2026, a pedido: «si yo selecciono las
   // retiradas me salga las retiradas de ESA categoría»). null = todas, como siempre.
   const [detailCat, setDetailCat] = useState<string | null>(null);
+  // 🏷️ QUÉ ESTADOS MUESTRA CADA TARJETA de categoría (20-oct-2026, a pedido).
+  //    La regla vive en src/lib/tarjetasCatalogo.ts; acá solo se guarda y se
+  //    lee DE ESTE DISPOSITIVO (es cómo cada quien quiere ver su catálogo).
+  const [tarjetasCfg, setTarjetasCfg] = useState<ConfigTarjetas | null>(null);
+  const [tarjetasCfgOpen, setTarjetasCfgOpen] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    AsyncStorage.getItem(CLAVE_GUARDADO_TARJETAS)
+      .then((j) => { if (vivo) setTarjetasCfg(leerConfigTarjetas(j)); })
+      .catch(() => { if (vivo) setTarjetasCfg({}); });
+    return () => { vivo = false; };
+  }, []);
+  const alternarTarjeta = (nombre: string, estado: EstadoTarjeta) => {
+    const nueva = alternarEstadoTarjeta(tarjetasCfg, nombre, estado);
+    setTarjetasCfg(nueva);
+    AsyncStorage.setItem(CLAVE_GUARDADO_TARJETAS, JSON.stringify(nueva)).catch(() => { /* sin guardado queda para esta sesión */ });
+  };
   // 🙈 Los cubos por estado se OCULTAN por defecto (14-oct-2026, a pedido:
   //    «ocúltamelas, no las elimines»): el desglose por categoría ya trae los
   //    mismos números. Este interruptor los trae de vuelta — ocultar no es eliminar.
   const [verCubos, setVerCubos] = useState(false);
   useEffect(() => { if (!detailStatus) setDetailCat(null); }, [detailStatus]); // al cerrar, se suelta
-  const abrirDetalle = (s: 'active' | 'retirada' | 'averiada' | 'espera' | 'transferida', cat: string | null = null) => {
+  const abrirDetalle = (s: 'active' | 'retirada' | 'averiada' | 'parada' | 'espera' | 'transferida', cat: string | null = null, sinParadas = false) => {
     setDetailCat(cat);
+    setDetailSinParadas(sinParadas);
     setDetailStatus(s);
   };
-  const detailListTodo = detailStatus === 'active' ? activeMachines : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : detailStatus === 'espera' ? esperaMachines : detailStatus === 'transferida' ? transferidaMachines : [];
+  const detailListTodo = detailStatus === 'active'
+    ? (detailSinParadas ? activeMachines.filter((m) => liveStatusOf(m.id).estado !== 'parada') : activeMachines)
+    : detailStatus === 'parada' ? activeMachines.filter((m) => liveStatusOf(m.id).estado === 'parada')
+    : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : detailStatus === 'espera' ? esperaMachines : detailStatus === 'transferida' ? transferidaMachines : [];
   const detailList = detailCat ? detailListTodo.filter((m) => clasifDeMaquina(m) === detailCat) : detailListTodo;
-  const detailTitle = detailStatus === 'retirada' ? '⬛ Maquinaria retirada' : detailStatus === 'averiada' ? '🔴 Maquinaria averiada' : detailStatus === 'espera' ? '⏳ Esperando instrucciones' : detailStatus === 'transferida' ? '🔁 Transferida a otros' : '✅ Maquinaria operativa';
+  const detailTitle = detailStatus === 'retirada' ? '⬛ Maquinaria retirada' : detailStatus === 'averiada' ? '🔴 Maquinaria averiada' : detailStatus === 'parada' ? '🟡 Maquinaria parada' : detailStatus === 'espera' ? '⏳ Esperando instrucciones' : detailStatus === 'transferida' ? '🔁 Transferida a otros' : '✅ Maquinaria operativa';
   // Buscador del detalle: filtra por TODAS las características (código, placa, serial,
   // identificador, grupo, encargado, tipo, clasificación, parroquia, sector, edificio/
   // referencia y nombre de empresa). Vacío = toda la lista.
@@ -2036,47 +2070,106 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
           las tarjetas siempre cuadran con los cubos. */}
       {!machinery.loading ? (() => {
         const claseDe = clasifDeMaquina; // misma regla que el filtro del detalle
-        type FilaCat = { operativa: number; averiada: number; espera: number; retirada: number; transferida: number; total: number };
-        const vacia = (): FilaCat => ({ operativa: 0, averiada: 0, espera: 0, retirada: 0, transferida: 0, total: 0 });
+        type FilaCat = { operativa: number; averiada: number; parada: number; espera: number; retirada: number; transferida: number; total: number };
+        const vacia = (): FilaCat => ({ operativa: 0, averiada: 0, parada: 0, espera: 0, retirada: 0, transferida: 0, total: 0 });
         const porCat = new Map<string, FilaCat>();
-        const suma = (lista: Machinery[], k: 'operativa' | 'averiada' | 'espera' | 'retirada' | 'transferida') =>
+        const suma = (lista: Machinery[], k: 'operativa' | 'averiada' | 'parada' | 'espera' | 'retirada' | 'transferida') =>
           lista.forEach((m) => { const c = porCat.get(claseDe(m)) ?? vacia(); c[k] += 1; c.total += 1; porCat.set(claseDe(m), c); });
-        suma(activeMachines, 'operativa');
+        // 🟡 Las PARADAS se cuentan aparte (20-oct-2026, a pedido): si la tarjeta
+        //    no muestra ese renglón, se suman de vuelta a «Operativas» al pintar —
+        //    el total de la tarjeta no cambia nunca por una preferencia visual.
+        suma(activeMachines.filter((m) => liveStatusOf(m.id).estado !== 'parada'), 'operativa');
+        suma(activeMachines.filter((m) => liveStatusOf(m.id).estado === 'parada'), 'parada');
         suma(averiadaMachines, 'averiada');
         suma(esperaMachines, 'espera');
         // 🚫 Las RETIRADAS no se suman ni se muestran en estas tarjetas (14-oct-2026,
         //    a pedido: «que en ninguno de eso se vea ni se cuente las retiradas»).
         //    No se eliminan de ningún lado: siguen en los cubos por estado (ocultos
-        //    tras «Mostrar cubos por estado») y en su lista de siempre.
+        //    tras «Mostrar cubos por estado») y en su lista de siempre. Por eso el
+        //    configurador de abajo tampoco las ofrece.
         suma(transferidaMachines, 'transferida');
         const cats = Array.from(porCat.entries()).sort((a, b) => cmpText(a[0], b[0]));
         const total = vacia();
-        cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.espera += c.espera; total.transferida += c.transferida; total.total += c.total; });
-        const ESTADOS_CAT: { k: 'operativa' | 'averiada' | 'espera' | 'retirada' | 'transferida'; s: 'active' | 'averiada' | 'espera' | 'retirada' | 'transferida'; label: string; color: string }[] = [
+        cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.parada += c.parada; total.espera += c.espera; total.transferida += c.transferida; total.total += c.total; });
+        const ESTADOS_CAT: { k: EstadoTarjeta; s: 'active' | 'averiada' | 'parada' | 'espera' | 'transferida'; label: string; color: string }[] = [
           { k: 'operativa', s: 'active', label: 'Operativas', color: colors.success },
           { k: 'averiada', s: 'averiada', label: 'Averiadas', color: colors.warning },
+          { k: 'parada', s: 'parada', label: 'Paradas', color: '#B45309' },
           { k: 'espera', s: 'espera', label: 'Esperando instrucciones', color: '#8B5CF6' },
           { k: 'transferida', s: 'transferida', label: 'Transferidas a otros', color: '#0D9488' },
         ];
         // VERTICAL y CLICKEABLE (14-oct-2026, a pedido): un renglón por estado;
         // tocarlo abre el detalle de ESE estado acotado a ESA categoría (en la
         // tarjeta Σ, sin acotar: todas las categorías).
-        const filaEstados = (c: FilaCat, cat: string | null) => (
-          <View style={{ marginTop: 4 }}>
-            {ESTADOS_CAT.map((e) => (
-              <TouchableOpacity key={e.k} activeOpacity={0.7} onPress={() => abrirDetalle(e.s, cat)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: e.color }} />
-                <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>{e.label}</Text>
-                <Text style={{ color: e.color, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{c[e.k]}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        );
+        // 🏷️ 20-oct-2026: cada tarjeta muestra SOLO los estados que su dueño dejó
+        //    (⚙️ Configurar tarjetas). «Paradas» apagada → van dentro de Operativas,
+        //    y el renglón Operativas abre la lista que corresponde a su número.
+        const filaEstados = (c: FilaCat, cat: string | null) => {
+          const visibles = new Set(estadosDeTarjeta(tarjetasCfg, cat ?? TARJETA_TOTAL));
+          const valorDe = (k: EstadoTarjeta) => (k === 'operativa' && !visibles.has('parada') ? c.operativa + c.parada : c[k]);
+          const lista = ESTADOS_CAT.filter((e) => visibles.has(e.k));
+          return (
+            <View style={{ marginTop: 4 }}>
+              {lista.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic', paddingVertical: 4 }}>Sin estados a la vista (⚙️ Configurar tarjetas).</Text>
+              ) : lista.map((e) => (
+                <TouchableOpacity key={e.k} activeOpacity={0.7}
+                  onPress={() => abrirDetalle(e.s, cat, e.k === 'operativa' && visibles.has('parada'))}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: e.color }} />
+                  <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>{e.label}</Text>
+                  <Text style={{ color: e.color, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{valorDe(e.k)}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          );
+        };
         if (!cats.length) return null;
         return (
           <View style={{ marginBottom: spacing.sm }}>
+            {/* ⚙️ CONFIGURAR TARJETAS (20-oct-2026, a pedido): qué estados muestra
+                cada tarjeta, uno por uno. Es una preferencia DE ESTE DISPOSITIVO:
+                no cambia conteos reales ni lo que ven los demás. */}
+            <TouchableOpacity onPress={() => setTarjetasCfgOpen((v) => !v)} style={{ alignSelf: 'flex-end', marginBottom: 4 }}>
+              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>
+                ⚙️ Configurar tarjetas {tarjetasCfgOpen ? '▲' : '▼'}
+              </Text>
+            </TouchableOpacity>
+            {tarjetasCfgOpen ? (
+              <Card style={{ marginBottom: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                  Marca qué estados muestra cada tarjeta. Es solo lo que TÚ ves en este
+                  dispositivo: no cambia ningún conteo ni lo que ven los demás. Con
+                  «Paradas» apagada, esas máquinas se cuentan dentro de Operativas,
+                  como siempre. (Las retiradas no se ofrecen: se pidió el 14-oct que
+                  no salieran en estas tarjetas.)
+                </Text>
+                {[...cats.map(([nombre]) => nombre), TARJETA_TOTAL].map((nombre) => {
+                  const visibles = new Set(estadosDeTarjeta(tarjetasCfg, nombre));
+                  return (
+                    <View key={`cfg-${nombre}`} style={{ marginTop: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                        {nombre === TARJETA_TOTAL ? 'Σ TODAS LAS CATEGORÍAS' : `🏷️ ${nombre}`}
+                      </Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 3 }}>
+                        {ESTADOS_CAT.map((e) => {
+                          const on = visibles.has(e.k);
+                          return (
+                            <TouchableOpacity key={`cfg-${nombre}-${e.k}`} onPress={() => alternarTarjeta(nombre, e.k)}
+                              style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                              <Text style={{ color: on ? colors.brandContrast : colors.muted, fontWeight: '700', fontSize: 10.5 }}>
+                                {on ? '☑️' : '⬜'} {e.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })}
+              </Card>
+            ) : null}
             {/* 📐 Las tarjetas van LADO A LADO, como columnas (boceto del cliente):
                 cada categoría es una tarjeta vertical con sus estados listados
                 adentro; en pantallas angostas se van acomodando en filas. */}
@@ -2618,7 +2711,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             </TouchableOpacity>
           ) : null}
           {detailList.length === 0 ? (
-            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'averiada' ? 'No hay maquinaria averiada.' : detailStatus === 'espera' ? 'No hay máquinas esperando instrucciones.' : detailStatus === 'transferida' ? 'No hay maquinaria transferida a otros.' : 'No hay maquinaria retirada.'} />
+            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'averiada' ? 'No hay maquinaria averiada.' : detailStatus === 'parada' ? 'No hay maquinaria parada.' : detailStatus === 'espera' ? 'No hay máquinas esperando instrucciones.' : detailStatus === 'transferida' ? 'No hay maquinaria transferida a otros.' : 'No hay maquinaria retirada.'} />
           ) : detailFiltered.length === 0 ? (
             <EmptyState title="Sin coincidencias" subtitle={`No hay máquinas que coincidan con "${detailQuery.trim()}".`} />
           ) : (
