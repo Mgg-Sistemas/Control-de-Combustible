@@ -47,6 +47,11 @@ export type FilaConsolidada = {
   empresa: string;
   marca?: string | null;
   modelo?: string | null;
+  /** La clasificación del catálogo (20-oct-2026): para filtrar y agrupar por categoría. */
+  categoria?: string | null;
+  /** El frente de trabajo VIGENTE a la fecha final del rango (20-oct-2026):
+   *  el de Reportes → ⛏️ Frentes, que desde el 19-oct se queda hasta reasignarse. */
+  frente?: string | null;
   montos: Partial<Record<FuenteKey, number>>;
   /**
    * LO QUE RESPALDA cada monto, en la unidad natural de su fuente:
@@ -65,10 +70,18 @@ export function cantTexto(k: FuenteKey, v: number | null | undefined): string {
   return `${n.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h`;
 }
 
+/** Cómo se parte el cuerpo del papel (20-oct-2026: + categoría y frente, a pedido). */
+export type AgruparConsolidado = 'empresa' | 'maquina' | 'global' | 'categoria' | 'frente';
+
+export const SIN_CATEGORIA = 'Sin clasificación';
+export const SIN_FRENTE = 'Sin frente';
+export const categoriaDe = (f: Pick<FilaConsolidada, 'categoria'>): string => String(f.categoria ?? '').trim() || SIN_CATEGORIA;
+export const frenteDe = (f: Pick<FilaConsolidada, 'frente'>): string => String(f.frente ?? '').trim() || SIN_FRENTE;
+
 export type OpcionesConsolidado = {
   fuentes: Record<FuenteKey, ModoFuente>;
   /** Cómo se parte el cuerpo del papel. */
-  agruparPor: 'empresa' | 'maquina' | 'global';
+  agruparPor: AgruparConsolidado;
   sinMarcaModelo: boolean;
   sinPlaca: boolean;
   /** Sin el respaldo de cada monto (horas, viajes, toneladas). Nace mostrándolo. */
@@ -88,6 +101,9 @@ export type OpcionesConsolidado = {
   /** NOMBRES de empresa marcados; vacío = todas (19-oct-2026, a pedido: «poder
    *  sacarlo para una sola empresa»). También cambia el total: va FILTRADO. */
   soloEmpresas?: string[];
+  /** CLASIFICACIONES marcadas; vacío = todas (20-oct-2026, a pedido: «para solo
+   *  una categoría en específico»). También cambia el total: va FILTRADO. */
+  soloCategorias?: string[];
 };
 
 export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
@@ -122,13 +138,17 @@ export const fuentesVisibles = (op: OpcionesConsolidado): FuenteKey[] => FUENTES
 export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): FilaConsolidada[] {
   const marcadas = new Set(op.soloMaquinas ?? []);
   const empresas = new Set((op.soloEmpresas ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
+  const categorias = new Set((op.soloCategorias ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const visibles = fuentesVisibles(op);
   return (filas ?? [])
     .filter((f) => marcadas.size === 0 || marcadas.has(f.id))
     .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
+    .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
     .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0))
     .slice()
-    .sort((a, b) => cmpTx(a.empresa, b.empresa) || cmpTx(a.code, b.code) || cmpTx(a.placa, b.placa));
+    // ⭐ ORDEN ALFABÉTICO por máquina (20-oct-2026, a pedido): el listado va A→Z
+    //    por código esté agrupado como esté; los bloques ordenan aparte.
+    .sort((a, b) => cmpTx(a.code, b.code) || cmpTx(a.placa, b.placa) || cmpTx(a.empresa, b.empresa));
 }
 
 /** El total de la FILA: solo las fuentes en 'suma'. */
@@ -363,11 +383,21 @@ export function cuerpoConsolidado(d: {
     return `<tr class="${clase}"><td colspan="${cols}">${esc(etiqueta)}</td>${porF}<td class="r">${usd(tot)}</td></tr>`;
   };
 
-  html += `<h2>📑 Detalle ${op.agruparPor === 'empresa' && !op.sinEmpresas ? 'por empresa' : 'por máquina'}</h2>`;
-  if (op.agruparPor === 'empresa' && !op.sinEmpresas) {
-    for (const e of porEmpresaConsolidado(d.filas, op)) {
-      const lista = elegidas.filter((f) => f.empresa === e.empresa);
-      html += `<h3>🏢 ${esc(e.empresa)}</h3><table><thead>${cab}</thead><tbody>${lista.map(filaTd).join('')}${filaTotales(lista, `Subtotal ${e.empresa}`, 'sub')}</tbody></table>`;
+  // ── El detalle, partido según «Agrupar» (20-oct-2026: + categoría y frente).
+  //    Los BLOQUES van en ORDEN ALFABÉTICO (a pedido), y dentro, las máquinas
+  //    A→Z por código (ya vienen así de filasElegidas). Agrupar por empresa con
+  //    los nombres apagados no tiene sentido: cae al listado corrido.
+  const porBloques: { titulo: string; icon: string; clave: (f: FilaConsolidada) => string } | null =
+    op.agruparPor === 'empresa' && !op.sinEmpresas ? { titulo: 'por empresa', icon: '🏢', clave: (f) => f.empresa }
+    : op.agruparPor === 'categoria' ? { titulo: 'por categoría', icon: '🏷️', clave: categoriaDe }
+    : op.agruparPor === 'frente' ? { titulo: 'por frente de trabajo', icon: '⛏️', clave: frenteDe }
+    : null;
+  html += `<h2>📑 Detalle ${porBloques ? porBloques.titulo : 'por máquina'}</h2>`;
+  if (porBloques) {
+    const nombres = Array.from(new Set(elegidas.map(porBloques.clave))).sort(cmpTx);
+    for (const nombre of nombres) {
+      const lista = elegidas.filter((f) => porBloques.clave(f) === nombre);
+      html += `<h3>${porBloques.icon} ${esc(nombre)}</h3><table><thead>${cab}</thead><tbody>${lista.map(filaTd).join('')}${filaTotales(lista, `Subtotal ${nombre}`, 'sub')}</tbody></table>`;
     }
     html += `<table><tbody>${filaTotales(elegidas, 'TOTAL GENERAL', 'tot')}</tbody></table>`;
   } else {
@@ -389,13 +419,18 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
     if (op.fuentes[k] === 'oculta') partes.push(`sin ${FUENTES_META[k].label.toLowerCase()}`);
     else if (op.fuentes[k] === 'muestra') partes.push(`${FUENTES_META[k].label.toLowerCase()} sin sumar`);
   }
-  if (op.agruparPor !== 'empresa') partes.push(op.agruparPor === 'maquina' ? 'por máquina' : 'global');
+  if (op.agruparPor !== 'empresa') {
+    partes.push({ maquina: 'por máquina', global: 'global', categoria: 'por categoría', frente: 'por frente' }[op.agruparPor]);
+  }
   if (op.sinEmpresas) partes.push('sin empresas');
   if ((op.soloMaquinas ?? []).length) partes.push(`solo ${(op.soloMaquinas ?? []).length} máquina(s)`);
   const emps = (op.soloEmpresas ?? []).map((e) => e.trim()).filter(Boolean);
   // Con UNA empresa el archivo dice CUÁL — ese es el papel que se le manda a esa empresa.
   if (emps.length === 1) partes.push(`solo ${emps[0]}`);
   else if (emps.length > 1) partes.push(`solo ${emps.length} empresas`);
+  const cats = (op.soloCategorias ?? []).map((e) => e.trim()).filter(Boolean);
+  if (cats.length === 1) partes.push(`solo ${cats[0].toLowerCase()}`);
+  else if (cats.length > 1) partes.push(`solo ${cats.length} categorías`);
   if (!op.resumen) partes.push('sin resumen');
   if (op.sinCantidades) partes.push('sin cantidades');
   return partes.length ? ` (${partes.join(', ')})` : '';

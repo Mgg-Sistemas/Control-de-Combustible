@@ -208,6 +208,44 @@ const DC = { filas: FC, desde: '2026-10-12', hasta: '2026-10-18' };
   ok('⭐ la pantalla tiene las pastillas de empresas y marca FILTRADO',
     /soloEmpresas/.test(card) && /\(op\.soloEmpresas \?\? \[\]\)\.length > 0/.test(card));
 }
+// ═══ 2c) Orden alfabético, categoría y frente (20-oct-2026, a pedido) ════════
+const FG = [
+  { id: 'a', code: 'ZANJADORA 9', placa: 'Z9', empresa: 'BETA C.A', categoria: 'REMOCIÓN Y EXCAVACIÓN', frente: 'FRENTE NORTE', montos: { jornadas: 100 } },
+  { id: 'b', code: 'ALMEJA 1', placa: 'A1', empresa: 'ALFA C.A', categoria: 'MANEJO DE CARGA', frente: 'FRENTE NORTE', montos: { horometros: 200 } },
+  { id: 'c', code: 'MARTILLO 2', placa: 'M2', empresa: 'BETA C.A', categoria: 'REMOCIÓN Y EXCAVACIÓN', frente: null, montos: { viajes: 300 } },
+];
+const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
+{
+  eq('⭐ el listado va en ORDEN ALFABÉTICO por código, agrupe como agrupe',
+    C.filasElegidas(FG, OP).map((f) => f.code), ['ALMEJA 1', 'MARTILLO 2', 'ZANJADORA 9']);
+  const soloCat = { ...OP, soloCategorias: ['remoción y excavación'] };
+  eq('⭐ el filtro por CATEGORÍA saca las demás (sin distinguir mayúsculas)',
+    [C.filasElegidas(FG, soloCat).length, C.totalesConsolidado(FG, soloCat).total], [2, 400]);
+  ok('…y el archivo dice cuál', /solo remoción y excavación/.test(C.sufijoArchivoConsolidado(soloCat))
+    && /solo 2 categorías/.test(C.sufijoArchivoConsolidado({ ...OP, soloCategorias: ['A', 'B'] })));
+  const porCat = C.cuerpoConsolidado(DG, { ...OP, agruparPor: 'categoria' });
+  ok('⭐ agrupar por CATEGORÍA parte el papel en bloques con subtotal',
+    porCat.includes('📑 Detalle por categoría') && porCat.includes('🏷️ MANEJO DE CARGA')
+    && porCat.includes('Subtotal REMOCIÓN Y EXCAVACIÓN') && porCat.includes('TOTAL GENERAL'));
+  const porFrente = C.cuerpoConsolidado(DG, { ...OP, agruparPor: 'frente' });
+  ok('⭐ agrupar por FRENTE usa el vigente, y sin asignación cae en «Sin frente»',
+    porFrente.includes('📑 Detalle por frente de trabajo') && porFrente.includes('⛏️ FRENTE NORTE')
+    && porFrente.includes('Subtotal Sin frente'));
+  ok('…los bloques salen A→Z (FRENTE NORTE antes que Sin frente)',
+    porFrente.indexOf('⛏️ FRENTE NORTE') < porFrente.indexOf('⛏️ Sin frente'));
+  ok('el sufijo nombra la agrupación nueva', /por categoría/.test(C.sufijoArchivoConsolidado({ ...OP, agruparPor: 'categoria' }))
+    && /por frente/.test(C.sufijoArchivoConsolidado({ ...OP, agruparPor: 'frente' })));
+  ok('una fila vieja sin categoría ni frente sigue valiendo',
+    C.cuerpoConsolidado(D, { ...OP, agruparPor: 'categoria' }).includes('Subtotal Sin clasificación'));
+  const card = leer('src/components/ReporteConsolidadoCard.tsx');
+  ok('⭐ la pantalla carga la clasificación del catálogo y el frente VIGENTE al final del rango',
+    /selectAllRows\('machinery', 'id, clasificacion'\)/.test(card)
+    && /listAsignacionesHasta\(hasta, FRENTES_MAQUINARIA\)/.test(card)
+    && /vigentesAlDia\(\(asigsFrente as any\)\.asignaciones \?\? \[\], hasta\)/.test(card));
+  ok('…con sus pastillas de agrupar y el filtro por categoría',
+    /🏷️ Por categoría/.test(card) && /⛏️ Por frente/.test(card) && /soloCategorias/.test(card));
+}
+
 {
   // La pantalla CARGA el respaldo de los cuatro motores.
   const card = leer('src/components/ReporteConsolidadoCard.tsx');
