@@ -17,8 +17,12 @@ let pass = 0, fail = 0;
 const failures = [];
 const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name); } };
 
+// 20-oct-2026: las PARADAS se cuentan aparte (configurable por tarjeta), pero
+// siguen saliendo de activeMachines — el mismo bucket, partido en dos.
 ok('🏷️ suma sobre los MISMOS buckets de los cubos (sin recontar)',
-  scr.includes("suma(activeMachines, 'operativa')") && scr.includes("suma(averiadaMachines, 'averiada')")
+  scr.includes("suma(activeMachines.filter((m) => liveStatusOf(m.id).estado !== 'parada'), 'operativa')")
+  && scr.includes("suma(activeMachines.filter((m) => liveStatusOf(m.id).estado === 'parada'), 'parada')")
+  && scr.includes("suma(averiadaMachines, 'averiada')")
   && scr.includes("suma(esperaMachines, 'espera')") && scr.includes("suma(transferidaMachines, 'transferida')"));
 // 🚫 Las RETIRADAS no se ven NI se cuentan en estas tarjetas (14-oct-2026, a
 //    pedido). Siguen en los cubos ocultos y en su lista: no se eliminó nada.
@@ -39,7 +43,10 @@ ok('🏷️ cada tarjeta trae los 5 estados con su color', scr.includes("{ k: 't
 // ── v2 (14-oct-2026, mismo día): vertical, clickeable y los cubos ocultos ──
 ok('📐 los estados van en VERTICAL (un renglón por estado, no una fila corrida)',
   scr.includes('const filaEstados = (c: FilaCat, cat: string | null) =>') && !/flexWrap: 'wrap', gap: spacing\.md, marginTop: 4/.test(scr));
-ok('👆 tocar un estado abre el detalle de ESA categoría', scr.includes('onPress={() => abrirDetalle(e.s, cat)}'));
+// 20-oct-2026: el 3.er argumento separa las paradas de las operativas cuando la
+// tarjeta muestra los dos renglones (así cada número abre SU lista).
+ok('👆 tocar un estado abre el detalle de ESA categoría',
+  scr.includes("abrirDetalle(e.s, cat, e.k === 'operativa' && visibles.has('parada'))"));
 ok('Σ en la tarjeta total abre el detalle SIN acotar categoría', scr.includes('filaEstados(total, null)'));
 ok('🎯 el detalle acotado filtra por la clasificación de la ficha',
   scr.includes('const detailList = detailCat ? detailListTodo.filter((m) => clasifDeMaquina(m) === detailCat) : detailListTodo;'));
