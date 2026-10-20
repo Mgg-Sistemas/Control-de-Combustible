@@ -204,6 +204,43 @@ export type MachineForStatus = { id: string; operational?: boolean | null; en_es
  *    no están dañadas ni de baja: se transfirieron a otros.
  *  · ESPERANDO INSTRUCCIONES: en_espera=true.
  */
+/**
+ * ⭐ EL ESTADO DE UNA MÁQUINA PARA CONTAR Y FILTRAR — los 6 cubos EXCLUYENTES del
+ * Catálogo. Extraída de `EquiposScreen.estadoConteoOf` el 20-oct-2026, cuando el
+ * reporte de Conteo de maquinaria pidió filtrar por estos mismos estados («no
+ * solo activas e inactivas, sino averiadas, operativas, esperando instrucciones»):
+ * en vez de escribir una SÉPTIMA copia de la regla, vive acá y la usan las dos.
+ *
+ * PRIORIDAD (la misma de las tarjetas del Catálogo, y el orden importa):
+ *   retirada/transferida (operational=false) > esperando (en_espera)
+ *   > averiada/parada (avería VIGENTE en vivo, respeta la reactivación)
+ *   > operativa.
+ *
+ * `liveEstado` es lo que devuelve `makeLiveStatusOf(...)(id).estado`: se pasa ya
+ * resuelto para que esta función sea PURA y se pueda probar sin base de datos.
+ */
+export type EstadoConteo = 'operativa' | 'averiada' | 'parada' | 'retirada' | 'espera' | 'transferida';
+export const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 'espera', 'retirada', 'transferida'];
+/** Etiqueta e ícono de cada estado, SIN colores de tema (cada pantalla pone los suyos). */
+export const ESTADO_CONTEO_INFO: Record<EstadoConteo, { label: string; icon: string; hex: string }> = {
+  operativa: { label: 'Operativa', icon: '✅', hex: '#15803D' },
+  averiada: { label: 'Averiada', icon: '🔴', hex: '#B91C1C' },
+  parada: { label: 'Parada', icon: '🟡', hex: '#B45309' },
+  espera: { label: 'Esperando instrucciones', icon: '⏳', hex: '#B45309' },
+  retirada: { label: 'Retirada', icon: '⬛', hex: '#4B5563' },
+  transferida: { label: 'Transferida a otros', icon: '🔁', hex: '#0D9488' },
+};
+export function estadoConteoDe(
+  m: { operational?: boolean | null; en_espera?: boolean | null; transferida?: boolean | null },
+  liveEstado: MachineEstado,
+): EstadoConteo {
+  if (!m.operational) return m.transferida ? 'transferida' : 'retirada';
+  if (m.en_espera) return 'espera';
+  if (liveEstado === 'averiada') return 'averiada';
+  if (liveEstado === 'parada') return 'parada';
+  return 'operativa';
+}
+
 export function bucketMachineStatus<M extends MachineForStatus>(machines: M[], statusOf: (id: string) => LiveStatus) {
   const averiadaMachines = machines.filter((m) => m.operational !== false && !m.en_espera && statusOf(m.id).estado === 'averiada');
   const activeMachines = machines.filter((m) => m.operational && !m.en_espera && statusOf(m.id).estado !== 'averiada');

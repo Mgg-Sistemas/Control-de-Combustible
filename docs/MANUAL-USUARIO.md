@@ -679,6 +679,20 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   **número grande** con el **total de equipos** y el **desglose por empresa**. Botón
   **"⬇️ PDF de este conteo"** para imprimir el total, la cantidad por tipo y por empresa.
 
+> **📊 Conteo de equipos: los estados reales del Catálogo (20/10/2026, a pedido: «que yo pueda
+> seleccionar los estados con los que se trabaja, no solo activas e inactivas» y «no me está
+> reflejando lo real del catálogo»).** Dos cosas: **(1) Las tarjetas de arriba** ya no dicen
+> Activos/Inactivos/Stand by (solo miraban el campo de retirada: una **averiada** contaba como
+> «activa» y no cuadraba con el Catálogo) — ahora son **los mismos seis cubos del Catálogo**, con
+> la misma regla en vivo: ✅ Operativa, 🔴 Averiada, 🟡 Parada, ⏳ Esperando instrucciones,
+> ⬛ Retirada y 🔁 Transferida a otros, más Total flota; tocas una y ves (e imprimes) su lista.
+> **(2) En «Buscar por tipo de equipo»**, las tres pastillas excluyentes (Todas / Solo activas /
+> Solo inactivas) se cambiaron por pastillas de **los seis estados**, y se marcan **una o varias**
+> (ej. averiadas + paradas juntas); cada pastilla dice cuántas máquinas hay en ese estado, sin
+> marcar ninguna salen **todas** (como antes), y el PDF dice con nombre completo qué estados se
+> marcaron. La avería/parada es la **vigente en vivo** (respeta la reactivación por jornada
+> nueva), igual que la ficha de la máquina.
+
 > **🛠️ Conteo de equipos: lo destildado ya no sale (19/09/2026).** Se corrigió una falla: al
 > destildar máquinas en **"🚜 Escoger máquinas"** el rótulo decía bien *"15 de 18"*, pero el número
 > grande, los m³ y el **PDF seguían con las 18**. El conteo no se enteraba del cambio hasta que se

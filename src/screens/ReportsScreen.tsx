@@ -99,6 +99,12 @@ import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
 import { caracasBusinessToday } from '../lib/caracasDay';
 import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
+// 🔴🟡 El estado REAL de cada máquina para el conteo (20-oct-2026): la MISMA
+//      regla de los cubos del Catálogo, no una copia nueva.
+import {
+  fetchAveriaCat, fetchJornadaCat, fetchInspByShift, makeLiveStatusOf,
+  estadoConteoDe, ESTADO_CONTEO_ORDER, ESTADO_CONTEO_INFO, type EstadoConteo,
+} from '../lib/machineLiveStatus';
 import { clasificarNoTrabajaron, MaquinaNoTrabajo, MarcaTurno, EstadoNoTrabajo } from '../lib/jornadaEstados';
 import { ordenarMaquinas, agruparMaquinas } from '../lib/ordenMaquinas';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
@@ -626,7 +632,13 @@ export default function ReportsScreen({ route }: any) {
   // cruza con la medida de tolva guardada en `camion_cubicaje`, y la marca
   // alimenta la columna «Marca / Modelo». `modelo` sigue siendo `machinery.tipo`,
   // como siempre — se deja tal cual para no cambiar lo que ya se ve en pantalla.
-  type MachineDetail = { id: string; code: string; serial: string | null; plate: string | null; company: string; tipo: string; marca: string | null; modelo: string | null; clas: string; estado: 'activo' | 'inactivo' | 'standby'; encargado: string | null };
+  // `estadoReal` (20-oct-2026, a pedido: «que yo pueda seleccionar los estados con
+  // los que se trabaja, no solo activas e inactivas»): el estado de VERDAD de la
+  // máquina —operativa / averiada / parada / esperando / retirada / transferida—
+  // con la MISMA regla de los cubos del Catálogo (src/lib/machineLiveStatus.ts).
+  // `estado` (activo/inactivo/standby) se queda tal cual: lo usan las tarjetas y
+  // el detalle de arriba, y tocarlo cambiaría números que ya se leen todos los días.
+  type MachineDetail = { id: string; code: string; serial: string | null; plate: string | null; company: string; tipo: string; marca: string | null; modelo: string | null; clas: string; estado: 'activo' | 'inactivo' | 'standby'; estadoReal: EstadoConteo; encargado: string | null };
   // Fila activa cruda: ZONA geográfica (GPS) + A DISPOSICIÓN DE (Gobernación/FANB/CVM…),
   // para recalcular el conteo al filtrar y para el cruce disposición×zona, en vivo.
   // `insDia`/`insNoche`: inspector asignado por turno (machine_inspectors). Se cargan
@@ -636,7 +648,10 @@ export default function ReportsScreen({ route }: any) {
   const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; ubicados: number; ubicadosGps: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[]; zonaCountsGps: { name: string; count: number }[]; sinGpsByTipo: { name: string; count: number }[]; sinGpsCount: number } | null>(null);
   const [conteoMap, setConteoMap] = useState(false); // modal del mapa por sectores
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
-  const [conteoDetail, setConteoDetail] = useState<null | 'activo' | 'inactivo' | 'standby' | 'flota'>(null);
+  // 20-oct-2026: el detalle es por el estado REAL del Catálogo (los 6 cubos), no
+  // por el viejo activo/inactivo/standby — el cliente: «no me está reflejando lo
+  // real del catálogo».
+  const [conteoDetail, setConteoDetail] = useState<null | EstadoConteo | 'flota'>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
   // Ubicaciones tácticas: ON = incluye personal (operadores por máquina, coordinadores/inspectores por zona).
   const [tacConPersonal, setTacConPersonal] = useState(false);
@@ -924,8 +939,15 @@ export default function ReportsScreen({ route }: any) {
   // correspondiente: total (solo número) + cantidad por empresa, con PDF.
   const [tipoQ, setTipoQ] = useState('');
   const [tiposSel, setTiposSel] = useState<Set<string>>(new Set());
-  // Alcance por ESTADO del buscador por tipo: todas · solo activas · solo inactivas.
-  const [tipoEstado, setTipoEstado] = useState<'todas' | 'activas' | 'inactivas'>('todas');
+  // ⭐ ALCANCE POR ESTADO (20-oct-2026, a pedido: «que yo pueda seleccionar los
+  //    estados con los que se trabaja, no solo activas e inactivas, sino averiadas,
+  //    operativas, esperando instrucciones, una o varias»). Antes eran tres
+  //    pastillas EXCLUYENTES (todas/activas/inactivas) que solo miraban si la
+  //    máquina estaba retirada; ahora son los SEIS estados del Catálogo y se
+  //    marcan los que haga falta. VACÍO = todas, igual que antes sin tocar nada.
+  const [estadosSel, setEstadosSel] = useState<Set<EstadoConteo>>(new Set());
+  const toggleEstadoSel = (k: EstadoConteo) =>
+    setEstadosSel((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const toggleTipo = (key: string) =>
     setTiposSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   // ESCOGER MÁQUINAS SUELTAS dentro de los tipos tildados. Se guarda a quién se SACÓ,
@@ -941,16 +963,16 @@ export default function ReportsScreen({ route }: any) {
   const toggleMaquina = (id: string) =>
     setMaqExcluidas((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Al reabrir el conteo se limpia la selección/búsqueda/alcance del buscador por tipo.
-  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); setTipoEstado('todas'); setMaqExcluidas(new Set()); setMaqOpen(false); setMaqQ(''); } }, [conteoPreview]);
-  // machinesAll acotado al ESTADO elegido (activas/inactivas/todas) para el buscador por tipo.
+  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); setEstadosSel(new Set()); setMaqExcluidas(new Set()); setMaqOpen(false); setMaqQ(''); } }, [conteoPreview]);
+  // machinesAll acotado a los ESTADOS marcados (vacío = todos) para el buscador por tipo.
   const machinesPorEstado = useMemo(() => {
     const src = conteo?.machinesAll ?? [];
-    const porEstado = tipoEstado === 'todas' ? src : src.filter((m) => (tipoEstado === 'activas' ? m.estado === 'activo' : m.estado === 'inactivo'));
+    const porEstado = estadosSel.size === 0 ? src : src.filter((m) => estadosSel.has(m.estadoReal));
     // Vacío = todas. Se aplica acá y en ningún otro lado, así que lo que se ve en
     // pantalla y lo que sale impreso son exactamente lo mismo.
     const porEmpresa = empresasSel.size ? porEstado.filter((m) => empresasSel.has(m.company)) : porEstado;
     return clasSel.size ? porEmpresa.filter((m) => clasSel.has(m.clas)) : porEmpresa;
-  }, [conteo, tipoEstado, empresasSel, clasSel]);
+  }, [conteo, estadosSel, empresasSel, clasSel]);
 
   /** Las categorías que hay para marcar, con su cantidad. Salen de los datos,
    *  no de una lista fija: así no se ofrece una categoría sin un solo equipo. */
@@ -1979,8 +2001,21 @@ export default function ReportsScreen({ route }: any) {
   const generateConteo = async () => {
     setLoading(true);
     liveRef.current = generateConteo; // se sincroniza solo cuando se cambia/actualiza una máquina
-    const mach = await selectAllRows('machinery', 'id, code, tipo, marca, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, tipo, marca, serial, plate, clasificacion, active, operational, en_espera, transferida, latitude, longitude, zona, encargado, company:company_id(name)');
     const all = (mach ?? []) as any[];
+    // 🔴🟡 El ESTADO REAL de cada máquina (20-oct-2026): averías/paradas vigentes
+    // con la regla EXACTA del Catálogo. Es aditivo y a prueba de fallos: si alguna
+    // de estas tres consultas falla, todas quedan como el catálogo las tenga
+    // (operativa/retirada/esperando) y el conteo sale igual que siempre.
+    let estadoRealDe: (m: any) => EstadoConteo = (m) => estadoConteoDe(m, 'ninguno');
+    try {
+      const [averiaCat, jornadaCat, inspByShift] = await Promise.all([
+        fetchAveriaCat(), fetchJornadaCat(), fetchInspByShift(),
+      ]);
+      const retiredIds = new Set<string>(all.filter((m) => m.operational === false).map((m) => String(m.id)));
+      const statusOf = makeLiveStatusOf({ jornadaCat, averiaCat, inspByShift, retiredIds, nowTick: Date.now() });
+      estadoRealDe = (m) => estadoConteoDe(m, statusOf(String(m.id)).estado);
+    } catch { /* sin estos datos, el estado real cae al del catálogo */ }
     // El CONTEO cuenta SOLO los equipos activos: se excluyen los inactivos
     // (active/operational = false) y los que están en espera (stand by).
     const isActivo = (m: any) => m.en_espera !== true && m.active !== false && m.operational !== false;
@@ -2046,7 +2081,7 @@ export default function ReportsScreen({ route }: any) {
     // Detalle de TODAS las máquinas con su estado (para ver el detalle al tocar una tarjeta).
     const estadoOf = (m: any): 'activo' | 'inactivo' | 'standby' => m.en_espera === true ? 'standby' : (m.active === false || m.operational === false) ? 'inactivo' : 'activo';
     const machinesAll: MachineDetail[] = all
-      .map((m) => ({ id: String(m.id), code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m), tipo: equipCategory(m.code), marca: (m.marca && String(m.marca).trim()) || null, modelo: (m.tipo && String(m.tipo).trim()) || null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), encargado: (m.encargado && String(m.encargado).trim()) || null }))
+      .map((m) => ({ id: String(m.id), code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m), tipo: equipCategory(m.code), marca: (m.marca && String(m.marca).trim()) || null, modelo: (m.tipo && String(m.tipo).trim()) || null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), estadoReal: estadoRealDe(m), encargado: (m.encargado && String(m.encargado).trim()) || null }))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     // Sector MACRO por máquina para el REPORTE: si tiene GPS, su sector real (Este/Oeste);
     // si NO tiene ubicación, se reparte 50/50 entre Este y Oeste. Esto es SOLO para el
@@ -2751,14 +2786,15 @@ export default function ReportsScreen({ route }: any) {
   // (generatePersonalReport). Se quitó de Reportes por pedido del cliente.
 
   // Imprime el LISTADO del detalle (activos / inactivos / stand by / total flota).
-  const downloadDetailPdf = async (kind: 'activo' | 'inactivo' | 'standby' | 'flota') => {
+  const downloadDetailPdf = async (kind: EstadoConteo | 'flota') => {
     if (!conteo) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const titulo = kind === 'activo' ? 'Equipos activos' : kind === 'inactivo' ? 'Equipos inactivos' : kind === 'standby' ? 'Equipos en stand by' : 'Total flota';
-    const items = kind === 'flota' ? conteo.machinesAll : conteo.machinesAll.filter((m) => m.estado === kind);
-    const estLbl = (e: MachineDetail['estado']) => e === 'activo' ? 'ACTIVO' : e === 'inactivo' ? 'INACTIVO' : 'STAND BY';
+    // El detalle habla el idioma del Catálogo (20-oct-2026): los seis estados reales.
+    const titulo = kind === 'flota' ? 'Total flota' : `Equipos · ${ESTADO_CONTEO_INFO[kind].label}`;
+    const items = kind === 'flota' ? conteo.machinesAll : conteo.machinesAll.filter((m) => m.estadoReal === kind);
+    const estLbl = (e: EstadoConteo) => ESTADO_CONTEO_INFO[e].label.toUpperCase();
     const showEstado = kind === 'flota';
-    const rows = items.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.tipo)}</td><td>${esc(m.modelo ?? '—')}</td><td>${esc(m.encargado ?? '—')}</td>${showEstado ? `<td>${estLbl(m.estado)}</td>` : ''}</tr>`).join('');
+    const rows = items.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.tipo)}</td><td>${esc(m.modelo ?? '—')}</td><td>${esc(m.encargado ?? '—')}</td>${showEstado ? `<td>${estLbl(m.estadoReal)}</td>` : ''}</tr>`).join('');
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
@@ -2981,7 +3017,10 @@ export default function ReportsScreen({ route }: any) {
     const sel = [...tiposSel]
       .map((k) => ({ k, name: tipoMap.get(k)?.name ?? k, count: porTipoListado.get(k) ?? 0 }))
       .sort((a, b) => cmpText(a.name, b.name));
-    const estadoLbl = tipoEstado === 'todas' ? 'Todos los estados' : tipoEstado === 'activas' ? 'Solo activas' : 'Solo inactivas';
+    // Los estados marcados, con su nombre completo (20-oct-2026). Sin marcar: todos.
+    const estadoLbl = estadosSel.size === 0
+      ? 'Todos los estados'
+      : ESTADO_CONTEO_ORDER.filter((k) => estadosSel.has(k)).map((k) => `${ESTADO_CONTEO_INFO[k].icon} ${ESTADO_CONTEO_INFO[k].label}`).join(' · ');
     const empLbl = empresasSel.size ? `${empresasSel.size} empresa(s) escogida(s)` : 'Todas las empresas';
     const clasLbl = clasSel.size ? ` · ${clasSel.size} categoría(s)` : '';
     // Cómo se nombra el grupo, según el eje. Es lo ÚNICO que cambia entre los
@@ -4221,15 +4260,22 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>🗺️ Zona real por GPS (igual al Mapa)</Text>
               </TouchableOpacity>
               {/* "👥 Personal por departamento" se movió a Nómina · Personal (pedido del cliente). */}
-              {/* Estado de la flota (toca una tarjeta para ver el detalle de sus máquinas). */}
-              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+              {/* ⭐ Estado de la flota: LOS MISMOS SEIS CUBOS DEL CATÁLOGO, con la misma
+                  regla (20-oct-2026, a pedido: «no me está reflejando lo real del
+                  catálogo»). Antes decía Activos/Inactivos/Stand by mirando solo el
+                  campo de retirada, así que una averiada contaba como «activa» y los
+                  números no cuadraban con el Catálogo. Toca una tarjeta para el detalle. */}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm }}>
                 {[
-                  { k: 'Activos (conteo)', v: conteo.activos, c: colors.success, d: 'activo' as const },
-                  { k: 'Inactivos (excl.)', v: conteo.inactivos, c: colors.danger, d: 'inactivo' as const },
-                  { k: 'Stand by (excl.)', v: conteo.standby, c: colors.warning, d: 'standby' as const },
-                  { k: 'Total flota', v: conteo.flota, c: colors.text, d: 'flota' as const },
+                  ...ESTADO_CONTEO_ORDER.map((k) => ({
+                    k: `${ESTADO_CONTEO_INFO[k].icon} ${ESTADO_CONTEO_INFO[k].label}`,
+                    v: conteo.machinesAll.filter((m) => m.estadoReal === k).length,
+                    c: ESTADO_CONTEO_INFO[k].hex,
+                    d: k as EstadoConteo | 'flota',
+                  })),
+                  { k: 'Total flota', v: conteo.flota, c: colors.text, d: 'flota' as EstadoConteo | 'flota' },
                 ].map((s) => (
-                  <TouchableOpacity key={s.k} activeOpacity={0.7} onPress={() => setConteoDetail(s.d)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  <TouchableOpacity key={s.k} activeOpacity={0.7} onPress={() => setConteoDetail(s.d)} style={{ flexGrow: 1, flexBasis: '22%', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
                     <Text style={{ color: s.c, fontSize: 22, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{s.v}</Text>
                     <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>{s.k}</Text>
                     <Text style={{ color: colors.brandText, fontSize: 9, fontWeight: '700', marginTop: 1 }}>ver detalle ›</Text>
@@ -4244,13 +4290,26 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
                   Busca (ej. “volqueta toronto”) y TILDA los tipos para ver el total y la cantidad por empresa.
                 </Text>
-                {/* Alcance por ESTADO: todas / solo activas / solo inactivas. */}
-                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
-                  {([['todas', 'Todas'], ['activas', '🟢 Solo activas'], ['inactivas', '🔴 Solo inactivas']] as const).map(([k, label]) => {
-                    const on = tipoEstado === k;
+                {/* ⭐ Alcance por ESTADO (20-oct-2026, a pedido): los SEIS estados del
+                    Catálogo, y se marcan UNO O VARIOS. Sin marcar ninguno salen todas,
+                    que es como salía el reporte antes de esto. Cada pastilla dice
+                    cuántas máquinas hay en ese estado, para no marcar uno vacío. */}
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>
+                  ESTADO DE LA MÁQUINA {estadosSel.size ? `(${estadosSel.size} marcado(s))` : '(sin marcar: todas)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+                  <TouchableOpacity onPress={() => setEstadosSel(new Set())} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: estadosSel.size === 0 ? colors.brand : colors.border, backgroundColor: estadosSel.size === 0 ? colors.brand : colors.surfaceAlt }}>
+                    <Text style={{ color: estadosSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>⬛ Todas</Text>
+                  </TouchableOpacity>
+                  {ESTADO_CONTEO_ORDER.map((k) => {
+                    const on = estadosSel.has(k);
+                    const n = (conteo?.machinesAll ?? []).filter((m) => m.estadoReal === k).length;
+                    const info = ESTADO_CONTEO_INFO[k];
                     return (
-                      <TouchableOpacity key={k} onPress={() => setTipoEstado(k)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
-                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                      <TouchableOpacity key={k} onPress={() => toggleEstadoSel(k)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                          {on ? '☑️' : '⬜'} {info.icon} {info.label} · {n}
+                        </Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -4767,9 +4826,10 @@ export default function ReportsScreen({ route }: any) {
             <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%', padding: spacing.lg }}>
               {(() => {
                 if (!conteo || conteoDetail === null) return null;
-                const titulo = conteoDetail === 'activo' ? 'Equipos activos' : conteoDetail === 'inactivo' ? 'Equipos inactivos' : conteoDetail === 'standby' ? 'Equipos en stand by' : 'Total flota';
-                const items = conteoDetail === 'flota' ? conteo.machinesAll : conteo.machinesAll.filter((m) => m.estado === conteoDetail);
-                const badge = (e: MachineDetail['estado']) => e === 'activo' ? { t: 'ACTIVO', c: colors.success } : e === 'inactivo' ? { t: 'INACTIVO', c: colors.danger } : { t: 'STAND BY', c: colors.warning };
+                // El detalle habla el idioma del Catálogo (20-oct-2026): estado REAL.
+                const titulo = conteoDetail === 'flota' ? 'Total flota' : `${ESTADO_CONTEO_INFO[conteoDetail].icon} ${ESTADO_CONTEO_INFO[conteoDetail].label}`;
+                const items = conteoDetail === 'flota' ? conteo.machinesAll : conteo.machinesAll.filter((m) => m.estadoReal === conteoDetail);
+                const badge = (e: EstadoConteo) => ({ t: ESTADO_CONTEO_INFO[e].label.toUpperCase(), c: ESTADO_CONTEO_INFO[e].hex });
                 return (
                   <>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
@@ -4786,7 +4846,7 @@ export default function ReportsScreen({ route }: any) {
                       {items.length === 0 ? (
                         <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.md }}>No hay equipos en este estado.</Text>
                       ) : items.map((m, i) => {
-                        const b = badge(m.estado);
+                        const b = badge(m.estadoReal);
                         return (
                           <View key={`${m.code}-${m.serial ?? i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderTopWidth: 1, borderTopColor: colors.border }}>
                             <Text style={{ color: colors.muted, fontSize: 12, width: 26, textAlign: 'right' }}>{i + 1}</Text>
