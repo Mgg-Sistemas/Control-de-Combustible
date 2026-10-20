@@ -104,6 +104,10 @@ export type OpcionesConsolidado = {
   /** CLASIFICACIONES marcadas; vacío = todas (20-oct-2026, a pedido: «para solo
    *  una categoría en específico»). También cambia el total: va FILTRADO. */
   soloCategorias?: string[];
+  /** FRENTES marcados (por nombre, el vigente al final del rango); vacío = todos
+   *  (20-oct-2026, a pedido: «poder seleccionar un frente o varios»). «Sin
+   *  frente» también se puede marcar. Cambia el total: va FILTRADO. */
+  soloFrentes?: string[];
 };
 
 export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
@@ -139,11 +143,13 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
   const marcadas = new Set(op.soloMaquinas ?? []);
   const empresas = new Set((op.soloEmpresas ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const categorias = new Set((op.soloCategorias ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
+  const frentes = new Set((op.soloFrentes ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const visibles = fuentesVisibles(op);
   return (filas ?? [])
     .filter((f) => marcadas.size === 0 || marcadas.has(f.id))
     .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
     .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
+    .filter((f) => frentes.size === 0 || frentes.has(frenteDe(f).toLowerCase()))
     .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0))
     .slice()
     // ⭐ ORDEN ALFABÉTICO por máquina (20-oct-2026, a pedido): el listado va A→Z
@@ -431,6 +437,9 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   const cats = (op.soloCategorias ?? []).map((e) => e.trim()).filter(Boolean);
   if (cats.length === 1) partes.push(`solo ${cats[0].toLowerCase()}`);
   else if (cats.length > 1) partes.push(`solo ${cats.length} categorías`);
+  const fts = (op.soloFrentes ?? []).map((e) => e.trim()).filter(Boolean);
+  if (fts.length === 1) partes.push(`solo ${fts[0]}`);
+  else if (fts.length > 1) partes.push(`solo ${fts.length} frentes`);
   if (!op.resumen) partes.push('sin resumen');
   if (op.sinCantidades) partes.push('sin cantidades');
   return partes.length ? ` (${partes.join(', ')})` : '';
