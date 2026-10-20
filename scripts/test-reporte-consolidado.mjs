@@ -242,6 +242,13 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     /selectAllRows\('machinery', 'id, clasificacion'\)/.test(card)
     && /listAsignacionesHasta\(hasta, FRENTES_MAQUINARIA\)/.test(card)
     && /vigentesAlDia\(\(asigsFrente as any\)\.asignaciones \?\? \[\], hasta\)/.test(card));
+  // ⛏️🚛 20-oct-2026 (2.ª vuelta): los CAMIONES se asignan en el módulo de
+  // viajes (diario), y ese histórico también alimenta el frente del consolidado.
+  // La asignación de maquinaria (Reportes → ⛏️ Frentes) manda si hay choque.
+  ok('⭐ …y también la asignación de VIAJES para los camiones (sincronizadas)',
+    /listAsignacionesHasta\(hasta, FRENTES_VIAJES\)/.test(card)
+    && /vigentesAlDia\(\(asigsFrenteViajes as any\)\.asignaciones \?\? \[\], hasta\)/.test(card)
+    && /if \(!frentePorId\.get\(id\)\) frentePorId\.set\(id,/.test(card));
   ok('…con sus pastillas de agrupar y el filtro por categoría',
     /🏷️ Por categoría/.test(card) && /⛏️ Por frente/.test(card) && /soloCategorias/.test(card));
 

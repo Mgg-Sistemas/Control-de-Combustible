@@ -26,7 +26,10 @@ import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
 import { supabase, selectAllRows } from '../lib/supabase';
 // ⛏️ El frente VIGENTE de maquinaria (pegajoso desde el 19-oct): para agrupar
 //    el consolidado por frente de trabajo (20-oct-2026, a pedido).
-import { listAsignacionesHasta, FRENTES_MAQUINARIA } from '../lib/camionViajes';
+// 20-oct-2026, a pedido: «esos frentes que maneja solo camiones deberían
+// sincronizarse con los frentes de reportes que se enlazan al consolidado» —
+// también se lee la asignación de VIAJES (diaria) para los camiones.
+import { listAsignacionesHasta, FRENTES_MAQUINARIA, FRENTES_VIAJES } from '../lib/camionViajes';
 import { vigentesAlDia } from '../lib/frentesReporte';
 import { cargarHistorialPrecios } from '../lib/precioHistorialDb';
 import { montosJornadaPorMaquina, weekStartISO, addDaysISO, periodStartISO, periodEndISO, type RondaJornada } from '../lib/pagoJornadas';
@@ -100,7 +103,7 @@ export function ReporteConsolidadoCard() {
       // (el precio por rango es semanal) cubriendo también el período anterior.
       const rondasDesde = periodStartISO(antDesde);
       const rondasHasta = periodEndISO(periodStartISO(hasta));
-      const [rounds, hist, vDatos, pDatos, maqsH, lecturas, precios, ajustes, cierres, cambios, catalogo, asigsFrente] = await Promise.all([
+      const [rounds, hist, vDatos, pDatos, maqsH, lecturas, precios, ajustes, cierres, cambios, catalogo, asigsFrente, asigsFrenteViajes] = await Promise.all([
         selectAllRows('machine_rounds',
           'round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, frozen_price, machinery:machinery_id(id, code, serial, plate, tipo, price_per_hour, company:company_id(id, name))',
           (q: any) => q.gte('round_date', rondasDesde).lte('round_date', rondasHasta)),
@@ -118,6 +121,9 @@ export function ReporteConsolidadoCard() {
         // ⛏️ El frente vigente a la fecha FINAL del rango (si falta el SQL de
         //    frentes, el papel sale todo en «Sin frente» y nada revienta).
         listAsignacionesHasta(hasta, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [], missing: true })),
+        // ⛏️🚛 …y la de VIAJES (diaria): los camiones se asignan allá, y este
+        //    papel debe verlos con SU frente, no todos en «Sin frente».
+        listAsignacionesHasta(hasta, FRENTES_VIAJES).catch(() => ({ asignaciones: [], missing: true })),
       ]);
       void supabase;
       const nuevosAvisos: string[] = [];
@@ -130,6 +136,13 @@ export function ReporteConsolidadoCard() {
       const frentePorId = new Map<string, string>(
         vigentesAlDia((asigsFrente as any).asignaciones ?? [], hasta).map((a: any) => [String(a.machineryId), String(a.frenteNombre ?? '').trim()]),
       );
+      // Los camiones de viajes: su asignación es DIARIA, así que «vigente» acá
+      // es la última anotada hasta el final del rango. La de maquinaria (si un
+      // mismo id tuviera las dos) manda, porque es la de Reportes → ⛏️ Frentes.
+      for (const a of vigentesAlDia((asigsFrenteViajes as any).asignaciones ?? [], hasta)) {
+        const id = String((a as any).machineryId);
+        if (!frentePorId.get(id)) frentePorId.set(id, String((a as any).frenteNombre ?? '').trim());
+      }
       const fichasV = (vDatos as any).fichas as Map<string, any> | undefined;
       const fichasP = (pDatos as any).fichas as Map<string, any> | undefined;
       const nombresEmpresa = (id: string | null | undefined, deViajes: boolean): string => {
