@@ -31,6 +31,9 @@ import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal, cerrarJornadasRezagadas } from '../lib/machineRounds';
 import { paradaShiftOf } from '../lib/inspectorDaySets';
 import { SosAutomatizacionCard } from '../components/SosAutomatizacionCard';
+// 🙈 El interruptor del SOS quedó decorativo el 20-oct-2026 (crons desprogramados)
+//    y se escondió a pedido el 21-oct. Ocultar no es eliminar: bandera, no borrado.
+const INTERRUPTOR_SOS_VISIBLE = false;
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { cargarLecturasDeMaquinaDia, guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
@@ -2780,8 +2783,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     <Screen onRefresh={load} refreshing={loading}>
       <ConfigBanner />
       {/* Solo administradores (la tarjeta se esconde sola, y la base no le da la fila a
-          nadie más): encender o apagar la automatización del Inspector SOS. */}
-      <SosAutomatizacionCard />
+          nadie más): encender o apagar la automatización del Inspector SOS.
+          🙈 OCULTA desde el 21-oct-2026 (pedido: «oculta el interruptor»): los crons de
+          arranque del SOS quedaron DESPROGRAMADOS del servidor el 20-oct («ni iniciándose
+          ni cerrándose, ni de SOS ni ninguna»), así que el interruptor quedó decorativo —
+          encenderlo no revivía nada y solo confundía. Ocultar no es eliminar: la tarjeta,
+          su lib (sosAutomatizacion.ts) y su suite siguen intactas; para traerla de vuelta
+          basta poner esta bandera en true (y reprogramar los crons en la base). */}
+      {INTERRUPTOR_SOS_VISIBLE ? <SosAutomatizacionCard /> : null}
       {pendingSync > 0 ? (
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={{ fontSize: 16 }}>📶</Text>

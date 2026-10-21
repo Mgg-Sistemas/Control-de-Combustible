@@ -605,7 +605,8 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > jornadas del SOS (7:05am, 7:05pm, el reafirmador de cada 10 minutos y el llenador del turno
 > completo) quedaron **desprogramados del servidor**: ya no corren, ni con el interruptor encendido.
 > El interruptor de arriba queda **sin efecto** — si algún día se quisiera de vuelta, hay que
-> reprogramar los procesos en la base, no basta encenderlo. Además se corrigió una trampa: si la
+> reprogramar los procesos en la base, no basta encenderlo. El **21/10/2026 el interruptor se
+> escondió de la pantalla** (quedaba decorativo y confundía); el código sigue ahí, tras una bandera. Además se corrigió una trampa: si la
 > configuración del interruptor se perdía (p. ej. al restaurar la base), la automatización **se
 > encendía sola**; ahora sin configuración queda **apagada**.
 > - Quien no es administrador **no puede verlo ni cambiarlo**: lo impide la base, no solo la pantalla.
