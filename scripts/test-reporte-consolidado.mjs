@@ -318,7 +318,10 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   const res = C.resumenConsolidado(DA, AUTO);
   const cu = res.cuadros.find((x) => x.k === 'auto_horometro');
   ok('⭐ el resumen dice QUÉ se descartó (JUMBO 320, $1.200)', !!cu && cu.filas.length === 1 && /JUMBO 320/.test(cu.filas[0].clave) && cu.filas[0].n === 1200);
-  ok('* y la nota del papel lo cuenta', /mandó el horómetro/.test(C.cuerpoConsolidado(DA, AUTO)));
+  // 🧹 21-oct (tarde): la nota introductoria del papel SE QUITÓ a pedido («eso
+  // no hace falta») — la regla no se anuncia; el desglose vive solo en el cuadro.
+  ok('* el papel NO trae la nota introductoria (ni fecha repetida ni anuncio del 🤖)',
+    !/no inventa nada/.test(C.cuerpoConsolidado(DA, AUTO)) && !/mandó el horómetro \(el exacto\)/.test(C.cuerpoConsolidado(DA, AUTO)));
   // Con horómetro de REFERENCIA (no suma) la jornada se queda: nadie factura cero.
   const ref = { ...AUTO, fuentes: { ...AUTO.fuentes, horometros: 'muestra' } };
   eq('⭐ horómetro en referencia NO descarta la jornada (nadie factura cero)', C.totalesConsolidado(FA, ref).total, 2500);
@@ -336,7 +339,7 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   eq('⭐ sin desglose el TOTAL sigue siendo uno-u-otro (la regla no se apaga)', C.totalesConsolidado(FA, sinDesglose).total, 2450);
   ok('⭐ …pero el cuadro «Mandó el horómetro» ya no sale',
     !C.resumenConsolidado(DA, sinDesglose).cuadros.some((x) => x.k === 'auto_horometro'));
-  ok('* y la nota ya no promete un detalle que no está',
+  ok('* y sin desglose tampoco hay rastro en el cuerpo',
     !/el detalle está en el resumen/.test(C.cuerpoConsolidado(DA, sinDesglose)));
   // La cola «fuera del cuadro: … sin toneladas» del ⚖️ también se apaga.
   const FT = [
