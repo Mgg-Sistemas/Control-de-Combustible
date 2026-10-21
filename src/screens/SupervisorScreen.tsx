@@ -1303,6 +1303,25 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // abierta) sigue como CERRADA hasta las 9am — no reaparece "pendiente" al entrar el
     // día. A las 9am (nightGraceActive=false) cae a pendiente por iniciar, como se pidió.
     if (nightGraceActive && hoursEn(id, 'night') && !openEn(id, 'night')) return 'cerrada';
+    // 6) 🌙 EL DÍA YA SE JUGÓ (21-oct-2026, reporte del cliente: «desde la vista de
+    // inspector en el teléfono le salían TODAS las máquinas pendientes después de las
+    // 7pm — cerraron su jornada y no debería ser así»). Un inspector que cubre AMBOS
+    // turnos pasa a 'night' a las 7:00pm en punto, y sus máquinas de día —las recién
+    // FINALIZADAS por él mismo y también las aún ABIERTAS— caían a «pendiente» como si
+    // el día no hubiera existido. Si su turno vigente es la noche y la noche no ha
+    // arrancado, la máquina se muestra como quedó el DÍA de hoy: abierta = sigue en
+    // jornada (nadie la ha cerrado — nada se cierra solo); con horas o declarada =
+    // finalizó. El día de negocio es el mismo hasta las 7am, así que esto vale toda la
+    // noche; al iniciar la jornada de noche pasa a 'iniciada' por la regla 2 de arriba.
+    // ⭐ SOLO para el que cubre ambos turnos: al inspector SOLO de noche no se le toca
+    //    su lista de «pendientes por iniciar», que es su herramienta de trabajo.
+    if (sh === 'night') {
+      const s = assignMap[id] || {};
+      if (s.day?.id === uid && s.night?.id === uid) {
+        if (openEn(id, 'day')) return 'iniciada';
+        if (hoursEn(id, 'day') || declaredEn(id, 'day')) return 'cerrada';
+      }
+    }
     return 'pendiente';
   };
   // Igual que segmentoDe pero para un TURNO EXPLÍCITO (vista del coordinador por el
