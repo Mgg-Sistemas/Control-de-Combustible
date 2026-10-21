@@ -151,6 +151,30 @@ ok('el ajuste sigue verificándose por filas devueltas en la capa de datos', /\.
 const panel = sinComentarios(leer('src/components/ControlHorometrosPanel.tsx'));
 ok('el panel abre el modal para un día cualquiera', /Acomodar el horómetro de un día/.test(panel));
 
+// ── 📷 LAS FOTOS DEL TABLERO DESDE EL MODAL (21-oct-2026, a pedido) ──────────
+// «Poder subir la foto del horometro inicial y la del final desde ahi, y
+// modificar las que ya han subido en esos dias.»
+ok('⭐⭐ hay subida de foto para el INICIAL y para el FINAL',
+  /fotoInicialUrl: r\.url/.test(modal) && /fotoFinalUrl: r\.url/.test(modal));
+ok('⭐ camara Y galeria, la regla de la casa (27-sep)',
+  /takePhotoAndUpload\(machineryId, 'horometro'\)/.test(modal)
+  && /pickPhotoFromGalleryAndUpload\(machineryId, 'horometro'\)/.test(modal)
+  && modal.includes('📷 Cámara') && modal.includes('🖼️ Galería'));
+ok('⭐ la foto va a la LECTURA por la misma RPC, con origen control y motivo',
+  /subirFoto = async/.test(modal) && /motivoCorreccion: motivo\.trim\(\) \|\|/.test(modal));
+ok('⭐⭐ tras subir se RELEE y se confirma la URL (la RLS rechaza sin error y con 0 filas)',
+  /fila\?\.fotoInicialUrl === r\.url : fila\?\.fotoFinalUrl === r\.url/.test(modal)
+  && modal.includes('La base no dejó la foto guardada (0 filas)'));
+ok('⭐ sin el permiso del modulo Horometros, las fotos NO se ofrecen',
+  /puedeCambiarInspector \? \([\s\S]*?📷 Fotos del tablero/.test(modal));
+ok('⭐ reemplazar avisa que REEMPLAZA (y la vieja no se borra del almacen)',
+  /REEMPLAZA la anterior/.test(modal) && /reemplaza la anterior/.test(modal));
+ok('* la vista previa usa la foto local recien subida o la de la lectura',
+  /fotoIniLocal \?\? delInspector\?\.fotoInicialUrl/.test(modal)
+  && /fotoFinLocal \?\? delInspector\?\.fotoFinalUrl/.test(modal));
+ok('* al cambiar de dia o turno la vista previa local se limpia',
+  /setFotoIniLocal\(null\);[\s\S]{0,40}?setFotoFinLocal\(null\);/.test(modal));
+
 console.log(`\n${pass} OK · ${fail} FALLO(S)`);
 if (failures.length) { console.log('\n' + failures.join('\n')); process.exit(1); }
 console.log('Cargar el horómetro de inicio y de cierre desde ⚙️ Acomodar el horómetro: con o sin lectura del inspector, con verificación de lo guardado.');

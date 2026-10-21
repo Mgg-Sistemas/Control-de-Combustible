@@ -24,7 +24,7 @@
 // día sin lectura base. Tras guardar la lectura se RELEE la fila: la RLS
 // rechaza sin error y con 0 filas, y eso hay que decirlo en pantalla.
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { DateField } from './DateField';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -32,6 +32,10 @@ import { LecturaTrabajo, numeroDeTexto, soloHorometro, validarCorreccionHorometr
 import { cargarLecturasDeMaquinaDia, guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
 import { AjusteHorometro, validarAjusteHorometro } from '../lib/pagoHorometro';
 import { anularAjustesHorometro, guardarAjusteHorometro } from '../lib/pagoHorometroDb';
+// 📷 Las fotos del tablero (21-oct-2026, a pedido: «poder subir la foto del
+// horómetro inicial y la del final desde ahí, y modificar las que ya subieron
+// esos días»). Cámara Y galería, la regla de la casa.
+import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../lib/photo';
 
 type Props = {
   code: string;
@@ -62,6 +66,11 @@ export function HorometroAjusteModal({ code, machineryId, roundDate, lecturas, a
   const [motivo, setMotivo] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 📷 La foto recién subida de ESTE día/turno (para la vista previa al
+  // instante); lo ya guardado viene en la lectura del inspector.
+  const [fotoBusy, setFotoBusy] = useState<'ini' | 'fin' | null>(null);
+  const [fotoIniLocal, setFotoIniLocal] = useState<string | null>(null);
+  const [fotoFinLocal, setFotoFinLocal] = useState<string | null>(null);
 
   const delInspector = useMemo(
     () => lecturas.find((l) => String(l.roundDate).slice(0, 10) === fecha && l.shift === turno) ?? null,
@@ -78,7 +87,43 @@ export function HorometroAjusteModal({ code, machineryId, roundDate, lecturas, a
     setIni(fmt(ajusteVigente ? ajusteVigente.inicial : delInspector?.inicial));
     setFin(fmt(ajusteVigente ? ajusteVigente.final : delInspector?.final));
     setError(null);
+    setFotoIniLocal(null);
+    setFotoFinLocal(null);
   }, [fecha, turno, ajusteVigente?.id, delInspector?.inicial, delInspector?.final]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 📷 SUBIR (O REEMPLAZAR) LA FOTO DEL TABLERO. Se guarda EN EL ACTO en la
+  //    lectura de ese día/turno por la misma RPC del teléfono (origen
+  //    'control': la base exige motivo y el módulo Horómetros). Subir otra
+  //    REEMPLAZA la anterior en los papeles — el archivo viejo no se borra del
+  //    almacén, solo deja de estar enlazado (ocultar no es eliminar).
+  const subirFoto = async (cual: 'ini' | 'fin', desde: 'camara' | 'galeria') => {
+    if (busy || fotoBusy) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { setError('Elige el día.'); return; }
+    setError(null);
+    setFotoBusy(cual);
+    try {
+      const r = desde === 'camara'
+        ? await takePhotoAndUpload(machineryId, 'horometro')
+        : await pickPhotoFromGalleryAndUpload(machineryId, 'horometro');
+      if (!r.ok || !r.url) { if (r.error) setError(r.error); return; } // canceló: silencio
+      const habia = cual === 'ini' ? (fotoIniLocal ?? delInspector?.fotoInicialUrl) : (fotoFinLocal ?? delInspector?.fotoFinalUrl);
+      const g = await guardarLecturaHorometro(machineryId, fecha, turno, {
+        ...(cual === 'ini' ? { fotoInicialUrl: r.url } : { fotoFinalUrl: r.url }),
+        origen: 'control',
+        motivoCorreccion: motivo.trim() || `Foto del horómetro ${cual === 'ini' ? 'inicial' : 'final'} subida desde Control de horómetros`,
+      });
+      if (!g.ok) { setError(g.error ?? 'No se guardó la foto.'); return; }
+      // ⭐ La RLS rechaza sin error y con 0 filas: se relee y se confirma la URL.
+      const releidas = await cargarLecturasDeMaquinaDia(machineryId, fecha);
+      const fila = releidas.find((l) => l.shift === turno);
+      const quedo = cual === 'ini' ? fila?.fotoInicialUrl === r.url : fila?.fotoFinalUrl === r.url;
+      if (!quedo) { setError('La base no dejó la foto guardada (0 filas): revisa el permiso del módulo Horómetros.'); return; }
+      if (cual === 'ini') setFotoIniLocal(r.url); else setFotoFinLocal(r.url);
+      onSaved(`📷 Foto del horómetro ${cual === 'ini' ? 'INICIAL' : 'FINAL'} guardada para ${code} el ${dmy(fecha)}${habia ? ' (reemplaza la anterior)' : ''}.`);
+    } finally {
+      setFotoBusy(null);
+    }
+  };
 
   const guardar = async () => {
     if (busy) return;
@@ -199,6 +244,46 @@ export function HorometroAjusteModal({ code, machineryId, roundDate, lecturas, a
               <TextInput value={fin} onChangeText={(t) => setFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={input} />
             </View>
           </View>
+
+          {/* 📷 LAS FOTOS DEL TABLERO (21-oct-2026, a pedido): subir la del
+              inicial y la del final desde acá, y REEMPLAZAR las ya subidas de
+              ese día/turno. Van directo a la lectura (con motivo y nombre), así
+              que piden el permiso del módulo Horómetros — sin él, no se ofrecen.
+              Cámara Y galería: la regla de la casa. */}
+          {puedeCambiarInspector ? (
+            <View style={{ marginTop: spacing.sm }}>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                📷 Fotos del tablero de ese día/turno (se guardan al subirlas; otra foto REEMPLAZA la anterior)
+              </Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                {([['ini', 'Inicial', fotoIniLocal ?? delInspector?.fotoInicialUrl ?? null], ['fin', 'Final', fotoFinLocal ?? delInspector?.fotoFinalUrl ?? null]] as const).map(([cual, rotulo, url]) => (
+                  <View key={cual} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, gap: 4 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                      {url ? (
+                        <Image source={{ uri: url }} style={{ width: 44, height: 44, borderRadius: 6, backgroundColor: colors.surface }} />
+                      ) : (
+                        <View style={{ width: 44, height: 44, borderRadius: 6, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ color: colors.muted, fontSize: 16 }}>—</Text>
+                        </View>
+                      )}
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, flex: 1 }}>
+                        {rotulo}{'\n'}
+                        <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 10 }}>{fotoBusy === cual ? 'Subiendo…' : url ? 'con foto' : 'sin foto'}</Text>
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                      <TouchableOpacity disabled={busy || !!fotoBusy} onPress={() => subirFoto(cual, 'camara')} style={{ flex: 1, alignItems: 'center', paddingVertical: 5, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: busy || fotoBusy ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11 }}>📷 Cámara</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity disabled={busy || !!fotoBusy} onPress={() => subirFoto(cual, 'galeria')} style={{ flex: 1, alignItems: 'center', paddingVertical: 5, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: busy || fotoBusy ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11 }}>🖼️ Galería</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
 
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>¿Dónde vale este cambio?</Text>
           <View style={{ flexDirection: 'row', gap: spacing.xs }}>

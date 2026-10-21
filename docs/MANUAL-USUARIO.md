@@ -4266,6 +4266,18 @@ hora»**:
 - **↺ Quitar el ajuste** devuelve el día a lo que cargó el inspector. Un ajuste tampoco se edita ni
   se borra: se anula o se reemplaza, siempre con motivo.
 
+> **📷 Las fotos del tablero también se suben (y se reemplazan) desde acá (21/10/2026, a
+> pedido: «poder subir la foto del horómetro inicial y la del final desde ahí, y modificar las
+> que ya han subido en esos días»).** Debajo de los números salen las **dos fotos de ese
+> día/turno** (inicial y final), cada una con sus botones **📷 Cámara** y **🖼️ Galería** (la
+> regla de la casa). La foto **se guarda al subirla** —no espera al botón Guardar— directo en la
+> **lectura** de ese día/turno, con tu nombre y un motivo (el que hayas escrito, o uno estándar
+> que dice que vino de Control). Si ese día **ya tenía foto**, la nueva la **reemplaza en todos
+> los papeles** (la anterior no se borra del almacén, solo deja de estar enlazada). Tras subir,
+> el sistema **relee la fila y confirma** que la foto quedó: si la base la rechazó, lo dice en
+> pantalla en vez de dar un «guardé» falso. Las fotos piden el **permiso del módulo Horómetros**
+> (el mismo de «cambiar la lectura del inspector»): sin él, los botones no se ofrecen.
+
 > **🧾 Acomodar también CARGA la lectura cuando no existe (20/10/2026, a pedido: «necesito poder
 > cargar el horómetro de inicio y de cierre desde ahí»).** Hasta hoy este modal solo servía para
 > corregir una lectura que el inspector YA había cargado. Ahora, si ese día/turno el inspector no
