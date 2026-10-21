@@ -26,6 +26,9 @@
 //    buscarlo. El reporte NO decide cuál va: eso es del que arma el papel.
 import type { ResumenFrentes, EdicionResumen } from './frentesReporte';
 import { aplicarEdicionResumen } from './frentesReporte';
+// 🚛 La regla compartida de «qué es un camión» (el código de texto manda): para
+//    que el costo por tonelada no cuente como maquinaria a un camión a jornada.
+import { esCamionDeViajes } from './equipos';
 
 export type FuenteKey = 'jornadas' | 'horometros' | 'viajes' | 'peso';
 export type ModoFuente = 'suma' | 'muestra' | 'oculta';
@@ -236,9 +239,17 @@ export function topMaquinas(filas: readonly FilaConsolidada[], op: OpcionesConso
 // facturadas… la hora me salió a 89, no a 100».
 //
 // LA REGLA, PIEZA POR PIEZA:
-//  · El COSTO es lo que factura la MAQUINARIA: jornadas + horómetros (las
-//    fuentes de máquina). Los viajes y el peso son el ACARREO — son el divisor,
-//    no el dividendo. Una fuente OCULTA no existe (regla de la casa).
+//  · El COSTO es lo que factura la MAQUINARIA. Jornada y horómetro son UNA u
+//    OTRA por máquina, nunca la suma (aclaración del 21-oct, textual: «no es
+//    que puedo sumar la jornada y el horómetro, es uno u otro»; «el sistema
+//    tomaría el horómetro, que es el confiable, y si no tiene horómetro tomaría
+//    la jornada»). Regla por máquina: CON horómetro manda el horómetro; SIN
+//    horómetro vale la jornada. Una fuente OCULTA no existe (regla de la casa).
+//  · LOS CAMIONES NO SON MAQUINARIA: viajes y peso son el acarreo, y el camión
+//    que cobra POR JORNADA (no lo llevan ni por viaje ni por peso) es «jornada
+//    de acarreo»: su monto NO entra al costo de maquinaria — se dice aparte.
+//    Camión = la regla compartida del código (esCamionDeViajes, la misma de
+//    las 4 pantallas de viajes).
 //  · Las TONELADAS son las del peso de romana congelado de CADA viaje del
 //    rango — la MISMA regla del informe operativo: entran TODOS los viajes,
 //    el que no se pesó cuenta como viaje, suma 0 t, y el papel dice cuántos.
@@ -258,8 +269,12 @@ export type ViajeToneladas = { frente_nombre?: string | null; peso_neto_kg?: num
 
 export type FrenteTonelada = { frente: string; costo: number; horas: number; toneladas: number; usdPorTon: number | null };
 export type CostoTonelada = {
-  costo: number;            // $ maquinaria (jornadas + horómetros no ocultos)
-  horas: number;            // horas que respaldan ese costo
+  costo: number;            // $ maquinaria (por máquina: horómetro si lo hay, si no jornada)
+  horas: number;            // horas que respaldan ese costo (misma regla uno-u-otro)
+  /** $ de los CAMIONES que cobran por jornada (jornada de ACARREO): no entra
+   *  al costo de maquinaria, pero se dice — es plata del acarreo. */
+  acarreoJornada: number;
+  camionesJornada: number;  // cuántos camiones cobraron así
   toneladas: number;        // t del acarreo (peso romana / 1000)
   viajes: number;           // viajes que entraron al conteo
   sinPeso: number;          // de esos, cuántos sin pesar (suman 0 t)
@@ -275,7 +290,6 @@ export function costoPorTonelada(
   op: OpcionesConsolidado,
   viajes: readonly ViajeToneladas[] | null | undefined,
 ): CostoTonelada {
-  const maq = FUENTES_MAQUINARIA.filter((k) => op.fuentes[k] !== 'oculta');
   const soloFrentes = new Set((op.soloFrentes ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   // El cruce por frente es por NOMBRE sin distinguir mayúsculas: el de la máquina
   // viene del catálogo de frentes y el del viaje quedó congelado como texto.
@@ -286,11 +300,30 @@ export function costoPorTonelada(
     if (!x) { x = { frente: nombre.trim(), costo: 0, horas: 0, toneladas: 0, usdPorTon: null }; pf.set(k, x); }
     return x;
   };
+  const hayHoro = op.fuentes.horometros !== 'oculta';
+  const hayJor = op.fuentes.jornadas !== 'oculta';
   let costo = 0;
   let horas = 0;
+  let acarreoJornada = 0;
+  let camionesJornada = 0;
   for (const f of filasElegidas(filas, op)) {
-    const c = maq.reduce((s, k) => s + (f.montos[k] ?? 0), 0);
-    const h = maq.reduce((s, k) => s + (f.cant?.[k] ?? 0), 0);
+    const mHoro = hayHoro ? (f.montos.horometros ?? 0) : 0;
+    const mJor = hayJor ? (f.montos.jornadas ?? 0) : 0;
+    // 🚛 Un CAMIÓN que cobra por jornada (u horómetro) es ACARREO, no maquinaria:
+    //    su plata se cuenta aparte y no infla el costo por tonelada.
+    if (esCamionDeViajes(f.code)) {
+      if (mHoro !== 0 || mJor !== 0) {
+        acarreoJornada = r2(acarreoJornada + mHoro + mJor);
+        camionesJornada += 1;
+      }
+      continue;
+    }
+    // ⭐ UNO U OTRO, nunca la suma: con horómetro manda el horómetro (el exacto,
+    //    el confiable — «jornada dice 12, horómetro dice 11,5: se toma 11,5»);
+    //    sin horómetro, vale la jornada.
+    const usaHoro = mHoro !== 0 || (hayHoro && (f.cant?.horometros ?? 0) > 0);
+    const c = usaHoro ? mHoro : mJor;
+    const h = usaHoro ? (hayHoro ? (f.cant?.horometros ?? 0) : 0) : (hayJor ? (f.cant?.jornadas ?? 0) : 0);
     if (c === 0 && h === 0) continue;
     costo = r2(costo + c);
     horas = r2(horas + h);
@@ -319,7 +352,7 @@ export function costoPorTonelada(
     .map((x) => ({ ...x, toneladas: r2(x.toneladas), usdPorTon: x.toneladas > 0 ? r2(x.costo / x.toneladas) : null }))
     .sort((a, b) => cmpTx(a.frente, b.frente));
   return {
-    costo, horas, toneladas, viajes: nViajes, sinPeso,
+    costo, horas, acarreoJornada, camionesJornada, toneladas, viajes: nViajes, sinPeso,
     usdPorTon: toneladas > 0 ? r2(costo / toneladas) : null,
     usdPorHora: horas > 0 ? r2(costo / horas) : null,
     porFrente,
@@ -386,7 +419,7 @@ export function resumenConsolidado(d: {
         k: 'costo_ton',
         titulo: '⚖️ Costo maquinaria por tonelada',
         valor: ct.usdPorTon != null ? `${usd(ct.usdPorTon)} /t` : '—',
-        nota: `${usd(ct.costo)} de maquinaria (jornadas + horómetros) ÷ ${tons(ct.toneladas)} movidas por el acarreo en ${ct.viajes} viaje(s)${ct.sinPeso > 0 ? ` (${ct.sinPeso} sin pesar, suman 0 t)` : ''}${ct.usdPorTon == null ? ' · sin toneladas en el rango: no hay división' : ''}${filtroSoloCosto ? ' · ⚠️ papel filtrado: el costo es solo de lo elegido; las toneladas son de todos los viajes del rango (solo el filtro de frentes las corta)' : ''}`,
+        nota: `${usd(ct.costo)} de maquinaria (por máquina: horómetro si lo hay, si no jornada — nunca la suma) ÷ ${tons(ct.toneladas)} movidas por el acarreo en ${ct.viajes} viaje(s)${ct.sinPeso > 0 ? ` (${ct.sinPeso} sin pesar, suman 0 t)` : ''}${ct.camionesJornada > 0 ? ` · ${ct.camionesJornada} camión(es) a jornada (${usd(ct.acarreoJornada)}) van del lado del ACARREO, no de la maquinaria` : ''}${ct.usdPorTon == null ? ' · sin toneladas en el rango: no hay división' : ''}${filtroSoloCosto ? ' · ⚠️ papel filtrado: el costo es solo de lo elegido; las toneladas son de todos los viajes del rango (solo el filtro de frentes las corta)' : ''}`,
       });
       // El cuadro por frente lleva SOLO los frentes donde la división existe
       // (hay toneladas); los cojos se dicen aparte para no imprimir un «$0,00»
@@ -409,7 +442,7 @@ export function resumenConsolidado(d: {
         k: 'hora_prom',
         titulo: '🕐 Hora promedio de maquinaria',
         valor: ct.usdPorHora != null ? `${usd(ct.usdPorHora)} /h` : '—',
-        nota: `${ct.horas.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h facturadas (jornada + horómetro) por ${usd(ct.costo)}${ct.usdPorHora == null ? ' · sin horas en el rango' : ''}`,
+        nota: `${ct.horas.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h facturadas de maquinaria (por máquina: horómetro si lo hay, si no jornada) por ${usd(ct.costo)}${ct.usdPorHora == null ? ' · sin horas en el rango' : ''}`,
       });
     }
   }

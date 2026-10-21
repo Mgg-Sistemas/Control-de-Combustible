@@ -3945,20 +3945,25 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   dice **cuánto cobra por cada fuente** (ej. 🕐 $1.000 + ⚙️ $500).
 - **⚖️🕐 Costo por tonelada y hora promedio (21/10/2026, a pedido del jefe):** dos tarjetas nuevas
   del resumen ejecutivo.
-  - **⚖️ Costo maquinaria por tonelada:** divide **lo que factura la maquinaria** (jornadas +
-    horómetros, las fuentes de máquina del mismo papel) entre **las toneladas que movió el acarreo**
+  - **⚖️ Costo maquinaria por tonelada:** divide **lo que factura la maquinaria** entre **las toneladas que movió el acarreo**
     en el rango — el **peso de romana congelado de cada viaje**, con la **misma regla del informe
     operativo de viajes**: entran **todos** los viajes, el que no se pesó cuenta como viaje, suma
     **0 toneladas** y el papel dice cuántos quedaron así. Ejemplo del propio jefe: $25.000 de
     maquinaria entre 2.000 toneladas = **$12,50 la tonelada**. La tarjeta trae la operación completa
     redactada: cuánto facturó la maquinaria, cuántas toneladas, en cuántos viajes.
+  - **Regla por máquina (aclarada el mismo día):** jornada y horómetro son **uno u otro**, nunca la
+    suma — si la máquina tiene horómetro, **manda el horómetro** (es el exacto: jornada dice 12,
+    horómetro dice 11,5 → vale 11,5); si no tiene, vale su jornada. Y **los camiones no son
+    maquinaria**: el camión que cobra **por jornada** (no lo llevan por viaje ni por peso) es
+    **jornada de acarreo** — su plata no entra al costo de maquinaria, y la tarjeta dice cuántos
+    camiones fueron y cuánto sumaron.
   - **⚖️ Frente por frente:** debajo sale un cuadro con el mismo cálculo **por frente de trabajo**
     (los frentes vinculantes): el costo se agrupa por el **frente vigente** de cada máquina y las
     toneladas por el **frente congelado** de cada viaje — los dos lados quedaron sincronizados el
     20/10. Un frente con maquinaria pero **sin toneladas no divide**: queda anotado aparte del
     cuadro, sin inventar un número.
   - **🕐 Hora promedio de maquinaria:** lo facturado por la maquinaria entre las **horas
-    facturadas** (jornada + horómetro). Ejemplo del jefe: si las 280 horas costaron $25.000, la hora
+    facturadas** (por máquina: horómetro si lo hay, si no jornada). Ejemplo del jefe: si las 280 horas costaron $25.000, la hora
     salió a **$89,29** — y no a los $100 del 100 % teórico.
   - Las dos tarjetas **nacen prendidas**, tienen su interruptor en «el resumen ejecutivo, pieza por
     pieza» y también se pueden **ocultar una a una**, como las demás tarjetas.
