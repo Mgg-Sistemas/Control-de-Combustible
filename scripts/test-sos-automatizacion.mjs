@@ -38,7 +38,13 @@ ok('⭐ la tarjeta pregunta el rol', /const esAdmin = role === 'admin'/.test(car
 ok('⭐ quien no es admin no ve NADA (ni la tarjeta vacía)', /if \(!esAdmin \|\| \(!estado && !error\)\) return null;/.test(card));
 ok('⭐ quien no es admin ni siquiera consulta la base', /if \(!esAdmin\) return;/.test(card));
 ok('sin fila visible (no admin, o falta el SQL) la lectura devuelve null', /if \(!f\) return null;/.test(lib) && /if \(faltaLaTabla\(error\)\) return null;/.test(lib));
-ok('la tarjeta está montada en Inspecciones', /<SosAutomatizacionCard \/>/.test(pantalla));
+// 🙈 21-oct-2026: el interruptor quedó DECORATIVO (los crons de arranque del SOS se
+// desprogramaron del servidor el 20-oct) y se escondió a pedido tras una bandera.
+// Ocultar no es eliminar: la tarjeta sigue montada, apagada con la bandera en false.
+ok('la tarjeta sigue montada en Inspecciones, tras su bandera (ocultar no es eliminar)',
+  /\{INTERRUPTOR_SOS_VISIBLE \? <SosAutomatizacionCard \/> : null\}/.test(pantalla));
+ok('…y la bandera nace APAGADA (el interruptor ya no controla nada)',
+  /const INTERRUPTOR_SOS_VISIBLE = false;/.test(pantalla));
 
 // ── 2) LA BASE MANDA: 0 FILAS NO ES «LISTO» ──────────────────────────────────
 ok('⭐ el cambio pide las filas de vuelta', /\.update\(\{ activa,[\s\S]*?\}\)\s*\.eq\('id', true\)\s*\.select\('activa'\)/.test(lib));
