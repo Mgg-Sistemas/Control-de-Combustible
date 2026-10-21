@@ -3957,6 +3957,15 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
     maquinaria**: el camión que cobra **por jornada** (no lo llevan por viaje ni por peso) es
     **jornada de acarreo** — su plata no entra al costo de maquinaria, y la tarjeta dice cuántos
     camiones fueron y cuánto sumaron.
+  - **🤖 La selección es de TODO el papel (decisión del jefe, mismo día):** el **total general**,
+    las tarjetas por fuente y todos los cuadros también aplican uno-u-otro — si una máquina trae
+    jornada y horómetro **sumando**, se factura el horómetro y su jornada **no se suma**. El resumen
+    trae el cuadro **«🤖 Mandó el horómetro»** con cada máquina y cuánto quedó descartado (este
+    papel no inventa ni esconde), y la nota de arriba lo dice. Tiene su interruptor **«🤖 Horómetro
+    manda sobre jornada»**: nace **prendido**, y apagarlo (volver a sumar los dos) cambia la plata,
+    así que va al nombre del archivo («sumando jornada y horómetro»). Ojo: la jornada solo se
+    descarta cuando el horómetro trae **plata** y está **sumando** — un horómetro sin precio o en
+    referencia no deja a la máquina facturando cero.
   - **⚖️ Frente por frente:** debajo sale un cuadro con el mismo cálculo **por frente de trabajo**
     (los frentes vinculantes): el costo se agrupa por el **frente vigente** de cada máquina y las
     toneladas por el **frente congelado** de cada viaje — los dos lados quedaron sincronizados el
