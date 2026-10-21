@@ -44,6 +44,7 @@ import {
   FUENTES_META, FUENTES_ORDEN, OPCIONES_CONSOLIDADO_POR_DEFECTO, CSS_CONSOLIDADO,
   cuerpoConsolidado, subtituloConsolidado, nombreArchivoConsolidado, totalesConsolidado,
   usd, cantTexto, categoriaDe, frenteDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
+  type ViajeToneladas,
 } from '../lib/reporteConsolidado';
 import { EDICION_RESUMEN_VACIA, edicionAlCambiarDeDia, type EdicionResumen, type TarjetaPropia } from '../lib/frentesReporte';
 import { caracasBusinessToday } from '../lib/caracasDay';
@@ -58,6 +59,9 @@ const TARJETAS_EDITABLES: { k: string; label: string }[] = [
   { k: 'total', label: '💰 Total general' },
   { k: 'maquinas', label: '🚜 Máquinas' },
   { k: 'promedio_dia', label: '📅 Promedio por día' },
+  // ⚖️🕐 21-oct-2026, a pedido del jefe: el costo por tonelada y la hora promedio.
+  { k: 'costo_ton', label: '⚖️ Costo por tonelada' },
+  { k: 'hora_prom', label: '🕐 Hora promedio' },
   { k: 'comparacion', label: '📊 vs período anterior' },
 ];
 
@@ -75,6 +79,8 @@ export function ReporteConsolidadoCard() {
   const [edicion, setEdicion] = useState<EdicionResumen>({ ...EDICION_RESUMEN_VACIA });
   const [filas, setFilas] = useState<FilaConsolidada[] | null>(null);
   const [filasAnt, setFilasAnt] = useState<FilaConsolidada[] | null>(null);
+  // ⚖️ Los viajes del rango cargado (frente + peso), para el costo por tonelada.
+  const [viajesTon, setViajesTon] = useState<ViajeToneladas[]>([]);
   const [rangoCalculado, setRangoCalculado] = useState<{ desde: string; hasta: string } | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -214,12 +220,18 @@ export function ReporteConsolidadoCard() {
 
       setFilas(armar(desde, hasta));
       setFilasAnt(armar(antDesde, antHasta));
+      // ⚖️ Los viajes del rango (frente congelado + peso de romana) para el costo
+      //    por tonelada: TODOS los viajes, con o sin tarifa — misma regla del
+      //    informe operativo (el que no se pesó cuenta y suma 0 t).
+      setViajesTon(viajesEnRango((vDatos as any).viajes, desde, hasta)
+        .map((v: any) => ({ frente_nombre: v.frente_nombre ?? null, peso_neto_kg: v.peso_neto_kg ?? null })));
       setRangoCalculado({ desde, hasta });
       setAvisos(nuevosAvisos);
       setEdicion((e) => edicionAlCambiarDeDia(e)); // los valores a mano no viajan a otro rango
     } catch (e: any) {
       toast.error(`No se pudo calcular: ${String(e?.message ?? e)}`);
       setFilas(null);
+      setViajesTon([]); // sin viajes pegados de un cálculo anterior
     } finally {
       setCargando(false);
     }
@@ -235,7 +247,7 @@ export function ReporteConsolidadoCard() {
         title: 'Reporte consolidado de pagos',
         subtitle: subtituloConsolidado(rangoCalculado, op, filtrado),
         extraCss: CSS_CONSOLIDADO,
-        body: cuerpoConsolidado({ filas, filasAnterior: filasAnt, desde: rangoCalculado.desde, hasta: rangoCalculado.hasta }, op, edicion),
+        body: cuerpoConsolidado({ filas, filasAnterior: filasAnt, desde: rangoCalculado.desde, hasta: rangoCalculado.hasta, viajesTon }, op, edicion),
         logos,
         marcaTexto: false,
       });
@@ -443,6 +455,10 @@ export function ReporteConsolidadoCard() {
           <Toggle on={op.solapes} label="⚠️ Cobran por dos fuentes a la vez" onPress={() => setOp((p) => ({ ...p, solapes: !p.solapes }))} />
           <Toggle on={op.comparacion} label="📊 Comparación con el período anterior" onPress={() => setOp((p) => ({ ...p, comparacion: !p.comparacion }))} />
           <Toggle on={op.promedioDia} label="📅 Promedio por día" onPress={() => setOp((p) => ({ ...p, promedioDia: !p.promedioDia }))} />
+          {/* ⚖️🕐 21-oct-2026, a pedido del jefe: maquinaria ÷ toneladas del acarreo
+              (global y frente por frente) y el costo de la hora facturada. */}
+          <Toggle on={op.costoTonelada} label="⚖️ Costo maquinaria por tonelada (y por frente)" onPress={() => setOp((p) => ({ ...p, costoTonelada: !p.costoTonelada }))} />
+          <Toggle on={op.horaPromedio} label="🕐 Hora promedio de maquinaria" onPress={() => setOp((p) => ({ ...p, horaPromedio: !p.horaPromedio }))} />
           {/* Ocultar tarjetas una por una (como el resumen de frentes) */}
           <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>Ocultar tarjetas sueltas:</Text>
           <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 2 }}>
