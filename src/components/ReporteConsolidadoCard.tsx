@@ -491,6 +491,10 @@ export function ReporteConsolidadoCard() {
           ))}
         </View>
       ) : null}
+      {/* 🤖 21-oct-2026, decisión del jefe: en ESTE papel, jornada y horómetro son
+          uno u otro por máquina — manda el horómetro. Apagarlo vuelve a sumar los
+          dos (y lo dice el nombre del archivo, porque cambia la plata). */}
+      <Toggle on={op.seleccionAutomatica} label="🤖 Horómetro manda sobre jornada (uno u otro por máquina)" onPress={() => setOp((p) => ({ ...p, seleccionAutomatica: !p.seleccionAutomatica }))} />
       <Toggle on={!op.sinCantidades} label="📏 Lo que respalda cada monto (horas, viajes, toneladas)" onPress={() => setOp((p) => ({ ...p, sinCantidades: !p.sinCantidades }))} />
       <Toggle on={!op.sinPlaca} label="🔢 Placa / serial" onPress={() => setOp((p) => ({ ...p, sinPlaca: !p.sinPlaca }))} />
       <Toggle on={!op.sinMarcaModelo} label="🏷️ Marca y modelo (nace apagada)" onPress={() => setOp((p) => ({ ...p, sinMarcaModelo: !p.sinMarcaModelo }))} />

@@ -56,6 +56,11 @@ export type FilaConsolidada = {
    *  el de Reportes → ⛏️ Frentes, que desde el 19-oct se queda hasta reasignarse. */
   frente?: string | null;
   montos: Partial<Record<FuenteKey, number>>;
+  /** 🤖 Monto de JORNADA descartado por la selección automática (21-oct-2026):
+   *  cuando la máquina trae jornada Y horómetro sumando, manda el horómetro y
+   *  la jornada no se suma — acá queda CUÁNTO era, para decirlo en el papel.
+   *  Lo pone `filasElegidas`; una fila cruda no lo trae. */
+  jornadaDescartada?: number;
   /**
    * LO QUE RESPALDA cada monto, en la unidad natural de su fuente:
    * jornadas y horómetros en HORAS, viajes en VIAJES CON TARIFA, peso en KG.
@@ -99,6 +104,13 @@ export type OpcionesConsolidado = {
   solapes: boolean;
   comparacion: boolean;
   promedioDia: boolean;
+  /** 🤖 SELECCIÓN AUTOMÁTICA EN TODO EL PAPEL (21-oct-2026, decisión del jefe:
+   *  «la idea es que haga la selección automática en ese reporte»): si una
+   *  máquina trae jornada Y horómetro SUMANDO, manda el horómetro (el exacto) y
+   *  su jornada NO se suma — en el total, las tarjetas por fuente y todos los
+   *  cuadros. Lo descartado se dice en el resumen (este papel no inventa nada).
+   *  Nace prendida; apagarla va al nombre del archivo. */
+  seleccionAutomatica: boolean;
   /** ⚖️ Costo maquinaria ÷ toneladas del acarreo, global y por frente
    *  (21-oct-2026, a pedido del jefe: «$25.000 entre 2.000 t = $12,5 la
    *  tonelada»). Nace prendida: es el corazón del pedido. */
@@ -134,6 +146,7 @@ export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
   solapes: true,
   comparacion: true,
   promedioDia: true,
+  seleccionAutomatica: true,
   costoTonelada: true,
   horaPromedio: true,
 };
@@ -149,8 +162,37 @@ const cmpTx = (a: string, b: string) => a.localeCompare(b, 'es', { sensitivity: 
 export const fuentesQueSuman = (op: OpcionesConsolidado): FuenteKey[] => FUENTES_ORDEN.filter((f) => op.fuentes[f] === 'suma');
 export const fuentesVisibles = (op: OpcionesConsolidado): FuenteKey[] => FUENTES_ORDEN.filter((f) => op.fuentes[f] !== 'oculta');
 
+/**
+ * 🤖 LA SELECCIÓN AUTOMÁTICA (21-oct-2026, decisión del jefe): jornada y
+ * horómetro son UNO U OTRO por máquina — si la máquina trae horómetro SUMANDO,
+ * manda el horómetro y su jornada se pone en 0 (monto y horas), dejando en
+ * `jornadaDescartada` cuánto era para decirlo en el papel.
+ *
+ * ⭐ Solo descarta cuando el horómetro está EN «SUMA»: si el horómetro está de
+ *    referencia u oculto, nadie está facturando por él y la jornada se queda —
+ *    descartar la jornada ahí dejaría a la máquina facturando CERO sin que
+ *    nadie lo pidiera.
+ */
+function conSeleccionAutomatica(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): readonly FilaConsolidada[] {
+  if (!op.seleccionAutomatica || op.fuentes.horometros !== 'suma') return filas;
+  return filas.map((f) => {
+    const mJor = f.montos.jornadas ?? 0;
+    // Solo cuando el horómetro trae PLATA: un horómetro con horas pero $0 (sin
+    // precio) no puede dejar la máquina facturando cero en silencio.
+    const tieneHoro = (f.montos.horometros ?? 0) !== 0;
+    if (!tieneHoro || (mJor === 0 && (f.cant?.jornadas ?? 0) === 0)) return f;
+    return {
+      ...f,
+      montos: { ...f.montos, jornadas: 0 },
+      cant: f.cant ? { ...f.cant, jornadas: 0 } : f.cant,
+      jornadaDescartada: r2(mJor),
+    };
+  });
+}
+
 /** Aplica el selector de máquinas y bota las filas que quedaron sin NINGÚN monto visible. */
 export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): FilaConsolidada[] {
+  filas = conSeleccionAutomatica(filas, op);
   const marcadas = new Set(op.soloMaquinas ?? []);
   const empresas = new Set((op.soloEmpresas ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const categorias = new Set((op.soloCategorias ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
@@ -469,6 +511,22 @@ export function resumenConsolidado(d: {
       })),
     });
   }
+  // 🤖 Lo que la selección automática DESCARTÓ (la jornada de las máquinas donde
+  // mandó el horómetro): el papel factura distinto de los controles de origen,
+  // así que tiene que decir exactamente dónde y cuánto — no inventa ni esconde.
+  if (op.seleccionAutomatica) {
+    const descartadas = filasElegidas(d.filas, op).filter((f) => (f.jornadaDescartada ?? 0) !== 0);
+    if (descartadas.length > 0) {
+      cuadros.push({
+        k: 'auto_horometro',
+        titulo: `🤖 Mandó el horómetro (${descartadas.length}): la jornada no se sumó`,
+        filas: descartadas.map((f) => ({
+          clave: `${f.code}${f.placa ? ` · ${f.placa}` : ''} — se facturó ⚙️ ${usd(f.montos.horometros ?? 0)}; su jornada descartada:`,
+          n: f.jornadaDescartada as number,
+        })),
+      });
+    }
+  }
   if (op.solapes) {
     const s = solapesConsolidado(d.filas, op);
     cuadros.push({
@@ -522,7 +580,8 @@ export function cuerpoConsolidado(d: {
   const t = totalesConsolidado(d.filas, op);
   const solapeIds = new Set(solapesConsolidado(d.filas, op).map((x) => x.fila.id));
   let html = `<div class="cj">`;
-  html += `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Cada monto sale de su propio control (jornadas de Control de pagos, pago por horómetro, pago por viajes y pago por peso): este papel no inventa nada, solo junta y suma.${visibles.some((k) => !suman.has(k)) ? ' Lo marcado «ref» se muestra sin sumar.' : ''}</p>`;
+  const hayDescartes = elegidas.some((f) => (f.jornadaDescartada ?? 0) !== 0);
+  html += `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Cada monto sale de su propio control (jornadas de Control de pagos, pago por horómetro, pago por viajes y pago por peso): este papel no inventa nada, solo junta y suma.${hayDescartes ? ' 🤖 Donde una máquina trajo jornada Y horómetro, mandó el horómetro (el exacto) y su jornada no se sumó — el detalle está en el resumen.' : ''}${visibles.some((k) => !suman.has(k)) ? ' Lo marcado «ref» se muestra sin sumar.' : ''}</p>`;
   if (elegidas.length === 0) return `${html}<p class="nota">Sin montos en el rango con las fuentes elegidas.</p></div>`;
 
   const conCant = !op.sinCantidades;
@@ -613,6 +672,8 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
     partes.push({ maquina: 'por máquina', global: 'global', categoria: 'por categoría', frente: 'por frente' }[op.agruparPor]);
   }
   if (op.sinEmpresas) partes.push('sin empresas');
+  // 🤖 Apagar la selección automática cambia la PLATA del papel: va al nombre.
+  if (!op.seleccionAutomatica) partes.push('sumando jornada y horómetro');
   if ((op.soloMaquinas ?? []).length) partes.push(`solo ${(op.soloMaquinas ?? []).length} máquina(s)`);
   const emps = (op.soloEmpresas ?? []).map((e) => e.trim()).filter(Boolean);
   // Con UNA empresa el archivo dice CUÁL — ese es el papel que se le manda a esa empresa.
