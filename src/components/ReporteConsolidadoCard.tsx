@@ -44,7 +44,7 @@ import {
   FUENTES_META, FUENTES_ORDEN, OPCIONES_CONSOLIDADO_POR_DEFECTO, CSS_CONSOLIDADO,
   cuerpoConsolidado, subtituloConsolidado, nombreArchivoConsolidado, totalesConsolidado,
   usd, cantTexto, categoriaDe, frenteDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
-  type ViajeToneladas,
+  type ViajeToneladas, type DiaCrudoConsolidado, MAX_DIAS_GRAFICO_CONSOLIDADO,
 } from '../lib/reporteConsolidado';
 import { EDICION_RESUMEN_VACIA, edicionAlCambiarDeDia, type EdicionResumen, type TarjetaPropia } from '../lib/frentesReporte';
 import { caracasBusinessToday } from '../lib/caracasDay';
@@ -81,6 +81,9 @@ export function ReporteConsolidadoCard() {
   const [filasAnt, setFilasAnt] = useState<FilaConsolidada[] | null>(null);
   // ⚖️ Los viajes del rango cargado (frente + peso), para el costo por tonelada.
   const [viajesTon, setViajesTon] = useState<ViajeToneladas[]>([]);
+  // 📅 El día por día del rango (21-oct-2026, a pedido): las filas de CADA día,
+  //    armadas con los mismos motores. Vacío = la sección no sale.
+  const [porDia, setPorDia] = useState<DiaCrudoConsolidado[]>([]);
   const [rangoCalculado, setRangoCalculado] = useState<{ desde: string; hasta: string } | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -225,6 +228,27 @@ export function ReporteConsolidadoCard() {
       //    informe operativo (el que no se pesó cuenta y suma 0 t).
       setViajesTon(viajesEnRango((vDatos as any).viajes, desde, hasta)
         .map((v: any) => ({ frente_nombre: v.frente_nombre ?? null, peso_neto_kg: v.peso_neto_kg ?? null })));
+      // 📅 EL DÍA POR DÍA (21-oct-2026, a pedido: «una tabla operativa diaria
+      //    con un desglose del estilo del de viajes de camiones, y la gráfica»):
+      //    se corre LA MISMA `armar` con el rango de UN SOLO día — ni una
+      //    consulta nueva y ni una receta duplicada. El tope es el del gráfico:
+      //    más allá serían barras ilegibles y recalcular 90 veces congelaría la
+      //    pantalla por nada.
+      const porDiaNuevo: DiaCrudoConsolidado[] = [];
+      if (dias <= MAX_DIAS_GRAFICO_CONSOLIDADO) {
+        for (let i = 0; i < dias; i += 1) {
+          const dd = addDaysISO(desde, i);
+          porDiaNuevo.push({
+            jornada: dd,
+            filas: armar(dd, dd),
+            viajes: viajesEnRango((vDatos as any).viajes, dd, dd)
+              .map((v: any) => ({ frente_nombre: v.frente_nombre ?? null, peso_neto_kg: v.peso_neto_kg ?? null })),
+          });
+        }
+      } else {
+        nuevosAvisos.push(`📅 El día por día (tabla y gráfico) sale hasta ${MAX_DIAS_GRAFICO_CONSOLIDADO} días por rango.`);
+      }
+      setPorDia(porDiaNuevo);
       setRangoCalculado({ desde, hasta });
       setAvisos(nuevosAvisos);
       setEdicion((e) => edicionAlCambiarDeDia(e)); // los valores a mano no viajan a otro rango
@@ -232,6 +256,7 @@ export function ReporteConsolidadoCard() {
       toast.error(`No se pudo calcular: ${String(e?.message ?? e)}`);
       setFilas(null);
       setViajesTon([]); // sin viajes pegados de un cálculo anterior
+      setPorDia([]);
     } finally {
       setCargando(false);
     }
@@ -247,7 +272,7 @@ export function ReporteConsolidadoCard() {
         title: 'Reporte consolidado de pagos',
         subtitle: subtituloConsolidado(rangoCalculado, op, filtrado),
         extraCss: CSS_CONSOLIDADO,
-        body: cuerpoConsolidado({ filas, filasAnterior: filasAnt, desde: rangoCalculado.desde, hasta: rangoCalculado.hasta, viajesTon }, op, edicion),
+        body: cuerpoConsolidado({ filas, filasAnterior: filasAnt, desde: rangoCalculado.desde, hasta: rangoCalculado.hasta, viajesTon, dias: porDia }, op, edicion),
         logos,
         marcaTexto: false,
       });
@@ -491,6 +516,20 @@ export function ReporteConsolidadoCard() {
           ))}
         </View>
       ) : null}
+      {/* 📅📈 21-oct-2026, a pedido: «que tenga una tabla operativa diaria con un
+          desglose del estilo del de viajes de camiones, y la gráfica también».
+          El día por día usa los mismos motores con el rango de un solo día, y
+          respeta la decisión 🤖 del rango (si no, no sumaría el mismo total). */}
+      <Toggle on={op.tablaDiaria} label="📅 Tabla operativa diaria (día por día, fuente por fuente)" onPress={() => setOp((p) => ({ ...p, tablaDiaria: !p.tablaDiaria }))} />
+      {op.tablaDiaria ? (
+        <View style={{ paddingLeft: spacing.md }}>
+          <Toggle on={!op.sinDiaSemana} label="Día de la semana" onPress={() => setOp((p) => ({ ...p, sinDiaSemana: !p.sinDiaSemana }))} />
+          <Toggle on={!op.sinMaquinasDia} label="🚜 Máquinas que facturaron ese día" onPress={() => setOp((p) => ({ ...p, sinMaquinasDia: !p.sinMaquinasDia }))} />
+          <Toggle on={!op.sinToneladasDia} label="⚖️ Toneladas del acarreo ese día" onPress={() => setOp((p) => ({ ...p, sinToneladasDia: !p.sinToneladasDia }))} />
+          <Toggle on={!op.sinCostoTonDia} label="$/t del día" onPress={() => setOp((p) => ({ ...p, sinCostoTonDia: !p.sinCostoTonDia }))} />
+        </View>
+      ) : null}
+      <Toggle on={op.graficoDiario} label="📈 Gráfico del día por día (barras = lo facturado, línea = toneladas)" ayuda={`Con más de ${MAX_DIAS_GRAFICO_CONSOLIDADO} días no sale: serían barras ilegibles.`} onPress={() => setOp((p) => ({ ...p, graficoDiario: !p.graficoDiario }))} />
       {/* 🤖 21-oct-2026, decisión del jefe: en ESTE papel, jornada y horómetro son
           uno u otro por máquina — manda el horómetro. Apagarlo vuelve a sumar los
           dos (y lo dice el nombre del archivo, porque cambia la plata). */}

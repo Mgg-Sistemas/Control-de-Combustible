@@ -127,6 +127,18 @@ export type OpcionesConsolidado = {
   costoTonelada: boolean;
   /** 🕐 Costo maquinaria ÷ horas facturadas («la hora me salió a 89, no a 100»). */
   horaPromedio: boolean;
+  /** 📅 LA TABLA OPERATIVA DIARIA (21-oct-2026, a pedido: «que tenga una tabla
+   *  operativa diaria con un desglose del estilo del de viajes de camiones»):
+   *  día por día, fuente por fuente, con su fila TOTAL/PROM. Nace prendida. */
+  tablaDiaria: boolean;
+  /** 📈 El gráfico del día por día (barras = lo facturado, línea = toneladas
+   *  del acarreo, o máquinas si no hubo acarreo). Nace prendido. */
+  graficoDiario: boolean;
+  /** Columnas de la tabla diaria, una por una (igual que el informe operativo). */
+  sinDiaSemana: boolean;
+  sinMaquinasDia: boolean;
+  sinToneladasDia: boolean;
+  sinCostoTonDia: boolean;
   /** Ids marcados en el selector; vacío = todas. Esto SÍ cambia el total (va FILTRADO). */
   soloMaquinas?: string[];
   /** NOMBRES de empresa marcados; vacío = todas (19-oct-2026, a pedido: «poder
@@ -160,6 +172,14 @@ export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
   desgloseAutomatico: true,
   costoTonelada: true,
   horaPromedio: true,
+  // 📅📈 Lo pedido el 21-oct nace PRENDIDO (es el pedido mismo), con todas sus
+  //      columnas a la vista; cada una tiene su pastilla para apagarla.
+  tablaDiaria: true,
+  graficoDiario: true,
+  sinDiaSemana: false,
+  sinMaquinasDia: false,
+  sinToneladasDia: false,
+  sinCostoTonDia: false,
 };
 
 export const usd = (n: number) => `$${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -415,6 +435,180 @@ export function costoPorTonelada(
   };
 }
 
+// ── 📅 LA OPERACIÓN DÍA POR DÍA (21-oct-2026, a pedido) ──────────────────────
+//
+// Pedido textual: «para ese reporte consolidado, que tenga una tabla operativa
+// diaria con un desglose o del estilo del viajes de camiones, y la gráfica
+// también». El molde es el del 📊 Informe operativo de Viajes de camiones
+// (informeOperativo.ts): tabla con su fila TOTAL/PROM. y gráfico SVG a mano
+// (barras + línea), porque los PDF de la casa son HTML impreso y ahí no hay
+// librerías de gráficos.
+//
+// ⭐ ESTE ARCHIVO SIGUE SIN CALCULAR PLATA: el día por día llega ya armado
+//    desde la pantalla, que corre LOS MISMOS CUATRO MOTORES con el rango de un
+//    solo día. Acá se junta, se suma y se pinta — igual que el resto del papel.
+//    Por eso cada día pasa por `filasElegidas` (filtros + 🤖 selección
+//    automática) y por `costoPorTonelada`: el día por día obedece las mismas
+//    reglas que el total, no una copia aparte.
+//
+// ⚠️ EL CUADRE SE DICE, NO SE MAQUILLA: sumar los días puede dar unos centavos
+//    distinto del TOTAL GENERAL (el rango acumula sin redondear y redondea una
+//    vez; el día por día redondea cada día), y el horómetro de una máquina que
+//    solo tuvo lecturas dos veces en la semana no se puede repartir por día sin
+//    inventar. Cuando la suma no cuadra, el papel lo DICE con la diferencia
+//    exacta y el TOTAL GENERAL del reporte sigue siendo el de arriba.
+
+/** Lo que la pantalla entrega por cada día: las filas de ESE día y sus viajes. */
+export type DiaCrudoConsolidado = {
+  /** La jornada (7am–7am) en ISO: el «día» de toda la app. */
+  jornada: string;
+  filas: readonly FilaConsolidada[];
+  viajes?: readonly ViajeToneladas[] | null;
+};
+
+export type DiaConsolidado = {
+  jornada: string;
+  diaSemana: string;
+  /** Fichas que facturaron ese día (de las elegidas). */
+  maquinas: number;
+  montos: Record<FuenteKey, number>;
+  cant: Record<FuenteKey, number>;
+  /** Solo las fuentes en 'suma' (el mismo total del papel, pero del día). */
+  total: number;
+  /** $ y horas de MAQUINARIA del día con la regla uno-u-otro (para el $/t). */
+  costoMaq: number;
+  horasMaq: number;
+  toneladas: number;
+  viajes: number;
+  sinPeso: number;
+  usdPorTon: number | null;
+};
+
+const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+/** «Lunes», «Martes»… de una jornada ISO (mediodía UTC: el huso no corre el día). */
+export function diaSemanaConsolidado(jornadaIso: string): string {
+  const t = Date.parse(`${String(jornadaIso ?? '').slice(0, 10)}T12:00:00Z`);
+  if (!Number.isFinite(t)) return '';
+  return DIAS_SEMANA[new Date(t).getUTCDay()];
+}
+
+/**
+ * Los días CON actividad, en orden. Un domingo sin nada no sale (igual que el
+ * informe operativo: un papel de un mes no arrastra filas de ceros).
+ *
+ * ⭐ `filasRango` son las filas del RANGO COMPLETO, y no es un adorno: con
+ *    ellas se CONGELA la decisión de la 🤖 selección automática. La regla es
+ *    por máquina y por rango («esta máquina factura por horómetro»), así que
+ *    aplicarla otra vez día por día daría otra respuesta — una máquina con
+ *    horómetro solo el martes volvería a cobrar jornada el lunes y el día por
+ *    día no sumaría el TOTAL del papel. Se decide una vez arriba y los días
+ *    obedecen esa misma decisión.
+ */
+export function diasConsolidados(
+  dias: readonly DiaCrudoConsolidado[] | null | undefined,
+  op: OpcionesConsolidado,
+  filasRango?: readonly FilaConsolidada[] | null,
+): DiaConsolidado[] {
+  // Quiénes quedaron SIN jornada en el papel (decidido con el rango completo).
+  const sinJornada = new Set<string>(
+    op.seleccionAutomatica
+      ? filasElegidas(filasRango ?? [], op).filter((f) => (f.jornadaDescartada ?? 0) !== 0).map((f) => f.id)
+      : [],
+  );
+  // Los días NO vuelven a decidir: ya se decidió arriba.
+  const opDia: OpcionesConsolidado = { ...op, seleccionAutomatica: false };
+  const comoElPapel = (filas: readonly FilaConsolidada[]): readonly FilaConsolidada[] =>
+    sinJornada.size === 0 ? filas : filas.map((f) => (sinJornada.has(f.id)
+      ? { ...f, montos: { ...f.montos, jornadas: 0 }, cant: f.cant ? { ...f.cant, jornadas: 0 } : f.cant }
+      : f));
+  return (dias ?? [])
+    .map((d) => {
+      const jornada = String(d?.jornada ?? '').slice(0, 10);
+      const filas = comoElPapel(d?.filas ?? []);
+      const t = totalesConsolidado(filas, opDia);
+      const ct = costoPorTonelada(filas, opDia, d?.viajes ?? []);
+      return {
+        jornada,
+        diaSemana: diaSemanaConsolidado(jornada),
+        maquinas: t.maquinas,
+        montos: t.porFuente,
+        cant: t.cantPorFuente,
+        total: t.total,
+        costoMaq: ct.costo,
+        horasMaq: ct.horas,
+        toneladas: ct.toneladas,
+        viajes: ct.viajes,
+        sinPeso: ct.sinPeso,
+        usdPorTon: ct.usdPorTon,
+      };
+    })
+    .filter((d) => d.jornada && (d.maquinas > 0 || d.viajes > 0))
+    .sort((a, b) => a.jornada.localeCompare(b.jornada));
+}
+
+/** Hasta cuántos días cabe el gráfico sin volverse una pulpa ilegible (mismo tope del informe operativo). */
+export const MAX_DIAS_GRAFICO_CONSOLIDADO = 62;
+
+/**
+ * El gráfico del día por día: barras con lo facturado y una línea encima con
+ * lo que movió el acarreo (toneladas) — y si en el rango no hubo ni una
+ * tonelada, la línea cuenta las máquinas que facturaron. SVG a mano.
+ */
+export function graficoDiarioConsolidadoSvg(dias: readonly DiaConsolidado[], op: OpcionesConsolidado): string {
+  if (!dias.length || dias.length > MAX_DIAS_GRAFICO_CONSOLIDADO) return '';
+  // La línea cuenta toneladas cuando hay; si el papel las apagó o no hubo
+  // acarreo, cuenta máquinas (nunca se dibuja una línea en cero inventada).
+  const conTon = !op.sinToneladasDia && dias.some((d) => d.toneladas > 0);
+  const valLinea = (d: DiaConsolidado) => (conTon ? d.toneladas : d.maquinas);
+  const rotulo = (d: DiaConsolidado) => (conTon ? `${Math.round(d.toneladas)}t` : `${d.maquinas}`);
+  const W = 900, H = 260;
+  const m = { izq: 62, der: 16, arr: 26, aba: 34 };
+  const aw = W - m.izq - m.der;
+  const ah = H - m.arr - m.aba;
+  const maxM = Math.max(1, ...dias.map((d) => d.total));
+  const maxL = Math.max(1, ...dias.map(valLinea));
+  const paso = aw / dias.length;
+  const barW = Math.min(26, Math.max(3, paso * 0.5));
+  const xDe = (i: number) => m.izq + paso * i + paso / 2;
+  const yM = (v: number) => m.arr + ah - (v / maxM) * ah;
+  const yL = (v: number) => m.arr + ah - (v / maxL) * ah * 0.9; // la línea no pisa el techo
+
+  const miles = (n: number) => `$${Math.round(n).toLocaleString('es-VE')}`;
+  const grid = [0, 0.5, 1].map((p) => {
+    const y = m.arr + ah - ah * p;
+    return `<line x1="${m.izq}" y1="${y}" x2="${W - m.der}" y2="${y}" stroke="#d8dee9" stroke-width="1"/>`
+      + `<text x="${m.izq - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="#5b6472">${miles(maxM * p)}</text>`;
+  }).join('');
+
+  const barras = dias.map((d, i) =>
+    `<rect x="${(xDe(i) - barW / 2).toFixed(1)}" y="${yM(d.total).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0, m.arr + ah - yM(d.total)).toFixed(1)}" rx="2" fill="#2E86C1"/>`,
+  ).join('');
+
+  const puntosLinea = dias.map((d, i) => `${xDe(i).toFixed(1)},${yL(valLinea(d)).toFixed(1)}`).join(' ');
+  // Con muchos días, rotular cada punto se vuelve una nube: se rotula salteado
+  // para que nunca haya más de ~15 rótulos (y siempre el último).
+  const cada = Math.max(1, Math.ceil(dias.length / 15));
+  const puntos = dias.map((d, i) =>
+    `<circle cx="${xDe(i).toFixed(1)}" cy="${yL(valLinea(d)).toFixed(1)}" r="2.6" fill="#17202A"/>`
+    + (i % cada === 0 || i === dias.length - 1
+      ? `<text x="${xDe(i).toFixed(1)}" y="${(yL(valLinea(d)) - 7).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#17202A">${rotulo(d)}</text>`
+      : ''),
+  ).join('');
+
+  const fechas = dias.map((d, i) => {
+    if (i % cada !== 0 && i !== dias.length - 1) return '';
+    const [, mm, dd] = d.jornada.split('-');
+    return `<text x="${xDe(i).toFixed(1)}" y="${H - 14}" text-anchor="middle" font-size="9" fill="#5b6472">${dd}/${mm}</text>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;background:#fff">`
+    + grid + barras
+    + `<polyline points="${puntosLinea}" fill="none" stroke="#17202A" stroke-width="2"/>`
+    + puntos + fechas
+    + `<text x="${m.izq}" y="${H - 2}" font-size="9" fill="#5b6472">■ Barra: lo facturado del día · ● Línea: ${conTon ? 'toneladas del acarreo' : 'máquinas que facturaron'}</text>`
+    + '</svg>';
+}
+
 /** Días del rango, ambos inclusive (para el promedio por día). */
 export function diasDelPeriodo(desde: string, hasta: string): number {
   const a = Date.parse(`${desde}T00:00:00Z`), b = Date.parse(`${hasta}T00:00:00Z`);
@@ -574,6 +768,8 @@ export const CSS_CONSOLIDADO = `
   .cj th,.cj td{border:1px solid #c9d2dc;padding:4px 6px;text-align:left}
   .cj th{background:#16324F;color:#fff;font-size:8.5px;letter-spacing:.3px}
   .cj .r{text-align:right}
+  .cj td.c{text-align:center}
+  .cj .marco{border:1px solid #c9d2dc;border-radius:6px;padding:8px;margin:4px 0 10px}
   .cj tr.tot td{background:#16324F;color:#fff;font-weight:800}
   .cj tr.sub td{background:#E8EEF5;font-weight:800}
   .cj td.ref{color:#8a8f98;font-style:italic}
@@ -590,6 +786,9 @@ export function cuerpoConsolidado(d: {
   /** Los viajes del rango (frente + peso) para el ⚖️ costo por tonelada; llega
    *  tal cual a resumenConsolidado. Sin ellos la tarjeta dice «—». */
   viajesTon?: readonly ViajeToneladas[] | null;
+  /** 📅 El día por día, ya armado por la pantalla con los mismos motores
+   *  (rango de un solo día). Sin esto, la sección simplemente no sale. */
+  dias?: readonly DiaCrudoConsolidado[] | null;
 }, op: OpcionesConsolidado, edicion?: EdicionResumen): string {
   const elegidas = filasElegidas(d.filas, op);
   const visibles = fuentesVisibles(op);
@@ -626,6 +825,74 @@ export function cuerpoConsolidado(d: {
         continue;
       }
       html += `<h3>${esc(c.titulo)}</h3><table><tbody>${c.filas.map((f) => `<tr><td>${esc(f.clave)}</td><td class="r b">${usd(f.n)}</td></tr>`).join('')}</tbody></table>`;
+    }
+  }
+
+  // ── 📅 La operación día por día (21-oct-2026, a pedido) ──
+  //    Molde del 📊 Informe operativo de Viajes de camiones: el gráfico arriba
+  //    (se lee de un golpe) y debajo la tabla con su fila TOTAL / PROM.
+  if (op.tablaDiaria || op.graficoDiario) {
+    const ds = diasConsolidados(d.dias, op, d.filas);
+    if (ds.length > 0) {
+      html += `<h2>📅 Operación día por día</h2>`;
+      if (op.graficoDiario) {
+        const svg = graficoDiarioConsolidadoSvg(ds, op);
+        if (svg) html += `<div class="marco">${svg}</div>`;
+        else if (ds.length > MAX_DIAS_GRAFICO_CONSOLIDADO) {
+          html += `<p class="nota">El gráfico no sale con más de ${MAX_DIAS_GRAFICO_CONSOLIDADO} días (serían barras ilegibles). Acorta el rango para verlo.</p>`;
+        }
+      }
+      if (op.tablaDiaria) {
+        // Mismo patrón del informe operativo: un descriptor por columna, las
+        // opcionales entran con spread condicional y el pie se arma con la
+        // MISMA lista (así nunca se descuadran encabezado, celda y total).
+        type ColDia = { k: string; th: string; cls: string; celda: (x: DiaConsolidado) => string };
+        const montoCelda = (k: FuenteKey, v: number, c: number): string =>
+          v === 0 && c === 0 ? '—' : `${usd(v)}${conCant && cantTexto(k, c) ? `<div class="q">${esc(cantTexto(k, c))}</div>` : ''}`;
+        const cols: ColDia[] = [
+          { k: 'fecha', th: 'Fecha', cls: '', celda: (x) => dmy(x.jornada) },
+          ...(!op.sinDiaSemana ? [{ k: 'dia', th: 'Día', cls: '', celda: (x: DiaConsolidado) => esc(x.diaSemana) }] : []),
+          ...(!op.sinMaquinasDia ? [{ k: 'maq', th: '🚜 Máquinas', cls: 'r', celda: (x: DiaConsolidado) => String(x.maquinas) }] : []),
+          ...visibles.map((k) => ({
+            k: `f_${k}`,
+            th: `${FUENTES_META[k].icon} ${FUENTES_META[k].label}${suman.has(k) ? '' : ' (ref)'}`,
+            cls: suman.has(k) ? 'r' : 'r ref',
+            celda: (x: DiaConsolidado) => montoCelda(k, x.montos[k] ?? 0, x.cant[k] ?? 0),
+          })),
+          { k: 'total', th: 'TOTAL', cls: 'r', celda: (x) => usd(x.total) },
+          ...(!op.sinToneladasDia ? [{ k: 'ton', th: '⚖️ Toneladas', cls: 'r', celda: (x: DiaConsolidado) => (x.toneladas > 0 ? tons(x.toneladas) : '—') }] : []),
+          ...(!op.sinCostoTonDia ? [{ k: 'ut', th: '$/t del día', cls: 'r', celda: (x: DiaConsolidado) => (x.usdPorTon != null ? `${usd(x.usdPorTon)} /t` : '—') }] : []),
+        ];
+        const sum = (f: (x: DiaConsolidado) => number) => r2(ds.reduce((s, x) => s + f(x), 0));
+        const sumaDias = sum((x) => x.total);
+        const totTon = sum((x) => x.toneladas);
+        const totCosto = sum((x) => x.costoMaq);
+        const totSinPeso = sum((x) => x.sinPeso);
+        const totalCelda = (k: string): string => {
+          if (k === 'fecha') return `TOTAL / PROM. · ${ds.length} día(s) con operación`;
+          if (k === 'dia') return '—';
+          // Las máquinas del rango no se suman (la misma ficha trabaja varios
+          // días): se dice el MÁXIMO del día más cargado, como la flota del
+          // informe operativo.
+          if (k === 'maq') return `${Math.max(0, ...ds.map((x) => x.maquinas))} (máx)`;
+          if (k === 'total') return usd(sumaDias);
+          if (k === 'ton') return totTon > 0 ? tons(totTon) : '—';
+          if (k === 'ut') return totTon > 0 ? `${usd(r2(totCosto / totTon))} /t` : '—';
+          const f = k.slice(2) as FuenteKey;
+          return montoCelda(f, sum((x) => x.montos[f] ?? 0), sum((x) => x.cant[f] ?? 0));
+        };
+        html += `<table><thead><tr>${cols.map((c) => `<th${c.cls ? ` class="${c.cls}"` : ''}>${c.th}</th>`).join('')}</tr></thead><tbody>`
+          + ds.map((x) => `<tr>${cols.map((c) => `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.celda(x)}</td>`).join('')}</tr>`).join('')
+          + `<tr class="tot">${cols.map((c) => `<td${c.cls ? ` class="${c.cls}"` : ''}>${totalCelda(c.k)}</td>`).join('')}</tr></tbody></table>`;
+        if (totSinPeso > 0 && !op.sinToneladasDia) {
+          html += `<p class="nota">${Math.round(totSinPeso)} viaje(s) del rango no tienen peso de romana: cuentan como viajes pero no suman toneladas. Nada se inventa.</p>`;
+        }
+        // ⚠️ EL CUADRE SE DICE, NO SE MAQUILLA: el que manda es el TOTAL GENERAL.
+        if (sumaDias !== t.total) {
+          const dif = r2(t.total - sumaDias);
+          html += `<p class="nota">El día por día suma ${usd(sumaDias)} y el TOTAL GENERAL del papel es ${usd(t.total)} (${dif > 0 ? 'faltan' : 'sobran'} ${usd(Math.abs(dif))}): la jornada se cobra con el precio de la semana completa y se redondea una sola vez al final, así que repartirla día por día deja diferencias de centavos. Manda el TOTAL GENERAL.</p>`;
+        }
+      }
     }
   }
 
@@ -716,6 +983,15 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   if (fts.length === 1) partes.push(`solo ${fts[0]}`);
   else if (fts.length > 1) partes.push(`solo ${fts.length} frentes`);
   if (!op.resumen) partes.push('sin resumen');
+  // 📅 El día por día y sus columnas: lo apagado va al NOMBRE, no al papel.
+  if (!op.tablaDiaria) partes.push('sin tabla diaria');
+  if (!op.graficoDiario) partes.push('sin gráfico');
+  if (op.tablaDiaria) {
+    if (op.sinDiaSemana) partes.push('sin día de la semana');
+    if (op.sinMaquinasDia) partes.push('sin columna de máquinas');
+    if (op.sinToneladasDia) partes.push('sin toneladas por día');
+    if (op.sinCostoTonDia) partes.push('sin $/t por día');
+  }
   if (op.sinCantidades) partes.push('sin cantidades');
   return partes.length ? ` (${partes.join(', ')})` : '';
 }

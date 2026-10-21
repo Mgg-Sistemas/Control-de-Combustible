@@ -247,9 +247,12 @@ const OP = C.OPCIONES_CONSOLIDADO_POR_DEFECTO;
 // ── 8) LA PANTALLA LO USA (no una copia suya) ────────────────────────────────
 {
   const card = fs.readFileSync(path.join(ROOT, 'src/components/ReporteConsolidadoCard.tsx'), 'utf8');
+  // (21-oct-2026: la llamada ganó `dias: porDia` con la 📅 tabla operativa
+  //  diaria, así que el pin ya no cierra con «viajesTon }» — se pide que
+  //  viajesTon siga viajando al papel, no que sea el último argumento.)
   ok('⭐ la pantalla guarda los viajes del rango (frente + peso) y los pasa al PDF',
     card.includes('setViajesTon(viajesEnRango((vDatos as any).viajes, desde, hasta)')
-    && /cuerpoConsolidado\(\{ filas, filasAnterior: filasAnt, desde: rangoCalculado\.desde, hasta: rangoCalculado\.hasta, viajesTon \}/.test(card));
+    && /cuerpoConsolidado\(\{ filas, filasAnterior: filasAnt, desde: rangoCalculado\.desde, hasta: rangoCalculado\.hasta, viajesTon[,}]/.test(card));
   ok('* con sus dos pastillas en el resumen', card.includes('⚖️ Costo maquinaria por tonelada (y por frente)') && card.includes('🕐 Hora promedio de maquinaria'));
   ok('* y las tarjetas se pueden ocultar una a una', card.includes("{ k: 'costo_ton', label: '⚖️ Costo por tonelada' }") && card.includes("{ k: 'hora_prom', label: '🕐 Hora promedio' }"));
 }
