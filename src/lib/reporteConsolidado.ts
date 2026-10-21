@@ -597,8 +597,11 @@ export function cuerpoConsolidado(d: {
   const t = totalesConsolidado(d.filas, op);
   const solapeIds = new Set(solapesConsolidado(d.filas, op).map((x) => x.fila.id));
   let html = `<div class="cj">`;
-  const hayDescartes = elegidas.some((f) => (f.jornadaDescartada ?? 0) !== 0);
-  html += `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Cada monto sale de su propio control (jornadas de Control de pagos, pago por horómetro, pago por viajes y pago por peso): este papel no inventa nada, solo junta y suma.${hayDescartes ? ` 🤖 Donde una máquina trajo jornada Y horómetro, mandó el horómetro (el exacto) y su jornada no se sumó${op.desgloseAutomatico && op.resumen ? ' — el detalle está en el resumen' : ''}.` : ''}${visibles.some((k) => !suman.has(k)) ? ' Lo marcado «ref» se muestra sin sumar.' : ''}</p>`;
+  // 🧹 SIN NOTA INTRODUCTORIA (21-oct-2026, a pedido: «eso no hace falta»): el
+  // papel arranca directo. La fecha ya va en el subtítulo del membrete, el
+  // «(ref)» ya se marca en la cabecera de su columna, y la regla del horómetro
+  // no se anuncia (regla de la casa: las opciones no se anuncian en el papel) —
+  // su desglose, si se quiere, está en el cuadro 🤖 del resumen.
   if (elegidas.length === 0) return `${html}<p class="nota">Sin montos en el rango con las fuentes elegidas.</p></div>`;
 
   const conCant = !op.sinCantidades;
