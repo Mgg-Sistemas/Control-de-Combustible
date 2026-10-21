@@ -45,16 +45,37 @@ export function fotoLigeraUrl(url: string | null | undefined, ancho = ANCHO_PAPE
 const attr = (s: string) => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /**
+ * ⛔ SOLO ENLACES DE FOTO. Lo que entra viene de la base (`photo_url`,
+ * `horometro_photo`…), y lo que sale se imprime como HTML: un valor con otro
+ * esquema (`javascript:` y parientes) no tiene nada que hacer en un `src`.
+ * Lo que no sea http/https/data:image se descarta — la ficha sale sin foto,
+ * que es exactamente lo que pasa cuando no hay foto.
+ */
+export function urlDeFotoSegura(url: string | null | undefined): string {
+  const u = String(url ?? '').trim();
+  if (!u) return '';
+  if (/^https?:\/\//i.test(u)) return u;
+  if (/^data:image\//i.test(u)) return u;
+  return '';
+}
+
+/**
  * El `<img>` de un papel: pide la foto ligera y, si esa falla, cae sola a la
- * original (`onerror`, una sola vez — si la original también falla, se queda
- * quieta en vez de dar vueltas).
+ * original.
+ *
+ * ⭐ EL RESPALDO NO ARMA CÓDIGO CON LA URL (21-oct-2026): la original viaja en
+ *    `data-orig` y el `onerror` es una línea FIJA que la lee de ahí. Si la URL
+ *    se escribiera dentro del `onerror`, una comilla guardada en la base —aun
+ *    escapada como entidad, porque el navegador la decodifica antes de
+ *    ejecutar— cerraría la cadena y lo que siguiera correría como JavaScript
+ *    en el documento que se imprime.
  */
 export function imgPapel(url: string | null | undefined, extras = ''): string {
-  const original = String(url ?? '').trim();
+  const original = urlDeFotoSegura(url);
   if (!original) return '';
   const ligera = fotoLigeraUrl(original);
   const respaldo = ligera !== original
-    ? ` onerror="this.onerror=null;this.src='${attr(original).replace(/'/g, '&#39;')}'"`
+    ? ` data-orig="${attr(original)}" onerror="this.onerror=null;this.src=this.dataset.orig"`
     : '';
   return `<img src="${attr(ligera)}" alt=""${respaldo}${extras ? ` ${extras}` : ''}/>`;
 }
