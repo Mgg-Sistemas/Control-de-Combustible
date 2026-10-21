@@ -495,6 +495,12 @@ export function ReporteConsolidadoCard() {
           uno u otro por máquina — manda el horómetro. Apagarlo vuelve a sumar los
           dos (y lo dice el nombre del archivo, porque cambia la plata). */}
       <Toggle on={op.seleccionAutomatica} label="🤖 Horómetro manda sobre jornada (uno u otro por máquina)" onPress={() => setOp((p) => ({ ...p, seleccionAutomatica: !p.seleccionAutomatica }))} />
+      {/* 🤖 21-oct-2026, a pedido: «que tome lo del horómetro pero que no me salga
+          esa información si no quiero» — apaga el cuadro «Mandó el horómetro» y la
+          cola de «fuera del cuadro: … sin toneladas». La regla sigue aplicando. */}
+      {op.seleccionAutomatica ? (
+        <Toggle on={op.desgloseAutomatico} label="🧾 El desglose de lo descartado (cuadro «Mandó el horómetro» y «sin toneladas»)" onPress={() => setOp((p) => ({ ...p, desgloseAutomatico: !p.desgloseAutomatico }))} />
+      ) : null}
       <Toggle on={!op.sinCantidades} label="📏 Lo que respalda cada monto (horas, viajes, toneladas)" onPress={() => setOp((p) => ({ ...p, sinCantidades: !p.sinCantidades }))} />
       <Toggle on={!op.sinPlaca} label="🔢 Placa / serial" onPress={() => setOp((p) => ({ ...p, sinPlaca: !p.sinPlaca }))} />
       <Toggle on={!op.sinMarcaModelo} label="🏷️ Marca y modelo (nace apagada)" onPress={() => setOp((p) => ({ ...p, sinMarcaModelo: !p.sinMarcaModelo }))} />
