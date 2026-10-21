@@ -96,6 +96,12 @@ export type OpcionesConsolidado = {
   solapes: boolean;
   comparacion: boolean;
   promedioDia: boolean;
+  /** ⚖️ Costo maquinaria ÷ toneladas del acarreo, global y por frente
+   *  (21-oct-2026, a pedido del jefe: «$25.000 entre 2.000 t = $12,5 la
+   *  tonelada»). Nace prendida: es el corazón del pedido. */
+  costoTonelada: boolean;
+  /** 🕐 Costo maquinaria ÷ horas facturadas («la hora me salió a 89, no a 100»). */
+  horaPromedio: boolean;
   /** Ids marcados en el selector; vacío = todas. Esto SÍ cambia el total (va FILTRADO). */
   soloMaquinas?: string[];
   /** NOMBRES de empresa marcados; vacío = todas (19-oct-2026, a pedido: «poder
@@ -125,6 +131,8 @@ export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
   solapes: true,
   comparacion: true,
   promedioDia: true,
+  costoTonelada: true,
+  horaPromedio: true,
 };
 
 export const usd = (n: number) => `$${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -220,6 +228,104 @@ export function topMaquinas(filas: readonly FilaConsolidada[], op: OpcionesConso
     .slice(0, n);
 }
 
+// ── ⚖️ COSTO DE MAQUINARIA POR TONELADA (21-oct-2026, a pedido del jefe) ──────
+//
+// Pedido, con su ejemplo textual: «yo agarro 25 máquinas que tuve en los cinco
+// frentes… $25.000 entre 2.000 toneladas que movió el acarreo, me salió a $12,5
+// la tonelada puesta en el CET». Y la otra punta: «divido las horas totales
+// facturadas… la hora me salió a 89, no a 100».
+//
+// LA REGLA, PIEZA POR PIEZA:
+//  · El COSTO es lo que factura la MAQUINARIA: jornadas + horómetros (las
+//    fuentes de máquina). Los viajes y el peso son el ACARREO — son el divisor,
+//    no el dividendo. Una fuente OCULTA no existe (regla de la casa).
+//  · Las TONELADAS son las del peso de romana congelado de CADA viaje del
+//    rango — la MISMA regla del informe operativo: entran TODOS los viajes,
+//    el que no se pesó cuenta como viaje, suma 0 t, y el papel dice cuántos.
+//  · POR FRENTE (los «frentes vinculantes» del jefe): el costo se agrupa por el
+//    frente vigente de cada máquina y las toneladas por el frente congelado de
+//    cada viaje — los dos lados ya quedaron sincronizados el 20-oct. El cruce
+//    de nombres no distingue mayúsculas.
+//  · Si el papel está FILTRADO por frentes, las toneladas se cortan por esos
+//    mismos frentes. Los demás filtros (empresa, categoría, máquinas) cortan el
+//    costo pero NO las toneladas (un viaje no es de una empresa de maquinaria):
+//    la tarjeta lo advierte para que el número no se lea como lo que no es.
+/** Las fuentes que son MAQUINARIA (el costo); viajes y peso son el acarreo. */
+export const FUENTES_MAQUINARIA: readonly FuenteKey[] = ['jornadas', 'horometros'];
+
+/** Lo que hace falta de cada viaje del rango: su frente congelado y su peso. */
+export type ViajeToneladas = { frente_nombre?: string | null; peso_neto_kg?: number | string | null };
+
+export type FrenteTonelada = { frente: string; costo: number; horas: number; toneladas: number; usdPorTon: number | null };
+export type CostoTonelada = {
+  costo: number;            // $ maquinaria (jornadas + horómetros no ocultos)
+  horas: number;            // horas que respaldan ese costo
+  toneladas: number;        // t del acarreo (peso romana / 1000)
+  viajes: number;           // viajes que entraron al conteo
+  sinPeso: number;          // de esos, cuántos sin pesar (suman 0 t)
+  usdPorTon: number | null; // costo/toneladas — null si no hay toneladas
+  usdPorHora: number | null;// costo/horas — null si no hay horas
+  porFrente: FrenteTonelada[];
+};
+
+export const tons = (n: number) => `${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t`;
+
+export function costoPorTonelada(
+  filas: readonly FilaConsolidada[],
+  op: OpcionesConsolidado,
+  viajes: readonly ViajeToneladas[] | null | undefined,
+): CostoTonelada {
+  const maq = FUENTES_MAQUINARIA.filter((k) => op.fuentes[k] !== 'oculta');
+  const soloFrentes = new Set((op.soloFrentes ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
+  // El cruce por frente es por NOMBRE sin distinguir mayúsculas: el de la máquina
+  // viene del catálogo de frentes y el del viaje quedó congelado como texto.
+  const pf = new Map<string, FrenteTonelada>();
+  const fr = (nombre: string): FrenteTonelada => {
+    const k = nombre.trim().toLowerCase();
+    let x = pf.get(k);
+    if (!x) { x = { frente: nombre.trim(), costo: 0, horas: 0, toneladas: 0, usdPorTon: null }; pf.set(k, x); }
+    return x;
+  };
+  let costo = 0;
+  let horas = 0;
+  for (const f of filasElegidas(filas, op)) {
+    const c = maq.reduce((s, k) => s + (f.montos[k] ?? 0), 0);
+    const h = maq.reduce((s, k) => s + (f.cant?.[k] ?? 0), 0);
+    if (c === 0 && h === 0) continue;
+    costo = r2(costo + c);
+    horas = r2(horas + h);
+    const x = fr(frenteDe(f));
+    x.costo = r2(x.costo + c);
+    x.horas = r2(x.horas + h);
+  }
+  let toneladas = 0;
+  let nViajes = 0;
+  let sinPeso = 0;
+  for (const v of viajes ?? []) {
+    const fnom = String(v.frente_nombre ?? '').trim() || SIN_FRENTE;
+    if (soloFrentes.size > 0 && !soloFrentes.has(fnom.toLowerCase())) continue;
+    nViajes += 1;
+    const kg = Number(v.peso_neto_kg);
+    if (Number.isFinite(kg) && kg > 0) {
+      toneladas += kg / 1000;
+      const x = fr(fnom);
+      x.toneladas += kg / 1000;
+    } else {
+      sinPeso += 1; // el viaje cuenta, su carga no se inventa (regla del informe operativo)
+    }
+  }
+  toneladas = r2(toneladas);
+  const porFrente = Array.from(pf.values())
+    .map((x) => ({ ...x, toneladas: r2(x.toneladas), usdPorTon: x.toneladas > 0 ? r2(x.costo / x.toneladas) : null }))
+    .sort((a, b) => cmpTx(a.frente, b.frente));
+  return {
+    costo, horas, toneladas, viajes: nViajes, sinPeso,
+    usdPorTon: toneladas > 0 ? r2(costo / toneladas) : null,
+    usdPorHora: horas > 0 ? r2(costo / horas) : null,
+    porFrente,
+  };
+}
+
 /** Días del rango, ambos inclusive (para el promedio por día). */
 export function diasDelPeriodo(desde: string, hasta: string): number {
   const a = Date.parse(`${desde}T00:00:00Z`), b = Date.parse(`${hasta}T00:00:00Z`);
@@ -242,6 +348,8 @@ export function resumenConsolidado(d: {
   filasAnterior?: readonly FilaConsolidada[] | null;
   desde: string;
   hasta: string;
+  /** Los viajes del rango (frente + peso), para el ⚖️ costo por tonelada. */
+  viajesTon?: readonly ViajeToneladas[] | null;
 }, op: OpcionesConsolidado): ResumenFrentes {
   const t = totalesConsolidado(d.filas, op);
   const tarjetas: ResumenFrentes['tarjetas'] = [];
@@ -264,6 +372,46 @@ export function resumenConsolidado(d: {
   if (op.promedioDia) {
     const dias = diasDelPeriodo(d.desde, d.hasta);
     tarjetas.push({ k: 'promedio_dia', titulo: '📅 Promedio por día', valor: dias > 0 ? usd(t.total / dias) : '—', nota: dias > 0 ? `${dias} día(s)` : undefined });
+  }
+  // ⚖️🕐 Lo que el jefe calcula a mano todos los días (21-oct-2026, a pedido):
+  // cuánto le cuesta la MAQUINARIA por cada tonelada que mueve el acarreo, y a
+  // cuánto le está saliendo la hora facturada en promedio. Redactado completo en
+  // la nota, como el informe operativo: la cifra sin su cuento no le sirve.
+  if (op.costoTonelada || op.horaPromedio) {
+    const ct = costoPorTonelada(d.filas, op, d.viajesTon ?? []);
+    // Filtros que cortan el COSTO pero no las toneladas: hay que decirlo.
+    const filtroSoloCosto = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0 || (op.soloCategorias ?? []).length > 0;
+    if (op.costoTonelada) {
+      tarjetas.push({
+        k: 'costo_ton',
+        titulo: '⚖️ Costo maquinaria por tonelada',
+        valor: ct.usdPorTon != null ? `${usd(ct.usdPorTon)} /t` : '—',
+        nota: `${usd(ct.costo)} de maquinaria (jornadas + horómetros) ÷ ${tons(ct.toneladas)} movidas por el acarreo en ${ct.viajes} viaje(s)${ct.sinPeso > 0 ? ` (${ct.sinPeso} sin pesar, suman 0 t)` : ''}${ct.usdPorTon == null ? ' · sin toneladas en el rango: no hay división' : ''}${filtroSoloCosto ? ' · ⚠️ papel filtrado: el costo es solo de lo elegido; las toneladas son de todos los viajes del rango (solo el filtro de frentes las corta)' : ''}`,
+      });
+      // El cuadro por frente lleva SOLO los frentes donde la división existe
+      // (hay toneladas); los cojos se dicen aparte para no imprimir un «$0,00»
+      // al lado de un «no divide» que lo contradiga.
+      const divisibles = ct.porFrente.filter((x) => x.usdPorTon != null);
+      const cojos = ct.porFrente.filter((x) => x.usdPorTon == null && x.costo > 0).map((x) => `${x.frente} (${usd(x.costo)} sin toneladas)`);
+      if (divisibles.length >= 1 && ct.porFrente.length >= 2) {
+        cuadros.push({
+          k: 'ton_frente',
+          titulo: `⚖️ Costo por tonelada, frente por frente${cojos.length ? ` · fuera del cuadro: ${cojos.join(' · ')}` : ''}`,
+          filas: divisibles.map((x) => ({
+            clave: `${x.frente} — ${usd(x.costo)} de maquinaria ÷ ${tons(x.toneladas)}`,
+            n: x.usdPorTon as number,
+          })),
+        });
+      }
+    }
+    if (op.horaPromedio) {
+      tarjetas.push({
+        k: 'hora_prom',
+        titulo: '🕐 Hora promedio de maquinaria',
+        valor: ct.usdPorHora != null ? `${usd(ct.usdPorHora)} /h` : '—',
+        nota: `${ct.horas.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h facturadas (jornada + horómetro) por ${usd(ct.costo)}${ct.usdPorHora == null ? ' · sin horas en el rango' : ''}`,
+      });
+    }
   }
   if (op.comparacion && d.filasAnterior) {
     const ant = totalesConsolidado(d.filasAnterior, op);
@@ -331,6 +479,9 @@ export function cuerpoConsolidado(d: {
   filasAnterior?: readonly FilaConsolidada[] | null;
   desde: string;
   hasta: string;
+  /** Los viajes del rango (frente + peso) para el ⚖️ costo por tonelada; llega
+   *  tal cual a resumenConsolidado. Sin ellos la tarjeta dice «—». */
+  viajesTon?: readonly ViajeToneladas[] | null;
 }, op: OpcionesConsolidado, edicion?: EdicionResumen): string {
   const elegidas = filasElegidas(d.filas, op);
   const visibles = fuentesVisibles(op);
