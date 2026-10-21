@@ -537,6 +537,18 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > ignorara el interruptor y cerrara todas las jornadas a las 7:00pm. Se repuso el candado: con el
 > interruptor apagado, el servidor no cierra nada.
 
+> **🌙 Las 7pm no borran el día en el teléfono (21/10/2026, reporte del cliente: «después de
+> las 7pm le salían todas las máquinas pendientes — cerraron su jornada y no debería ser
+> así»).** El inspector que cubre **ambos turnos** pasa a turno noche a las 7:00pm en punto, y
+> sus máquinas de día —las que él mismo acababa de **finalizar** y también las aún
+> **abiertas**— se mostraban como **pendientes**, como si el día no hubiera existido. Ahora,
+> mientras la jornada de noche no arranque, cada máquina se muestra **como quedó su día**: la
+> **abierta** sigue «🟢 en jornada» (nada se cierra solo: la cierra el inspector cuando pueda) y
+> la **finalizada** (o declarada) se ve **cerrada**. Vale toda la noche —el día de negocio va
+> hasta las 7am— y al iniciar la jornada de noche pasa a «iniciada» como siempre. Es **solo
+> para el que cubre los dos turnos**: al inspector solo-de-noche no se le toca su lista de
+> pendientes por iniciar.
+
 > **Cierre de jornada (regla firme):** el **DÍA cierra a las 7:00pm** y la **NOCHE a la 1:00am**
 > (permanencia de noche = 6h). **Excepción LUMINARIA:** las **luminarias** (torres/equipos de
 > iluminación) trabajan **toda la noche (7pm→7am)**, así que su jornada de **noche cierra a las 7:00am

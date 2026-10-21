@@ -64,7 +64,25 @@ ok('el segmento usa un source que el reconciliador SÍ suma', /source: 'manual_f
 ok('y dice por qué existe', /close_reason: 'cierre rezagado: liquidada al iniciar la siguiente jornada'/.test(lib));
 ok('nunca lanza: todo envuelto en try/catch', /catch \{\}\s*\n\s*return \{ cerradas \};/.test(lib));
 
-// ── Manuales ─────────────────────────────────────────────────────────────────
+// ── 🌙 El dia ya se jugo: las 7pm no borran el dia en el telefono ───────────
+// (21-oct-2026, reporte: «desde la vista de inspector en el telefono le salian
+//  TODAS las maquinas pendientes despues de las 7pm — cerraron su jornada y no
+//  deberia ser asi».) El inspector que cubre AMBOS turnos pasa a 'night' a las
+//  7pm y sus maquinas de dia caian a «pendiente», las finalizadas Y las abiertas.
+{
+  const scr = leer('src/screens/SupervisorScreen.tsx');
+  const seg = scr.slice(scr.indexOf('const segmentoDe'), scr.indexOf('const segmentoConTurno'));
+  ok('⭐⭐ segmentoDe tiene la regla «el dia ya se jugo» (noche sin arrancar mira el dia)',
+    /EL DÍA YA SE JUGÓ/.test(seg) && /if \(sh === 'night'\)/.test(seg));
+  ok('⭐ la jornada de dia ABIERTA se sigue viendo iniciada (nada se cierra solo)',
+    /openEn\(id, 'day'\)\) return 'iniciada'/.test(seg));
+  ok('⭐ la jornada de dia FINALIZADA se ve cerrada, no pendiente',
+    /hoursEn\(id, 'day'\) \|\| declaredEn\(id, 'day'\)\) return 'cerrada'/.test(seg));
+  ok('⭐ SOLO para quien cubre ambos turnos (el solo-noche conserva su lista de pendientes)',
+    /s\.day\?\.id === uid && s\.night\?\.id === uid/.test(seg));
+}
+
+// ── Manuales ─// ── Manuales ─────────────────────────────────────────────────────────────────
 ok('manual (md) cuenta el cierre manual', /CIERRE MANUAL DE JORNADAS \(26\/09\/2026/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('manual (md) advierte que cerrar tarde no regala horas', /Cerrar tarde no regala horas/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('manual (app) cuenta el cierre manual', /CIERRE MANUAL DE JORNADAS \(26\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
