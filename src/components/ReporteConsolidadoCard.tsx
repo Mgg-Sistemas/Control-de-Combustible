@@ -29,7 +29,7 @@ import { supabase, selectAllRows } from '../lib/supabase';
 // 20-oct-2026, a pedido: «esos frentes que maneja solo camiones deberían
 // sincronizarse con los frentes de reportes que se enlazan al consolidado» —
 // también se lee la asignación de VIAJES (diaria) para los camiones.
-import { listAsignacionesHasta, FRENTES_MAQUINARIA, FRENTES_VIAJES } from '../lib/camionViajes';
+import { listAsignacionesHasta, listFrentes, FRENTES_MAQUINARIA, FRENTES_VIAJES } from '../lib/camionViajes';
 import { vigentesAlDia } from '../lib/frentesReporte';
 import { cargarHistorialPrecios } from '../lib/precioHistorialDb';
 import { montosJornadaPorMaquina, weekStartISO, addDaysISO, periodStartISO, periodEndISO, type RondaJornada } from '../lib/pagoJornadas';
@@ -45,6 +45,7 @@ import {
   cuerpoConsolidado, subtituloConsolidado, nombreArchivoConsolidado, totalesConsolidado,
   usd, cantTexto, categoriaDe, frenteDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
   type ViajeToneladas, type DiaCrudoConsolidado, MAX_DIAS_GRAFICO_CONSOLIDADO,
+  indiceFrentesConsolidado,
 } from '../lib/reporteConsolidado';
 import { EDICION_RESUMEN_VACIA, edicionAlCambiarDeDia, type EdicionResumen, type TarjetaPropia } from '../lib/frentesReporte';
 import { caracasBusinessToday } from '../lib/caracasDay';
@@ -84,6 +85,9 @@ export function ReporteConsolidadoCard() {
   // 📅 El día por día del rango (21-oct-2026, a pedido): las filas de CADA día,
   //    armadas con los mismos motores. Vacío = la sección no sale.
   const [porDia, setPorDia] = useState<DiaCrudoConsolidado[]>([]);
+  // ⛏️ Los nombres de los frentes que EXISTEN (los dos catálogos): para juntar
+  //    los nombres repetidos sin arriesgar (ver indiceFrentesConsolidado).
+  const [catalogoFrentes, setCatalogoFrentes] = useState<string[]>([]);
   const [rangoCalculado, setRangoCalculado] = useState<{ desde: string; hasta: string } | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -92,6 +96,10 @@ export function ReporteConsolidadoCard() {
   const [verMaquinas, setVerMaquinas] = useState(false);
   const [propiaTitulo, setPropiaTitulo] = useState('');
   const [propiaValor, setPropiaValor] = useState('');
+
+  // Las opciones del usuario MÁS el catálogo de frentes (que no es una opción
+  // suya: es el dato con el que se juntan los nombres repetidos).
+  const opFull = useMemo(() => ({ ...op, catalogoFrentes }), [op, catalogoFrentes]);
 
   const setFuente = (k: FuenteKey) => {
     // Tres posiciones en rueda: suma → muestra (sin sumar) → oculta → suma.
@@ -112,7 +120,7 @@ export function ReporteConsolidadoCard() {
       // (el precio por rango es semanal) cubriendo también el período anterior.
       const rondasDesde = periodStartISO(antDesde);
       const rondasHasta = periodEndISO(periodStartISO(hasta));
-      const [rounds, hist, vDatos, pDatos, maqsH, lecturas, precios, ajustes, cierres, cambios, catalogo, asigsFrente, asigsFrenteViajes] = await Promise.all([
+      const [rounds, hist, vDatos, pDatos, maqsH, lecturas, precios, ajustes, cierres, cambios, catalogo, asigsFrente, asigsFrenteViajes, frentesMaq, frentesVia] = await Promise.all([
         selectAllRows('machine_rounds',
           'round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, frozen_price, machinery:machinery_id(id, code, serial, plate, tipo, price_per_hour, company:company_id(id, name))',
           (q: any) => q.gte('round_date', rondasDesde).lte('round_date', rondasHasta)),
@@ -133,6 +141,13 @@ export function ReporteConsolidadoCard() {
         // ⛏️🚛 …y la de VIAJES (diaria): los camiones se asignan allá, y este
         //    papel debe verlos con SU frente, no todos en «Sin frente».
         listAsignacionesHasta(hasta, FRENTES_VIAJES).catch(() => ({ asignaciones: [], missing: true })),
+        // ⛏️ LOS DOS CATÁLOGOS DE FRENTES (21-oct-2026): con la lista de los
+        //    frentes que EXISTEN, el papel junta «RES. CORAL» (congelado en un
+        //    viaje) con «RESIDENCIAS CORAL» sin arriesgarse a meter un frente
+        //    de verdad dentro de otro parecido. Si no se pueden leer, la lib se
+        //    pone prudente y junta menos — nunca de más.
+        listFrentes(FRENTES_MAQUINARIA).catch(() => ({ frentes: [], missing: true })),
+        listFrentes(FRENTES_VIAJES).catch(() => ({ frentes: [], missing: true })),
       ]);
       void supabase;
       const nuevosAvisos: string[] = [];
@@ -249,6 +264,10 @@ export function ReporteConsolidadoCard() {
         nuevosAvisos.push(`📅 El día por día (tabla y gráfico) sale hasta ${MAX_DIAS_GRAFICO_CONSOLIDADO} días por rango.`);
       }
       setPorDia(porDiaNuevo);
+      setCatalogoFrentes(Array.from(new Set([
+        ...(((frentesMaq as any).frentes ?? []) as any[]).map((f) => String(f?.nombre ?? '').trim()),
+        ...(((frentesVia as any).frentes ?? []) as any[]).map((f) => String(f?.nombre ?? '').trim()),
+      ].filter(Boolean))));
       setRangoCalculado({ desde, hasta });
       setAvisos(nuevosAvisos);
       setEdicion((e) => edicionAlCambiarDeDia(e)); // los valores a mano no viajan a otro rango
@@ -272,7 +291,7 @@ export function ReporteConsolidadoCard() {
         title: 'Reporte consolidado de pagos',
         subtitle: subtituloConsolidado(rangoCalculado, op, filtrado),
         extraCss: CSS_CONSOLIDADO,
-        body: cuerpoConsolidado({ filas, filasAnterior: filasAnt, desde: rangoCalculado.desde, hasta: rangoCalculado.hasta, viajesTon, dias: porDia }, op, edicion),
+        body: cuerpoConsolidado({ filas, filasAnterior: filasAnt, desde: rangoCalculado.desde, hasta: rangoCalculado.hasta, viajesTon, dias: porDia }, opFull, edicion),
         logos,
         marcaTexto: false,
       });
@@ -284,9 +303,23 @@ export function ReporteConsolidadoCard() {
     }
   };
 
-  const t = useMemo(() => (filas ? totalesConsolidado(filas, op) : null), [filas, op]);
+  const t = useMemo(() => (filas ? totalesConsolidado(filas, opFull) : null), [filas, opFull]);
   const maqSel = new Set(op.soloMaquinas ?? []);
   const q = buscaMaq.trim().toLowerCase();
+  // ⛏️ UNA PASTILLA POR FRENTE, NO POR NOMBRE (21-oct-2026, a pedido: «me salen
+  //    repetidos»): «RES. CORAL» (congelado en los viajes) y «RESIDENCIAS
+  //    CORAL» (el catálogo) son el mismo frente, así que sale UNA sola pastilla
+  //    con el nombre más completo — y marcarla alcanza a los dos.
+  const frentesParaPastillas = useMemo(() => {
+    const idx = indiceFrentesConsolidado(filas ?? [], viajesTon, opFull);
+    const vistos = new Map<string, string>();
+    for (const f of filas ?? []) {
+      const n = frenteDe(f);
+      const k = idx.clave(n);
+      if (!vistos.has(k)) vistos.set(k, idx.nombre(n));
+    }
+    return Array.from(vistos.values()).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }, [filas, viajesTon, opFull]);
   const maquinasLista = useMemo(() => (filas ?? [])
     .filter((f) => !q || `${f.code} ${f.placa} ${f.empresa}`.toLowerCase().includes(q))
     .slice().sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true })), [filas, q]);
@@ -421,7 +454,7 @@ export function ReporteConsolidadoCard() {
           <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ SOLO ESTOS FRENTES (vacío = todos)</Text>
           <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
             <Pastilla on={(op.soloFrentes ?? []).length === 0} label="⬛ Todos" onPress={() => setOp((p) => ({ ...p, soloFrentes: [] }))} />
-            {Array.from(new Set(filas.map((f) => frenteDe(f)))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })).map((fr) => {
+            {frentesParaPastillas.map((fr) => {
               const on = (op.soloFrentes ?? []).includes(fr);
               return (
                 <Pastilla key={`fr-${fr}`} on={on} label={`${on ? '☑️' : '⬜'} ${fr}`} onPress={() =>

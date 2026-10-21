@@ -244,6 +244,66 @@ const OP = C.OPCIONES_CONSOLIDADO_POR_DEFECTO;
   ok('* sin viajes del rango, la tarjeta dice «—» (no inventa)', tjS.valor === '—');
 }
 
+// ── 7b) EL CUADRO QUE SALÍA REPETIDO (21-oct-2026, con la foto del cliente) ──
+// «Me salen repetidos, acomoda los nombres para que se junten todos». El frente
+// va CONGELADO en cada viaje («RES. BAHIA MAR») y el catálogo de maquinaria lo
+// llama de otra forma («RESIDENCIAS BAHIA MAR»): el papel partía el frente en
+// dos renglones, uno con la plata y otro con «$0,00 de maquinaria».
+{
+  // El CATÁLOGO de frentes (los dos, viajes y maquinaria) es lo que deja juntar
+  // sin riesgo: un frente que existe nunca se mete dentro de otro parecido.
+  const op = {
+    ...C.OPCIONES_CONSOLIDADO_POR_DEFECTO,
+    catalogoFrentes: [
+      'RESIDENCIAS BAHIA MAR', 'RESIDENCIA RITA SOL PALACE', 'RESIDENCIA CORAL GARDEN',
+      'RESIDENCIAS CORAL', 'RESIDENCIA CORAL MAR',
+    ],
+  };
+  // Las máquinas traen el nombre del CATÁLOGO…
+  const filas = [
+    { id: 'm1', code: 'JUMBO 1', placa: '', empresa: 'ALFA', frente: 'RESIDENCIAS BAHIA MAR', montos: { jornadas: 28452.77 }, cant: { jornadas: 100 } },
+    { id: 'm2', code: 'JUMBO 2', placa: '', empresa: 'ALFA', frente: 'RESIDENCIA RITA SOL PALACE', montos: { jornadas: 9058.74 }, cant: { jornadas: 30 } },
+    { id: 'm3', code: 'JUMBO 3', placa: '', empresa: 'ALFA', frente: 'RESIDENCIA CORAL GARDEN', montos: { jornadas: 4000 }, cant: { jornadas: 20 } },
+  ];
+  // …y los viajes, el nombre viejo congelado.
+  const viajes = [
+    { frente_nombre: 'RES. BAHIA MAR', peso_neto_kg: 601940 },
+    { frente_nombre: 'RESIDENCIAS BAHIA MAR', peso_neto_kg: 1889800 },
+    { frente_nombre: 'res. rita sol', peso_neto_kg: 2128260 },
+    { frente_nombre: 'coral garden', peso_neto_kg: 2026020 },
+  ];
+  const ct = C.costoPorTonelada(filas, op, viajes);
+  eq('⭐⭐ los frentes repetidos quedan en UN solo renglón (3, no 6)', ct.porFrente.length, 3);
+  eq('⭐⭐ el renglón sale con el nombre MÁS COMPLETO, no con la abreviatura',
+    ct.porFrente.map((x) => x.frente).sort(),
+    ['RESIDENCIA CORAL GARDEN', 'RESIDENCIA RITA SOL PALACE', 'RESIDENCIAS BAHIA MAR']);
+  const bahia = ct.porFrente.find((x) => /BAHIA/.test(x.frente));
+  // $28.452,77 ÷ (601,94 + 1.889,80) t = $11,42 — antes salían $15,06 y «$0,00».
+  eq('⭐⭐ la plata y las toneladas de los dos nombres se SUMAN en el mismo frente',
+    [bahia.costo, bahia.toneladas, bahia.usdPorTon], [28452.77, 2491.74, 11.42]);
+  const rita = ct.porFrente.find((x) => /RITA/.test(x.frente));
+  ok('⭐ «res. rita sol» entra en «RESIDENCIA RITA SOL PALACE» (le faltaba el apellido)',
+    rita.toneladas === 2128.26 && rita.costo === 9058.74);
+  const garden = ct.porFrente.find((x) => /GARDEN/.test(x.frente));
+  ok('⭐ «coral garden» entra en «RESIDENCIA CORAL GARDEN» (le faltaba el tipo)',
+    garden.toneladas === 2026.02 && garden.costo === 4000);
+  ok('* ninguna tonelada se perdió por el camino',
+    Math.round(ct.toneladas * 100) / 100 === 6646.02);
+  // ⚠️ Y LO QUE NO ES EL MISMO FRENTE SIGUE SEPARADO.
+  const ct2 = C.costoPorTonelada(
+    [{ id: 'm1', code: 'J', placa: '', empresa: 'A', frente: 'RESIDENCIAS CORAL', montos: { jornadas: 1000 }, cant: { jornadas: 10 } }],
+    op,  // con «RESIDENCIAS CORAL» y «RESIDENCIA CORAL MAR» en el catálogo
+    [{ frente_nombre: 'RESIDENCIA CORAL MAR', peso_neto_kg: 100000 }, { frente_nombre: 'RES. CORAL', peso_neto_kg: 200000 }],
+  );
+  eq('⭐⭐ «CORAL» y «CORAL MAR» NO se juntan (son frentes distintos)',
+    ct2.porFrente.map((x) => [x.frente, x.toneladas]).sort(),
+    [['RESIDENCIA CORAL MAR', 100], ['RESIDENCIAS CORAL', 200]]);
+  // El filtro «solo este frente» también alcanza a los dos nombres.
+  const soloBahia = { ...op, soloFrentes: ['RESIDENCIAS BAHIA MAR'] };
+  eq('⭐ marcar el frente en el filtro recoge también sus viajes con el nombre viejo',
+    C.costoPorTonelada(filas, soloBahia, viajes).toneladas, 2491.74);
+}
+
 // ── 8) LA PANTALLA LO USA (no una copia suya) ────────────────────────────────
 {
   const card = fs.readFileSync(path.join(ROOT, 'src/components/ReporteConsolidadoCard.tsx'), 'utf8');
