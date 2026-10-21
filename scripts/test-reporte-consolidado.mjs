@@ -101,7 +101,12 @@ const ronda = (m, fecha, extra = {}) => ({ round_date: fecha, day_hours: 12, nig
 
 // ═══ 2) reporteConsolidado: juntar, sumar y el papel ═════════════════════════
 const C = cargar('src/lib/reporteConsolidado.ts');
-const OP = C.OPCIONES_CONSOLIDADO_POR_DEFECTO;
+// 🤖 21-oct-2026: nació la SELECCIÓN AUTOMÁTICA (jornada y horómetro son uno u
+// otro por máquina; manda el horómetro) y viene PRENDIDA por defecto. Los
+// candados históricos de abajo prueban la MECÁNICA CRUDA de sumar fuentes
+// (fixtures con jornada+horómetro en la misma fila), así que la apagan a
+// propósito; la regla nueva tiene su propia sección al final.
+const OP = { ...C.OPCIONES_CONSOLIDADO_POR_DEFECTO, seleccionAutomatica: false };
 const F = [
   { id: 'a', code: 'JUMBO 320', placa: 'AA11', empresa: 'ALFA C.A', montos: { jornadas: 1000, horometros: 500 } },
   { id: 'b', code: 'VOLTEO 1', placa: 'BB22', empresa: 'BETA C.A', montos: { viajes: 300, peso: 200 } },
@@ -158,7 +163,10 @@ const D = { filas: F, desde: '2026-10-12', hasta: '2026-10-18' };
 {
   ok('el sufijo del archivo nombra lo cambiado', /sin peso/.test(C.sufijoArchivoConsolidado({ ...OP, fuentes: { ...OP.fuentes, peso: 'oculta' } }))
     && /por máquina/.test(C.sufijoArchivoConsolidado({ ...OP, agruparPor: 'maquina' }))
-    && C.sufijoArchivoConsolidado(OP) === '');
+    // Con TODO por defecto (selección automática prendida) el nombre va limpio;
+    // apagarla cambia la plata y por eso el OP de esta suite (apagada) lo nombra.
+    && C.sufijoArchivoConsolidado(C.OPCIONES_CONSOLIDADO_POR_DEFECTO) === ''
+    && /sumando jornada y horómetro/.test(C.sufijoArchivoConsolidado(OP)));
   ok('texto escapado en el papel', !C.cuerpoConsolidado({ ...D, filas: [{ ...F[0], code: '<script>x</script>' }] }, OP).includes('<script>'));
 }
 
