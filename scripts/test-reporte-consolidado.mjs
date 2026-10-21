@@ -294,6 +294,46 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   ok('…y el botón genérico de generar no aplica al consolidado', /mode !== 'consolidado'/.test(screen));
 }
 
+// ═══ 🤖 LA SELECCIÓN AUTOMÁTICA EN TODO EL PAPEL (21-oct-2026, decisión) ═════
+// «La idea es que haga la selección automática en ese reporte»: jornada y
+// horómetro son uno u otro POR MÁQUINA en el total, las tarjetas y los cuadros.
+{
+  const AUTO = C.OPCIONES_CONSOLIDADO_POR_DEFECTO; // nace PRENDIDA
+  const FA = [
+    // jornada 1200 + horómetro 1150 sumando → se factura el horómetro.
+    { id: 'a', code: 'JUMBO 320', placa: 'AA11', empresa: 'ALFA C.A', montos: { jornadas: 1200, horometros: 1150 }, cant: { jornadas: 12, horometros: 11.5 } },
+    // solo jornada → la jornada se queda.
+    { id: 'b', code: 'PAYLOADER 1', placa: 'BB22', empresa: 'ALFA C.A', montos: { jornadas: 800 }, cant: { jornadas: 8 } },
+    // horómetro con HORAS pero SIN PLATA → la jornada NO se descarta (borde).
+    { id: 'c', code: 'JUMBO 330', placa: 'CC33', empresa: 'ALFA C.A', montos: { jornadas: 500, horometros: 0 }, cant: { jornadas: 5, horometros: 4 } },
+  ];
+  const DA = { filas: FA, desde: '2026-10-19', hasta: '2026-10-21' };
+  const t = C.totalesConsolidado(FA, AUTO);
+  eq('⭐ el TOTAL factura uno u otro: 1150 + 800 + 500 (nunca 1200+1150)', t.total, 2450);
+  eq('⭐ la fuente jornadas pierde SOLO la descartada (queda 800+500)', [t.porFuente.jornadas, t.porFuente.horometros], [1300, 1150]);
+  // Las horas del horómetro SIN plata (fila c: 4 h, $0) siguen de respaldo — son
+  // horas reales registradas; lo que no existe es el monto.
+  eq('* y sus horas de respaldo acompañan (8+5 jornada; 11,5+4 horómetro)', [t.cantPorFuente.jornadas, t.cantPorFuente.horometros], [13, 15.5]);
+  // El cuadro de transparencia: quién y cuánto quedó descartado.
+  const res = C.resumenConsolidado(DA, AUTO);
+  const cu = res.cuadros.find((x) => x.k === 'auto_horometro');
+  ok('⭐ el resumen dice QUÉ se descartó (JUMBO 320, $1.200)', !!cu && cu.filas.length === 1 && /JUMBO 320/.test(cu.filas[0].clave) && cu.filas[0].n === 1200);
+  ok('* y la nota del papel lo cuenta', /mandó el horómetro/.test(C.cuerpoConsolidado(DA, AUTO)));
+  // Con horómetro de REFERENCIA (no suma) la jornada se queda: nadie factura cero.
+  const ref = { ...AUTO, fuentes: { ...AUTO.fuentes, horometros: 'muestra' } };
+  eq('⭐ horómetro en referencia NO descarta la jornada (nadie factura cero)', C.totalesConsolidado(FA, ref).total, 2500);
+  // Apagada, vuelve la suma cruda y el archivo lo nombra.
+  const off = { ...AUTO, seleccionAutomatica: false };
+  eq('* apagada vuelve la suma cruda (1200+1150+800+500)', C.totalesConsolidado(FA, off).total, 3650);
+  ok('* …y el nombre del archivo lo dice', /sumando jornada y horómetro/.test(C.sufijoArchivoConsolidado(off)));
+  // Con la selección puesta, jornada+horómetro YA no es pago doble (se resolvió).
+  ok('* el ⚠️ de solapes ya no marca jornada+horómetro (quedó resuelto)',
+    !C.solapesConsolidado(FA, AUTO).some((x) => x.fuentes.includes('jornadas') && x.fuentes.includes('horometros')));
+  // La pantalla ofrece el interruptor.
+  const card = leer('src/components/ReporteConsolidadoCard.tsx');
+  ok('* la pantalla tiene su pastilla 🤖', /🤖 Horómetro manda sobre jornada/.test(card));
+}
+
 if (fail) {
   console.error(failures.join('\n'));
   console.error(`\n✗ reporte consolidado: ${fail} fallo(s), ${pass} ok`);
