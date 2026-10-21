@@ -3996,6 +3996,19 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
     toneladas se cortan por esos mismos frentes. Pero si se filtra por **empresa, categoría o
     máquinas sueltas**, el costo es solo de lo elegido y las toneladas siguen siendo las de **todo
     el rango** — la tarjeta lo advierte, para que el número no se lea como lo que no es.
+- **⚖️ El peso manda en el camión (21/10/2026, a pedido):** «si tiene peso, se toma como
+  prioridad el peso — eso es para la categoría de remoción de escombros, que serían los
+  camiones; y hay varios de esa categoría que solo trabajarían por jornada». En la **selección
+  automática** del consolidado, la prioridad por máquina quedó así: en un **camión** (la regla
+  compartida de «qué es un camión»), si facturó por **romana** (peso con plata, sumando), sus
+  **viajes, su jornada y su horómetro no se suman** — sería cobrar dos veces el mismo acarreo;
+  el camión **sin peso** sigue igual que siempre (sus viajes, o su **jornada de acarreo**). En
+  las demás máquinas sigue la regla de siempre: **horómetro sobre jornada**. El resumen trae el
+  cuadro **«⚖️ Mandó el peso»** con lo que facturó cada camión y lo que quedó descartado (se
+  apaga junto con el 🧾 desglose), el ⚠️ de pago doble ya no marca viaje+peso (quedó resuelto),
+  el **día por día obedece la misma decisión** del rango, y apagar la selección vuelve a sumar
+  todo (el archivo dice «sumando todas las fuentes»). Un peso **en referencia u oculto no
+  descarta nada**: nadie factura cero en silencio.
 - **⛏️ El mismo frente, escrito de varias maneras (21/10/2026, a pedido: «me salen repetidos,
   acomoda los nombres para que se junten todos… sin que se pierda la información»):** el frente
   de un viaje queda **congelado** en el viaje con el nombre que tenía ese día («RES. CORAL»), y
