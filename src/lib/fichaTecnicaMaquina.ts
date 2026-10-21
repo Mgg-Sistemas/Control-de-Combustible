@@ -22,6 +22,11 @@
 //    que solo se le sabe marca, serial y foto sale corta pero honesta.
 // ============================================================================
 import { dmy, INTERVALO_PM_HORAS } from './informeTecnico';
+// 📷 Las fotos se piden REDUCIDAS (21-oct-2026, reporte: «la ficha técnica no
+//    me sale, está lenta»): una foto de equipo de 6 MB tardaba 13 s y la vista
+//    previa no imprime hasta que llegan. `imgPapel` pide la misma foto por el
+//    transformador del Storage y, si eso falla, cae sola a la original.
+import { imgPapel } from './fotoRemota';
 
 const esc = (v: any): string =>
   String(v ?? '')
@@ -238,7 +243,7 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
     : '<div class="vacia">Esta máquina no tiene características cargadas en el catálogo todavía.</div>'}
 
   ${m.photo_url ? `<div class="foto">
-    <img src="${esc(m.photo_url)}" alt=""/>
+    ${imgPapel(m.photo_url)}
     <div class="cap">Registro visual de la condición exterior del equipo en terreno</div>
   </div>` : ''}
 
@@ -250,11 +255,11 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
       </div>
     </div>
     ${m.photo_serial_url ? `<div class="foto">
-      <img src="${esc(m.photo_serial_url)}" alt=""/>
+      ${imgPapel(m.photo_serial_url)}
       <div class="cap">Detalle de la placa de identificación (serial / placa) del equipo</div>
     </div>` : ''}
     ${m.fotoHorometroUrl ? `<div class="foto">
-      <img src="${esc(m.fotoHorometroUrl)}" alt=""/>
+      ${imgPapel(m.fotoHorometroUrl)}
       <div class="cap">Última foto del horómetro subida${m.fotoHorometroLeyenda ? ` (${esc(m.fotoHorometroLeyenda)})` : ''}</div>
     </div>` : ''}
   </div>` : ''}

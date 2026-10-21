@@ -204,8 +204,10 @@ ok('⭐ la ficha usa el MISMO estado en vivo que las tarjetas (liveStatusOf)',
   /estadoParaFicha[\s\S]*?liveStatusOf\(m\.id\)\.estado/.test(scr));
 ok('la ficha lleva la empresa CON su RIF',
   /fichaTecnica = async[\s\S]*?companyRif: \(comp as any\)\?\.rif \?\? null/.test(scr));
+// (21-oct-2026: la llamada ganó un TOPE DE ESPERA — la foto del horómetro es un
+//  anexo y no puede dejar al usuario sin ficha si la base se demora.)
 ok('⭐ la ficha busca la última foto del horómetro antes de imprimir',
-  /const fotoHoro = await ultimaFotoHorometro\(m\.id\)/.test(scr)
+  /ultimaFotoHorometro\(m\.id\)/.test(scr)
   && /fotoHorometroLeyenda: fotoHoro \? `\$\{fmtDMY\(fotoHoro\.roundDate\)\} · \$\{fotoHoro\.detalle\}` : null/.test(scr));
 ok('y se exporta con su nombre de archivo',
   /exportPdf\(html, nombreArchivoFichaTecnica\(m\)\)/.test(scr));
@@ -214,6 +216,42 @@ ok('y se exporta con su nombre de archivo',
 ok('el formulario del Catálogo edita peso y dimensiones de la ficha',
   scr.includes("key: 'weight_ton'") && scr.includes("key: 'length_m'")
   && scr.includes("key: 'width_m'") && scr.includes("key: 'height_m'"));
+
+// ── 4) 📷 LAS FOTOS, LIGERAS (21-oct-2026) ──────────────────────────────────
+// Reporte: «la ficha técnica en el catálogo no me sale, está lenta». Medido
+// contra el bucket real: 24 de 271 fotos de equipo pasan de 1,5 MB y la mayor
+// (6,1 MB) tardaba 13 s en bajar — y la vista previa NO imprime hasta que las
+// fotos estén. Ahora el papel las pide por el transformador del Storage.
+const FR = loadTs(path.join(ROOT, 'src/lib/fotoRemota.ts'));
+{
+  const publica = 'https://xyz.supabase.co/storage/v1/object/public/machinery/abc/123.jpg';
+  ok('⭐⭐ una foto pública del Storage se pide REDUCIDA (misma foto, menos megas)',
+    FR.fotoLigeraUrl(publica) === 'https://xyz.supabase.co/storage/v1/render/image/public/machinery/abc/123.jpg?width=1100&quality=65');
+  ok('* lo que no es del Storage se deja intacto (no se inventa un enlace)',
+    FR.fotoLigeraUrl('https://otra.com/foto.jpg') === 'https://otra.com/foto.jpg'
+    && FR.fotoLigeraUrl('data:image/png;base64,AAA') === 'data:image/png;base64,AAA'
+    && FR.fotoLigeraUrl(null) === '' && FR.fotoLigeraUrl(undefined) === '');
+  ok('* una URL con query conserva la suya', /\?t=9&width=1100&quality=65$/.test(FR.fotoLigeraUrl(`${publica}?t=9`)));
+  ok('* y una ya transformada no se transforma dos veces',
+    FR.fotoLigeraUrl(FR.fotoLigeraUrl(publica)) === FR.fotoLigeraUrl(publica));
+  // ⭐ SIEMPRE CON RESPALDO: si el transformador falla, vuelve la original.
+  const img = FR.imgPapel(publica);
+  ok('⭐⭐ el <img> cae solo a la foto ORIGINAL si la reducida falla',
+    /render\/image/.test(img) && /onerror="this\.onerror=null;this\.src='https:\/\/xyz\.supabase\.co\/storage\/v1\/object\/public/.test(img));
+  ok('* sin foto no hay etiqueta (lo vacío no sale, regla de la ficha)', FR.imgPapel(null) === '' && FR.imgPapel('  ') === '');
+
+  const libFicha = fs.readFileSync(path.join(ROOT, 'src/lib/fichaTecnicaMaquina.ts'), 'utf8');
+  ok('⭐ la ficha pide SUS TRES fotos así (equipo, placa y horómetro)',
+    (libFicha.match(/\$\{imgPapel\(/g) ?? []).length === 3 && !/<img src="\$\{esc\(m\.photo/.test(libFicha));
+
+  const db = fs.readFileSync(path.join(ROOT, 'src/lib/horometroTrabajoDb.ts'), 'utf8');
+  ok('⭐ las tres consultas de la foto del horómetro van EN PARALELO',
+    /await Promise\.all\(\[/.test(db) && /const \[rLecturas, rFotos, rRondas\]/.test(db));
+  ok('⭐ la pantalla avisa mientras arma la ficha (el botón dice Generando…)',
+    /📄 Generando…/.test(scr) && /setFichaBusy\(m\.id\)/.test(scr));
+  ok('⭐ y la foto del horómetro tiene TOPE: sin ella la ficha sale igual',
+    /Promise\.race\(\[[\s\S]*?ultimaFotoHorometro\(m\.id\)\.catch\(\(\) => null\)[\s\S]*?setTimeout\(\(\) => res\(null\), 4000\)/.test(scr));
+}
 
 // ── Resultado ───────────────────────────────────────────────────────────────
 console.log('\nFICHA TÉCNICA DEL CATÁLOGO — documento y botón\n');
