@@ -99,17 +99,52 @@ const OP = C.OPCIONES_CONSOLIDADO_POR_DEFECTO;
   const r = C.costoPorTonelada(filas, OP, [{ peso_neto_kg: 100000 }]);
   eq('⭐ viajes y peso NO entran al costo (son el acarreo)', r.costo, 1000);
   eq('* ni sus cantidades a las horas', r.horas, 10);
-  // Fuente de maquinaria OCULTA: no existe (regla de la casa).
+  // Fuente de maquinaria OCULTA: no existe (regla de la casa) → cae a la jornada.
   const opSinHoro = { ...OP, fuentes: { ...OP.fuentes, horometros: 'oculta' } };
   const filas2 = [
     { id: 'a', code: 'M', placa: '', empresa: 'A', montos: { jornadas: 1000, horometros: 500 }, cant: { jornadas: 10, horometros: 5 } },
   ];
   const r2 = C.costoPorTonelada(filas2, opSinHoro, [{ peso_neto_kg: 100000 }]);
-  eq('⭐ una fuente de maquinaria OCULTA no cuenta', [r2.costo, r2.horas], [1000, 10]);
-  // En modo «muestra» (ref) SIGUE siendo costo de maquinaria: se ve, existe.
+  eq('⭐ con horómetros OCULTOS la máquina vale por su jornada', [r2.costo, r2.horas], [1000, 10]);
+}
+
+// ── 2b) UNO U OTRO, NUNCA LA SUMA (aclaración del jefe, 21-oct) ──────────────
+// «Jornada dice 12, horómetro dice 11,5: el sistema toma el horómetro, que es
+// el confiable; si no tiene horómetro, toma la jornada.»
+{
+  const conAmbos = [
+    { id: 'a', code: 'JUMBO 1', placa: '', empresa: 'A', montos: { jornadas: 1200, horometros: 1150 }, cant: { jornadas: 12, horometros: 11.5 } },
+  ];
+  const r = C.costoPorTonelada(conAmbos, OP, [{ peso_neto_kg: 100000 }]);
+  eq('⭐ con AMBOS manda el horómetro (nunca 1200+1150)', [r.costo, r.horas], [1150, 11.5]);
+  // En «muestra» (ref) el horómetro se ve → sigue mandando (visible = existe).
   const opRef = { ...OP, fuentes: { ...OP.fuentes, horometros: 'muestra' } };
-  const r3 = C.costoPorTonelada(filas2, opRef, [{ peso_neto_kg: 100000 }]);
-  eq('* en «muestra» (ref) sí cuenta: visible = existe', r3.costo, 1500);
+  const r2 = C.costoPorTonelada(conAmbos, opRef, [{ peso_neto_kg: 100000 }]);
+  eq('* en «muestra» el horómetro sigue mandando', [r2.costo, r2.horas], [1150, 11.5]);
+  // Sin horómetro, vale la jornada — cada máquina decide por SU información.
+  const mixtas = [
+    { id: 'a', code: 'JUMBO 1', placa: '', empresa: 'A', montos: { jornadas: 1200, horometros: 1150 }, cant: { jornadas: 12, horometros: 11.5 } },
+    { id: 'b', code: 'PAYLOADER 2', placa: '', empresa: 'A', montos: { jornadas: 800 }, cant: { jornadas: 8 } },
+  ];
+  const r3 = C.costoPorTonelada(mixtas, OP, [{ peso_neto_kg: 100000 }]);
+  eq('⭐ cada máquina decide por su información (1150 + 800, no 3150)', [r3.costo, r3.horas], [1950, 19.5]);
+}
+
+// ── 2c) EL CAMIÓN A JORNADA ES ACARREO, NO MAQUINARIA ────────────────────────
+// «Algunos camiones no los llevan ni por peso ni por viajes, tienen jornadas…
+// sería la jornada de acarreo»: su plata NO infla el costo por tonelada, pero
+// se cuenta y se dice aparte.
+{
+  const filas = [
+    { id: 'a', code: 'JUMBO 1', placa: '', empresa: 'A', montos: { jornadas: 1000 }, cant: { jornadas: 10 } },
+    { id: 'b', code: 'CAMION VOLTEO TORONTO', placa: '', empresa: 'A', montos: { jornadas: 700 }, cant: { jornadas: 7 } },
+    { id: 'c', code: 'CHUTO CON VOLQUETA', placa: '', empresa: 'A', montos: { jornadas: 300 }, cant: { jornadas: 3 } },
+  ];
+  const r = C.costoPorTonelada(filas, OP, [{ peso_neto_kg: 1000000 }]);
+  eq('⭐ las jornadas de camión NO entran al costo de maquinaria', r.costo, 1000);
+  eq('* ni sus horas', r.horas, 10);
+  eq('⭐ pero se cuentan como jornada de ACARREO, con su plata', [r.camionesJornada, r.acarreoJornada], [2, 1000]);
+  eq('* y el $/t sale solo de la maquinaria', r.usdPorTon, 1);
 }
 
 // ── 3) VIAJES SIN PESAR: cuentan, suman 0 y se dicen ─────────────────────────
