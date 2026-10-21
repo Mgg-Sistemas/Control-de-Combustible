@@ -329,9 +329,60 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   // Con la selección puesta, jornada+horómetro YA no es pago doble (se resolvió).
   ok('* el ⚠️ de solapes ya no marca jornada+horómetro (quedó resuelto)',
     !C.solapesConsolidado(FA, AUTO).some((x) => x.fuentes.includes('jornadas') && x.fuentes.includes('horometros')));
-  // La pantalla ofrece el interruptor.
+  // 🧾 SIN EL DESGLOSE (21-oct, a pedido: «que tome lo del horómetro pero que
+  // no me salga esa información si no quiero»): la regla SIGUE aplicando, solo
+  // deja de imprimirse el cuadro y la cola «sin toneladas».
+  const sinDesglose = { ...AUTO, desgloseAutomatico: false };
+  eq('⭐ sin desglose el TOTAL sigue siendo uno-u-otro (la regla no se apaga)', C.totalesConsolidado(FA, sinDesglose).total, 2450);
+  ok('⭐ …pero el cuadro «Mandó el horómetro» ya no sale',
+    !C.resumenConsolidado(DA, sinDesglose).cuadros.some((x) => x.k === 'auto_horometro'));
+  ok('* y la nota ya no promete un detalle que no está',
+    !/el detalle está en el resumen/.test(C.cuerpoConsolidado(DA, sinDesglose)));
+  // La cola «fuera del cuadro: … sin toneladas» del ⚖️ también se apaga.
+  const FT = [
+    { id: 'a', code: 'M1', placa: '', empresa: 'A', frente: 'TFI', montos: { jornadas: 1000 }, cant: { jornadas: 10 } },
+    { id: 'b', code: 'M2', placa: '', empresa: 'A', frente: 'CET', montos: { jornadas: 600 }, cant: { jornadas: 6 } },
+  ];
+  const DT = { filas: FT, desde: '2026-10-19', hasta: '2026-10-21', viajesTon: [{ frente_nombre: 'TFI', peso_neto_kg: 500000 }] };
+  ok('* con desglose, la cola «sin toneladas» sale en el título del ⚖️',
+    /fuera del cuadro: CET/.test(C.resumenConsolidado(DT, AUTO).cuadros.find((x) => x.k === 'ton_frente').titulo));
+  ok('⭐ sin desglose, el título del ⚖️ queda limpio',
+    !/fuera del cuadro/.test(C.resumenConsolidado(DT, sinDesglose).cuadros.find((x) => x.k === 'ton_frente').titulo));
+
+  // La pantalla ofrece los interruptores.
   const card = leer('src/components/ReporteConsolidadoCard.tsx');
   ok('* la pantalla tiene su pastilla 🤖', /🤖 Horómetro manda sobre jornada/.test(card));
+  ok('* y la del desglose, solo visible con la selección prendida',
+    /desgloseAutomatico: !p\.desgloseAutomatico/.test(card) && /op\.seleccionAutomatica \? \(/.test(card));
+}
+
+// ═══ ⛏️ EL MISMO NOMBRE = EL MISMO FRENTE (21-oct-2026, pregunta directa) ═════
+// Los frentes viven en DOS catálogos escritos a mano (viajes y maquinaria):
+// «¿si los nombres son iguales se agrupan?» — SÍ, y sin que una mayúscula o un
+// acento los parta en dos. Vale para el bloque del detalle, el filtro y el ⚖️.
+{
+  const OPF = { ...C.OPCIONES_CONSOLIDADO_POR_DEFECTO, agruparPor: 'frente' };
+  const FF = [
+    { id: 'a', code: 'JUMBO 1', placa: '', empresa: 'ALFA C.A', frente: 'Túnel', montos: { jornadas: 1000 }, cant: { jornadas: 10 } },
+    { id: 'b', code: 'CAMION VOLTEO TORONTO', placa: '', empresa: 'ALFA C.A', frente: 'TUNEL', montos: { viajes: 300 }, cant: { viajes: 3 } },
+  ];
+  const DF = { filas: FF, desde: '2026-10-19', hasta: '2026-10-21' };
+  const cuerpo = C.cuerpoConsolidado(DF, OPF);
+  // UN solo bloque (no «Túnel» y «TUNEL» por separado), con la máquina y el camión juntos.
+  eq('⭐ «Túnel» y «TUNEL» son UN bloque en el detalle', (cuerpo.match(/⛏️ /g) || []).length, 1);
+  ok('* …con la máquina y el camión adentro', /JUMBO 1/.test(cuerpo) && /CAMION VOLTEO TORONTO/.test(cuerpo));
+  // El filtro tampoco distingue: marcar «tunel» (sin acento) trae a los dos.
+  eq('⭐ el filtro «solo este frente» junta sin mayúsculas ni acentos',
+    // (el orden es el A→Z por código: CAMION antes que JUMBO)
+    C.filasElegidas(FF, { ...OPF, soloFrentes: ['tunel'] }).map((f) => f.id), ['b', 'a']);
+  // Y el ⚖️ costo por tonelada cruza el viaje «túnel» con la máquina «TUNEL».
+  const ct = C.costoPorTonelada(
+    [{ id: 'a', code: 'JUMBO 1', placa: '', empresa: 'A', frente: 'TUNEL', montos: { jornadas: 1000 }, cant: { jornadas: 10 } }],
+    C.OPCIONES_CONSOLIDADO_POR_DEFECTO,
+    [{ frente_nombre: 'Túnel', peso_neto_kg: 500000 }],
+  );
+  eq('⭐ el ⚖️ por frente también cruza sin acentos (un solo frente, $2/t)',
+    [ct.porFrente.length, ct.porFrente[0].usdPorTon], [1, 2]);
 }
 
 if (fail) {

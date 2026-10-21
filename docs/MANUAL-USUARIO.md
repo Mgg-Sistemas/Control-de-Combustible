@@ -3966,6 +3966,9 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
     así que va al nombre del archivo («sumando jornada y horómetro»). Ojo: la jornada solo se
     descarta cuando el horómetro trae **plata** y está **sumando** — un horómetro sin precio o en
     referencia no deja a la máquina facturando cero.
+  - **🧾 El desglose es apagable (mismo día, a pedido):** la pastilla **«🧾 El desglose de lo
+    descartado»** quita del papel el cuadro «Mandó el horómetro» y la cola de «fuera del cuadro: …
+    sin toneladas» del ⚖️ — **la regla sigue aplicando igual**, solo deja de imprimirse el detalle.
   - **⚖️ Frente por frente:** debajo sale un cuadro con el mismo cálculo **por frente de trabajo**
     (los frentes vinculantes): el costo se agrupa por el **frente vigente** de cada máquina y las
     toneladas por el **frente congelado** de cada viaje — los dos lados quedaron sincronizados el
