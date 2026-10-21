@@ -566,7 +566,7 @@ export function ReporteConsolidadoCard() {
       {/* 🤖 21-oct-2026, decisión del jefe: en ESTE papel, jornada y horómetro son
           uno u otro por máquina — manda el horómetro. Apagarlo vuelve a sumar los
           dos (y lo dice el nombre del archivo, porque cambia la plata). */}
-      <Toggle on={op.seleccionAutomatica} label="🤖 Horómetro manda sobre jornada (uno u otro por máquina)" onPress={() => setOp((p) => ({ ...p, seleccionAutomatica: !p.seleccionAutomatica }))} />
+      <Toggle on={op.seleccionAutomatica} label="🤖 Selección automática (⚖️ el peso manda en el camión; ⚙️ el horómetro sobre la jornada)" onPress={() => setOp((p) => ({ ...p, seleccionAutomatica: !p.seleccionAutomatica }))} />
       {/* 🤖 21-oct-2026, a pedido: «que tome lo del horómetro pero que no me salga
           esa información si no quiero» — apaga el cuadro «Mandó el horómetro» y la
           cola de «fuera del cuadro: … sin toneladas». La regla sigue aplicando. */}
