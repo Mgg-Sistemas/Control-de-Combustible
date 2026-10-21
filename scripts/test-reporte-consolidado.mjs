@@ -166,7 +166,9 @@ const D = { filas: F, desde: '2026-10-12', hasta: '2026-10-18' };
     // Con TODO por defecto (selección automática prendida) el nombre va limpio;
     // apagarla cambia la plata y por eso el OP de esta suite (apagada) lo nombra.
     && C.sufijoArchivoConsolidado(C.OPCIONES_CONSOLIDADO_POR_DEFECTO) === ''
-    && /sumando jornada y horómetro/.test(C.sufijoArchivoConsolidado(OP)));
+    // (21-oct tarde: apagada también re-suma el peso con viajes/jornada, así
+    //  que el nombre dice «sumando todas las fuentes».)
+    && /sumando todas las fuentes/.test(C.sufijoArchivoConsolidado(OP)));
   ok('texto escapado en el papel', !C.cuerpoConsolidado({ ...D, filas: [{ ...F[0], code: '<script>x</script>' }] }, OP).includes('<script>'));
 }
 
@@ -328,7 +330,7 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   // Apagada, vuelve la suma cruda y el archivo lo nombra.
   const off = { ...AUTO, seleccionAutomatica: false };
   eq('* apagada vuelve la suma cruda (1200+1150+800+500)', C.totalesConsolidado(FA, off).total, 3650);
-  ok('* …y el nombre del archivo lo dice', /sumando jornada y horómetro/.test(C.sufijoArchivoConsolidado(off)));
+  ok('* …y el nombre del archivo lo dice', /sumando todas las fuentes/.test(C.sufijoArchivoConsolidado(off)));
   // Con la selección puesta, jornada+horómetro YA no es pago doble (se resolvió).
   ok('* el ⚠️ de solapes ya no marca jornada+horómetro (quedó resuelto)',
     !C.solapesConsolidado(FA, AUTO).some((x) => x.fuentes.includes('jornadas') && x.fuentes.includes('horometros')));
@@ -354,9 +356,62 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
 
   // La pantalla ofrece los interruptores.
   const card = leer('src/components/ReporteConsolidadoCard.tsx');
-  ok('* la pantalla tiene su pastilla 🤖', /🤖 Horómetro manda sobre jornada/.test(card));
+  ok('* la pantalla tiene su pastilla 🤖', /🤖 Selección automática \(⚖️ el peso manda en el camión/.test(card));
   ok('* y la del desglose, solo visible con la selección prendida',
     /desgloseAutomatico: !p\.desgloseAutomatico/.test(card) && /op\.seleccionAutomatica \? \(/.test(card));
+}
+
+// ═══ ⚖️ EL PESO MANDA EN EL CAMIÓN (21-oct-2026, tarde, a pedido) ════════════
+// «Si tiene peso, se toma como prioridad el peso — eso es para la categoría de
+// remoción de escombros, que serían los camiones; y hay varios de esa categoría
+// que solo trabajarían por jornada.»
+{
+  const AUTO = C.OPCIONES_CONSOLIDADO_POR_DEFECTO;
+  const FP = [
+    // Camión con romana: facturó peso, y además traía viajes y jornada → manda el peso.
+    { id: 'c1', code: 'CAMION VOLTEO 7', placa: 'AA33', empresa: 'ALFA C.A', montos: { peso: 500, viajes: 300, jornadas: 200 }, cant: { peso: 48500, viajes: 12, jornadas: 12 } },
+    // Camión SIN romana que vive de sus viajes → igual que siempre.
+    { id: 'c2', code: 'CAMION VOLTEO 9', placa: 'BB44', empresa: 'ALFA C.A', montos: { viajes: 400 }, cant: { viajes: 10 } },
+    // Camión de los que «solo trabajarían por jornada» → su jornada se queda.
+    { id: 'c3', code: 'CHUTO CON LOWBOY', placa: 'CC55', empresa: 'ALFA C.A', montos: { jornadas: 350 }, cant: { jornadas: 12 } },
+    // Una MÁQUINA con jornada y horómetro → la regla vieja intacta (horómetro).
+    { id: 'm1', code: 'JUMBO 320', placa: 'DD66', empresa: 'ALFA C.A', montos: { jornadas: 1200, horometros: 1150 }, cant: { jornadas: 12, horometros: 11.5 } },
+  ];
+  const DP = { filas: FP, desde: '2026-10-19', hasta: '2026-10-21' };
+  const t = C.totalesConsolidado(FP, AUTO);
+  eq('⭐⭐ el camión con romana factura SOLO el peso (500, no 1000)',
+    [t.porFuente.peso, t.porFuente.viajes, t.porFuente.jornadas, t.porFuente.horometros],
+    [500, 400, 350, 1150]);
+  eq('⭐ total general: peso + viajes del otro + jornada del tercero + horómetro', t.total, 2400);
+  // El ⚠️ de solapes ya no marca viaje+peso: quedó resuelto por la selección.
+  ok('⭐ el ⚠️ ya no marca viaje+peso (la selección lo resolvió)',
+    !C.solapesConsolidado(FP, AUTO).some((x) => x.fuentes.includes('viajes') && x.fuentes.includes('peso')));
+  // El cuadro de transparencia: qué facturó y qué quedó fuera.
+  const res = C.resumenConsolidado(DP, AUTO);
+  const cu = res.cuadros.find((x) => x.k === 'auto_peso');
+  ok('⭐⭐ el resumen dice QUÉ descartó el peso (viajes $300 + jornada $200)',
+    !!cu && cu.filas.length === 1 && /CAMION VOLTEO 7/.test(cu.filas[0].clave)
+    // (el desglose sale en el orden de las fuentes: jornadas antes que viajes)
+    && /🕐 \$200,00 \+ 🚛 \$300,00/.test(cu.filas[0].clave) && cu.filas[0].n === 500);
+  ok('⭐ sin el desglose, el cuadro no sale (la regla sigue aplicando)',
+    !C.resumenConsolidado(DP, { ...AUTO, desgloseAutomatico: false }).cuadros.some((x) => x.k === 'auto_peso')
+    && C.totalesConsolidado(FP, { ...AUTO, desgloseAutomatico: false }).total === 2400);
+  // Peso de referencia u oculto → nadie factura cero: todo vuelve a sumar.
+  eq('⭐ con el peso en referencia el camión vuelve a sus viajes y jornada',
+    C.totalesConsolidado(FP, { ...AUTO, fuentes: { ...AUTO.fuentes, peso: 'muestra' } }).total, 2400 - 500 + 300 + 200);
+  // Apagada la selección, la suma cruda (y el archivo lo dice).
+  eq('* apagada: suma cruda', C.totalesConsolidado(FP, { ...AUTO, seleccionAutomatica: false }).total, 500 + 300 + 200 + 400 + 350 + 1200 + 1150);
+  // 📅 El día por día OBEDECE la decisión del rango: el día que el camión hizo
+  // viajes pero no pesó, esos viajes igual no se suman (el rango dijo peso).
+  const DIAS = [
+    { jornada: '2026-10-19', filas: [{ ...FP[0], montos: { viajes: 300, jornadas: 200 }, cant: { viajes: 12, jornadas: 12 } }], viajes: [] },
+    { jornada: '2026-10-20', filas: [{ ...FP[0], montos: { peso: 500 }, cant: { peso: 48500 } }], viajes: [] },
+  ];
+  const ds = C.diasConsolidados(DIAS, AUTO, FP);
+  eq('⭐⭐ el día por día congela TAMBIÉN la decisión del peso (0 + 500 = 500)',
+    [ds.length, Math.round(ds.reduce((a, x) => a + x.total, 0) * 100) / 100,
+      C.totalesConsolidado([FP[0]], AUTO).total],
+    [1, 500, 500]);
 }
 
 // ═══ ⛏️ EL MISMO NOMBRE = EL MISMO FRENTE (21-oct-2026, pregunta directa) ═════

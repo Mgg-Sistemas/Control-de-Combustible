@@ -65,6 +65,10 @@ export type FilaConsolidada = {
    *  el de Reportes → ⛏️ Frentes, que desde el 19-oct se queda hasta reasignarse. */
   frente?: string | null;
   montos: Partial<Record<FuenteKey, number>>;
+  /** ⚖️ Lo que la selección automática descartó PORQUE EL PESO MANDA en el
+   *  camión (21-oct-2026, tarde): montos de viajes/jornada/horómetro que no se
+   *  sumaron porque ese camión facturó por peso. Lo pone `filasElegidas`. */
+  descartadoPorPeso?: Partial<Record<FuenteKey, number>>;
   /** 🤖 Monto de JORNADA descartado por la selección automática (21-oct-2026):
    *  cuando la máquina trae jornada Y horómetro sumando, manda el horómetro y
    *  la jornada no se suma — acá queda CUÁNTO era, para decirlo en el papel.
@@ -251,8 +255,31 @@ export const fuentesVisibles = (op: OpcionesConsolidado): FuenteKey[] => FUENTES
  *    nadie lo pidiera.
  */
 function conSeleccionAutomatica(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): readonly FilaConsolidada[] {
-  if (!op.seleccionAutomatica || op.fuentes.horometros !== 'suma') return filas;
+  if (!op.seleccionAutomatica) return filas;
   return filas.map((f) => {
+    // ⚖️ EL PESO MANDA EN EL CAMIÓN (21-oct-2026, tarde, a pedido: «si tiene
+    //    peso, se toma como prioridad el peso — eso es para la categoría de
+    //    remoción de escombros, que serían los camiones; y hay varios de esa
+    //    categoría que solo trabajarían por jornada»). Si el camión facturó por
+    //    PESO (con plata y sumando), sus viajes, su jornada y su horómetro NO
+    //    se suman: sería cobrar dos veces el mismo acarreo. El camión SIN peso
+    //    sigue igual que siempre (por viajes, o su jornada de acarreo).
+    //    Camión = la regla compartida del código (esCamionDeViajes).
+    if (op.fuentes.peso === 'suma' && (f.montos.peso ?? 0) !== 0 && esCamionDeViajes(f.code)) {
+      const sobran: FuenteKey[] = (['viajes', 'jornadas', 'horometros'] as FuenteKey[])
+        .filter((k) => (f.montos[k] ?? 0) !== 0 || (f.cant?.[k] ?? 0) !== 0);
+      if (!sobran.length) return f;
+      const montos = { ...f.montos };
+      const cant = f.cant ? { ...f.cant } : f.cant;
+      const descartado: Partial<Record<FuenteKey, number>> = {};
+      for (const k of sobran) {
+        if ((montos[k] ?? 0) !== 0) descartado[k] = r2(montos[k] as number);
+        montos[k] = 0;
+        if (cant) cant[k] = 0;
+      }
+      return { ...f, montos, cant, descartadoPorPeso: descartado };
+    }
+    if (op.fuentes.horometros !== 'suma') return f;
     const mJor = f.montos.jornadas ?? 0;
     // Solo cuando el horómetro trae PLATA: un horómetro con horas pero $0 (sin
     // precio) no puede dejar la máquina facturando cero en silencio.
@@ -559,18 +586,31 @@ export function diasConsolidados(
   op: OpcionesConsolidado,
   filasRango?: readonly FilaConsolidada[] | null,
 ): DiaConsolidado[] {
-  // Quiénes quedaron SIN jornada en el papel (decidido con el rango completo).
-  const sinJornada = new Set<string>(
-    op.seleccionAutomatica
-      ? filasElegidas(filasRango ?? [], op).filter((f) => (f.jornadaDescartada ?? 0) !== 0).map((f) => f.id)
-      : [],
-  );
+  // Qué fuentes quedaron EN CERO por máquina (decidido con el rango completo):
+  // la jornada donde mandó el horómetro, y viajes/jornada/horómetro del camión
+  // donde mandó el peso. Los días obedecen esa misma decisión.
+  const aCero = new Map<string, FuenteKey[]>();
+  if (op.seleccionAutomatica) {
+    for (const f of filasElegidas(filasRango ?? [], op)) {
+      const ks: FuenteKey[] = [];
+      if ((f.jornadaDescartada ?? 0) !== 0) ks.push('jornadas');
+      if (f.descartadoPorPeso && Object.values(f.descartadoPorPeso).some((v) => (v ?? 0) !== 0)) {
+        for (const k of ['viajes', 'jornadas', 'horometros'] as FuenteKey[]) if (!ks.includes(k)) ks.push(k);
+      }
+      if (ks.length) aCero.set(f.id, ks);
+    }
+  }
   // Los días NO vuelven a decidir: ya se decidió arriba.
   const opDia: OpcionesConsolidado = { ...op, seleccionAutomatica: false };
   const comoElPapel = (filas: readonly FilaConsolidada[]): readonly FilaConsolidada[] =>
-    sinJornada.size === 0 ? filas : filas.map((f) => (sinJornada.has(f.id)
-      ? { ...f, montos: { ...f.montos, jornadas: 0 }, cant: f.cant ? { ...f.cant, jornadas: 0 } : f.cant }
-      : f));
+    aCero.size === 0 ? filas : filas.map((f) => {
+      const ks = aCero.get(f.id);
+      if (!ks) return f;
+      const montos = { ...f.montos };
+      const cant = f.cant ? { ...f.cant } : f.cant;
+      for (const k of ks) { montos[k] = 0; if (cant) cant[k] = 0; }
+      return { ...f, montos, cant };
+    });
   return (dias ?? [])
     .map((d) => {
       const jornada = String(d?.jornada ?? '').slice(0, 10);
@@ -776,6 +816,23 @@ export function resumenConsolidado(d: {
   // mandó el horómetro): el papel factura distinto de los controles de origen,
   // así que tiene que decir exactamente dónde y cuánto — no inventa ni esconde.
   if (op.seleccionAutomatica && op.desgloseAutomatico) {
+    // ⚖️ Los camiones donde mandó el peso: qué se facturó y qué quedó fuera.
+    const porPeso = filasElegidas(d.filas, op).filter((f) => f.descartadoPorPeso && Object.values(f.descartadoPorPeso).some((v) => (v ?? 0) !== 0));
+    if (porPeso.length > 0) {
+      cuadros.push({
+        k: 'auto_peso',
+        titulo: `⚖️ Mandó el peso (${porPeso.length}): el camión facturó por romana y el resto no se sumó`,
+        filas: porPeso.map((f) => {
+          const partes = FUENTES_ORDEN.filter((k) => (f.descartadoPorPeso?.[k] ?? 0) !== 0)
+            .map((k) => `${FUENTES_META[k].icon} ${usd(f.descartadoPorPeso?.[k] ?? 0)}`);
+          const total = r2(FUENTES_ORDEN.reduce((a, k) => a + (f.descartadoPorPeso?.[k] ?? 0), 0));
+          return {
+            clave: `${f.code}${f.placa ? ` · ${f.placa}` : ''} — se facturó ⚖️ ${usd(f.montos.peso ?? 0)}; descartado: ${partes.join(' + ')}`,
+            n: total,
+          };
+        }),
+      });
+    }
     const descartadas = filasElegidas(d.filas, op).filter((f) => (f.jornadaDescartada ?? 0) !== 0);
     if (descartadas.length > 0) {
       cuadros.push({
@@ -1023,7 +1080,8 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   }
   if (op.sinEmpresas) partes.push('sin empresas');
   // 🤖 Apagar la selección automática cambia la PLATA del papel: va al nombre.
-  if (!op.seleccionAutomatica) partes.push('sumando jornada y horómetro');
+  //    (21-oct-2026, tarde: ahora también re-suma lo que el peso descartaba.)
+  if (!op.seleccionAutomatica) partes.push('sumando todas las fuentes');
   if ((op.soloMaquinas ?? []).length) partes.push(`solo ${(op.soloMaquinas ?? []).length} máquina(s)`);
   const emps = (op.soloEmpresas ?? []).map((e) => e.trim()).filter(Boolean);
   // Con UNA empresa el archivo dice CUÁL — ese es el papel que se le manda a esa empresa.
