@@ -388,6 +388,110 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     [ct.porFrente.length, ct.porFrente[0].usdPorTon], [1, 2]);
 }
 
+// ═══ 📅 LA OPERACIÓN DÍA POR DÍA (21-oct-2026, a pedido) ═════════════════════
+// «Para ese reporte consolidado, que tenga una tabla operativa diaria con un
+// desglose o del estilo del de viajes de camiones, y la gráfica también.»
+{
+  const AUTO = C.OPCIONES_CONSOLIDADO_POR_DEFECTO; // tabla y gráfico nacen prendidos
+  // La misma máquina los dos días; el horómetro solo apareció el segundo día.
+  const diaUno = { id: 'a', code: 'JUMBO 320', placa: 'AA11', empresa: 'ALFA C.A', frente: 'TFI', montos: { jornadas: 1200 }, cant: { jornadas: 12 } };
+  const diaDos = { id: 'a', code: 'JUMBO 320', placa: 'AA11', empresa: 'ALFA C.A', frente: 'TFI', montos: { jornadas: 1200, horometros: 1150 }, cant: { jornadas: 12, horometros: 11.5 } };
+  const RANGO = [{ id: 'a', code: 'JUMBO 320', placa: 'AA11', empresa: 'ALFA C.A', frente: 'TFI', montos: { jornadas: 2400, horometros: 1150 }, cant: { jornadas: 24, horometros: 11.5 } }];
+  const DIAS = [
+    { jornada: '2026-10-19', filas: [diaUno], viajes: [{ frente_nombre: 'TFI', peso_neto_kg: 100000 }] },
+    { jornada: '2026-10-20', filas: [diaDos], viajes: [{ frente_nombre: 'TFI', peso_neto_kg: 50000 }, { frente_nombre: 'TFI', peso_neto_kg: null }] },
+  ];
+  const DDIA = { filas: RANGO, desde: '2026-10-19', hasta: '2026-10-20', viajesTon: [{ frente_nombre: 'TFI', peso_neto_kg: 150000 }], dias: DIAS };
+
+  const ds = C.diasConsolidados(DIAS, AUTO, RANGO);
+  eq('⭐⭐ los días van en orden y con su día de la semana (12-oct-2026 fue lunes)',
+    ds.map((x) => [x.jornada, x.diaSemana]), [['2026-10-19', 'Lunes'], ['2026-10-20', 'Martes']]);
+  // ⭐ EL CANDADO MÁS IMPORTANTE: la decisión 🤖 se congela con el RANGO. La
+  //    máquina trajo horómetro un solo día, así que su jornada NO se cobra
+  //    NINGÚN día — si el día por día volviera a decidir, el lunes cobraría
+  //    jornada ($1.200) y la tabla no sumaría el TOTAL del papel.
+  eq('⭐⭐ la suma del día por día = el TOTAL GENERAL del papel (decisión congelada)',
+    [Math.round(ds.reduce((s, x) => s + x.total, 0) * 100) / 100, C.totalesConsolidado(RANGO, AUTO).total],
+    [1150, 1150]);
+  eq('⭐ el lunes quedó sin maquinaria facturando, pero su acarreo sí sale (100 t)',
+    [ds[0].total, ds[0].maquinas, ds[0].toneladas, ds[1].total], [0, 0, 100, 1150]);
+  eq('⭐ el viaje sin pesar cuenta como viaje y suma 0 t (regla del informe operativo)',
+    [ds[1].viajes, ds[1].sinPeso, ds[1].toneladas], [2, 1, 50]);
+  eq('⭐ el $/t del día usa SOLO la maquinaria de ese día ($1.150 ÷ 50 t)', ds[1].usdPorTon, 23);
+  // Apagada la selección automática, cada día cobra las dos fuentes… y sigue cuadrando.
+  const off = { ...AUTO, seleccionAutomatica: false };
+  eq('⭐ con la selección apagada el día por día también cuadra (1200 + 2350)',
+    [Math.round(C.diasConsolidados(DIAS, off, RANGO).reduce((s, x) => s + x.total, 0) * 100) / 100, C.totalesConsolidado(RANGO, off).total],
+    [3550, 3550]);
+  // Un día sin nada (ni plata ni viajes) no arrastra una fila de ceros.
+  eq('⭐ el día sin operación NO sale (nada de filas de ceros)',
+    C.diasConsolidados([...DIAS, { jornada: '2026-10-21', filas: [], viajes: [] }], AUTO, RANGO).length, 2);
+
+  const papel = C.cuerpoConsolidado(DDIA, AUTO);
+  ok('⭐ el papel trae la sección, la tabla con su fila TOTAL / PROM. y el gráfico',
+    /📅 Operación día por día/.test(papel) && /TOTAL \/ PROM\. · 2 día\(s\) con operación/.test(papel) && /<svg viewBox="0 0 900 260"/.test(papel));
+  ok('⭐ la tabla dice la fecha, el día, las máquinas, las toneladas y el $/t',
+    /19\/10\/2026/.test(papel) && /Lunes/.test(papel) && /🚜 Máquinas/.test(papel) && /⚖️ Toneladas/.test(papel) && /\$\/t del día/.test(papel));
+  ok('* las máquinas del pie son el MÁXIMO del día más cargado, no la suma', /1 \(máx\)/.test(papel));
+  ok('* y avisa del viaje sin romana', /1 viaje\(s\) del rango no tienen peso de romana/.test(papel));
+  // Sin los datos del día por día (una llamada vieja), la sección no sale.
+  ok('⭐ sin días no hay sección (compatibilidad con el papel de antes)',
+    !/📅 Operación día por día/.test(C.cuerpoConsolidado({ filas: RANGO, desde: '2026-10-19', hasta: '2026-10-20' }, AUTO)));
+  // Las pastillas: cada pieza y cada columna se apaga sin dejar rastro.
+  const sinTabla = C.cuerpoConsolidado(DDIA, { ...AUTO, tablaDiaria: false });
+  ok('⭐ apagar la tabla deja el gráfico (y no queda ni la fila TOTAL)',
+    !/TOTAL \/ PROM\./.test(sinTabla) && /<svg/.test(sinTabla));
+  const sinGraf = C.cuerpoConsolidado(DDIA, { ...AUTO, graficoDiario: false });
+  ok('⭐ apagar el gráfico deja la tabla', !/<svg/.test(sinGraf) && /TOTAL \/ PROM\./.test(sinGraf));
+  ok('⭐ apagar las dos cosas no deja ni el título',
+    !/📅 Operación día por día/.test(C.cuerpoConsolidado(DDIA, { ...AUTO, tablaDiaria: false, graficoDiario: false })));
+  // (la columna se busca por su <th>: «🚜 Máquinas» también es una tarjeta del resumen)
+  ok('⭐ las columnas se apagan una por una, sin rastro',
+    !/Lunes/.test(C.cuerpoConsolidado(DDIA, { ...AUTO, sinDiaSemana: true }))
+    && !/<th class="r">🚜 Máquinas<\/th>/.test(C.cuerpoConsolidado(DDIA, { ...AUTO, sinMaquinasDia: true }))
+    && !/<th class="r">⚖️ Toneladas<\/th>/.test(C.cuerpoConsolidado(DDIA, { ...AUTO, sinToneladasDia: true }))
+    && !/\$\/t del día/.test(C.cuerpoConsolidado(DDIA, { ...AUTO, sinCostoTonDia: true })));
+  ok('⭐ lo apagado va al NOMBRE del archivo (regla de la casa), no al papel',
+    /sin tabla diaria/.test(C.sufijoArchivoConsolidado({ ...AUTO, tablaDiaria: false }))
+    && /sin gráfico/.test(C.sufijoArchivoConsolidado({ ...AUTO, graficoDiario: false }))
+    && /sin toneladas por día/.test(C.sufijoArchivoConsolidado({ ...AUTO, sinToneladasDia: true }))
+    && /sin \$\/t por día/.test(C.sufijoArchivoConsolidado({ ...AUTO, sinCostoTonDia: true }))
+    // con la tabla apagada no se nombran sus columnas (no hay qué quitar)
+    && !/sin día de la semana/.test(C.sufijoArchivoConsolidado({ ...AUTO, tablaDiaria: false, sinDiaSemana: true })));
+  // ⚠️ EL CUADRE SE DICE: si la suma de los días no da el total, el papel lo canta.
+  const descuadre = C.cuerpoConsolidado({
+    filas: [{ id: 'a', code: 'M1', placa: '', empresa: 'A', montos: { jornadas: 1000 }, cant: { jornadas: 10 } }],
+    desde: '2026-10-19', hasta: '2026-10-19',
+    dias: [{ jornada: '2026-10-19', filas: [{ id: 'a', code: 'M1', placa: '', empresa: 'A', montos: { jornadas: 900 }, cant: { jornadas: 9 } }], viajes: [] }],
+  }, AUTO);
+  ok('⭐⭐ un descuadre entre el día por día y el TOTAL se DICE con la diferencia exacta',
+    /El día por día suma \$900,00 y el TOTAL GENERAL del papel es \$1\.000,00 \(faltan \$100,00\)/.test(descuadre)
+    && /Manda el TOTAL GENERAL/.test(descuadre));
+
+  // El gráfico: barras (plata) + línea (toneladas), con su tope de días.
+  eq('el tope del gráfico son 62 días', C.MAX_DIAS_GRAFICO_CONSOLIDADO, 62);
+  const svg = C.graficoDiarioConsolidadoSvg(ds, AUTO);
+  ok('⭐ el gráfico pinta una barra por día, la línea del acarreo y su leyenda',
+    (svg.match(/<rect /g) || []).length === 2 && /<polyline points="/.test(svg)
+    && /■ Barra: lo facturado del día · ● Línea: toneladas del acarreo/.test(svg));
+  // Sin una sola tonelada (o con las toneladas apagadas) la línea cuenta máquinas.
+  const sinTon = C.graficoDiarioConsolidadoSvg(C.diasConsolidados([{ jornada: '2026-10-20', filas: [diaDos], viajes: [] }], AUTO, RANGO), AUTO);
+  ok('⭐ sin acarreo la línea cuenta máquinas (no se dibuja un cero inventado)',
+    /● Línea: máquinas que facturaron/.test(sinTon));
+  const largo = Array.from({ length: 63 }, (_, i) => ({ ...ds[1], jornada: `2026-08-${String((i % 28) + 1).padStart(2, '0')}` }));
+  eq('⭐ con más de 62 días el gráfico no sale (serían barras ilegibles)', C.graficoDiarioConsolidadoSvg(largo, AUTO), '');
+  ok('…y el papel dice por qué y qué hacer',
+    /El gráfico no sale con más de 62 días/.test(C.cuerpoConsolidado({ ...DDIA, dias: largo.map((x) => ({ jornada: x.jornada, filas: [diaDos], viajes: [] })) }, AUTO)));
+
+  // La pantalla: arma el día por día con LOS MISMOS motores (nada nuevo se consulta).
+  const card = leer('src/components/ReporteConsolidadoCard.tsx');
+  ok('⭐⭐ la pantalla corre la MISMA `armar` con el rango de un solo día', /filas: armar\(dd, dd\)/.test(card));
+  ok('* …y le pasa los días al papel', /dias: porDia/.test(card));
+  ok('* con rangos largos avisa en vez de congelarse', /dias <= MAX_DIAS_GRAFICO_CONSOLIDADO/.test(card));
+  ok('* la pantalla tiene las pastillas de la tabla y del gráfico',
+    /📅 Tabla operativa diaria/.test(card) && /📈 Gráfico del día por día/.test(card));
+}
+
 if (fail) {
   console.error(failures.join('\n'));
   console.error(`\n✗ reporte consolidado: ${fail} fallo(s), ${pass} ok`);
