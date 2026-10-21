@@ -3983,6 +3983,28 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
     toneladas se cortan por esos mismos frentes. Pero si se filtra por **empresa, categoría o
     máquinas sueltas**, el costo es solo de lo elegido y las toneladas siguen siendo las de **todo
     el rango** — la tarjeta lo advierte, para que el número no se lea como lo que no es.
+- **📅📈 La operación día por día (21/10/2026, a pedido):** «que tenga una **tabla operativa
+  diaria** con un desglose del estilo del de viajes de camiones, y **la gráfica** también». Entre
+  el resumen y el detalle, el papel trae ahora una sección **📅 Operación día por día**:
+  - **El gráfico** (arriba, para leerlo de un golpe): una **barra por día** con lo facturado y una
+    **línea encima** con las **toneladas que movió el acarreo** ese día (si en el rango no hubo ni
+    una tonelada, la línea cuenta las **máquinas que facturaron** — nunca se dibuja un cero
+    inventado). Con **más de 62 días no sale** (serían barras ilegibles) y el papel lo dice.
+  - **La tabla:** fecha · día de la semana · 🚜 máquinas que facturaron · **una columna por cada
+    fuente** (con su respaldo en horas, viajes o toneladas, igual que el resto del papel) · TOTAL
+    del día · ⚖️ toneladas del acarreo · **$/t del día**; y la fila de cierre **TOTAL / PROM.**,
+    donde las máquinas son el **máximo del día más cargado** (no se suman: la misma ficha trabaja
+    varios días). **Un día sin operación no sale** — un papel de un mes no arrastra filas de ceros.
+  - **De dónde sale:** de los **mismos cuatro motores**, corridos con el rango de **un solo día**;
+    no se consulta nada nuevo ni se inventa un reparto. Y **la decisión 🤖 horómetro-vs-jornada se
+    toma una sola vez con el rango completo** y los días la obedecen: si una máquina trajo
+    horómetro un solo día, su jornada no se cobra ningún día — por eso **la tabla suma exactamente
+    el TOTAL GENERAL**. Si por los redondeos de la jornada (precio de la semana, redondeo único al
+    final) quedara una diferencia, **el papel la canta con el monto exacto** y manda el TOTAL
+    GENERAL. Con rangos de más de 62 días el día por día no se calcula y la pantalla lo avisa.
+  - **Todo apagable:** pastillas **«📅 Tabla operativa diaria»** y **«📈 Gráfico del día por día»**,
+    y dentro de la tabla, columna por columna (día de la semana, máquinas, toneladas, $/t). Lo
+    apagado **no deja rastro en el papel**: va al **nombre del archivo**.
 
 #### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
 
