@@ -398,6 +398,19 @@ fecha y de qué turno era. Sin foto subida, la ficha sale sin ella.
 > peso por máquina, no dos verdades. La foto de la placa es la misma del botón
 > **«🔖 Foto serial/placa»**.
 
+> **⚡ Por qué antes se demoraba (21/10/2026, reporte: «la ficha técnica no me sale, está
+> lenta»):** dos cosas, las dos arregladas. (1) **Las fotos pesaban demasiado**: de las 271
+> fotos de equipo del catálogo, 24 pasan de 1,5 MB y la más grande llegaba a **6,1 MB** —
+> trece segundos para bajar una sola, y la vista previa **no imprime hasta que las fotos
+> estén** (eso es a propósito: si imprime antes, las hojas salen con el recuadro vacío o
+> negro). Ahora el papel pide **la misma foto, servida reducida** por Supabase: esa de 6,1 MB
+> baja en **700 KB**. El original **no se toca** en el catálogo, y si la versión reducida
+> fallara, la ficha **vuelve sola a la foto original**. (2) **El botón parecía muerto**:
+> mientras armaba la ficha no cambiaba nada en pantalla y se buscaba la foto del horómetro en
+> **tres consultas en fila**. Ahora el botón dice **«📄 Generando…»** mientras trabaja, las
+> tres consultas van **en paralelo**, y la foto del horómetro tiene **tope de espera**: si la
+> base se demora, **la ficha sale igual** sin ese anexo (es un extra, no el documento).
+
 **Los vehículos también:** la tarjeta de cada 🚗 vehículo tiene su mismo botón
 **«📄 Ficha técnica»** — sale con sus datos (marca, modelo, placa, serial, capacidad del
 tanque en L, rendimiento en km/L, empresa, encargado y sus fotos). Lo que un vehículo no

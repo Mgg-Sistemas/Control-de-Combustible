@@ -1041,14 +1041,24 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
     if (e === 'trabajando') return '✅ Operativa · trabajando ahora';
     return '✅ Operativa';
   };
+  // ⏳ Mientras se arma la ficha, el botón LO DICE (21-oct-2026, reporte: «no me
+  //    sale, está lenta»): antes no cambiaba nada en pantalla y parecía muerto.
+  const [fichaBusy, setFichaBusy] = useState<string | null>(null);
   const fichaTecnica = async (m: Machinery) => {
+    if (fichaBusy) return; // una a la vez: dos vistas previas encimadas no se leen
+    setFichaBusy(m.id);
     try {
       const comp = (companies.data ?? []).find((c) => c.id === m.company_id);
       const d = new Date();
       const hoy = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       // La última foto del horómetro subida (lecturas, adicionales o cierre de
       // jornada) va al anexo de la ficha. Sin foto (o sin permiso), sale sin ella.
-      const fotoHoro = await ultimaFotoHorometro(m.id);
+      // La foto del horómetro es un ANEXO: si la base se demora, la ficha sale
+      // igual sin ella. Nunca al revés (esperar un extra y no entregar nada).
+      const fotoHoro = await Promise.race([
+        ultimaFotoHorometro(m.id).catch(() => null),
+        new Promise<null>((res) => { setTimeout(() => res(null), 4000); }),
+      ]);
       const html = fichaTecnicaMaquinaHtml(
         {
           ...m, companyName: comp?.name ?? null, companyRif: (comp as any)?.rif ?? null,
@@ -1060,11 +1070,15 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       await exportPdf(html, nombreArchivoFichaTecnica(m));
     } catch (e: any) {
       toast.error(e?.message ?? 'No se pudo generar la ficha técnica.');
+    } finally {
+      setFichaBusy(null);
     }
   };
   // La MISMA ficha para un VEHÍCULO (misma tarde): se mapean sus campos al tipo
   // de la lib y lo que un vehículo no tiene (horómetro, aceite, tapa) no sale.
   const fichaTecnicaVeh = async (v: Vehicle) => {
+    if (fichaBusy) return;
+    setFichaBusy(v.id);
     try {
       const comp = (companies.data ?? []).find((c) => c.id === v.company_id);
       const d = new Date();
@@ -1088,6 +1102,8 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       await exportPdf(html, nombreArchivoFichaTecnica({ code: nombre }));
     } catch (e: any) {
       toast.error(e?.message ?? 'No se pudo generar la ficha técnica.');
+    } finally {
+      setFichaBusy(null);
     }
   };
 
@@ -1797,7 +1813,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto máquina'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
         <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
-        <BigBtn label="📄 Ficha técnica" onPress={() => fichaTecnica(m)} color="#16324F" />
+        <BigBtn label={fichaBusy === m.id ? '📄 Generando…' : '📄 Ficha técnica'} disabled={fichaBusy === m.id} onPress={() => fichaTecnica(m)} color="#16324F" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => onToggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
         {/* 🔁 Transferida a otros: fuera de servicio como retirada, contada aparte. */}
@@ -1871,7 +1887,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
         <BigBtn label={busy === v.id + '-vphoto' ? 'Subiendo…' : '📷 Foto vehículo'} onPress={() => photoVeh(v)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === v.id + '-vphoto'} />
         <BigBtn label={busy === v.id + '-vphotoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoVehSerial(v)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === v.id + '-vphotoser'} />
-        <BigBtn label="📄 Ficha técnica" onPress={() => fichaTecnicaVeh(v)} color="#16324F" />
+        <BigBtn label={fichaBusy === v.id ? '📄 Generando…' : '📄 Ficha técnica'} disabled={fichaBusy === v.id} onPress={() => fichaTecnicaVeh(v)} color="#16324F" />
         <BigBtn
           label={v.en_espera ? '✅ Ya se decidió (quitar espera)' : '⏳ Esperando instrucciones'}
           onPress={() => toggleEsperaVeh(v)}
@@ -2810,7 +2826,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                       {/* La ficha técnica también desde las listas por estado (28-sep-2026):
                           una máquina retirada o en espera SIGUE teniendo ficha — el pedido
                           fue precisamente que saliera «en cualquiera de esos apartados». */}
-                      <BigBtn label="📄 Ficha técnica" onPress={() => fichaTecnica(m)} color="#16324F" />
+                      <BigBtn label={fichaBusy === m.id ? '📄 Generando…' : '📄 Ficha técnica'} disabled={fichaBusy === m.id} onPress={() => fichaTecnica(m)} color="#16324F" />
                       {/* Ver el QR también desde acá (incluye RETIRADAS): al escanear una
                           retirada solo debe salir el logo — este botón permite verificarlo. */}
                       <BigBtn label="🔳 Ver QR" onPress={() => openQr(m)} color="#111827" />

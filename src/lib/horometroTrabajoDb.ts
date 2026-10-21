@@ -107,64 +107,69 @@ export type UltimaFotoHorometro = { url: string; roundDate: string; detalle: str
  */
 export async function ultimaFotoHorometro(machineryId: string): Promise<UltimaFotoHorometro | null> {
   const candidatos: UltimaFotoHorometro[] = [];
-  try {
-    const { data } = await supabase
+  // ⚡ LAS TRES CONSULTAS EN PARALELO (21-oct-2026, reporte: «la ficha técnica
+  //    no me sale, está lenta»): antes iban una detrás de otra y el botón 📄 se
+  //    quedaba mudo TRES viajes a la base antes de abrir nada. Son lecturas
+  //    independientes: no hay razón para hacerlas en cola. Cada una se cae sola
+  //    (sin tabla o sin permiso: la ficha sale sin esa foto, como siempre).
+  const sinDatos = () => ({ data: null as any });
+  const [rLecturas, rFotos, rRondas] = await Promise.all([
+    supabase
       .from('lecturas_horometro_trabajo')
       .select('round_date, shift, foto_inicial_url, foto_final_url')
       .eq('machinery_id', machineryId)
       .or('foto_final_url.not.is.null,foto_inicial_url.not.is.null')
       .order('round_date', { ascending: false })
-      .limit(4);
-    const filas = ((data ?? []) as any[]).slice().sort((a, b) => {
-      const fa = String(a.round_date), fb = String(b.round_date);
-      if (fa !== fb) return fa < fb ? 1 : -1;
-      return (a.shift === 'night' ? 0 : 1) - (b.shift === 'night' ? 0 : 1); // la noche cierra el día
-    });
-    for (const r of filas) {
-      const url = limpio(r.foto_final_url) || limpio(r.foto_inicial_url);
-      if (!url) continue;
-      candidatos.push({
-        url,
-        roundDate: String(r.round_date).slice(0, 10),
-        detalle: `${r.foto_final_url ? 'final' : 'inicial'} del turno ${r.shift === 'night' ? 'noche' : 'día'}`,
-      });
-      break;
-    }
-  } catch { /* sin tabla o sin permiso: la ficha sale sin foto */ }
-  try {
-    const { data } = await supabase
+      .limit(4)
+      .then((r: any) => r, sinDatos),
+    supabase
       .from('horometro_fotos')
       .select('round_date, shift, url, created_at')
       .eq('machinery_id', machineryId)
       .order('round_date', { ascending: false })
       .order('created_at', { ascending: false })
-      .limit(1);
-    const r: any = (data ?? [])[0];
-    if (r && limpio(r.url)) {
-      candidatos.push({
-        url: limpio(r.url),
-        roundDate: String(r.round_date).slice(0, 10),
-        detalle: `foto adicional del turno ${r.shift === 'night' ? 'noche' : 'día'}`,
-      });
-    }
-  } catch { /* idem */ }
-  try {
-    const { data } = await supabase
+      .limit(1)
+      .then((r: any) => r, sinDatos),
+    supabase
       .from('machine_rounds')
       .select('round_date, horometro_photo')
       .eq('machinery_id', machineryId)
       .not('horometro_photo', 'is', null)
       .order('round_date', { ascending: false })
-      .limit(1);
-    const r: any = (data ?? [])[0];
-    if (r && limpio(r.horometro_photo)) {
-      candidatos.push({
-        url: limpio(r.horometro_photo),
-        roundDate: String(r.round_date).slice(0, 10),
-        detalle: 'del cierre de la jornada',
-      });
-    }
-  } catch { /* idem */ }
+      .limit(1)
+      .then((r: any) => r, sinDatos),
+  ]);
+  const filas = (((rLecturas as any)?.data ?? []) as any[]).slice().sort((a, b) => {
+    const fa = String(a.round_date), fb = String(b.round_date);
+    if (fa !== fb) return fa < fb ? 1 : -1;
+    return (a.shift === 'night' ? 0 : 1) - (b.shift === 'night' ? 0 : 1); // la noche cierra el día
+  });
+  for (const r of filas) {
+    const url = limpio(r.foto_final_url) || limpio(r.foto_inicial_url);
+    if (!url) continue;
+    candidatos.push({
+      url,
+      roundDate: String(r.round_date).slice(0, 10),
+      detalle: `${r.foto_final_url ? 'final' : 'inicial'} del turno ${r.shift === 'night' ? 'noche' : 'día'}`,
+    });
+    break;
+  }
+  const extra: any = (((rFotos as any)?.data ?? []) as any[])[0];
+  if (extra && limpio(extra.url)) {
+    candidatos.push({
+      url: limpio(extra.url),
+      roundDate: String(extra.round_date).slice(0, 10),
+      detalle: `foto adicional del turno ${extra.shift === 'night' ? 'noche' : 'día'}`,
+    });
+  }
+  const ronda: any = (((rRondas as any)?.data ?? []) as any[])[0];
+  if (ronda && limpio(ronda.horometro_photo)) {
+    candidatos.push({
+      url: limpio(ronda.horometro_photo),
+      roundDate: String(ronda.round_date).slice(0, 10),
+      detalle: 'del cierre de la jornada',
+    });
+  }
   if (!candidatos.length) return null;
   // Orden estable: a igual jornada queda el primero que entró (la lectura).
   return candidatos.slice().sort((a, b) => (a.roundDate < b.roundDate ? 1 : a.roundDate > b.roundDate ? -1 : 0))[0];
