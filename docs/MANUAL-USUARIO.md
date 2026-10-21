@@ -3996,6 +3996,29 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
     toneladas se cortan por esos mismos frentes. Pero si se filtra por **empresa, categoría o
     máquinas sueltas**, el costo es solo de lo elegido y las toneladas siguen siendo las de **todo
     el rango** — la tarjeta lo advierte, para que el número no se lea como lo que no es.
+- **⛏️ El mismo frente, escrito de varias maneras (21/10/2026, a pedido: «me salen repetidos,
+  acomoda los nombres para que se junten todos… sin que se pierda la información»):** el frente
+  de un viaje queda **congelado** en el viaje con el nombre que tenía ese día («RES. CORAL»), y
+  el catálogo puede llamarlo de otra forma («RESIDENCIAS CORAL»). Los dos son correctos y
+  ninguno se borra —el congelado es lo que vio el listero—, pero el papel los cruzaba perdonando
+  solo mayúsculas y acentos: salían **dos renglones del mismo frente**, uno con las toneladas y
+  otro con «$0,00 de maquinaria». Ahora el consolidado los **junta solo**:
+  - Se perdona lo que no distingue un sitio: **abreviaturas** (RES. = RESIDENCIA = RESIDENCIAS,
+    URB., EDIF., QTA., CJTO.), **apóstrofes** de cualquier tipo (EDUARD´S = EDUARD'S), el **&**
+    («SUITES & RESORTS» = «SUITES Y RESORTS»), puntos, comas, acentos y espacios de más.
+  - Se adoptan las etiquetas viejas a las que les falta algo: **«coral garden» → «RESIDENCIA
+    CORAL GARDEN»** (le faltaba el tipo) y **«res. rita sol» → «RESIDENCIA RITA SOL PALACE»**
+    (le faltaba el apellido) — pero **solo cuando hay un único frente posible**.
+  - **Nunca junta de más.** Un frente que **existe en el catálogo** jamás se mete dentro de otro
+    parecido: «RESIDENCIAS CORAL», «CORAL MAR», «CORAL PARK», «CORAL BEACH» y «CORAL GARDEN»
+    siguen siendo **cinco frentes distintos**. Y un **tramo** no es un sitio: «CDT Playa
+    Escondida» y «CDT Playa Escondida **al** CDF Santa Eduvigis» quedan separados.
+  - El renglón sale con el **nombre más completo** del grupo (el del catálogo, no la
+    abreviatura), y la pastilla del filtro **⛏️ Solo estos frentes** también sale una sola vez:
+    marcarla recoge los viajes que decían el nombre viejo.
+  - **No se toca ningún dato:** los viajes, sus pesos y su frente congelado quedan intactos
+    —en Viajes de camiones se sigue viendo el nombre con que se registró— y **el total general
+    del papel no cambia**: lo que antes salía en dos renglones ahora sale en uno.
 - **📅📈 La operación día por día (21/10/2026, a pedido):** «que tenga una **tabla operativa
   diaria** con un desglose del estilo del de viajes de camiones, y **la gráfica** también». Entre
   el resumen y el detalle, el papel trae ahora una sección **📅 Operación día por día**:

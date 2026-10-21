@@ -29,9 +29,14 @@ import { aplicarEdicionResumen } from './frentesReporte';
 // 🚛 La regla compartida de «qué es un camión» (el código de texto manda): para
 //    que el costo por tonelada no cuente como maquinaria a un camión a jornada.
 import { esCamionDeViajes } from './equipos';
-// Los FRENTES viven en DOS catálogos (viajes y maquinaria) y se escriben a mano:
-// el cruce por nombre no puede distinguir mayúsculas NI acentos («Túnel» y
-// «TUNEL» son el mismo frente). `norm` es el normalizador de toda la app.
+// Los FRENTES viven en DOS catálogos (viajes y maquinaria) y, además, cada
+// viaje lleva CONGELADO el nombre con el que se registró: «RES. CORAL» en el
+// viaje y «RESIDENCIAS CORAL» en el catálogo son el mismo sitio. Cruzarlos
+// perdonando solo mayúsculas y acentos partía el frente en dos renglones (uno
+// con las toneladas y otro con la plata). `indiceFrentes` los junta sin tocar
+// un dato — y sin juntar los que de verdad son distintos (21-oct-2026).
+import { indiceFrentes, type IndiceFrentes } from './frentesNombre';
+// Para empresa y categoría basta el normalizador de siempre (mayúsculas y acentos).
 import { norm } from './text';
 
 export type FuenteKey = 'jornadas' | 'horometros' | 'viajes' | 'peso';
@@ -90,6 +95,41 @@ export const SIN_FRENTE = 'Sin frente';
 export const categoriaDe = (f: Pick<FilaConsolidada, 'categoria'>): string => String(f.categoria ?? '').trim() || SIN_CATEGORIA;
 export const frenteDe = (f: Pick<FilaConsolidada, 'frente'>): string => String(f.frente ?? '').trim() || SIN_FRENTE;
 
+/**
+ * Todos los nombres de frente que aparecen en el papel: los de las máquinas y
+ * los CONGELADOS en cada viaje. Con esa lista se decide qué nombres son el
+ * mismo frente. «Sin frente» queda fuera a propósito: es una etiqueta nuestra,
+ * no un sitio, y no debe fundirse con nada.
+ */
+function nombresDeFrente(
+  filas: readonly FilaConsolidada[] | null | undefined,
+  viajes?: readonly ViajeToneladas[] | null,
+): string[] {
+  const s = new Set<string>();
+  for (const f of filas ?? []) {
+    const n = String(f?.frente ?? '').trim();
+    if (n) s.add(n);
+  }
+  for (const v of viajes ?? []) {
+    const n = String(v?.frente_nombre ?? '').trim();
+    if (n) s.add(n);
+  }
+  return Array.from(s);
+}
+
+/** El índice de frentes del papel (nombres de máquinas + nombres de viajes). */
+export function indiceFrentesConsolidado(
+  filas: readonly FilaConsolidada[] | null | undefined,
+  viajes: readonly ViajeToneladas[] | null | undefined,
+  op: Pick<OpcionesConsolidado, 'soloFrentes' | 'catalogoFrentes'>,
+): IndiceFrentes {
+  // Lo MARCADO en el filtro también entra: así marcar «RESIDENCIAS CORAL»
+  // alcanza a los viajes que decían «RES. CORAL», aunque esa fila ya no esté.
+  const marcados = (op.soloFrentes ?? []).map((m) => String(m ?? '').trim()).filter(Boolean);
+  const catalogo = (op.catalogoFrentes ?? []).map((m) => String(m ?? '').trim()).filter(Boolean);
+  return indiceFrentes([...nombresDeFrente(filas, viajes), ...marcados, ...catalogo], catalogo);
+}
+
 export type OpcionesConsolidado = {
   fuentes: Record<FuenteKey, ModoFuente>;
   /** Cómo se parte el cuerpo del papel. */
@@ -147,6 +187,12 @@ export type OpcionesConsolidado = {
   /** CLASIFICACIONES marcadas; vacío = todas (20-oct-2026, a pedido: «para solo
    *  una categoría en específico»). También cambia el total: va FILTRADO. */
   soloCategorias?: string[];
+  /** ⛏️ LOS FRENTES QUE EXISTEN (los dos catálogos, viajes y maquinaria), para
+   *  juntar bien los nombres (21-oct-2026). Con esta lista, un frente de verdad
+   *  NUNCA se absorbe dentro de otro parecido y solo se adoptan las etiquetas
+   *  congeladas en viajes viejos. Sin ella la lib se pone prudente y junta
+   *  menos — nunca de más. La pantalla la llena; no es una opción del usuario. */
+  catalogoFrentes?: readonly string[];
   /** FRENTES marcados (por nombre, el vigente al final del rango); vacío = todos
    *  (20-oct-2026, a pedido: «poder seleccionar un frente o varios»). «Sin
    *  frente» también se puede marcar. Cambia el total: va FILTRADO. */
@@ -229,13 +275,14 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
   const categorias = new Set((op.soloCategorias ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   // Los frentes vienen de DOS catálogos escritos a mano: el filtro no distingue
   // mayúsculas NI acentos («Túnel» marca también a «TUNEL»).
-  const frentes = new Set((op.soloFrentes ?? []).map((e) => norm(e.trim())).filter(Boolean));
+  const idxF = indiceFrentesConsolidado(filas, null, op);
+  const frentes = new Set((op.soloFrentes ?? []).map((e) => idxF.clave(e)).filter(Boolean));
   const visibles = fuentesVisibles(op);
   return (filas ?? [])
     .filter((f) => marcadas.size === 0 || marcadas.has(f.id))
     .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
     .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
-    .filter((f) => frentes.size === 0 || frentes.has(norm(frenteDe(f))))
+    .filter((f) => frentes.size === 0 || frentes.has(idxF.clave(frenteDe(f))))
     .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0))
     .slice()
     // ⭐ ORDEN ALFABÉTICO por máquina (20-oct-2026, a pedido): el listado va A→Z
@@ -365,15 +412,18 @@ export function costoPorTonelada(
   op: OpcionesConsolidado,
   viajes: readonly ViajeToneladas[] | null | undefined,
 ): CostoTonelada {
-  const soloFrentes = new Set((op.soloFrentes ?? []).map((e) => norm(e.trim())).filter(Boolean));
+  const idxF = indiceFrentesConsolidado(filas, viajes, op);
+  const soloFrentes = new Set((op.soloFrentes ?? []).map((e) => idxF.clave(e)).filter(Boolean));
   // El cruce por frente es por NOMBRE sin distinguir mayúsculas NI acentos: el de
   // la máquina viene del catálogo de frentes y el del viaje quedó congelado como
   // texto — si se llaman igual, es el MISMO frente.
   const pf = new Map<string, FrenteTonelada>();
   const fr = (nombre: string): FrenteTonelada => {
-    const k = norm(nombre.trim());
+    const k = idxF.clave(nombre);
     let x = pf.get(k);
-    if (!x) { x = { frente: nombre.trim(), costo: 0, horas: 0, toneladas: 0, usdPorTon: null }; pf.set(k, x); }
+    // El renglón se imprime con el nombre MÁS COMPLETO del grupo (el del
+    // catálogo, no la abreviatura que quedó congelada en un viaje).
+    if (!x) { x = { frente: idxF.nombre(nombre), costo: 0, horas: 0, toneladas: 0, usdPorTon: null }; pf.set(k, x); }
     return x;
   };
   const hayHoro = op.fuentes.horometros !== 'oculta';
@@ -412,7 +462,7 @@ export function costoPorTonelada(
   let sinPeso = 0;
   for (const v of viajes ?? []) {
     const fnom = String(v.frente_nombre ?? '').trim() || SIN_FRENTE;
-    if (soloFrentes.size > 0 && !soloFrentes.has(norm(fnom))) continue;
+    if (soloFrentes.size > 0 && !soloFrentes.has(idxF.clave(fnom))) continue;
     nViajes += 1;
     const kg = Number(v.peso_neto_kg);
     if (Number.isFinite(kg) && kg > 0) {
@@ -930,16 +980,19 @@ export function cuerpoConsolidado(d: {
     : null;
   html += `<h2>📑 Detalle ${porBloques ? porBloques.titulo : 'por máquina'}</h2>`;
   if (porBloques) {
-    // Los bloques se juntan por nombre NORMALIZADO (sin mayúsculas ni acentos):
-    // los frentes viven en dos catálogos escritos a mano («TFI» del camión y
-    // «Tfi» de la máquina son el MISMO bloque, 21-oct-2026). Se muestra el
-    // nombre tal como vino la primera vez.
+    // Los bloques se juntan por nombre NORMALIZADO (sin mayúsculas ni acentos).
+    // Y si se agrupa POR FRENTE, con el índice de frentes: «RES. CORAL» (como
+    // quedó congelado en los viajes) y «RESIDENCIAS CORAL» (el catálogo) son
+    // UN bloque, y se imprime con el nombre más completo (21-oct-2026).
+    const idxB = op.agruparPor === 'frente' ? indiceFrentesConsolidado(elegidas, d.viajesTon, op) : null;
+    const claveB = (nombre: string) => (idxB ? idxB.clave(nombre) : norm(nombre));
+    const nombreB = (nombre: string) => (idxB ? idxB.nombre(nombre) : nombre);
     const bloques = new Map<string, { nombre: string; lista: FilaConsolidada[] }>();
     for (const f of elegidas) {
       const nombre = porBloques.clave(f);
-      const k = norm(nombre);
+      const k = claveB(nombre);
       let b = bloques.get(k);
-      if (!b) { b = { nombre, lista: [] }; bloques.set(k, b); }
+      if (!b) { b = { nombre: nombreB(nombre), lista: [] }; bloques.set(k, b); }
       b.lista.push(f);
     }
     for (const b of Array.from(bloques.values()).sort((a, z) => cmpTx(a.nombre, z.nombre))) {
