@@ -574,9 +574,11 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > automatización del Inspector SOS **apagada** (el interruptor del SOS solo cubría las máquinas del
 > propio SOS, no las de inspectores reales).
 > **Decisión del cliente:** ninguna máquina recibe horas automáticas; las horas salen **solo** de lo
-> que carga el inspector — el inicio de jornada (escaneo o botón) y el horómetro. El **cierre**
-> automático de las 7pm/7am **sí sigue**: cierra con las horas **reales** lo que una persona inició;
-> no inventa horas. Las horas cargadas a mano en Control siguen igual.
+> que carga el inspector — el inicio de jornada (escaneo o botón) y el horómetro. ~~El cierre
+> automático de las 7pm/7am sí sigue~~ → **superado el 20/10/2026: el cierre automático también
+> quedó apagado** (regla final del cliente: «ni iniciándose ni cerrándose, ni de SOS ni ninguna» —
+> las jornadas las inicia y las cierra el inspector). Las horas cargadas a mano en Control siguen
+> igual.
 > Además, el mismo día se quitaron los **dos últimos cierres con horas fijas**:
 > - El turno **día** de las máquinas del Inspector SOS cerraba con **12 h fijas** sin importar a qué
 >   hora arrancó de verdad → ahora cierra con **horas reales**, igual que todo el mundo.
@@ -598,6 +600,14 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > - **Lo que NO cambia:** las jornadas ya abiertas se **cierran normal** (si no, quedarían sumando
 >   horas para siempre); las máquinas sin inspector se le siguen asignando; y sus máquinas siguen
 >   saliendo como **"trabajando"**, nunca paradas ni averiadas.
+> **🛑 Retirada del todo (20/10/2026, pedido textual: «no debería estar activándose ninguna máquina
+> automáticamente, ni iniciándose ni cerrándose, ni de SOS ni ninguna»).** Los procesos que iniciaban
+> jornadas del SOS (7:05am, 7:05pm, el reafirmador de cada 10 minutos y el llenador del turno
+> completo) quedaron **desprogramados del servidor**: ya no corren, ni con el interruptor encendido.
+> El interruptor de arriba queda **sin efecto** — si algún día se quisiera de vuelta, hay que
+> reprogramar los procesos en la base, no basta encenderlo. Además se corrigió una trampa: si la
+> configuración del interruptor se perdía (p. ej. al restaurar la base), la automatización **se
+> encendía sola**; ahora sin configuración queda **apagada**.
 > - Quien no es administrador **no puede verlo ni cambiarlo**: lo impide la base, no solo la pantalla.
 
 **🟢 Inspector "SOS LA GUAIRA" — máquinas siempre trabajando:**
