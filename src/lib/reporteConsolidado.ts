@@ -29,6 +29,10 @@ import { aplicarEdicionResumen } from './frentesReporte';
 // 🚛 La regla compartida de «qué es un camión» (el código de texto manda): para
 //    que el costo por tonelada no cuente como maquinaria a un camión a jornada.
 import { esCamionDeViajes } from './equipos';
+// Los FRENTES viven en DOS catálogos (viajes y maquinaria) y se escriben a mano:
+// el cruce por nombre no puede distinguir mayúsculas NI acentos («Túnel» y
+// «TUNEL» son el mismo frente). `norm` es el normalizador de toda la app.
+import { norm } from './text';
 
 export type FuenteKey = 'jornadas' | 'horometros' | 'viajes' | 'peso';
 export type ModoFuente = 'suma' | 'muestra' | 'oculta';
@@ -111,6 +115,12 @@ export type OpcionesConsolidado = {
    *  cuadros. Lo descartado se dice en el resumen (este papel no inventa nada).
    *  Nace prendida; apagarla va al nombre del archivo. */
   seleccionAutomatica: boolean;
+  /** 🤖 El DESGLOSE de la selección automática (21-oct-2026, a pedido: «que
+   *  tome lo del horómetro domina pero que no me salga esa información si no
+   *  quiero»): el cuadro «Mandó el horómetro» y la cola de «fuera del cuadro:
+   *  … sin toneladas» del ⚖️. Apagado, la regla SIGUE aplicando — solo deja de
+   *  imprimirse el detalle. Nace prendido. */
+  desgloseAutomatico: boolean;
   /** ⚖️ Costo maquinaria ÷ toneladas del acarreo, global y por frente
    *  (21-oct-2026, a pedido del jefe: «$25.000 entre 2.000 t = $12,5 la
    *  tonelada»). Nace prendida: es el corazón del pedido. */
@@ -147,6 +157,7 @@ export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
   comparacion: true,
   promedioDia: true,
   seleccionAutomatica: true,
+  desgloseAutomatico: true,
   costoTonelada: true,
   horaPromedio: true,
 };
@@ -196,13 +207,15 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
   const marcadas = new Set(op.soloMaquinas ?? []);
   const empresas = new Set((op.soloEmpresas ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const categorias = new Set((op.soloCategorias ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
-  const frentes = new Set((op.soloFrentes ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
+  // Los frentes vienen de DOS catálogos escritos a mano: el filtro no distingue
+  // mayúsculas NI acentos («Túnel» marca también a «TUNEL»).
+  const frentes = new Set((op.soloFrentes ?? []).map((e) => norm(e.trim())).filter(Boolean));
   const visibles = fuentesVisibles(op);
   return (filas ?? [])
     .filter((f) => marcadas.size === 0 || marcadas.has(f.id))
     .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
     .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
-    .filter((f) => frentes.size === 0 || frentes.has(frenteDe(f).toLowerCase()))
+    .filter((f) => frentes.size === 0 || frentes.has(norm(frenteDe(f))))
     .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0))
     .slice()
     // ⭐ ORDEN ALFABÉTICO por máquina (20-oct-2026, a pedido): el listado va A→Z
@@ -332,12 +345,13 @@ export function costoPorTonelada(
   op: OpcionesConsolidado,
   viajes: readonly ViajeToneladas[] | null | undefined,
 ): CostoTonelada {
-  const soloFrentes = new Set((op.soloFrentes ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
-  // El cruce por frente es por NOMBRE sin distinguir mayúsculas: el de la máquina
-  // viene del catálogo de frentes y el del viaje quedó congelado como texto.
+  const soloFrentes = new Set((op.soloFrentes ?? []).map((e) => norm(e.trim())).filter(Boolean));
+  // El cruce por frente es por NOMBRE sin distinguir mayúsculas NI acentos: el de
+  // la máquina viene del catálogo de frentes y el del viaje quedó congelado como
+  // texto — si se llaman igual, es el MISMO frente.
   const pf = new Map<string, FrenteTonelada>();
   const fr = (nombre: string): FrenteTonelada => {
-    const k = nombre.trim().toLowerCase();
+    const k = norm(nombre.trim());
     let x = pf.get(k);
     if (!x) { x = { frente: nombre.trim(), costo: 0, horas: 0, toneladas: 0, usdPorTon: null }; pf.set(k, x); }
     return x;
@@ -378,7 +392,7 @@ export function costoPorTonelada(
   let sinPeso = 0;
   for (const v of viajes ?? []) {
     const fnom = String(v.frente_nombre ?? '').trim() || SIN_FRENTE;
-    if (soloFrentes.size > 0 && !soloFrentes.has(fnom.toLowerCase())) continue;
+    if (soloFrentes.size > 0 && !soloFrentes.has(norm(fnom))) continue;
     nViajes += 1;
     const kg = Number(v.peso_neto_kg);
     if (Number.isFinite(kg) && kg > 0) {
@@ -467,7 +481,10 @@ export function resumenConsolidado(d: {
       // (hay toneladas); los cojos se dicen aparte para no imprimir un «$0,00»
       // al lado de un «no divide» que lo contradiga.
       const divisibles = ct.porFrente.filter((x) => x.usdPorTon != null);
-      const cojos = ct.porFrente.filter((x) => x.usdPorTon == null && x.costo > 0).map((x) => `${x.frente} (${usd(x.costo)} sin toneladas)`);
+      // La cola «fuera del cuadro: …» es parte del DESGLOSE: apagado, no sale.
+      const cojos = op.desgloseAutomatico
+        ? ct.porFrente.filter((x) => x.usdPorTon == null && x.costo > 0).map((x) => `${x.frente} (${usd(x.costo)} sin toneladas)`)
+        : [];
       if (divisibles.length >= 1 && ct.porFrente.length >= 2) {
         cuadros.push({
           k: 'ton_frente',
@@ -514,7 +531,7 @@ export function resumenConsolidado(d: {
   // 🤖 Lo que la selección automática DESCARTÓ (la jornada de las máquinas donde
   // mandó el horómetro): el papel factura distinto de los controles de origen,
   // así que tiene que decir exactamente dónde y cuánto — no inventa ni esconde.
-  if (op.seleccionAutomatica) {
+  if (op.seleccionAutomatica && op.desgloseAutomatico) {
     const descartadas = filasElegidas(d.filas, op).filter((f) => (f.jornadaDescartada ?? 0) !== 0);
     if (descartadas.length > 0) {
       cuadros.push({
@@ -581,7 +598,7 @@ export function cuerpoConsolidado(d: {
   const solapeIds = new Set(solapesConsolidado(d.filas, op).map((x) => x.fila.id));
   let html = `<div class="cj">`;
   const hayDescartes = elegidas.some((f) => (f.jornadaDescartada ?? 0) !== 0);
-  html += `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Cada monto sale de su propio control (jornadas de Control de pagos, pago por horómetro, pago por viajes y pago por peso): este papel no inventa nada, solo junta y suma.${hayDescartes ? ' 🤖 Donde una máquina trajo jornada Y horómetro, mandó el horómetro (el exacto) y su jornada no se sumó — el detalle está en el resumen.' : ''}${visibles.some((k) => !suman.has(k)) ? ' Lo marcado «ref» se muestra sin sumar.' : ''}</p>`;
+  html += `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Cada monto sale de su propio control (jornadas de Control de pagos, pago por horómetro, pago por viajes y pago por peso): este papel no inventa nada, solo junta y suma.${hayDescartes ? ` 🤖 Donde una máquina trajo jornada Y horómetro, mandó el horómetro (el exacto) y su jornada no se sumó${op.desgloseAutomatico && op.resumen ? ' — el detalle está en el resumen' : ''}.` : ''}${visibles.some((k) => !suman.has(k)) ? ' Lo marcado «ref» se muestra sin sumar.' : ''}</p>`;
   if (elegidas.length === 0) return `${html}<p class="nota">Sin montos en el rango con las fuentes elegidas.</p></div>`;
 
   const conCant = !op.sinCantidades;
@@ -643,10 +660,20 @@ export function cuerpoConsolidado(d: {
     : null;
   html += `<h2>📑 Detalle ${porBloques ? porBloques.titulo : 'por máquina'}</h2>`;
   if (porBloques) {
-    const nombres = Array.from(new Set(elegidas.map(porBloques.clave))).sort(cmpTx);
-    for (const nombre of nombres) {
-      const lista = elegidas.filter((f) => porBloques.clave(f) === nombre);
-      html += `<h3>${porBloques.icon} ${esc(nombre)}</h3><table><thead>${cab}</thead><tbody>${lista.map(filaTd).join('')}${filaTotales(lista, `Subtotal ${nombre}`, 'sub')}</tbody></table>`;
+    // Los bloques se juntan por nombre NORMALIZADO (sin mayúsculas ni acentos):
+    // los frentes viven en dos catálogos escritos a mano («TFI» del camión y
+    // «Tfi» de la máquina son el MISMO bloque, 21-oct-2026). Se muestra el
+    // nombre tal como vino la primera vez.
+    const bloques = new Map<string, { nombre: string; lista: FilaConsolidada[] }>();
+    for (const f of elegidas) {
+      const nombre = porBloques.clave(f);
+      const k = norm(nombre);
+      let b = bloques.get(k);
+      if (!b) { b = { nombre, lista: [] }; bloques.set(k, b); }
+      b.lista.push(f);
+    }
+    for (const b of Array.from(bloques.values()).sort((a, z) => cmpTx(a.nombre, z.nombre))) {
+      html += `<h3>${porBloques.icon} ${esc(b.nombre)}</h3><table><thead>${cab}</thead><tbody>${b.lista.map(filaTd).join('')}${filaTotales(b.lista, `Subtotal ${b.nombre}`, 'sub')}</tbody></table>`;
     }
     html += `<table><tbody>${filaTotales(elegidas, 'TOTAL GENERAL', 'tot')}</tbody></table>`;
   } else {
