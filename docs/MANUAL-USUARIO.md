@@ -3943,6 +3943,29 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   sale completo (desglose fuente por fuente, n.º de máquinas y **% del total** de cada empresa), el
   🏆 top 5 dice el % del total de cada máquina y el ⚠️ de pago doble ya no muestra solo los íconos:
   dice **cuánto cobra por cada fuente** (ej. 🕐 $1.000 + ⚙️ $500).
+- **⚖️🕐 Costo por tonelada y hora promedio (21/10/2026, a pedido del jefe):** dos tarjetas nuevas
+  del resumen ejecutivo.
+  - **⚖️ Costo maquinaria por tonelada:** divide **lo que factura la maquinaria** (jornadas +
+    horómetros, las fuentes de máquina del mismo papel) entre **las toneladas que movió el acarreo**
+    en el rango — el **peso de romana congelado de cada viaje**, con la **misma regla del informe
+    operativo de viajes**: entran **todos** los viajes, el que no se pesó cuenta como viaje, suma
+    **0 toneladas** y el papel dice cuántos quedaron así. Ejemplo del propio jefe: $25.000 de
+    maquinaria entre 2.000 toneladas = **$12,50 la tonelada**. La tarjeta trae la operación completa
+    redactada: cuánto facturó la maquinaria, cuántas toneladas, en cuántos viajes.
+  - **⚖️ Frente por frente:** debajo sale un cuadro con el mismo cálculo **por frente de trabajo**
+    (los frentes vinculantes): el costo se agrupa por el **frente vigente** de cada máquina y las
+    toneladas por el **frente congelado** de cada viaje — los dos lados quedaron sincronizados el
+    20/10. Un frente con maquinaria pero **sin toneladas no divide**: queda anotado aparte del
+    cuadro, sin inventar un número.
+  - **🕐 Hora promedio de maquinaria:** lo facturado por la maquinaria entre las **horas
+    facturadas** (jornada + horómetro). Ejemplo del jefe: si las 280 horas costaron $25.000, la hora
+    salió a **$89,29** — y no a los $100 del 100 % teórico.
+  - Las dos tarjetas **nacen prendidas**, tienen su interruptor en «el resumen ejecutivo, pieza por
+    pieza» y también se pueden **ocultar una a una**, como las demás tarjetas.
+  - ⚠️ **Honestidad del número con filtros:** si el papel está **filtrado por frentes**, las
+    toneladas se cortan por esos mismos frentes. Pero si se filtra por **empresa, categoría o
+    máquinas sueltas**, el costo es solo de lo elegido y las toneladas siguen siendo las de **todo
+    el rango** — la tarjeta lo advierte, para que el número no se lea como lo que no es.
 
 #### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
 
