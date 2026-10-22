@@ -253,7 +253,7 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     C.cuerpoConsolidado(D, { ...OP, agruparPor: 'categoria' }).includes('Subtotal Sin clasificación'));
   const card = leer('src/components/ReporteConsolidadoCard.tsx');
   ok('⭐ la pantalla carga la clasificación del catálogo y el frente VIGENTE al final del rango',
-    /selectAllRows\('machinery', 'id, clasificacion'\)/.test(card)
+    /selectAllRows\('machinery', 'id, clasificacion(?:, encargado)?'\)/.test(card)
     && /listAsignacionesHasta\(hasta, FRENTES_MAQUINARIA\)/.test(card)
     && /vigentesAlDia\(\(asigsFrente as any\)\.asignaciones \?\? \[\], hasta\)/.test(card));
   // ⛏️🚛 20-oct-2026 (2.ª vuelta): los CAMIONES se asignan en el módulo de
@@ -564,9 +564,9 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   const cols = C.columnasPapel(OPG);
   const t = C.totalesConsolidado(F, OPG);
   eq('⭐ Maquinaria = jornadas + horómetros; Acarreo = viajes + peso', cols.map((c) => [c.k, C.montoColumna(c, t.porFuente)]), [['maquinaria', 1500], ['acarreo', 650]]);
-  eq('⭐ el TOTAL no cambia ni un centavo', t.total, 2150);
-  eq('⭐ el respaldo junta las horas y deja viajes y toneladas aparte',
-    cols.map((c) => C.cantColumna(c, C.totalesConsolidado(FC, OPG).cantPorFuente)), ['46,5 h', '12 viajes · 48,50 t']);
+  // 22-oct-2026, a pedido: «identifique en la columna a que corresponde si es horometro o si es jornada, usa los logitos de informacion para identificarlo»
+  eq('⭐ el respaldo identifica cada fuente con su ícono (jornada vs horómetro, viajes vs peso)',
+    cols.map((c) => C.cantColumna(c, C.totalesConsolidado(FC, OPG).cantPorFuente)), ['🕐 36 h · ⚙️ 10,5 h', '🚛 12 viajes · ⚖️ 48,50 t']);
   // Las subopciones siguen mandando.
   const horoRef = { ...OPG, fuentes: { ...OPG.fuentes, horometros: 'muestra' } };
   const cR = C.columnasPapel(horoRef);
@@ -671,6 +671,53 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   const card = leer('src/components/ReporteConsolidadoCard.tsx');
   ok('* la pantalla tiene «Todos por peso», «Todos por jornada» y una pastilla por camión',
     /⚖️ Todos por peso/.test(card) && /🕐 Todos por jornada/.test(card) && /camionesPeso\.map\(\(f\) =>/.test(card));
+}
+
+// ═══ 👤 AGRUPAR Y FILTRAR POR ENCARGADO + ÍCONOS EN COLUMNAS (22-oct-2026, a pedido) ═══
+// «colocar algo que me identifique en la columna a que corresponde si es
+// horometro o si es jornada, usa los logitos de informaicon para identificrlo,
+// ademas coloca para porder agrupar o sacarlo por encargado».
+{
+  const AUTO = C.OPCIONES_CONSOLIDADO_POR_DEFECTO;
+  const FE = [
+    { id: 'm1', code: 'JUMBO 320', placa: 'AA11', empresa: 'LICCIONE', encargado: 'CARLOS PÉREZ', montos: { horometros: 2566.76 }, cant: { horometros: 28 } },
+    { id: 'm2', code: 'RETROEXCAVADORA', placa: 'BB22', empresa: 'LICCIONE', encargado: 'CARLOS PÉREZ', montos: { jornadas: 1162.50 }, cant: { jornadas: 31 } },
+    { id: 'm3', code: 'MINI SHOWER', placa: 'CC33', empresa: 'LICCIONE', encargado: 'LUIS GÓMEZ', montos: { horometros: 196.65 }, cant: { horometros: 5.9 } },
+    { id: 'm4', code: 'CHUTO', placa: 'DD44', empresa: 'LICCIONE', encargado: null, montos: { jornadas: 500 }, cant: { jornadas: 12 } },
+  ];
+  const DE = { filas: FE, desde: '2026-10-19', hasta: '2026-10-21' };
+
+  // 1) Identificación con ícono en la columna
+  const cols = C.columnasPapel(AUTO);
+  const colMaq = cols.find((c) => c.k === 'maquinaria');
+  ok('⭐ la columna maquinaria identifica horómetros con ⚙️', C.cantColumna(colMaq, FE[0].cant) === '⚙️ 28 h');
+  ok('⭐ la columna maquinaria identifica jornadas con 🕐', C.cantColumna(colMaq, FE[1].cant) === '🕐 31 h');
+  const htmlDoc = C.cuerpoConsolidado(DE, AUTO);
+  ok('⭐ en el HTML del papel sale el ícono bajo el monto (⚙️ 28 h y 🕐 31 h)',
+    htmlDoc.includes('<div class="q">⚙️ 28 h</div>') && htmlDoc.includes('<div class="q">🕐 31 h</div>'));
+
+  // 2) Agrupar por encargado
+  const opEnc = { ...AUTO, agruparPor: 'encargado' };
+  const htmlEnc = C.cuerpoConsolidado(DE, opEnc);
+  ok('⭐ agrupar por encargado parte el papel con 👤 y nombre del encargado',
+    htmlEnc.includes('<h3>👤 CARLOS PÉREZ</h3>') && htmlEnc.includes('<h3>👤 LUIS GÓMEZ</h3>')
+    && htmlEnc.includes('<h3>👤 Sin encargado</h3>'));
+  ok('⭐ cada bloque tiene su subtotal por encargado y cierra con TOTAL GENERAL',
+    htmlEnc.includes('Subtotal CARLOS PÉREZ') && htmlEnc.includes('TOTAL GENERAL'));
+  eq('⭐ el sufijo del archivo dice "por encargado"', /por encargado/.test(C.sufijoArchivoConsolidado(opEnc)), true);
+
+  // 3) Filtrar / sacar por encargado
+  const opSoloEnc = { ...AUTO, soloEncargados: ['CARLOS PÉREZ'] };
+  eq('⭐ filtrar por encargado trae solo sus máquinas', C.filasElegidas(FE, opSoloEnc).map((f) => f.id), ['m1', 'm2']);
+  eq('⭐ el total cambia acorde (2566.76 + 1162.50 = 3729.26)', C.totalesConsolidado(FE, opSoloEnc).total, 3729.26);
+  ok('⭐ el sufijo del archivo nombra el encargado filtrado', /solo carlos pérez/.test(C.sufijoArchivoConsolidado(opSoloEnc)));
+  const opSinEnc = { ...AUTO, soloEncargados: ['Sin encargado'] };
+  eq('⭐ se puede filtrar también por "Sin encargado"', C.filasElegidas(FE, opSinEnc).map((f) => f.id), ['m4']);
+
+  // 4) Pantalla
+  const card = leer('src/components/ReporteConsolidadoCard.tsx');
+  ok('⭐ la pantalla tiene la pastilla 👤 Por encargado', /👤 Por encargado/.test(card));
+  ok('⭐ la pantalla tiene el filtro 👤 SOLO ESTOS ENCARGADOS', /SOLO ESTOS ENCARGADOS/.test(card) && /soloEncargados/.test(card));
 }
 
 if (fail) {

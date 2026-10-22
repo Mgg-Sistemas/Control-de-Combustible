@@ -87,6 +87,8 @@ export type FilaConsolidada = {
   /** El frente de trabajo VIGENTE a la fecha final del rango (20-oct-2026):
    *  el de Reportes → ⛏️ Frentes, que desde el 19-oct se queda hasta reasignarse. */
   frente?: string | null;
+  /** 👤 El responsable / encargado asignado a la máquina o vehículo (22-oct-2026, a pedido). */
+  encargado?: string | null;
   montos: Partial<Record<FuenteKey, number>>;
   /** ⚖️ Lo que la selección automática descartó PORQUE EL PESO MANDA en el
    *  camión (21-oct-2026, tarde): montos de viajes/jornada/horómetro que no se
@@ -118,13 +120,15 @@ export function cantTexto(k: FuenteKey, v: number | null | undefined): string {
   return `${n.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h`;
 }
 
-/** Cómo se parte el cuerpo del papel (20-oct-2026: + categoría y frente, a pedido). */
-export type AgruparConsolidado = 'empresa' | 'maquina' | 'global' | 'categoria' | 'frente';
+/** Cómo se parte el cuerpo del papel (20-oct-2026: + categoría y frente; 22-oct-2026: + encargado). */
+export type AgruparConsolidado = 'empresa' | 'maquina' | 'global' | 'categoria' | 'frente' | 'encargado';
 
 export const SIN_CATEGORIA = 'Sin clasificación';
 export const SIN_FRENTE = 'Sin frente';
+export const SIN_ENCARGADO = 'Sin encargado';
 export const categoriaDe = (f: Pick<FilaConsolidada, 'categoria'>): string => String(f.categoria ?? '').trim() || SIN_CATEGORIA;
 export const frenteDe = (f: Pick<FilaConsolidada, 'frente'>): string => String(f.frente ?? '').trim() || SIN_FRENTE;
+export const encargadoDe = (f: Pick<FilaConsolidada, 'encargado'>): string => String(f.encargado ?? '').trim() || SIN_ENCARGADO;
 
 /**
  * Todos los nombres de frente que aparecen en el papel: los de las máquinas y
@@ -244,6 +248,10 @@ export type OpcionesConsolidado = {
    *  suman. Vacío = todos por peso (lo de siempre). Cambia la plata: va al
    *  nombre del archivo. Solo aplica con la 🤖 selección automática. */
   camionesPorJornada?: string[];
+  /** 👤 ENCARGADOS marcados (por nombre); vacío = todos (22-oct-2026, a pedido:
+   *  «poder agrupar o sacarlo por encargado»). «Sin encargado» también se
+   *  puede marcar. Cambia el total: va FILTRADO. */
+  soloEncargados?: string[];
 };
 
 export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
@@ -339,15 +347,14 @@ type MontosF = Partial<Record<FuenteKey, number>> | null | undefined;
 /** El monto de la columna: la suma de SUS fuentes. */
 export const montoColumna = (c: ColumnaPapel, m: MontosF): number =>
   r2(c.fuentes.reduce((s, k) => s + (m?.[k] ?? 0), 0));
-/** El respaldo de la columna: horas juntas (jornada + horómetro), viajes y toneladas aparte. */
+/** El respaldo de la columna: identifica con ícono la fuente (horómetro vs jornada, viajes vs peso) cuando la columna agrupa. */
 export function cantColumna(c: ColumnaPapel, q: MontosF): string {
   if (c.fuentes.length === 1) return cantTexto(c.fuentes[0], q?.[c.fuentes[0]] ?? 0);
-  const horas = c.fuentes.filter((k) => k === 'jornadas' || k === 'horometros').reduce((s, k) => s + (q?.[k] ?? 0), 0);
-  const partes = [
-    cantTexto('jornadas', r2(horas)),
-    c.fuentes.includes('viajes') ? cantTexto('viajes', q?.viajes ?? 0) : '',
-    c.fuentes.includes('peso') ? cantTexto('peso', q?.peso ?? 0) : '',
-  ].filter(Boolean);
+  const partes: string[] = [];
+  for (const k of c.fuentes) {
+    const v = q?.[k] ?? 0;
+    if (v > 0) partes.push(`${FUENTES_META[k].icon} ${cantTexto(k, v)}`);
+  }
   return partes.join(' · ');
 }
 /** Lo «sin sumar» dentro de un grupo que suma: se dice, en gris, sin entrar al monto. */
@@ -365,7 +372,14 @@ function celdaColumna(c: ColumnaPapel, m: MontosF, q: MontosF, conCant: boolean,
   const nota = notaRefColumna(c, m);
   if (!siempre && v === 0 && !nota) return '—';
   const verMonto = siempre || v !== 0;
-  return `${verMonto ? usd(v) : '—'}${verMonto && conCant && tx ? `<div class="q">${esc(tx)}</div>` : ''}${nota ? `<div class="q">${esc(nota)}</div>` : ''}`;
+  let sub = conCant && tx ? tx : '';
+  if (!sub && verMonto && v !== 0 && c.fuentes.length > 1) {
+    const activas = c.fuentes.filter((k) => (m?.[k] ?? 0) !== 0);
+    if (activas.length) {
+      sub = activas.map((k) => `${FUENTES_META[k].icon} ${FUENTES_META[k].label.toLowerCase()}`).join(' · ');
+    }
+  }
+  return `${verMonto ? usd(v) : '—'}${sub ? `<div class="q">${esc(sub)}</div>` : ''}${nota ? `<div class="q">${esc(nota)}</div>` : ''}`;
 }
 
 /**
@@ -452,6 +466,7 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
   const marcadas = new Set(op.soloMaquinas ?? []);
   const empresas = new Set((op.soloEmpresas ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const categorias = new Set((op.soloCategorias ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
+  const encargados = new Set((op.soloEncargados ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   // Los frentes vienen de DOS catálogos escritos a mano: el filtro no distingue
   // mayúsculas NI acentos («Túnel» marca también a «TUNEL»).
   const idxF = indiceFrentesConsolidado(filas, null, op);
@@ -462,6 +477,7 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
     .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
     .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
     .filter((f) => frentes.size === 0 || frentes.has(idxF.clave(frenteDe(f))))
+    .filter((f) => encargados.size === 0 || encargados.has(encargadoDe(f).toLowerCase()))
     .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0)
       // 🕐 El camión pasado a jornada SIN jornada en el rango queda en $0, pero
       //    NO desaparece: el papel dice que se eligió así y cuánto se descartó.
@@ -1262,6 +1278,7 @@ export function cuerpoConsolidado(d: {
     op.agruparPor === 'empresa' && !op.sinEmpresas ? { titulo: 'por empresa', icon: '🏢', clave: (f) => f.empresa }
     : op.agruparPor === 'categoria' ? { titulo: 'por categoría', icon: '🏷️', clave: categoriaDe }
     : op.agruparPor === 'frente' ? { titulo: 'por frente de trabajo', icon: '⛏️', clave: frenteDe }
+    : op.agruparPor === 'encargado' ? { titulo: 'por encargado', icon: '👤', clave: encargadoDe }
     : null;
   html += `<h2>📑 Detalle ${porBloques ? porBloques.titulo : 'por máquina'}</h2>`;
   if (porBloques) {
@@ -1307,7 +1324,7 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
     else if (op.fuentes[k] === 'muestra') partes.push(`${FUENTES_META[k].label.toLowerCase()} sin sumar`);
   }
   if (op.agruparPor !== 'empresa') {
-    partes.push({ maquina: 'por máquina', global: 'global', categoria: 'por categoría', frente: 'por frente' }[op.agruparPor]);
+    partes.push({ maquina: 'por máquina', global: 'global', categoria: 'por categoría', frente: 'por frente', encargado: 'por encargado' }[op.agruparPor]);
   }
   if (op.sinEmpresas) partes.push('sin empresas');
   // 🏗️🚛 Las columnas nacen agrupadas (22-oct): volver a una por fuente va al NOMBRE.
@@ -1326,6 +1343,9 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   const fts = (op.soloFrentes ?? []).map((e) => e.trim()).filter(Boolean);
   if (fts.length === 1) partes.push(`solo ${fts[0]}`);
   else if (fts.length > 1) partes.push(`solo ${fts.length} frentes`);
+  const encs = (op.soloEncargados ?? []).map((e) => e.trim()).filter(Boolean);
+  if (encs.length === 1) partes.push(`solo ${encs[0].toLowerCase()}`);
+  else if (encs.length > 1) partes.push(`solo ${encs.length} encargados`);
   // 🕐 Camiones con peso pasados a jornada: cambia la PLATA, va al nombre.
   const nJor = (op.camionesPorJornada ?? []).length;
   if (op.seleccionAutomatica && nJor > 0) partes.push(`${nJor} camión(es) con peso por jornada`);
