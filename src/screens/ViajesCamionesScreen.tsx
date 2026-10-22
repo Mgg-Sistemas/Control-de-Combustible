@@ -979,7 +979,7 @@ export default function ViajesCamionesScreen() {
     setSelectedTruck({
       id: FUERA_CATALOGO_ID,
       code,
-      plate: null, serial: null, clasificacion: null, marca: null, modelo: null,
+      plate: fcRef.trim() || null, serial: null, clasificacion: null, marca: null, modelo: null,
       companyId: null, companyName: 'Fuera de catálogo',
       operational: true, enEspera: false,
     });
@@ -989,6 +989,20 @@ export default function ViajesCamionesScreen() {
     setChoferIncierto(false);
     setSelectedShift(caracasNowShift());
   };
+
+  // 🏷️ Identificación del camión seleccionado (placa y/o serial).
+  // Los camiones suelen compartir código ("Camion Volteo Toronto"); sin la placa
+  // el listero no puede distinguir cuál camión físico tiene seleccionado en la tarjeta.
+  const selectedTruckIdent = useMemo(() => {
+    if (!selectedTruck) return '';
+    const parts = [
+      selectedTruck.plate ? `Placa ${selectedTruck.plate}` : null,
+      selectedTruck.serial && selectedTruck.serial !== selectedTruck.plate ? `Serial ${selectedTruck.serial}` : null,
+    ].filter(Boolean);
+    if (parts.length > 0) return parts.join(' · ');
+    if (selectedTruck.id === FUERA_CATALOGO_ID && fcRef.trim()) return fcRef.trim();
+    return '';
+  }, [selectedTruck, fcRef]);
 
   // ── Mis viajes de hoy ────────────────────────────────────────────────────
   const [misViajes, setMisViajes] = useState<CamionViajeRow[]>([]);
@@ -1966,6 +1980,14 @@ export default function ViajesCamionesScreen() {
     () => allTrucks.find((t) => t.id === cargaTruckId) ?? catalogoTrucks.find((t) => t.id === cargaTruckId) ?? null,
     [allTrucks, catalogoTrucks, cargaTruckId],
   );
+  const cargaTruckIdent = useMemo(() => {
+    if (!cargaTruck) return '';
+    const parts = [
+      cargaTruck.plate ? `Placa ${cargaTruck.plate}` : null,
+      cargaTruck.serial && cargaTruck.serial !== cargaTruck.plate ? `Serial ${cargaTruck.serial}` : null,
+    ].filter(Boolean);
+    return parts.join(' · ');
+  }, [cargaTruck]);
   // TODOS los camiones, en cualquier estado, RETIRADAS INCLUIDAS. Acá la regla
   // NO es la misma que la del listero, y es a propósito: `trucksSeleccionables`
   // deja las retiradas fuera de la lista del listero (un camión con "Fin de
@@ -4325,7 +4347,9 @@ export default function ViajesCamionesScreen() {
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <TouchableOpacity onPress={openPicker} style={[styles.pickButton, { flex: 1 }]}>
             <Text style={{ color: selectedTruck ? colors.text : colors.muted, fontWeight: '700' }}>
-              {selectedTruck ? `🚜 ${selectedTruck.code}` : '🔎 Buscar camión…'}
+              {selectedTruck
+                ? `🚜 ${selectedTruck.code}${selectedTruckIdent ? ` · ${selectedTruckIdent}` : ''}`
+                : '🔎 Buscar camión…'}
             </Text>
           </TouchableOpacity>
           {/* El QR pegado en el camión: un toque en vez de escribir la placa. */}
@@ -4336,10 +4360,15 @@ export default function ViajesCamionesScreen() {
 
         {selectedTruck ? (
           <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
               <Text style={{ color: ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].color, fontWeight: '700' }}>
                 {ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].icon} {ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].label}
               </Text>
+              {selectedTruckIdent ? (
+                <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>
+                  · 🏷️ {selectedTruckIdent}
+                </Text>
+              ) : null}
               {/* 🚦 Cambiar el estado (19-oct-2026): solo con el permiso otorgado
                   (o full), nunca para un camión fuera de catálogo, y solo los 3
                   estados básicos — en espera/retirada se rechazan en la librería. */}
@@ -4859,7 +4888,7 @@ export default function ViajesCamionesScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginBottom: spacing.sm }}>
                 <Text style={{ color: colors.text, fontWeight: '800', flexShrink: 1 }} numberOfLines={2}>
                   🚜 {cargaTruck.code}
-                  {cargaTruck.plate ? ` · ${cargaTruck.plate}` : ''}
+                  {cargaTruckIdent ? ` · ${cargaTruckIdent}` : ''}
                   {` · ${ESTADO_CONTEO_META[truckEstadoConteo(cargaTruck)].icon} ${ESTADO_CONTEO_META[truckEstadoConteo(cargaTruck)].label}`}
                 </Text>
                 <TouchableOpacity onPress={() => { setCargaTruckId(null); setCargaQuery(''); }}>

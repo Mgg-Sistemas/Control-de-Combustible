@@ -6584,6 +6584,11 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > ⚠️ **Un viaje que está esperando señal tampoco se borra ahí**: todavía no existe en el servidor, así
 > que no hay nada que borrar. Lo que ves es una fila local.
 
+> **🏷️ Placa o serial visible al seleccionar camión (22/10/2026, a pedido: «en los listeros cuando selecciono un camión ya no veo la placa por favor colócale la placa o serial ahí»).** Como casi todos los camiones de la flota comparten el mismo código de máquina (*«Camión Volteo Toronto»*), al elegir uno en la pantalla del listero solo se veía ese código genérico y era imposible saber cuál camión físico estaba seleccionado. Ahora:
+> - El **botón de selección** muestra el código acompañado de su **placa** y/o **serial** (ej. `🚜 CAMION VOLTEO TORONTO · Placa A74AB3P`).
+> - La **línea informativa** debajo del camión también refleja la placa y/o serial junto a la insignia de estado operativo (`✅ OPERATIVA · 🏷️ Placa A74AB3P`).
+> - Lo mismo aplica al seleccionar camión en **✍️ Cargar viajes a mano**.
+
 > **📋 Todo el panel son desplegables (12/09/2026).** Antes eran seis bloques largos uno detrás
 > de otro y llegar al de abajo era media rueda de ratón; en el teléfono, peor. Ahora cada
 > apartado —**Resumen de hoy**, **Cargar viajes a mano**, **Camiones sin viaje reciente**,
