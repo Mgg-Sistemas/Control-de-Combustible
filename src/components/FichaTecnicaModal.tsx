@@ -88,7 +88,13 @@ export function FichaTecnicaModal({
     getFichaPersonalizada(mid)
       .then((saved) => {
         if (saved) {
-          setData(saved);
+          setData({
+            ...saved,
+            fotoPrincipalUrl: saved.fotoPrincipalUrl !== undefined ? saved.fotoPrincipalUrl : (machine.photo_url || null),
+            fotoPrincipalLeyenda: saved.fotoPrincipalLeyenda !== undefined ? saved.fotoPrincipalLeyenda : (machine.photo_url ? 'Vista general de la unidad en campo operativo' : null),
+            seccionFotosTitulo: saved.seccionFotosTitulo || 'VISTA GENERAL DEL EQUIPO',
+            seccionFotosTag: saved.seccionFotosTag || machine.clasificacion || 'Vista en Terreno',
+          });
         } else {
           setData(construirFichaInicial(machine, options));
         }
@@ -138,6 +144,48 @@ export function FichaTecnicaModal({
   const setSubcodigo = (c: string) => setData((d) => (d ? { ...d, subcodigo: c } : null));
   const setSeccionTitulo = (t: string) => setData((d) => (d ? { ...d, seccionTitulo: t } : null));
   const setSeccionTag = (t: string) => setData((d) => (d ? { ...d, seccionTag: t } : null));
+  const setSeccionFotosTitulo = (t: string) => setData((d) => (d ? { ...d, seccionFotosTitulo: t } : null));
+  const setSeccionFotosTag = (t: string) => setData((d) => (d ? { ...d, seccionFotosTag: t } : null));
+  const setFotoPrincipalLeyenda = (l: string) => setData((d) => (d ? { ...d, fotoPrincipalLeyenda: l } : null));
+  const setFotoSecundariaLeyenda = (l: string) => setData((d) => (d ? { ...d, fotoSecundariaLeyenda: l } : null));
+
+  // Manejo de fotos de Página 1
+  const tomarFotoP1 = async (slot: 1 | 2, via: 'camara' | 'galeria') => {
+    if (fotoTomando) return;
+    setFotoTomando(true);
+    try {
+      const res = via === 'galeria' ? await elegirFotoLocal() : await capturarFotoLocal();
+      if (res.ok && res.dataUrl) {
+        if (slot === 1) {
+          setData((d) => (d ? {
+            ...d,
+            fotoPrincipalUrl: res.dataUrl,
+            fotoPrincipalLeyenda: d.fotoPrincipalLeyenda || 'Vista general de la unidad en campo operativo',
+          } : null));
+        } else {
+          setData((d) => (d ? {
+            ...d,
+            fotoSecundariaUrl: res.dataUrl,
+            fotoSecundariaLeyenda: d.fotoSecundariaLeyenda || 'Vista posterior / lateral del equipo',
+          } : null));
+        }
+        toast.success(`Foto ${slot} de Página 1 actualizada.`);
+      } else if (res.error) {
+        toast.error(res.error);
+      }
+    } finally {
+      setFotoTomando(false);
+    }
+  };
+
+  const eliminarFotoP1 = (slot: 1 | 2) => {
+    if (slot === 1) {
+      setData((d) => (d ? { ...d, fotoPrincipalUrl: null, fotoPrincipalLeyenda: null } : null));
+    } else {
+      setData((d) => (d ? { ...d, fotoSecundariaUrl: null, fotoSecundariaLeyenda: null } : null));
+    }
+    toast.info(`Foto ${slot} de Página 1 quitada.`);
+  };
 
   // Agregar / quitar renglón
   const agregarRenglon = () => {
@@ -496,11 +544,151 @@ export function FichaTecnicaModal({
                 </View>
               </View>
 
-              {/* SECCIÓN 4: APARTADO DE OBSERVACIONES Y CUADROS DE TEXTO */}
+              {/* SECCIÓN 4: FOTOS DE LA PRIMERA PÁGINA (VISTA GENERAL DEL EQUIPO) */}
               <View style={{ marginBottom: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
-                <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 12, marginBottom: spacing.xs, textTransform: 'uppercase' }}>
-                  📝 Apartado de Observaciones y Cuadros de Texto
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' }}>
+                    🖼️ Fotos de Página 1 (Vista General del Equipo)
+                  </Text>
+                  <View style={{ backgroundColor: '#0284c7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}>
+                    <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>PÁGINA 1</Text>
+                  </View>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
+                  Se muestran lado a lado debajo de las especificaciones principales (estilo catálogo oficial).
                 </Text>
+
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                  <View style={{ flex: 2 }}>
+                    <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 2 }}>Título de la sección de fotos:</Text>
+                    <TextInput
+                      value={data.seccionFotosTitulo ?? ''}
+                      onChangeText={setSeccionFotosTitulo}
+                      placeholder="VISTA GENERAL DEL EQUIPO"
+                      placeholderTextColor={colors.muted}
+                      style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, color: colors.text }}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 2 }}>Etiqueta lateral:</Text>
+                    <TextInput
+                      value={data.seccionFotosTag ?? ''}
+                      onChangeText={setSeccionFotosTag}
+                      placeholder="Vista en Terreno"
+                      placeholderTextColor={colors.muted}
+                      style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, color: colors.text }}
+                    />
+                  </View>
+                </View>
+
+                {/* Grid con las 2 fotos de Página 1 */}
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  {/* FOTO 1: PRINCIPAL */}
+                  <View style={{ flex: 1, minWidth: 240, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 11 }}>Foto 1 · Principal (Vista Lateral / Frontal)</Text>
+                      {data.fotoPrincipalUrl ? (
+                        <TouchableOpacity onPress={() => eliminarFotoP1(1)} style={{ padding: 2 }}>
+                          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>✕ Quitar</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+
+                    {data.fotoPrincipalUrl ? (
+                      <View style={{ height: 110, borderRadius: radius.sm, overflow: 'hidden', marginBottom: 6, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: colors.border }}>
+                        <Image source={{ uri: data.fotoPrincipalUrl }} style={{ width: '100%', height: '100%', resizeMode: 'cover' }} />
+                      </View>
+                    ) : (
+                      <View style={{ height: 70, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', marginBottom: 6, backgroundColor: colors.background }}>
+                        <Text style={{ color: colors.muted, fontSize: 10 }}>Sin foto principal</Text>
+                      </View>
+                    )}
+
+                    <TextInput
+                      value={data.fotoPrincipalLeyenda ?? ''}
+                      onChangeText={setFotoPrincipalLeyenda}
+                      placeholder="Leyenda (ej. Vista general en campo operativo)"
+                      placeholderTextColor={colors.muted}
+                      style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, color: colors.text, marginBottom: 6 }}
+                    />
+
+                    <View style={{ flexDirection: 'row', gap: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => tomarFotoP1(1, 'camara')}
+                        disabled={fotoTomando}
+                        style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 10.5 }}>📷 Cámara</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => tomarFotoP1(1, 'galeria')}
+                        disabled={fotoTomando}
+                        style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 10.5 }}>🖼️ Galería</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* FOTO 2: SECUNDARIA */}
+                  <View style={{ flex: 1, minWidth: 240, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 11 }}>Foto 2 · Secundaria (Vista Posterior / Cabina)</Text>
+                      {data.fotoSecundariaUrl ? (
+                        <TouchableOpacity onPress={() => eliminarFotoP1(2)} style={{ padding: 2 }}>
+                          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>✕ Quitar</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+
+                    {data.fotoSecundariaUrl ? (
+                      <View style={{ height: 110, borderRadius: radius.sm, overflow: 'hidden', marginBottom: 6, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: colors.border }}>
+                        <Image source={{ uri: data.fotoSecundariaUrl }} style={{ width: '100%', height: '100%', resizeMode: 'cover' }} />
+                      </View>
+                    ) : (
+                      <View style={{ height: 70, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', marginBottom: 6, backgroundColor: colors.background }}>
+                        <Text style={{ color: colors.muted, fontSize: 10 }}>Opcional: si se omite, la Foto 1 ocupará el ancho</Text>
+                      </View>
+                    )}
+
+                    <TextInput
+                      value={data.fotoSecundariaLeyenda ?? ''}
+                      onChangeText={setFotoSecundariaLeyenda}
+                      placeholder="Leyenda (ej. Vista posterior de equipos auxiliares)"
+                      placeholderTextColor={colors.muted}
+                      style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, color: colors.text, marginBottom: 6 }}
+                    />
+
+                    <View style={{ flexDirection: 'row', gap: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => tomarFotoP1(2, 'camara')}
+                        disabled={fotoTomando}
+                        style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 10.5 }}>📷 Cámara</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => tomarFotoP1(2, 'galeria')}
+                        disabled={fotoTomando}
+                        style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 10.5 }}>🖼️ Galería</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* SECCIÓN 5: APARTADO DE OBSERVACIONES Y CUADROS DE TEXTO (PÁGINA 2) */}
+              <View style={{ marginBottom: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' }}>
+                    📝 Observaciones y Condiciones Técnicas (Página 2)
+                  </Text>
+                  <View style={{ backgroundColor: '#64748b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}>
+                    <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>PÁGINA 2</Text>
+                  </View>
+                </View>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
                   Cuadros destacados con borde dorado para notas técnicas, condiciones, cabina, etc.
                 </Text>
@@ -557,11 +745,16 @@ export function FichaTecnicaModal({
                 </View>
               </View>
 
-              {/* SECCIÓN 5: FOTOS EXTRAS */}
+              {/* SECCIÓN 6: FOTOS EXTRAS DE COMPONENTES (PÁGINA 2 / ANEXO) */}
               <View style={{ marginBottom: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
-                <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 12, marginBottom: spacing.xs, textTransform: 'uppercase' }}>
-                  📷 Fotos Adicionales de Componentes y Detalles
-                </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' }}>
+                    📷 Fotos de Componentes y Detalles (Página 2 / Anexo)
+                  </Text>
+                  <View style={{ backgroundColor: '#64748b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}>
+                    <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>PÁGINA 2</Text>
+                  </View>
+                </View>
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.sm }}>
                   {(data.fotosExtra ?? []).map((f) => (

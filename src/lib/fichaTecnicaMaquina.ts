@@ -73,6 +73,13 @@ export type FichaPersonalizada = {
   renglones?: FichaRenglon[];     // Renglones de especificaciones adicionales o editados
   observaciones?: FichaObservacion[]; // Cuadros de texto / observaciones con borde dorado
   fotosExtra?: FichaFoto[];       // Fotos adicionales con sus leyendas
+  // 🖼️ Fotos de Vista General en Página 1 (garantizadas en la primera página):
+  fotoPrincipalUrl?: string | null;       // Foto 1 (Vista Lateral o General)
+  fotoPrincipalLeyenda?: string | null;   // Leyenda foto 1
+  fotoSecundariaUrl?: string | null;      // Foto 2 (Vista Posterior o Frontal lado a lado)
+  fotoSecundariaLeyenda?: string | null;  // Leyenda foto 2
+  seccionFotosTitulo?: string | null;     // Título sección fotos P1 (ej. "VISTA GENERAL DEL EQUIPO")
+  seccionFotosTag?: string | null;        // Tag lateral (ej. "Insonorizado Heavy-Duty")
 };
 
 /** Lo que la ficha necesita de la máquina. Todo opcional a propósito: lo que
@@ -298,16 +305,86 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
     `;
   }
 
-  // Fotos extras añadidas
-  let fotosExtraHtml = '';
-  if (p?.fotosExtra && p.fotosExtra.length > 0) {
-    const imgExtra = imgPapel;
-    fotosExtraHtml = `
+  // ── FOTOS DE VISTA GENERAL (PÁGINA 1) ─────────────────────────────────────
+  // La foto 1 es:
+  // 1) p?.fotoPrincipalUrl (si el usuario la asignó o cambió en la personalización)
+  // 2) m.photo_url (la foto que ya tiene cargada la máquina o vehículo en el catálogo)
+  // 3) La primera foto de fotosExtra (si el usuario subió fotos en el modal)
+  const foto1 = p?.fotoPrincipalUrl || m.photo_url || (p?.fotosExtra && p.fotosExtra[0]?.url) || null;
+  const leyenda1 = p?.fotoPrincipalLeyenda
+    || (p?.fotoPrincipalUrl ? 'Registro visual de la condición exterior del equipo en terreno'
+      : (m.photo_url ? 'Registro visual de la condición exterior del equipo en terreno'
+        : (p?.fotosExtra && p.fotosExtra[0]?.leyenda) || 'Registro visual del equipo'));
+
+  // La foto 2 (para vista dual lado a lado como el documento del ejemplo Metro):
+  // 1) p?.fotoSecundariaUrl (si el usuario la asignó)
+  // 2) Si foto1 fue p?.fotoPrincipalUrl o m.photo_url, la foto 2 puede ser p?.fotosExtra[0]
+  // 3) Si foto1 fue p?.fotosExtra[0], la foto 2 puede ser p?.fotosExtra[1]
+  let foto2: string | null = null;
+  let leyenda2 = 'Vista complementaria del equipo';
+
+  if (p?.fotoSecundariaUrl) {
+    foto2 = p.fotoSecundariaUrl;
+    leyenda2 = p.fotoSecundariaLeyenda || 'Vista complementaria del equipo';
+  } else if (p?.fotosExtra && p.fotosExtra.length > 0) {
+    if (foto1 === m.photo_url || foto1 === p?.fotoPrincipalUrl) {
+      foto2 = p.fotosExtra[0]?.url || null;
+      leyenda2 = p.fotosExtra[0]?.leyenda || 'Vista complementaria del equipo';
+    } else if (p.fotosExtra.length > 1) {
+      foto2 = p.fotosExtra[1]?.url || null;
+      leyenda2 = p.fotosExtra[1]?.leyenda || 'Vista complementaria del equipo';
+    }
+  }
+
+  // Fotos de componentes para Página 2 (cualquier foto extra que no se haya usado en Página 1)
+  const fotosUsadasP1 = new Set([foto1, foto2].filter(Boolean));
+  const fotosComponentes = (p?.fotosExtra ?? []).filter((f) => !fotosUsadasP1.has(f.url));
+
+  const secFotosTitulo = p?.seccionFotosTitulo ? esc(p.seccionFotosTitulo) : 'VISTA GENERAL DEL EQUIPO';
+  const secFotosTagHtml = p?.seccionFotosTag ? `<span class="sec-tag">${esc(p.seccionFotosTag)}</span>` : '';
+
+  const imgVista = imgPapel;
+  let vistaGeneralHtml = '';
+  if (foto1 && foto2) {
+    vistaGeneralHtml = `
       <div class="sec-hd">
-        <div class="sec-title">REGISTRO FOTOGRÁFICO DE COMPONENTES</div>
+        <div class="sec-title">${secFotosTitulo}</div>
+        ${secFotosTagHtml}
+      </div>
+      <div class="fotos-p1-grid">
+        <div class="foto-p1-col">
+          ${imgPapel(foto1)}
+          <div class="foto-p1-cap">${esc(leyenda1)}</div>
+        </div>
+        <div class="foto-p1-col">
+          ${imgVista(foto2)}
+          <div class="foto-p1-cap">${esc(leyenda2)}</div>
+        </div>
+      </div>
+    `;
+  } else if (foto1) {
+    vistaGeneralHtml = `
+      <div class="sec-hd">
+        <div class="sec-title">${secFotosTitulo}</div>
+        ${secFotosTagHtml}
+      </div>
+      <div class="foto-p1-single">
+        ${imgVista(foto1)}
+        <div class="foto-p1-cap">${esc(leyenda1)}</div>
+      </div>
+    `;
+  }
+
+  // Fotos de componentes añadidas para Página 2
+  let fotosComponentesHtml = '';
+  if (fotosComponentes.length > 0) {
+    const imgExtra = imgPapel;
+    fotosComponentesHtml = `
+      <div class="sec-hd">
+        <div class="sec-title">REGISTRO FOTOGRÁFICO DE COMPONENTES Y DETALLES</div>
       </div>
       <div class="foto-grid">
-        ${p.fotosExtra.map((f) => `
+        ${fotosComponentes.map((f) => `
           <div class="foto-card">
             ${imgExtra(f.url)}
             ${f.leyenda ? `<div class="foto-cap">${esc(f.leyenda)}</div>` : ''}
@@ -355,9 +432,16 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   .specs-col-hdr{background:${CELESTE};color:${NAVY};font-size:10.5px;font-weight:800;padding:5px 8px;border:1px solid ${BORDE};border-bottom:none;border-radius:4px 4px 0 0}
 
   table{border-collapse:collapse;width:100%}
-  table.ft td{border:1px solid ${BORDE};padding:6px 9px;vertical-align:top;font-size:11px}
+  table.ft td{border:1px solid ${BORDE};padding:5px 8px;vertical-align:top;font-size:10.5px}
   table.ft td.k{background:${CELESTE};color:#334155;width:40%;font-weight:700}
   table.ft tr:nth-child(even) td:not(.k){background:#F8FAFC}
+
+  .fotos-p1-grid{display:flex;gap:10px;margin:8px 0;page-break-inside:avoid}
+  .foto-p1-col{flex:1;min-width:0;border:1px solid ${BORDE};border-radius:6px;overflow:hidden;background:#FAFBFD;text-align:center}
+  .foto-p1-col img{width:100%;height:165px;object-fit:cover;display:block;margin:0 auto}
+  .foto-p1-single{border:1px solid ${BORDE};border-radius:6px;overflow:hidden;background:#FAFBFD;text-align:center;margin:8px 0;page-break-inside:avoid}
+  .foto-p1-single img{max-width:100%;max-height:190px;object-fit:contain;display:block;margin:0 auto}
+  .foto-p1-cap{padding:4px 8px;font-size:9.5px;font-weight:600;color:#475569;background:#F1F5F9;border-top:1px solid #E2E8F0}
 
   .obs-box{background:#FFFFFF;border:1px solid #E2E8F0;border-left:4px solid ${GOLD};border-radius:6px;padding:8px 12px;margin:8px 0;page-break-inside:avoid}
   .obs-title{font-size:11px;font-weight:800;color:${NAVY};margin-bottom:3px}
@@ -397,14 +481,25 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   </div>
   ${specsHtml}
 
-  ${obsHtml}
+  ${vistaGeneralHtml}
 
-  ${m.photo_url ? `<div class="foto">
-    ${imgPapel(m.photo_url)}
-    <div class="cap">Registro visual de la condición exterior del equipo en terreno</div>
-  </div>` : ''}
-
-  ${fotosExtraHtml}
+  ${(obsHtml || fotosComponentesHtml) ? `
+    <div class="page2-block" style="${foto1 ? 'page-break-before:always;' : ''}">
+      ${foto1 ? `
+        <div class="hd" style="padding:10px 16px;margin-bottom:12px">
+          <div class="hd-left">
+            <div class="t" style="font-size:16px">${esc(tituloFinal)}</div>
+            <div class="s" style="font-size:10.5px">${esc(nombre)}${m.code ? ` · ${esc(m.code)}` : ''}</div>
+          </div>
+          <div class="hd-right">
+            <div class="badge" style="font-size:11px;padding:4px 10px">${esc(badgeFinal)}</div>
+          </div>
+        </div>
+      ` : ''}
+      ${obsHtml}
+      ${fotosComponentesHtml}
+    </div>
+  ` : ''}
 
   ${m.photo_serial_url || m.fotoHorometroUrl ? `<div class="anexo">
     <div class="hd">
