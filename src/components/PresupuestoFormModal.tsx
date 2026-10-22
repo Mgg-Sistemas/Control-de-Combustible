@@ -2,13 +2,15 @@
 // 💼 MODAL DE CREACIÓN / EDICIÓN DE PRESUPUESTO DE MAQUINARIA
 // ============================================================================
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Screen, Card, SectionTitle } from './ui';
 import { useToast } from './ToastProvider';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useBcvRate } from '../lib/bcv';
 import { exportPdf } from '../lib/pdf';
+import { LOGO_DATA_URI } from '../lib/logoData';
 import { Company, Contacto, Machinery } from '../types/database';
 import {
   Presupuesto, PresupuestoItem, CondicionesAlquiler,
@@ -67,6 +69,14 @@ export function PresupuestoFormModal({
   const [status, setStatus] = useState<PresupuestoEstado>('emitido');
   const [statusNote, setStatusNote] = useState('');
 
+  // Buscador de empresa emisora
+  const [searchEmpresa, setSearchEmpresa] = useState('');
+
+  // Configuración de logos para la cotización
+  const [incluirLogos, setIncluirLogos] = useState(true);
+  const [logos, setLogos] = useState<string[]>([LOGO_DATA_URI]);
+  const [urlLogoInput, setUrlLogoInput] = useState('');
+
   // Ítems y moneda
   const [items, setItems] = useState<PresupuestoItem[]>([]);
   const [conIva, setConIva] = useState(false);
@@ -104,6 +114,14 @@ export function PresupuestoFormModal({
       setConIva(presupuesto.con_iva || false);
       setIvaPct(String(presupuesto.iva_pct || 16));
       setCond(presupuesto.conditions || condicionesPorDefecto());
+      setIncluirLogos(presupuesto.incluir_logos ?? true);
+      setLogos(
+        Array.isArray(presupuesto.logos) && presupuesto.logos.length > 0
+          ? presupuesto.logos
+          : [LOGO_DATA_URI]
+      );
+      setSearchEmpresa('');
+      setUrlLogoInput('');
     } else {
       // Nuevo presupuesto
       siguienteCorrelativoPresupuesto().then(setCode);
@@ -124,6 +142,10 @@ export function PresupuestoFormModal({
       setConIva(false);
       setIvaPct('16');
       setCond(condicionesPorDefecto());
+      setIncluirLogos(true);
+      setLogos([LOGO_DATA_URI]);
+      setSearchEmpresa('');
+      setUrlLogoInput('');
     }
   }, [visible, presupuesto, empresas]);
 
@@ -203,6 +225,59 @@ export function PresupuestoFormModal({
     return addDaysISO(days);
   }, [validDays]);
 
+  const empresasFiltradas = useMemo(() => {
+    if (!searchEmpresa.trim()) return empresas;
+    const q = searchEmpresa.trim().toLowerCase();
+    return empresas.filter((e) => e.name.toLowerCase().includes(q));
+  }, [empresas, searchEmpresa]);
+
+  const handleToggleDefaultLogo = () => {
+    setLogos((prev) => {
+      const exists = prev.includes(LOGO_DATA_URI);
+      if (exists) {
+        return prev.filter((l) => l !== LOGO_DATA_URI);
+      }
+      return [LOGO_DATA_URI, ...prev];
+    });
+  };
+
+  const handlePickLogoGallery = async () => {
+    try {
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.85,
+        base64: true,
+      });
+      if (!res.canceled && res.assets && res.assets[0]) {
+        const asset = res.assets[0];
+        const uri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+        if (uri) {
+          setLogos((prev) => [...prev, uri]);
+          toast.success('Logo agregado desde archivo/galería.');
+        }
+      }
+    } catch (err: any) {
+      toast.error('No se pudo cargar la imagen: ' + (err?.message || 'Error'));
+    }
+  };
+
+  const handleAddLogoUrl = () => {
+    const trimmed = urlLogoInput.trim();
+    if (!trimmed) return;
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://') && !trimmed.startsWith('data:image')) {
+      toast.error('Indica un enlace web (http/https) o data URI válido.');
+      return;
+    }
+    setLogos((prev) => [...prev, trimmed]);
+    setUrlLogoInput('');
+    toast.success('Logo agregado.');
+  };
+
+  const handleRemoveLogo = (index: number) => {
+    setLogos((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const empresaSeleccionada = empresas.find((e) => e.id === companyId) || empresas[0] || null;
 
   // Construir objeto Presupuesto completo
@@ -213,6 +288,8 @@ export function PresupuestoFormModal({
       company_id: empresaSeleccionada?.id || '',
       company_name: empresaSeleccionada?.name || 'EMPRESA ARRENDADORA',
       company_rif: (empresaSeleccionada as any)?.rif || null,
+      logos,
+      incluir_logos: incluirLogos,
       client_id: clientId || null,
       client_name: clientName.trim() || 'Cliente No Especificado',
       client_doc: clientDoc.trim() || null,
@@ -305,31 +382,82 @@ export function PresupuestoFormModal({
           <Card>
             <SectionTitle>1. Empresa Emisora y Correlativo</SectionTitle>
             <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.muted }}>Empresa del grupo que emite la oferta:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
-                {empresas.map((emp) => {
-                  const sel = emp.id === companyId;
-                  return (
-                    <TouchableOpacity
-                      key={emp.id}
-                      onPress={() => setCompanyId(emp.id)}
-                      style={{
-                        paddingHorizontal: spacing.md,
-                        paddingVertical: 7,
-                        borderRadius: radius.pill,
-                        borderWidth: 1,
-                        borderColor: sel ? colors.brand : colors.border,
-                        backgroundColor: sel ? colors.brand : colors.surfaceAlt,
-                      }}
-                    >
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: sel ? colors.brandContrast : colors.text }}>
-                        {emp.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.muted }}>
+                  Empresa del grupo que emite la oferta:
+                </Text>
+                {empresas.length > 0 && (
+                  <Text style={{ fontSize: 11, color: colors.muted }}>
+                    {empresasFiltradas.length} de {empresas.length}
+                  </Text>
+                )}
+              </View>
 
+              {/* Buscador de empresa */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: colors.surfaceAlt,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: spacing.sm,
+                  gap: spacing.xs,
+                }}
+              >
+                <Text style={{ fontSize: 13 }}>🔍</Text>
+                <TextInput
+                  value={searchEmpresa}
+                  onChangeText={setSearchEmpresa}
+                  placeholder="Buscar empresa emisora..."
+                  placeholderTextColor={colors.muted}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 7,
+                    fontSize: 12,
+                    color: colors.text,
+                  }}
+                />
+                {searchEmpresa.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchEmpresa('')} style={{ padding: 4 }}>
+                    <Text style={{ fontSize: 12, color: colors.muted, fontWeight: '700' }}>✕</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Lista horizontal de empresas filtradas */}
+              {empresasFiltradas.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: 2 }}>
+                  {empresasFiltradas.map((emp) => {
+                    const sel = emp.id === companyId;
+                    return (
+                      <TouchableOpacity
+                        key={emp.id}
+                        onPress={() => setCompanyId(emp.id)}
+                        style={{
+                          paddingHorizontal: spacing.md,
+                          paddingVertical: 7,
+                          borderRadius: radius.pill,
+                          borderWidth: 1,
+                          borderColor: sel ? colors.brand : colors.border,
+                          backgroundColor: sel ? colors.brand : colors.surfaceAlt,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: sel ? colors.brandContrast : colors.text }}>
+                          {emp.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              ) : (
+                <Text style={{ fontSize: 11, color: colors.muted, fontStyle: 'italic', paddingVertical: 6 }}>
+                  No se encontraron empresas con "{searchEmpresa}".
+                </Text>
+              )}
+
+              {/* Correlativo y estado */}
               <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 11, fontWeight: '700', color: colors.muted }}>N° de Presupuesto:</Text>
@@ -365,6 +493,201 @@ export function PresupuestoFormModal({
                     })}
                   </View>
                 </View>
+              </View>
+
+              {/* Gestor de Logos de la Cotización */}
+              <View
+                style={{
+                  marginTop: spacing.sm,
+                  padding: spacing.md,
+                  borderRadius: radius.md,
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  gap: spacing.sm,
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
+                      Logotipos en la Cotización / PDF
+                    </Text>
+                    <View
+                      style={{
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                        borderRadius: radius.pill,
+                        backgroundColor: incluirLogos ? '#16A34A22' : colors.border,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: '800',
+                          color: incluirLogos ? '#16A34A' : colors.muted,
+                        }}
+                      >
+                        {incluirLogos ? `${logos.length} Activo(s)` : 'Desactivado'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={() => setIncluirLogos(!incluirLogos)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 4,
+                      borderRadius: radius.sm,
+                      backgroundColor: incluirLogos ? colors.brand : colors.surface,
+                      borderWidth: 1,
+                      borderColor: incluirLogos ? colors.brand : colors.border,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: '800',
+                        color: incluirLogos ? colors.brandContrast : colors.text,
+                      }}
+                    >
+                      {incluirLogos ? '✓ Incluir Logos' : '✕ Sin Logos'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {incluirLogos ? (
+                  <View style={{ gap: spacing.sm }}>
+                    {/* Botones de acción rápida para agregar logos */}
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      <TouchableOpacity
+                        onPress={handleToggleDefaultLogo}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 5,
+                          paddingHorizontal: spacing.sm,
+                          paddingVertical: 6,
+                          borderRadius: radius.sm,
+                          backgroundColor: logos.includes(LOGO_DATA_URI) ? '#2563EB22' : colors.surface,
+                          borderWidth: 1,
+                          borderColor: logos.includes(LOGO_DATA_URI) ? '#2563EB' : colors.border,
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>
+                          {logos.includes(LOGO_DATA_URI) ? '✓ Logo Oficial SOS' : '+ Logo Oficial SOS'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={handlePickLogoGallery}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 5,
+                          paddingHorizontal: spacing.sm,
+                          paddingVertical: 6,
+                          borderRadius: radius.sm,
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>
+                          📁 Subir desde Archivo/Galería
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Agregar logo por URL */}
+                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                      <TextInput
+                        value={urlLogoInput}
+                        onChangeText={setUrlLogoInput}
+                        placeholder="O pegar URL web de la imagen (https://...)..."
+                        placeholderTextColor={colors.muted}
+                        autoCapitalize="none"
+                        style={{
+                          flex: 1,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radius.sm,
+                          paddingHorizontal: 8,
+                          paddingVertical: 5,
+                          fontSize: 11.5,
+                          color: colors.text,
+                          backgroundColor: colors.surface,
+                        }}
+                      />
+                      <TouchableOpacity
+                        onPress={handleAddLogoUrl}
+                        style={{
+                          paddingHorizontal: spacing.md,
+                          paddingVertical: 6,
+                          borderRadius: radius.sm,
+                          backgroundColor: colors.brand,
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: colors.brandContrast }}>
+                          + Agregar
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Muestrario de logos seleccionados */}
+                    {logos.length > 0 ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: 4 }}>
+                        {logos.map((logoUri, idx) => (
+                          <View
+                            key={idx}
+                            style={{
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              borderRadius: radius.md,
+                              backgroundColor: '#FFFFFF',
+                              padding: 6,
+                              alignItems: 'center',
+                              position: 'relative',
+                              minWidth: 90,
+                            }}
+                          >
+                            <Image
+                              source={{ uri: logoUri }}
+                              style={{ width: 80, height: 42, resizeMode: 'contain' }}
+                            />
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginTop: 4 }}>
+                              <Text style={{ fontSize: 9, fontWeight: '700', color: '#475569' }}>
+                                #{idx + 1}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => handleRemoveLogo(idx)}
+                                style={{
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 2,
+                                  borderRadius: 4,
+                                  backgroundColor: '#FEE2E2',
+                                }}
+                              >
+                                <Text style={{ fontSize: 10, fontWeight: '900', color: '#DC2626' }}>✕</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        ))}
+                      </ScrollView>
+                    ) : (
+                      <Text style={{ fontSize: 11, color: colors.muted, fontStyle: 'italic' }}>
+                        No hay logos seleccionados. Agrega el logo oficial o sube imágenes personalizadas.
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  <Text style={{ fontSize: 11, color: colors.muted, fontStyle: 'italic' }}>
+                    Logos desactivados. La cotización se generará con un membrete corporativo tipográfico limpio sin imágenes.
+                  </Text>
+                )}
               </View>
             </View>
           </Card>

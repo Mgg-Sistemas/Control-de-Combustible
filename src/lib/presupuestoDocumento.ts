@@ -85,17 +85,28 @@ export function presupuestoDocumentoHtml(p: Presupuesto): string {
 
   const cond = p.conditions || {};
 
+  const conLogos = p.incluir_logos !== false && Array.isArray(p.logos) && p.logos.length > 0;
+  const logosHtml = conLogos
+    ? `
+      <div class="logo-group" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${p.logos!.map((logo) => `
+          <img src="${logo}" style="max-height:46px;max-width:120px;object-fit:contain;background:#FFFFFF;padding:3px 6px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.15)" />
+        `).join('')}
+      </div>
+    `
+    : '';
+
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.code)}</title><style>
   @page{size:letter;margin:10mm 12mm}
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#1a1c20;margin:0;font-size:11px;line-height:1.4}
 
-  .header-box{display:flex;justify-content:space-between;align-items:flex-start;background:${NAVY};color:#fff;border-radius:8px;padding:16px 20px;margin-bottom:14px}
-  .company-name{font-size:22px;font-weight:900;letter-spacing:.5px;line-height:1.2}
-  .company-rif{font-size:12px;color:#AFC4DB;margin-top:4px;font-weight:600}
-  .doc-badge-col{text-align:right}
+  .header-box{display:flex;justify-content:space-between;align-items:center;background:${NAVY};color:#fff;border-radius:8px;padding:14px 18px;margin-bottom:14px;gap:12px}
+  .company-name{font-size:20px;font-weight:900;letter-spacing:.5px;line-height:1.2}
+  .company-rif{font-size:11.5px;color:#AFC4DB;margin-top:3px;font-weight:600}
+  .doc-badge-col{text-align:right;flex:none}
   .doc-type{font-size:10px;font-weight:800;color:#CBD5E1;letter-spacing:1px;text-transform:uppercase}
-  .doc-number{font-size:24px;font-weight:900;color:${GOLD};margin:2px 0}
+  .doc-number{font-size:22px;font-weight:900;color:${GOLD};margin:2px 0}
   .status-pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:9.5px;font-weight:800;color:#fff;background:${statusColor(p.status)}}
 
   .meta-grid{display:flex;gap:12px;margin-bottom:14px}
@@ -134,9 +145,12 @@ export function presupuestoDocumentoHtml(p: Presupuesto): string {
   </style></head><body>
 
   <div class="header-box">
-    <div>
-      <div class="company-name">${esc(p.company_name)}</div>
-      <div class="company-rif">${p.company_rif ? `RIF: ${esc(p.company_rif)}` : 'Empresa Arrendadora de Maquinaria y Equipos'}</div>
+    <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">
+      ${logosHtml}
+      <div>
+        <div class="company-name">${esc(p.company_name)}</div>
+        <div class="company-rif">${p.company_rif ? `RIF: ${esc(p.company_rif)}` : 'Empresa Arrendadora de Maquinaria y Equipos'}</div>
+      </div>
     </div>
     <div class="doc-badge-col">
       <div class="doc-type">Presupuesto Comercial</div>

@@ -26,6 +26,8 @@ export async function listarPresupuestos(): Promise<Presupuesto[]> {
         ...d,
         items: typeof d.items === 'string' ? JSON.parse(d.items) : (d.items || []),
         conditions: typeof d.conditions === 'string' ? JSON.parse(d.conditions) : (d.conditions || {}),
+        logos: typeof d.logos === 'string' ? JSON.parse(d.logos) : (d.logos || []),
+        incluir_logos: d.incluir_logos !== false,
       }));
       // Guardar copia local en AsyncStorage como caché
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(list)).catch(() => {});
@@ -107,6 +109,8 @@ export async function guardarPresupuesto(p: Presupuesto): Promise<Presupuesto> {
       conditions: p.conditions,
       status: p.status,
       status_note: p.status_note,
+      logos: p.logos || [],
+      incluir_logos: p.incluir_logos !== false,
       created_by: p.created_by,
       created_by_name: p.created_by_name,
       created_at: p.created_at,

@@ -89,6 +89,8 @@ export interface Presupuesto {
   conditions: CondicionesAlquiler;
   status: PresupuestoEstado;
   status_note?: string | null;           // Nota de motivo de aceptación o rechazo
+  logos?: string[];                      // Logos a mostrar en la cabecera (Data URIs o URLs)
+  incluir_logos?: boolean;               // Opción de colocar o quitar los logos
   created_by?: string | null;
   created_by_name?: string | null;
   created_at: string;
