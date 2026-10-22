@@ -39,6 +39,9 @@ que mira el corredor.
 
 ## Convenciones
 - Todo el texto de la UI y la documentación en **español**.
-- Mantener `src/types/database.ts` sincronizado con cambios en `supabase/schema.sql`.
+- Mantener `src/types/database.ts` sincronizado con cambios en la base de datos.
 - GitFlow: ramificar `feature/*` desde `dev`; no commitear directo a `main`.
 - No commitear `.env` (ya está en `.gitignore`).
+- **Seguridad de Base de Datos y Supabase:**
+  - NUNCA guardar datos privados, credenciales ni scripts `.sql` en Git.
+  - La ejecución de SQL se realiza directamente en Supabase; si son cambios grandes o estructuralmente fuertes, pedir permiso al usuario antes de ejecutar.
