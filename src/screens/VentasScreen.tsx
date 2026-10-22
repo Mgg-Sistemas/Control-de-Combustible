@@ -52,6 +52,7 @@ import {
 import { ContactoMaquina, Machinery, Company } from '../types/database';
 import { ContactoPicker } from '../components/ContactoPicker';
 import { VentaServiciosTab } from '../components/VentaServiciosTab';
+import { PresupuestosTab } from '../components/PresupuestosTab';
 import { rolesDe } from '../lib/contactos';
 import { useBcvRate, fmtUsd, fmtBs } from '../lib/bcv';
 import { exportPdf } from '../lib/pdf';
@@ -829,6 +830,7 @@ const TABS = [
   { key: 'historial', label: 'Historial', icon: '📊' },
   { key: 'clientes', label: 'Clientes', icon: '👥' },
   { key: 'servicios', label: 'Ventas de servicio', icon: '🧰' },
+  { key: 'presupuestos', label: 'Presupuestos de maquinaria', icon: '💼' },
 ];
 
 export default function VentasScreen() {
@@ -856,6 +858,7 @@ export default function VentasScreen() {
         {active === 'ventas' ? <VentasTab canWrite={canWrite} />
           : active === 'historial' ? <HistorialTab />
           : active === 'clientes' ? <ClientesTab canWrite={canWrite} />
+          : active === 'presupuestos' ? <PresupuestosTab canWrite={canWrite} />
           : <VentaServiciosTab canWrite={canWrite} />}
       </View>
     </View>

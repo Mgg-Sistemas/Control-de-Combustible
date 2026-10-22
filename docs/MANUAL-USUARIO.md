@@ -8385,9 +8385,40 @@ crédito**. Cuatro vistas:
 > sería **un segundo correlativo** (dos FAC-0001 el mismo mes), una segunda cuenta por cobrar del
 > mismo cliente y dos totales que nunca cuadran. Lo que cambia es la pantalla, no la plata.
 
-> **⚠️ Una venta MIXTA no sale acá.** Si lleva material *y* servicio, su plata ya se cuenta en
+> ⚠️ Una venta MIXTA no sale acá. Si lleva material *y* servicio, su plata ya se cuenta en
 > 💰 Ventas; contarla otra vez sería facturado inflado en un tablero y no en el otro. Se mira
 > completa en 💰 Ventas.
+
+---
+
+#### 💼 Presupuestos de maquinaria y cotizaciones de alquiler (22/10/2026)
+
+Integrado como una nueva pestaña en el módulo de **Ventas** para gestionar ofertas y cotizaciones formales emitidas a clientes desde cualquiera de las empresas del grupo (GOLDEN TOUCH, JHENZAEN, etc.):
+
+- **Encabezado y membrete oficial:** Permite elegir qué empresa del grupo emite la oferta, con su logo, RIF y correlativo automático (`PRES-0001`, `PRES-0002`...).
+- **Datos del cliente y obra:** Selector vinculado a la libreta de Contactos con autocompletado de RIF/C.I., persona de contacto, teléfono, correo y nombre de la obra o proyecto.
+- **Renglones de maquinaria y modalidades flexibles:** Permite agregar múltiples equipos (seleccionándolos directamente del catálogo con sugerencia de su tarifa horaria o por descripción libre). Cada equipo puede cotizarse bajo cualquiera de las modalidades y cambiarse en cualquier momento:
+  - *Por Hora (h)*
+  - *Por Día / Turno (8 horas)*
+  - *Por Semana*
+  - *Por Mes (tarifa mensual con base de horas garantizadas)*
+  - *Flete / Movilización en Lowboy*
+  - *Horas Standby / Espera en sitio*
+  - *Por Viaje / Acarreo*
+  - *Servicio puntual o personalizado*
+- **Cálculo financiero y moneda:** Totales en dólares ($ USD) con IVA opcional del 16% y su contravalor en Bolívares (Bs.) calculado a la tasa oficial del día del BCV.
+- **Cláusulas comerciales de alquiler:** Formulario rápido con opciones para detallar:
+  - *Suministro de combustible:* Por cuenta del cliente en obra o incluido en tarifa.
+  - *Operador:* Operador certificado incluido o equipo en seco.
+  - *Mínimo garantizado:* Horas mínimas diarias o mensuales.
+  - *Flete:* Movilización por cuenta del cliente o incluida.
+  - *Mantenimiento y repuestos:* Preventivo a cargo del arrendador; correctivo por mal uso por el cliente.
+  - *Forma de pago y vigencia:* Anticipo, valuaciones periódicas y días de vigencia de la oferta.
+- **Ciclo de vida y estados:**
+  - *Borrador / Emitido:* Oferta enviada a la espera de respuesta del cliente.
+  - *Aceptado:* El cliente aprobó la oferta.
+  - *Rechazado / Vencido:* Seguimiento y archivo histórico comercial.
+- **Documento imprimible (PDF):** Genera una cotización ejecutiva de alta calidad con membrete, tabla de renglones, resumen económico, términos y condiciones del alquiler y líneas de firma y sello de ambas partes.
 
 ### 4.29. Caja (el dinero del día: entradas, egresos y arqueo)
 
