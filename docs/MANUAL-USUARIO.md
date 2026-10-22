@@ -411,8 +411,17 @@ fecha y de qué turno era. Sin foto subida, la ficha sale sin ella.
 > tres consultas van **en paralelo**, y la foto del horómetro tiene **tope de espera**: si la
 > base se demora, **la ficha sale igual** sin ese anexo (es un extra, no el documento).
 
+> **🎨 Fichas técnicas editables y con estilo moderno de alta gama (22/10/2026):**
+> A pedido del cliente para incorporar el diseño industrial ejecutivo (banner azul marino con insignia dorada, tarjetas de resumen de métricas clave, tablas de especificaciones en doble columna —*Datos Generales* y *Componentes Principales*—, recuadros de observaciones técnicas con acento dorado, y galería de fotos con pie explicativo), al tocar **«📄 Ficha técnica»** se abre una **ventana de personalización interactiva** antes de imprimir:
+> 1. **Títulos y encabezado:** permite modificar el título principal (ej. *GRUPO ELECTRÓGENO DIESEL*), subtítulo técnico, modelo/código y el distintivo destacado dorado (ej. *350 kVA* o *280 kW*).
+> 2. **Tarjetas de métricas clave:** permite agregar, editar o quitar tarjetas de resumen superior (Potencia, Tensión, Corriente, Peso neto, Horas acumuladas, etc.).
+> 3. **Campos y renglones técnicos a la medida:** se pueden agregar nuevos renglones o especificaciones sin alterar la base de datos ni romper el flujo de trabajo del catálogo. Cada renglón puede asignarse a *Datos Generales* o *Componentes Principales*.
+> 4. **Apartado de observaciones y cuadros de texto:** permite añadir recuadros destacados de notas, observaciones operativas, certificaciones o puntos de mantenimiento.
+> 5. **Fotos adicionales:** permite adjuntar fotos complementarias con su propia leyenda explicativa.
+> 6. **Persistencia y seguridad:** las personalizaciones se guardan de forma local en el dispositivo por equipo; no modifican la tabla `machinery` ni interrumpen las jornadas. Si se desea volver a los datos originales del catálogo, basta con pulsar **«Restablecer»**. Al tocar **«Exportar PDF»** se genera de inmediato el documento en alta resolución con el nuevo estilo.
+
 **Los vehículos también:** la tarjeta de cada 🚗 vehículo tiene su mismo botón
-**«📄 Ficha técnica»** — sale con sus datos (marca, modelo, placa, serial, capacidad del
+**«📄 Ficha técnica»** — abre el mismo editor y permite exportar con sus datos (marca, modelo, placa, serial, capacidad del
 tanque en L, rendimiento en km/L, empresa, encargado y sus fotos). Lo que un vehículo no
 tiene (horómetro, aceite, tapa) simplemente no sale.
 

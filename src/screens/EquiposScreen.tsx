@@ -14,7 +14,8 @@ import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { fichaTecnicaMaquinaHtml, nombreArchivoFichaTecnica } from '../lib/fichaTecnicaMaquina';
+import { fichaTecnicaMaquinaHtml, nombreArchivoFichaTecnica, MaquinaFichaTecnica, OpcionesFichaTecnica, FichaPersonalizada } from '../lib/fichaTecnicaMaquina';
+import { FichaTecnicaModal } from '../components/FichaTecnicaModal';
 import { ultimaFotoHorometro } from '../lib/horometroTrabajoDb';
 import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
 import { workedFromShifts } from './ControlMaquinariaScreen';
@@ -1044,6 +1045,22 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
   // ⏳ Mientras se arma la ficha, el botón LO DICE (21-oct-2026, reporte: «no me
   //    sale, está lenta»): antes no cambiaba nada en pantalla y parecía muerto.
   const [fichaBusy, setFichaBusy] = useState<string | null>(null);
+  const [modalFicha, setModalFicha] = useState<{
+    machine: MaquinaFichaTecnica;
+    machineId: string;
+    options: OpcionesFichaTecnica;
+  } | null>(null);
+
+  const handleExportFichaModal = async (personalizada: FichaPersonalizada) => {
+    if (!modalFicha) return;
+    const m = modalFicha.machine;
+    const html = fichaTecnicaMaquinaHtml(
+      m,
+      { ...modalFicha.options, personalizada }
+    );
+    await exportPdf(html, nombreArchivoFichaTecnica(m));
+  };
+
   const fichaTecnica = async (m: Machinery) => {
     if (fichaBusy) return; // una a la vez: dos vistas previas encimadas no se leen
     setFichaBusy(m.id);
@@ -1059,17 +1076,15 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         ultimaFotoHorometro(m.id).catch(() => null),
         new Promise<null>((res) => { setTimeout(() => res(null), 4000); }),
       ]);
-      const html = fichaTecnicaMaquinaHtml(
-        {
-          ...m, companyName: comp?.name ?? null, companyRif: (comp as any)?.rif ?? null,
-          fotoHorometroUrl: fotoHoro?.url ?? null,
-          fotoHorometroLeyenda: fotoHoro ? `${fmtDMY(fotoHoro.roundDate)} · ${fotoHoro.detalle}` : null,
-        },
-        { estado: estadoParaFicha(m), fecha: hoy, emitidoPor: fullName ?? null }
-      );
-      await exportPdf(html, nombreArchivoFichaTecnica(m));
+      const targetMachine: MaquinaFichaTecnica = {
+        ...m, companyName: comp?.name ?? null, companyRif: (comp as any)?.rif ?? null,
+        fotoHorometroUrl: fotoHoro?.url ?? null,
+        fotoHorometroLeyenda: fotoHoro ? `${fmtDMY(fotoHoro.roundDate)} · ${fotoHoro.detalle}` : null,
+      };
+      const op: OpcionesFichaTecnica = { estado: estadoParaFicha(m), fecha: hoy, emitidoPor: fullName ?? null };
+      setModalFicha({ machine: targetMachine, machineId: m.id, options: op });
     } catch (e: any) {
-      toast.error(e?.message ?? 'No se pudo generar la ficha técnica.');
+      toast.error(e?.message ?? 'No se pudo abrir la ficha técnica.');
     } finally {
       setFichaBusy(null);
     }
@@ -1084,24 +1099,22 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       const d = new Date();
       const hoy = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const nombre = (v.name && String(v.name).trim()) || v.plate;
-      const html = fichaTecnicaMaquinaHtml(
-        {
-          code: nombre, marca: v.brand, modelo: v.model,
-          clasificacion: v.vehicle_type || (v as any).clasificacion || null,
-          serial: v.serial, plate: v.plate, identifier: v.identifier,
-          photo_url: v.photo_url, photo_serial_url: v.photo_serial_url,
-          companyName: comp?.name ?? null, companyRif: (comp as any)?.rif ?? null,
-          encargado: v.encargado, grupo: v.grupo,
-          tank_capacity_l: v.tank_capacity_l, expected_kml: v.expected_kml,
-        },
-        {
-          estado: v.en_espera ? '⏳ Esperando instrucciones' : '✅ Activo',
-          fecha: hoy, emitidoPor: fullName ?? null, fallbackSubtitulo: 'Vehículo',
-        }
-      );
-      await exportPdf(html, nombreArchivoFichaTecnica({ code: nombre }));
+      const targetVeh: MaquinaFichaTecnica = {
+        code: nombre, marca: v.brand, modelo: v.model,
+        clasificacion: v.vehicle_type || (v as any).clasificacion || null,
+        serial: v.serial, plate: v.plate, identifier: v.identifier,
+        photo_url: v.photo_url, photo_serial_url: v.photo_serial_url,
+        companyName: comp?.name ?? null, companyRif: (comp as any)?.rif ?? null,
+        encargado: v.encargado, grupo: v.grupo,
+        tank_capacity_l: v.tank_capacity_l, expected_kml: v.expected_kml,
+      };
+      const opVeh: OpcionesFichaTecnica = {
+        estado: v.en_espera ? '⏳ Esperando instrucciones' : '✅ Activo',
+        fecha: hoy, emitidoPor: fullName ?? null, fallbackSubtitulo: 'Vehículo',
+      };
+      setModalFicha({ machine: targetVeh, machineId: v.id, options: opVeh });
     } catch (e: any) {
-      toast.error(e?.message ?? 'No se pudo generar la ficha técnica.');
+      toast.error(e?.message ?? 'No se pudo abrir la ficha técnica.');
     } finally {
       setFichaBusy(null);
     }
@@ -3316,6 +3329,16 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
           <MachineQuickScreen machineId={jornadaFor.id} onExit={() => setJornadaFor(null)} />
         ) : null}
       </Modal>
+
+      {/* 📄 Ficha técnica personalizada y editable (estilo moderno con banner azul/oro, métricas, renglones y observaciones) */}
+      <FichaTecnicaModal
+        visible={!!modalFicha}
+        machine={modalFicha?.machine ?? null}
+        machineId={modalFicha?.machineId ?? null}
+        options={modalFicha?.options ?? {}}
+        onClose={() => setModalFicha(null)}
+        onExport={handleExportFichaModal}
+      />
     </Screen>
   );
 }
