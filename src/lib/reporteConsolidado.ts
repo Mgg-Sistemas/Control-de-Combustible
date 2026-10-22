@@ -252,6 +252,28 @@ export type OpcionesConsolidado = {
    *  «poder agrupar o sacarlo por encargado»). «Sin encargado» también se
    *  puede marcar. Cambia el total: va FILTRADO. */
   soloEncargados?: string[];
+  /** ⚠️ AVISA LOS DÍAS SIN HORÓMETRO QUE LA JORNADA SÍ CUBRIRÍA (22-oct-2026,
+   *  a pedido: «ese cambio tiene sentido y debería ser así, correcto?»). La
+   *  selección automática decide por MÁQUINA en todo el rango: si una máquina
+   *  factura por horómetro, su jornada se descarta ENTERA — así que un día
+   *  puntual sin lectura (el aparato se dañó, se olvidó) se pierde en silencio,
+   *  aunque esa jornada sí tenga horas. Este cuadro lo hace VISIBLE para
+   *  corregirlo con 🔁 Cambio de horómetro, en vez de que nadie lo note. No
+   *  cambia ni un centavo del papel. Nace prendido: es seguridad, no cuesta
+   *  nada dejarlo encendido. */
+  avisoHuecosHorometro: boolean;
+  /** 🔁 RELLENA ESOS DÍAS AUTOMÁTICAMENTE CON SU JORNADA (22-oct-2026, a
+   *  pedido, con la aclaración del cliente: «el horómetro manda, pero si para
+   *  días no hay horómetro y sí jornada, ¿la toma para esa maquinaria?»). Con
+   *  esto PRENDIDO, el día sin horómetro usa la jornada de ESE día — el resto
+   *  de la máquina sigue por horómetro, nunca se suman los dos el MISMO día.
+   *  Es la única excepción a «uno u otro por máquina, nunca mezclado»: pasa a
+   *  ser por máquina-Y-día. CAMBIA LA PLATA: va al nombre del archivo. Nace
+   *  APAGADO — la corrección de la casa sigue siendo el 🔁 Cambio de
+   *  horómetro, con motivo y revisada por una persona (recomendado: un día
+   *  sin lectura no siempre significa que la jornada de ese día sea la cifra
+   *  correcta — por eso esto se ofrece aparte, no como lo único). */
+  rellenoAutomaticoDia: boolean;
 };
 
 export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
@@ -284,6 +306,10 @@ export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
   sinMaquinasDia: false,
   sinToneladasDia: false,
   sinCostoTonDia: false,
+  // ⚠️🔁 22-oct-2026: el aviso nace prendido (no cuesta nada, es seguridad); el
+  //      relleno automático nace apagado (cambia la plata, es una elección).
+  avisoHuecosHorometro: true,
+  rellenoAutomaticoDia: false,
 };
 
 export const usd = (n: number) => `$${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -383,6 +409,60 @@ function celdaColumna(c: ColumnaPapel, m: MontosF, q: MontosF, conCant: boolean,
 }
 
 /**
+ * ⚠️🔁 LOS HUECOS DEL HORÓMETRO, de UNA máquina (22-oct-2026, a pedido: «si
+ * para días no hay horómetro pero sí jornada, ¿la toma en cuenta?»). Mira los
+ * datos CRUDOS de cada día (antes de cualquier selección, que es lo único que
+ * distingue «este día SÍ tuvo horómetro» de «este día no») y suma la jornada
+ * de los días donde el horómetro de ESE día quedó en $0 — el hueco que una
+ * máquina que factura por horómetro deja sin que nadie lo note.
+ *
+ * Un día sin horómetro Y sin jornada (la máquina de verdad no trabajó) no es
+ * un hueco: no hay nada que avisar ni rellenar.
+ */
+function huecosDeMaquina(
+  id: string,
+  dias: readonly DiaCrudoConsolidado[] | null | undefined,
+): { horas: number; monto: number; porDia: { jornada: string; horas: number; monto: number }[] } {
+  const porDia: { jornada: string; horas: number; monto: number }[] = [];
+  let horas = 0, monto = 0;
+  for (const d of dias ?? []) {
+    const f = (d?.filas ?? []).find((x) => x.id === id);
+    if (!f) continue;
+    if ((f.montos.horometros ?? 0) !== 0) continue; // ese día SÍ tiene horómetro: no es hueco
+    const mJ = f.montos.jornadas ?? 0;
+    const hJ = f.cant?.jornadas ?? 0;
+    if (mJ === 0 && hJ === 0) continue; // tampoco hay jornada ese día: no hay nada que rellenar
+    horas = r2(horas + hJ);
+    monto = r2(monto + mJ);
+    porDia.push({ jornada: String(d.jornada ?? '').slice(0, 10), horas: r2(hJ), monto: r2(mJ) });
+  }
+  return { horas, monto, porDia };
+}
+
+/**
+ * ⚠️ La lista de huecos para el cuadro del resumen: una fila por máquina y día
+ * donde faltó el horómetro pero la jornada sí tiene algo que decir. Solo mira
+ * máquinas que FACTURAN por horómetro en el rango (si no, su jornada ya se
+ * suma normal — no hay «hueco» que avisar).
+ */
+export type HuecoHorometro = { id: string; code: string; placa: string; jornada: string; horas: number; monto: number };
+export function huecosHorometro(
+  filas: readonly FilaConsolidada[],
+  op: OpcionesConsolidado,
+  dias: readonly DiaCrudoConsolidado[] | null | undefined,
+): HuecoHorometro[] {
+  if (!op.seleccionAutomatica || op.fuentes.horometros !== 'suma' || !dias?.length) return [];
+  const out: HuecoHorometro[] = [];
+  for (const f of filas ?? []) {
+    if ((f.montos.horometros ?? 0) === 0) continue; // no factura por horómetro: nada que avisar
+    for (const d of huecosDeMaquina(f.id, dias).porDia) {
+      out.push({ id: f.id, code: f.code, placa: f.placa, jornada: d.jornada, horas: d.horas, monto: d.monto });
+    }
+  }
+  return out.sort((a, b) => a.jornada.localeCompare(b.jornada) || cmpTx(a.code, b.code));
+}
+
+/**
  * 🤖 LA SELECCIÓN AUTOMÁTICA (21-oct-2026, decisión del jefe): jornada y
  * horómetro son UNO U OTRO por máquina — si la máquina trae horómetro SUMANDO,
  * manda el horómetro y su jornada se pone en 0 (monto y horas), dejando en
@@ -392,8 +472,19 @@ function celdaColumna(c: ColumnaPapel, m: MontosF, q: MontosF, conCant: boolean,
  *    referencia u oculto, nadie está facturando por él y la jornada se queda —
  *    descartar la jornada ahí dejaría a la máquina facturando CERO sin que
  *    nadie lo pidiera.
+ *
+ * 🔁 CON `rellenoAutomaticoDia` (22-oct-2026): en vez de descartar TODA la
+ *    jornada, se queda solo la de los días donde ESE día no tuvo horómetro —
+ *    el resto (donde sí hay horómetro) sigue siendo horómetro. Nunca se suman
+ *    los dos para el MISMO día; `jornadaDescartada` queda con lo que sí se
+ *    solapaba de verdad (si el relleno cubre todo, no queda nada que descartar
+ *    y el campo no se pone).
  */
-function conSeleccionAutomatica(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): readonly FilaConsolidada[] {
+function conSeleccionAutomatica(
+  filas: readonly FilaConsolidada[],
+  op: OpcionesConsolidado,
+  dias?: readonly DiaCrudoConsolidado[] | null,
+): readonly FilaConsolidada[] {
   if (!op.seleccionAutomatica) return filas;
   return filas.map((f) => {
     // ⚖️ EL PESO MANDA EN EL CAMIÓN (21-oct-2026, tarde, a pedido: «si tiene
@@ -439,6 +530,16 @@ function conSeleccionAutomatica(filas: readonly FilaConsolidada[], op: OpcionesC
     // precio) no puede dejar la máquina facturando cero en silencio.
     const tieneHoro = (f.montos.horometros ?? 0) !== 0;
     if (!tieneHoro || (mJor === 0 && (f.cant?.jornadas ?? 0) === 0)) return f;
+    if (op.rellenoAutomaticoDia && dias?.length) {
+      const hueco = huecosDeMaquina(f.id, dias);
+      const descartado = r2(mJor - hueco.monto);
+      return {
+        ...f,
+        montos: { ...f.montos, jornadas: hueco.monto },
+        cant: f.cant ? { ...f.cant, jornadas: hueco.horas } : f.cant,
+        ...(descartado > 0 ? { jornadaDescartada: descartado } : {}),
+      };
+    }
     return {
       ...f,
       montos: { ...f.montos, jornadas: 0 },
@@ -461,8 +562,8 @@ export function camionesConPeso(filas: readonly FilaConsolidada[] | null | undef
 }
 
 /** Aplica el selector de máquinas y bota las filas que quedaron sin NINGÚN monto visible. */
-export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): FilaConsolidada[] {
-  filas = conSeleccionAutomatica(filas, op);
+export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesConsolidado, dias?: readonly DiaCrudoConsolidado[] | null): FilaConsolidada[] {
+  filas = conSeleccionAutomatica(filas, op, dias);
   const marcadas = new Set(op.soloMaquinas ?? []);
   const empresas = new Set((op.soloEmpresas ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const categorias = new Set((op.soloCategorias ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
@@ -501,8 +602,8 @@ export type TotalesConsolidado = {
   empresas: number;
 };
 
-export function totalesConsolidado(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): TotalesConsolidado {
-  const elegidas = filasElegidas(filas, op);
+export function totalesConsolidado(filas: readonly FilaConsolidada[], op: OpcionesConsolidado, dias?: readonly DiaCrudoConsolidado[] | null): TotalesConsolidado {
+  const elegidas = filasElegidas(filas, op, dias);
   const porFuente = { jornadas: 0, horometros: 0, viajes: 0, peso: 0 } as Record<FuenteKey, number>;
   const cantPorFuente = { jornadas: 0, horometros: 0, viajes: 0, peso: 0 } as Record<FuenteKey, number>;
   for (const f of elegidas) for (const k of FUENTES_ORDEN) {
@@ -515,18 +616,25 @@ export function totalesConsolidado(filas: readonly FilaConsolidada[], op: Opcion
 
 /** ⚠️ Máquinas cobrando por DOS O MÁS fuentes que suman: posible pago doble. */
 export type SolapeConsolidado = { fila: FilaConsolidada; fuentes: FuenteKey[]; monto: number };
-export function solapesConsolidado(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): SolapeConsolidado[] {
+export function solapesConsolidado(filas: readonly FilaConsolidada[], op: OpcionesConsolidado, dias?: readonly DiaCrudoConsolidado[] | null): SolapeConsolidado[] {
   const suman = fuentesQueSuman(op);
-  return filasElegidas(filas, op)
-    .map((f) => ({ fila: f, fuentes: suman.filter((k) => (f.montos[k] ?? 0) > 0), monto: totalFila(f, op) }))
+  return filasElegidas(filas, op, dias)
+    .map((f) => ({
+      fila: f,
+      // La selección automática ya resolvió jornada+horómetro (descartada
+      // entera, o rellenada día por día — nunca el MISMO día dos veces): no
+      // es pago doble aunque las dos sigan con plata (22-oct-2026).
+      fuentes: suman.filter((k) => (f.montos[k] ?? 0) > 0 && !(k === 'jornadas' && f.jornadaDescartada != null)),
+      monto: totalFila(f, op),
+    }))
     .filter((x) => x.fuentes.length >= 2)
     .sort((a, b) => b.monto - a.monto);
 }
 
 export type EmpresaConsolidada = { empresa: string; porFuente: Record<FuenteKey, number>; cantPorFuente: Record<FuenteKey, number>; total: number; maquinas: number };
-export function porEmpresaConsolidado(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): EmpresaConsolidada[] {
+export function porEmpresaConsolidado(filas: readonly FilaConsolidada[], op: OpcionesConsolidado, dias?: readonly DiaCrudoConsolidado[] | null): EmpresaConsolidada[] {
   const m = new Map<string, EmpresaConsolidada>();
-  for (const f of filasElegidas(filas, op)) {
+  for (const f of filasElegidas(filas, op, dias)) {
     const e = m.get(f.empresa) ?? { empresa: f.empresa, porFuente: { jornadas: 0, horometros: 0, viajes: 0, peso: 0 }, cantPorFuente: { jornadas: 0, horometros: 0, viajes: 0, peso: 0 }, total: 0, maquinas: 0 };
     for (const k of FUENTES_ORDEN) {
       e.porFuente[k] = r2(e.porFuente[k] + (f.montos[k] ?? 0));
@@ -539,8 +647,8 @@ export function porEmpresaConsolidado(filas: readonly FilaConsolidada[], op: Opc
   return Array.from(m.values()).sort((a, b) => b.total - a.total || cmpTx(a.empresa, b.empresa));
 }
 
-export function topMaquinas(filas: readonly FilaConsolidada[], op: OpcionesConsolidado, n = 5): { fila: FilaConsolidada; total: number; principal: FuenteKey | null }[] {
-  return filasElegidas(filas, op)
+export function topMaquinas(filas: readonly FilaConsolidada[], op: OpcionesConsolidado, n = 5, dias?: readonly DiaCrudoConsolidado[] | null): { fila: FilaConsolidada; total: number; principal: FuenteKey | null }[] {
+  return filasElegidas(filas, op, dias)
     .map((f) => {
       const suman = fuentesQueSuman(op);
       const principal = suman.length ? suman.slice().sort((a, b) => (f.montos[b] ?? 0) - (f.montos[a] ?? 0))[0] : null;
@@ -609,6 +717,7 @@ export function costoPorTonelada(
   filas: readonly FilaConsolidada[],
   op: OpcionesConsolidado,
   viajes: readonly ViajeToneladas[] | null | undefined,
+  dias?: readonly DiaCrudoConsolidado[] | null,
 ): CostoTonelada {
   const idxF = indiceFrentesConsolidado(filas, viajes, op);
   const soloFrentes = new Set((op.soloFrentes ?? []).map((e) => idxF.clave(e)).filter(Boolean));
@@ -630,7 +739,7 @@ export function costoPorTonelada(
   let horas = 0;
   let acarreoJornada = 0;
   let camionesJornada = 0;
-  for (const f of filasElegidas(filas, op)) {
+  for (const f of filasElegidas(filas, op, dias)) {
     const mHoro = hayHoro ? (f.montos.horometros ?? 0) : 0;
     const mJor = hayJor ? (f.montos.jornadas ?? 0) : 0;
     // 🚛 Un CAMIÓN que cobra por jornada (u horómetro) es ACARREO, no maquinaria:
@@ -762,7 +871,7 @@ export function diasConsolidados(
   // donde mandó el peso. Los días obedecen esa misma decisión.
   const aCero = new Map<string, FuenteKey[]>();
   if (op.seleccionAutomatica) {
-    for (const f of filasElegidas(filasRango ?? [], op)) {
+    for (const f of filasElegidas(filasRango ?? [], op, dias)) {
       const ks: FuenteKey[] = [];
       if ((f.jornadaDescartada ?? 0) !== 0) ks.push('jornadas');
       if (f.descartadoPorPeso && Object.values(f.descartadoPorPeso).some((v) => (v ?? 0) !== 0)) {
@@ -781,6 +890,12 @@ export function diasConsolidados(
     aCero.size === 0 ? filas : filas.map((f) => {
       const ks = aCero.get(f.id);
       if (!ks) return f;
+      // 🔁 RELLENO POR DÍA (22-oct-2026): si lo único que hay que poner en cero
+      // es la jornada (el caso horómetro-vs-jornada, no el de peso-camión) y el
+      // relleno automático está prendido, la jornada de ESTE día SOLO se
+      // descarta si ESTE día SÍ tuvo horómetro — un día sin horómetro es un
+      // hueco y la jornada de ese día se queda tal cual llegó.
+      if (op.rellenoAutomaticoDia && ks.length === 1 && ks[0] === 'jornadas' && (f.montos.horometros ?? 0) === 0) return f;
       const montos = { ...f.montos };
       const cant = f.cant ? { ...f.cant } : f.cant;
       for (const k of ks) { montos[k] = 0; if (cant) cant[k] = 0; }
@@ -898,8 +1013,12 @@ export function resumenConsolidado(d: {
   hasta: string;
   /** Los viajes del rango (frente + peso), para el ⚖️ costo por tonelada. */
   viajesTon?: readonly ViajeToneladas[] | null;
+  /** 📅 El día por día (si llega): para el 🔁 relleno automático y el cuadro
+   *  ⚠️ de huecos de horómetro. Sin esto, los dos se portan como si no
+   *  hubiera huecos que avisar (no hay cómo distinguir el día). */
+  dias?: readonly DiaCrudoConsolidado[] | null;
 }, op: OpcionesConsolidado): ResumenFrentes {
-  const t = totalesConsolidado(d.filas, op);
+  const t = totalesConsolidado(d.filas, op, d.dias);
   const tarjetas: ResumenFrentes['tarjetas'] = [];
   const cuadros: ResumenFrentes['cuadros'] = [];
 
@@ -941,7 +1060,7 @@ export function resumenConsolidado(d: {
   // cuánto le está saliendo la hora facturada en promedio. Redactado completo en
   // la nota, como el informe operativo: la cifra sin su cuento no le sirve.
   if (op.costoTonelada || op.horaPromedio || op.costoTonAcarreoTotal) {
-    const ct = costoPorTonelada(d.filas, op, d.viajesTon ?? []);
+    const ct = costoPorTonelada(d.filas, op, d.viajesTon ?? [], d.dias);
     // Filtros que cortan el COSTO pero no las toneladas: hay que decirlo.
     const filtroSoloCosto = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0 || (op.soloCategorias ?? []).length > 0;
     if (op.costoTonelada) {
@@ -1007,6 +1126,9 @@ export function resumenConsolidado(d: {
     }
   }
   if (op.comparacion && d.filasAnterior) {
+    // 🔁 Sin día por día del período ANTERIOR (la pantalla solo carga el del
+    // rango actual): la comparación sigue con la regla de siempre (toda la
+    // jornada, no por día) — no hay cómo distinguir sus huecos.
     const ant = totalesConsolidado(d.filasAnterior, op);
     const detalle = op.columnasPorGrupo
       ? columnasPapel(op).filter((c) => !c.ref).map((c) => `${c.icon} ${varPct(montoColumna(c, t.porFuente), montoColumna(c, ant.porFuente))}`).join(' · ')
@@ -1018,7 +1140,7 @@ export function resumenConsolidado(d: {
     cuadros.push({
       k: 'por_empresa',
       titulo: '🏢 Cuánto se le paga a cada empresa',
-      filas: porEmpresaConsolidado(d.filas, op).map((e) => ({ clave: `${e.empresa} (${e.maquinas})`, n: e.total })),
+      filas: porEmpresaConsolidado(d.filas, op, d.dias).map((e) => ({ clave: `${e.empresa} (${e.maquinas})`, n: e.total })),
     });
   }
   // 🏗️🚛 Con columnas agrupadas, el top 5 dice el GRUPO (no la fuente suelta).
@@ -1030,7 +1152,7 @@ export function resumenConsolidado(d: {
     cuadros.push({
       k: 'top5',
       titulo: '🏆 Las 5 máquinas más costosas',
-      filas: topMaquinas(d.filas, op, 5).map((x) => ({
+      filas: topMaquinas(d.filas, op, 5, d.dias).map((x) => ({
         clave: `${x.fila.code}${x.fila.placa ? ` · ${x.fila.placa}` : ''}${x.principal ? ` (${etiquetaPrincipal(x.principal)})` : ''} — ${pct(x.total, t.total)} del total`,
         n: x.total,
       })),
@@ -1041,7 +1163,7 @@ export function resumenConsolidado(d: {
   // así que tiene que decir exactamente dónde y cuánto — no inventa ni esconde.
   if (op.seleccionAutomatica && op.desgloseAutomatico) {
     // ⚖️ Los camiones donde mandó el peso: qué se facturó y qué quedó fuera.
-    const porPeso = filasElegidas(d.filas, op).filter((f) => f.descartadoPorPeso && Object.values(f.descartadoPorPeso).some((v) => (v ?? 0) !== 0));
+    const porPeso = filasElegidas(d.filas, op, d.dias).filter((f) => f.descartadoPorPeso && Object.values(f.descartadoPorPeso).some((v) => (v ?? 0) !== 0));
     if (porPeso.length > 0) {
       cuadros.push({
         k: 'auto_peso',
@@ -1058,7 +1180,7 @@ export function resumenConsolidado(d: {
       });
     }
     // 🕐 Los camiones con peso que se eligieron POR JORNADA (22-oct-2026).
-    const porJornada = filasElegidas(d.filas, op).filter((f) => f.descartadoPorJornada && Object.values(f.descartadoPorJornada).some((v) => (v ?? 0) !== 0));
+    const porJornada = filasElegidas(d.filas, op, d.dias).filter((f) => f.descartadoPorJornada && Object.values(f.descartadoPorJornada).some((v) => (v ?? 0) !== 0));
     if (porJornada.length > 0) {
       cuadros.push({
         k: 'auto_jornada_camion',
@@ -1075,7 +1197,7 @@ export function resumenConsolidado(d: {
         }),
       });
     }
-    const descartadas = filasElegidas(d.filas, op).filter((f) => (f.jornadaDescartada ?? 0) !== 0);
+    const descartadas = filasElegidas(d.filas, op, d.dias).filter((f) => (f.jornadaDescartada ?? 0) !== 0);
     if (descartadas.length > 0) {
       cuadros.push({
         k: 'auto_horometro',
@@ -1087,8 +1209,30 @@ export function resumenConsolidado(d: {
       });
     }
   }
+  // ⚠️🔁 LOS DÍAS SIN HORÓMETRO QUE LA JORNADA SÍ CUBRIRÍA (22-oct-2026, a
+  // pedido: «ese cambio tiene sentido y debería ser así, correcto?»). Un
+  // toggle APARTE del 🧾 desglose de arriba (ese es solo del horómetro vs
+  // jornada POR MÁQUINA; esto es el hueco POR DÍA, pase lo que pase con el
+  // relleno automático). Con el relleno apagado, avisa (⚠️) para corregirlo a
+  // mano con 🔁 Cambio de horómetro; con el relleno prendido, confirma (✅) lo
+  // que YA se rellenó solo — nunca los dos a la vez en el mismo papel.
+  if (op.avisoHuecosHorometro && op.seleccionAutomatica && d.dias?.length) {
+    const huecos = huecosHorometro(filasElegidas(d.filas, op, d.dias), op, d.dias);
+    if (huecos.length > 0) {
+      cuadros.push({
+        k: 'huecos_horometro',
+        titulo: op.rellenoAutomaticoDia
+          ? `✅ Días sin horómetro, rellenados con su jornada (${huecos.length})`
+          : `⚠️ Días sin horómetro que la jornada sí cubriría (${huecos.length}) — revisa con 🔁 Cambio de horómetro`,
+        filas: huecos.map((h) => ({
+          clave: `${h.code}${h.placa ? ` · ${h.placa}` : ''} — ${dmy(h.jornada)}${op.rellenoAutomaticoDia ? ': se le sumó su jornada' : ': sin horómetro ese día; su jornada no se sumó'}`,
+          n: h.monto,
+        })),
+      });
+    }
+  }
   if (op.solapes) {
-    const s = solapesConsolidado(d.filas, op);
+    const s = solapesConsolidado(d.filas, op, d.dias);
     cuadros.push({
       k: 'solapes',
       titulo: `⚠️ Cobran por dos fuentes a la vez (${s.length})`,
@@ -1139,12 +1283,12 @@ export function cuerpoConsolidado(d: {
    *  (rango de un solo día). Sin esto, la sección simplemente no sale. */
   dias?: readonly DiaCrudoConsolidado[] | null;
 }, op: OpcionesConsolidado, edicion?: EdicionResumen): string {
-  const elegidas = filasElegidas(d.filas, op);
+  const elegidas = filasElegidas(d.filas, op, d.dias);
   // 🏗️🚛 Las columnas de plata (Maquinaria/Acarreo, o una por fuente): UNA lista
   //    para todas las tablas del papel.
   const colsP = columnasPapel(op);
-  const t = totalesConsolidado(d.filas, op);
-  const solapeIds = new Set(solapesConsolidado(d.filas, op).map((x) => x.fila.id));
+  const t = totalesConsolidado(d.filas, op, d.dias);
+  const solapeIds = new Set(solapesConsolidado(d.filas, op, d.dias).map((x) => x.fila.id));
   let html = `<div class="cj">`;
   // 🧹 SIN NOTA INTRODUCTORIA (21-oct-2026, a pedido: «eso no hace falta»): el
   // papel arranca directo. La fecha ya va en el subtítulo del membrete, el
@@ -1171,7 +1315,7 @@ export function cuerpoConsolidado(d: {
       if (!c.filas.length) continue;
       if (c.k === 'por_empresa') {
         // El cuadro por empresa COMPLETO: desglose por fuente, % del total y máquinas.
-        const empresas = porEmpresaConsolidado(d.filas, op);
+        const empresas = porEmpresaConsolidado(d.filas, op, d.dias);
         html += `<h3>${esc(c.titulo)}</h3><table><thead><tr><th>Empresa</th><th class="r">Máquinas</th>${colsP.map((col) => `<th class="r">${col.th}</th>`).join('')}<th class="r">TOTAL</th><th class="r">% del total</th></tr></thead><tbody>${empresas.map((e) => `<tr><td>${esc(e.empresa)}</td><td class="r">${e.maquinas}</td>${colsP.map((col) => `<td class="${clsCol(col)}">${celdaColumna(col, e.porFuente, e.cantPorFuente, conCant)}</td>`).join('')}<td class="r b">${usd(e.total)}</td><td class="r">${t.total > 0 ? `${Math.round((e.total / t.total) * 100)}%` : '—'}</td></tr>`).join('')}</tbody></table>`;
         continue;
       }
@@ -1349,6 +1493,11 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   // 🕐 Camiones con peso pasados a jornada: cambia la PLATA, va al nombre.
   const nJor = (op.camionesPorJornada ?? []).length;
   if (op.seleccionAutomatica && nJor > 0) partes.push(`${nJor} camión(es) con peso por jornada`);
+  // 🔁 El relleno por día CAMBIA LA PLATA (22-oct-2026): va al nombre. El aviso
+  // de huecos no suma ni descuenta nada — apagarlo no se anuncia en el papel,
+  // pero sí en el nombre (regla de la casa: lo cambiado se dice ahí).
+  if (op.seleccionAutomatica && op.rellenoAutomaticoDia) partes.push('con relleno automático por día');
+  if (!op.avisoHuecosHorometro) partes.push('sin aviso de huecos');
   if (!op.resumen) partes.push('sin resumen');
   // 📅 El día por día y sus columnas: lo apagado va al NOMBRE, no al papel.
   if (!op.tablaDiaria) partes.push('sin tabla diaria');
