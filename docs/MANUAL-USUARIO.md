@@ -4066,6 +4066,32 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   - **Todo apagable:** pastillas **«📅 Tabla operativa diaria»** y **«📈 Gráfico del día por día»**,
     y dentro de la tabla, columna por columna (día de la semana, máquinas, toneladas, $/t). Lo
     apagado **no deja rastro en el papel**: va al **nombre del archivo**.
+- **🏗️🚛 Dos columnas en el papel: Maquinaria y Acarreo (22/10/2026, a pedido):** «a la hora de
+  imprimir me salgan dos columnas, una acarreo y una maquinaria… la jornada y horómetro responden
+  a maquinaria, y peso y viajes a acarreo; que esas 4 opciones sigan estando y que yo pueda
+  activarlas y desactivarlas como ahorita». En el papel, cada tabla con plata (el detalle con sus
+  subtotales y TOTAL, el 🏢 cuadro por empresa y la 📅 tabla día por día) y las tarjetas del
+  resumen salen con **dos columnas**:
+  - **🏗️ Maquinaria** = 🕐 jornadas + ⚙️ horómetros. Su respaldo dice las **horas juntas**.
+  - **🚛 Acarreo** = 🚛 viajes + ⚖️ peso. Su respaldo dice **viajes y toneladas** por separado.
+  - **Las 4 pastillas de fuentes siguen igual** en la pantalla y siguen mandando qué entra en cada
+    columna: una fuente **en suma** entra al monto; **sin sumar** no entra y se dice en gris debajo
+    («ref, no suma: ⚙️ $500,00»); **oculta** no existe. Si un grupo queda solo con fuentes sin
+    sumar, su columna sale como referencia **(ref)**; si quedan todas ocultas, la columna **no
+    sale**. La 🤖 selección automática aplica igual que antes.
+  - **El TOTAL no cambia ni un centavo:** es la misma suma, agrupada distinto.
+  - Interruptor **«🏗️🚛 En el papel: columnas Maquinaria y Acarreo»** debajo de las fuentes:
+    **nace prendido**; apagado vuelve a **una columna por fuente** como antes, y el nombre del
+    archivo dice «columnas por fuente».
+- **⚖️ Costo por tonelada sobre TODO el acarreo (22/10/2026, a pedido):** debajo del cuadro
+  «⚖️ Costo por tonelada, frente por frente» (que sigue igual) sale un cuadro nuevo: la
+  **maquinaria de cada frente ÷ las toneladas de TODO el rango** (no solo las de su frente), y
+  cierra con la fila **TOTAL** = toda la maquinaria ÷ todo el acarreo — la misma cifra de la
+  tarjeta ⚖️. Los renglones suman ese TOTAL (salvo centavos de redondeo), así se ve **cuánto
+  aporta cada frente** al costo por tonelada del rango. Aquí **sí entra** el frente con maquinaria
+  y sin toneladas propias (el divisor es el de todos). Sin toneladas en el rango no sale (no se
+  inventa una división). Tiene su interruptor propio en «el resumen ejecutivo, pieza por pieza»
+  y **nace prendido**.
 
 #### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
 

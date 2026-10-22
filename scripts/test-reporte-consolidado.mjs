@@ -106,7 +106,11 @@ const C = cargar('src/lib/reporteConsolidado.ts');
 // candados históricos de abajo prueban la MECÁNICA CRUDA de sumar fuentes
 // (fixtures con jornada+horómetro en la misma fila), así que la apagan a
 // propósito; la regla nueva tiene su propia sección al final.
-const OP = { ...C.OPCIONES_CONSOLIDADO_POR_DEFECTO, seleccionAutomatica: false };
+// 🏗️🚛 22-oct-2026: el papel nace en DOS columnas (Maquinaria y Acarreo). Estos
+// candados prueban la mecánica FUENTE POR FUENTE (tarjeta «fuente_viajes», el
+// respaldo «36 h» de la jornada sola…), así que fijan una columna por fuente;
+// lo agrupado tiene su propia sección al final.
+const OP = { ...C.OPCIONES_CONSOLIDADO_POR_DEFECTO, seleccionAutomatica: false, columnasPorGrupo: false };
 const F = [
   { id: 'a', code: 'JUMBO 320', placa: 'AA11', empresa: 'ALFA C.A', montos: { jornadas: 1000, horometros: 500 } },
   { id: 'b', code: 'VOLTEO 1', placa: 'BB22', empresa: 'BETA C.A', montos: { viajes: 300, peso: 200 } },
@@ -545,6 +549,85 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   ok('* con rangos largos avisa en vez de congelarse', /dias <= MAX_DIAS_GRAFICO_CONSOLIDADO/.test(card));
   ok('* la pantalla tiene las pastillas de la tabla y del gráfico',
     /📅 Tabla operativa diaria/.test(card) && /📈 Gráfico del día por día/.test(card));
+}
+
+// ═══ 🏗️🚛 COLUMNAS MAQUINARIA · ACARREO (22-oct-2026, a pedido) ══════════════
+// «que a la hora de sacar el reporte solo estén las columnas de maquinaria y
+// acarreo… y aun así que yo pueda activar y desactivar las subopciones».
+{
+  const OPG = { ...OP, columnasPorGrupo: true };
+  ok('⭐ nace AGRUPADO (es el pedido)', C.OPCIONES_CONSOLIDADO_POR_DEFECTO.columnasPorGrupo === true);
+  const html = C.cuerpoConsolidado(DC, OPG);
+  ok('⭐⭐ el papel trae SOLO las columnas Maquinaria y Acarreo',
+    html.includes('<th class="r">🏗️ Maquinaria</th>') && html.includes('<th class="r">🚛 Acarreo</th>')
+    && !/<th class="r">(🕐 Jornadas|⚙️ Horómetros|🚛 Viajes|⚖️ Peso)/.test(html));
+  const cols = C.columnasPapel(OPG);
+  const t = C.totalesConsolidado(F, OPG);
+  eq('⭐ Maquinaria = jornadas + horómetros; Acarreo = viajes + peso', cols.map((c) => [c.k, C.montoColumna(c, t.porFuente)]), [['maquinaria', 1500], ['acarreo', 650]]);
+  eq('⭐ el TOTAL no cambia ni un centavo', t.total, 2150);
+  eq('⭐ el respaldo junta las horas y deja viajes y toneladas aparte',
+    cols.map((c) => C.cantColumna(c, C.totalesConsolidado(FC, OPG).cantPorFuente)), ['46,5 h', '12 viajes · 48,50 t']);
+  // Las subopciones siguen mandando.
+  const horoRef = { ...OPG, fuentes: { ...OPG.fuentes, horometros: 'muestra' } };
+  const cR = C.columnasPapel(horoRef);
+  eq('⭐ horómetro «sin sumar»: Maquinaria suma solo la jornada', C.montoColumna(cR[0], t.porFuente), 1000);
+  ok('…y lo «sin sumar» se dice debajo, sin entrar al monto', C.cuerpoConsolidado(D, horoRef).includes('ref, no suma: ⚙️ $500,00'));
+  const sinMaq = { ...OPG, fuentes: { ...OPG.fuentes, jornadas: 'oculta', horometros: 'oculta' } };
+  ok('⭐ jornadas y horómetros ocultos: la columna Maquinaria no sale', !C.cuerpoConsolidado(D, sinMaq).includes('🏗️ Maquinaria') && C.columnasPapel(sinMaq).length === 1);
+  const acaRef = { ...OPG, fuentes: { ...OPG.fuentes, viajes: 'muestra', peso: 'muestra' } };
+  ok('⭐ todo el acarreo «sin sumar»: la columna sale (ref)', C.cuerpoConsolidado(D, acaRef).includes('🚛 Acarreo (ref)') && C.totalesConsolidado(F, acaRef).total === 1500);
+  const r = C.resumenConsolidado(D, OPG);
+  ok('⭐ las tarjetas del resumen también son Maquinaria y Acarreo',
+    r.tarjetas.some((x) => x.k === 'grupo_maquinaria') && r.tarjetas.some((x) => x.k === 'grupo_acarreo') && !r.tarjetas.some((x) => /^fuente_/.test(x.k)));
+  ok('el membrete habla de maquinaria + acarreo', /maquinaria \+ acarreo/.test(C.subtituloConsolidado(D, OPG, false)));
+  ok('⭐ apagado vuelve a una columna por fuente (y va al nombre del archivo)',
+    C.cuerpoConsolidado(D, OP).includes('<th class="r">🕐 Jornadas</th>') && /columnas por fuente/.test(C.sufijoArchivoConsolidado(OP))
+    && !/columnas por fuente/.test(C.sufijoArchivoConsolidado(OPG)));
+  // Encabezado y filas cuadran: el mismo nº de celdas en cada fila de la matriz.
+  const matriz = html.slice(html.indexOf('📑 Detalle'));
+  const tablas = matriz.split('<table>').slice(1);
+  ok('* cada tabla del detalle cuadra (th = td por fila)', tablas.every((tb) => {
+    const nTh = (tb.match(/<th[ >]/g) || []).length;
+    const filas = tb.split('<tr').slice(1).filter((x) => !/<th/.test(x) && !/colspan/.test(x));
+    return filas.every((f) => (f.match(/<td[ >]/g) || []).length === nTh || nTh === 0);
+  }));
+  const card = leer('src/components/ReporteConsolidadoCard.tsx');
+  ok('* la pantalla tiene su interruptor y conserva las 4 pastillas de fuentes',
+    /columnasPorGrupo: !p\.columnasPorGrupo/.test(card) && /FUENTES_ORDEN\.map\(\(k\) =>/.test(card));
+}
+
+// ═══ ⚖️ COSTO POR TONELADA SOBRE TODO EL ACARREO (22-oct-2026, a pedido) ══════
+// «en vez de darme el desglose por lo que acarreó cada frente, que en base a la
+// sumatoria de todo lo acarreado en el rango haga las cuentas».
+{
+  const FT = [
+    { id: 'x', code: 'EXCAVADORA 1', placa: '', empresa: 'A', frente: 'CANTERA NORTE', montos: { horometros: 1000 }, cant: { horometros: 10 } },
+    { id: 'y', code: 'EXCAVADORA 2', placa: '', empresa: 'A', frente: 'MUELLE SUR', montos: { horometros: 500 }, cant: { horometros: 5 } },
+    { id: 'z', code: 'EXCAVADORA 3', placa: '', empresa: 'A', frente: 'PATIO OESTE', montos: { horometros: 300 }, cant: { horometros: 3 } },
+  ];
+  const VT = [
+    { frente_nombre: 'CANTERA NORTE', peso_neto_kg: 600000 },
+    { frente_nombre: 'MUELLE SUR', peso_neto_kg: 400000 },
+  ];
+  const DT = { filas: FT, desde: '2026-10-19', hasta: '2026-10-20', viajesTon: VT };
+  const AUTO = C.OPCIONES_CONSOLIDADO_POR_DEFECTO;
+  ok('⭐ nace prendido', AUTO.costoTonAcarreoTotal === true);
+  const r = C.resumenConsolidado(DT, AUTO);
+  const cq = r.cuadros.find((c) => c.k === 'ton_acarreo_total');
+  // 1.000 t en total: $1.000 ÷ 1.000 = 1,00 · $500 ÷ 1.000 = 0,50 · $300 ÷ 1.000 = 0,30 · TOTAL $1.800 ÷ 1.000 = 1,80
+  eq('⭐⭐ cada frente divide SU maquinaria entre TODO el acarreo, y cierra con el TOTAL', cq?.filas.map((f) => f.n), [1, 0.5, 0.3, 1.8]);
+  ok('⭐ el frente con maquinaria y sin toneladas propias SÍ entra (el divisor es el de todos)', cq?.filas.some((f) => /PATIO OESTE/.test(f.clave)));
+  ok('⭐ la fila TOTAL es la misma cifra de la tarjeta ⚖️', r.tarjetas.find((x) => x.k === 'costo_ton')?.valor.startsWith('$1,80'));
+  ok('* el cuadro frente por frente de antes sigue igual, arriba del nuevo',
+    r.cuadros.findIndex((c) => c.k === 'ton_frente') >= 0 && r.cuadros.findIndex((c) => c.k === 'ton_frente') < r.cuadros.findIndex((c) => c.k === 'ton_acarreo_total'));
+  const html = C.cuerpoConsolidado(DT, AUTO);
+  ok('⭐ en el papel: su título con las toneladas y la fila TOTAL resaltada',
+    /Costo por tonelada sobre todo el acarreo del rango \(1\.000,00 t\)/.test(html) && /<tr class="tot"><td>TOTAL — \$1\.800,00 de maquinaria ÷ 1\.000,00 t<\/td>/.test(html));
+  ok('⭐ se apaga sola, sin tocar el cuadro de antes',
+    !C.resumenConsolidado(DT, { ...AUTO, costoTonAcarreoTotal: false }).cuadros.some((c) => c.k === 'ton_acarreo_total')
+    && C.resumenConsolidado(DT, { ...AUTO, costoTonAcarreoTotal: false }).cuadros.some((c) => c.k === 'ton_frente'));
+  ok('* sin toneladas en el rango no divide (no inventa)', !C.resumenConsolidado({ ...DT, viajesTon: [] }, AUTO).cuadros.some((c) => c.k === 'ton_acarreo_total'));
+  ok('* la pantalla tiene su interruptor', /costoTonAcarreoTotal: !p\.costoTonAcarreoTotal/.test(leer('src/components/ReporteConsolidadoCard.tsx')));
 }
 
 if (fail) {
