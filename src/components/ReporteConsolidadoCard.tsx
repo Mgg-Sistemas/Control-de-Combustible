@@ -371,6 +371,10 @@ export function ReporteConsolidadoCard() {
           return <Pastilla key={k} on={modo !== 'oculta'} warn={modo === 'muestra'} label={label} onPress={() => setFuente(k)} />;
         })}
       </View>
+      {/* 🏗️🚛 22-oct-2026, a pedido: en el PAPEL solo dos columnas, Maquinaria
+          (jornadas + horómetros) y Acarreo (viajes + peso). Las 4 pastillas de
+          arriba siguen mandando qué entra en cada columna. */}
+      <Toggle on={op.columnasPorGrupo} label="🏗️🚛 En el papel: columnas Maquinaria (jornadas + horómetros) y Acarreo (viajes + peso)" ayuda="Apagado, sale una columna por cada fuente, como antes." onPress={() => setOp((p) => ({ ...p, columnasPorGrupo: !p.columnasPorGrupo }))} />
 
       {/* Agrupar */}
       <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -516,6 +520,8 @@ export function ReporteConsolidadoCard() {
           {/* ⚖️🕐 21-oct-2026, a pedido del jefe: maquinaria ÷ toneladas del acarreo
               (global y frente por frente) y el costo de la hora facturada. */}
           <Toggle on={op.costoTonelada} label="⚖️ Costo maquinaria por tonelada (y por frente)" onPress={() => setOp((p) => ({ ...p, costoTonelada: !p.costoTonelada }))} />
+          {/* ⚖️ 22-oct-2026, a pedido: la maquinaria de cada frente ÷ TODO el acarreo del rango. */}
+          <Toggle on={op.costoTonAcarreoTotal} label="⚖️ Costo por tonelada sobre TODO el acarreo (maquinaria de cada frente ÷ toneladas del rango)" onPress={() => setOp((p) => ({ ...p, costoTonAcarreoTotal: !p.costoTonAcarreoTotal }))} />
           <Toggle on={op.horaPromedio} label="🕐 Hora promedio de maquinaria" onPress={() => setOp((p) => ({ ...p, horaPromedio: !p.horaPromedio }))} />
           {/* Ocultar tarjetas una por una (como el resumen de frentes) */}
           <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>Ocultar tarjetas sueltas:</Text>
