@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Image, ScrollView, Modal } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -8,7 +8,8 @@ import { supabase } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { coincideEmpleado } from '../lib/empleadosBuscar';
 import { canonicalCargo } from '../lib/cargos';
-import { grupoApartado, pasaFiltroEstado, FiltroEstado } from '../lib/nominaGrupos';
+import { grupoApartado, pasaFiltroEstado, FiltroEstado, GrupoApartadoConfig, DEFAULT_GRUPOS_APARTADOS } from '../lib/nominaGrupos';
+import { leerGruposApartados, guardarGruposApartados } from '../lib/nominaGruposStorage';
 import { agruparPorCargo } from '../lib/empleadosAgrupar';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -100,6 +101,17 @@ export default function EmpleadosScreen({ navigation }: any) {
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
   const [statusFilter, setStatusFilter] = useState<FiltroEstado>('todos'); // estado del empleado (+ grupos apartados)
+  const [gruposConfig, setGruposConfig] = useState<GrupoApartadoConfig[]>(DEFAULT_GRUPOS_APARTADOS);
+  const [modalGruposOpen, setModalGruposOpen] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState('');
+  const [nuevoTipo, setNuevoTipo] = useState<'empresa' | 'cargo' | 'departamento'>('empresa');
+  const [nuevoValor, setNuevoValor] = useState('');
+  const [nuevoColor, setNuevoColor] = useState('#D97706');
+
+  useEffect(() => {
+    leerGruposApartados().then(setGruposConfig);
+  }, []);
+
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set()); // vacío = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
   const [agrupar, setAgrupar] = useState<'no' | 'cargo'>('no'); // ver la plantilla repartida por cargo
@@ -131,10 +143,9 @@ export default function EmpleadosScreen({ navigation }: any) {
   const estadoDe = (e: Employee) => (e.status || '').toLowerCase();
   const esActivo = (e: Employee) => estadoDe(e) === 'activo';
   const esOtro = (e: Employee) => estadoDe(e) === 'otro';
-  // GRUPO APARTADO del empleado (CARBOZULIA / SEGURIDAD) o null si va en las
-  // pestañas normales. Se decide con lo YA registrado en su ficha: la empresa
-  // filtro de nómina y el cargo. Ver `src/lib/nominaGrupos.ts`.
-  const grupoDe = (e: Employee) => grupoApartado(nominaName((e as any).payroll_company_id), e.cargo);
+  // GRUPO APARTADO del empleado (Carbozulia, Seguridad o personalizados) o null si va en las
+  // pestañas normales. Se evalúan según la configuración activa.
+  const grupoDe = (e: Employee) => grupoApartado(nominaName((e as any).payroll_company_id), e.cargo, (e as any).department, gruposConfig);
   // ¿El empleado pasa el filtro de estado elegido? "Inactivos" = ni activo ni "otro"
   // (inactivo/suspendido); "Otro" tiene su propio chip. Los apartados NO salen en
   // ninguna de esas cuatro: cada uno solo en SU pestaña.
@@ -196,15 +207,30 @@ export default function EmpleadosScreen({ navigation }: any) {
   // número del chip cuadra con lo que después se lista.
   const statusCounts = useMemo(() => {
     let act = 0, otr = 0, carb = 0, seg = 0, base = 0;
+    const porGrupo: Record<string, number> = {};
+    gruposConfig.forEach((g) => { porGrupo[g.id] = 0; });
+
     employees.forEach((e) => {
       const g = grupoDe(e);
-      if (g === 'carbozulia') { carb++; return; }
-      if (g === 'seguridad') { seg++; return; }
+      if (g && porGrupo[g] !== undefined) {
+        porGrupo[g]++;
+        if (g === 'carbozulia') carb++;
+        if (g === 'seguridad') seg++;
+        return;
+      }
       base++;
       if (esActivo(e)) act++; else if (esOtro(e)) otr++;
     });
-    return { activo: act, otro: otr, inactivo: base - act - otr, todos: base, carbozulia: carb, seguridad: seg };
-  }, [employees, payrollCompanies]);
+    return {
+      activo: act,
+      otro: otr,
+      inactivo: base - act - otr,
+      todos: base,
+      carbozulia: carb,
+      seguridad: seg,
+      porGrupo,
+    };
+  }, [employees, payrollCompanies, gruposConfig]);
 
   // Conteo por cargo (para los chips-filtro y el reporte): [cargo, cantidad], de mayor a menor.
   const cargoCounts = useMemo(() => {
@@ -393,12 +419,12 @@ export default function EmpleadosScreen({ navigation }: any) {
     setBusy('reporte-cargo');
     const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const list = shown; // ya respeta estado + cargos + búsqueda, y viene ordenado
+    const grupoActual = gruposConfig.find((g) => g.id === statusFilter);
     const estadoTxt = statusFilter === 'todos' ? 'Todos'
       : statusFilter === 'activo' ? 'Activos'
       : statusFilter === 'otro' ? 'Otro'
-      : statusFilter === 'carbozulia' ? 'Carbozulia'
-      : statusFilter === 'seguridad' ? 'Seguridad'
-      : 'Inactivos';
+      : statusFilter === 'inactivo' ? 'Inactivos'
+      : (grupoActual?.label ?? statusFilter);
     const cargoTxt = cargoSel.size === 0 ? 'Todos los cargos' : Array.from(cargoSel).sort().join(', ');
     const busqTxt = q ? ` · Búsqueda: "${esc(query.trim())}"` : '';
 
@@ -457,6 +483,71 @@ export default function EmpleadosScreen({ navigation }: any) {
     setBusy(null);
   };
 
+  const listaSugerencias = useMemo(() => {
+    if (nuevoTipo === 'empresa') {
+      return payrollCompanies.map((c) => c.name).filter(Boolean);
+    }
+    if (nuevoTipo === 'cargo') {
+      const set = new Set<string>();
+      employees.forEach((e) => { if (e.cargo) set.add(canonicalCargo(e.cargo)); });
+      return Array.from(set).sort();
+    }
+    if (nuevoTipo === 'departamento') {
+      const set = new Set<string>();
+      employees.forEach((e) => { if ((e as any).department) set.add(String((e as any).department).toUpperCase().trim()); });
+      return Array.from(set).sort();
+    }
+    return [];
+  }, [nuevoTipo, payrollCompanies, employees]);
+
+  const agregarGrupoApartado = async () => {
+    const nombre = nuevoNombre.trim();
+    const valor = nuevoValor.trim();
+    if (!nombre) {
+      toast.error('Indica el nombre de la pestaña / grupo.');
+      return;
+    }
+    if (!valor) {
+      toast.error('Indica el valor a coincidir.');
+      return;
+    }
+    const slug = norm(nombre).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `grupo_${Date.now()}`;
+    if (gruposConfig.some((g) => g.id === slug)) {
+      toast.error('Ya existe un grupo con ese identificador o nombre.');
+      return;
+    }
+    const nuevo: GrupoApartadoConfig = {
+      id: slug,
+      label: nombre,
+      color: nuevoColor || '#D97706',
+      tipo: nuevoTipo,
+      valor,
+      builtin: false,
+    };
+    const nuevaLista = [...gruposConfig, nuevo];
+    setGruposConfig(nuevaLista);
+    await guardarGruposApartados(nuevaLista);
+    toast.success(`✓ Pestaña "${nombre}" creada.`);
+    setNuevoNombre('');
+    setNuevoValor('');
+  };
+
+  const eliminarGrupoApartado = async (id: string, label: string) => {
+    const ok = await confirm({
+      title: 'Eliminar pestaña apartada',
+      message: `¿Eliminar la pestaña "${label}"? Los empleados volverán a verse en las pestañas normales.`,
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    const nuevaLista = gruposConfig.filter((g) => g.id !== id || g.builtin);
+    setGruposConfig(nuevaLista);
+    if (statusFilter === id) setStatusFilter('todos');
+    await guardarGruposApartados(nuevaLista);
+    toast.success(`Pestaña "${label}" eliminada.`);
+  };
+
   // Botón de acción de la tarjeta del empleado.
   //
   // RESPONSIVO: `flexBasis` fija el ancho al que ASPIRA cada botón y `flexGrow`
@@ -504,25 +595,9 @@ export default function EmpleadosScreen({ navigation }: any) {
       {/* Filtro por ESTADO (activos / inactivos) */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Estado:</Text>
-        {/* Carbozulia y Seguridad van APARTE (pedido del cliente 29-ago-2026): no se
-            cuentan ni salen en Todos/Activos/Inactivos/Otro, cada uno tiene su chip.
-            Van de últimos para no mover de sitio los cuatro de siempre. */}
-        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro], ['__aparte__', '', 0], ['carbozulia', 'Carbozulia', statusCounts.carbozulia], ['seguridad', 'Seguridad', statusCounts.seguridad]] as const).map(([key, label, n]) => {
-          // Los dos grupos apartados no son un estado: son plantillas propias que NO se
-          // cuentan en Todos/Activos/Inactivos/Otro. Sin este rótulo en medio, las seis
-          // pastillas se leían como seis estados y nadie entendía por qué no sumaban.
-          if (key === '__aparte__') {
-            return (
-              <Text key="aparte" style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginLeft: spacing.xs }}>
-                · aparte:
-              </Text>
-            );
-          }
+        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro]] as const).map(([key, label, n]) => {
           const on = statusFilter === key;
-          const tint = key === 'todos' ? colors.brand
-            : key === 'carbozulia' ? '#7C3AED'
-            : key === 'seguridad' ? '#0891B2'
-            : EMPLOYEE_STATUS_COLOR[key] ?? colors.brand;
+          const tint = key === 'todos' ? colors.brand : (EMPLOYEE_STATUS_COLOR[key] ?? colors.brand);
           return (
             <TouchableOpacity
               key={key}
@@ -533,6 +608,50 @@ export default function EmpleadosScreen({ navigation }: any) {
             </TouchableOpacity>
           );
         })}
+
+        <Text key="aparte" style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginLeft: spacing.xs }}>
+          · aparte:
+        </Text>
+
+        {gruposConfig.map((g) => {
+          const on = statusFilter === g.id;
+          const n = statusCounts.porGrupo?.[g.id] ?? 0;
+          return (
+            <TouchableOpacity
+              key={g.id}
+              onPress={() => setStatusFilter(g.id)}
+              style={{
+                paddingHorizontal: spacing.md,
+                paddingVertical: spacing.xs,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: on ? g.color : colors.border,
+                backgroundColor: on ? g.color : colors.surface,
+              }}
+            >
+              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>{g.label} · {n}</Text>
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Botón para crear o gestionar grupos apartados */}
+        <TouchableOpacity
+          onPress={() => setModalGruposOpen(true)}
+          style={{
+            paddingHorizontal: spacing.sm,
+            paddingVertical: 5,
+            borderRadius: radius.pill,
+            borderWidth: 1,
+            borderStyle: 'dashed',
+            borderColor: colors.brand,
+            backgroundColor: colors.surfaceAlt,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>⚙️ + Pestaña aparte</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Filtro por EMPRESA (pedido del cliente 20-ago-2026). Va plegado y ocupa una
@@ -975,6 +1094,207 @@ export default function EmpleadosScreen({ navigation }: any) {
                 style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: '#B45309', opacity: busy ? 0.6 : 1 }}
               >
                 <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '⚠️ Generar amonestación'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL PARA GESTIONAR O CREAR GRUPOS APARTADOS */}
+      <Modal visible={modalGruposOpen} transparent animationType="fade" onRequestClose={() => setModalGruposOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, maxHeight: '92%' }}>
+            
+            {/* Cabecera */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>🏢 Pestañas y Grupos Apartados</Text>
+              <TouchableOpacity onPress={() => setModalGruposOpen(false)} style={{ padding: spacing.xs }}>
+                <Text style={{ color: colors.muted, fontSize: 16, fontWeight: '800' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>
+              Las personas que coincidan con estos grupos se apartan de la lista general (Todos/Activos/Inactivos) y tienen su propia pestaña con su propio conteo.
+            </Text>
+
+            <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
+              {/* Lista de grupos actuales */}
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 6 }}>
+                Pestañas activas ({gruposConfig.length})
+              </Text>
+              <View style={{ gap: spacing.xs, marginBottom: spacing.lg }}>
+                {gruposConfig.map((g) => {
+                  const n = statusCounts.porGrupo?.[g.id] ?? 0;
+                  return (
+                    <View
+                      key={g.id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: spacing.sm,
+                        borderRadius: radius.md,
+                        backgroundColor: colors.surfaceAlt,
+                        borderLeftWidth: 4,
+                        borderLeftColor: g.color,
+                      }}
+                    >
+                      <View style={{ flex: 1, marginRight: spacing.sm }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{g.label}</Text>
+                          <Badge label={`${n} pers.`} tone="muted" />
+                          {g.builtin ? (
+                            <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>[Sistema]</Text>
+                          ) : null}
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                          {g.tipo === 'empresa' ? '🏢 Empresa de nómina' : g.tipo === 'cargo' ? '🏷️ Cargo' : '🗂️ Departamento'}: «{g.valor}»
+                        </Text>
+                      </View>
+
+                      {!g.builtin ? (
+                        <TouchableOpacity
+                          onPress={() => eliminarGrupoApartado(g.id, g.label)}
+                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: 'rgba(220, 38, 38, 0.1)' }}
+                        >
+                          <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑️ Eliminar</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Formulario nuevo grupo */}
+              <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                  ➕ Crear nueva pestaña apartada
+                </Text>
+
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
+                  Nombre que saldrá en la pestaña
+                </Text>
+                <TextInput
+                  value={nuevoNombre}
+                  onChangeText={setNuevoNombre}
+                  placeholder="Ej. Taller, Administración, Obras..."
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 13, marginBottom: spacing.sm }}
+                />
+
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 4 }}>
+                  Filtrar a los empleados por:
+                </Text>
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+                  {([
+                    { k: 'empresa', label: '🏢 Empresa nómina' },
+                    { k: 'cargo', label: '🏷️ Cargo' },
+                    { k: 'departamento', label: '🗂️ Departamento' },
+                  ] as const).map((t) => {
+                    const sel = nuevoTipo === t.k;
+                    return (
+                      <TouchableOpacity
+                        key={t.k}
+                        onPress={() => setNuevoTipo(t.k)}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 6,
+                          alignItems: 'center',
+                          borderRadius: radius.md,
+                          borderWidth: 1,
+                          borderColor: sel ? colors.brand : colors.border,
+                          backgroundColor: sel ? colors.brand : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                          {t.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
+                  Texto o valor a coincidir
+                </Text>
+                <TextInput
+                  value={nuevoValor}
+                  onChangeText={setNuevoValor}
+                  placeholder={nuevoTipo === 'empresa' ? 'Ej. Liscioni, Carbozulia...' : nuevoTipo === 'cargo' ? 'Ej. CHOFER, MECÁNICO...' : 'Ej. TALLER, PLANTA...'}
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 13, marginBottom: spacing.xs }}
+                />
+
+                {/* Sugerencias rápidas para tocar y autocompletar */}
+                {listaSugerencias.length > 0 ? (
+                  <View style={{ marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 3 }}>
+                      Toca para autocompletar desde lo que ya existe:
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                      {listaSugerencias.slice(0, 10).map((sug) => (
+                        <TouchableOpacity
+                          key={sug}
+                          onPress={() => { setNuevoValor(sug); if (!nuevoNombre) setNuevoNombre(sug); }}
+                          style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
+                        >
+                          <Text style={{ color: colors.text, fontSize: 10.5, fontWeight: '600' }}>{sug}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                {/* Color del botón */}
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 4 }}>
+                  Color del botón:
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: spacing.md }}>
+                  {['#7C3AED', '#2563EB', '#0891B2', '#059669', '#D97706', '#EA580C', '#DC2626', '#DB2777', '#475569'].map((c) => {
+                    const sel = nuevoColor === c;
+                    return (
+                      <TouchableOpacity
+                        key={c}
+                        onPress={() => setNuevoColor(c)}
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 14,
+                          backgroundColor: c,
+                          borderWidth: sel ? 3 : 1,
+                          borderColor: sel ? '#fff' : 'transparent',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {sel ? <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>✓</Text> : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <TouchableOpacity
+                  onPress={agregarGrupoApartado}
+                  style={{
+                    backgroundColor: colors.brand,
+                    paddingVertical: 10,
+                    borderRadius: radius.md,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
+                    💾 Guardar y Crear Pestaña
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+
+            <View style={{ marginTop: spacing.md }}>
+              <TouchableOpacity
+                onPress={() => setModalGruposOpen(false)}
+                style={{ paddingVertical: spacing.sm, alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Listo / Cerrar</Text>
               </TouchableOpacity>
             </View>
           </View>

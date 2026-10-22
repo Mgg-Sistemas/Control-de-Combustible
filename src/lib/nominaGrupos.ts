@@ -18,7 +18,21 @@ import { canonicalCargo } from './cargos';
  * SEGURIDAD). Si algún día pasara, manda CARBOZULIA: la empresa que paga pesa
  * más que el cargo, y así una persona nunca sale contada en dos pestañas.
  */
-export type GrupoApartado = 'carbozulia' | 'seguridad';
+export interface GrupoApartadoConfig {
+  id: string;
+  label: string;
+  color: string;
+  tipo: 'empresa' | 'cargo' | 'departamento';
+  valor: string;
+  builtin?: boolean;
+}
+
+export const DEFAULT_GRUPOS_APARTADOS: GrupoApartadoConfig[] = [
+  { id: 'carbozulia', label: 'Carbozulia', color: '#7C3AED', tipo: 'empresa', valor: 'carbozul', builtin: true },
+  { id: 'seguridad', label: 'Seguridad', color: '#0891B2', tipo: 'cargo', valor: 'SEGURIDAD', builtin: true },
+];
+
+export type GrupoApartado = string;
 
 /**
  * ¿La empresa de filtro de nómina es Carbozulia? Se compara por SUBCADENA
@@ -38,12 +52,41 @@ export function esSeguridad(cargo?: string | null): boolean {
 }
 
 /**
- * Grupo apartado de un empleado, o `null` si va en las pestañas normales.
- * CARBOZULIA tiene prioridad sobre SEGURIDAD (ver comentario de arriba).
+ * Evalúa si un empleado cumple la condición de un grupo apartado.
  */
-export function grupoApartado(empresaNomina?: string | null, cargo?: string | null): GrupoApartado | null {
-  if (esCarbozulia(empresaNomina)) return 'carbozulia';
-  if (esSeguridad(cargo)) return 'seguridad';
+export function coincideGrupo(
+  g: GrupoApartadoConfig,
+  empresaNomina?: string | null,
+  cargo?: string | null,
+  departamento?: string | null
+): boolean {
+  if (g.tipo === 'empresa') {
+    return norm(empresaNomina).includes(norm(g.valor));
+  }
+  if (g.tipo === 'cargo') {
+    return canonicalCargo(cargo) === canonicalCargo(g.valor) || norm(cargo).includes(norm(g.valor));
+  }
+  if (g.tipo === 'departamento') {
+    return norm(departamento).includes(norm(g.valor));
+  }
+  return false;
+}
+
+/**
+ * Grupo apartado de un empleado, o `null` si va en las pestañas normales.
+ * Se evalúan los grupos en orden de prioridad (por defecto Carbozulia y Seguridad).
+ */
+export function grupoApartado(
+  empresaNomina?: string | null,
+  cargo?: string | null,
+  departamento?: string | null,
+  gruposConfig: GrupoApartadoConfig[] = DEFAULT_GRUPOS_APARTADOS
+): GrupoApartado | null {
+  for (const g of gruposConfig) {
+    if (coincideGrupo(g, empresaNomina, cargo, departamento)) {
+      return g.id;
+    }
+  }
   return null;
 }
 
@@ -53,22 +96,17 @@ export type FiltroEstado = 'todos' | 'activo' | 'inactivo' | 'otro' | GrupoApart
 /**
  * ¿Este empleado se ve con la pestaña `filtro` puesta? Es LA regla completa:
  *
- * - Las pestañas de grupo (CARBOZULIA / SEGURIDAD) muestran SOLO a los suyos.
+ * - Las pestañas de grupo muestran SOLO a los suyos.
  * - Las pestañas normales (Todos / Activos / Inactivos / Otro) EXCLUYEN a los
  *   apartados — ese es el punto del pedido: que no aparezcan en «Todos» ni en
  *   «Activos».
  * - «Inactivos» sigue siendo "ni activo ni otro" (inactivo/suspendido), igual
  *   que antes.
- *
- * Como cada empleado tiene un solo `grupoApartado`, las pestañas son disjuntas:
- * nadie se cuenta dos veces y nadie se pierde.
  */
-export function pasaFiltroEstado(filtro: FiltroEstado, grupo: GrupoApartado | null, estado?: string | null): boolean {
-  if (filtro === 'carbozulia' || filtro === 'seguridad') return grupo === filtro;
-  if (grupo) return false;
-  const e = String(estado ?? '').toLowerCase();
-  if (filtro === 'todos') return true;
-  if (filtro === 'activo') return e === 'activo';
-  if (filtro === 'otro') return e === 'otro';
-  return e !== 'activo' && e !== 'otro';
+export function pasaFiltroEstado(filtro: string, grupo: string | null, estado?: string | null): boolean {
+  if (filtro === 'todos') return !grupo;
+  if (filtro === 'activo') return !grupo && String(estado ?? '').toLowerCase() === 'activo';
+  if (filtro === 'otro') return !grupo && String(estado ?? '').toLowerCase() === 'otro';
+  if (filtro === 'inactivo') return !grupo && String(estado ?? '').toLowerCase() !== 'activo' && String(estado ?? '').toLowerCase() !== 'otro';
+  return grupo === filtro;
 }

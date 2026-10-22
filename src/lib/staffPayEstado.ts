@@ -55,7 +55,7 @@ export function pasaFiltroEstado(
   estado: EstadoFiltro,
   statusById: Map<string, string>,
   statusLoaded: boolean,
-  grupoById?: Map<string, 'carbozulia' | 'seguridad'>
+  grupoById?: Map<string, string>
 ): boolean {
   // Pestañas de GRUPO: muestran SOLO a los suyos. Mientras el detalle no haya
   // cargado no se puede decidir, y devolver `true` llenaría la pestaña con todo
