@@ -92,6 +92,10 @@ export type FilaConsolidada = {
    *  camión (21-oct-2026, tarde): montos de viajes/jornada/horómetro que no se
    *  sumaron porque ese camión facturó por peso. Lo pone `filasElegidas`. */
   descartadoPorPeso?: Partial<Record<FuenteKey, number>>;
+  /** 🕐 Lo descartado porque el usuario eligió que ESE camión con peso facture
+   *  POR JORNADA (22-oct-2026): su peso y sus viajes no se suman. Lo pone
+   *  `filasElegidas` cuando el id está en `camionesPorJornada`. */
+  descartadoPorJornada?: Partial<Record<FuenteKey, number>>;
   /** 🤖 Monto de JORNADA descartado por la selección automática (21-oct-2026):
    *  cuando la máquina trae jornada Y horómetro sumando, manda el horómetro y
    *  la jornada no se suma — acá queda CUÁNTO era, para decirlo en el papel.
@@ -233,6 +237,13 @@ export type OpcionesConsolidado = {
    *  (20-oct-2026, a pedido: «poder seleccionar un frente o varios»). «Sin
    *  frente» también se puede marcar. Cambia el total: va FILTRADO. */
   soloFrentes?: string[];
+  /** 🚛⚖️🕐 CAMIONES CON PESO QUE FACTURAN POR JORNADA (22-oct-2026, a pedido:
+   *  «que si quiero que esos camiones que tienen peso los quiero en jornada o
+   *  peso, pueda seleccionar todos o uno por uno»). Ids de los camiones que,
+   *  aun teniendo peso, se facturan por su JORNADA: su peso y sus viajes no se
+   *  suman. Vacío = todos por peso (lo de siempre). Cambia la plata: va al
+   *  nombre del archivo. Solo aplica con la 🤖 selección automática. */
+  camionesPorJornada?: string[];
 };
 
 export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
@@ -380,18 +391,33 @@ function conSeleccionAutomatica(filas: readonly FilaConsolidada[], op: OpcionesC
     //    sigue igual que siempre (por viajes, o su jornada de acarreo).
     //    Camión = la regla compartida del código (esCamionDeViajes).
     if (op.fuentes.peso === 'suma' && (f.montos.peso ?? 0) !== 0 && esCamionDeViajes(f.code)) {
-      const sobran: FuenteKey[] = (['viajes', 'jornadas', 'horometros'] as FuenteKey[])
-        .filter((k) => (f.montos[k] ?? 0) !== 0 || (f.cant?.[k] ?? 0) !== 0);
-      if (!sobran.length) return f;
-      const montos = { ...f.montos };
-      const cant = f.cant ? { ...f.cant } : f.cant;
-      const descartado: Partial<Record<FuenteKey, number>> = {};
-      for (const k of sobran) {
-        if ((montos[k] ?? 0) !== 0) descartado[k] = r2(montos[k] as number);
-        montos[k] = 0;
-        if (cant) cant[k] = 0;
+      // 🕐 Este camión se eligió POR JORNADA (22-oct-2026): al revés — su peso
+      //    y sus viajes no se suman, y su jornada sigue la regla de siempre
+      //    (si trae horómetro con plata, manda el horómetro).
+      if ((op.camionesPorJornada ?? []).includes(f.id)) {
+        const montosJ = { ...f.montos };
+        const cantJ = f.cant ? { ...f.cant } : f.cant;
+        const descJ: Partial<Record<FuenteKey, number>> = {};
+        for (const k of ['peso', 'viajes'] as FuenteKey[]) {
+          if ((montosJ[k] ?? 0) !== 0) descJ[k] = r2(montosJ[k] as number);
+          montosJ[k] = 0;
+          if (cantJ) cantJ[k] = 0;
+        }
+        f = { ...f, montos: montosJ, cant: cantJ, descartadoPorJornada: descJ };
+      } else {
+        const sobran: FuenteKey[] = (['viajes', 'jornadas', 'horometros'] as FuenteKey[])
+          .filter((k) => (f.montos[k] ?? 0) !== 0 || (f.cant?.[k] ?? 0) !== 0);
+        if (!sobran.length) return f;
+        const montos = { ...f.montos };
+        const cant = f.cant ? { ...f.cant } : f.cant;
+        const descartado: Partial<Record<FuenteKey, number>> = {};
+        for (const k of sobran) {
+          if ((montos[k] ?? 0) !== 0) descartado[k] = r2(montos[k] as number);
+          montos[k] = 0;
+          if (cant) cant[k] = 0;
+        }
+        return { ...f, montos, cant, descartadoPorPeso: descartado };
       }
-      return { ...f, montos, cant, descartadoPorPeso: descartado };
     }
     if (op.fuentes.horometros !== 'suma') return f;
     const mJor = f.montos.jornadas ?? 0;
@@ -406,6 +432,18 @@ function conSeleccionAutomatica(filas: readonly FilaConsolidada[], op: OpcionesC
       jornadaDescartada: r2(mJor),
     };
   });
+}
+
+/**
+ * 🚛⚖️ Los camiones que FACTURAN POR PESO en estas filas (22-oct-2026): los que
+ * la pantalla ofrece para pasar a jornada, uno por uno o todos. Camión = la
+ * regla compartida (esCamionDeViajes); con peso = monto de peso distinto de 0.
+ */
+export function camionesConPeso(filas: readonly FilaConsolidada[] | null | undefined): FilaConsolidada[] {
+  return (filas ?? [])
+    .filter((f) => (f.montos.peso ?? 0) !== 0 && esCamionDeViajes(f.code))
+    .slice()
+    .sort((a, b) => cmpTx(a.code, b.code) || cmpTx(a.placa, b.placa));
 }
 
 /** Aplica el selector de máquinas y bota las filas que quedaron sin NINGÚN monto visible. */
@@ -424,7 +462,10 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
     .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
     .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
     .filter((f) => frentes.size === 0 || frentes.has(idxF.clave(frenteDe(f))))
-    .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0))
+    .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0)
+      // 🕐 El camión pasado a jornada SIN jornada en el rango queda en $0, pero
+      //    NO desaparece: el papel dice que se eligió así y cuánto se descartó.
+      || (f.descartadoPorJornada != null && Object.values(f.descartadoPorJornada).some((v) => (v ?? 0) !== 0)))
     .slice()
     // ⭐ ORDEN ALFABÉTICO por máquina (20-oct-2026, a pedido): el listado va A→Z
     //    por código esté agrupado como esté; los bloques ordenan aparte.
@@ -711,6 +752,10 @@ export function diasConsolidados(
       if (f.descartadoPorPeso && Object.values(f.descartadoPorPeso).some((v) => (v ?? 0) !== 0)) {
         for (const k of ['viajes', 'jornadas', 'horometros'] as FuenteKey[]) if (!ks.includes(k)) ks.push(k);
       }
+      // 🕐 El camión elegido POR JORNADA: su peso y sus viajes en cero todos los días.
+      if (f.descartadoPorJornada && Object.values(f.descartadoPorJornada).some((v) => (v ?? 0) !== 0)) {
+        for (const k of ['peso', 'viajes'] as FuenteKey[]) if (!ks.includes(k)) ks.push(k);
+      }
       if (ks.length) aCero.set(f.id, ks);
     }
   }
@@ -996,6 +1041,24 @@ export function resumenConsolidado(d: {
         }),
       });
     }
+    // 🕐 Los camiones con peso que se eligieron POR JORNADA (22-oct-2026).
+    const porJornada = filasElegidas(d.filas, op).filter((f) => f.descartadoPorJornada && Object.values(f.descartadoPorJornada).some((v) => (v ?? 0) !== 0));
+    if (porJornada.length > 0) {
+      cuadros.push({
+        k: 'auto_jornada_camion',
+        titulo: `🕐 Por jornada (${porJornada.length}): el camión se facturó por su jornada y su peso no se sumó`,
+        filas: porJornada.map((f) => {
+          const partes = FUENTES_ORDEN.filter((k) => (f.descartadoPorJornada?.[k] ?? 0) !== 0)
+            .map((k) => `${FUENTES_META[k].icon} ${usd(f.descartadoPorJornada?.[k] ?? 0)}`);
+          const total = r2(FUENTES_ORDEN.reduce((a, k) => a + (f.descartadoPorJornada?.[k] ?? 0), 0));
+          const fact = totalFila(f, op);
+          return {
+            clave: `${f.code}${f.placa ? ` · ${f.placa}` : ''} — ${fact !== 0 ? `se facturó ${usd(fact)} por jornada` : 'sin jornada en el rango: queda en $0,00'}; descartado: ${partes.join(' + ')}`,
+            n: total,
+          };
+        }),
+      });
+    }
     const descartadas = filasElegidas(d.filas, op).filter((f) => (f.jornadaDescartada ?? 0) !== 0);
     if (descartadas.length > 0) {
       cuadros.push({
@@ -1263,6 +1326,9 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   const fts = (op.soloFrentes ?? []).map((e) => e.trim()).filter(Boolean);
   if (fts.length === 1) partes.push(`solo ${fts[0]}`);
   else if (fts.length > 1) partes.push(`solo ${fts.length} frentes`);
+  // 🕐 Camiones con peso pasados a jornada: cambia la PLATA, va al nombre.
+  const nJor = (op.camionesPorJornada ?? []).length;
+  if (op.seleccionAutomatica && nJor > 0) partes.push(`${nJor} camión(es) con peso por jornada`);
   if (!op.resumen) partes.push('sin resumen');
   // 📅 El día por día y sus columnas: lo apagado va al NOMBRE, no al papel.
   if (!op.tablaDiaria) partes.push('sin tabla diaria');

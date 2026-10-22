@@ -4092,6 +4092,20 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   y sin toneladas propias (el divisor es el de todos). Sin toneladas en el rango no sale (no se
   inventa una división). Tiene su interruptor propio en «el resumen ejecutivo, pieza por pieza»
   y **nace prendido**.
+- **🚛⚖️🕐 Camiones con peso: ¿por peso o por jornada? (22/10/2026, a pedido):** «que si quiero
+  que esos camiones que tienen peso los quiero en jornada o peso, pueda seleccionar todos o uno
+  por uno». Debajo de la 🤖 selección automática sale la lista de los **camiones que facturaron
+  por romana** en el rango, cada uno con su pastilla: **⚖️ peso** (lo de siempre: su peso manda y
+  su jornada, viajes y horómetro no se suman) o **🕐 jornada** (al revés: se factura su
+  **jornada** —o su horómetro si lo trae con plata— y su **peso y sus viajes no se suman**).
+  - Uno por uno tocando cada camión, o de golpe con **«⚖️ Todos por peso»** / **«🕐 Todos por
+    jornada»**. Nace **todos por peso** (igual que antes).
+  - Un camión pasado a jornada que **no tiene jornada** en el rango queda en **$0,00**, pero no
+    desaparece: el resumen trae el cuadro **«🕐 Por jornada»** con cada camión, lo que se facturó
+    y lo descartado (se apaga junto con el 🧾 desglose).
+  - El 📅 día por día obedece la misma elección. Cambia la plata, así que el nombre del
+    archivo dice «N camión(es) con peso por jornada». Solo aparece con la selección automática
+    prendida y el peso sumando; al calcular otro rango, se sueltan los camiones que ya no están.
 
 #### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
 

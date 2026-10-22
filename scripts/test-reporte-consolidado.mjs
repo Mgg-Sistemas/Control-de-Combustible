@@ -630,6 +630,49 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   ok('* la pantalla tiene su interruptor', /costoTonAcarreoTotal: !p\.costoTonAcarreoTotal/.test(leer('src/components/ReporteConsolidadoCard.tsx')));
 }
 
+// ═══ 🚛⚖️🕐 CAMIÓN CON PESO: POR PESO O POR JORNADA (22-oct-2026, a pedido) ═══
+// «que si quiero que esos camiones que tienen peso los quiero en jornada o
+// peso, pueda seleccionar todos o uno por uno».
+{
+  const AUTO = C.OPCIONES_CONSOLIDADO_POR_DEFECTO;
+  const FJ = [
+    { id: 'c1', code: 'CAMION VOLTEO 7', placa: 'AA33', empresa: 'ALFA C.A', montos: { peso: 500, viajes: 300, jornadas: 200 }, cant: { peso: 48500, viajes: 12, jornadas: 12 } },
+    { id: 'c4', code: 'CAMION VOLTEO 8', placa: 'EE77', empresa: 'ALFA C.A', montos: { peso: 700, jornadas: 250 }, cant: { peso: 60000, jornadas: 12 } },
+    // Camión con peso y SIN jornada en el rango (pasarlo a jornada lo deja en $0).
+    { id: 'c5', code: 'CAMION VOLTEO 10', placa: 'FF88', empresa: 'ALFA C.A', montos: { peso: 100 }, cant: { peso: 9000 } },
+    { id: 'm1', code: 'JUMBO 320', placa: 'DD66', empresa: 'ALFA C.A', montos: { jornadas: 1200 }, cant: { jornadas: 12 } },
+  ];
+  const DJ = { filas: FJ, desde: '2026-10-19', hasta: '2026-10-21' };
+  eq('⭐ la lista de la pantalla: solo los camiones con peso (orden natural 7, 8, 10)', C.camionesConPeso(FJ).map((f) => f.id), ['c1', 'c4', 'c5']);
+  eq('⭐ nace vacío: todos por peso, igual que antes', (AUTO.camionesPorJornada ?? []).length, 0);
+  eq('* por defecto (todos por peso): 500 + 700 + 100 + 1200', C.totalesConsolidado(FJ, AUTO).total, 2500);
+  // Uno por uno: c1 por jornada → su peso y sus viajes no se suman; su jornada sí.
+  const uno = { ...AUTO, camionesPorJornada: ['c1'] };
+  const t1 = C.totalesConsolidado(FJ, uno);
+  eq('⭐⭐ UNO por jornada: c1 factura su jornada ($200) y no su peso ni sus viajes', [t1.porFuente.peso, t1.porFuente.viajes, t1.porFuente.jornadas, t1.total], [800, 0, 1400, 2200]);
+  // Todos por jornada.
+  const todos = { ...AUTO, camionesPorJornada: ['c1', 'c4', 'c5'] };
+  const tT = C.totalesConsolidado(FJ, todos);
+  eq('⭐⭐ TODOS por jornada: ningún peso se suma, solo las jornadas', [tT.porFuente.peso, tT.porFuente.jornadas, tT.total], [0, 1650, 1650]);
+  ok('⭐ el camión pasado a jornada SIN jornada no desaparece: queda en $0 y se dice',
+    C.filasElegidas(FJ, todos).some((f) => f.id === 'c5' && C.totalFila(f, todos) === 0));
+  const cu = C.resumenConsolidado(DJ, todos).cuadros.find((x) => x.k === 'auto_jornada_camion');
+  ok('⭐ el desglose dice qué camiones se pasaron a jornada y qué se descartó',
+    !!cu && cu.filas.length === 3 && cu.filas.some((f) => /CAMION VOLTEO 7.*se facturó \$200,00 por jornada.*⚖️ \$500,00 \+ 🚛 \$300,00|CAMION VOLTEO 7.*se facturó \$200,00 por jornada.*🚛 \$300,00 \+ ⚖️ \$500,00/.test(f.clave))
+    && cu.filas.some((f) => /CAMION VOLTEO 10.*sin jornada en el rango: queda en \$0,00/.test(f.clave)));
+  ok('* el cuadro «Mandó el peso» ya no lista a los pasados a jornada',
+    !(C.resumenConsolidado(DJ, uno).cuadros.find((x) => x.k === 'auto_peso')?.filas ?? []).some((f) => /CAMION VOLTEO 7/.test(f.clave)));
+  ok('⭐ cambia la plata: va al nombre del archivo', /1 camión\(es\) con peso por jornada/.test(C.sufijoArchivoConsolidado(uno)) && C.sufijoArchivoConsolidado(AUTO) === '');
+  // El día por día obedece la elección del rango (sigue sumando el TOTAL).
+  const dias = [{ jornada: '2026-10-19', filas: FJ, viajes: [] }];
+  eq('⭐ el día por día obedece la elección (suma lo mismo que el TOTAL)', C.diasConsolidados(dias, uno, FJ)[0].total, 2200);
+  // Sin la selección automática nada se descarta y la elección no aplica.
+  eq('* sin 🤖 selección automática, la elección no aplica (todo suma)', C.totalesConsolidado(FJ, { ...uno, seleccionAutomatica: false }).total, 500 + 300 + 200 + 700 + 250 + 100 + 1200);
+  const card = leer('src/components/ReporteConsolidadoCard.tsx');
+  ok('* la pantalla tiene «Todos por peso», «Todos por jornada» y una pastilla por camión',
+    /⚖️ Todos por peso/.test(card) && /🕐 Todos por jornada/.test(card) && /camionesPeso\.map\(\(f\) =>/.test(card));
+}
+
 if (fail) {
   console.error(failures.join('\n'));
   console.error(`\n✗ reporte consolidado: ${fail} fallo(s), ${pass} ok`);
