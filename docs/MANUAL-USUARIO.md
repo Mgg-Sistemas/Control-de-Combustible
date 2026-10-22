@@ -3847,11 +3847,12 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   > - Con la pastilla **🚫 Horas de jornada** encendida, el papel sigue sin nombrar la jornada por
   >   ninguna parte (ni esa caja ni ese estado).
 
-  > **✏️ El inspector puede corregir el horómetro que él cargó (02/10/2026, a pedido).** En la
+  > **✏️ El inspector puede corregir el horómetro y fotos que él cargó (02/10/2026, ampliado 22/10/2026).** En la
   > tarjeta de su máquina hay un bloque **«⚙️ Horómetros que cargaste (hoy y ayer)»** con las
-  > lecturas de esos dos días (☀️/🌙, inicial y final) y un botón **«✏️ Corregir»** por día. Abre
+  > lecturas de esos dos días (☀️/🌙, inicial y final con indicador 📷 si tiene foto) y un botón **«✏️ Corregir»** por día. Abre
   > el mismo editor de Control, pero en **modo inspector**:
   > - Solo **sus máquinas** (las de su tarjeta), solo **hoy y ayer**, y el **motivo es obligatorio**.
+  > - **Fotos inicial y final**: además de corregir los números, puede tomar una nueva foto con la cámara (📷) o subirla desde la galería (🖼️) tanto para el horómetro inicial como para el final si se equivocó al colocarla. Si ya tiene foto, puede tocarla para verla en pantalla completa o usar el botón **✕ Quitar** para removerla.
   > - No tiene el interruptor de **reinicio** (eso es de Control) y **no toca las horas de la
   >   jornada** ni el horómetro de mantenimiento: cambia únicamente la lectura de ese día.
   > - **Lo que Control ya corrigió no se puede tocar**: el editor lo avisa con 🔒 y la base también

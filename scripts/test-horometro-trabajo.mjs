@@ -377,6 +377,7 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('final menor que inicial no pasa', /menor/.test(H.validarCorreccionHorometro({ ...okC, final: '700' }) ?? ''));
   ok('borrar los dos no pasa', /al menos un numero/.test(H.validarCorreccionHorometro({ inicial: '', final: '', motivo: 'm' }) ?? ''));
   eq('borrar solo el final si pasa (lectura queda a medias, la base revalida)', H.validarCorreccionHorometro({ inicial: '711,3', final: '', motivo: 'el final era de otra maquina' }), null);
+  eq('corrección solo de foto (sin tocar números) pasa con tieneFoto', H.validarCorreccionHorometro({ inicial: '', final: '', motivo: 'cambio de foto borrosa', tieneFoto: true }), null);
 }
 
 // ── GUARDIAS DEL MODO SOMBRA (23-sep-2026) ───────────────────────────────────
@@ -407,6 +408,8 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('el modal corrige con origen control (y el inspector con el suyo)', /origen: esInspector \? 'inspector' : 'control'/.test(modal));
   ok('el modal exige el motivo (regla pura compartida)', /validarCorreccionHorometro/.test(modal));
   ok('el modal no toca machine_rounds ni horas', !/from\('machine_rounds'\)|day_hours|night_hours|upsertMachineRound/.test(modal));
+  ok('el modal permite subir/reemplazar foto de horómetro inicial y final', /fotoInicialUrl: fotoIni/.test(modal) && /fotoFinalUrl: fotoFin/.test(modal));
+  ok('el modal cuenta con selector de cámara y galería para fotos', /captureAndUploadPhoto/.test(modal) && /pickPhotoFromGalleryAndUpload/.test(modal));
   // Ninguna pantalla de dinero usa horasPagables: la fórmula de pago es la de siempre.
   ok('el pago sigue por workedFromShifts en Control', !/horasPagables/.test(ctl) && /workedFromShifts/.test(ctl));
   ok('el pago sigue por workedFromShifts en Reportes', !/horasPagables/.test(rep) && /workedFromShifts/.test(rep));
