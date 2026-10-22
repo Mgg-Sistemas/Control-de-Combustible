@@ -35,6 +35,8 @@ create table if not exists public.machinery_quotes (
   status                text not null default 'emitido'
                         check (status in ('borrador','emitido','aceptado','rechazado','vencido')),
   status_note           text,
+  logos                 jsonb not null default '[]'::jsonb,
+  incluir_logos         boolean not null default true,
   created_by            uuid references public.profiles(id) on delete set null,
   created_by_name       text,
   created_at            timestamptz not null default now(),

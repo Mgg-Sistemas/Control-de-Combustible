@@ -8523,3 +8523,23 @@ período se hizo **vendiendo** o **cobrando lo viejo**.
 
 > **Sigue sin haber botón para agregar un ingreso.** Estas pantallas solo **muestran**: el dinero
 > lo meten las ventas y los cobros, como siempre.
+
+---
+
+### 💼 Presupuestos de Alquiler de Maquinaria (22/10/2026)
+
+Módulo ubicado en **Ventas → Presupuestos de maquinaria**.
+
+#### 🔍 Buscador de Empresa Emisora
+En la sección **1. Empresa Emisora y Correlativo**, encima de las pastillas de empresas (CARBOZULIA, GOLDEN TOUCH, etc.), se dispone de una barra de búsqueda en tiempo real:
+- Escribe cualquier palabra o sigla para filtrar la lista instantáneamente sin tener que recorrer decenas de empresas.
+- El botón **✕** limpia el filtro de inmediato.
+
+#### 🖼️ Opciones de Logotipos en el Documento (PDF / Impresión)
+Permite personalizar qué logos aparecen en el membrete del presupuesto:
+- **Botón «✓ Incluir Logos / ✕ Sin Logos»**: Si se desactiva, la cotización se emite con un encabezado corporativo tipográfico limpio sin imágenes.
+- **Botón «+ Logo Oficial SOS»**: Activa o desactiva con un toque el isotipo oficial del sistema.
+- **Botón «📁 Subir desde Archivo/Galería»**: Permite cargar imágenes directamente desde el almacenamiento del dispositivo o la galería.
+- **Campo de URL**: Permite ingresar un enlace web (`https://...`) a cualquier logotipo corporativo o data URI y presionar **+ Agregar**.
+- **Miniaturas y botón ✕**: Cada logo añadido muestra su previsualización y un botón rojo para removerlo de la lista.
+

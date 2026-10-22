@@ -132,6 +132,38 @@ ok('VentasScreen renderiza PresupuestosTab',
 ok('VentasScreen conserva intacta la pestaña Ventas de servicio',
   scr.includes('<VentaServiciosTab canWrite={canWrite} />'));
 
+// ── 4) Soporte de Logos y Buscador de Empresa Emisora ─────────────────────────
+const HTML_CON_LOGOS = DOC.presupuestoDocumentoHtml({
+  ...PRES_TEST,
+  incluir_logos: true,
+  logos: ['https://example.com/logo1.png', 'https://example.com/logo2.png'],
+});
+ok('presupuesto con logos activados renderiza las imágenes en el membrete',
+  HTML_CON_LOGOS.includes('class="logo-group"') &&
+  HTML_CON_LOGOS.includes('src="https://example.com/logo1.png"') &&
+  HTML_CON_LOGOS.includes('src="https://example.com/logo2.png"'));
+
+const HTML_SIN_LOGOS = DOC.presupuestoDocumentoHtml({
+  ...PRES_TEST,
+  incluir_logos: false,
+  logos: ['https://example.com/logo1.png'],
+});
+ok('presupuesto con logos desactivados no renderiza grupo de imágenes',
+  !HTML_SIN_LOGOS.includes('class="logo-group"') &&
+  !HTML_SIN_LOGOS.includes('src="https://example.com/logo1.png"'));
+
+const modalCode = fs.readFileSync(path.join(ROOT, 'src/components/PresupuestoFormModal.tsx'), 'utf8');
+ok('PresupuestoFormModal incluye buscador de empresa emisora',
+  modalCode.includes('searchEmpresa') &&
+  modalCode.includes('Buscar empresa emisora...'));
+ok('PresupuestoFormModal incluye opciones para colocar o quitar logos',
+  modalCode.includes('incluirLogos') &&
+  modalCode.includes('Logotipos en la Cotización / PDF') &&
+  modalCode.includes('handleToggleDefaultLogo') &&
+  modalCode.includes('handlePickLogoGallery') &&
+  modalCode.includes('handleRemoveLogo'));
+
+
 console.log('\nPRESUPUESTOS Y COTIZACIONES DE MAQUINARIA\n');
 if (failures.length) console.log(failures.join('\n'));
 console.log(`\n${failures.length ? '❌' : '✅'} test-presupuestos-maquinaria · ${pass} ok · ${fail} fallando\n`);
