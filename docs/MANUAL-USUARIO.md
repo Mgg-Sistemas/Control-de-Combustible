@@ -4131,6 +4131,29 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   - **👤 Solo estos encargados:** selector de pastillas para filtrar por uno o varios encargados
     (o «Sin encargado»). Cambia el total del papel (sale FILTRADO) y el nombre del archivo dice
     cuál o cuántos se eligieron.
+- **⚠️🔁 Los días sin horómetro que la jornada sí cubriría (22/10/2026, a pedido real: un caso del
+  JUMBO 330 cuyo horómetro se dañó un día y el reporte «se desconfiguró»).** La selección
+  automática decide **por máquina en TODO el rango**, no día por día: si una máquina factura por
+  horómetro, su jornada se descarta **entera**. Eso significa que un día puntual sin lectura (el
+  aparato se dañó, se olvidó marcarlo) **se pierde en silencio** — ese día queda en $0 por los dos
+  lados, aunque la jornada diga que sí trabajó. Dos herramientas nuevas, independientes entre sí:
+  - **⚠️ Avisar días sin horómetro que la jornada sí cubriría** — nace **prendida**. Agrega al
+    resumen el cuadro **«⚠️ Días sin horómetro que la jornada sí cubriría»**, con cada máquina, el
+    día exacto y cuánto decía la jornada ese día. No cambia ni un centavo del papel: es solo para
+    que el hueco salte a la vista (en la **tabla diaria** ese día ni siquiera aparece, por eso hace
+    falta el aviso aparte) y se corrija a mano con **🔁 Cambio de horómetro** (Control de
+    Horómetros), con su motivo documentado — la forma recomendada, porque una persona revisa si la
+    jornada de ese día es de verdad la cifra correcta.
+  - **🔁 Rellenar esos días automáticamente con su jornada** — nace **apagada** (cambia la plata).
+    Con esto prendido, el día sin horómetro usa la jornada de **ese** día específico — el resto de
+    la máquina sigue por horómetro, **nunca se suman los dos el mismo día**. Es la única excepción
+    a «uno u otro por máquina, nunca mezclado»: pasa a ser por máquina-**y**-día. El cuadro del
+    resumen entonces dice **«✅ Días sin horómetro, rellenados con su jornada»** en vez de avisar —
+    confirma lo que ya se sumó solo. El ⚠️ de pago doble no lo marca (no es cobrar dos veces: son
+    días distintos). La **tabla diaria** y el **TOTAL GENERAL** quedan coherentes entre sí (la
+    tabla sigue sumando exacto el total). Cambia la plata: va al nombre del archivo.
+  - Las dos piden que el 📅 día por día esté cargado (si no, no hay cómo distinguir qué día tuvo o
+    no horómetro) y que la 🤖 selección automática esté prendida.
 
 #### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
 

@@ -311,7 +311,7 @@ export function ReporteConsolidadoCard() {
     }
   };
 
-  const t = useMemo(() => (filas ? totalesConsolidado(filas, opFull) : null), [filas, opFull]);
+  const t = useMemo(() => (filas ? totalesConsolidado(filas, opFull, porDia) : null), [filas, opFull, porDia]);
   const maqSel = new Set(op.soloMaquinas ?? []);
   const q = buscaMaq.trim().toLowerCase();
   // ⛏️ UNA PASTILLA POR FRENTE, NO POR NOMBRE (21-oct-2026, a pedido: «me salen
@@ -643,6 +643,19 @@ export function ReporteConsolidadoCard() {
           cola de «fuera del cuadro: … sin toneladas». La regla sigue aplicando. */}
       {op.seleccionAutomatica ? (
         <Toggle on={op.desgloseAutomatico} label="🧾 El desglose de lo descartado (cuadro «Mandó el horómetro» y «sin toneladas»)" onPress={() => setOp((p) => ({ ...p, desgloseAutomatico: !p.desgloseAutomatico }))} />
+      ) : null}
+      {/* ⚠️🔁 22-oct-2026, a pedido («ese cambio tiene sentido y debería ser
+          así, correcto?»): un día sin horómetro no se nota — la jornada de
+          TODO el rango se descarta por la regla uno-u-otro, y ese día
+          específico queda en $0 por los dos lados. Avisa (⚠️, nace prendido)
+          y, si se quiere, lo rellena solo con la jornada de ESE día (🔁, nace
+          apagado — la corrección de la casa sigue siendo 🔁 Cambio de
+          horómetro, a mano y con motivo). */}
+      {op.seleccionAutomatica ? (
+        <>
+          <Toggle on={op.avisoHuecosHorometro} label="⚠️ Avisar días sin horómetro que la jornada sí cubriría" onPress={() => setOp((p) => ({ ...p, avisoHuecosHorometro: !p.avisoHuecosHorometro }))} />
+          <Toggle on={op.rellenoAutomaticoDia} label="🔁 Rellenar esos días automáticamente con su jornada" onPress={() => setOp((p) => ({ ...p, rellenoAutomaticoDia: !p.rellenoAutomaticoDia }))} />
+        </>
       ) : null}
       <Toggle on={!op.sinCantidades} label="📏 Lo que respalda cada monto (horas, viajes, toneladas)" onPress={() => setOp((p) => ({ ...p, sinCantidades: !p.sinCantidades }))} />
       <Toggle on={!op.sinPlaca} label="🔢 Placa / serial" onPress={() => setOp((p) => ({ ...p, sinPlaca: !p.sinPlaca }))} />

@@ -720,6 +720,131 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   ok('⭐ la pantalla tiene el filtro 👤 SOLO ESTOS ENCARGADOS', /SOLO ESTOS ENCARGADOS/.test(card) && /soloEncargados/.test(card));
 }
 
+// ═══ ⚠️🔁 LOS HUECOS DEL HORÓMETRO (22-oct-2026, a pedido real) ══════════════
+// Caso REAL: JUMBO 330 (serial …03559) cobra por horómetro desde el 14-sep.
+// El 15-oct el aparato se dañó y el día quedó en 0 h; esa semana (12 al 18)
+// el horómetro SÍ trajo plata los otros tres días — así que la regla
+// uno-u-otro de siempre descartaba la jornada de LA SEMANA ENTERA, y el 15-oct
+// se quedaba en $0 por los dos lados aunque la máquina trabajó 10,37 h.
+// «El horómetro manda sobre la jornada, pero si para días no hay horómetro y
+// sí jornada, ¿la toma en cuenta? ... ese cambio tiene sentido y debería ser
+// así, correcto? ... dame las dos opciones y que sean checks.»
+{
+  const AUTO = C.OPCIONES_CONSOLIDADO_POR_DEFECTO; // avisoHuecosHorometro:true, rellenoAutomaticoDia:false
+  const JUMBO330 = 'jumbo330';
+  const SEMANA = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18'];
+  // Las 3 horas/precio reales del jefe: $83,33/h. Horas de jornada y horómetro
+  // de los días con lectura (12,13,14) calcan la realidad; el 15 solo jornada.
+  const dia = (fecha, montos, cant) => ({
+    jornada: fecha,
+    filas: [{ id: JUMBO330, code: 'JUMBO 330', placa: '', empresa: 'ALFA', montos, cant }],
+    viajes: [],
+  });
+  const DIAS = [
+    dia('2026-10-12', { jornadas: 880, horometros: 833.30 }, { jornadas: 10.56, horometros: 10 }),
+    dia('2026-10-13', { jornadas: 842.50, horometros: 833.30 }, { jornadas: 10.11, horometros: 10 }),
+    dia('2026-10-14', { jornadas: 865, horometros: 841.63 }, { jornadas: 10.38, horometros: 10.10 }),
+    dia('2026-10-15', { jornadas: 864.17 }, { jornadas: 10.37 }), // el aparato se dañó: 0 horómetro
+  ];
+  // El total del rango (lo que la pantalla ya sumó con `armar`): jornada =
+  // suma de los 4 días; horómetro = suma de los 3 días con lectura.
+  const RANGO = [{
+    id: JUMBO330, code: 'JUMBO 330', placa: '', empresa: 'ALFA',
+    montos: { jornadas: r2(880 + 842.50 + 865 + 864.17), horometros: r2(833.30 + 833.30 + 841.63) },
+    cant: { jornadas: r2(10.56 + 10.11 + 10.38 + 10.37), horometros: r2(10 + 10 + 10.10) },
+  }];
+  function r2(n) { return Math.round(n * 100) / 100; }
+  const D = { filas: RANGO, desde: '2026-10-12', hasta: '2026-10-18', dias: DIAS };
+
+  // 1) SIN relleno (como estaba hasta hoy): la semana entera pierde la jornada,
+  //    el 15-oct queda en $0 por los dos lados — EXACTO lo que vivimos.
+  {
+    const t = C.totalesConsolidado(RANGO, AUTO, DIAS);
+    eq('⭐⭐ sin relleno: la jornada de TODA la semana se descarta (manda el horómetro)',
+      [t.porFuente.jornadas, t.porFuente.horometros], [0, r2(833.30 + 833.30 + 841.63)]);
+    const huecos = C.huecosHorometro(C.filasElegidas(RANGO, AUTO, DIAS), AUTO, DIAS);
+    eq('⭐⭐ el 15-oct sale como HUECO (horas y monto de la jornada de ese día)',
+      huecos.map((h) => [h.jornada, h.horas, h.monto]), [['2026-10-15', 10.37, 864.17]]);
+    const res = C.resumenConsolidado(D, AUTO);
+    const cu = res.cuadros.find((c) => c.k === 'huecos_horometro');
+    ok('⭐⭐ el resumen AVISA el hueco (⚠️, no ✅: el relleno está apagado)',
+      !!cu && /⚠️ Días sin horómetro que la jornada sí cubriría \(1\)/.test(cu.titulo) && cu.filas.length === 1);
+  }
+
+  // 2) CON relleno automático: el 15-oct SÍ cuenta con su jornada; los otros
+  //    tres días siguen por horómetro (nunca los dos el MISMO día).
+  const REL = { ...AUTO, rellenoAutomaticoDia: true };
+  {
+    const t = C.totalesConsolidado(RANGO, REL, DIAS);
+    eq('⭐⭐ con relleno: la jornada SOLO trae el hueco del 15-oct (864,17), no la semana entera',
+      [t.porFuente.jornadas, t.porFuente.horometros], [864.17, r2(833.30 + 833.30 + 841.63)]);
+    eq('⭐ el total general SUMA los dos (nada se pierde ni se duplica)',
+      t.total, r2(864.17 + 833.30 + 833.30 + 841.63));
+    const elegidas = C.filasElegidas(RANGO, REL, DIAS);
+    // Los OTROS tres días (12, 13, 14) sí tenían horómetro: su jornada sigue
+    // descartada normal (880 + 842,50 + 865 = 2.587,50) — solo el 15-oct, que
+    // SÍ era un hueco, se salva y se reconoce aparte.
+    eq('⭐ lo descartado son los 3 días CON horómetro, no los 4 (el hueco se salvó)',
+      elegidas[0].jornadaDescartada, 2587.50);
+    ok('⭐ el ⚠️ de solapes NO marca jornada+horómetro (es el mismo arreglo, no pago doble)',
+      !C.solapesConsolidado(RANGO, REL, DIAS).some((x) => x.fuentes.includes('jornadas') && x.fuentes.includes('horometros')));
+    const res = C.resumenConsolidado(D, REL);
+    const cu = res.cuadros.find((c) => c.k === 'huecos_horometro');
+    ok('⭐⭐ el resumen CONFIRMA el relleno (✅, no ⚠️)',
+      !!cu && /✅ Días sin horómetro, rellenados con su jornada \(1\)/.test(cu.titulo));
+  }
+
+  // 3) ⭐⭐⭐ EL CUADRE: el día por día debe sumar EXACTO el mismo total,
+  //    con relleno y sin relleno — es la misma garantía que ya probamos el
+  //    21-oct, ahora con la regla nueva encima.
+  for (const [nombre, op] of [['sin relleno', AUTO], ['con relleno', REL]]) {
+    const ds = C.diasConsolidados(DIAS, op, RANGO);
+    const sumaDias = Math.round(ds.reduce((s, x) => s + x.total, 0) * 100) / 100;
+    eq(`⭐⭐ el día por día cuadra con el total general (${nombre})`,
+      sumaDias, C.totalesConsolidado(RANGO, op, DIAS).total);
+  }
+  // Y el día por día, CON relleno, muestra el 15-oct con plata (no en $0).
+  {
+    const ds = C.diasConsolidados(DIAS, REL, RANGO);
+    const d15 = ds.find((x) => x.jornada === '2026-10-15');
+    eq('⭐ en la tabla diaria, el 15-oct YA NO sale en $0 (con relleno)', d15.total, 864.17);
+    const d15sin = C.diasConsolidados(DIAS, AUTO, RANGO).find((x) => x.jornada === '2026-10-15');
+    // Sin relleno, ese día se queda SIN monto en NINGÚN lado (jornada y
+    // horómetro en cero): la tabla ni siquiera lo lista — un día de puro $0
+    // no arrastra fila (regla del informe operativo). Por ESO hace falta el
+    // aviso aparte: en la tabla diaria, el hueco ni se nota.
+    ok('* sin relleno, el 15-oct NI SIQUIERA sale en la tabla diaria (nada que mostrar)', d15sin === undefined);
+  }
+
+  // 4) Bordes: sin el toggle de aviso, no sale el cuadro (aunque haya huecos).
+  ok('⭐ apagando el aviso, el cuadro de huecos no sale aunque haya huecos',
+    !C.resumenConsolidado(D, { ...AUTO, avisoHuecosHorometro: false }).cuadros.some((c) => c.k === 'huecos_horometro'));
+  // Sin `dias` (papel viejo, sin tabla diaria cargada): no hay cómo saber qué
+  // día tuvo o no horómetro — ni avisa ni rellena, se queda como siempre.
+  ok('⭐ sin día por día no hay huecos que avisar (no hay cómo distinguir el día)',
+    C.huecosHorometro(RANGO, AUTO, null).length === 0
+    && C.totalesConsolidado(RANGO, REL, null).porFuente.jornadas === 0);
+  // Un día con horómetro Y jornada en $0 (de verdad no trabajó) no es un hueco.
+  {
+    const SIN_TRABAJO = [...DIAS, { jornada: '2026-10-11', filas: [{ id: JUMBO330, code: 'JUMBO 330', placa: '', empresa: 'ALFA', montos: {}, cant: {} }], viajes: [] }];
+    ok('⭐ un día sin jornada NI horómetro no es un hueco (de verdad no trabajó)',
+      !C.huecosHorometro(C.filasElegidas(RANGO, AUTO, SIN_TRABAJO), AUTO, SIN_TRABAJO).some((h) => h.jornada === '2026-10-11'));
+  }
+  // La pantalla: las dos pastillas, y el total en vivo usa `porDia`.
+  const card = leer('src/components/ReporteConsolidadoCard.tsx');
+  ok('⭐⭐ la pantalla tiene las DOS pastillas pedidas, como checks',
+    /⚠️ Avisar días sin horómetro que la jornada sí cubriría/.test(card)
+    && /🔁 Rellenar esos días automáticamente con su jornada/.test(card));
+  ok('⭐ el total EN VIVO de la pantalla ya usa el día por día (porDia)',
+    /totalesConsolidado\(filas, opFull, porDia\)/.test(card));
+  // El nombre del archivo dice lo que cambia la plata (el relleno), no el aviso.
+  ok('⭐ el relleno automático va al nombre del archivo (cambia la plata)',
+    /con relleno automático por día/.test(C.sufijoArchivoConsolidado(REL))
+    && !/con relleno automático por día/.test(C.sufijoArchivoConsolidado(AUTO)));
+  ok('* apagar el aviso también se dice en el nombre (regla de la casa)',
+    /sin aviso de huecos/.test(C.sufijoArchivoConsolidado({ ...AUTO, avisoHuecosHorometro: false })));
+}
+
 if (fail) {
   console.error(failures.join('\n'));
   console.error(`\n✗ reporte consolidado: ${fail} fallo(s), ${pass} ok`);
