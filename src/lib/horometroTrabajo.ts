@@ -167,13 +167,13 @@ export const MSG_MOTIVO_CORRECCION =
  * y basta el motivo escrito (sin foto). Esta funcion valida LO ESCRITO antes de
  * mandarlo; el candado de verdad (sesion + modulo + motivo) vive en la base.
  */
-export function validarCorreccionHorometro(d: { inicial: string; final: string; motivo: string }): string | null {
+export function validarCorreccionHorometro(d: { inicial: string; final: string; motivo: string; tieneFoto?: boolean }): string | null {
   if (!String(d.motivo ?? '').trim()) return MSG_MOTIVO_CORRECCION;
   const i = numeroDeTexto(d.inicial);
   if (i === false) return 'El horometro inicial no es un numero valido (0 o mas).';
   const f = numeroDeTexto(d.final);
   if (f === false) return 'El horometro final no es un numero valido (0 o mas).';
-  if (i == null && f == null) return 'Escribe al menos un numero: borrar los dos dejaria la lectura vacia.';
+  if (i == null && f == null && !d.tieneFoto) return 'Escribe al menos un numero: borrar los dos dejaria la lectura vacia.';
   if (i != null && f != null && f < i) return 'El final (' + f + ') no puede ser menor al inicial (' + i + ').';
   return null;
 }

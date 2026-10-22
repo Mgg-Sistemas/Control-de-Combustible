@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState, Badge, SkeletonList } from '../components/ui';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -3985,14 +3985,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   {ci && horoEditables.some((d) => d.lecturas.length > 0) ? (
                     <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>⚙️ Horómetros que cargaste (hoy y ayer)</Text>
-                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si tecleaste mal un número, corrígelo aquí con el motivo. Solo cambia la lectura del horómetro de ese día: no toca las horas de la jornada.</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si tecleaste mal un número o subiste una foto equivocada, corrígelo aquí con el motivo. Puedes actualizar números y subir/cambiar las fotos de inicio o fin.</Text>
                       {horoEditables.filter((d) => d.lecturas.length > 0).map((d) => (
                         <View key={d.roundDate} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
                           <View style={{ flex: 1 }}>
                             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{d.roundDate === today ? 'Hoy' : 'Ayer'} · {d.roundDate.split('-').reverse().join('/')}</Text>
                             {d.lecturas.map((l) => (
                               <Text key={l.shift} style={{ color: colors.muted, fontSize: 11 }}>
-                                {l.shift === 'night' ? '🌙' : '☀️'} inicial {l.inicial ?? '—'} · final {l.final ?? '—'}
+                                {l.shift === 'night' ? '🌙' : '☀️'} inicial {l.inicial ?? '—'}{l.fotoInicialUrl ? ' 📷' : ''} · final {l.final ?? '—'}{l.fotoFinalUrl ? ' 📷' : ''}
                                 {l.corregidoPor ? ' · 🔒 corregida por Control' : l.motivoCorreccion ? ' · ✎ corregida' : ''}
                               </Text>
                             ))}
@@ -4010,7 +4010,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                           roundDate={horoEditFecha}
                           lecturas={horoEditables.find((d) => d.roundDate === horoEditFecha)?.lecturas ?? []}
                           onClose={() => setHoroEditFecha(null)}
-                          onSaved={() => { setHoroEditRecarga((n) => n + 1); setNotice('✏️ Horómetro corregido. Queda con tu nombre y tu motivo en el reporte.'); }}
+                          onSaved={() => { setHoroEditRecarga((n) => n + 1); setNotice('✏️ Horómetro / foto corregido. Queda con tu nombre y tu motivo en el reporte.'); }}
                         />
                       ) : null}
                     </View>
