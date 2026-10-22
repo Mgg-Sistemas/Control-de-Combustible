@@ -6,9 +6,12 @@ node_modules/
 # Expo
 .expo/
 
-# Supabase CLI
+# Supabase CLI & Database SQL
 supabase/.temp/
 supabase/.branches/
+*.sql
+supabase/*.sql
+supabase/**/*.sql
 # dist/ se COMMITEA a propósito: DigitalOcean sirve esta carpeta ya compilada
 # (deploy casi instantáneo, sin recompilar). Se regenera con `npm run deploy`.
 web-build/

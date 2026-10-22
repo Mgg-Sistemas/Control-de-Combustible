@@ -65,26 +65,16 @@ const eq = (name, got, want) => {
 };
 const ok = (name, cond) => eq(name, !!cond, true);
 
-// ── 1) VERIFICAR SQL MIGRATION IDEMPOTENTE ───────────────────────────────────
-const sql = leer('supabase/compras_proveedores_financieros_y_aclaratorias.sql');
-ok('SQL contiene alter table suppliers', sql.includes('alter table public.suppliers'));
-ok('SQL contiene bank_name', sql.includes('bank_name text'));
-ok('SQL contiene account_number', sql.includes('account_number text'));
-ok('SQL contiene pago_movil_phone', sql.includes('pago_movil_phone text'));
-ok('SQL contiene binance_id', sql.includes('binance_id text'));
-ok('SQL contiene alter table inventory_requirements', sql.includes('alter table public.inventory_requirements'));
-ok('SQL contiene aclaratoria_motivo', sql.includes('aclaratoria_motivo text'));
-ok('SQL contiene aclaratoria_respuesta', sql.includes('aclaratoria_respuesta text'));
-ok('SQL contiene empresa_pagadora_id', sql.includes('empresa_pagadora_id uuid'));
-ok('SQL contiene empresa_pagadora_nombre', sql.includes('empresa_pagadora_nombre text'));
-
-// ── 2) VERIFICAR TIPOS TYPESCRIPT ────────────────────────────────────────────
+// ── 1) VERIFICAR TIPOS Y CAMPOS FINANCIEROS Y DE ACLARATORIA ────────────────
 const dbTypes = leer('src/types/database.ts');
 ok('database.ts contiene bank_name en Supplier', dbTypes.includes('bank_name?: string | null;'));
+ok('database.ts contiene account_number en Supplier', dbTypes.includes('account_number?: string | null;'));
 ok('database.ts contiene pago_movil_phone en Supplier', dbTypes.includes('pago_movil_phone?: string | null;'));
 ok('database.ts contiene binance_id en Supplier', dbTypes.includes('binance_id?: string | null;'));
 ok('database.ts contiene aclaratoria_solicitada en RequirementStatus', dbTypes.includes("'aclaratoria_solicitada'"));
 ok('database.ts contiene aclaratoria_motivo en InventoryRequirement', dbTypes.includes('aclaratoria_motivo?: string | null;'));
+ok('database.ts contiene aclaratoria_respuesta en InventoryRequirement', dbTypes.includes('aclaratoria_respuesta?: string | null;'));
+ok('database.ts contiene empresa_pagadora_id en InventoryRequirement', dbTypes.includes('empresa_pagadora_id?: string | null;'));
 ok('database.ts contiene empresa_pagadora_nombre en InventoryRequirement', dbTypes.includes('empresa_pagadora_nombre?: string | null;'));
 
 // ── 3) VERIFICAR REQ_STATUS EN REQUERIMIENTOTAB ──────────────────────────────
