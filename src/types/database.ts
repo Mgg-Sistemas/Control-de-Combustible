@@ -591,6 +591,17 @@ export interface Supplier {
   tags: string[] | null; // etiquetas de rubro (VÍVERES, REPUESTOS…) — para filtrar
   active: boolean;
   created_at: string;
+  // 💳 Datos Financieros y Métodos de Pago:
+  bank_name?: string | null;
+  account_number?: string | null;
+  account_type?: string | null;
+  account_holder?: string | null;
+  account_id_doc?: string | null;
+  pago_movil_phone?: string | null;
+  pago_movil_id?: string | null;
+  pago_movil_bank?: string | null;
+  binance_id?: string | null;
+  payment_notes?: string | null;
 }
 
 /** Renglón de una solicitud/orden de compra (guardado en JSONB). */
@@ -822,7 +833,7 @@ export interface RequirementLine {
   received?: boolean;               // ya se recibió en inventario
 }
 
-export type RequirementStatus = 'pendiente' | 'aprobado' | 'rechazado' | 'recibido';
+export type RequirementStatus = 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'aclaratoria_solicitada';
 
 /** Requerimiento de compra: se pasa al jefe para aprobar/rechazar; si se compra, se recibe. */
 export interface InventoryRequirement {
@@ -862,6 +873,17 @@ export interface InventoryRequirement {
   attachment_type: string | null;     // 'image' | 'pdf'
   attachment_name: string | null;     // nombre original del archivo
   created_at: string;
+
+  // 🔄 Ciclo de Retroalimentación Técnica (Bucle de Cotización):
+  aclaratoria_motivo?: string | null;
+  aclaratoria_solicitada_por?: string | null;
+  aclaratoria_fecha_solicitud?: string | null;
+  aclaratoria_respuesta?: string | null;
+  aclaratoria_fecha_respuesta?: string | null;
+
+  // 🏢 Empresa Pagadora (Fase de asignación antes de Tesorería):
+  empresa_pagadora_id?: string | null;
+  empresa_pagadora_nombre?: string | null;
 }
 
 export interface MachineryLocation {

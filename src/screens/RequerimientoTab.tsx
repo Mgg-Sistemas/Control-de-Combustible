@@ -18,7 +18,7 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
-import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier } from '../types/database';
+import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus } from '../types/database';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
 import { pickAndUploadRequirementFile, captureAndUploadPhoto } from '../lib/photo';
 import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
@@ -55,6 +55,7 @@ const REQ_STATUS: Record<string, { label: string; color: string; short: string }
   aprobado: { label: '✅ Aprobado', color: '#2563EB', short: 'Aprobado' },
   rechazado: { label: '❌ Rechazado', color: '#DC2626', short: 'Rechazado' },
   recibido: { label: '📦 Recibido', color: '#16A34A', short: 'Recibido' },
+  aclaratoria_solicitada: { label: '⚠️ Aclaratoria Técnica Solicitada', color: '#EA580C', short: 'En Aclaratoria' },
 };
 function nextReqCode(codes: (string | null | undefined)[], bump = 0): string {
   let max = 0;
@@ -77,7 +78,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { rate } = useBcvRate();
   const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
   // Filtro por estatus del requerimiento (+ "sin precio" para ubicar los que faltan cargar precio).
-  const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'sin_precio'>('todos');
+  const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'sin_precio' | 'aclaratoria_solicitada'>('todos');
   const faltaPrecioDe = (r: InventoryRequirement) => r.items.some((it) => !(Number(it.est_price) > 0));
   // Búsqueda libre (código, título, nota, solicitante, empresa, nombre de los ítems) +
   // rango de fecha (por created_at, ISO AAAA-MM-DD) — se combinan con el filtro de estatus.
@@ -101,6 +102,37 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [note, setNote] = useState('');
   const [companyId, setCompanyId] = useState<string | null>(null); // empresa del requerimiento
   const [supplierId, setSupplierId] = useState<string | null>(null); // proveedor (opcional) → orden + cuenta por pagar
+  // 🏢 Empresa Pagadora (Fase previa a Tesorería)
+  const [empresaPagadoraId, setEmpresaPagadoraId] = useState<string | null>(null);
+  const [empresaPagadoraNombre, setEmpresaPagadoraNombre] = useState<string | null>(null);
+
+  // 💳 Modal de edición rápida de datos de pago del proveedor en tiempo real
+  const [modalPagoProvOpen, setModalPagoProvOpen] = useState(false);
+  const [provParaPago, setProvParaPago] = useState<Supplier | null>(null);
+  const [provBanco, setProvBanco] = useState('');
+  const [provNumCuenta, setProvNumCuenta] = useState('');
+  const [provTipoCuenta, setProvTipoCuenta] = useState('Corriente');
+  const [provTitular, setProvTitular] = useState('');
+  const [provDocTitular, setProvDocTitular] = useState('');
+  const [provPagoMovilTel, setProvPagoMovilTel] = useState('');
+  const [provPagoMovilDoc, setProvPagoMovilDoc] = useState('');
+  const [provPagoMovilBanco, setProvPagoMovilBanco] = useState('');
+  const [provBinanceId, setProvBinanceId] = useState('');
+  const [provNotasPago, setProvNotasPago] = useState('');
+  const [guardandoPagoProv, setGuardandoPagoProv] = useState(false);
+
+  // 🔄 Ciclo de Retroalimentación Técnica (Bucle de Cotización)
+  const [aclaratoriaOpen, setAclaratoriaOpen] = useState(false);
+  const [aclaratoriaTarget, setAclaratoriaTarget] = useState<InventoryRequirement | null>(null);
+  const [aclaratoriaMotivo, setAclaratoriaMotivo] = useState('');
+  const [aclaratoriaBusy, setAclaratoriaBusy] = useState(false);
+
+  // 📝 Responder Aclaratoria Técnica (Solicitante)
+  const [respuestaOpen, setRespuestaOpen] = useState(false);
+  const [respuestaTarget, setRespuestaTarget] = useState<InventoryRequirement | null>(null);
+  const [respuestaTexto, setRespuestaTexto] = useState('');
+  const [respuestaBusy, setRespuestaBusy] = useState(false);
+
   const [rows, setRows] = useState<ReqRow[]>([]);
   const [q, setQ] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
@@ -254,9 +286,120 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
    *  en cada salida terminaba dejando alguno pegado del requerimiento anterior. */
   const limpiarForm = () => {
     setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null);
+    setEmpresaPagadoraId(null); setEmpresaPagadoraNombre(null);
     setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
     setSolicitante(SIN_PERSONA); setAutorizado(SIN_PERSONA);
     setDestino(null); setArea(''); setAreaLibre(false); setObservaciones('');
+  };
+
+  // 💳 Modal de edición rápida de datos financieros del proveedor
+  const abrirEditarPagoProv = (s: Supplier) => {
+    setProvParaPago(s);
+    setProvBanco(s.bank_name ?? '');
+    setProvNumCuenta(s.account_number ?? '');
+    setProvTipoCuenta(s.account_type ?? 'Corriente');
+    setProvTitular(s.account_holder ?? s.name);
+    setProvDocTitular(s.account_id_doc ?? (s.rif ?? ''));
+    setProvPagoMovilTel(s.pago_movil_phone ?? (s.phone ?? ''));
+    setProvPagoMovilDoc(s.pago_movil_id ?? (s.rif ?? ''));
+    setProvPagoMovilBanco(s.pago_movil_bank ?? (s.bank_name ?? ''));
+    setProvBinanceId(s.binance_id ?? '');
+    setProvNotasPago(s.payment_notes ?? '');
+    setModalPagoProvOpen(true);
+  };
+
+  const guardarPagoProv = async () => {
+    if (!provParaPago) return;
+    setGuardandoPagoProv(true);
+    try {
+      const payload = {
+        bank_name: provBanco.trim() || null,
+        account_number: provNumCuenta.trim() || null,
+        account_type: provTipoCuenta.trim() || null,
+        account_holder: provTitular.trim() || null,
+        account_id_doc: provDocTitular.trim() || null,
+        pago_movil_phone: provPagoMovilTel.trim() || null,
+        pago_movil_id: provPagoMovilDoc.trim() || null,
+        pago_movil_bank: provPagoMovilBanco.trim() || null,
+        binance_id: provBinanceId.trim() || null,
+        payment_notes: provNotasPago.trim() || null,
+      };
+      const { error } = await supabase.from('suppliers').update(payload).eq('id', provParaPago.id);
+      if (error) throw error;
+      setModalPagoProvOpen(false);
+      await refetch();
+      toast.success('Coordenadas de pago del proveedor actualizadas con éxito.');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudieron guardar las coordenadas.');
+    } finally {
+      setGuardandoPagoProv(false);
+    }
+  };
+
+  // 🔄 Ciclo de Retroalimentación Técnica (Bucle de Cotización)
+  const abrirSolicitarAclaratoria = (r: InventoryRequirement) => {
+    setAclaratoriaTarget(r);
+    setAclaratoriaMotivo('');
+    setAclaratoriaOpen(true);
+  };
+
+  const enviarSolicitudAclaratoria = async () => {
+    if (!aclaratoriaTarget) return;
+    if (!aclaratoriaMotivo.trim()) {
+      toast.error('Indica qué especificaciones o aclaratorias técnicas exige el proveedor.');
+      return;
+    }
+    setAclaratoriaBusy(true);
+    try {
+      const decName = await perfilNombre();
+      const { error } = await supabase.from('inventory_requirements').update({
+        status: 'aclaratoria_solicitada',
+        aclaratoria_motivo: aclaratoriaMotivo.trim(),
+        aclaratoria_solicitada_por: decName || session?.user?.email || 'Compras',
+        aclaratoria_fecha_solicitud: nowISO(),
+      }).eq('id', aclaratoriaTarget.id);
+      if (error) throw error;
+      setAclaratoriaOpen(false);
+      setAclaratoriaTarget(null);
+      refetch();
+      toast.info('Ticket devuelto al solicitante con solicitud de aclaratoria técnica.');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo enviar la solicitud de aclaratoria.');
+    } finally {
+      setAclaratoriaBusy(false);
+    }
+  };
+
+  // 📝 Responder Aclaratoria Técnica (Solicitante)
+  const abrirResponderAclaratoria = (r: InventoryRequirement) => {
+    setRespuestaTarget(r);
+    setRespuestaTexto(r.aclaratoria_respuesta ?? '');
+    setRespuestaOpen(true);
+  };
+
+  const enviarRespuestaAclaratoria = async () => {
+    if (!respuestaTarget) return;
+    if (!respuestaTexto.trim()) {
+      toast.error('Escribe los detalles técnicos solicitados (medidas, material, etc.).');
+      return;
+    }
+    setRespuestaBusy(true);
+    try {
+      const { error } = await supabase.from('inventory_requirements').update({
+        status: 'pendiente', // vuelve a la cola de revisión
+        aclaratoria_respuesta: respuestaTexto.trim(),
+        aclaratoria_fecha_respuesta: nowISO(),
+      }).eq('id', respuestaTarget.id);
+      if (error) throw error;
+      setRespuestaOpen(false);
+      setRespuestaTarget(null);
+      refetch();
+      toast.success('Aclaratoria técnica enviada. El ticket volvió a revisión de compras.');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo enviar la respuesta.');
+    } finally {
+      setRespuestaBusy(false);
+    }
   };
 
   const crear = async () => {
@@ -274,13 +417,23 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const faltaColResp = (msg: string) => /responsable/i.test(msg) && /column|does not exist|schema cache|no existe/i.test(msg);
     if (editId) {
       const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
-      const base = { title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, items, ...adj };
+      const base = {
+        title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId,
+        empresa_pagadora_id: empresaPagadoraId, empresa_pagadora_nombre: empresaPagadoraNombre,
+        items, ...adj
+      };
       // 👤 Solicitante, autorizado, destino, área y observaciones (20-oct-2026).
       const conResp = { ...base, responsable_id: respId, responsable_nombre: respNombre };
       const nuevos = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones });
       let respGuardado = true;
       let nuevosGuardados = true;
       let { error } = await supabase.from('inventory_requirements').update({ ...conResp, ...nuevos }).eq('id', editId);
+      // Si el SQL de empresa pagadora aún no se corrió, reintenta sin ella
+      if (error && /empresa_pagadora/i.test(error.message)) {
+        delete (conResp as any).empresa_pagadora_id;
+        delete (conResp as any).empresa_pagadora_nombre;
+        ({ error } = await supabase.from('inventory_requirements').update({ ...conResp, ...nuevos }).eq('id', editId));
+      }
       // Si el SQL del 20-oct todavía no se corrió, se guarda SIN esos campos en vez
       // de perder la edición entera (mismo trato que tuvo el responsable el 17-oct).
       if (error && faltaColumnaNueva(error.message)) {
@@ -314,6 +467,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     // y el requerimiento se guarda igual — el AVISO al almacenista sí se envía.
     let respCampos: Record<string, any> = respId ? { responsable_id: respId, responsable_nombre: respNombre } : {};
     let respFaltaSql = false;
+    // 🏢 Empresa Pagadora (22-oct-2026): entidad responsable del desembolso
+    let empresaCampos: Record<string, any> = empresaPagadoraId ? { empresa_pagadora_id: empresaPagadoraId, empresa_pagadora_nombre: empresaPagadoraNombre } : {};
+    let empresaFaltaSql = false;
     // 👤 Lo pedido el 20-oct: quién solicitó, quién autorizó, para qué, a qué área
     //    y las observaciones. Mismo trato defensivo que el responsable.
     let nuevosCampos: Record<string, any> = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones });
@@ -330,9 +486,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // leemos el código REAL que quedó para mostrarlo.
       const { data: inserted, error } = await supabase.from('inventory_requirements').insert({
         code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, status: 'pendiente', items,
-        requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos, ...nuevosCampos,
+        requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos, ...nuevosCampos, ...empresaCampos,
       }).select('id, code').single();
       if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; saved = true; break; }
+      // Falta la columna de empresa pagadora: se reintenta sin ella
+      if (Object.keys(empresaCampos).length && /empresa_pagadora/i.test(error.message)) { empresaCampos = {}; empresaFaltaSql = true; intento--; continue; }
       // Falta la columna del responsable: se reintenta SIN ella (mismo número).
       if (Object.keys(respCampos).length && faltaColResp(error.message)) { respCampos = {}; respFaltaSql = true; intento--; continue; }
       // Faltan las columnas del 20-oct: igual, se reintenta sin ellas.
@@ -356,6 +514,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const sinSql = [
       respFaltaSql ? 'el responsable' : '',
       nuevosFaltaSql ? 'quién solicitó/autorizó, el área y las observaciones' : '',
+      empresaFaltaSql ? 'la empresa pagadora' : '',
     ].filter(Boolean).join(' ni ');
     toast.success(sinSql
       ? `Requerimiento ${code} enviado. ⚠️ No se guardó ${sinSql} (falta correr el SQL); el aviso sí se envió.`
@@ -369,6 +528,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setNote(r.note ?? '');
     setCompanyId(r.company_id ?? null);
     setSupplierId(r.supplier_id ?? null);
+    setEmpresaPagadoraId(r.empresa_pagadora_id ?? null);
+    setEmpresaPagadoraNombre(r.empresa_pagadora_nombre ?? null);
     setRespId(r.responsable_id ?? null);
     setRespNombre(r.responsable_nombre ?? null);
     // 👤 Lo del 20-oct. Un requerimiento viejo no los trae: quedan en blanco y el
@@ -409,6 +570,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const decidir = async (r: InventoryRequirement, status: 'aprobado' | 'rechazado') => {
+    if (r.status === 'aclaratoria_solicitada' && status === 'aprobado') {
+      return toast.error('No se puede aprobar un requerimiento con aclaratoria técnica pendiente. Espera la respuesta técnica del solicitante.');
+    }
     const decName = await perfilNombre();
     const { error } = await supabase.from('inventory_requirements').update({
       status, decided_by: uid, decided_by_name: decName, decided_at: nowISO(),
@@ -516,7 +680,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   // del documento — pedido directo del cliente (04/08/2026) para poder corregir un
   // estado sin tener que rehacer todo el flujo. Solo para quien tenga `canReceive`.
   const [statusPickerId, setStatusPickerId] = useState<string | null>(null);
-  const cambiarEstadoManual = async (r: InventoryRequirement, status: 'pendiente' | 'aprobado' | 'rechazado' | 'recibido') => {
+  const cambiarEstadoManual = async (r: InventoryRequirement, status: RequirementStatus) => {
     const ok = await confirm({
       title: 'Cambiar estado manualmente',
       message: `¿Cambiar ${r.code ?? ''} a "${REQ_STATUS[status].short}"? Esto SOLO cambia la etiqueta del documento — no crea ni revierte entradas de stock en el inventario.` +
@@ -590,17 +754,40 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     image: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
   })));
 
+  const buildReqPdfData = async (r: InventoryRequirement): Promise<ReqPdfData> => {
+    const selectedSupplier = suppliers.find((s) => s.id === r.supplier_id);
+    return {
+      code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
+      company: companyName(r.company_id),
+      empresaPagadora: r.empresa_pagadora_nombre ?? null,
+      proveedor: selectedSupplier?.name ?? null,
+      proveedorDatosPago: selectedSupplier ? {
+        banco: selectedSupplier.bank_name,
+        cuenta: selectedSupplier.account_number,
+        titular: selectedSupplier.account_holder,
+        cedulaRif: selectedSupplier.account_id_doc,
+        pagoMovil: selectedSupplier.pago_movil_phone ? `${selectedSupplier.pago_movil_bank ?? ''} - ${selectedSupplier.pago_movil_phone} (${selectedSupplier.pago_movil_id ?? ''})` : null,
+        binance: selectedSupplier.binance_id,
+      } : null,
+      requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+      /* 👤 Lo declarado en el papel (20-oct-2026). Lo vacío no sale impreso. */
+      solicitante: r.solicitante_nombre ?? null, autorizadoPor: r.autorizado_nombre ?? null,
+      destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: r.observaciones ?? null,
+      aclaratoria: r.aclaratoria_motivo ? {
+        motivo: r.aclaratoria_motivo,
+        solicitadaPor: r.aclaratoria_solicitada_por ?? null,
+        fechaSolicitud: r.aclaratoria_fecha_solicitud ? dmyOf(r.aclaratoria_fecha_solicitud) : null,
+        respuesta: r.aclaratoria_respuesta ?? null,
+        fechaRespuesta: r.aclaratoria_fecha_respuesta ? dmyOf(r.aclaratoria_fecha_respuesta) : null,
+      } : null,
+      approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
+      items: await itemsToPdf(r),
+    };
+  };
+
   const pdf = async (r: InventoryRequirement) => {
     try {
-      await exportPdf(requerimientoHtml({
-        code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
-        company: companyName(r.company_id), requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
-        /* 👤 Lo declarado en el papel (20-oct-2026). Lo vacío no sale impreso. */
-        solicitante: r.solicitante_nombre ?? null, autorizadoPor: r.autorizado_nombre ?? null,
-        destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: r.observaciones ?? null,
-        approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
-        items: await itemsToPdf(r),
-      }), `Requerimiento ${r.code ?? dmyOf(r.created_at)}`);
+      await exportPdf(requerimientoHtml(await buildReqPdfData(r)), `Requerimiento ${r.code ?? dmyOf(r.created_at)}`);
     } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
   };
 
@@ -614,7 +801,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Requerimientos</SectionTitle>
         {canWrite ? (
-          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setSupOpen(false); setSupQ(''); setRows([]); setFormato(null); setFormErr(null); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setEmpresaPagadoraId(null); setEmpresaPagadoraNombre(null); setSupOpen(false); setSupQ(''); setRows([]); setFormato(null); setFormErr(null); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
           </TouchableOpacity>
         ) : null}
@@ -628,6 +815,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         {([
           { k: 'todos', label: 'Todos', color: colors.brandText },
           { k: 'pendiente', label: '⏳ Pendientes', color: '#D97706' },
+          { k: 'aclaratoria_solicitada', label: '⚠️ En Aclaratoria', color: '#D97706' },
           { k: 'sin_precio', label: '❗ Sin precio', color: '#DC2626' },
           { k: 'aprobado', label: '✅ Aprobados', color: '#2563EB' },
           { k: 'rechazado', label: '❌ Rechazados', color: '#DC2626' },
@@ -681,15 +869,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           });
         const allSel = filteredReqs.length > 0 && filteredReqs.every((r) => reqSelIds.has(r.id));
         const selectedOrFiltered = () => reqSelIds.size ? filteredReqs.filter((r) => reqSelIds.has(r.id)) : filteredReqs;
-        const toReqPdfData = async (r: (typeof filteredReqs)[number]): Promise<ReqPdfData> => ({
-          code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
-          company: companyName(r.company_id), requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
-        /* 👤 Lo declarado en el papel (20-oct-2026). Lo vacío no sale impreso. */
-        solicitante: r.solicitante_nombre ?? null, autorizadoPor: r.autorizado_nombre ?? null,
-        destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: r.observaciones ?? null,
-          approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
-          items: await itemsToPdf(r),
-        });
+        const toReqPdfData = (r: (typeof filteredReqs)[number]): Promise<ReqPdfData> => buildReqPdfData(r);
         const pdfMultiple = async () => {
           const base = selectedOrFiltered();
           if (base.length === 0) return;
@@ -761,6 +941,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}{r.responsable_nombre ? ` · 📦 Resp.: ${r.responsable_nombre}` : ''}</Text>
+                    {r.empresa_pagadora_nombre ? (
+                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>💳 Pagadora: {r.empresa_pagadora_nombre}</Text>
+                    ) : null}
                   </View>
                   <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 170 }}>
                     {canReceive ? (
@@ -773,12 +956,39 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     {faltaPrecio ? <Pill label="❗ Pendiente por cargar precio" color={colors.danger} /> : null}
                   </View>
                 </View>
+
+                {tUsd >= 1000 ? (
+                  <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#FEF2F2', borderColor: '#DC2626', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                    <Text style={{ color: '#DC2626', fontWeight: '800', fontSize: 11 }}>🚨 Umbral &gt; $1,000 USD (Req. Doble Aprobación / Tesorería)</Text>
+                  </View>
+                ) : null}
+
+                {r.status === 'aclaratoria_solicitada' && r.aclaratoria_motivo ? (
+                  <View style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
+                    <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 12 }}>⚠️ Aclaratoria Técnica Solicitada por Compras</Text>
+                    <Text style={{ color: '#B45309', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_motivo}</Text>
+                    {r.aclaratoria_solicitada_por ? (
+                      <Text style={{ color: '#92400E', fontSize: 10, marginTop: 2 }}>Solicitado por: {r.aclaratoria_solicitada_por}{r.aclaratoria_fecha_solicitud ? ` (${dmyOf(r.aclaratoria_fecha_solicitud)})` : ''}</Text>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {r.aclaratoria_respuesta ? (
+                  <View style={{ backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
+                    <Text style={{ color: '#065F46', fontWeight: '800', fontSize: 12 }}>💬 Respuesta Técnica Registrada</Text>
+                    <Text style={{ color: '#047857', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_respuesta}</Text>
+                    {r.aclaratoria_fecha_respuesta ? (
+                      <Text style={{ color: '#065F46', fontSize: 10, marginTop: 2 }}>Respondido: {dmyOf(r.aclaratoria_fecha_respuesta)}</Text>
+                    ) : null}
+                  </View>
+                ) : null}
+
                 {/* Cambiar estado A MANO, tocando el badge de arriba — no crea ni revierte
                     stock, solo corrige la etiqueta. Aparte del pill "sin precio". */}
                 {canReceive && statusPickerId === r.id ? (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: spacing.xs, justifyContent: 'flex-end' }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
-                    {(['pendiente', 'aprobado', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
+                    {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
                       <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s].short}</Text>
                       </TouchableOpacity>
@@ -809,6 +1019,28 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 {r.status === 'recibido' ? <Text style={{ color: colors.success, fontSize: 11, marginTop: 2 }}>Recibido en inventario{r.received_at ? ` · ${dmyOf(r.received_at)}` : ''}</Text> : null}
                 {r.attachment_url ? <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2, fontWeight: '700' }}>📎 Formato adjunto{r.attachment_type === 'pdf' ? ' (PDF)' : ' (imagen)'}</Text> : null}
 
+                {r.supplier_id ? (() => {
+                  const s = suppliers.find((sup) => sup.id === r.supplier_id);
+                  if (!s) return null;
+                  const hasBank = !!(s.bank_name || s.account_number);
+                  const hasPm = !!s.pago_movil_phone;
+                  const hasBin = !!s.binance_id;
+                  return (
+                    <View style={{ marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>Proveedor: {s.name}</Text>
+                      {hasBank || hasPm || hasBin ? (
+                        <Text style={{ fontSize: 10, color: colors.muted }}>
+                          {hasBank ? `🏦 ${s.bank_name} (${s.account_number?.slice(-4) || '—'}) ` : ''}
+                          {hasPm ? `📱 PM: ${s.pago_movil_phone} ` : ''}
+                          {hasBin ? `🟡 Binance: ${s.binance_id}` : ''}
+                        </Text>
+                      ) : (
+                        <Text style={{ fontSize: 10, color: '#D97706' }}>⚠️ Proveedor sin datos bancarios ni de pago móvil registrados</Text>
+                      )}
+                    </View>
+                  );
+                })() : null}
+
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                   <TouchableOpacity onPress={() => pdf(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
@@ -825,6 +1057,28 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>👁️ Ver formato</Text>
                     </TouchableOpacity>
                   ) : null}
+                  {/* Solicitar aclaratoria técnica si está pendiente */}
+                  {canWrite && r.status === 'pendiente' ? (
+                    <TouchableOpacity onPress={() => abrirSolicitarAclaratoria(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: '#D97706', fontWeight: '800', fontSize: 12 }}>🔄 Solicitar Aclaratoria</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Responder aclaratoria técnica si está en aclaratoria */}
+                  {r.status === 'aclaratoria_solicitada' ? (
+                    <TouchableOpacity onPress={() => abrirResponderAclaratoria(r)} style={{ backgroundColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>📝 Responder Aclaratoria</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Editar datos de pago del proveedor si tiene proveedor asignado */}
+                  {r.supplier_id && canWrite ? (() => {
+                    const s = suppliers.find((sup) => sup.id === r.supplier_id);
+                    if (!s) return null;
+                    return (
+                      <TouchableOpacity onPress={() => abrirEditarPagoProv(s)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>💳 Datos de Pago Prov.</Text>
+                      </TouchableOpacity>
+                    );
+                  })() : null}
                   {isAdmin && r.status === 'pendiente' ? (
                     <>
                       <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
@@ -866,6 +1120,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     </TouchableOpacity>
                   ) : null}
                   {!isAdmin && r.status === 'pendiente' ? <Text style={{ color: colors.muted, fontSize: 11, alignSelf: 'center' }}>Esperando aprobación del jefe…</Text> : null}
+                  {r.status === 'aclaratoria_solicitada' ? <Text style={{ color: '#B45309', fontSize: 11, alignSelf: 'center', fontWeight: '700' }}>⚠️ Esperando respuesta técnica para reanudar aprobación</Text> : null}
                 </View>
               </View>
             }
@@ -938,6 +1193,48 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               ) : null}
               <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Al asignar proveedor y aprobar, se generan la orden de compra y la cuenta por pagar automáticamente.</Text>
+
+              {/* Coordenadas financieras del proveedor seleccionado */}
+              {supplierId ? (() => {
+                const s = suppliers.find((sup) => sup.id === supplierId);
+                if (!s) return null;
+                const hasBank = !!(s.bank_name || s.account_number);
+                const hasPm = !!s.pago_movil_phone;
+                const hasBin = !!s.binance_id;
+                return (
+                  <View style={{ marginTop: 6, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>💳 Datos de Pago del Proveedor</Text>
+                      <TouchableOpacity onPress={() => abrirEditarPagoProv(s)}>
+                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>✏️ {hasBank || hasPm || hasBin ? 'Actualizar datos' : 'Registrar datos'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {hasBank || hasPm || hasBin ? (
+                      <View style={{ marginTop: 4, gap: 2 }}>
+                        {hasBank ? <Text style={{ fontSize: 11, color: colors.muted }}>🏦 {s.bank_name} · Cta: {s.account_number ? `...${s.account_number.slice(-4)}` : '—'} · {s.account_holder} ({s.account_id_doc})</Text> : null}
+                        {hasPm ? <Text style={{ fontSize: 11, color: colors.muted }}>📱 PM: {s.pago_movil_phone} · {s.pago_movil_bank ?? '—'} · {s.pago_movil_id ?? '—'}</Text> : null}
+                        {hasBin ? <Text style={{ fontSize: 11, color: colors.muted }}>🟡 Binance Pay ID: {s.binance_id}</Text> : null}
+                      </View>
+                    ) : (
+                      <Text style={{ fontSize: 11, color: '#D97706', marginTop: 2 }}>⚠️ Sin coordenadas financieras registradas. Toca "Registrar datos" para agilizar el envío a Tesorería.</Text>
+                    )}
+                  </View>
+                );
+              })() : null}
+
+              {/* 🏢 Empresa Pagadora (Tesorería / Desembolso) */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Empresa Pagadora (Tesorería)</Text>
+              <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 4 }}>Entidad que realizará el desembolso financiero (ej. Construcciones Liscioni, C.A. vs Golden Touch 1127, C.A.).</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+                {[{ id: null as string | null, name: 'Por definir / Sin asignar' }, ...companies].map((c) => {
+                  const on = empresaPagadoraId === c.id;
+                  return (
+                    <TouchableOpacity key={c.id ?? '__pagadora_none__'} onPress={() => { setEmpresaPagadoraId(c.id); setEmpresaPagadoraNombre(c.id ? c.name : null); }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
 
               {/* 👤 RESPONSABLE: elegible entre los del rol ALMACENISTA; al elegido le
                   llega un aviso a su campana. Quien lo crea sale solo. Es opcional, pero
@@ -1203,6 +1500,150 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             </View>
           </ScrollView>
         </Screen>
+      </Modal>
+
+      {/* ── Modal: Datos Financieros del Proveedor (en tiempo real) ── */}
+      <Modal visible={modalPagoProvOpen} animationType="slide" onRequestClose={() => setModalPagoProvOpen(false)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>Datos de Pago del Proveedor</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Registra o actualiza las coordenadas de pago de {provParaPago?.name ?? 'el proveedor'} para agilizar la transición a Tesorería.
+            </Text>
+
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🏦 Transferencia Bancaria (Nacional)</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Banco</Text>
+              <TextInput value={provBanco} onChangeText={setProvBanco} placeholder="Ej. Banesco, Mercantil, BDV…" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Número de Cuenta (20 dígitos)</Text>
+              <TextInput value={provNumCuenta} onChangeText={(t) => setProvNumCuenta(t.replace(/\D/g, '').slice(0, 20))} keyboardType="numeric" placeholder="0134..." placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Tipo de Cuenta</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: 6 }}>
+                {(['Corriente', 'Ahorro'] as const).map((tipo) => (
+                  <TouchableOpacity key={tipo} onPress={() => setProvTipoCuenta(tipo)} style={{ flex: 1, paddingVertical: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: provTipoCuenta === tipo ? colors.brand : colors.border, backgroundColor: provTipoCuenta === tipo ? colors.brand : colors.surfaceAlt, alignItems: 'center' }}>
+                    <Text style={{ color: provTipoCuenta === tipo ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{tipo}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nombre del Titular</Text>
+              <TextInput value={provTitular} onChangeText={setProvTitular} placeholder="Nombre de la empresa o titular" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula / RIF del Titular</Text>
+              <TextInput value={provDocTitular} onChangeText={(t) => setProvDocTitular(t.toUpperCase())} placeholder="J-12345678-9 o V-12345678" placeholderTextColor={colors.muted} style={inp} />
+            </Card>
+
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>📱 Pago Móvil</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Banco Pago Móvil</Text>
+              <TextInput value={provPagoMovilBanco} onChangeText={setProvPagoMovilBanco} placeholder="Ej. Banesco, BDV, Mercantil…" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Teléfono Pago Móvil</Text>
+              <TextInput value={provPagoMovilTel} onChangeText={setProvPagoMovilTel} keyboardType="phone-pad" placeholder="0414-1234567" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula / RIF Pago Móvil</Text>
+              <TextInput value={provPagoMovilDoc} onChangeText={(t) => setProvPagoMovilDoc(t.toUpperCase())} placeholder="V-12345678 o J-12345678-9" placeholderTextColor={colors.muted} style={inp} />
+            </Card>
+
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🟡 Billetera Digital (Binance Pay / Cripto)</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Binance Pay ID / Correo</Text>
+              <TextInput value={provBinanceId} onChangeText={setProvBinanceId} placeholder="Binance ID o correo de cuenta" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Notas adicionales de pago (opcional)</Text>
+              <TextInput value={provNotasPago} onChangeText={setProvNotasPago} placeholder="Instrucciones especiales de pago…" placeholderTextColor={colors.muted} multiline style={[inp, { minHeight: 50, textAlignVertical: 'top' }]} />
+            </Card>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity onPress={() => setModalPagoProvOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={guardarPagoProv} disabled={guardandoPagoProv} style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoPagoProv ? 0.6 : 1 }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{guardandoPagoProv ? 'Guardando…' : '💾 Guardar Datos de Pago'}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Solicitar Aclaratoria Técnica (Bucle de Cotización) ── */}
+      <Modal visible={aclaratoriaOpen} animationType="fade" transparent onRequestClose={() => setAclaratoriaOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text }}>🔄 Solicitud de Información Adicional</Text>
+              <TouchableOpacity onPress={() => setAclaratoriaOpen(false)}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 12, color: colors.muted, marginBottom: spacing.sm }}>
+              Requerimiento {aclaratoriaTarget?.code ?? ''}: El ticket volverá al departamento solicitante y no podrá ser aprobado hasta recibir las especificaciones técnicas requeridas.
+            </Text>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
+              Detalles técnicos requeridos (tolerancias, medidas, fotos, material):
+            </Text>
+            <TextInput
+              value={aclaratoriaMotivo}
+              onChangeText={setAclaratoriaMotivo}
+              placeholder="Indica qué medidas, tolerancias, dimensiones o especificaciones de catálogo hacen falta para poder cotizar..."
+              placeholderTextColor={colors.muted}
+              multiline
+              style={[inp, { minHeight: 90, textAlignVertical: 'top', marginBottom: spacing.md }]}
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <TouchableOpacity onPress={() => setAclaratoriaOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={enviarSolicitudAclaratoria} disabled={aclaratoriaBusy} style={{ flex: 2, backgroundColor: '#D97706', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: aclaratoriaBusy ? 0.6 : 1 }}>
+                <Text style={{ color: '#fff', fontWeight: '800' }}>{aclaratoriaBusy ? 'Enviando…' : '⚠️ Enviar Solicitud'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal: Responder Aclaratoria Técnica (Solicitante) ── */}
+      <Modal visible={respuestaOpen} animationType="fade" transparent onRequestClose={() => setRespuestaOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text }}>📝 Respuesta Técnica de Aclaratoria</Text>
+              <TouchableOpacity onPress={() => setRespuestaOpen(false)}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 12, color: colors.muted, marginBottom: spacing.xs }}>
+              Requerimiento {respuestaTarget?.code ?? ''}: Ingresa las especificaciones o dimensiones solicitadas por Compras. Al responder, el ticket volverá a la cola de aprobación.
+            </Text>
+            {respuestaTarget?.aclaratoria_motivo ? (
+              <View style={{ backgroundColor: '#FEF3C7', padding: spacing.sm, borderRadius: radius.md, marginBottom: spacing.sm }}>
+                <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 11 }}>Información solicitada por Compras:</Text>
+                <Text style={{ color: '#B45309', fontSize: 12, marginTop: 2 }}>{respuestaTarget.aclaratoria_motivo}</Text>
+              </View>
+            ) : null}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
+              Respuesta / Especificaciones técnicas:
+            </Text>
+            <TextInput
+              value={respuestaTexto}
+              onChangeText={setRespuestaTexto}
+              placeholder="Escribe las dimensiones exactas, tolerancia, material, número de parte o detalles técnicos..."
+              placeholderTextColor={colors.muted}
+              multiline
+              style={[inp, { minHeight: 90, textAlignVertical: 'top', marginBottom: spacing.md }]}
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <TouchableOpacity onPress={() => setRespuestaOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={enviarRespuestaAclaratoria} disabled={respuestaBusy} style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: respuestaBusy ? 0.6 : 1 }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{respuestaBusy ? 'Enviando…' : '📤 Enviar Respuesta Técnica'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </Screen>
   );

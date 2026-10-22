@@ -252,6 +252,17 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
   const [address, setAddress] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
+  // 💳 Datos Financieros
+  const [bankName, setBankName] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountType, setAccountType] = useState('Corriente');
+  const [accountHolder, setAccountHolder] = useState('');
+  const [accountIdDoc, setAccountIdDoc] = useState('');
+  const [pagoMovilPhone, setPagoMovilPhone] = useState('');
+  const [pagoMovilId, setPagoMovilId] = useState('');
+  const [pagoMovilBank, setPagoMovilBank] = useState('');
+  const [binanceId, setBinanceId] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('');
   const [busy, setBusy] = useState(false);
   // Error EN LÍNEA dentro del Modal: el toast queda TAPADO por el Modal a pantalla
   // completa (web), así el usuario no veía por qué "no deja registrar". Ver la
@@ -262,6 +273,16 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
     setEditing(s); setFormErr(null);
     setName(s?.name ?? ''); setRif(s?.rif ?? ''); setPhone(s?.phone ?? ''); setEmail(s?.email ?? ''); setAddress(s?.address ?? '');
     setTags(s?.tags ?? []); setTagInput('');
+    setBankName(s?.bank_name ?? '');
+    setAccountNumber(s?.account_number ?? '');
+    setAccountType(s?.account_type ?? 'Corriente');
+    setAccountHolder(s?.account_holder ?? (s?.name ?? ''));
+    setAccountIdDoc(s?.account_id_doc ?? (s?.rif ?? ''));
+    setPagoMovilPhone(s?.pago_movil_phone ?? (s?.phone ?? ''));
+    setPagoMovilId(s?.pago_movil_id ?? (s?.rif ?? ''));
+    setPagoMovilBank(s?.pago_movil_bank ?? (s?.bank_name ?? ''));
+    setBinanceId(s?.binance_id ?? '');
+    setPaymentNotes(s?.payment_notes ?? '');
     setOpen(true);
   };
   const addTag = (raw?: string) => {
@@ -277,6 +298,16 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
     const payload = {
       name: name.trim().toUpperCase(), rif: rif.trim() || null, phone: phone.trim() || null,
       email: email.trim() || null, address: address.trim() || null, tags: tags.length ? tags : null,
+      bank_name: bankName.trim() || null,
+      account_number: accountNumber.trim() || null,
+      account_type: accountType.trim() || null,
+      account_holder: accountHolder.trim() || null,
+      account_id_doc: accountIdDoc.trim() || null,
+      pago_movil_phone: pagoMovilPhone.trim() || null,
+      pago_movil_id: pagoMovilId.trim() || null,
+      pago_movil_bank: pagoMovilBank.trim() || null,
+      binance_id: binanceId.trim() || null,
+      payment_notes: paymentNotes.trim() || null,
     };
     const { error } = editing
       ? await supabase.from('suppliers').update(payload).eq('id', editing.id)
@@ -334,6 +365,26 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{s.name}</Text>
             {s.rif ? <Text style={{ color: colors.muted, fontSize: 13 }}>RIF {s.rif}</Text> : null}
             {s.phone ? <Text style={{ color: colors.muted, fontSize: 13 }}>{s.phone}</Text> : null}
+
+            {/* Pastillas de métodos de pago registrados */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 4 }}>
+              {s.bank_name && s.account_number ? (
+                <View style={{ backgroundColor: '#1E293B', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                  <Text style={{ color: '#38BDF8', fontSize: 10.5, fontWeight: '800' }}>🏦 {s.bank_name}: {s.account_number.slice(-4).padStart(s.account_number.length, '•')}</Text>
+                </View>
+              ) : null}
+              {s.pago_movil_phone ? (
+                <View style={{ backgroundColor: '#064E3B', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                  <Text style={{ color: '#34D399', fontSize: 10.5, fontWeight: '800' }}>📱 Pago Móvil: {s.pago_movil_phone}</Text>
+                </View>
+              ) : null}
+              {s.binance_id ? (
+                <View style={{ backgroundColor: '#713F12', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                  <Text style={{ color: '#FCD34D', fontSize: 10.5, fontWeight: '800' }}>🟡 Binance: {s.binance_id}</Text>
+                </View>
+              ) : null}
+            </View>
+
             {(s.tags ?? []).length ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: spacing.xs }}>
                 {(s.tags ?? []).map((t) => (
@@ -352,22 +403,101 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
       {/* Modal alta/edición */}
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '90%' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
             <ScrollView contentContainerStyle={{ padding: spacing.lg }} keyboardShouldPersistTaps="handled">
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, marginBottom: spacing.sm }}>{editing ? 'Editar proveedor' : 'Nuevo proveedor'}</Text>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre *</Text>
+              
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre o Razón Social *</Text>
               <TextInput value={name} onChangeText={setName} placeholder="Nombre o razón social" placeholderTextColor={colors.muted} style={input} />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>RIF</Text>
-              <TextInput value={rif} onChangeText={setRif} placeholder="J-000000000" placeholderTextColor={colors.muted} style={input} />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Teléfono</Text>
-              <TextInput value={phone} onChangeText={setPhone} placeholder="04xx…" placeholderTextColor={colors.muted} style={input} keyboardType="phone-pad" />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Correo</Text>
-              <TextInput value={email} onChangeText={setEmail} placeholder="correo@…" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" keyboardType="email-address" />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Dirección</Text>
+              
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>RIF</Text>
+                  <TextInput value={rif} onChangeText={setRif} placeholder="J-000000000" placeholderTextColor={colors.muted} style={input} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Teléfono de contacto</Text>
+                  <TextInput value={phone} onChangeText={setPhone} placeholder="04xx…" placeholderTextColor={colors.muted} style={input} keyboardType="phone-pad" />
+                </View>
+              </View>
+
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Correo electrónico</Text>
+              <TextInput value={email} onChangeText={setEmail} placeholder="correo@empresa.com" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" keyboardType="email-address" />
+              
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Dirección fiscal / física</Text>
               <TextInput value={address} onChangeText={setAddress} placeholder="Dirección" placeholderTextColor={colors.muted} style={input} />
 
+              {/* 💳 SECCIÓN DE DATOS FINANCIEROS Y MÉTODOS DE PAGO */}
+              <View style={{ marginTop: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: '#16324F', fontWeight: '900', fontSize: 13, marginBottom: 4, textTransform: 'uppercase' }}>
+                  💳 Datos Financieros (Para Transición a Tesorería / Pagos)
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                  Centraliza las cuentas antes de remitir la orden a la empresa pagadora y módulo de pagos.
+                </Text>
+
+                {/* 1. Transferencia Bancaria */}
+                <View style={{ backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 6 }}>🏦 Transferencia Bancaria Nacional</Text>
+                  
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: 6 }}>
+                    <View style={{ flex: 2 }}>
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco emisor</Text>
+                      <TextInput value={bankName} onChangeText={setBankName} placeholder="Ej. Banesco, Mercantil, Venezuela" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Tipo de cuenta</Text>
+                      <TextInput value={accountType} onChangeText={setAccountType} placeholder="Corriente / Ahorro" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                    </View>
+                  </View>
+
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Número de cuenta (20 dígitos)</Text>
+                  <TextInput value={accountNumber} onChangeText={(t) => setAccountNumber(t.replace(/[^0-9]/g, ''))} placeholder="01340000000000000000" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 6 }]} keyboardType="numeric" maxLength={20} />
+
+                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                    <View style={{ flex: 2 }}>
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Titular de la cuenta</Text>
+                      <TextInput value={accountHolder} onChangeText={setAccountHolder} placeholder="Nombre o Razón social" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Cédula / RIF</Text>
+                      <TextInput value={accountIdDoc} onChangeText={setAccountIdDoc} placeholder="J-12345678-9" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                    </View>
+                  </View>
+                </View>
+
+                {/* 2. Pago Móvil */}
+                <View style={{ backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 6 }}>📱 Pago Móvil</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco</Text>
+                      <TextInput value={pagoMovilBank} onChangeText={setPagoMovilBank} placeholder="Ej. Banesco (0134)" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Teléfono</Text>
+                      <TextInput value={pagoMovilPhone} onChangeText={setPagoMovilPhone} placeholder="04141234567" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} keyboardType="phone-pad" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>C.I. / RIF</Text>
+                      <TextInput value={pagoMovilId} onChangeText={setPagoMovilId} placeholder="V-12345678" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                    </View>
+                  </View>
+                </View>
+
+                {/* 3. Binance / Billetera Digital & Notas */}
+                <View style={{ backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 6 }}>🟡 Billetera Digital (Binance Pay / USDT)</Text>
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Binance Pay ID o Correo electrónico registrado</Text>
+                  <TextInput value={binanceId} onChangeText={setBinanceId} placeholder="Binance ID (ej. 123456789) o correo de cuenta" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 6 }]} autoCapitalize="none" />
+
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Notas / Instrucciones adicionales de pago</Text>
+                  <TextInput value={paymentNotes} onChangeText={setPaymentNotes} placeholder="Ej. Solo transferencias antes de las 2:00 PM…" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                </View>
+              </View>
+
               {/* Etiquetas de rubro */}
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Etiquetas (rubro que vende)</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 2 }}>Etiquetas (rubro que vende)</Text>
               {tags.length ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: spacing.xs }}>
                   {tags.map((t) => (

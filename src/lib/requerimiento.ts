@@ -37,6 +37,27 @@ export type ReqPdfData = {
   area?: string | null;
   /** 📝 Observaciones / información adicional, al final del documento. */
   observaciones?: string | null;
+  /** 🏢 Empresa Pagadora (Liscioni, Golden Touch...). */
+  empresaPagadora?: string | null;
+  /** 🏭 Proveedor asignado */
+  proveedor?: string | null;
+  /** 💳 Coordenadas de pago del proveedor */
+  proveedorDatosPago?: {
+    banco?: string | null;
+    cuenta?: string | null;
+    titular?: string | null;
+    cedulaRif?: string | null;
+    pagoMovil?: string | null;
+    binance?: string | null;
+  } | string | null;
+  /** 🔄 Ciclo de Aclaratoria Técnica */
+  aclaratoria?: {
+    motivo?: string | null;
+    solicitadaPor?: string | null;
+    fechaSolicitud?: string | null;
+    respuesta?: string | null;
+    fechaRespuesta?: string | null;
+  } | null;
 };
 
 // Firma según QUIÉN aprueba: cada aprobador tiene su cargo y su firma escaneada.
@@ -129,12 +150,32 @@ function reqDatosHtml(d: ReqPdfData): string {
     ['✅ Autorizado por', (d.autorizadoPor || '').trim()],
     ['🚜 Para', (d.destino || '').trim()],
     ['🏢 Área', (d.area || '').trim()],
+    ['🏢 Empresa Pagadora', (d.empresaPagadora || '').trim()],
+    ['🏭 Proveedor', (d.proveedor || '').trim()],
   ];
   const cards = fichas
     .filter(([, valor]) => !!valor)
     .map(([rotulo, valor]) => `<div class="reqdato"><span class="rot">${rotulo}</span><span class="val">${esc(valor)}</span></div>`)
     .join('');
-  return cards ? `<div class="reqdatos">${cards}</div>` : '';
+  
+  let pagoTexto = '';
+  if (typeof d.proveedorDatosPago === 'string') {
+    pagoTexto = d.proveedorDatosPago;
+  } else if (d.proveedorDatosPago) {
+    const p = d.proveedorDatosPago;
+    const parts = [
+      p.banco || p.cuenta ? `🏦 ${p.banco ?? ''} Cta: ${p.cuenta ?? ''}${p.titular ? ` (${p.titular} ${p.cedulaRif ?? ''})` : ''}`.trim() : '',
+      p.pagoMovil ? `📱 PM: ${p.pagoMovil}` : '',
+      p.binance ? `🟡 Binance: ${p.binance}` : '',
+    ].filter(Boolean);
+    pagoTexto = parts.join(' · ');
+  }
+
+  const pagoCard = pagoTexto
+    ? `<div class="reqdato" style="flex:1 1 95%"><span class="rot">💳 Coordenadas de Pago</span><span class="val" style="font-size:10.5px">${esc(pagoTexto)}</span></div>`
+    : '';
+
+  return cards || pagoCard ? `<div class="reqdatos">${cards}${pagoCard}</div>` : '';
 }
 
 /** Observaciones AL FINAL del documento (20-oct-2026, «un espacio de observaciones»):
@@ -142,7 +183,18 @@ function reqDatosHtml(d: ReqPdfData): string {
  *  cabecera. Si vienen vacías no queda ni el rótulo. */
 function reqObsHtml(d: ReqPdfData): string {
   const obs = (d.observaciones || '').trim();
-  return obs ? `<div class="reqobs"><b>📝 Observaciones:</b> ${esc(obs)}</div>` : '';
+  const a = d.aclaratoria;
+  let aclaratoriaHtml = '';
+  if (a && (a.motivo || a.respuesta)) {
+    aclaratoriaHtml = `
+      <div style="margin-top:8px;padding:6px 10px;border-left:3px solid #EA580C;background:#FFF7ED;border-radius:4px;font-size:10.5px;color:#9A3412">
+        <b>🔄 Ciclo de Retroalimentación Técnica (Compras):</b><br/>
+        ${a.motivo ? `• <b>Aclaratoria solicitada${a.fechaSolicitud ? ` (${esc(a.fechaSolicitud)})` : ''}:</b> ${esc(a.motivo)}<br/>` : ''}
+        ${a.respuesta ? `• <b>Respuesta técnica del solicitante${a.fechaRespuesta ? ` (${esc(a.fechaRespuesta)})` : ''}:</b> ${esc(a.respuesta)}` : ''}
+      </div>
+    `;
+  }
+  return (obs ? `<div class="reqobs"><b>📝 Observaciones:</b> ${esc(obs)}</div>` : '') + aclaratoriaHtml;
 }
 
 /** Encabezado de la tabla (con o sin la columna "Imagen"). */
