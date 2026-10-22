@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Manual de Usuario — Módulo de Compras y Proveedores</title>
+<style>
+  @page {
+    size: A4;
+    margin: 14mm 12mm 15mm 12mm;
+    @bottom-right {
+      content: counter(page);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.5;
+    color: #1e293b;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+  }
+  
+  /* Portada */
+  .portada {
+    min-height: 240mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    page-break-after: always;
+    border: 2px solid #0f172a;
+    border-radius: 8px;
+    padding: 35px 25px;
+    margin-bottom: 20px;
+    background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  }
+  .portada .emblema {
+    font-size: 11pt;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #475569;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .portada h1 {
+    font-size: 26pt;
+    color: #0f172a;
+    margin: 0 0 10px;
+    line-height: 1.2;
+    font-weight: 800;
+  }
+  .portada .subtitulo {
+    font-size: 13pt;
+    color: #2563eb;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+  .portada .linea-decorativa {
+    width: 100px;
+    height: 4px;
+    background: #2563eb;
+    margin: 15px auto 25px;
+    border-radius: 2px;
+  }
+  .portada .descripcion {
+    font-size: 11pt;
+    color: #334155;
+    max-width: 500px;
+    margin-bottom: 40px;
+    line-height: 1.6;
+  }
+  .portada .metadatos {
+    font-size: 9.5pt;
+    color: #64748b;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 20px;
+    width: 80%;
+  }
+
+  /* Encabezados y títulos */
+  h1, h2, h3, h4 { color: #0f172a; margin: 0 0 8px; line-height: 1.25; }
+  h2 {
+    font-size: 15pt;
+    color: #1e3a8a;
+    border-bottom: 2px solid #1e3a8a;
+    padding-bottom: 5px;
+    margin: 22px 0 14px;
+    page-break-after: avoid;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h3 {
+    font-size: 11.5pt;
+    color: #0f172a;
+    margin: 14px 0 6px;
+    page-break-after: avoid;
+  }
+
+  p { margin: 0 0 9px; }
+  ul, ol { margin: 0 0 11px; padding-left: 20px; }
+  li { margin-bottom: 4px; }
+
+  /* Cajas de alerta y notas */
+  .caja {
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 11px 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+    border-left: 4px solid;
+  }
+  .caja-info {
+    background: #eff6ff;
+    border-color: #2563eb;
+    color: #1e40af;
+  }
+  .caja-alerta {
+    background: #fffbeb;
+    border-color: #d97706;
+    color: #92400e;
+  }
+  .caja-bloqueo {
+    background: #fef2f2;
+    border-color: #dc2626;
+    color: #991b1b;
+  }
+  .caja-exito {
+    background: #f0fdf4;
+    border-color: #16a34a;
+    color: #166534;
+  }
+  .caja-titulo {
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 8.5pt;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+    display: block;
+  }
+
+  /* Tarjetas de procedimientos */
+  .proc-card {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    page-break-inside: avoid;
+    overflow: hidden;
+    background: #ffffff;
+  }
+  .proc-card-header {
+    background: #1e3a8a;
+    color: #ffffff;
+    padding: 8px 14px;
+    font-size: 11pt;
+    font-weight: 700;
+  }
+  .proc-card-header.secundario {
+    background: #475569;
+  }
+  .proc-card-header.ambar {
+    background: #b45309;
+  }
+  .proc-card-body {
+    padding: 12px 14px;
+  }
+
+  /* Insignias / Pills */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    margin: 0 2px;
+  }
+  .badge-verde { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+  .badge-ambar { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+  .badge-rojo { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+  .badge-azul { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+  .badge-morado { background: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+
+  /* Tablas de estados y datos */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px;
+    font-size: 9.3pt;
+    page-break-inside: avoid;
+  }
+  th {
+    background: #1e293b;
+    color: #ffffff;
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 600;
+    font-size: 9pt;
+  }
+  td {
+    border-bottom: 1px solid #e2e8f0;
+    padding: 7px 10px;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td {
+    background: #f8fafc;
+  }
+
+  /* Pasos numerados destacados */
+  .step-list {
+    counter-reset: paso;
+    list-style: none;
+    padding-left: 0;
+  }
+  .step-list > li {
+    counter-increment: paso;
+    position: relative;
+    padding-left: 32px;
+    margin-bottom: 10px;
+  }
+  .step-list > li::before {
+    content: counter(paso);
+    position: absolute;
+    left: 0;
+    top: 1px;
+    width: 22px;
+    height: 22px;
+    background: #2563eb;
+    color: #ffffff;
+    border-radius: 50%;
+    font-size: 8.5pt;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 22px;
+  }
+
+  .salto-pagina {
+    page-break-before: always;
+  }
+</style>
+</head>
+<body>
+
+<!-- PORTADA -->
+<div class="portada">
+  <div class="emblema">Sistema Integrado de Control Operativo</div>
+  <h1>Manual de Usuario</h1>
+  <div class="subtitulo">Módulo de Compras, Proveedores y Aclaratorias Técnicas</div>
+  <div class="linea-decorativa"></div>
+  <div class="descripcion">
+    Guía operativa para la gestión integral de coordenadas bancarias de proveedores, bucle de retroalimentación técnica en cotizaciones, y asignación de empresa pagadora con alertas de auditoría.
+  </div>
+  <div class="metadatos">
+    <strong>Organización:</strong> Construcciones Liscioni, C.A. &amp; Golden Touch 1127, C.A.<br>
+    <strong>Versión del Sistema:</strong> 2026.10 &bull; <strong>Área:</strong> Compras, Almacén y Tesorería
+  </div>
+</div>
+
+<!-- SECCIÓN 1 -->
+<h2>1. Coordenadas de Pago de Proveedores</h2>
+<p>
+  El sistema permite registrar y mantener centralizadas las formas de pago de cada proveedor en el catálogo general, además de consultarlas y editarlas directamente desde el requerimiento en tiempo real.
+</p>
+
+<div class="proc-card">
+  <div class="proc-card-header">A. Registro desde el Catálogo de Proveedores</div>
+  <div class="proc-card-body">
+    <ol class="step-list">
+      <li>Ingrese al módulo <strong>Compras</strong> y seleccione la pestaña <strong>Proveedores</strong>.</li>
+      <li>En la tarjeta de cada proveedor verá su estado financiero:
+        <ul>
+          <li><span class="badge badge-verde">✓ Datos bancarios registrados</span> si ya tiene cuentas asociadas.</li>
+          <li><span class="badge badge-azul">Sin datos bancarios</span> si aún no se han configurado.</li>
+        </ul>
+      </li>
+      <li>Haga clic en el botón <strong>🏦 Datos bancarios / pago</strong>.</li>
+      <li>En el formulario emergente complete las vías de pago aplicables:
+        <ul>
+          <li><strong>Transferencia Bancaria:</strong> Banco, Número de cuenta (20 dígitos validados), Tipo de cuenta (Corriente o Ahorro), Titular y Cédula/RIF.</li>
+          <li><strong>Pago Móvil:</strong> Banco emisor, Teléfono registrado (formato 04XX-XXXXXXX) y Cédula/RIF.</li>
+          <li><strong>Binance Pay:</strong> Binance ID / Pay ID / Correo electrónico en Binance.</li>
+          <li><strong>Notas de Pago:</strong> Observaciones operativas (ejemplo: <em>«Enviar comprobante a cobranzas@empresa.com antes de las 2:00 PM»</em>).</li>
+        </ul>
+      </li>
+      <li>Presione <strong>Guardar Coordenadas</strong>.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="proc-card">
+  <div class="proc-card-header secundario">B. Consulta y Edición Dinámica en el Requerimiento</div>
+  <div class="proc-card-body">
+    <p>
+      Al cotizar o adjudicar un requerimiento a un proveedor, el sistema carga automáticamente la tarjeta <strong>«💳 Coordenadas de Pago del Proveedor»</strong> dentro del formulario.
+    </p>
+    <ul>
+      <li><strong>Si los datos están actualizados:</strong> El comprador y el aprobador visualizan de inmediato el banco, número de cuenta y pago móvil.</li>
+      <li><strong>Si el proveedor notificó una cuenta nueva o temporal:</strong> Haga clic en <strong>✏️ Modificar datos de pago</strong> directamente en el requerimiento. Los cambios se sincronizan en el requerimiento y actualizan la ficha del proveedor en la base de datos sin necesidad de abandonar la pantalla.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="caja caja-info">
+  <span class="caja-titulo">Beneficio Operativo</span>
+  Tesorería y Administración reciben los datos exactos en la orden de compra aprobada, eliminando errores de transcripción o retrasos por solicitud manual de cuentas vía mensajería.
+</div>
+
+<div class="salto-pagina"></div>
+
+<!-- SECCIÓN 2 -->
+<h2>2. Bucle de Retroalimentación Técnica (Aclaratorias de Cotización)</h2>
+<p>
+  Mecanismo formal de control para evitar la compra de repuestos o insumos incorrectos por especificaciones incompletas (dimensiones, tolerancias, marcas, voltajes, etc.).
+</p>
+
+<div class="proc-card">
+  <div class="proc-card-header ambar">Flujo de Consulta Técnica entre Compras y Solicitante</div>
+  <div class="proc-card-body">
+    <ol class="step-list">
+      <li>
+        <strong>Solicitud de Aclaratoria (Comprador):</strong><br>
+        Si durante la cotización con el proveedor surge una discrepancia técnica, el comprador abre el requerimiento y presiona <strong>❓ Solicitar Aclaratoria Técnica</strong>.<br>
+        <em>Ejemplo: «El proveedor consulta si el retenedor es de vitón o goma nitrílica y si el eje mide 45mm o 50mm.»</em>
+      </li>
+      <li>
+        <strong>Cambio de Estado y Bloqueo Preventivo:</strong><br>
+        El requerimiento adopta automáticamente el estado <span class="badge badge-ambar">🟡 Aclaratoria solicitada</span>.<br>
+        <strong>Seguridad:</strong> El botón de <strong>Aprobar Requerimiento</strong> queda <u>estrictamente bloqueado</u> para impedir que se ordene una compra con datos inciertos.
+      </li>
+      <li>
+        <strong>Respuesta Técnica (Solicitante / Taller):</strong><br>
+        El solicitante puede filtrar la bandeja con la pastilla <strong>Aclaratorias</strong>. Al abrir el requerimiento verá un banner destacado de advertencia con la consulta y el botón <strong>💬 Responder Aclaratoria</strong>.
+      </li>
+      <li>
+        <strong>Desbloqueo Automático:</strong><br>
+        Al enviar la respuesta, el sistema archiva en el historial la especificación con fecha, hora y responsable, retornando el requerimiento a estado operativo normal para su cotización y aprobación.
+      </li>
+    </ol>
+  </div>
+</div>
+
+<div class="caja caja-bloqueo">
+  <span class="caja-titulo">Regla de Bloqueo de Auditoría</span>
+  Ningún usuario (incluso administradores) puede aprobar un requerimiento en estado <strong>Aclaratoria solicitada</strong> sin que el área técnica solicitante haya cargado primero la respuesta oficial en el sistema.
+</div>
+
+<!-- SECCIÓN 3 -->
+<h2>3. Asignación de Empresa Pagadora y Alerta de Auditoría</h2>
+<p>
+  Cada requerimiento de compra debe tener asignada con precisión la entidad mercantil que asumirá el egreso y el crédito fiscal.
+</p>
+
+<h3>A. Selección de Razón Social</h3>
+<p>En el encabezado del requerimiento, el usuario selecciona mediante selectores directos:</p>
+<ul>
+  <li><span class="badge badge-azul">Construcciones Liscioni, C.A.</span> (Empresa de operaciones de movimiento de tierra y maquinaria pesada).</li>
+  <li><span class="badge badge-morado">Golden Touch 1127, C.A.</span> (Empresa de servicios y suministros asociados).</li>
+</ul>
+
+<h3>B. Alerta Automática para Compras &gt; $1,000.00 USD</h3>
+<div class="caja caja-alerta">
+  <span class="caja-titulo">⚠️ Notificación de Control Superior</span>
+  Cuando el monto total cotizado excede los <strong>$1.000,00 USD</strong>, el sistema despliega automáticamente una alerta visual:
+  <br><strong>«⚠️ Monto &gt; $1,000 USD: Requiere verificación especial de tesorería y doble cotización»</strong>.
+  <br>Esta advertencia asegura que no se tramiten compras mayores sin al menos dos cotizaciones de respaldo y el visto bueno de la Gerencia de Operaciones.
+</div>
+
+<div class="salto-pagina"></div>
+
+<!-- SECCIÓN 4 -->
+<h2>4. Impresión, PDF y Auditoría</h2>
+<p>
+  Al pulsar <strong>Imprimir / PDF</strong> en cualquier requerimiento u orden de compra, el generador documental de alta fidelidad compila un reporte oficial con los siguientes elementos:
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width: 25%;">Componente</th>
+      <th style="width: 40%;">Contenido en el PDF</th>
+      <th style="width: 35%;">Impacto / Beneficio</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Membrete Corporativo</strong></td>
+      <td>Encabezado formal correspondiente a la <strong>Empresa Pagadora</strong> asignada (Liscioni o Golden Touch).</td>
+      <td>Validez legal, fiscal y clara asignación contable del egreso.</td>
+    </tr>
+    <tr>
+      <td><strong>Coordenadas Bancarias</strong></td>
+      <td>Sección al pie con Banco, Cuenta de 20 dígitos, Titular, RIF, Pago Móvil y Binance Pay del proveedor.</td>
+      <td>Tesorería realiza transferencias directas sin consultar fuentes externas.</td>
+    </tr>
+    <tr>
+      <td><strong>Historial Técnico</strong></td>
+      <td>Recuadro con la duda técnica consultada y la respuesta emitida por el taller/solicitante con fecha y autor.</td>
+      <td>Trazabilidad total ante auditorías por repuestos o insumos en garantía.</td>
+    </tr>
+    <tr>
+      <td><strong>Aviso de Monto Alto</strong></td>
+      <td>Nota de verificación especial si el monto total supera los $1,000.00 USD.</td>
+      <td>Cumplimiento de las políticas de doble firma y cotización comparada.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- MATRIZ DE ESTADOS -->
+<h2>5. Matriz de Estados del Requerimiento</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Estado</th>
+      <th>Descripción Operativa</th>
+      <th>¿Permite Aprobación?</th>
+      <th>Acción Requerida</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="badge badge-azul">Borrador / Pendiente</span></td>
+      <td>Requerimiento en carga o cotización inicial.</td>
+      <td>Sí (tras cotizar)</td>
+      <td>Cargar renglones, seleccionar proveedor y empresa pagadora.</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-ambar">Aclaratoria solicitada</span></td>
+      <td>Detenido por falta de especificaciones técnicas.</td>
+      <td><strong style="color: #dc2626;">NO (Bloqueado)</strong></td>
+      <td>El solicitante debe responder la aclaratoria para reactivarlo.</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-verde">Aprobado</span></td>
+      <td>Validado por la gerencia y listo para desembolso.</td>
+      <td>Completada</td>
+      <td>Emitir orden de compra y enviar coordenadas a Tesorería.</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-verde">Recibido</span></td>
+      <td>Mercancía o servicio ingresado al almacén.</td>
+      <td>Completada</td>
+      <td>Verificación física de cantidades y registro en inventario.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="caja caja-exito" style="margin-top: 25px;">
+  <span class="caja-titulo">Soporte y Consultas</span>
+  Para dudas operativas sobre el uso del sistema o soporte técnico, comuníquese con el Administrador del Sistema de Control de Combustible y Maquinaria.
+</div>
+
+</body>
+</html>
