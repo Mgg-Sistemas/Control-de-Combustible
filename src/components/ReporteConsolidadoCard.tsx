@@ -45,7 +45,7 @@ import {
   cuerpoConsolidado, subtituloConsolidado, nombreArchivoConsolidado, totalesConsolidado,
   usd, cantTexto, categoriaDe, frenteDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
   type ViajeToneladas, type DiaCrudoConsolidado, MAX_DIAS_GRAFICO_CONSOLIDADO,
-  indiceFrentesConsolidado,
+  indiceFrentesConsolidado, camionesConPeso,
 } from '../lib/reporteConsolidado';
 import { EDICION_RESUMEN_VACIA, edicionAlCambiarDeDia, type EdicionResumen, type TarjetaPropia } from '../lib/frentesReporte';
 import { caracasBusinessToday } from '../lib/caracasDay';
@@ -236,8 +236,13 @@ export function ReporteConsolidadoCard() {
         }));
       };
 
-      setFilas(armar(desde, hasta));
+      const filasNuevas = armar(desde, hasta);
+      setFilas(filasNuevas);
       setFilasAnt(armar(antDesde, antHasta));
+      // 🕐 Lo elegido «por jornada» solo vale para camiones CON PESO de este rango:
+      //    los que ya no están se sueltan (no se cuentan en el nombre del archivo).
+      const conPesoIds = new Set(camionesConPeso(filasNuevas).map((f) => f.id));
+      setOp((p) => ({ ...p, camionesPorJornada: (p.camionesPorJornada ?? []).filter((id) => conPesoIds.has(id)) }));
       // ⚖️ Los viajes del rango (frente congelado + peso de romana) para el costo
       //    por tonelada: TODOS los viajes, con o sin tarifa — misma regla del
       //    informe operativo (el que no se pesó cuenta y suma 0 t).
@@ -323,6 +328,9 @@ export function ReporteConsolidadoCard() {
   const maquinasLista = useMemo(() => (filas ?? [])
     .filter((f) => !q || `${f.code} ${f.placa} ${f.empresa}`.toLowerCase().includes(q))
     .slice().sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true })), [filas, q]);
+  // 🚛⚖️ Los camiones que facturan por peso: se puede pasar cada uno a jornada.
+  const camionesPeso = useMemo(() => camionesConPeso(filas), [filas]);
+  const porJornadaSel = new Set(op.camionesPorJornada ?? []);
 
   const Pastilla = ({ on, label, onPress, warn }: { on: boolean; label: string; onPress: () => void; warn?: boolean }) => (
     <TouchableOpacity onPress={onPress} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? (warn ? colors.warning : colors.primary) : colors.border, backgroundColor: on ? (warn ? colors.warning : colors.primary) : 'transparent' }}>
@@ -573,6 +581,37 @@ export function ReporteConsolidadoCard() {
           uno u otro por máquina — manda el horómetro. Apagarlo vuelve a sumar los
           dos (y lo dice el nombre del archivo, porque cambia la plata). */}
       <Toggle on={op.seleccionAutomatica} label="🤖 Selección automática (⚖️ el peso manda en el camión; ⚙️ el horómetro sobre la jornada)" onPress={() => setOp((p) => ({ ...p, seleccionAutomatica: !p.seleccionAutomatica }))} />
+      {/* 🚛⚖️🕐 22-oct-2026, a pedido: «que si quiero que esos camiones que tienen
+          peso los quiero en jornada o peso, pueda seleccionar todos o uno por
+          uno». Solo con la selección automática y el peso sumando (si no, nada
+          se descarta y no hay qué elegir). */}
+      {op.seleccionAutomatica && op.fuentes.peso === 'suma' && camionesPeso.length ? (
+        <View style={{ paddingLeft: spacing.md }}>
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+            🚛 CAMIONES CON PESO: ¿POR PESO O POR JORNADA? ({porJornadaSel.size ? `${porJornadaSel.size} por jornada` : 'todos por peso'})
+          </Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
+            <Pastilla on={porJornadaSel.size === 0} label="⚖️ Todos por peso" onPress={() => setOp((p) => ({ ...p, camionesPorJornada: [] }))} />
+            <Pastilla on={porJornadaSel.size === camionesPeso.length} label="🕐 Todos por jornada" onPress={() => setOp((p) => ({ ...p, camionesPorJornada: camionesPeso.map((f) => f.id) }))} />
+          </View>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
+            {camionesPeso.map((f) => {
+              const jor = porJornadaSel.has(f.id);
+              return (
+                <Pastilla key={`cpj-${f.id}`} on={jor} label={`${jor ? '🕐' : '⚖️'} ${f.code}${f.placa ? ` · ${f.placa}` : ''}`} onPress={() =>
+                  setOp((p) => {
+                    const s = new Set(p.camionesPorJornada ?? []);
+                    jor ? s.delete(f.id) : s.add(f.id);
+                    return { ...p, camionesPorJornada: Array.from(s) };
+                  })} />
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>
+            Toca un camión para pasarlo entre ⚖️ peso y 🕐 jornada. Por jornada: su peso y sus viajes no se suman. Cambia la plata: el nombre del archivo lo dice.
+          </Text>
+        </View>
+      ) : null}
       {/* 🤖 21-oct-2026, a pedido: «que tome lo del horómetro pero que no me salga
           esa información si no quiero» — apaga el cuadro «Mandó el horómetro» y la
           cola de «fuera del cuadro: … sin toneladas». La regla sigue aplicando. */}
