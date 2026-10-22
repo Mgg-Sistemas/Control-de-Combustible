@@ -4106,6 +4106,21 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   - El 📅 día por día obedece la misma elección. Cambia la plata, así que el nombre del
     archivo dice «N camión(es) con peso por jornada». Solo aparece con la selección automática
     prendida y el peso sumando; al calcular otro rango, se sueltan los camiones que ya no están.
+- **👤 Agrupar o sacar por encargado + íconos en columnas (22/10/2026, a pedido):** «colocar algo que me
+  identifique en la columna a que corresponde si es horometro o si es jornada, usa los logitos de
+  informacion para identificarlo, ademas coloca para poder agrupar o sacarlo por encargado».
+  - **Identificación con ícono:** en las columnas agrupadas (Maquinaria y Acarreo), el respaldo
+    muestra el ícono de su fuente junto a la cantidad (ej. **⚙️ 28 h** para horómetro, **🕐 31 h**
+    para jornada, **🚛 12 viajes**, **⚖️ 48,50 t** para peso); si una máquina no trae horas o se
+    apagan las cantidades, muestra el ícono de la fuente activa (ej. ⚙️ horómetros). En subtotales
+    con varias fuentes se identifican todas (ej. 🕐 40 h · ⚙️ 320,2 h).
+  - **👤 Agrupar por encargado:** en «Agrupar» se agrega la pastilla **«👤 Por encargado»**. El detalle
+    se parte en bloques por responsable/encargado asignado en el catálogo (`machinery.encargado`),
+    cada bloque con su subtotal y cerrando con el TOTAL GENERAL. Las fichas sin responsable caen en
+    «👤 Sin encargado». El nombre del archivo dice «por encargado».
+  - **👤 Solo estos encargados:** selector de pastillas para filtrar por uno o varios encargados
+    (o «Sin encargado»). Cambia el total del papel (sale FILTRADO) y el nombre del archivo dice
+    cuál o cuántos se eligieron.
 
 #### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
 

@@ -43,7 +43,7 @@ import { cargarDatosPagoPeso } from '../lib/pagoPesoDb';
 import {
   FUENTES_META, FUENTES_ORDEN, OPCIONES_CONSOLIDADO_POR_DEFECTO, CSS_CONSOLIDADO,
   cuerpoConsolidado, subtituloConsolidado, nombreArchivoConsolidado, totalesConsolidado,
-  usd, cantTexto, categoriaDe, frenteDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
+  usd, cantTexto, categoriaDe, frenteDe, encargadoDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
   type ViajeToneladas, type DiaCrudoConsolidado, MAX_DIAS_GRAFICO_CONSOLIDADO,
   indiceFrentesConsolidado, camionesConPeso,
 } from '../lib/reporteConsolidado';
@@ -133,8 +133,8 @@ export function ReporteConsolidadoCard() {
         cargarAjustesHorometro(antDesde, hasta),
         cargarCierresHorometro(),
         cargarCambiosHorometro(antDesde, hasta),
-        // 🏷️ La clasificación del catálogo (filtrar y agrupar por categoría).
-        selectAllRows('machinery', 'id, clasificacion').catch(() => [] as any[]),
+        // 🏷️👤 La clasificación y encargado del catálogo (filtrar y agrupar).
+        selectAllRows('machinery', 'id, clasificacion, encargado').catch(() => [] as any[]),
         // ⛏️ El frente vigente a la fecha FINAL del rango (si falta el SQL de
         //    frentes, el papel sale todo en «Sin frente» y nada revienta).
         listAsignacionesHasta(hasta, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [], missing: true })),
@@ -155,8 +155,9 @@ export function ReporteConsolidadoCard() {
       if (pDatos.faltaSql) nuevosAvisos.push('⚖️ Peso: falta el SQL de tarifas por peso — esa columna sale en $0.');
       if (dias > 92) nuevosAvisos.push('⚙️ Horómetros solo cubre hasta 92 días por rango.');
 
-      // id → clasificación del catálogo, y id → frente vigente al final del rango.
+      // id → clasificación del catálogo, id → encargado, y id → frente vigente al final del rango.
       const catPorId = new Map<string, string>((catalogo as any[]).map((m) => [String(m.id), String(m.clasificacion ?? '').trim()]));
+      const encargadoPorId = new Map<string, string>((catalogo as any[]).map((m) => [String(m.id), String(m.encargado ?? '').trim()]));
       const frentePorId = new Map<string, string>(
         vigentesAlDia((asigsFrente as any).asignaciones ?? [], hasta).map((a: any) => [String(a.machineryId), String(a.frenteNombre ?? '').trim()]),
       );
@@ -227,12 +228,13 @@ export function ReporteConsolidadoCard() {
           // El respaldo son los KG pagados (el papel los pinta en toneladas)
           suma(fila(r.machineryId, r.code, r.placa ?? ficha?.placa ?? '', r.empresa || 'Sin empresa', ficha?.marca, ficha?.modelo), 'peso', r.monto, r.kg);
         }
-        // 🏷️⛏️ A cada fila se le pega su categoría y su frente vigente (vacío =
-        //    «Sin clasificación» / «Sin frente», lo resuelve la lib al agrupar).
+        // 🏷️⛏️👤 A cada fila se le pega su categoría, su frente y su encargado (vacío =
+        //    «Sin clasificación» / «Sin frente» / «Sin encargado», lo resuelve la lib).
         return Array.from(porId.values()).map((f) => ({
           ...f,
           categoria: catPorId.get(f.id) || null,
           frente: frentePorId.get(f.id) || null,
+          encargado: encargadoPorId.get(f.id) || fichasV?.get(f.id)?.encargado || fichasP?.get(f.id)?.encargado || null,
         }));
       };
 
@@ -291,7 +293,8 @@ export function ReporteConsolidadoCard() {
     setPdfBusy(true);
     try {
       const filtrado = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0
-        || (op.soloCategorias ?? []).length > 0 || (op.soloFrentes ?? []).length > 0;
+        || (op.soloCategorias ?? []).length > 0 || (op.soloFrentes ?? []).length > 0
+        || (op.soloEncargados ?? []).length > 0;
       const html = pdfDocument({
         title: 'Reporte consolidado de pagos',
         subtitle: subtituloConsolidado(rangoCalculado, op, filtrado),
@@ -391,6 +394,7 @@ export function ReporteConsolidadoCard() {
         <Pastilla on={op.agruparPor === 'maquina'} label="🚜 Por máquina" onPress={() => setOp((p) => ({ ...p, agruparPor: 'maquina' }))} />
         <Pastilla on={op.agruparPor === 'categoria'} label="🏷️ Por categoría" onPress={() => setOp((p) => ({ ...p, agruparPor: 'categoria' }))} />
         <Pastilla on={op.agruparPor === 'frente'} label="⛏️ Por frente" onPress={() => setOp((p) => ({ ...p, agruparPor: 'frente' }))} />
+        <Pastilla on={op.agruparPor === 'encargado'} label="👤 Por encargado" onPress={() => setOp((p) => ({ ...p, agruparPor: 'encargado' }))} />
         <Pastilla on={op.agruparPor === 'global'} label="📋 Global" onPress={() => setOp((p) => ({ ...p, agruparPor: 'global' }))} />
       </View>
 
@@ -474,6 +478,28 @@ export function ReporteConsolidadoCard() {
                     const s = new Set(p.soloFrentes ?? []);
                     on ? s.delete(fr) : s.add(fr);
                     return { ...p, soloFrentes: Array.from(s) };
+                  })} />
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {/* 👤 Solo uno (o varios) encargados (22-oct-2026, a pedido: «poder agrupar o
+          sacarlo por encargado»). Filtrar cambia el total → FILTRADO. */}
+      {filas?.length ? (
+        <View>
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>👤 SOLO ESTOS ENCARGADOS (vacío = todos)</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
+            <Pastilla on={(op.soloEncargados ?? []).length === 0} label="⬛ Todos" onPress={() => setOp((p) => ({ ...p, soloEncargados: [] }))} />
+            {Array.from(new Set(filas.map((f) => encargadoDe(f)))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })).map((enc) => {
+              const on = (op.soloEncargados ?? []).includes(enc);
+              return (
+                <Pastilla key={`enc-${enc}`} on={on} label={`${on ? '☑️' : '⬜'} ${enc}`} onPress={() =>
+                  setOp((p) => {
+                    const s = new Set(p.soloEncargados ?? []);
+                    on ? s.delete(enc) : s.add(enc);
+                    return { ...p, soloEncargados: Array.from(s) };
                   })} />
               );
             })}
