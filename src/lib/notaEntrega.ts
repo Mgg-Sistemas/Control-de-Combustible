@@ -45,7 +45,10 @@ function renderLogosHtml(logos?: LogosConfig, empresaEmisora?: { nombre: string;
     if (empresaEmisora && /golden/i.test(empresaEmisora.nombre)) {
       return `<img src="${GOLDEN_TOUCH_LOGO_DATA_URI}" style="height:62px;width:auto;object-fit:contain;"/>`;
     }
-    return `<img src="${LOGO_DATA_URI}" style="height:62px;width:auto;object-fit:contain;"/>`;
+    if (empresaEmisora && /sos/i.test(empresaEmisora.nombre)) {
+      return `<img src="${LOGO_DATA_URI}" style="height:62px;width:auto;object-fit:contain;"/>`;
+    }
+    return '';
   }
   const imgs: string[] = [];
   if (logos.golden) imgs.push(`<img src="${GOLDEN_TOUCH_LOGO_DATA_URI}" style="height:58px;width:auto;object-fit:contain;"/>`);
@@ -91,9 +94,47 @@ export function notaEntregaHtml(d: NotaData): string {
   const emisorCedula = d.emisorCedula ? esc(d.emisorCedula) : '';
   const emisorCargo = d.emisorCargo ? esc(d.emisorCargo) : '';
 
-  const empresaEmisoraNombre = d.empresaEmisora?.nombre || COMPANY_NAME;
-  const empresaEmisoraRif = d.empresaEmisora?.rif
-    || (/golden\s*touch/i.test(empresaEmisoraNombre) ? 'J-50129993-5' : null);
+  let empresaEmisoraNombre = (d.empresaEmisora?.nombre || '').trim();
+  let empresaEmisoraRif = (d.empresaEmisora?.rif || '').trim() || null;
+
+  // Si no se indicó empresa explícita, se infiere según los logos seleccionados:
+  if (!empresaEmisoraNombre && d.logos) {
+    if (d.logos.golden && !d.logos.sos) {
+      empresaEmisoraNombre = 'GOLDEN TOUCH 1127 C.A.';
+      empresaEmisoraRif = empresaEmisoraRif || 'J-50129993-5';
+    } else if (d.logos.sos && !d.logos.golden) {
+      empresaEmisoraNombre = COMPANY_NAME;
+    } else if (d.logos.golden && d.logos.sos) {
+      empresaEmisoraNombre = 'GOLDEN TOUCH 1127 C.A.';
+      empresaEmisoraRif = empresaEmisoraRif || 'J-50129993-5';
+    } else if (d.logos.renace) {
+      empresaEmisoraNombre = 'PLAN VENEZUELA RENACE';
+    } else if (d.logos.jhenzaen) {
+      empresaEmisoraNombre = 'JHENZAEN 2.012 C.A.';
+    } else if (d.logos.bcv) {
+      empresaEmisoraNombre = 'BANCO CENTRAL DE VENEZUELA';
+    }
+  }
+
+  // Si el logo SOS fue desmarcado explícitamente y la empresa asignada era SOS, se quita toda mención:
+  if (d.logos && d.logos.sos === false && /sos\s*la\s*guaira/i.test(empresaEmisoraNombre)) {
+    if (d.logos.golden) {
+      empresaEmisoraNombre = 'GOLDEN TOUCH 1127 C.A.';
+      empresaEmisoraRif = 'J-50129993-5';
+    } else {
+      empresaEmisoraNombre = '';
+      empresaEmisoraRif = null;
+    }
+  }
+
+  // Compatibilidad hacia atrás solo si no se pasó config de logos:
+  if (!d.logos && !empresaEmisoraNombre) {
+    empresaEmisoraNombre = COMPANY_NAME;
+  }
+
+  if (empresaEmisoraNombre && /golden\s*touch/i.test(empresaEmisoraNombre) && !empresaEmisoraRif) {
+    empresaEmisoraRif = 'J-50129993-5';
+  }
 
   const fotos = d.fotos || [];
   const fotosHtml = fotos.length ? `
@@ -111,6 +152,12 @@ export function notaEntregaHtml(d: NotaData): string {
   ` : '';
 
   const logosHtml = renderLogosHtml(d.logos, d.empresaEmisora);
+
+  // El bloque de texto en el encabezado solo se omite si el logo gráfico de Golden Touch ya se está mostrando
+  // y la empresa emisora es Golden Touch (para no duplicar el nombre y RIF que ya vienen dibujados en la imagen).
+  // Si no hay logo (o es sin logo), o si la empresa emisora es otra distinta a la del logo, SIEMPRE se muestra co-block.
+  const yaEnLogo = !!(d.logos?.golden && /golden\s*touch/i.test(empresaEmisoraNombre));
+  const showCoBlock = !!empresaEmisoraNombre && !yaEnLogo;
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
@@ -170,10 +217,11 @@ export function notaEntregaHtml(d: NotaData): string {
     <div class="head">
       <div class="head-left">
         ${logosHtml ? `<div class="head-logos">${logosHtml}</div>` : ''}
+        ${showCoBlock ? `
         <div class="co-block">
           <div class="co">${esc(empresaEmisoraNombre)}</div>
           ${empresaEmisoraRif ? `<div class="rif">${esc(empresaEmisoraRif)}</div>` : ''}
-        </div>
+        </div>` : ''}
       </div>
       <div class="head-titles">
         <h1>${esc(d.tituloDoc || 'NOTA DE SALIDA')}</h1>
@@ -188,7 +236,7 @@ export function notaEntregaHtml(d: NotaData): string {
     <div class="od-grid">
       <div class="od-box emisor">
         <div class="tag">Entregado por (Emisor)</div>
-        <div class="box-title">${esc(empresaEmisoraNombre)}</div>
+        ${empresaEmisoraNombre ? `<div class="box-title">${esc(empresaEmisoraNombre)}</div>` : '<div class="box-title" style="color:#64748b;font-weight:600">No especificado</div>'}
         ${empresaEmisoraRif ? `<div class="box-sub">RIF: ${esc(empresaEmisoraRif)}</div>` : ''}
         ${emisorNombre ? `<div class="box-val"><b>Responsable:</b> ${emisorNombre}</div>` : ''}
         ${emisorCedula ? `<div class="box-sub"><b>C.I.:</b> ${emisorCedula}${emisorCargo ? ` · ${emisorCargo}` : ''}</div>` : ''}
@@ -226,6 +274,6 @@ export function notaEntregaHtml(d: NotaData): string {
       </div>
     </div>
 
-    <div class="foot">${esc(empresaEmisoraNombre)} · Comprobante oficial de inventario</div>
+    <div class="foot">${esc(empresaEmisoraNombre ? `${empresaEmisoraNombre} · ` : '')}Comprobante oficial de inventario</div>
   </body></html>`;
 }

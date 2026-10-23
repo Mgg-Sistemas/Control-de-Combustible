@@ -208,9 +208,19 @@ function LogosPicker({
           );
         })}
       </View>
-      <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
-        {activos.length ? `Logos en el membrete: ${activos.join(' · ')}` : 'Sin logos en el membrete'}
-      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, flexWrap: 'wrap', gap: 6 }}>
+        <Text style={{ color: colors.muted, fontSize: 10, flex: 1 }}>
+          {activos.length ? `Logos en el membrete: ${activos.join(' · ')}` : 'Sin logos (solo membrete de texto de la empresa)'}
+        </Text>
+        {activos.length > 0 ? (
+          <TouchableOpacity
+            onPress={() => onChange({ golden: false, sos: false, renace: false, jhenzaen: false, bcv: false })}
+            style={{ paddingVertical: 2, paddingHorizontal: 6 }}
+          >
+            <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>✕ Quitar todos (sin logo)</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -1102,17 +1112,24 @@ function MovimientosTab() {
         });
 
     const dmy = fmtDate(m.created_at);
+    const empresaEmisora = compName
+      ? { nombre: compName, rif: compRif }
+      : { nombre: 'GOLDEN TOUCH 1127 C.A.', rif: 'J-50129993-5' };
+    const logosCfg: LogosConfig = compName && /sos/i.test(compName)
+      ? { sos: true }
+      : { golden: true, sos: false };
+
     const html = notaEntregaHtml({
       fecha: dmy,
-      empresa: compName,
-      empresaEmisora: compName ? { nombre: compName, rif: compRif } : { nombre: COMPANY_NAME, rif: null },
+      empresa: null,
+      empresaEmisora,
       destino: m.reason ? m.reason.replace(/^NOTA DE SALIDA(\s*·\s*)?/, '').trim() || null : null,
       maquina: macLabel,
       vehiculo: vehLabel,
       empleadosDetalle: empDet.length ? empDet : undefined,
       empleados: empDet.map((e: any) => e.name),
       items: itemsRows,
-      logos: compName && /golden/i.test(compName) ? { golden: true, sos: true } : { sos: true, golden: true },
+      logos: logosCfg,
     });
 
     await exportPdf(html, `Nota de salida - ${dmy}`);
@@ -1130,11 +1147,17 @@ function MovimientosTab() {
       const comp = companies.find((c) => c.id === tr.company_id);
       const compName = comp?.name || null;
       const compRif = comp?.rif || (/golden\s*touch/i.test(compName || '') ? 'J-50129993-5' : null);
+      const empresaEmisora = compName
+        ? { nombre: compName, rif: compRif }
+        : { nombre: 'GOLDEN TOUCH 1127 C.A.', rif: 'J-50129993-5' };
+      const logosCfg: LogosConfig = compName && /sos/i.test(compName)
+        ? { sos: true }
+        : { golden: true, sos: false };
 
       const html = notaTrasladoHtml({
         fecha: dmy,
-        empresa: (tr as any).to_company_name || compName,
-        empresaEmisora: compName ? { nombre: compName, rif: compRif } : { nombre: COMPANY_NAME, rif: null },
+        empresa: (tr as any).to_company_name || null,
+        empresaEmisora,
         fromMaquina: tr.from_machinery_label || null,
         fromVehiculo: (tr as any).from_vehicle_label || null,
         fromEmpleado: tr.from_employee_name || null,
@@ -1145,20 +1168,27 @@ function MovimientosTab() {
         lugar: tr.lugar || null,
         estado: tr.estado || null,
         items: (tr.items || []).map((it) => ({ name: it.name, qty: it.qty, unit: it.unit })),
-        logos: compName && /golden/i.test(compName) ? { golden: true, sos: true } : { sos: true, golden: true },
+        logos: logosCfg,
       });
       await exportPdf(html, `Nota de traslado - ${dmy}`);
     } else {
       const comp = companies.find((c) => c.id === m.company_id);
       const compName = comp?.name || null;
       const compRif = comp?.rif || (/golden\s*touch/i.test(compName || '') ? 'J-50129993-5' : null);
+      const empresaEmisora = compName
+        ? { nombre: compName, rif: compRif }
+        : { nombre: 'GOLDEN TOUCH 1127 C.A.', rif: 'J-50129993-5' };
+      const logosCfg: LogosConfig = compName && /sos/i.test(compName)
+        ? { sos: true }
+        : { golden: true, sos: false };
+
       const html = notaTrasladoHtml({
         fecha: dmy,
-        empresa: compName,
-        empresaEmisora: compName ? { nombre: compName, rif: compRif } : { nombre: COMPANY_NAME, rif: null },
+        empresa: null,
+        empresaEmisora,
         motivo: m.reason ? m.reason.replace(/^NOTA DE TRASLADO(\s*·\s*)?/, '').trim() || null : null,
         items: [{ name: itemName(m.item_id), qty: Number(m.qty) || 0, unit: itemUnit(m.item_id) || 'und' }],
-        logos: compName && /golden/i.test(compName) ? { golden: true, sos: true } : { sos: true, golden: true },
+        logos: logosCfg,
       });
       await exportPdf(html, `Nota de traslado - ${dmy}`);
     }
@@ -1441,13 +1471,14 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   const [personaLibre, setPersonaLibre] = useState('');
   // Empresa REGISTRADA a la que se carga la salida / que entrega (se guarda en el movimiento).
   const [salidaCompanyId, setSalidaCompanyId] = useState<string | null>(null);
+  const [salidaEmpresaLibre, setSalidaEmpresaLibre] = useState('');
   const [companyOpen, setCompanyOpen] = useState(false);
   const [companyQuery, setCompanyQuery] = useState('');
 
   // Logos y fotos
   const [logos, setLogos] = useState<LogosConfig>({
     golden: true,
-    sos: true,
+    sos: false,
     renace: false,
     jhenzaen: false,
     bcv: false,
@@ -1612,17 +1643,24 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
           return { name: emp ? empName(emp) : 'Personal', cedula: (emp as any)?.cedula || null, cargo: (emp as any)?.cargo || null };
         });
 
+    const empresaEmisora = compName
+      ? { nombre: compName, rif: compRif }
+      : { nombre: 'GOLDEN TOUCH 1127 C.A.', rif: 'J-50129993-5' };
+    const logosCfg: LogosConfig = compName && /sos/i.test(compName)
+      ? { sos: true }
+      : { golden: true, sos: false };
+
     const html = notaEntregaHtml({
       fecha: dmy,
-      empresa: compName,
-      empresaEmisora: compName ? { nombre: compName, rif: compRif } : { nombre: COMPANY_NAME, rif: null },
+      empresa: null,
+      empresaEmisora,
       destino: g.reason.replace(/^NOTA DE SALIDA(\s*·\s*)?/, '').trim() || null,
       maquina: mLabel,
       vehiculo: vLabel,
       empleadosDetalle: empDet.length ? empDet : undefined,
       empleados: empDet.map((e: any) => e.name),
       items: g.items.map((it) => ({ name: it.name, qty: it.qty, unit: it.unit })),
-      logos: compName && /golden/i.test(compName) ? { golden: true, sos: true } : { sos: true, golden: true },
+      logos: logosCfg,
     });
 
     await exportPdf(html, `Nota de salida - ${dmy}`);
@@ -1641,16 +1679,40 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     //    lo seleccionado (el carrito queda tal cual para seguir editándolo).
     const items: NotaItem[] = cart.map((c) => ({ name: c.name, qty: c.qty, unit: c.unit }));
     const compEmisora = companies.find((c) => c.id === salidaCompanyId);
-    const compEmisoraNombre = compEmisora?.name || (companyNameById(salidaCompanyId) || empresaLibre.trim()) || COMPANY_NAME;
-    const compEmisoraRif = compEmisora?.rif || (/golden\s*touch/i.test(compEmisoraNombre) ? 'J-50129993-5' : null);
+    let compEmisoraNombre = salidaEmpresaLibre.trim() || compEmisora?.name || companyNameById(salidaCompanyId) || '';
+    let compEmisoraRif = compEmisora?.rif || null;
+
+    if (!compEmisoraNombre) {
+      if (logos.golden && !logos.sos) {
+        compEmisoraNombre = 'GOLDEN TOUCH 1127 C.A.';
+        compEmisoraRif = compEmisoraRif || 'J-50129993-5';
+      } else if (logos.sos && !logos.golden) {
+        compEmisoraNombre = COMPANY_NAME;
+      } else if (logos.golden && logos.sos) {
+        compEmisoraNombre = 'GOLDEN TOUCH 1127 C.A.';
+        compEmisoraRif = compEmisoraRif || 'J-50129993-5';
+      } else if (logos.renace) {
+        compEmisoraNombre = 'PLAN VENEZUELA RENACE';
+      } else if (logos.jhenzaen) {
+        compEmisoraNombre = 'JHENZAEN 2.012 C.A.';
+      } else if (logos.bcv) {
+        compEmisoraNombre = 'BANCO CENTRAL DE VENEZUELA';
+      }
+    }
+
+    if (compEmisoraNombre && /golden\s*touch/i.test(compEmisoraNombre) && !compEmisoraRif) {
+      compEmisoraRif = 'J-50129993-5';
+    }
+
+    const empresaEmisora = compEmisoraNombre ? { nombre: compEmisoraNombre, rif: compEmisoraRif } : null;
 
     let confirmado = false;
     try {
       confirmado = await exportPdf(notaEntregaHtml({
         fecha: todayDMY(),
         destino: destino.trim() || null,
-        empresa: (companyNameById(salidaCompanyId) || empresaLibre.trim()) || null,
-        empresaEmisora: { nombre: compEmisoraNombre, rif: compEmisoraRif },
+        empresa: empresaLibre.trim() || null,
+        empresaEmisora,
         maquina: machineryId ? machineName(machineryId) : null,
         vehiculo: vehicleId ? vehicleName(vehicleId) : null,
         empleados: [...empSel.map((e) => e.name), ...(personaLibre.trim() ? [personaLibre.trim()] : [])],
@@ -1843,21 +1905,22 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
 
               {/* Empresa que entrega / de la cual sale */}
               <TouchableOpacity onPress={() => setCompanyOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
-                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🏢 Empresa que entrega (de la cual sale): <Text style={{ color: salidaCompanyId ? colors.brandText : colors.muted }}>{salidaCompanyId ? companyNameById(salidaCompanyId) : 'elegir empresa…'}</Text></Text>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🏢 Empresa emisora (entrega): <Text style={{ color: (salidaCompanyId || salidaEmpresaLibre) ? colors.brandText : colors.muted }}>{salidaEmpresaLibre ? `${salidaEmpresaLibre} (libre)` : (salidaCompanyId ? companyNameById(salidaCompanyId) : 'según logo / elegir empresa…')}</Text></Text>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>{companyOpen ? '▲' : '▼'}</Text>
               </TouchableOpacity>
               {companyOpen ? (
                 <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
-                  <TextInput value={companyQuery} onChangeText={setCompanyQuery} placeholder="Filtrar empresa…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
-                  {salidaCompanyId ? (
-                    <TouchableOpacity onPress={() => setSalidaCompanyId(null)} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
+                  <TextInput value={companyQuery} onChangeText={setCompanyQuery} placeholder="Filtrar empresa registrada…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+                  <TextInput value={salidaEmpresaLibre} onChangeText={(t) => { setSalidaEmpresaLibre(t.toUpperCase()); if (t.trim()) setSalidaCompanyId(null); }} autoCapitalize="characters" placeholder="O escribir empresa emisora no registrada…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+                  {salidaCompanyId || salidaEmpresaLibre ? (
+                    <TouchableOpacity onPress={() => { setSalidaCompanyId(null); setSalidaEmpresaLibre(''); }} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
                   ) : null}
                   <View style={{ maxHeight: 200 }}>
                     <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
                       {companies.filter((c) => { const s = norm(companyQuery); return !s || norm(c.name).includes(s); }).map((c) => {
                         const on = salidaCompanyId === c.id;
                         return (
-                          <TouchableOpacity key={c.id} onPress={() => { setSalidaCompanyId(c.id); setCompanyOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <TouchableOpacity key={c.id} onPress={() => { setSalidaCompanyId(c.id); setSalidaEmpresaLibre(''); setCompanyOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                             <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
                             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{c.name}{c.rif ? ` (${c.rif})` : ''}</Text>
                           </TouchableOpacity>
@@ -2219,10 +2282,29 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     // 1) VISTA PREVIA primero. Solo si el usuario imprime/guarda se descuenta y se registra.
     const items: TrasladoItem[] = cart.map((c) => ({ name: c.name, qty: c.qty, unit: c.unit }));
     const empEmisoraObj = companies.find((c) => c.id === trCompanyId) || (cart[0]?.company_id ? companies.find((c) => c.id === cart[0].company_id) : null);
-    const empresaEmisora = empEmisoraObj ? {
-      nombre: empEmisoraObj.name,
-      rif: (empEmisoraObj as any).rif || null,
-    } : (trLogos.golden ? { nombre: 'GOLDEN TOUCH 1127 C.A', rif: 'J-50129993-5' } : undefined);
+    let trEmisoraNombre = empEmisoraObj?.name || '';
+    let trEmisoraRif = (empEmisoraObj as any)?.rif || null;
+    if (!trEmisoraNombre) {
+      if (trLogos.golden && !trLogos.sos) {
+        trEmisoraNombre = 'GOLDEN TOUCH 1127 C.A.';
+        trEmisoraRif = trEmisoraRif || 'J-50129993-5';
+      } else if (trLogos.sos && !trLogos.golden) {
+        trEmisoraNombre = COMPANY_NAME;
+      } else if (trLogos.golden && trLogos.sos) {
+        trEmisoraNombre = 'GOLDEN TOUCH 1127 C.A.';
+        trEmisoraRif = trEmisoraRif || 'J-50129993-5';
+      } else if (trLogos.renace) {
+        trEmisoraNombre = 'PLAN VENEZUELA RENACE';
+      } else if (trLogos.jhenzaen) {
+        trEmisoraNombre = 'JHENZAEN 2.012 C.A.';
+      } else if (trLogos.bcv) {
+        trEmisoraNombre = 'BANCO CENTRAL DE VENEZUELA';
+      }
+    }
+    if (trEmisoraNombre && /golden\s*touch/i.test(trEmisoraNombre) && !trEmisoraRif) {
+      trEmisoraRif = 'J-50129993-5';
+    }
+    const empresaEmisora = trEmisoraNombre ? { nombre: trEmisoraNombre, rif: trEmisoraRif } : null;
 
     let confirmado = false;
     try {
@@ -2305,10 +2387,14 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
       const dmy = `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
 
       const empEmisoraObj = t.company_id ? companies.find((c) => c.id === t.company_id) : null;
-      const empresaEmisora = empEmisoraObj ? {
-        nombre: empEmisoraObj.name,
-        rif: (empEmisoraObj as any).rif || null,
-      } : { nombre: 'GOLDEN TOUCH 1127 C.A', rif: 'J-50129993-5' };
+      const compName = empEmisoraObj?.name || null;
+      const compRif = (empEmisoraObj as any)?.rif || (/golden\s*touch/i.test(compName || '') ? 'J-50129993-5' : null);
+      const empresaEmisora = compName
+        ? { nombre: compName, rif: compRif }
+        : { nombre: 'GOLDEN TOUCH 1127 C.A.', rif: 'J-50129993-5' };
+      const logosCfg: LogosConfig = compName && /sos/i.test(compName)
+        ? { sos: true }
+        : { golden: true, sos: false };
 
       const items: TrasladoItem[] = (t.items ?? []).map((it) => ({
         name: it.name,
@@ -2330,7 +2416,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
         toEmpleadoDetalle: t.to_employee_id ? empDetalleById(t.to_employee_id) : undefined,
         motivo: t.motivo || null,
         items,
-        logos: { golden: true, sos: false, renace: false, jhenzaen: false, bcv: false },
+        logos: logosCfg,
       });
       await exportPdf(html, `Nota de traslado - ${dmy}`);
     } catch (e: any) {
