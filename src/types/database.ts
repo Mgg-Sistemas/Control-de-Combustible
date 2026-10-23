@@ -744,6 +744,35 @@ export interface InventoryLevel extends InventoryItem {
   stock: number;
 }
 
+export type StockRequestStatus = 'pendiente' | 'despachado' | 'rechazado';
+export type StockRequestUrgency = 'normal' | 'alta' | 'urgente';
+
+/** Solicitud de existencia (pedido de despacho de almacén) cuando hay stock */
+export interface InventoryStockRequest {
+  id: string;
+  code: string;
+  item_id: string | null;
+  item_name: string;
+  unit: string | null;
+  qty: number;
+  machinery_id: string | null;
+  vehicle_id: string | null;
+  area: string | null;
+  solicitante_nombre: string | null;
+  solicitante_employee_id: string | null;
+  urgency: StockRequestUrgency;
+  reason: string | null;
+  status: StockRequestStatus;
+  rejection_note?: string | null;
+  dispatched_by?: string | null;
+  dispatched_by_name?: string | null;
+  dispatched_at?: string | null;
+  movement_id?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
 export type InventoryMovementKind = 'entrada' | 'salida' | 'consumo' | 'ajuste';
 
 /** Snapshot de un empleado al momento de una salida (nombre/cédula/cargo pueden cambiar luego). */

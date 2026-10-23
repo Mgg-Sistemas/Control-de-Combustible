@@ -10,13 +10,14 @@ import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
-import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Vehicle, Employee, InventoryRequirement, RequirementLine, InventoryTransfer, UniformDelivery } from '../types/database';
+import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Vehicle, Employee, InventoryRequirement, RequirementLine, InventoryTransfer, UniformDelivery, InventoryStockRequest } from '../types/database';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { etiquetaVehiculo, textoBusquedaVehiculo, detalleVehiculoNota, ladoTrasladoEnPalabras, PASOS_SIN_MIGRACION, PASOS_SIN_MIGRACION_TRASLADO, quitarColumnas, quitarColumnasFila } from '../lib/salidaVehiculo';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
+import { URGENCIA_CONFIG, ESTADO_EXISTENCIA_CONFIG } from '../lib/solicitudMaterial';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -2441,6 +2442,425 @@ function DotacionTab() {
   );
 }
 
+// ── Solicitudes de Existencia (Despacho de Almacén) ──────────────────────────
+function SolicitudesExistenciaTab({ canWrite }: { canWrite: boolean }) {
+  const { colors } = useTheme();
+  const { session, fullName } = useAuth();
+  const confirm = useConfirm();
+  const toast = useToast();
+  const uid = session?.user?.id ?? null;
+
+  const { data: stockRequests, loading, refetch } = useTable<InventoryStockRequest>('inventory_stock_requests', {
+    orderBy: 'created_at',
+    ascending: false,
+  });
+  const { data: levels, refetch: refetchLevels } = useTable<InventoryLevel>('inventory_levels');
+  const { data: machines } = useTable<Machinery>('machinery');
+  const { data: vehicles } = useTable<Vehicle>('vehicles');
+
+  const [filtro, setFiltro] = useState<'pendientes' | 'despachados' | 'rechazados' | 'todos'>('pendientes');
+  const [search, setSearch] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Modal Rechazo
+  const [rechazoOpen, setRechazoOpen] = useState(false);
+  const [targetReq, setTargetReq] = useState<InventoryStockRequest | null>(null);
+  const [motivoRechazo, setMotivoRechazo] = useState('');
+  const [rechazoBusy, setRechazoBusy] = useState(false);
+
+  const solicitudesFiltradas = useMemo(() => {
+    return (stockRequests || []).filter((s) => {
+      if (filtro === 'pendientes' && s.status !== 'pendiente') return false;
+      if (filtro === 'despachados' && s.status !== 'despachado') return false;
+      if (filtro === 'rechazados' && s.status !== 'rechazado') return false;
+      if (!search.trim()) return true;
+      const q = norm(search);
+      return (
+        norm(s.code).includes(q) ||
+        norm(s.item_name).includes(q) ||
+        (s.solicitante_nombre && norm(s.solicitante_nombre).includes(q)) ||
+        (s.reason && norm(s.reason).includes(q))
+      );
+    });
+  }, [stockRequests, filtro, search]);
+
+  const pendientesCount = useMemo(() => {
+    return (stockRequests || []).filter((s) => s.status === 'pendiente').length;
+  }, [stockRequests]);
+
+  const despachar = async (s: InventoryStockRequest) => {
+    if (!canWrite) return toast.error('No tienes permisos de escritura en inventario.');
+    const level = levels.find((l) => l.id === s.item_id);
+    const stockActual = level?.stock ?? 0;
+
+    const ok = await confirm({
+      title: `Despachar ${s.code}`,
+      message: `¿Confirmas la entrega de ${qtyFmt(s.qty)} ${s.unit || 'UND'} de "${s.item_name}" a ${s.solicitante_nombre || 'personal solicitante'}? Se descontará del stock disponible (${qtyFmt(stockActual)} en almacén).`,
+      confirmText: 'Despachar y descontar stock',
+    });
+    if (!ok) return;
+
+    setBusyId(s.id);
+    try {
+      // 1) Registrar movimiento de salida en inventario
+      const movPayload = {
+        item_id: s.item_id,
+        kind: 'salida' as const,
+        qty: s.qty,
+        machinery_id: s.machinery_id,
+        vehicle_id: s.vehicle_id,
+        reason: `DESPACHO SOLICITUD ${s.code} · ${s.solicitante_nombre || ''}${s.reason ? ` · ${s.reason}` : ''}`,
+        created_by: uid,
+      };
+
+      const { data: movInserted, error: movErr } = await supabase
+        .from('inventory_movements')
+        .insert(movPayload)
+        .select('id')
+        .single();
+
+      if (movErr) throw movErr;
+
+      // 2) Actualizar la solicitud a 'despachado'
+      const { error: reqErr } = await supabase
+        .from('inventory_stock_requests')
+        .update({
+          status: 'despachado',
+          dispatched_by: uid,
+          dispatched_by_name: fullName || session?.user?.email || 'Almacenista',
+          dispatched_at: nowISO(),
+          movement_id: movInserted?.id || null,
+        })
+        .eq('id', s.id);
+
+      if (reqErr) throw reqErr;
+
+      toast.success(`Solicitud ${s.code} despachada. Stock actualizado.`);
+      refetch();
+      refetchLevels();
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo despachar el material.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const abrirRechazar = (s: InventoryStockRequest) => {
+    setTargetReq(s);
+    setMotivoRechazo('');
+    setRechazoOpen(true);
+  };
+
+  const confirmarRechazo = async () => {
+    if (!targetReq) return;
+    if (!motivoRechazo.trim()) {
+      return toast.error('Ingresa el motivo del rechazo.');
+    }
+    setRechazoBusy(true);
+    try {
+      const { error } = await supabase
+        .from('inventory_stock_requests')
+        .update({
+          status: 'rechazado',
+          rejection_note: motivoRechazo.trim(),
+        })
+        .eq('id', targetReq.id);
+
+      if (error) throw error;
+
+      toast.info(`Solicitud ${targetReq.code} rechazada.`);
+      setRechazoOpen(false);
+      setTargetReq(null);
+      refetch();
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo rechazar la solicitud.');
+    } finally {
+      setRechazoBusy(false);
+    }
+  };
+
+  const targetLabel = (s: InventoryStockRequest) => {
+    if (s.machinery_id) {
+      const m = machines.find((x) => x.id === s.machinery_id);
+      return m ? `🚜 Maquinaria ${m.code}` : '🚜 Maquinaria';
+    }
+    if (s.vehicle_id) {
+      const v = vehicles.find((x) => x.id === s.vehicle_id);
+      return v ? `🚗 Vehículo ${v.plate}` : '🚗 Vehículo';
+    }
+    if (s.area) return `🏢 Área: ${s.area}`;
+    return 'Destino no especificado';
+  };
+
+  return (
+    <Screen>
+      <View style={{ gap: spacing.sm, marginBottom: spacing.md }}>
+        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800' }}>
+          📥 Solicitudes de Despacho al Almacén
+        </Text>
+        <Text style={{ color: colors.muted, fontSize: 12 }}>
+          Pedidos de repuestos y materiales realizados por mecánicos o personal de campo con stock existente.
+        </Text>
+
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Filtrar por código, producto, solicitante o motivo…"
+          placeholderTextColor={colors.muted}
+          style={{
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: radius.md,
+            padding: spacing.sm,
+            color: colors.text,
+          }}
+        />
+
+        {/* Filtros de estado */}
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+          {[
+            { key: 'pendientes', label: `⏳ Pendientes (${pendientesCount})` },
+            { key: 'despachados', label: '✅ Despachados' },
+            { key: 'rechazados', label: '❌ Rechazados' },
+            { key: 'todos', label: 'Todos' },
+          ].map((f) => {
+            const on = filtro === f.key;
+            return (
+              <TouchableOpacity
+                key={f.key}
+                onPress={() => setFiltro(f.key as any)}
+                style={{
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: on ? colors.brand : colors.border,
+                  backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                }}
+              >
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {solicitudesFiltradas.length === 0 ? (
+        <EmptyState
+          title="Sin solicitudes"
+          subtitle={
+            filtro === 'pendientes'
+              ? 'No hay solicitudes de existencia pendientes de despacho.'
+              : 'No se encontraron solicitudes con este filtro.'
+          }
+        />
+      ) : (
+        solicitudesFiltradas.map((s) => {
+          const est = ESTADO_EXISTENCIA_CONFIG[s.status] || ESTADO_EXISTENCIA_CONFIG.pendiente;
+          const urg = URGENCIA_CONFIG[s.urgency] || URGENCIA_CONFIG.normal;
+          const level = levels.find((l) => l.id === s.item_id);
+          const stockActual = level?.stock ?? 0;
+          const haySuficiente = stockActual >= s.qty;
+          const isBusy = busyId === s.id;
+
+          return (
+            <Card key={s.id} style={{ gap: 8 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>
+                    {s.code} · {s.item_name}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 1 }}>
+                    {targetLabel(s)} · Solicita: <Text style={{ color: colors.text, fontWeight: '700' }}>{s.solicitante_nombre || 'Personal'}</Text>
+                  </Text>
+                </View>
+
+                <View style={{ backgroundColor: est.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill }}>
+                  <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }}>
+                    {est.icon} {est.label}
+                  </Text>
+                </View>
+              </View>
+
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  backgroundColor: colors.surfaceAlt,
+                  padding: spacing.sm,
+                  borderRadius: radius.sm,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
+                  Pedido: {qtyFmt(s.qty)} {s.unit || 'UND'}
+                </Text>
+                <Text style={{ color: haySuficiente ? '#16A34A' : '#DC2626', fontSize: 12, fontWeight: '800' }}>
+                  Stock actual: {qtyFmt(stockActual)} {s.unit || 'UND'}
+                </Text>
+              </View>
+
+              {s.reason ? (
+                <Text style={{ color: colors.brandText, fontSize: 11.5, fontStyle: 'italic' }}>
+                  Motivo: {s.reason}
+                </Text>
+              ) : null}
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                  Solicitado el: {fmtDate(s.created_at)}
+                </Text>
+                <View style={{ backgroundColor: urg.bg, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.sm }}>
+                  <Text style={{ color: urg.color, fontSize: 11, fontWeight: '700' }}>
+                    {urg.icon} Urgencia: {urg.label}
+                  </Text>
+                </View>
+              </View>
+
+              {s.status === 'despachado' && (
+                <Text style={{ color: '#16A34A', fontSize: 11.5, fontWeight: '700', marginTop: 2 }}>
+                  ✓ Despachado por {s.dispatched_by_name || 'Almacenista'} el {fmtDate(s.dispatched_at || '')}
+                </Text>
+              )}
+
+              {s.status === 'rechazado' && (
+                <Text style={{ color: '#DC2626', fontSize: 11.5, fontWeight: '700', marginTop: 2 }}>
+                  ✕ Motivo de rechazo: {s.rejection_note || 'Sin motivo'}
+                </Text>
+              )}
+
+              {/* Botones de acción para el almacenista */}
+              {s.status === 'pendiente' && canWrite && (
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4 }}>
+                  <TouchableOpacity
+                    onPress={() => abrirRechazar(s)}
+                    disabled={isBusy}
+                    style={{
+                      flex: 1,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.danger,
+                      paddingVertical: 8,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>
+                      ✕ Rechazar
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => despachar(s)}
+                    disabled={isBusy}
+                    style={{
+                      flex: 2,
+                      backgroundColor: '#059669',
+                      paddingVertical: 8,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                      opacity: isBusy ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                      {isBusy ? 'Despachando…' : '✓ Despachar y Descontar Stock'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Card>
+          );
+        })
+      )}
+
+      {/* Modal de Rechazo */}
+      <Modal visible={rechazoOpen} transparent animationType="slide">
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            justifyContent: 'center',
+            padding: spacing.md,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: radius.lg,
+              padding: spacing.lg,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text style={{ fontSize: 16, fontWeight: '900', color: colors.text, marginBottom: 2 }}>
+              Rechazar Solicitud {targetReq?.code}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>
+              Indica la razón por la que no se despachará este material.
+            </Text>
+
+            <TextInput
+              value={motivoRechazo}
+              onChangeText={setMotivoRechazo}
+              placeholder="Ej: Material reservado para proyecto, stock con diferencia física…"
+              placeholderTextColor={colors.muted}
+              multiline
+              numberOfLines={3}
+              style={{
+                backgroundColor: colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: radius.md,
+                padding: spacing.sm,
+                color: colors.text,
+                height: 80,
+                textAlignVertical: 'top',
+                marginBottom: spacing.md,
+              }}
+            />
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <TouchableOpacity
+                onPress={() => setRechazoOpen(false)}
+                disabled={rechazoBusy}
+                style={{
+                  flex: 1,
+                  paddingVertical: 10,
+                  borderRadius: radius.md,
+                  backgroundColor: colors.surfaceAlt,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={confirmarRechazo}
+                disabled={rechazoBusy}
+                style={{
+                  flex: 1,
+                  paddingVertical: 10,
+                  borderRadius: radius.md,
+                  backgroundColor: colors.danger,
+                  alignItems: 'center',
+                  opacity: rechazoBusy ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>
+                  {rechazoBusy ? 'Rechazando…' : 'Confirmar Rechazo'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </Screen>
+  );
+}
+
 // ── Contenedor con sub-pestañas ──────────────────────────────────────────────
 export default function InventarioScreen() {
   const { colors } = useTheme();
@@ -2448,6 +2868,7 @@ export default function InventarioScreen() {
   const canWrite = levelMeets(moduleLevel('inventario'), 'escritura');
   const TABS = [
     { key: 'existencias', label: 'Existencias', icon: '📦' },
+    { key: 'solicitudes', label: 'Solicitudes', icon: '📥' },
     { key: 'nota', label: 'Salida', icon: '📤' },
     { key: 'traslado', label: 'Nota de traslado', icon: '🔁' },
     { key: 'gastos', label: 'Gastos', icon: '💸' },
@@ -2472,8 +2893,9 @@ export default function InventarioScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'movimientos' ? <MovimientosTab /> : <DotacionTab />}
+        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'solicitudes' ? <SolicitudesExistenciaTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'movimientos' ? <MovimientosTab /> : <DotacionTab />}
       </View>
     </View>
   );
 }
+

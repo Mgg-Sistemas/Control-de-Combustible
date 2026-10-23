@@ -42,6 +42,9 @@ que mira el corredor.
 - Mantener `src/types/database.ts` sincronizado con cambios en la base de datos.
 - GitFlow: ramificar `feature/*` desde `dev`; no commitear directo a `main`.
 - No commitear `.env` (ya está en `.gitignore`).
-- **Seguridad de Base de Datos y Supabase:**
-  - NUNCA guardar datos privados, credenciales ni scripts `.sql` en Git.
-  - La ejecución de SQL se realiza directamente en Supabase; si son cambios grandes o estructuralmente fuertes, pedir permiso al usuario antes de ejecutar.
+- **Reglas de Ejecución de SQL y Base de Datos:**
+  - Corre el SQL tú mismo directamente en la base de datos / Supabase.
+  - NUNCA guardes scripts o archivos `.sql` en Git.
+  - Pide SIEMPRE permiso antes de correr un SQL de `DELETE`, `UPDATE` o consultas/migraciones grandes o destructivas.
+- **Instrucciones de Prueba Obligatorias:**
+  - Al finalizar cualquier cambio, explicar SIEMPRE al usuario **DÓNDE** (pantalla, menú o ruta) y **CÓMO** probar lo implementado con guía paso a paso y resultados esperados.

@@ -1005,6 +1005,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       {/* 🔢 El mismo número que la columna «#» del PDF y que el
                           formulario: así «el renglón 3» es el mismo para todos. */}
                       <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}><Text style={{ color: colors.muted }}>{i + 1}. </Text>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}</Text>
+                      {it.note ? <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginTop: 1 }}>📐 {it.note}</Text> : null}
                       <Text style={{ color: colors.muted, fontSize: 11 }}>{qtyFmt(it.qty)} {it.unit || ''} · {it.currency === 'USD' ? usd(it.est_price) : fmtBs(it.est_price)} c/u</Text>
                     </View>
                     {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
@@ -1148,7 +1149,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
               {/* Empresa para la que se hace el requerimiento (opcional). */}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Empresa (opcional)</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                 {[{ id: null as string | null, name: 'Sin empresa' }, ...companies].map((c) => {
                   const on = companyId === c.id;
                   return (
@@ -1157,7 +1158,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </View>
 
               {/* Proveedor (opcional): al asignarlo y APROBAR, la orden pasa a
                   "aprobada" y se genera la CUENTA POR PAGAR (trigger req_sync_compra).
@@ -1225,7 +1226,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               {/* 🏢 Empresa Pagadora (Tesorería / Desembolso) */}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Empresa Pagadora (Tesorería)</Text>
               <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 4 }}>Entidad que realizará el desembolso financiero (ej. Construcciones Liscioni, C.A. vs Golden Touch 1127, C.A.).</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                 {[{ id: null as string | null, name: 'Por definir / Sin asignar' }, ...companies].map((c) => {
                   const on = empresaPagadoraId === c.id;
                   return (
@@ -1234,7 +1235,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </View>
 
               {/* 👤 RESPONSABLE: elegible entre los del rol ALMACENISTA; al elegido le
                   llega un aviso a su campana. Quien lo crea sale solo. Es opcional, pero
@@ -1358,7 +1359,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     </View>
                     <TouchableOpacity onPress={() => rm(x.key)}><Text style={{ color: colors.danger, fontWeight: '800' }}>🗑 Quitar</Text></TouchableOpacity>
                   </View>
-                  <TextInput value={x.name} onChangeText={(t) => upd(x.key, 'name', t)} editable={!x.product_id} placeholder="Nombre del producto" placeholderTextColor={colors.muted} style={[inp, x.product_id ? { color: colors.muted } : null]} />
+                  <TextInput value={x.name} onChangeText={(t) => upd(x.key, 'name', t)} editable={!x.product_id} placeholder="Nombre del producto o repuesto" placeholderTextColor={colors.muted} style={[inp, x.product_id ? { color: colors.muted } : null]} />
+                  <TextInput
+                    value={x.note || ''}
+                    onChangeText={(t) => upd(x.key, 'note', t)}
+                    placeholder="Medidas, especificaciones técnicas o N° de parte (ej. 50mm, rosca 1/2, CAT 320D)…"
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { marginTop: 4, fontSize: 12 }]}
+                  />
                   <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
                     <View style={{ width: 64 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text><TextInput value={x.qty} onChangeText={(t) => upd(x.key, 'qty', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'center' }]} /></View>
                     <View style={{ width: 70 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Unidad</Text><TextInput value={x.unit} onChangeText={(t) => upd(x.key, 'unit', t.toUpperCase())} placeholder="UND" placeholderTextColor={colors.muted} style={inp} /></View>

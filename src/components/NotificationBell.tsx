@@ -12,22 +12,28 @@ import type { AppNotification } from '../types/database';
 const ICON: Record<string, string> = {
   requerimiento: '📝',
   compra: '🛒',
+  solicitud_existencia: '📦',
+  aclaratoria_tecnica: '⚠️',
   cierre_control: '🛠️',
   jornada_tarde: '⏰',
 };
 
 // Nombre del MÓDULO al que pertenece cada aviso (se muestra en el detalle).
 const MODULE_LABEL: Record<string, string> = {
-  requerimiento: 'Inventario · Requerimiento',
+  requerimiento: 'Compras · Requerimiento',
   compra: 'Compras · Solicitud',
+  solicitud_existencia: 'Almacén · Solicitud de Despacho',
+  aclaratoria_tecnica: 'Compras · Aclaratoria Técnica',
   cierre_control: 'Control de maquinaria · Cierre',
   jornada_tarde: 'Inspecciones · Jornada declarada tarde',
 };
 
 // A dónde lleva "Ir al módulo" (mejor esfuerzo; si no aplica, no hace nada).
 const DEST: Record<string, { tab?: string; screen: string }> = {
-  requerimiento: { tab: 'More', screen: 'Inventario' },
+  requerimiento: { tab: 'More', screen: 'Compras' },
   compra: { tab: 'More', screen: 'Compras' },
+  solicitud_existencia: { tab: 'More', screen: 'Inventario' },
+  aclaratoria_tecnica: { tab: 'More', screen: 'SolicitudMaterial' },
   cierre_control: { screen: 'ControlMaquinaria' },
   jornada_tarde: { screen: 'Supervision' },
 };
