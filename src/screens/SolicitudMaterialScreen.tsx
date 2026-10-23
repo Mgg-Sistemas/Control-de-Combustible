@@ -4,7 +4,7 @@
 // 1) Si hay stock en Almacén: genera Solicitud de Despacho (inventory_stock_requests).
 // 2) Si NO hay stock o es pieza nueva: genera Solicitud de Compra Técnica (inventory_requirements)
 //    con medidas técnicas OBLIGATORIAS, foto y ciclo de aclaratorias.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -75,8 +75,11 @@ export default function SolicitudMaterialScreen() {
     levelMeets(moduleLevel('inventario'), 'escritura') ||
     levelMeets(moduleLevel('compras'), 'escritura');
 
-  // Si es admin, puede alternar entre ver solo sus pedidos o ver todo
-  const [verTodosAdmin, setVerTodosAdmin] = useState(false);
+  // Si es admin o acceso full en compras/inventario, ve todo por defecto
+  const [verTodosAdmin, setVerTodosAdmin] = useState(esAdmin);
+  useEffect(() => {
+    if (esAdmin) setVerTodosAdmin(true);
+  }, [esAdmin]);
 
   // Pestaña activa: 'nueva' (crear solicitud) | 'mis_solicitudes' (historial y seguimiento)
   const [tab, setTab] = useState<'nueva' | 'mis_solicitudes'>('nueva');
@@ -113,11 +116,45 @@ export default function SolicitudMaterialScreen() {
   // ── PASO 1: Destino y Solicitante ──────────────────────────────────────────
   const [destinoTipo, setDestinoTipo] = useState<'maquinaria' | 'vehiculo' | 'area'>('maquinaria');
   const [machineryId, setMachineryId] = useState<string>('');
+  const [machineryQuery, setMachineryQuery] = useState<string>('');
   const [vehicleId, setVehicleId] = useState<string>('');
+  const [vehicleQuery, setVehicleQuery] = useState<string>('');
   const [areaTexto, setAreaTexto] = useState<string>('');
   const [solicitante, setSolicitante] = useState<PersonaElegida>(() => {
     return fullName ? { nombre: fullName.toUpperCase(), employeeId: null } : SIN_PERSONA;
   });
+
+  // Filtro de maquinarias por código, placa, tipo, marca, modelo o serial
+  const machinesFiltradas = useMemo(() => {
+    const list = machines || [];
+    const q = norm(machineryQuery);
+    if (!q) return list;
+    return list.filter((m) => {
+      return (
+        norm(m.code || '').includes(q) ||
+        (m.plate && norm(m.plate).includes(q)) ||
+        (m.serial && norm(m.serial).includes(q)) ||
+        (m.marca && norm(m.marca).includes(q)) ||
+        (m.modelo && norm(m.modelo).includes(q)) ||
+        (m.tipo && norm(m.tipo).includes(q)) ||
+        (m.clasificacion && norm(m.clasificacion).includes(q))
+      );
+    });
+  }, [machines, machineryQuery]);
+
+  // Filtro de vehículos por placa, marca o modelo
+  const vehiclesFiltrados = useMemo(() => {
+    const list = vehicles || [];
+    const q = norm(vehicleQuery);
+    if (!q) return list;
+    return list.filter((v) => {
+      return (
+        (v.plate && norm(v.plate).includes(q)) ||
+        (v.brand && norm(v.brand).includes(q)) ||
+        (v.model && norm(v.model).includes(q))
+      );
+    });
+  }, [vehicles, vehicleQuery]);
 
   const personasNomina = useMemo(() => personasDeNomina(employees), [employees]);
   const contactosSimples = useMemo(() => (contacts || []).map((c) => ({ id: c.id, name: c.name })), [contacts]);
@@ -308,11 +345,11 @@ export default function SolicitudMaterialScreen() {
       const targetLabel =
         destinoTipo === 'maquinaria'
           ? targetMach
-            ? `Maquinaria ${targetMach.code} · ${targetMach.serial || ''} (${targetMach.marca || ''} ${targetMach.modelo || ''})`
+            ? `Maquinaria ${targetMach.code}${targetMach.plate ? ' · Placa: ' + targetMach.plate : ''}${targetMach.serial ? ' · Serial: ' + targetMach.serial : ''}${[targetMach.marca, targetMach.modelo].filter(Boolean).join(' ') ? ` (${[targetMach.marca, targetMach.modelo].filter(Boolean).join(' ')})` : ''}`
             : 'Maquinaria'
           : destinoTipo === 'vehiculo'
           ? targetVeh
-            ? `Vehículo ${targetVeh.plate} (${targetVeh.brand || ''} ${targetVeh.model || ''})`
+            ? `Vehículo ${targetVeh.plate} (${[targetVeh.brand, targetVeh.model].filter(Boolean).join(' ') || 'Vehículo'})`
             : 'Vehículo'
           : areaTexto.trim() || 'Taller General';
 
@@ -615,75 +652,187 @@ export default function SolicitudMaterialScreen() {
             {/* Selector según el tipo */}
             {destinoTipo === 'maquinaria' && (
               <View style={{ marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 3 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
                   Selecciona la Máquina:
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
-                  {machines.map((m) => {
-                    const sel = machineryId === m.id;
-                    return (
-                      <TouchableOpacity
-                        key={m.id}
-                        onPress={() => setMachineryId(m.id)}
-                        style={{
-                          paddingHorizontal: 12,
-                          paddingVertical: 7,
-                          borderRadius: radius.pill,
-                          backgroundColor: sel ? colors.brand : colors.surfaceAlt,
-                          borderWidth: 1,
-                          borderColor: sel ? colors.brand : colors.border,
-                        }}
-                      >
-                        <Text
+
+                {/* Resumen de maquinaria seleccionada con nombre y placa */}
+                {(() => {
+                  const selMach = machines.find((m) => m.id === machineryId);
+                  if (!selMach) return null;
+                  return (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: colors.surfaceAlt,
+                        borderLeftWidth: 3,
+                        borderLeftColor: colors.brand,
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        borderRadius: radius.sm,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <View style={{ flex: 1, paddingRight: 6 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                          🚜 {selMach.code} {selMach.plate ? `· 🏷️ Placa: ${selMach.plate}` : '· (Sin placa)'}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          {[selMach.marca, selMach.modelo].filter(Boolean).join(' ') || selMach.tipo || ''}
+                          {selMach.serial ? ` · Serial: ${selMach.serial}` : ''}
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setMachineryId('')} style={{ padding: 4 }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>✕ Cambiar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })()}
+
+                {/* Buscador de maquinarias por código, placa, marca o modelo */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <TextInput
+                    value={machineryQuery}
+                    onChangeText={setMachineryQuery}
+                    placeholder="🔍 Buscar máquina por código, placa, marca o tipo…"
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { flex: 1, paddingVertical: 6, paddingHorizontal: spacing.sm, fontSize: 12.5, borderRadius: radius.sm }]}
+                  />
+                  {machineryQuery ? (
+                    <TouchableOpacity onPress={() => setMachineryQuery('')} style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>✕ Limpiar</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {machinesFiltradas.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: 4, fontStyle: 'italic' }}>
+                    No se encontró ninguna maquinaria que coincida con "{machineryQuery}".
+                  </Text>
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+                    {machinesFiltradas.map((m) => {
+                      const sel = machineryId === m.id;
+                      return (
+                        <TouchableOpacity
+                          key={m.id}
+                          onPress={() => setMachineryId(m.id)}
                           style={{
-                            color: sel ? colors.brandContrast : colors.text,
-                            fontWeight: '700',
-                            fontSize: 12,
+                            paddingHorizontal: 12,
+                            paddingVertical: 7,
+                            borderRadius: radius.pill,
+                            backgroundColor: sel ? colors.brand : colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: sel ? colors.brand : colors.border,
                           }}
                         >
-                          🚜 {m.code}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
+                          <Text
+                            style={{
+                              color: sel ? colors.brandContrast : colors.text,
+                              fontWeight: '700',
+                              fontSize: 12,
+                            }}
+                          >
+                            🚜 {m.code}{m.plate ? ` · Placa: ${m.plate}` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
               </View>
             )}
 
             {destinoTipo === 'vehiculo' && (
               <View style={{ marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 3 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
                   Selecciona el Vehículo / Camioneta:
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
-                  {vehicles.map((v) => {
-                    const sel = vehicleId === v.id;
-                    return (
-                      <TouchableOpacity
-                        key={v.id}
-                        onPress={() => setVehicleId(v.id)}
-                        style={{
-                          paddingHorizontal: 12,
-                          paddingVertical: 7,
-                          borderRadius: radius.pill,
-                          backgroundColor: sel ? colors.brand : colors.surfaceAlt,
-                          borderWidth: 1,
-                          borderColor: sel ? colors.brand : colors.border,
-                        }}
-                      >
-                        <Text
+
+                {/* Resumen de vehículo seleccionado */}
+                {(() => {
+                  const selVeh = vehicles.find((v) => v.id === vehicleId);
+                  if (!selVeh) return null;
+                  return (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: colors.surfaceAlt,
+                        borderLeftWidth: 3,
+                        borderLeftColor: colors.brand,
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        borderRadius: radius.sm,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <View style={{ flex: 1, paddingRight: 6 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                          🚗 {selVeh.plate} · {[selVeh.brand, selVeh.model].filter(Boolean).join(' ') || 'Vehículo'}
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setVehicleId('')} style={{ padding: 4 }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>✕ Cambiar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })()}
+
+                {/* Buscador de vehículos */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <TextInput
+                    value={vehicleQuery}
+                    onChangeText={setVehicleQuery}
+                    placeholder="🔍 Buscar vehículo por placa, marca o modelo…"
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { flex: 1, paddingVertical: 6, paddingHorizontal: spacing.sm, fontSize: 12.5, borderRadius: radius.sm }]}
+                  />
+                  {vehicleQuery ? (
+                    <TouchableOpacity onPress={() => setVehicleQuery('')} style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>✕ Limpiar</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {vehiclesFiltrados.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: 4, fontStyle: 'italic' }}>
+                    No se encontró ningún vehículo con esa búsqueda.
+                  </Text>
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+                    {vehiclesFiltrados.map((v) => {
+                      const sel = vehicleId === v.id;
+                      return (
+                        <TouchableOpacity
+                          key={v.id}
+                          onPress={() => setVehicleId(v.id)}
                           style={{
-                            color: sel ? colors.brandContrast : colors.text,
-                            fontWeight: '700',
-                            fontSize: 12,
+                            paddingHorizontal: 12,
+                            paddingVertical: 7,
+                            borderRadius: radius.pill,
+                            backgroundColor: sel ? colors.brand : colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: sel ? colors.brand : colors.border,
                           }}
                         >
-                          🚗 {v.plate} ({v.model || v.brand || 'Vehículo'})
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
+                          <Text
+                            style={{
+                              color: sel ? colors.brandContrast : colors.text,
+                              fontWeight: '700',
+                              fontSize: 12,
+                            }}
+                          >
+                            🚗 {v.plate} ({[v.brand, v.model].filter(Boolean).join(' ') || 'Vehículo'})
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
               </View>
             )}
 
@@ -1126,6 +1275,28 @@ export default function SolicitudMaterialScreen() {
                     Cantidad: <Text style={{ color: colors.text, fontWeight: '700' }}>{qtyFmt(s.qty)} {s.unit || 'UND'}</Text>
                     {s.solicitante_nombre ? ` · Solicita: ${s.solicitante_nombre}` : ''}
                   </Text>
+
+                  {s.machinery_id ? (() => {
+                    const m = machines.find((x) => x.id === s.machinery_id);
+                    return (
+                      <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                        🚜 <Text style={{ fontWeight: '700' }}>Destino:</Text>{' '}
+                        {m ? `${m.code}${m.plate ? ' · Placa: ' + m.plate : ''}` : 'Maquinaria'}
+                      </Text>
+                    );
+                  })() : s.vehicle_id ? (() => {
+                    const v = vehicles.find((x) => x.id === s.vehicle_id);
+                    return (
+                      <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                        🚗 <Text style={{ fontWeight: '700' }}>Destino:</Text>{' '}
+                        {v ? `${v.plate} (${[v.brand, v.model].filter(Boolean).join(' ') || 'Vehículo'})` : 'Vehículo'}
+                      </Text>
+                    );
+                  })() : s.area ? (
+                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                      🏢 <Text style={{ fontWeight: '700' }}>Destino:</Text> {s.area}
+                    </Text>
+                  ) : null}
 
                   {s.reason ? (
                     <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic' }}>

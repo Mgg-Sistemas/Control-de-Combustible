@@ -14,6 +14,7 @@ import { agruparPorCargo } from '../lib/empleadosAgrupar';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { constanciaCarnetHtml, constanciaTrabajoHtml, MEMBRETES_CONSTANCIA, MEMBRETE_POR_DEFECTO } from '../lib/constancia';
@@ -98,6 +99,10 @@ export default function EmpleadosScreen({ navigation }: any) {
   // la consulta falla y `data` queda vacío: los chips caen a "Sin empresa de filtro"
   // y nada se rompe.
   const { data: payrollCompanies, refetch: refetchPayroll } = useTable<{ id: string; name: string; active?: boolean }>('payroll_companies', { orderBy: 'name' });
+  const nominaCompanies = useMemo(
+    () => (payrollCompanies || []).filter((c) => !c.name.startsWith('__')),
+    [payrollCompanies]
+  );
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
   const [statusFilter, setStatusFilter] = useState<FiltroEstado>('todos'); // estado del empleado (+ grupos apartados)
@@ -111,6 +116,11 @@ export default function EmpleadosScreen({ navigation }: any) {
   useEffect(() => {
     leerGruposApartados().then(setGruposConfig);
   }, []);
+
+  useRealtimeRefresh(['payroll_companies'], () => {
+    leerGruposApartados().then(setGruposConfig);
+    refetchPayroll();
+  });
 
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set()); // vacío = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
@@ -135,7 +145,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   // nadie ahí. NO se le pone "SOS LA GUAIRA" por descarte como en `companyName`,
   // porque entonces se mezclaría con la empresa de filtro que SÍ se llama así y
   // saldrían dos grupos iguales partiendo a la plantilla en dos.
-  const nominaName = (id: string | null) => (id ? payrollCompanies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa de filtro');
+  const nominaName = (id: string | null) => (id ? nominaCompanies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa de filtro');
   // Etiqueta del cargo UNIFICADA y en MAYÚSCULA (junta variantes: plurales, typos…).
   const cargoLabel = (e: Employee) => canonicalCargo(e.cargo);
 
@@ -189,11 +199,11 @@ export default function EmpleadosScreen({ navigation }: any) {
     // personas desaparecen, que es justo lo que se busca al quitar una empresa
     // creada por error. Si todavía tuvieran gente, el `forEach` de arriba ya las
     // metió y siguen viéndose — hay que poder filtrar a esa gente.
-    payrollCompanies.forEach((c) => { if (c.active !== false && !map.has(c.id)) map.set(c.id, { key: c.id, name: c.name, n: 0 }); });
+    nominaCompanies.forEach((c) => { if (c.active !== false && !map.has(c.id)) map.set(c.id, { key: c.id, name: c.name, n: 0 }); });
     // "Sin empresa de filtro" siempre de primera; el resto alfabético.
     return Array.from(map.values()).sort((a, b) =>
       a.key === SIN_EMPRESA ? -1 : b.key === SIN_EMPRESA ? 1 : cmpText(a.name, b.name));
-  }, [estadoFiltered, companies, payrollCompanies]);
+  }, [estadoFiltered, companies, nominaCompanies]);
 
   // Base final para el listado y el reporte por cargo: ya con la empresa aplicada.
   const baseFiltered = useMemo(
@@ -485,7 +495,7 @@ export default function EmpleadosScreen({ navigation }: any) {
 
   const listaSugerencias = useMemo(() => {
     if (nuevoTipo === 'empresa') {
-      return payrollCompanies.map((c) => c.name).filter(Boolean);
+      return nominaCompanies.map((c) => c.name).filter(Boolean);
     }
     if (nuevoTipo === 'cargo') {
       const set = new Set<string>();
@@ -498,7 +508,7 @@ export default function EmpleadosScreen({ navigation }: any) {
       return Array.from(set).sort();
     }
     return [];
-  }, [nuevoTipo, payrollCompanies, employees]);
+  }, [nuevoTipo, nominaCompanies, employees]);
 
   const agregarGrupoApartado = async () => {
     const nombre = nuevoNombre.trim();

@@ -386,16 +386,26 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap', marginTop: 2 }}>
-                  {r.destino_tipo ? (
-                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-                      🚜 <Text style={{ fontWeight: '700' }}>Destino:</Text>{' '}
-                      {r.destino_tipo === 'maquinaria'
-                        ? 'Maquinaria'
-                        : r.destino_tipo === 'vehiculo'
-                        ? 'Vehículo'
-                        : r.area || 'Taller'}
-                    </Text>
-                  ) : null}
+                  {r.destino_tipo || r.title || r.observaciones ? (() => {
+                    let destText = '';
+                    if (r.title && r.title.includes('para ')) {
+                      destText = r.title.split('para ')[1]?.trim();
+                    } else if (r.observaciones && r.observaciones.includes('para ')) {
+                      destText = r.observaciones.split('para ')[1]?.trim();
+                    } else if (r.destino_tipo === 'maquinaria') {
+                      destText = 'Maquinaria';
+                    } else if (r.destino_tipo === 'vehiculo') {
+                      destText = 'Vehículo';
+                    } else if (r.area) {
+                      destText = r.area;
+                    }
+                    if (!destText) return null;
+                    return (
+                      <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                        🚜 <Text style={{ fontWeight: '700' }}>Destino:</Text> {destText}
+                      </Text>
+                    );
+                  })() : null}
 
                   {r.area ? (
                     <Text style={{ color: colors.muted, fontSize: 11.5 }}>

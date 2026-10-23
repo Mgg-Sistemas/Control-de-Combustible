@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -14,7 +14,8 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
 import { pasaFiltroEstado, esDesincorporado, EstadoFiltro } from '../lib/staffPayEstado';
-import { grupoApartado, GrupoApartado } from '../lib/nominaGrupos';
+import { grupoApartado, GrupoApartado, GrupoApartadoConfig, DEFAULT_GRUPOS_APARTADOS } from '../lib/nominaGrupos';
+import { leerGruposApartados } from '../lib/nominaGruposStorage';
 import { mapaDepartamentos, SIN_DEPARTAMENTO } from '../lib/nominaDepartamentos';
 import { levelMeets } from '../lib/permissions';
 import { caracasParts } from '../lib/jornada';
@@ -176,6 +177,11 @@ export default function PagoPersonalScreen() {
   // sentido verlo completo, incluidos los desincorporados después de cargarlo.
   const [personaQuery, setPersonaQuery] = useState('');
   const [estadoSel, setEstadoSel] = useState<EstadoFiltro>('todos');
+  const [gruposConfig, setGruposConfig] = useState<GrupoApartadoConfig[]>(DEFAULT_GRUPOS_APARTADOS);
+
+  useEffect(() => {
+    leerGruposApartados().then(setGruposConfig);
+  }, []);
 
   // Crear período
   const [createOpen, setCreateOpen] = useState(false);
@@ -307,8 +313,10 @@ export default function PagoPersonalScreen() {
     setItemEmployeeStatus(new Map((empStatus ?? []).map((e: any) => [e.id, e.status])));
     const grupos = new Map<string, GrupoApartado>();
     const deptosFicha = new Map<string, string>();
+    const activeGrupos = await leerGruposApartados();
+    setGruposConfig(activeGrupos);
     (empStatus ?? []).forEach((e: any) => {
-      const g = grupoApartado(e.payroll_company?.name, e.cargo);
+      const g = grupoApartado(e.payroll_company?.name, e.cargo, e.department, activeGrupos);
       if (g) grupos.set(e.id, g);
       if (e.department) deptosFicha.set(e.id, e.department);
     });
@@ -320,7 +328,7 @@ export default function PagoPersonalScreen() {
   const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setItemEmployeeGrupo(new Map()); setItemEmployeeDepto(new Map()); setStatusLoaded(false); setCargoSel(new Set()); setCargoOpen(false); setDeptoSel(new Set()); setDeptoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
   // El detalle (renglones, abonos y estado de empleados) se carga aparte con
   // supabase.from() directo (no useTable), así que se sincroniza en vivo aquí.
-  useRealtimeRefresh(['staff_pay_items', 'staff_pay_payments', 'employees'], () => { if (sel) loadDetail(sel); });
+  useRealtimeRefresh(['staff_pay_items', 'staff_pay_payments', 'employees', 'payroll_companies'], () => { if (sel) loadDetail(sel); });
 
   const recomputeTotal = async (pid: string, list: StaffPayItem[], mode: Mode) => {
     const total = round2(list.reduce((s, it) => s + totalOf(it, mode), 0));
@@ -1314,11 +1322,18 @@ export default function PagoPersonalScreen() {
                 style={{ ...input, marginBottom: spacing.xs }}
               />
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
-                {/* Carbozulia y Seguridad (29-ago-2026): atajos para ver y exportar a
-                    esa gente aparte. NO se descuentan de Todos/Activos —el TOTAL del
-                    período los incluye y esconderlos haría que la lista no cuadre con
-                    el monto. Ver el comentario de src/lib/staffPayEstado.ts. */}
-                {([{ k: 'activos', t: 'Activos' }, { k: 'todos', t: 'Todos' }, { k: 'inactivos', t: 'Inactivos/Desincorporados' }, { k: 'carbozulia', t: 'Carbozulia' }, { k: 'seguridad', t: 'Seguridad' }] as const).map((o) => (
+                {/* Carbozulia, Seguridad y grupos apartados personalizados configurados en Empleados:
+                    atajos para ver y exportar a esa gente aparte sin descontarlos del total del período. */}
+                {([
+                  { k: 'activos', t: 'Activos' },
+                  { k: 'todos', t: 'Todos' },
+                  { k: 'inactivos', t: 'Inactivos/Desincorporados' },
+                  { k: 'carbozulia', t: 'Carbozulia' },
+                  { k: 'seguridad', t: 'Seguridad' },
+                  ...gruposConfig
+                    .filter((g) => g.id !== 'carbozulia' && g.id !== 'seguridad')
+                    .map((g) => ({ k: g.id as EstadoFiltro, t: g.label })),
+                ] as const).map((o) => (
                   <TouchableOpacity key={o.k} onPress={() => setEstadoSel(o.k)} style={chip(estadoSel === o.k)}>
                     <Text style={chipTxt(estadoSel === o.k)}>{o.t}</Text>
                   </TouchableOpacity>
@@ -1429,6 +1444,8 @@ export default function PagoPersonalScreen() {
                       ? 'En este período no hay nadie de Carbozulia. Se reconocen por su “Empresa filtro nómina” en la ficha del empleado.'
                       : estadoSel === 'seguridad'
                       ? 'En este período no hay nadie de Seguridad. Se reconocen por el cargo SEGURIDAD en la ficha del empleado.'
+                      : gruposConfig.some((g) => g.id === estadoSel)
+                      ? `En este período no hay nadie del grupo “${gruposConfig.find((g) => g.id === estadoSel)?.label}”. Se reconocen según las reglas configuradas en Empleados.`
                       : 'Ningún empleado del período coincide con el cargo, la búsqueda o el estado filtrados.'}
                   />
                   {!readOnly ? (

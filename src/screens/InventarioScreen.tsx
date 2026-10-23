@@ -217,7 +217,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [loteRows, setLoteRows] = useState<LoteRow[] | null>(null);
   const [loteBusy, setLoteBusy] = useState(false);
 
-  const machineLabel = (m: Machinery) => `${m.code}${m.serial ? ` · ${m.serial}` : ''}`;
+  const machineLabel = (m: Machinery) => `${m.code}${m.plate ? ` · Placa ${m.plate}` : (m.serial ? ` · Serial ${m.serial}` : '')}`;
   const machineName = (id: string | null) => { if (!id) return 'Sin equipo'; const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : 'Equipo'; };
   const machineCompany = (id: string | null) => (id ? machines.find((x) => x.id === id)?.company_id ?? null : null);
   const nq = norm(q);
@@ -1537,7 +1537,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
   const inCart = (id: string) => cart.find((c) => c.id === id);
-  const machineLabel = (m: Machinery) => `${m.code}${m.serial ? ` · ${m.serial}` : ''}`;
+  const machineLabel = (m: Machinery) => `${m.code}${m.plate ? ` · Placa ${m.plate}` : (m.serial ? ` · Serial ${m.serial}` : '')}`;
   const machName = (id: string) => { const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : ''; };
   const companyNameById = (id: string | null) => (id ? (companies.find((c) => c.id === id)?.name ?? '') : '');
   const vehName = (id: string) => { const v = vehicles.find((x) => x.id === id); return v ? etiquetaVehiculo(v, companyNameById(v.company_id ?? null)) : ''; };
@@ -2582,11 +2582,11 @@ function SolicitudesExistenciaTab({ canWrite }: { canWrite: boolean }) {
   const targetLabel = (s: InventoryStockRequest) => {
     if (s.machinery_id) {
       const m = machines.find((x) => x.id === s.machinery_id);
-      return m ? `🚜 Maquinaria ${m.code}` : '🚜 Maquinaria';
+      return m ? `🚜 Maquinaria ${m.code}${m.plate ? ' · Placa: ' + m.plate : ''}` : '🚜 Maquinaria';
     }
     if (s.vehicle_id) {
       const v = vehicles.find((x) => x.id === s.vehicle_id);
-      return v ? `🚗 Vehículo ${v.plate}` : '🚗 Vehículo';
+      return v ? `🚗 Vehículo ${v.plate} (${[v.brand, v.model].filter(Boolean).join(' ') || 'Vehículo'})` : '🚗 Vehículo';
     }
     if (s.area) return `🏢 Área: ${s.area}`;
     return 'Destino no especificado';
