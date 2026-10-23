@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guía Operativa — Solicitudes de Existencia y Compras Técnicas</title>
+<style>
+  @page {
+    size: A4;
+    margin: 12mm 12mm 15mm 12mm;
+    @bottom-right {
+      content: counter(page);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.5;
+    color: #1e293b;
+    margin: 0;
+    padding: 24px;
+    background: #f8fafc;
+  }
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: #ffffff;
+    padding: 36px 40px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    border: 1px solid #e2e8f0;
+  }
+
+  /* Portada / Banner Principal */
+  .hero-banner {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+    color: #ffffff;
+    padding: 30px;
+    border-radius: 10px;
+    margin-bottom: 28px;
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.15);
+  }
+  .hero-banner .badge {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.18);
+    color: #93c5fd;
+    font-size: 9pt;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 20px;
+    margin-bottom: 12px;
+  }
+  .hero-banner h1 {
+    font-size: 24pt;
+    margin: 0 0 10px;
+    font-weight: 900;
+    line-height: 1.2;
+    color: #ffffff;
+  }
+  .hero-banner p {
+    font-size: 11pt;
+    color: #cbd5e1;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  /* Secciones y Títulos */
+  h2 {
+    font-size: 14pt;
+    color: #0f172a;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 6px;
+    margin: 28px 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h3 {
+    font-size: 11.5pt;
+    color: #1e3a8a;
+    margin: 18px 0 8px;
+  }
+
+  /* Diagrama de bifurcación */
+  .flow-box {
+    display: flex;
+    gap: 16px;
+    margin: 20px 0;
+  }
+  .flow-card {
+    flex: 1;
+    padding: 18px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    position: relative;
+  }
+  .flow-card.existencia {
+    border-top: 4px solid #10b981;
+    background: #f0fdf4;
+  }
+  .flow-card.compra {
+    border-top: 4px solid #f97316;
+    background: #fff7ed;
+  }
+  .flow-card h4 {
+    margin: 0 0 8px;
+    font-size: 12pt;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .flow-card.existencia h4 { color: #065f46; }
+  .flow-card.compra h4 { color: #9a3412; }
+
+  /* Tablas */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 9.5pt;
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+  }
+  th {
+    background: #f1f5f9;
+    color: #334155;
+    font-weight: 700;
+  }
+  tr:nth-child(even) td { background: #fafafa; }
+
+  /* Cajas de Alerta / Destacadas */
+  .callout {
+    padding: 14px 18px;
+    border-radius: 8px;
+    margin: 14px 0;
+    font-size: 9.5pt;
+    border-left: 4px solid #2563eb;
+    background: #eff6ff;
+  }
+  .callout.warning {
+    border-left-color: #f59e0b;
+    background: #fffbeb;
+  }
+  .callout.success {
+    border-left-color: #10b981;
+    background: #ecfdf5;
+  }
+  .callout.danger {
+    border-left-color: #ef4444;
+    background: #fef2f2;
+  }
+  .callout-title {
+    font-weight: 800;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Mockup de Tarjeta */
+  .card-mockup {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 14px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+  .mockup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+  .mockup-code {
+    font-weight: 900;
+    font-size: 12pt;
+    color: #0f172a;
+  }
+  .pill {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 8.5pt;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .pill.pending { background: #fef3c7; color: #b45309; }
+  .pill.dispatched { background: #dcfce7; color: #15803d; }
+  .pill.clarification { background: #ffedd5; color: #c2410c; }
+  .pill.approved { background: #dbeafe; color: #1d4ed8; }
+
+  .meta-box {
+    background: #f8fafc;
+    border-left: 3px solid #3b82f6;
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin: 8px 0;
+    font-size: 9pt;
+  }
+  .btn-mock {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 8.5pt;
+    text-decoration: none;
+    cursor: default;
+  }
+  .btn-green { background: #059669; color: #fff; }
+  .btn-blue { background: #2563eb; color: #fff; }
+  .btn-orange { background: #fff7ed; border: 1px solid #ea580c; color: #ea580c; }
+  .btn-red { background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
+
+  .step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #1e3a8a;
+    color: #fff;
+    font-size: 9pt;
+    font-weight: 800;
+    margin-right: 6px;
+  }
+  ul, ol { padding-left: 20px; }
+  li { margin-bottom: 6px; }
+
+  @media print {
+    body { padding: 0; background: #fff; }
+    .container { border: none; box-shadow: none; padding: 0; max-width: 100%; }
+    .page-break { page-break-after: always; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Encabezado / Portada -->
+  <div class="hero-banner">
+    <div class="badge">Manual de Procesos y Operación</div>
+    <h1>Solicitudes de Existencia vs. Solicitudes de Compra Técnica</h1>
+    <p>
+      Guía integral del flujo de pedidos de materiales y repuestos para Mecánicos, Choferes,
+      Almacenistas y el Departamento de Compras.
+    </p>
+  </div>
+
+  <!-- Introducción -->
+  <h2>1. La Gran Separación de Flujos</h2>
+  <p>
+    Anteriormente, cuando un mecánico o chofer necesitaba un repuesto, se creaba un requerimiento
+    general que se estancaba en la mesa de compras, incluso cuando el repuesto <strong>ya estaba físicamente
+    en los anaqueles del almacén</strong>. Por el contrario, cuando no había stock, se enviaban nombres vagos
+    sin medidas ni fotos, obligando al proveedor a detener la cotización.
+  </p>
+  <p>
+    El sistema separa automáticamente las peticiones en dos caminos independientes:
+  </p>
+
+  <div class="flow-box">
+    <div class="flow-card existencia">
+      <h4>📦 A. Solicitud de Existencia</h4>
+      <p><strong>Condición:</strong> El material SÍ tiene stock en el inventario (Stock &gt; 0).</p>
+      <p><strong>Canal:</strong> Directo al <strong>Almacén</strong> (NO pasa por compras).</p>
+      <p><strong>Correlativo:</strong> <code>SOL-0001</code></p>
+      <p><strong>Resolución:</strong> Despacho en <strong>1 solo clic</strong> por el almacenista.</p>
+    </div>
+
+    <div class="flow-card compra">
+      <h4>🛒 B. Solicitud de Compra Técnica</h4>
+      <p><strong>Condición:</strong> El stock está agotado (= 0) o es un repuesto nuevo.</p>
+      <p><strong>Canal:</strong> Mesa de <strong>Compras</strong> (Bandeja de Solicitudes).</p>
+      <p><strong>Correlativo:</strong> <code>REQ-0001</code></p>
+      <p><strong>Requisitos obligatorios:</strong> Medidas técnicas precisas, rosca, diámetro y fotografía.</p>
+    </div>
+  </div>
+
+  <!-- Pantallas y Permisos -->
+  <h2>2. Dónde Interactúa Cada Rol</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Rol / Usuario</th>
+        <th>Pantalla / Menú</th>
+        <th>¿Qué Puede Ver y Hacer?</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Mecánico / Chofer / Solicitante</strong><br>(Ej. Osma, Operadores)</td>
+        <td><strong>Menú Más</strong> ➔ <code>Pedir Material / Repuesto</code></td>
+        <td>
+          • Busca en vivo las existencias del almacén.<br>
+          • Solicita despacho inmediato o compra técnica.<br>
+          • <strong>Privacidad de pedidos:</strong> Ve <strong>únicamente lo que él mismo ha solicitado</strong>.<br>
+          • Responde aclaratorias técnicas a Compras.
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Almacenista</strong></td>
+        <td><strong>Menú Inventario</strong> ➔ Pestaña <code>📥 Solicitudes</code></td>
+        <td>
+          • Ve todas las solicitudes de existencia pendientes.<br>
+          • Ve <strong>quién solicita</strong>, <strong>fecha y hora</strong> y destino.<br>
+          • Con 1 clic despacha y descuenta stock automáticamente o rechaza.
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Departamento de Compras</strong></td>
+        <td><strong>Menú Compras</strong> ➔ Pestaña <code>📥 Solicitudes</code></td>
+        <td>
+          • Bandeja de entrada de solicitudes de compra técnica.<br>
+          • Revisa medidas obligatorias y fotos de piezas dañadas.<br>
+          • Pide <strong>Aclaratorias Técnicas</strong> al solicitante.<br>
+          • <strong>Convierte a Requerimiento Oficial</strong> asignando proveedor y cotización.
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Administradores / Gerencia</strong></td>
+        <td>Todas las pantallas</td>
+        <td>
+          • En "Mis Pedidos" tiene un selector para ver <strong>Solo sus pedidos</strong> o <strong>Ver Todo</strong>.<br>
+          • Aprueba requerimientos finales para emisión de órdenes de compra.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="page-break"></div>
+
+  <!-- Paso a Paso para el Solicitante -->
+  <h2>3. Cómo Solicitar Material (Paso a Paso)</h2>
+
+  <h3><span class="step-number">1</span> Selección del Destino y Solicitante</h3>
+  <p>
+    Al ingresar a <strong>Pedir Material / Repuesto</strong>, el operador selecciona primero para qué
+    equipo es el repuesto:
+  </p>
+  <ul>
+    <li><strong>🚜 Maquinaria:</strong> Selector con código de máquina (Jumbo 330, D6R, Payloader, etc.).</li>
+    <li><strong>🚐 Vehículo:</strong> Selector de placas de camiones y camionetas.</li>
+    <li><strong>🏢 Área:</strong> Taller mecánico, Obras, Cocina, Campamento.</li>
+  </ul>
+
+  <h3><span class="step-number">2</span> Buscador de Existencias en Tiempo Real</h3>
+  <p>
+    Escribe el nombre del repuesto. La tarjeta del producto indicará su estado exacto:
+  </p>
+
+  <div class="card-mockup">
+    <div class="mockup-header">
+      <div>
+        <div class="mockup-code">Filtro de Aceite LF16015 · Cummins</div>
+        <small style="color: #64748b;">SKU: INV-0042 · Categoría: Filtros</small>
+      </div>
+      <span class="pill dispatched">En Existencia (Stock: 4 UND)</span>
+    </div>
+    <p style="margin: 6px 0; font-size: 9pt; color: #059669; font-weight: 700;">
+      ✓ Hay disponibilidad física en el almacén central.
+    </p>
+    <div style="margin-top: 8px;">
+      <span class="btn-mock btn-green">📦 Pedir al almacén (Existencia)</span>
+    </div>
+  </div>
+
+  <div class="card-mockup">
+    <div class="mockup-header">
+      <div>
+        <div class="mockup-code">Correa de Alternador 13x1150</div>
+        <small style="color: #64748b;">SKU: INV-0108 · Categoría: Correas</small>
+      </div>
+      <span class="pill pending">Agotado (Stock: 0 UND)</span>
+    </div>
+    <p style="margin: 6px 0; font-size: 9pt; color: #d97706; font-weight: 700;">
+      ⚠️ No hay unidades en almacén. Requiere compra técnica.
+    </p>
+    <div style="margin-top: 8px;">
+      <span class="btn-mock btn-blue">🛒 Sin stock ➔ Solicitar Compra Técnica</span>
+    </div>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Regla de Oro en Compras Técnicas: Medidas Obligatorias</div>
+    Al solicitar una compra técnica, el sistema <strong>NO permite guardar</strong> sin especificar las dimensiones,
+    diámetro, tipo de rosca, paso, voltaje o número de parte, además de sugerir adjuntar la fotografía de la muestra.
+    Esto elimina el 100% de las compras equivocadas.
+  </div>
+
+  <!-- Pestaña Mis Pedidos -->
+  <h2>4. Pestaña «Mis Pedidos» (Seguimiento Personal y Vista Admin)</h2>
+  <p>
+    Cada trabajador puede hacer seguimiento en vivo del estado de sus peticiones:
+  </p>
+  <ul>
+    <li><strong>Usuarios Regulares (Mecánicos, Choferes):</strong> Ven estrictamente sus pedidos personales. No se mezclan con los pedidos de otros compañeros.</li>
+    <li><strong>Administradores:</strong> Cuentan con el botón toggle para alternar entre:
+      <br><code>[ 👤 Solo Mis Pedidos ]</code> y <code>[ 🏢 Ver Todo (Admin) ]</code>.
+    </li>
+  </ul>
+
+  <!-- Bandeja de Almacén -->
+  <h2>5. Bandeja de Almacén: Despacho en 1-Clic</h2>
+  <p>
+    En <strong>Inventario ➔ Solicitudes</strong>, el almacenista ve cada solicitud entrante con todos sus metadatos:
+  </p>
+
+  <div class="card-mockup">
+    <div class="mockup-header">
+      <div>
+        <div class="mockup-code">SOL-0014 · Filtro de Aceite LF16015</div>
+        <small style="color: #64748b;">Destino: Maquinaria JUMBO 330</small>
+      </div>
+      <span class="pill pending">⏳ Pendiente</span>
+    </div>
+
+    <!-- Metadatos unificados -->
+    <div class="meta-box">
+      <div style="display: flex; justify-content: space-between;">
+        <span>👤 <strong>Solicitado por:</strong> Osma (Taller Mecánico)</span>
+        <span>🕒 <strong>Fecha/Hora:</strong> 23/10/2026 09:30</span>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; background: #f1f5f9; padding: 8px; border-radius: 4px; margin: 8px 0;">
+      <span><strong>Pedido:</strong> 1 UND</span>
+      <span style="color: #059669; font-weight: 800;">Stock en anaquel: 4 UND</span>
+    </div>
+
+    <div style="display: flex; gap: 8px; margin-top: 8px;">
+      <span class="btn-mock btn-green">✓ Despachar y Descontar Stock (1-clic)</span>
+      <span class="btn-mock btn-red">✕ Rechazar</span>
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+
+  <!-- Bandeja de Compras -->
+  <h2>6. Bandeja de Compras: Solicitudes y Conversión a Requerimiento</h2>
+  <p>
+    En el módulo <strong>Compras</strong>, la nueva pestaña <strong>«📥 Solicitudes»</strong> centraliza
+    todas las compras técnicas pedidas desde el campo antes de convertirse en requerimientos formales:
+  </p>
+
+  <div class="card-mockup">
+    <div class="mockup-header">
+      <div>
+        <div class="mockup-code">REQ-0021 · Manguera Hidráulica 3/4 Alta Presión</div>
+        <small style="color: #64748b;">Destino: Payloader CAT 980F · Área: Obras</small>
+      </div>
+      <span class="pill pending">⏳ Pendiente de Cotización</span>
+    </div>
+
+    <!-- Metadatos de Compras -->
+    <div class="meta-box">
+      <div style="display: flex; justify-content: space-between;">
+        <span>👤 <strong>Solicitado por:</strong> Manuel González</span>
+        <span>🕒 <strong>Fecha/Hora:</strong> 23/10/2026 10:15</span>
+      </div>
+      <div style="margin-top: 4px; color: #475569;">
+        🚜 <strong>Equipo:</strong> Payloader 980F · Falla de fuga en cilindro de levante
+      </div>
+    </div>
+
+    <!-- Caja de especificaciones técnicas -->
+    <div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 10px; border-radius: 6px; margin: 8px 0;">
+      <div style="color: #1e40af; font-weight: 800; font-size: 9pt;">📐 ESPECIFICACIONES TÉCNICAS DEL TALLER:</div>
+      <div style="color: #1e3a8a; font-size: 9.5pt; margin-top: 2px;">
+        "Longitud 1.20 metros, rosca JIC hembra 1 pulgada en ambos extremos, reforzada 4 mallas (4000 PSI). Ver foto de conexión."
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 8px; margin-top: 10px;">
+      <span class="btn-mock btn-blue">🔄 Convertir a Requerimiento</span>
+      <span class="btn-mock btn-orange">⚠️ Pedir Aclaratoria Técnica</span>
+      <span class="btn-mock btn-red">✕ Rechazar</span>
+    </div>
+  </div>
+
+  <h3>Acción A: Convertir a Requerimiento</h3>
+  <p>
+    Al presionar <strong>«Convertir a Requerimiento»</strong>, Compras abre la ficha comercial donde:
+  </p>
+  <ol>
+    <li>Asigna el <strong>Proveedor cotizado</strong> (ej. Atlanta's Ferretero, Hidráulicos del Centro).</li>
+    <li>Indica el <strong>Precio cotizado</strong> unitario en dólares o bolívares.</li>
+    <li>Asigna la <strong>Empresa Pagadora</strong> (Constructora Liscioni, Golden Touch, etc.).</li>
+    <li>Al presionar <strong>Oficializar</strong>, la solicitud queda promovida automáticamente para la aprobación de Gerencia General.</li>
+  </ol>
+
+  <h3>Acción B: Bucle de Aclaratoria Técnica</h3>
+  <p>
+    Si la medida no está clara o el proveedor indica que existen dos modelos:
+  </p>
+  <ol>
+    <li>Compras presiona <strong>«Pedir Aclaratoria»</strong> e ingresa la duda técnica.</li>
+    <li>El estado pasa a <code>⚠️ En Aclaratoria Técnica</code>.</li>
+    <li>El solicitante (mecánico) recibe el aviso en su campana y en su pestaña «Mis Pedidos» con botón directo para responder las medidas solicitadas.</li>
+    <li>Al responder, el ticket regresa a Compras listo para cerrar la cotización.</li>
+  </ol>
+
+  <!-- Resumen de Estados -->
+  <h2>7. Resumen de Estados en Pantalla</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Estado</th>
+        <th>Color / Ícono</th>
+        <th>Significado Operativo</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Pendiente</strong></td>
+        <td><span class="pill pending">⏳ Pendiente</span></td>
+        <td>El pedido fue emitido y está a la espera de despacho en almacén o cotización en compras.</td>
+      </tr>
+      <tr>
+        <td><strong>En Aclaratoria</strong></td>
+        <td><span class="pill clarification">⚠️ En Aclaratoria</span></td>
+        <td>Compras solicitó medidas o fotos complementarias al mecánico.</td>
+      </tr>
+      <tr>
+        <td><strong>Convertido / Aprobado</strong></td>
+        <td><span class="pill approved">✅ Convertido</span></td>
+        <td>La solicitud de compra ya tiene proveedor y precio cotizado, lista para compra.</td>
+      </tr>
+      <tr>
+        <td><strong>Despachado</strong></td>
+        <td><span class="pill dispatched">📦 Despachado</span></td>
+        <td>El material fue entregado físicamente por el almacén y descontado del stock.</td>
+      </tr>
+      <tr>
+        <td><strong>Rechazado</strong></td>
+        <td><span class="pill" style="background:#fee2e2; color:#dc2626;">❌ Rechazado</span></td>
+        <td>No procede el despacho o compra; incluye la nota explicativa del motivo.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Pie de página -->
+  <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #e2e8f0; font-size: 8.5pt; color: #64748b; text-align: center;">
+    Control de Combustible, Almacén y Compras — Documento Operativo de Capacitación · Sistema MGG
+  </div>
+
+</div>
+
+</body>
+</html>

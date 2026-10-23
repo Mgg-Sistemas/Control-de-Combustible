@@ -23,6 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
+import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
 import {
@@ -65,10 +66,17 @@ const dmyOf = (iso: string) => {
 
 export default function SolicitudMaterialScreen() {
   const { colors } = useTheme();
-  const { session, fullName } = useAuth();
+  const { session, fullName, role, moduleLevel } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const uid = session?.user?.id ?? null;
+  const esAdmin =
+    role === 'admin' ||
+    levelMeets(moduleLevel('inventario'), 'escritura') ||
+    levelMeets(moduleLevel('compras'), 'escritura');
+
+  // Si es admin, puede alternar entre ver solo sus pedidos o ver todo
+  const [verTodosAdmin, setVerTodosAdmin] = useState(false);
 
   // Pestaña activa: 'nueva' (crear solicitud) | 'mis_solicitudes' (historial y seguimiento)
   const [tab, setTab] = useState<'nueva' | 'mis_solicitudes'>('nueva');
@@ -399,10 +407,38 @@ export default function SolicitudMaterialScreen() {
     }
   };
 
+  // ── Filtrado: cada quien ve sus propios pedidos, admin puede ver todo ─────
+  const stockRequestsFiltradas = useMemo(() => {
+    if (esAdmin && verTodosAdmin) return stockRequests || [];
+    return (stockRequests || []).filter((s) => {
+      if (s.created_by && s.created_by === uid) return true;
+      if (fullName && s.solicitante_nombre && norm(s.solicitante_nombre) === norm(fullName)) return true;
+      return false;
+    });
+  }, [stockRequests, esAdmin, verTodosAdmin, uid, fullName]);
+
+  const requirementsFiltradas = useMemo(() => {
+    const soloTecnicas = (requirements || []).filter((r) => {
+      return (
+        Boolean(r.solicitante_nombre) ||
+        (r.title && r.title.toLowerCase().includes('pedido técnico')) ||
+        (r.observaciones && r.observaciones.toLowerCase().includes('portal técnico'))
+      );
+    });
+
+    if (esAdmin && verTodosAdmin) return soloTecnicas;
+
+    return soloTecnicas.filter((r) => {
+      if (r.requested_by && r.requested_by === uid) return true;
+      if (fullName && r.solicitante_nombre && norm(r.solicitante_nombre) === norm(fullName)) return true;
+      return false;
+    });
+  }, [requirements, esAdmin, verTodosAdmin, uid, fullName]);
+
   // Cantidad de aclaratorias pendientes por responder
   const totalAclaratorias = useMemo(() => {
-    return (requirements || []).filter((r) => r.status === 'aclaratoria_solicitada').length;
-  }, [requirements]);
+    return requirementsFiltradas.filter((r) => r.status === 'aclaratoria_solicitada').length;
+  }, [requirementsFiltradas]);
 
   const inp = {
     backgroundColor: colors.surfaceAlt,
@@ -919,8 +955,69 @@ export default function SolicitudMaterialScreen() {
       {/* ════════════════════════════════════════════════════════════════════════ */}
       {tab === 'mis_solicitudes' && (
         <View style={{ gap: spacing.md }}>
+          {/* Selector para Administradores: Mis Pedidos vs Todos los Pedidos */}
+          {esAdmin && (
+            <View
+              style={{
+                flexDirection: 'row',
+                backgroundColor: colors.surface,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: 3,
+                marginBottom: spacing.xs,
+              }}
+            >
+              <TouchableOpacity
+                onPress={() => setVerTodosAdmin(false)}
+                activeOpacity={0.8}
+                style={{
+                  flex: 1,
+                  paddingVertical: 7,
+                  borderRadius: radius.pill,
+                  backgroundColor: !verTodosAdmin ? colors.brand : 'transparent',
+                  alignItems: 'center',
+                }}
+              >
+                <Text
+                  style={{
+                    color: !verTodosAdmin ? colors.brandContrast : colors.text,
+                    fontWeight: '800',
+                    fontSize: 12,
+                  }}
+                >
+                  👤 Solo Mis Pedidos
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setVerTodosAdmin(true)}
+                activeOpacity={0.8}
+                style={{
+                  flex: 1,
+                  paddingVertical: 7,
+                  borderRadius: radius.pill,
+                  backgroundColor: verTodosAdmin ? colors.brand : 'transparent',
+                  alignItems: 'center',
+                }}
+              >
+                <Text
+                  style={{
+                    color: verTodosAdmin ? colors.brandContrast : colors.text,
+                    fontWeight: '800',
+                    fontSize: 12,
+                  }}
+                >
+                  🏢 Ver Todo (Admin)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <Text style={{ color: colors.muted, fontSize: 12 }}>
-            Consulta el estado de tus solicitudes de existencia al almacén y solicitudes de compra.
+            {esAdmin && verTodosAdmin
+              ? 'Mostrando todos los pedidos de la empresa (modo administrador).'
+              : 'Mostrando tus pedidos personales de existencia y solicitudes de compra técnica.'}
           </Text>
 
           {/* 1) Sección Aclaratorias Técnicas pendientes (Prioridad Máxima) */}
@@ -936,7 +1033,7 @@ export default function SolicitudMaterialScreen() {
                 Compras se comunicó con el proveedor y requiere medidas adicionales para cerrar la compra:
               </Text>
 
-              {requirements
+              {requirementsFiltradas
                 .filter((r) => r.status === 'aclaratoria_solicitada')
                 .map((r) => {
                   return (
@@ -995,14 +1092,14 @@ export default function SolicitudMaterialScreen() {
           )}
 
           {/* 2) Solicitudes de Despacho de Almacén (Existencias) */}
-          <SectionTitle>📦 Pedidos de Despacho al Almacén ({stockRequests?.length || 0})</SectionTitle>
-          {stockRequests?.length === 0 ? (
+          <SectionTitle>📦 Pedidos de Despacho al Almacén ({stockRequestsFiltradas?.length || 0})</SectionTitle>
+          {stockRequestsFiltradas?.length === 0 ? (
             <EmptyState
               title="Sin pedidos de almacén"
-              subtitle="No has solicitado materiales del stock de almacén todavía."
+              subtitle="No hay solicitudes de existencia para mostrar."
             />
           ) : (
-            stockRequests.map((s) => {
+            stockRequestsFiltradas.map((s) => {
               const est = ESTADO_EXISTENCIA_CONFIG[s.status] || ESTADO_EXISTENCIA_CONFIG.pendiente;
               const urg = URGENCIA_CONFIG[s.urgency] || URGENCIA_CONFIG.normal;
               return (
@@ -1063,14 +1160,14 @@ export default function SolicitudMaterialScreen() {
           )}
 
           {/* 3) Requerimientos de Compra (Técnicos) */}
-          <SectionTitle>🛒 Requerimientos de Compra ({requirements?.length || 0})</SectionTitle>
-          {requirements?.length === 0 ? (
+          <SectionTitle>🛒 Solicitudes de Compra Técnica ({requirementsFiltradas?.length || 0})</SectionTitle>
+          {requirementsFiltradas?.length === 0 ? (
             <EmptyState
-              title="Sin requerimientos de compra"
-              subtitle="No hay solicitudes de compra registradas."
+              title="Sin solicitudes de compra"
+              subtitle="No hay solicitudes de compra técnica para mostrar."
             />
           ) : (
-            requirements.slice(0, 30).map((r) => {
+            requirementsFiltradas.slice(0, 30).map((r) => {
               const est = ESTADO_COMPRA_CONFIG[r.status] || ESTADO_COMPRA_CONFIG.pendiente;
               return (
                 <Card key={r.id} style={{ gap: 6 }}>

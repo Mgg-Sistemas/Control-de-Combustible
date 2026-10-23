@@ -10,6 +10,7 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { CuentasTab, CUENTAS_TABS } from './CuentasScreen';
 import { RequerimientoTab } from './RequerimientoTab';
+import { SolicitudesCompraTab } from './SolicitudesCompraTab';
 import { ServiciosTab } from './ServiciosTab';
 import { pickAndUploadDocFile } from '../lib/photo';
 import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa, DirectPurchase } from '../types/database';
@@ -1472,6 +1473,7 @@ export default function ComprasScreen() {
   const cuentasWrite = levelMeets(moduleLevel('cuentas'), 'escritura');
 
   const TABS = [
+    { key: 'solicitudes', label: 'Solicitudes', icon: '📥' },
     { key: 'requerimiento', label: 'Requerimiento', icon: '📝' },
     { key: 'directas', label: 'Compras directas', icon: '🛒' },
     { key: 'servicios', label: 'Servicios', icon: '🧰' },
@@ -1481,7 +1483,7 @@ export default function ComprasScreen() {
     { key: 'mangueras', label: 'Mangueras', icon: '🔧' },
     ...(veCuentas ? CUENTAS_TABS : []),
   ];
-  const [active, setActive] = useState('requerimiento');
+  const [active, setActive] = useState('solicitudes');
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -1503,7 +1505,23 @@ export default function ComprasScreen() {
           // `key` fuerza remontar al cambiar de tipo: cada uno arranca con su
           // propio buscador y formulario limpios.
           <CuentasTab key={active} tipo={active} canWrite={cuentasWrite} />
-        ) : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : active === 'directas' ? <ComprasDirectasTab canWrite={canWrite} /> : active === 'servicios' ? <ServiciosTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : active === 'mangueras' ? <ManguerasAprobarTab canWrite={canWrite} /> : <ProveedoresTab canWrite={canWrite} />}
+        ) : active === 'solicitudes' ? (
+          <SolicitudesCompraTab canWrite={canWrite} />
+        ) : active === 'requerimiento' ? (
+          <RequerimientoTab canWrite={canWrite} />
+        ) : active === 'directas' ? (
+          <ComprasDirectasTab canWrite={canWrite} />
+        ) : active === 'servicios' ? (
+          <ServiciosTab canWrite={canWrite} />
+        ) : active === 'ordenes' ? (
+          <OrdenesTab canWrite={canWrite} />
+        ) : active === 'resumen' ? (
+          <ResumenTab />
+        ) : active === 'mangueras' ? (
+          <ManguerasAprobarTab canWrite={canWrite} />
+        ) : (
+          <ProveedoresTab canWrite={canWrite} />
+        )}
       </View>
     </View>
   );

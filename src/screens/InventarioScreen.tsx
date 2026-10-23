@@ -2670,17 +2670,42 @@ function SolicitudesExistenciaTab({ canWrite }: { canWrite: boolean }) {
             <Card key={s.id} style={{ gap: 8 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <View style={{ flex: 1, paddingRight: spacing.sm }}>
-                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>
+                  <Text style={{ fontWeight: '900', fontSize: 15, color: colors.text }}>
                     {s.code} · {s.item_name}
                   </Text>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 1 }}>
-                    {targetLabel(s)} · Solicita: <Text style={{ color: colors.text, fontWeight: '700' }}>{s.solicitante_nombre || 'Personal'}</Text>
+                    {targetLabel(s)}
                   </Text>
                 </View>
 
-                <View style={{ backgroundColor: est.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill }}>
+                <View style={{ backgroundColor: est.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill }}>
                   <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }}>
                     {est.icon} {est.label}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Fila destacada de Solicitante y Fecha/Hora */}
+              <View
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  padding: spacing.sm,
+                  borderRadius: radius.sm,
+                  gap: 3,
+                  borderLeftWidth: 3,
+                  borderLeftColor: colors.brand,
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                  <Text style={{ color: colors.text, fontSize: 12 }}>
+                    👤 <Text style={{ fontWeight: '700' }}>Solicitado por:</Text>{' '}
+                    <Text style={{ color: colors.brandText, fontWeight: '800' }}>
+                      {s.solicitante_nombre || 'Personal'}
+                    </Text>
+                  </Text>
+
+                  <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                    🕒 <Text style={{ fontWeight: '700' }}>Fecha/Hora:</Text> {fmtDate(s.created_at)}
                   </Text>
                 </View>
               </View>
