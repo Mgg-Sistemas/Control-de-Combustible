@@ -426,9 +426,9 @@ export function PresupuestoFormModal({
                 )}
               </View>
 
-              {/* Lista horizontal de empresas filtradas */}
+              {/* Lista de empresas filtradas (con wrap para accesibilidad en computadoras con mouse) */}
               {empresasFiltradas.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: 2 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, paddingVertical: 2 }}>
                   {empresasFiltradas.map((emp) => {
                     const sel = emp.id === companyId;
                     return (
@@ -450,7 +450,7 @@ export function PresupuestoFormModal({
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </View>
               ) : (
                 <Text style={{ fontSize: 11, color: colors.muted, fontStyle: 'italic', paddingVertical: 6 }}>
                   No se encontraron empresas con "{searchEmpresa}".
@@ -825,7 +825,7 @@ export function PresupuestoFormModal({
                       <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.muted, marginBottom: 3 }}>
                         Modalidad de Cobro / Unidad:
                       </Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                         {UNIDADES_ALQUILER.map((u) => {
                           const isSel = it.unit === u.key;
                           return (
@@ -847,7 +847,7 @@ export function PresupuestoFormModal({
                             </TouchableOpacity>
                           );
                         })}
-                      </ScrollView>
+                      </View>
                       {it.unit === 'personalizado' && (
                         <TextInput
                           value={it.unit_label || ''}

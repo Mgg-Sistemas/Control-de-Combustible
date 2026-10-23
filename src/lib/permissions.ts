@@ -64,6 +64,7 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'contactos', label: 'Contactos' },
   { key: 'ventas', label: 'Ventas' },
   { key: 'caja', label: 'Caja' },
+  { key: 'solicitudes_material', label: 'Pedir Material / Repuestos' },
 ];
 
 /** Nivel por defecto para un usuario no-admin sin fila explícita.
