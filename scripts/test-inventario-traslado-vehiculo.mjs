@@ -59,6 +59,10 @@ const { ladoTrasladoEnPalabras, PASOS_SIN_MIGRACION_TRASLADO, quitarColumnasFila
   cargar('src/lib/salidaVehiculo.ts');
 const { notaTrasladoHtml } = cargar('src/lib/notaTraslado.ts', {
   './logoData': { LOGO_DATA_URI: 'data:,logo' },
+  './logoGoldenTouchData': { GOLDEN_TOUCH_LOGO_DATA_URI: 'data:,gold' },
+  './logoRenaceData': { RENACE_LOGO_DATA_URI: 'data:,renace' },
+  './logoJhenzaenData': { JHENZAEN_LOGO_DATA_URI: 'data:,jhenzaen' },
+  './logoBcvData': { BCV_LOGO_DATA_URI: 'data:,bcv' },
   './company': { COMPANY_NAME: 'EMPRESA DE PRUEBA' },
 });
 
@@ -209,8 +213,9 @@ console.log('INVENTARIO — vehículo en la nota de traslado\n');
   // Nada de esto se coló en las demás pestañas.
   // Se recortan los bloques CRUDOS (con sus comentarios); recortar la versión ya
   // limpia no coincidiría con el archivo y dejaría las dos pestañas dentro.
+  const movimientos = bloque(scr, 'function MovimientosTab(', '\nfunction NotaTab(');
   const nota = bloque(scr, 'function NotaTab(', '\nfunction TrasladoTab(');
-  const resto = sinComentarios(scr.replace(trCrudo, '').replace(nota, ''));
+  const resto = sinComentarios(scr.replace(trCrudo, '').replace(nota, '').replace(movimientos, ''));
   // Sin los `import` de la cabecera: ahí el nombre aparece por fuerza.
   const restoSinImports = resto.split('\n').filter((l) => !/^import /.test(l)).join('\n');
   ok('ninguna otra pestaña carga vehicles', !/useTable<Vehicle>/.test(restoSinImports));

@@ -12,9 +12,11 @@ import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Vehicle, Employee, InventoryRequirement, RequirementLine, InventoryTransfer, UniformDelivery, InventoryStockRequest } from '../types/database';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
+import * as ImagePicker from 'expo-image-picker';
+import { notaEntregaHtml, NotaItem, LogosConfig, NotaFoto } from '../lib/notaEntrega';
+import { COMPANY_NAME } from '../lib/company';
 import { etiquetaVehiculo, textoBusquedaVehiculo, detalleVehiculoNota, ladoTrasladoEnPalabras, PASOS_SIN_MIGRACION, PASOS_SIN_MIGRACION_TRASLADO, quitarColumnas, quitarColumnasFila } from '../lib/salidaVehiculo';
-import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
+import { notaTrasladoHtml, TrasladoItem, TrasladoFoto } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
 import { URGENCIA_CONFIG, ESTADO_EXISTENCIA_CONFIG, formatRejectionNote, parseRejectionNote } from '../lib/solicitudMaterial';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
@@ -150,6 +152,137 @@ const MOV_KIND: Record<string, { label: string; color: string; sign: string }> =
   consumo: { label: '🔥 Consumo', color: '#EA580C', sign: '−' },
   ajuste: { label: '🔧 Ajuste', color: '#2563EB', sign: '' },
 };
+
+function LogosPicker({
+  logos,
+  onChange,
+  colors,
+}: {
+  logos: LogosConfig;
+  onChange: (l: LogosConfig) => void;
+  colors: any;
+}) {
+  const opts: { key: keyof LogosConfig; label: string }[] = [
+    { key: 'golden', label: '✨ Golden Touch' },
+    { key: 'sos', label: '🛟 SOS La Guaira' },
+    { key: 'renace', label: '🇻🇪 Venezuela Renace' },
+    { key: 'jhenzaen', label: '🏗️ Jhenzaen' },
+    { key: 'bcv', label: '🏦 BCV' },
+  ];
+  const toggle = (k: keyof LogosConfig) => {
+    onChange({ ...logos, [k]: !logos[k] });
+  };
+  const activos = opts.filter((o) => !!logos[o.key]).map((o) => o.label);
+
+  return (
+    <View style={{ marginTop: spacing.sm, marginBottom: spacing.xs }}>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+        🏷️ ¿Qué logos lleva el formato?
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+        {opts.map((o) => {
+          const on = !!logos[o.key];
+          return (
+            <TouchableOpacity
+              key={o.key}
+              onPress={() => toggle(o.key)}
+              style={{
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: on ? colors.brand : colors.border,
+                backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                paddingHorizontal: spacing.md,
+                paddingVertical: spacing.xs,
+              }}
+            >
+              <Text
+                style={{
+                  color: on ? colors.brandContrast : colors.text,
+                  fontWeight: '700',
+                  fontSize: 12,
+                }}
+              >
+                {o.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
+        {activos.length ? `Logos en el membrete: ${activos.join(' · ')}` : 'Sin logos en el membrete'}
+      </Text>
+    </View>
+  );
+}
+
+function UploaderFotos({
+  fotos,
+  onTomarFoto,
+  onGaleriaFoto,
+  onRemoveFoto,
+  colors,
+}: {
+  fotos: { uri: string; caption?: string }[];
+  onTomarFoto: () => void;
+  onGaleriaFoto: () => void;
+  onRemoveFoto: (idx: number) => void;
+  colors: any;
+}) {
+  return (
+    <View style={{ marginTop: spacing.sm, marginBottom: spacing.xs }}>
+      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: 4 }}>
+        📷 Registro fotográfico de conformidad
+      </Text>
+      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+        Toma fotos con la cámara o selecciona imágenes de la galería para anexarlas al comprobante impreso.
+      </Text>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+        <TouchableOpacity
+          onPress={onTomarFoto}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border,
+            borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+          }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>📸 Tomar foto</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onGaleriaFoto}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border,
+            borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+          }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🖼️ Galería</Text>
+        </TouchableOpacity>
+      </View>
+      {fotos.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {fotos.map((f, idx) => (
+              <View key={idx} style={{ position: 'relative', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
+                <Image source={{ uri: f.uri }} style={{ width: 85, height: 85, backgroundColor: colors.surface }} />
+                <TouchableOpacity
+                  onPress={() => onRemoveFoto(idx)}
+                  style={{
+                    position: 'absolute', top: 3, right: 3,
+                    backgroundColor: 'rgba(220, 38, 38, 0.85)',
+                    borderRadius: 12, width: 22, height: 22,
+                    alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
 
 function Pill({ label, color }: { label: string; color: string }) {
   return (
@@ -926,8 +1059,110 @@ function MovimientosTab() {
   const toast = useToast();
   const { data: movs, loading, refetch } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_movements' });
   const { data: items } = useTable<InventoryItem>('inventory_items', { orderBy: 'name' });
+  const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  const { data: transfers } = useTable<InventoryTransfer>('inventory_transfers', { orderBy: 'created_at', ascending: false });
+  const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
+  const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
+  const companyNameById = (id: string | null) => (id ? (companies.find((c) => c.id === id)?.name ?? '') : '');
+  const machineLabel = (m: Machinery) => [m.code, companyNameById(m.company_id) || null, m.plate ? `Placa ${m.plate}` : (m.serial ? `Serial ${m.serial}` : null)].filter(Boolean).join(' · ');
+  const machineName = (id: string) => { const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : ''; };
+  const vehicleName = (id: string) => { const v = vehicles.find((x) => x.id === id); return v ? etiquetaVehiculo(v, companyNameById(v.company_id ?? null)) : ''; };
+  const empName = (e: Employee) => `${(e as any).first_name ?? ''} ${(e as any).last_name ?? ''}`.trim() || 'Sin nombre';
   const itemName = (id: string) => items.find((i) => i.id === id)?.name ?? 'Producto';
   const itemUnit = (id: string) => items.find((i) => i.id === id)?.unit ?? '';
+
+  const reimprimirSalidaDesdeMovimiento = async (m: InventoryMovement) => {
+    const t = new Date(m.created_at).getTime();
+    const hermanos = movs.filter((x) => {
+      const xt = new Date(x.created_at).getTime();
+      return x.kind === 'salida' && Math.abs(xt - t) <= 4000 && x.reason === m.reason && x.company_id === m.company_id;
+    });
+    const itemsRows = (hermanos.length ? hermanos : [m]).map((x) => ({
+      name: itemName(x.item_id),
+      qty: Number(x.qty) || 0,
+      unit: itemUnit(x.item_id) || 'und',
+    }));
+
+    const comp = companies.find((c) => c.id === m.company_id);
+    const compName = comp?.name || null;
+    const compRif = comp?.rif || (/golden\s*touch/i.test(compName || '') ? 'J-50129993-5' : null);
+
+    const mac = (m as any).machinery_id ? machines.find((x) => x.id === (m as any).machinery_id) : null;
+    const macLabel = mac ? machineLabel(mac) : null;
+
+    const veh = (m as any).vehicle_id ? vehicles.find((x) => x.id === (m as any).vehicle_id) : null;
+    const vehLabel = veh ? vehicleName(veh.id) : null;
+
+    const empDet = (m as any).employees_detail && (m as any).employees_detail.length
+      ? (m as any).employees_detail
+      : ((m as any).employee_ids || []).map((id: string) => {
+          const emp = employees.find((e: any) => e.id === id);
+          return { name: emp ? empName(emp) : 'Personal', cedula: (emp as any)?.cedula || null, cargo: (emp as any)?.cargo || null };
+        });
+
+    const dmy = fmtDate(m.created_at);
+    const html = notaEntregaHtml({
+      fecha: dmy,
+      empresa: compName,
+      empresaEmisora: compName ? { nombre: compName, rif: compRif } : { nombre: COMPANY_NAME, rif: null },
+      destino: m.reason ? m.reason.replace(/^NOTA DE SALIDA(\s*·\s*)?/, '').trim() || null : null,
+      maquina: macLabel,
+      vehiculo: vehLabel,
+      empleadosDetalle: empDet.length ? empDet : undefined,
+      empleados: empDet.map((e: any) => e.name),
+      items: itemsRows,
+      logos: compName && /golden/i.test(compName) ? { golden: true, sos: true } : { sos: true, golden: true },
+    });
+
+    await exportPdf(html, `Nota de salida - ${dmy}`);
+  };
+
+  const reimprimirTrasladoDesdeMovimiento = async (m: InventoryMovement) => {
+    const t = new Date(m.created_at).getTime();
+    const tr = transfers.find((x) => {
+      const xt = new Date(x.created_at).getTime();
+      return Math.abs(xt - t) <= 15000 || (m.reason && x.motivo && m.reason.includes(x.motivo));
+    });
+
+    const dmy = fmtDate(m.created_at);
+    if (tr) {
+      const comp = companies.find((c) => c.id === tr.company_id);
+      const compName = comp?.name || null;
+      const compRif = comp?.rif || (/golden\s*touch/i.test(compName || '') ? 'J-50129993-5' : null);
+
+      const html = notaTrasladoHtml({
+        fecha: dmy,
+        empresa: (tr as any).to_company_name || compName,
+        empresaEmisora: compName ? { nombre: compName, rif: compRif } : { nombre: COMPANY_NAME, rif: null },
+        fromMaquina: tr.from_machinery_label || null,
+        fromVehiculo: (tr as any).from_vehicle_label || null,
+        fromEmpleado: tr.from_employee_name || null,
+        toMaquina: tr.to_machinery_label || null,
+        toVehiculo: (tr as any).to_vehicle_label || null,
+        toEmpleado: tr.to_employee_name || null,
+        motivo: tr.motivo || null,
+        lugar: tr.lugar || null,
+        estado: tr.estado || null,
+        items: (tr.items || []).map((it) => ({ name: it.name, qty: it.qty, unit: it.unit })),
+        logos: compName && /golden/i.test(compName) ? { golden: true, sos: true } : { sos: true, golden: true },
+      });
+      await exportPdf(html, `Nota de traslado - ${dmy}`);
+    } else {
+      const comp = companies.find((c) => c.id === m.company_id);
+      const compName = comp?.name || null;
+      const compRif = comp?.rif || (/golden\s*touch/i.test(compName || '') ? 'J-50129993-5' : null);
+      const html = notaTrasladoHtml({
+        fecha: dmy,
+        empresa: compName,
+        empresaEmisora: compName ? { nombre: compName, rif: compRif } : { nombre: COMPANY_NAME, rif: null },
+        motivo: m.reason ? m.reason.replace(/^NOTA DE TRASLADO(\s*·\s*)?/, '').trim() || null : null,
+        items: [{ name: itemName(m.item_id), qty: Number(m.qty) || 0, unit: itemUnit(m.item_id) || 'und' }],
+        logos: compName && /golden/i.test(compName) ? { golden: true, sos: true } : { sos: true, golden: true },
+      });
+      await exportPdf(html, `Nota de traslado - ${dmy}`);
+    }
+  };
 
   // Revertir una SALIDA: devuelve la cantidad al inventario. El stock es DERIVADO de los
   // movimientos (vista inventory_levels), así que al borrar la salida el stock sube solo,
@@ -1132,6 +1367,22 @@ function MovimientosTab() {
                   >
                     <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 Reporte</Text>
                   </TouchableOpacity>
+                  {m.kind === 'salida' && m.reason && m.reason.startsWith('NOTA DE SALIDA') ? (
+                    <TouchableOpacity
+                      onPress={() => reimprimirSalidaDesdeMovimiento(m)}
+                      style={{ alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📄 Reimprimir nota de salida</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {m.reason && m.reason.startsWith('NOTA DE TRASLADO') ? (
+                    <TouchableOpacity
+                      onPress={() => reimprimirTrasladoDesdeMovimiento(m)}
+                      style={{ alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📄 Reimprimir nota de traslado</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   {m.kind === 'salida' ? (
                     <TouchableOpacity
                       onPress={() => revertirSalida(m)}
@@ -1158,6 +1409,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   // Realtime desde AMBAS tablas: el stock cambia por inventory_movements y la carga/estado
   // se guardan en inventory_items → sin esta última, tildar carga/estado no llegaba a los otros equipos.
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: ['inventory_movements', 'inventory_items'] });
+  const { data: allMovs, refetch: refetchMovs } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_movements' });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   // Vehículos (tabla `vehicles`, la pestaña Vehículos del catálogo): son OTRA tabla, por eso
   // antes no salían en la nota aunque uno buscara la placa.
@@ -1166,6 +1418,8 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const companyNameById = (id: string | null) => (id ? (companies.find((c) => c.id === id)?.name ?? '') : '');
 
+  const [view, setView] = useState<'nueva' | 'lista'>('nueva');
+  const [qSalidas, setQSalidas] = useState('');
   const [q, setQ] = useState('');
   const [cart, setCart] = useState<{ id: string; name: string; unit: string; qty: number; avg_cost: number; stock: number; company_id: string | null }[]>([]);
   const [destino, setDestino] = useState('');
@@ -1185,10 +1439,70 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   // NO se crean como empresa ni empleado, así que NO entran en la nómina.
   const [empresaLibre, setEmpresaLibre] = useState('');
   const [personaLibre, setPersonaLibre] = useState('');
-  // Empresa REGISTRADA a la que se carga la salida (se guarda en el movimiento).
+  // Empresa REGISTRADA a la que se carga la salida / que entrega (se guarda en el movimiento).
   const [salidaCompanyId, setSalidaCompanyId] = useState<string | null>(null);
   const [companyOpen, setCompanyOpen] = useState(false);
   const [companyQuery, setCompanyQuery] = useState('');
+
+  // Logos y fotos
+  const [logos, setLogos] = useState<LogosConfig>({
+    golden: true,
+    sos: true,
+    renace: false,
+    jhenzaen: false,
+    bcv: false,
+  });
+  const [fotos, setFotos] = useState<NotaFoto[]>([]);
+
+  const handleTomarFoto = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        toast.error('Permiso de cámara denegado.');
+        return;
+      }
+      const res = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        base64: true,
+      });
+      if (!res.canceled && res.assets && res.assets[0]) {
+        const a = res.assets[0];
+        const uri = a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri;
+        if (uri) setFotos((prev) => [...prev, { uri }]);
+      }
+    } catch (err: any) {
+      toast.error('No se pudo tomar la foto: ' + (err?.message || 'Error'));
+    }
+  };
+
+  const handleGaleriaFoto = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        toast.error('Permiso de galería denegado.');
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        base64: true,
+        allowsMultipleSelection: true,
+      });
+      if (!res.canceled && res.assets && res.assets.length) {
+        const nuevas = res.assets.map((a) => ({
+          uri: a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri,
+        })).filter((x) => !!x.uri);
+        setFotos((prev) => [...prev, ...nuevas]);
+      }
+    } catch (err: any) {
+      toast.error('No se pudo cargar la imagen: ' + (err?.message || 'Error'));
+    }
+  };
+
+  const removeFoto = (index: number) => {
+    setFotos((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
@@ -1211,6 +1525,109 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
 
   const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
 
+  // Histórico de salidas agrupadas
+  type SalidaGroup = {
+    id: string;
+    created_at: string;
+    reason: string;
+    company_id: string | null;
+    machinery_id: string | null;
+    vehicle_id: string | null;
+    employee_ids: string[];
+    employees_detail?: any[];
+    items: { item_id: string; name: string; qty: number; unit: string; unit_cost: number | null }[];
+  };
+
+  const salidasHistoricas = useMemo(() => {
+    const salidas = (allMovs || []).filter((m) => m.kind === 'salida' && m.reason && m.reason.startsWith('NOTA DE SALIDA'));
+    const groups: SalidaGroup[] = [];
+    salidas.forEach((m) => {
+      const t = new Date(m.created_at).getTime();
+      const itemLevel = levels.find((l) => l.id === m.item_id);
+      const itName = itemLevel?.name || (m as any).item_name || 'Producto';
+      const itUnit = itemLevel?.unit || (m as any).item_unit || 'und';
+
+      const existing = groups.find((g) => {
+        const gt = new Date(g.created_at).getTime();
+        return Math.abs(t - gt) <= 4000 && g.reason === m.reason && g.company_id === m.company_id;
+      });
+
+      if (existing) {
+        existing.items.push({
+          item_id: m.item_id,
+          name: itName,
+          qty: Number(m.qty) || 0,
+          unit: itUnit,
+          unit_cost: m.unit_cost != null ? Number(m.unit_cost) : null,
+        });
+      } else {
+        groups.push({
+          id: m.id,
+          created_at: m.created_at,
+          reason: m.reason || '',
+          company_id: m.company_id || null,
+          machinery_id: (m as any).machinery_id || null,
+          vehicle_id: (m as any).vehicle_id || null,
+          employee_ids: (m as any).employee_ids || [],
+          employees_detail: (m as any).employees_detail || [],
+          items: [{
+            item_id: m.item_id,
+            name: itName,
+            qty: Number(m.qty) || 0,
+            unit: itUnit,
+            unit_cost: m.unit_cost != null ? Number(m.unit_cost) : null,
+          }],
+        });
+      }
+    });
+    return groups;
+  }, [allMovs, levels]);
+
+  const nqs = norm(qSalidas.trim());
+  const salidasFiltradas = useMemo(() => {
+    if (!nqs) return salidasHistoricas;
+    return salidasHistoricas.filter((g) => {
+      const maq = g.machinery_id ? machineName(g.machinery_id) : '';
+      const veh = g.vehicle_id ? vehicleName(g.vehicle_id) : '';
+      const comp = companyNameById(g.company_id);
+      const itNames = g.items.map((it) => it.name).join(' ');
+      const haystack = [g.reason, comp, maq, veh, itNames, fmtDate(g.created_at)].join(' ');
+      return norm(haystack).includes(nqs);
+    });
+  }, [salidasHistoricas, nqs, machines, vehicles, companies]);
+
+  const reimprimirSalida = async (g: SalidaGroup) => {
+    const dmy = fmtDate(g.created_at);
+    const comp = companies.find((c) => c.id === g.company_id);
+    const compName = comp?.name || null;
+    const compRif = comp?.rif || (/golden\s*touch/i.test(compName || '') ? 'J-50129993-5' : null);
+
+    const mLabel = g.machinery_id ? machineName(g.machinery_id) : null;
+    const vLabel = g.vehicle_id ? vehicleName(g.vehicle_id) : null;
+
+    const empDet = g.employees_detail && g.employees_detail.length
+      ? g.employees_detail
+      : (g.employee_ids || []).map((id) => {
+          const emp = employees.find((e: any) => e.id === id);
+          return { name: emp ? empName(emp) : 'Personal', cedula: (emp as any)?.cedula || null, cargo: (emp as any)?.cargo || null };
+        });
+
+    const html = notaEntregaHtml({
+      fecha: dmy,
+      empresa: compName,
+      empresaEmisora: compName ? { nombre: compName, rif: compRif } : { nombre: COMPANY_NAME, rif: null },
+      destino: g.reason.replace(/^NOTA DE SALIDA(\s*·\s*)?/, '').trim() || null,
+      maquina: mLabel,
+      vehiculo: vLabel,
+      empleadosDetalle: empDet.length ? empDet : undefined,
+      empleados: empDet.map((e: any) => e.name),
+      items: g.items.map((it) => ({ name: it.name, qty: it.qty, unit: it.unit })),
+      logos: compName && /golden/i.test(compName) ? { golden: true, sos: true } : { sos: true, golden: true },
+    });
+
+    await exportPdf(html, `Nota de salida - ${dmy}`);
+  };
+
   const generar = async () => {
     if (cart.length === 0) return toast.error('Agrega al menos un producto a la nota.');
     // Validación de cantidades y stock (la salida descuenta del inventario SOLO al confirmar).
@@ -1223,12 +1640,17 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     //    descuenta del inventario. Si CANCELA, no se descuenta nada y NO se pierde
     //    lo seleccionado (el carrito queda tal cual para seguir editándolo).
     const items: NotaItem[] = cart.map((c) => ({ name: c.name, qty: c.qty, unit: c.unit }));
+    const compEmisora = companies.find((c) => c.id === salidaCompanyId);
+    const compEmisoraNombre = compEmisora?.name || (companyNameById(salidaCompanyId) || empresaLibre.trim()) || COMPANY_NAME;
+    const compEmisoraRif = compEmisora?.rif || (/golden\s*touch/i.test(compEmisoraNombre) ? 'J-50129993-5' : null);
+
     let confirmado = false;
     try {
       confirmado = await exportPdf(notaEntregaHtml({
         fecha: todayDMY(),
         destino: destino.trim() || null,
         empresa: (companyNameById(salidaCompanyId) || empresaLibre.trim()) || null,
+        empresaEmisora: { nombre: compEmisoraNombre, rif: compEmisoraRif },
         maquina: machineryId ? machineName(machineryId) : null,
         vehiculo: vehicleId ? vehicleName(vehicleId) : null,
         empleados: [...empSel.map((e) => e.name), ...(personaLibre.trim() ? [personaLibre.trim()] : [])],
@@ -1238,6 +1660,8 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
           return { name: e.name, cedula: (emp as any)?.cedula ?? null, cargo: (emp as any)?.cargo ?? null };
         }) : undefined,
         items,
+        logos,
+        fotos,
       }), `Nota de salida - ${todayDMY()}`);
     } catch (e: any) {
       setBusy(false);
@@ -1286,191 +1710,299 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     }
     setBusy(false);
     setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setVehicleId(''); setVehQuery(''); setVehOpen(false); setEmpSel([]); setEmpQuery(''); setEmpresaLibre(''); setPersonaLibre(''); setSalidaCompanyId(null); setCompanyOpen(false); setCompanyQuery('');
+    setFotos([]);
     refetch();
+    refetchMovs();
     toast.success('Nota generada. La salida se descontó del inventario.');
   };
 
   if (loading) return <Screen><SkeletonList /></Screen>;
 
   return (
-    <Screen onRefresh={refetch} refreshing={loading}>
+    <Screen onRefresh={() => { refetch(); refetchMovs(); }} refreshing={loading}>
       <ConfigBanner />
       <SectionTitle>Nota de salida</SectionTitle>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-        Agrega los productos que salen, indica la cantidad y genera el documento con logo, fecha y línea de firma autorizado.
-      </Text>
 
-      {/* Productos en la nota (carrito) */}
-      {cart.length > 0 ? (
-        <Card>
-          <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>🧾 Productos en la nota ({cart.length})</Text>
-          {cart.map((c) => (
-            <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{c.name}</Text>
-                <Text style={{ color: colors.muted, fontSize: 11 }}>Stock: {qtyFmt(c.stock)} {c.unit}</Text>
-              </View>
-              <TextInput value={String(c.qty)} onChangeText={(t) => setQty(c.id, t)} keyboardType="numeric" inputMode="decimal" style={{ width: 66, textAlign: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: (descontar && c.qty > c.stock) ? colors.danger : colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text }} />
-              <Text style={{ color: colors.muted, fontSize: 12, width: 34 }}>{c.unit}</Text>
-              <TouchableOpacity onPress={() => removeFromCart(c.id)}><Text style={{ color: colors.danger, fontWeight: '800' }}>🗑</Text></TouchableOpacity>
-            </View>
-          ))}
-          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>Al generar, la salida se descuenta del inventario automáticamente.</Text>
-          {/* Máquina: lista desplegable/colapsable de TODAS las máquinas, filtrable. */}
-          <TouchableOpacity onPress={() => setMachOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🚜 Máquina: <Text style={{ color: machineryId ? colors.brandText : colors.muted }}>{machineryId ? machineName(machineryId) : 'elegir…'}</Text></Text>
-            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{machOpen ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-          {machOpen ? (
-            <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
-              <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="Filtrar por código, empresa, serial, placa, modelo…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
-              {machineryId ? (
-                <TouchableOpacity onPress={() => setMachineryId('')} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
-              ) : null}
-              <View style={{ maxHeight: 200 }}>
-                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                  {machines.filter((m) => { const s = norm(machineQuery); return !s || norm([m.code, m.serial, m.plate, m.tipo, companyNameById(m.company_id)].filter(Boolean).join(' ')).includes(s); }).map((m) => {
-                    const on = machineryId === m.id;
-                    return (
-                      <TouchableOpacity key={m.id} onPress={() => { setMachineryId(m.id); setMachOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                        <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{machineLabel(m)}</Text>
+      {/* Selector de sub-vista: Nueva salida o Realizadas (Histórico) */}
+      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.md }}>
+        <TouchableOpacity
+          onPress={() => setView('nueva')}
+          style={{
+            flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center',
+            backgroundColor: view === 'nueva' ? colors.brand : colors.surfaceAlt,
+            borderWidth: 1, borderColor: view === 'nueva' ? colors.brand : colors.border,
+          }}
+        >
+          <Text style={{ color: view === 'nueva' ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>
+            📤 Nueva salida
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setView('lista')}
+          style={{
+            flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center',
+            backgroundColor: view === 'lista' ? colors.brand : colors.surfaceAlt,
+            borderWidth: 1, borderColor: view === 'lista' ? colors.brand : colors.border,
+          }}
+        >
+          <Text style={{ color: view === 'lista' ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>
+            📋 Salidas realizadas ({salidasHistoricas.length})
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {view === 'lista' ? (
+        <>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+            Historial de notas de salida emitidas. Consulta los ítems despachados o reimprime el documento oficial.
+          </Text>
+          <TextInput
+            value={qSalidas}
+            onChangeText={setQSalidas}
+            placeholder="🔎 Buscar en salidas realizadas (producto, destino, equipo, empresa)…"
+            placeholderTextColor={colors.muted}
+            style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
+          />
+          {salidasFiltradas.length === 0 ? (
+            <EmptyState title="Sin salidas" subtitle={salidasHistoricas.length === 0 ? 'Las notas de salida que generes aparecerán aquí para consultarlas o reimprimirlas.' : 'No hay salidas que coincidan con la búsqueda.'} />
+          ) : salidasFiltradas.map((g) => {
+            const comp = companyNameById(g.company_id);
+            const mLabel = g.machinery_id ? machineName(g.machinery_id) : '';
+            const vLabel = g.vehicle_id ? vehicleName(g.vehicle_id) : '';
+            return (
+              <ExpandableCard
+                key={g.id}
+                summary={
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: '800', fontSize: 13, color: colors.text }} numberOfLines={1}>
+                        {g.reason ? g.reason.replace(/^NOTA DE SALIDA(\s*·\s*)?/, '') || 'Nota de salida' : 'Nota de salida'}
+                      </Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        {fmtDate(g.created_at)}{comp ? ` · 🏢 ${comp}` : ''}{mLabel ? ` · 🚜 ${mLabel}` : ''}{vLabel ? ` · 🚗 ${vLabel}` : ''}
+                      </Text>
+                    </View>
+                    <Pill label={`${g.items.length} producto(s)`} color={colors.brand} />
+                  </View>
+                }
+                detail={
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>Productos despachados:</Text>
+                    {g.items.map((it, i) => (
+                      <Text key={i} style={{ color: colors.text, fontSize: 13 }}>
+                        • {it.name}: <Text style={{ fontWeight: '700' }}>{qtyFmt(it.qty)} {it.unit}</Text>
+                      </Text>
+                    ))}
+                    {g.reason ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Detalle: {g.reason}</Text> : null}
+                    <View style={{ marginTop: spacing.sm }}>
+                      <TouchableOpacity
+                        onPress={() => reimprimirSalida(g)}
+                        style={{
+                          alignSelf: 'flex-start',
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.brand,
+                          borderRadius: radius.pill,
+                          paddingHorizontal: spacing.md,
+                          paddingVertical: spacing.xs,
+                        }}
+                      >
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                          🧾 Reimprimir nota de salida
+                        </Text>
                       </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </View>
-          ) : null}
+                    </View>
+                  </View>
+                }
+              />
+            );
+          })}
+        </>
+      ) : (
+        <>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+            Agrega los productos que salen, indica la cantidad, selecciona empresa emisora, logos y fotos para generar el documento.
+          </Text>
 
-          {/* Vehículo: la pestaña Vehículos del catálogo (tabla vehicles). Va aparte de la máquina
-              porque son dos tablas distintas; antes acá solo salían las máquinas. */}
-          <TouchableOpacity onPress={() => setVehOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🚗 Vehículo: <Text style={{ color: vehicleId ? colors.brandText : colors.muted }}>{vehicleId ? vehicleName(vehicleId) : 'elegir…'}</Text></Text>
-            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{vehOpen ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-          {vehOpen ? (
-            <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
-              <TextInput value={vehQuery} onChangeText={setVehQuery} placeholder="Filtrar por nombre, placa, marca, modelo, encargado, empresa…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
-              {vehicleId ? (
-                <TouchableOpacity onPress={() => setVehicleId('')} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
-              ) : null}
-              <View style={{ maxHeight: 200 }}>
-                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                  {vehicles.length === 0 ? (
-                    <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: 6 }}>No hay vehículos cargados en el Catálogo de equipos (pestaña Vehículos).</Text>
-                  ) : vehicles.filter((v) => { const s = norm(vehQuery); return !s || norm(textoBusquedaVehiculo(v, companyNameById(v.company_id ?? null))).includes(s); }).map((v) => {
-                    const on = vehicleId === v.id;
-                    return (
-                      <TouchableOpacity key={v.id} onPress={() => { setVehicleId(v.id); setVehOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                        <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{etiquetaVehiculo(v, companyNameById(v.company_id ?? null))}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </View>
-          ) : null}
-
-          {/* Empleados: lista desplegable/colapsable de TODA la nómina, filtrable, multi. */}
-          <TouchableOpacity onPress={() => setEmpOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>👷 Recibe: <Text style={{ color: empSel.length ? colors.brandText : colors.muted }}>{empSel.length ? `${empSel.length} empleado(s)` : 'elegir…'}</Text></Text>
-            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{empOpen ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-          {empSel.length ? (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-              {empSel.map((e) => (
-                <TouchableOpacity key={e.id} onPress={() => setEmpSel((prev) => prev.filter((x) => x.id !== e.id))} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                  <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '700' }}>{e.name}</Text>
-                  <Text style={{ color: colors.brandContrast, fontSize: 12 }}>✕</Text>
-                </TouchableOpacity>
+          {/* Productos en la nota (carrito) */}
+          {cart.length > 0 ? (
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>🧾 Productos en la nota ({cart.length})</Text>
+              {cart.map((c) => (
+                <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{c.name}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>Stock: {qtyFmt(c.stock)} {c.unit}</Text>
+                  </View>
+                  <TextInput value={String(c.qty)} onChangeText={(t) => setQty(c.id, t)} keyboardType="numeric" inputMode="decimal" style={{ width: 66, textAlign: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: (descontar && c.qty > c.stock) ? colors.danger : colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text }} />
+                  <Text style={{ color: colors.muted, fontSize: 12, width: 34 }}>{c.unit}</Text>
+                  <TouchableOpacity onPress={() => removeFromCart(c.id)}><Text style={{ color: colors.danger, fontWeight: '800' }}>🗑</Text></TouchableOpacity>
+                </View>
               ))}
-            </View>
-          ) : null}
-          {empOpen ? (
-            <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm, marginTop: 2 }}>
-              <TextInput value={empQuery} onChangeText={setEmpQuery} placeholder="Filtrar por nombre…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
-              <View style={{ maxHeight: 220 }}>
-                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                  {employees.filter((e) => { const s = norm(empQuery); return !s || norm(empName(e)).includes(s); }).map((e) => {
-                    const on = empSel.some((x) => x.id === (e as any).id);
-                    return (
-                      <TouchableOpacity key={(e as any).id} onPress={() => toggleEmp(e)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                        <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{empName(e)}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </View>
-          ) : null}
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>Al generar, la salida se descuenta del inventario automáticamente.</Text>
 
-          {/* Empresa REGISTRADA: se guarda en el movimiento de salida (company_id). */}
-          <TouchableOpacity onPress={() => setCompanyOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🏢 Empresa: <Text style={{ color: salidaCompanyId ? colors.brandText : colors.muted }}>{salidaCompanyId ? companyNameById(salidaCompanyId) : 'elegir…'}</Text></Text>
-            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{companyOpen ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-          {companyOpen ? (
-            <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
-              <TextInput value={companyQuery} onChangeText={setCompanyQuery} placeholder="Filtrar empresa…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
-              {salidaCompanyId ? (
-                <TouchableOpacity onPress={() => setSalidaCompanyId(null)} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
+              {/* Empresa que entrega / de la cual sale */}
+              <TouchableOpacity onPress={() => setCompanyOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🏢 Empresa que entrega (de la cual sale): <Text style={{ color: salidaCompanyId ? colors.brandText : colors.muted }}>{salidaCompanyId ? companyNameById(salidaCompanyId) : 'elegir empresa…'}</Text></Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>{companyOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {companyOpen ? (
+                <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+                  <TextInput value={companyQuery} onChangeText={setCompanyQuery} placeholder="Filtrar empresa…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+                  {salidaCompanyId ? (
+                    <TouchableOpacity onPress={() => setSalidaCompanyId(null)} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
+                  ) : null}
+                  <View style={{ maxHeight: 200 }}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {companies.filter((c) => { const s = norm(companyQuery); return !s || norm(c.name).includes(s); }).map((c) => {
+                        const on = salidaCompanyId === c.id;
+                        return (
+                          <TouchableOpacity key={c.id} onPress={() => { setSalidaCompanyId(c.id); setCompanyOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{c.name}{c.rif ? ` (${c.rif})` : ''}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </View>
               ) : null}
-              <View style={{ maxHeight: 200 }}>
-                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                  {companies.filter((c) => { const s = norm(companyQuery); return !s || norm(c.name).includes(s); }).map((c) => {
-                    const on = salidaCompanyId === c.id;
-                    return (
-                      <TouchableOpacity key={c.id} onPress={() => { setSalidaCompanyId(c.id); setCompanyOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                        <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{c.name}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </View>
+
+              {/* Logos seleccionables */}
+              <LogosPicker logos={logos} onChange={setLogos} colors={colors} />
+
+              {/* Máquina: lista desplegable/colapsable de TODAS las máquinas, filtrable con placa. */}
+              <TouchableOpacity onPress={() => setMachOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🚜 Máquina: <Text style={{ color: machineryId ? colors.brandText : colors.muted }}>{machineryId ? machineName(machineryId) : 'elegir…'}</Text></Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>{machOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {machOpen ? (
+                <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+                  <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="Filtrar por código, empresa, serial, placa, modelo…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+                  {machineryId ? (
+                    <TouchableOpacity onPress={() => setMachineryId('')} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
+                  ) : null}
+                  <View style={{ maxHeight: 200 }}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {machines.filter((m) => { const s = norm(machineQuery); return !s || norm([m.code, m.serial, m.plate, m.tipo, companyNameById(m.company_id)].filter(Boolean).join(' ')).includes(s); }).map((m) => {
+                        const on = machineryId === m.id;
+                        return (
+                          <TouchableOpacity key={m.id} onPress={() => { setMachineryId(m.id); setMachOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{machineLabel(m)}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </View>
+              ) : null}
+
+              {/* Vehículo: la pestaña Vehículos del catálogo (tabla vehicles). */}
+              <TouchableOpacity onPress={() => setVehOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🚗 Vehículo: <Text style={{ color: vehicleId ? colors.brandText : colors.muted }}>{vehicleId ? vehicleName(vehicleId) : 'elegir…'}</Text></Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>{vehOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {vehOpen ? (
+                <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+                  <TextInput value={vehQuery} onChangeText={setVehQuery} placeholder="Filtrar por nombre, placa, marca, modelo, encargado, empresa…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+                  {vehicleId ? (
+                    <TouchableOpacity onPress={() => setVehicleId('')} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
+                  ) : null}
+                  <View style={{ maxHeight: 200 }}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {vehicles.length === 0 ? (
+                        <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: 6 }}>No hay vehículos cargados en el Catálogo de equipos (pestaña Vehículos).</Text>
+                      ) : vehicles.filter((v) => { const s = norm(vehQuery); return !s || norm(textoBusquedaVehiculo(v, companyNameById(v.company_id ?? null))).includes(s); }).map((v) => {
+                        const on = vehicleId === v.id;
+                        return (
+                          <TouchableOpacity key={v.id} onPress={() => { setVehicleId(v.id); setVehOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{etiquetaVehiculo(v, companyNameById(v.company_id ?? null))}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </View>
+              ) : null}
+
+              {/* Empleados: lista desplegable/colapsable de TODA la nómina */}
+              <TouchableOpacity onPress={() => setEmpOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>👷 Recibe: <Text style={{ color: empSel.length ? colors.brandText : colors.muted }}>{empSel.length ? `${empSel.length} empleado(s)` : 'elegir…'}</Text></Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>{empOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {empSel.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                  {empSel.map((e) => (
+                    <TouchableOpacity key={e.id} onPress={() => setEmpSel((prev) => prev.filter((x) => x.id !== e.id))} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                      <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '700' }}>{e.name}</Text>
+                      <Text style={{ color: colors.brandContrast, fontSize: 12 }}>✕</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
+              {empOpen ? (
+                <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm, marginTop: 2 }}>
+                  <TextInput value={empQuery} onChangeText={setEmpQuery} placeholder="Filtrar por nombre…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+                  <View style={{ maxHeight: 220 }}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {employees.filter((e) => { const s = norm(empQuery); return !s || norm(empName(e)).includes(s); }).map((e) => {
+                        const on = empSel.some((x) => x.id === (e as any).id);
+                        return (
+                          <TouchableOpacity key={(e as any).id} onPress={() => toggleEmp(e)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{empName(e)}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </View>
+              ) : null}
+
+              {/* Empresa / persona NO registradas */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🏢 Empresa destino NO registrada</Text>
+              <TextInput value={empresaLibre} onChangeText={(t) => setEmpresaLibre(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. CONSTRUCTORA EXTERNA…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🧑 Persona que recibe NO registrada</Text>
+              <TextInput value={personaLibre} onChangeText={setPersonaLibre} placeholder="Nombre de quien recibe (no es empleado)" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Destino / motivo</Text>
+              <TextInput value={destino} onChangeText={(t) => setDestino(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. OBRA CARABALLEDA, MANTENIMIENTO…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+
+              {/* Registro fotográfico */}
+              <UploaderFotos fotos={fotos} onTomarFoto={handleTomarFoto} onGaleriaFoto={handleGaleriaFoto} onRemoveFoto={removeFoto} colors={colors} />
+
+              <TouchableOpacity onPress={generar} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy ? 'Generando…' : '🧾 Generar nota de salida (PDF)'}</Text>
+              </TouchableOpacity>
+            </Card>
           ) : null}
 
-          {/* Empresa / persona NO registradas (texto libre). NO entran en la nómina. */}
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🏢 Empresa NO registrada (opcional)</Text>
-          <TextInput value={empresaLibre} onChangeText={(t) => setEmpresaLibre(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. CONSTRUCTORA EXTERNA…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🧑 Persona que recibe NO registrada (opcional)</Text>
-          <TextInput value={personaLibre} onChangeText={setPersonaLibre} placeholder="Nombre de quien recibe (no es empleado)" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-          <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>La empresa/persona no registrada solo salen en la nota; NO se agregan a la nómina.</Text>
+          <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto con stock…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.sm }} />
 
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Destino / motivo (opcional)</Text>
-          <TextInput value={destino} onChangeText={(t) => setDestino(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. OBRA CARABALLEDA, MANTENIMIENTO…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-          <TouchableOpacity onPress={generar} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
-            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy ? 'Generando…' : '🧾 Generar nota de salida (PDF)'}</Text>
-          </TouchableOpacity>
-        </Card>
-      ) : null}
-
-      <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto con stock…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.sm }} />
-
-      {filtered.length === 0 ? (
-        <EmptyState title="Sin stock disponible" subtitle="No hay productos con existencia para la nota." />
-      ) : filtered.map((it) => {
-        const added = !!inCart(it.id);
-        return (
-          <Card key={it.id}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{it.name}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Stock: {qtyFmt(it.stock)} {it.unit || ''}</Text>
-              </View>
-              {canWrite ? (
-                <TouchableOpacity onPress={() => addToCart(it)} disabled={added} style={{ backgroundColor: added ? colors.surfaceAlt : colors.brand, borderWidth: added ? 1 : 0, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-                  <Text style={{ color: added ? colors.muted : colors.brandContrast, fontWeight: '700', fontSize: 13 }}>{added ? '✓ Agregado' : '+ Agregar'}</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          </Card>
-        );
-      })}
+          {filtered.length === 0 ? (
+            <EmptyState title="Sin stock disponible" subtitle="No hay productos con existencia para la nota." />
+          ) : filtered.map((it) => {
+            const added = !!inCart(it.id);
+            return (
+              <Card key={it.id}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{it.name}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>Stock: {qtyFmt(it.stock)} {it.unit || ''}</Text>
+                  </View>
+                  {canWrite ? (
+                    <TouchableOpacity onPress={() => addToCart(it)} disabled={added} style={{ backgroundColor: added ? colors.surfaceAlt : colors.brand, borderWidth: added ? 1 : 0, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                      <Text style={{ color: added ? colors.muted : colors.brandContrast, fontWeight: '700', fontSize: 13 }}>{added ? '✓ Agregado' : '+ Agregar'}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </Card>
+            );
+          })}
+        </>
+      )}
     </Screen>
   );
 }
@@ -1534,6 +2066,69 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const [open, setOpen] = useState<string | null>(null); // 'fromMach' | 'fromVeh' | 'fromEmp' | 'toMach' | 'toVeh' | 'toEmp'
   const [pick, setPick] = useState('');
 
+  // Empresa emisora (de la cual sale / que entrega), logos configurables y fotos
+  const [trCompanyId, setTrCompanyId] = useState('');
+  const [trCompanyOpen, setTrCompanyOpen] = useState(false);
+  const [trCompanyQuery, setTrCompanyQuery] = useState('');
+  const [trLogos, setTrLogos] = useState<LogosConfig>({
+    golden: true,
+    sos: false,
+    renace: false,
+    jhenzaen: false,
+    bcv: false,
+  });
+  const [trFotos, setTrFotos] = useState<TrasladoFoto[]>([]);
+
+  const handleTomarFotoTr = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        toast.error('Permiso de cámara denegado.');
+        return;
+      }
+      const res = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        base64: true,
+      });
+      if (!res.canceled && res.assets && res.assets[0]) {
+        const a = res.assets[0];
+        const uri = a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri;
+        if (uri) setTrFotos((prev) => [...prev, { uri }]);
+      }
+    } catch (err: any) {
+      toast.error('No se pudo tomar la foto: ' + (err?.message || 'Error'));
+    }
+  };
+
+  const handleGaleriaFotoTr = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        toast.error('Permiso de galería denegado.');
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        base64: true,
+        allowsMultipleSelection: true,
+      });
+      if (!res.canceled && res.assets && res.assets.length) {
+        const nuevas = res.assets.map((a) => ({
+          uri: a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri,
+        })).filter((x) => !!x.uri);
+        setTrFotos((prev) => [...prev, ...nuevas]);
+      }
+    } catch (err: any) {
+      toast.error('No se pudo cargar la imagen: ' + (err?.message || 'Error'));
+    }
+  };
+
+  const removeFotoTr = (index: number) => {
+    setTrFotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
   const inCart = (id: string) => cart.find((c) => c.id === id);
@@ -1593,7 +2188,11 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     );
   };
 
-  const machOptions = useMemo(() => machines.map((m) => ({ id: m.id, text: machineLabel(m) })), [machines]);
+  const machOptions = useMemo(() => machines.map((m) => ({
+    id: m.id,
+    text: machineLabel(m),
+    busca: [m.code, m.plate, m.serial, m.tipo, companyNameById(m.company_id)].filter(Boolean).join(' '),
+  })), [machines, companies]);
   // `busca` lleva marca, modelo, encargado y empresa aunque no se muestren en la fila.
   const vehOptions = useMemo(() => vehicles.map((v) => {
     const empresa = companyNameById(v.company_id ?? null);
@@ -1619,10 +2218,17 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     setBusy(true);
     // 1) VISTA PREVIA primero. Solo si el usuario imprime/guarda se descuenta y se registra.
     const items: TrasladoItem[] = cart.map((c) => ({ name: c.name, qty: c.qty, unit: c.unit }));
+    const empEmisoraObj = companies.find((c) => c.id === trCompanyId) || (cart[0]?.company_id ? companies.find((c) => c.id === cart[0].company_id) : null);
+    const empresaEmisora = empEmisoraObj ? {
+      nombre: empEmisoraObj.name,
+      rif: (empEmisoraObj as any).rif || null,
+    } : (trLogos.golden ? { nombre: 'GOLDEN TOUCH 1127 C.A', rif: 'J-50129993-5' } : undefined);
+
     let confirmado = false;
     try {
       confirmado = await exportPdf(notaTrasladoHtml({
         fecha: todayDMY(),
+        empresaEmisora,
         empresa: toEmpresaLibre.trim() || null,
         fromMaquina: fromMachId ? machName(fromMachId) : null,
         fromVehiculo: fromVehId ? vehName(fromVehId) : null,
@@ -1634,6 +2240,8 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
         toEmpleadoDetalle: toEmpId ? empDetalleById(toEmpId) : undefined,
         motivo: motivo.trim() || null,
         items,
+        logos: trLogos,
+        fotos: trFotos,
       }), `Nota de traslado - ${todayDMY()}`);
     } catch (e: any) {
       setBusy(false);
@@ -1650,12 +2258,12 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     const rows = cart.map((c) => ({
       item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
       reason: `NOTA DE TRASLADO · ${detalle}${motivo.trim().toUpperCase() ? ` · ${motivo.trim().toUpperCase()}` : ''}`,
-      company_id: c.company_id, created_by: session?.user?.id ?? null,
+      company_id: trCompanyId || c.company_id, created_by: session?.user?.id ?? null,
     }));
     const { error: mErr } = await supabase.from('inventory_movements').insert(rows);
     if (mErr) { setBusy(false); return toast.error(mErr.message); }
     const transferPayload: Record<string, any> = {
-      company_id: cart[0]?.company_id ?? null,
+      company_id: trCompanyId || (cart[0]?.company_id ?? null),
       from_machinery_id: fromMachId || null, from_machinery_label: fromMachId ? machName(fromMachId) : null,
       from_vehicle_id: fromVehId || null, from_vehicle_label: fromVehId ? vehName(fromVehId) : null,
       from_employee_id: fromEmpId || null, from_employee_name: fromEmpId ? empNameById(fromEmpId) : null,
@@ -1684,8 +2292,50 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     if (tErr) { setBusy(false); return toast.error(tErr.message); }
     setBusy(false);
     setCart([]); setMotivo(''); setLugar(''); setEstadoMat(''); setFromMachId(''); setFromVehId(''); setFromEmpId(''); setToMachId(''); setToVehId(''); setToEmpId(''); setToEmpresaLibre(''); setToPersonaLibre('');
+    setTrFotos([]); setTrCompanyId(''); setTrLogos({ golden: true, sos: false, renace: false, jhenzaen: false, bcv: false });
     refetch(); refetchTr();
     toast.success('Traslado registrado. La salida se descontó del inventario.');
+  };
+
+  // Reimpresión de una Nota de Traslado histórica
+  const reimprimirTraslado = async (t: InventoryTransfer) => {
+    try {
+      const d = t.created_at ? new Date(t.created_at) : new Date();
+      const p = (n: number) => String(n).padStart(2, '0');
+      const dmy = `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+
+      const empEmisoraObj = t.company_id ? companies.find((c) => c.id === t.company_id) : null;
+      const empresaEmisora = empEmisoraObj ? {
+        nombre: empEmisoraObj.name,
+        rif: (empEmisoraObj as any).rif || null,
+      } : { nombre: 'GOLDEN TOUCH 1127 C.A', rif: 'J-50129993-5' };
+
+      const items: TrasladoItem[] = (t.items ?? []).map((it) => ({
+        name: it.name,
+        qty: it.qty,
+        unit: it.unit,
+      }));
+
+      const html = notaTrasladoHtml({
+        fecha: dmy,
+        empresaEmisora,
+        empresa: (t as any).to_company_name || null,
+        fromMaquina: t.from_machinery_label || (t.from_machinery_id ? machName(t.from_machinery_id) : null),
+        fromVehiculo: (t as any).from_vehicle_label || ((t as any).from_vehicle_id ? vehName((t as any).from_vehicle_id) : null),
+        fromEmpleado: t.from_employee_name || (t.from_employee_id ? empNameById(t.from_employee_id) : null),
+        toMaquina: t.to_machinery_label || (t.to_machinery_id ? machName(t.to_machinery_id) : null),
+        toVehiculo: (t as any).to_vehicle_label || ((t as any).to_vehicle_id ? vehName((t as any).to_vehicle_id) : null),
+        toEmpleado: t.to_employee_name || (t.to_employee_id ? empNameById(t.to_employee_id) : null),
+        fromEmpleadoDetalle: t.from_employee_id ? empDetalleById(t.from_employee_id) : undefined,
+        toEmpleadoDetalle: t.to_employee_id ? empDetalleById(t.to_employee_id) : undefined,
+        motivo: t.motivo || null,
+        items,
+        logos: { golden: true, sos: false, renace: false, jhenzaen: false, bcv: false },
+      });
+      await exportPdf(html, `Nota de traslado - ${dmy}`);
+    } catch (e: any) {
+      toast.error('No se pudo reimprimir el traslado: ' + (e?.message || 'Error'));
+    }
   };
 
   // ── Retornar al inventario un traslado ────────────────────────────────────
@@ -1832,13 +2482,30 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
                   <Text key={i} style={{ color: colors.text, fontSize: 13 }}>• {it.name}: {qtyFmt(it.qty)} {it.unit || ''}</Text>
                 ))}
                 {t.motivo ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Motivo: {t.motivo}</Text> : null}
-                {t.returned ? (
-                  <Text style={{ color: colors.success, fontSize: 12, marginTop: spacing.xs }}>Retornado{t.returned_at ? ` · ${fmtDate(t.returned_at)}` : ''}{t.return_note ? ` · ${t.return_note}` : ''}</Text>
-                ) : canWrite ? (
-                  <TouchableOpacity onPress={() => abrirRetorno(t)} style={{ marginTop: spacing.sm, alignSelf: 'flex-start', backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>↩️ Retornar al inventario</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'center' }}>
+                  <TouchableOpacity
+                    onPress={() => reimprimirTraslado(t)}
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.brand,
+                      borderRadius: radius.pill,
+                      paddingHorizontal: spacing.md,
+                      paddingVertical: spacing.xs,
+                    }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                      🧾 Reimprimir nota
+                    </Text>
                   </TouchableOpacity>
-                ) : null}
+                  {t.returned ? (
+                    <Text style={{ color: colors.success, fontSize: 12 }}>Retornado{t.returned_at ? ` · ${fmtDate(t.returned_at)}` : ''}{t.return_note ? ` · ${t.return_note}` : ''}</Text>
+                  ) : canWrite ? (
+                    <TouchableOpacity onPress={() => abrirRetorno(t)} style={{ backgroundColor: colors.success, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>↩️ Retornar al inventario</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
             }
           />
@@ -1875,18 +2542,68 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
           <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>DESTINO (a dónde va)</Text>
           {selector({ id: 'toMach', icon: '🚜', label: 'Máquina destino', valueId: toMachId, valueText: machName(toMachId), onPick: setToMachId, options: machOptions })}
           {selector({ id: 'toVeh', icon: '🚗', label: 'Vehículo destino', valueId: toVehId, valueText: vehName(toVehId), onPick: setToVehId, options: vehOptions })}
-          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>➕ Agregar responsable destino (opcional): la persona que RECIBE en el destino.</Text>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>➕ Responsable destino: la persona que RECIBE en el destino.</Text>
           {selector({ id: 'toEmp', icon: '👷', label: 'Responsable destino', valueId: toEmpId, valueText: empNameById(toEmpId), onPick: setToEmpId, options: empOptions })}
 
           {/* Destino NO registrado (texto libre): empresa/persona fuera del sistema. NO entra en nómina. */}
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🏢 Empresa destino NO registrada (opcional)</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🏢 Empresa destino NO registrada</Text>
           <TextInput value={toEmpresaLibre} onChangeText={(t) => setToEmpresaLibre(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. CONSTRUCTORA EXTERNA…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🧑 Persona que recibe NO registrada (opcional)</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🧑 Persona que recibe NO registrada</Text>
           <TextInput value={toPersonaLibre} onChangeText={setToPersonaLibre} placeholder="Nombre de quien recibe (no es empleado)" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
           <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>La empresa/persona no registrada solo salen en la nota y el registro; NO se agregan a la nómina.</Text>
 
+          {/* Empresa que entrega / de la cual sale */}
+          <TouchableOpacity onPress={() => setTrCompanyOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🏢 Empresa que entrega (de la cual sale): <Text style={{ color: trCompanyId ? colors.brandText : colors.muted }}>{trCompanyId ? companyNameById(trCompanyId) : 'elegir empresa…'}</Text></Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{trCompanyOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          {trCompanyOpen ? (
+            <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+              <TextInput value={trCompanyQuery} onChangeText={setTrCompanyQuery} placeholder="Filtrar empresa…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+              {trCompanyId ? (
+                <TouchableOpacity onPress={() => { setTrCompanyId(''); setTrCompanyOpen(false); }} style={{ paddingVertical: 4, marginBottom: 4 }}>
+                  <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text>
+                </TouchableOpacity>
+              ) : null}
+              <View style={{ maxHeight: 180 }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {companies
+                    .filter((c) => {
+                      const s = norm(trCompanyQuery);
+                      return !s || norm(c.name).includes(s);
+                    })
+                    .map((c) => {
+                      const on = trCompanyId === c.id;
+                      return (
+                        <TouchableOpacity
+                          key={c.id}
+                          onPress={() => { setTrCompanyId(c.id); setTrCompanyOpen(false); }}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                        >
+                          <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{c.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Logos configurables en el formato de traslado */}
+          <LogosPicker logos={trLogos} onChange={setTrLogos} colors={colors} />
+
+          {/* Subir fotos para la nota de traslado (sin decir "opcional") */}
+          <UploaderFotos
+            fotos={trFotos}
+            onTomarFoto={handleTomarFotoTr}
+            onGaleriaFoto={handleGaleriaFotoTr}
+            onRemoveFoto={removeFotoTr}
+            colors={colors}
+          />
+
           {/* LUGAR y ESTADO del material trasladado */}
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Lugar / obra a donde se hace el traslado (opcional)</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Lugar / obra a donde se hace el traslado</Text>
           <TextInput value={lugar} onChangeText={(t) => setLugar(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. OBRA GUAIRA, TALLER CENTRAL…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Estado del material</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
@@ -1900,7 +2617,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
             })}
           </View>
 
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Motivo (opcional)</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Motivo</Text>
           <TextInput value={motivo} onChangeText={(t) => setMotivo(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. REASIGNACIÓN, PRÉSTAMO DE HERRAMIENTA…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
           <TouchableOpacity onPress={generar} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy ? 'Generando…' : '🔁 Generar traslado (PDF)'}</Text>
