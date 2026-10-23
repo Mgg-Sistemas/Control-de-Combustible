@@ -23,6 +23,7 @@ import { useToast } from './ToastProvider';
 import {
   CAMPOS_TIQUE, CAMPO_FIJO, CONFIG_POR_DEFECTO, LOGOS_TIQUE, PAPELES, TEXTO_FIJO_MAX,
   cambiosRespectoAlDefecto, resumenConfig,
+  FormatoTique, FORMATO_DEFECTO_ID, crearFormatoDefecto,
   type ClaveCampo, type ClaveLogo, type PapelTique, type TiqueConfig,
 } from '../lib/tiqueConfig';
 import { guardarConfigTique, leerConfigTique } from '../lib/tiqueConfigDatos';
@@ -68,21 +69,58 @@ const EJEMPLO: Record<ClaveCampo, string> = {
   nota:        'Sin nota',
 };
 
-export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGuardado?: (c: TiqueConfig) => void }) {
+export function TiqueConfigCard({
+  uid,
+  onGuardado,
+  listeros: listerosProp,
+}: {
+  uid: string | null;
+  onGuardado?: (c: TiqueConfig) => void;
+  listeros?: { id: string; full_name?: string | null; email?: string | null }[];
+}) {
   const { colors } = useTheme();
   const toast = useToast();
+
+  const [formatos, setFormatos] = useState<FormatoTique[]>([crearFormatoDefecto()]);
+  const [formatoActivoId, setFormatoActivoId] = useState<string>(FORMATO_DEFECTO_ID);
+  const [asignaciones, setAsignaciones] = useState<Record<string, string>>({});
+  const [foliosFormatos, setFoliosFormatos] = useState<Record<string, string>>({});
+
+  const [guardadoFormatos, setGuardadoFormatos] = useState<FormatoTique[]>([crearFormatoDefecto()]);
+  const [guardadoAsignaciones, setGuardadoAsignaciones] = useState<Record<string, string>>({});
+
   const [config, setConfig] = useState<TiqueConfig>(CONFIG_POR_DEFECTO);
   const [guardado, setGuardado] = useState<TiqueConfig>(CONFIG_POR_DEFECTO);
   const [cargando, setCargando] = useState(true);
   const [sinTabla, setSinTabla] = useState(false);
   const [ocupado, setOcupado] = useState(false);
 
+  // Listeros disponibles para asignar
+  const [listerosLocales, setListerosLocales] = useState<{ id: string; full_name?: string | null; email?: string | null }[]>([]);
+  useEffect(() => {
+    if (listerosProp && listerosProp.length > 0) {
+      setListerosLocales(listerosProp);
+    }
+  }, [listerosProp]);
+
+  // Carga inicial desde Supabase
   useEffect(() => {
     let vivo = true;
     leerConfigTique().then((r) => {
       if (!vivo) return;
       setConfig(r.config);
       setGuardado(r.config);
+      setFormatos(r.formatos);
+      setGuardadoFormatos(JSON.parse(JSON.stringify(r.formatos)));
+      setAsignaciones(r.asignaciones);
+      setGuardadoAsignaciones(JSON.parse(JSON.stringify(r.asignaciones)));
+      setFoliosFormatos(r.foliosFormatos);
+      const def = r.formatos.find((f) => f.esDefecto) || r.formatos[0];
+      if (def) {
+        setFormatoActivoId(def.id);
+        setConfig(def.config);
+        setGuardado(def.config);
+      }
       setSinTabla(r.sinTabla);
       setCargando(false);
       if (r.error) toast.error(`No se pudo leer la configuración del ticket: ${r.error}`);
@@ -91,35 +129,215 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sucio = useMemo(() => JSON.stringify(config) !== JSON.stringify(guardado), [config, guardado]);
+  const formatoActivo = useMemo(() => {
+    return formatos.find((f) => f.id === formatoActivoId) || formatos[0] || crearFormatoDefecto(config);
+  }, [formatos, formatoActivoId, config]);
+
+  // Detectar cambios sin guardar
+  const sucio = useMemo(() => {
+    return (
+      JSON.stringify(config) !== JSON.stringify(guardado) ||
+      JSON.stringify(formatos) !== JSON.stringify(guardadoFormatos) ||
+      JSON.stringify(asignaciones) !== JSON.stringify(guardadoAsignaciones)
+    );
+  }, [config, guardado, formatos, guardadoFormatos, asignaciones, guardadoAsignaciones]);
+
   const cambios = useMemo(() => cambiosRespectoAlDefecto(config), [config]);
 
-  const campo = (k: ClaveCampo) => setConfig((c) => ({ ...c, campos: { ...c.campos, [k]: !c.campos[k] } }));
-  const logo = (k: ClaveLogo) => setConfig((c) => ({ ...c, logos: { ...c.logos, [k]: !c.logos[k] } }));
-  const papel = (p: PapelTique) => setConfig((c) => ({ ...c, papel: p }));
+  // Cambiar de formato activo en la UI
+  const seleccionarFormato = (id: string) => {
+    if (id === formatoActivoId) return;
+    // Sincronizar el formato que se deja
+    setFormatos((prev) =>
+      prev.map((f) => (f.id === formatoActivoId ? { ...f, config: { ...config } } : f))
+    );
+    const target = formatos.find((f) => f.id === id);
+    if (target) {
+      setFormatoActivoId(target.id);
+      setConfig(target.config);
+    }
+  };
 
-  // ✍️ EL TEXTO A MANO por campo (27-sep-2026). Se escribe crudo mientras se
-  // teclea; `normalizarConfig` lo recorta y bota los vacíos al guardar. Vaciar
-  // el campo ES volver al automático, sin botón aparte.
+  // Crear nuevo formato
+  const crearNuevoFormato = () => {
+    const nuevoId = `fmt_${Date.now()}`;
+    const nuevoNum = formatos.length + 1;
+    const nuevoFmt: FormatoTique = {
+      id: nuevoId,
+      nombre: `Formato ${nuevoNum}`,
+      esDefecto: false,
+      config: JSON.parse(JSON.stringify(config)),
+      listeroIds: [],
+    };
+    // Sincronizar el formato actual antes de cambiar
+    const actualizados = formatos.map((f) => (f.id === formatoActivoId ? { ...f, config: { ...config } } : f));
+    setFormatos([...actualizados, nuevoFmt]);
+    setFormatoActivoId(nuevoId);
+    toast.success(`Formato «Formato ${nuevoNum}» creado. Configura sus campos y asigna sus listeros.`);
+  };
+
+  // Clonar formato actual
+  const clonarFormatoActual = () => {
+    const nuevoId = `fmt_${Date.now()}`;
+    const clonado: FormatoTique = {
+      id: nuevoId,
+      nombre: `${formatoActivo.nombre} (copia)`,
+      esDefecto: false,
+      config: JSON.parse(JSON.stringify(config)),
+      listeroIds: [],
+    };
+    const actualizados = formatos.map((f) => (f.id === formatoActivoId ? { ...f, config: { ...config } } : f));
+    setFormatos([...actualizados, clonado]);
+    setFormatoActivoId(nuevoId);
+    toast.success(`Copia creada: «${clonado.nombre}».`);
+  };
+
+  // Eliminar formato (solo no-defecto)
+  const eliminarFormato = (id: string) => {
+    const objetivo = formatos.find((f) => f.id === id);
+    if (!objetivo || objetivo.esDefecto) {
+      toast.error('No se puede eliminar el formato principal por defecto.');
+      return;
+    }
+    // Reasignar listeros al formato por defecto
+    const nuevasAsignaciones = { ...asignaciones };
+    (objetivo.listeroIds ?? []).forEach((lid: string) => {
+      delete nuevasAsignaciones[lid];
+    });
+    setAsignaciones(nuevasAsignaciones);
+
+    const filtrados = formatos.filter((f) => f.id !== id);
+    setFormatos(filtrados);
+    const def = filtrados.find((f) => f.esDefecto) || filtrados[0];
+    setFormatoActivoId(def.id);
+    setConfig(def.config);
+    toast.success(`Formato «${objetivo.nombre}» eliminado.`);
+  };
+
+  // Establecer formato como principal / por defecto
+  const hacerPrincipal = (id: string) => {
+    setFormatos((prev) =>
+      prev.map((f) => ({
+        ...f,
+        esDefecto: f.id === id,
+      }))
+    );
+    toast.success('Este formato es ahora el principal / por defecto.');
+  };
+
+  // Renombrar formato activo
+  const cambiarNombreFormato = (nuevoNombre: string) => {
+    setFormatos((prev) =>
+      prev.map((f) => (f.id === formatoActivoId ? { ...f, nombre: nuevoNombre } : f))
+    );
+  };
+
+  // Asignar / Desasignar listero al formato activo
+  const toggleListeroEnFormatoActivo = (listeroId: string) => {
+    const limpioId = listeroId.trim();
+    if (!limpioId) return;
+
+    const asignadoActual = asignaciones[limpioId];
+    const estaEnEste = asignadoActual === formatoActivoId || (formatoActivo.esDefecto && !asignadoActual);
+
+    const nuevasAsignaciones = { ...asignaciones };
+
+    if (estaEnEste) {
+      if (formatoActivo.esDefecto) {
+        // En defecto ya está por descarte
+        return;
+      }
+      // Se desasigna de este formato y vuelve al defecto
+      delete nuevasAsignaciones[limpioId];
+    } else {
+      // Se asigna a este formato
+      if (formatoActivo.esDefecto) {
+        delete nuevasAsignaciones[limpioId];
+      } else {
+        nuevasAsignaciones[limpioId] = formatoActivoId;
+      }
+    }
+
+    setAsignaciones(nuevasAsignaciones);
+
+    // Sincronizar listeroIds de los formatos
+    setFormatos((prev) =>
+      prev.map((f) => {
+        const ids = new Set(f.listeroIds || []);
+        if (f.id === formatoActivoId) {
+          if (estaEnEste && !f.esDefecto) ids.delete(limpioId);
+          else if (!estaEnEste && !f.esDefecto) ids.add(limpioId);
+        } else {
+          ids.delete(limpioId);
+        }
+        return { ...f, listeroIds: Array.from(ids) };
+      })
+    );
+  };
+
+  const campo = (k: ClaveCampo) => {
+    setConfig((c) => {
+      const nc = { ...c, campos: { ...c.campos, [k]: !c.campos[k] } };
+      setFormatos((prev) => prev.map((f) => (f.id === formatoActivoId ? { ...f, config: nc } : f)));
+      return nc;
+    });
+  };
+
+  const logo = (k: ClaveLogo) => {
+    setConfig((c) => {
+      const nc = { ...c, logos: { ...c.logos, [k]: !c.logos[k] } };
+      setFormatos((prev) => prev.map((f) => (f.id === formatoActivoId ? { ...f, config: nc } : f)));
+      return nc;
+    });
+  };
+
+  const papel = (p: PapelTique) => {
+    setConfig((c) => {
+      const nc = { ...c, papel: p };
+      setFormatos((prev) => prev.map((f) => (f.id === formatoActivoId ? { ...f, config: nc } : f)));
+      return nc;
+    });
+  };
+
+  // ✍️ EL TEXTO A MANO por campo (27-sep-2026)
   const [textoAbierto, setTextoAbierto] = useState<ClaveCampo | null>(null);
-  const texto = (k: ClaveCampo, v: string) => setConfig((c) => {
-    const t = { ...c.textos };
-    if (v) t[k] = v; else delete t[k];
-    return { ...c, textos: t };
-  });
+  const texto = (k: ClaveCampo, v: string) => {
+    setConfig((c) => {
+      const t = { ...c.textos };
+      if (v) t[k] = v; else delete t[k];
+      const nc = { ...c, textos: t };
+      setFormatos((prev) => prev.map((f) => (f.id === formatoActivoId ? { ...f, config: nc } : f)));
+      return nc;
+    });
+  };
 
   const guardar = async () => {
     setOcupado(true);
-    const r = await guardarConfigTique(config, uid);
+    // Sincronizar el formato activo antes de guardar
+    const formatosFinales = formatos.map((f) =>
+      f.id === formatoActivoId ? { ...f, config: { ...config } } : f
+    );
+    const def = formatosFinales.find((f) => f.esDefecto) || formatosFinales[0] || crearFormatoDefecto(config);
+    const configPrincipal = def.config;
+
+    void (() => guardarConfigTique(config, uid));
+    const r = await guardarConfigTique(config, uid, {
+      formatos: formatosFinales,
+      asignaciones,
+      foliosFormatos,
+    });
     setOcupado(false);
     if (r.sinTabla) { setSinTabla(true); toast.error('Falta correr el SQL de la ticketera. La configuración no se guardó.'); return; }
     if (r.error) { toast.error(`No se pudo guardar: ${r.error}`); return; }
-    setGuardado(config);
+
+    setGuardado({ ...config });
+    setGuardadoFormatos(JSON.parse(JSON.stringify(formatosFinales)));
+    setGuardadoAsignaciones(JSON.parse(JSON.stringify(asignaciones)));
     // La pantalla de viajes tiene su propia copia para poder imprimir sin abrir
     // esta tarjeta. Si no se le avisa, el primer ticket después de cambiar el
     // formato sale con el formato viejo y parece que el guardado no funcionó.
     onGuardado?.(config);
-    toast.success('Listo. Los tickets van a salir así desde ahora.');
+    toast.success('Listo. Los formatos de ticket y sus listeros asignados quedaron guardados.');
   };
 
   const enRollo = config.papel === 'rollo80' || config.papel === 'rollo58';
@@ -133,20 +351,15 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
   const renglones = useMemo(() => renglonesDelTique(ejemplo, config), [ejemplo, config]);
   /**
    * ⚠️ ESTE AVISO EXISTE POR UN TICKET CORTADO.
-   *
-   *    Con los datos encendidos y 4 o 6 por hoja, el recuadro se llena y lo
-   *    que sobra se pierde: primero la nota, después el estado, después la
-   *    línea de la firma. El papel se sigue imprimiendo, pero ya no sirve
-   *    para lo que se hizo. Ahora la letra se achica sola para que entre; el
-   *    aviso salta cuando ni con la más chica alcanza, y dice cuál es el
-   *    papel donde sí cabe, que es lo siguiente que va a preguntar.
    */
   const aviso = useMemo(() => avisoDeCapacidad(config), [config]);
+
+  const listerosParaMostrar = listerosLocales;
 
   return (
     <Plegable
       titulo="🎫 Qué sale en el ticket"
-      resumen={cargando ? 'Leyendo la configuración…' : sucio ? '⚠️ Tienes cambios sin guardar' : aviso ? 'No caben todos los datos en ese papel' : resumenConfig(config)}
+      resumen={cargando ? 'Leyendo la configuración…' : sucio ? '⚠️ Tienes cambios sin guardar' : aviso ? 'No caben todos los datos en ese papel' : resumenConfig(config, formatos.length)}
       alerta={sucio || sinTabla || !!aviso}
     >
       {sinTabla ? (
@@ -158,8 +371,165 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
         </View>
       ) : null}
 
+      {/* ── SELECTOR DE FORMATOS DE TICKET ── */}
+      <View style={{ marginBottom: spacing.md, backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+            🏷️ FORMATOS DE TICKET ({formatos.length})
+          </Text>
+          <TouchableOpacity
+            onPress={crearNuevoFormato}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.pill, backgroundColor: colors.brand, borderWidth: 1, borderColor: colors.brand }}
+          >
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11.5 }}>➕ Nuevo formato</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: 2 }}>
+          {formatos.map((fmt) => {
+            const activo = fmt.id === formatoActivoId;
+            const listerosDelFmt = listerosParaMostrar.filter((l) => {
+              const asig = asignaciones[l.id];
+              return fmt.esDefecto ? (!asig || asig === fmt.id) : asig === fmt.id;
+            });
+            return (
+              <TouchableOpacity
+                key={fmt.id}
+                onPress={() => seleccionarFormato(fmt.id)}
+                style={{
+                  borderRadius: radius.md,
+                  borderWidth: 1.5,
+                  borderColor: activo ? colors.brand : colors.border,
+                  backgroundColor: activo ? (colors.brand + '20') : colors.surface,
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 6,
+                  minWidth: 110,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={{ fontSize: 12 }}>{fmt.esDefecto ? '⭐' : '🎟️'}</Text>
+                  <Text style={{ color: activo ? colors.brandText : colors.text, fontWeight: activo ? '800' : '600', fontSize: 12 }} numberOfLines={1}>
+                    {fmt.nombre}
+                  </Text>
+                </View>
+                <Text style={{ color: activo ? colors.brandText : colors.muted, fontSize: 10, marginTop: 2 }}>
+                  {fmt.esDefecto ? `Defecto (${listerosDelFmt.length})` : `${listerosDelFmt.length} listero(s)`}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* Panel del formato seleccionado */}
+        <View style={{ marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1, minWidth: 160 }}>
+              <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700', marginBottom: 2 }}>NOMBRE DEL FORMATO</Text>
+              <TextInput
+                value={formatoActivo.nombre}
+                onChangeText={cambiarNombreFormato}
+                placeholder="Nombre del formato…"
+                placeholderTextColor={colors.muted}
+                maxLength={40}
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.md,
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 5,
+                  color: colors.text,
+                  fontSize: 12,
+                  backgroundColor: colors.surface,
+                }}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'flex-end', marginTop: 14 }}>
+              <TouchableOpacity
+                onPress={clonarFormatoActual}
+                style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+              >
+                <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📄 Clonar</Text>
+              </TouchableOpacity>
+
+              {!formatoActivo.esDefecto ? (
+                <>
+                  <TouchableOpacity
+                    onPress={() => hacerPrincipal(formatoActivo.id)}
+                    style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                  >
+                    <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '700' }}>⭐ Hacer principal</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => eliminarFormato(formatoActivo.id)}
+                    style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface }}
+                  >
+                    <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑️ Eliminar</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
+            </View>
+          </View>
+
+          {/* Asignación de Listeros */}
+          <View style={{ marginTop: spacing.sm, paddingTop: spacing.xs }}>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>
+              👤 LISTEROS ASIGNADOS A «{formatoActivo.nombre}»
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 6 }}>
+              {formatoActivo.esDefecto
+                ? '⭐ Formato por defecto: se aplica a todos los listeros que no tengan asignado un formato específico.'
+                : 'Toca los listeros que deben usar este formato. Si un listero se desmarca, vuelve al formato principal.'}
+            </Text>
+
+            {listerosParaMostrar.length === 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic' }}>
+                No hay usuarios con rol de listero registrados todavía.
+              </Text>
+            ) : (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {listerosParaMostrar.map((l) => {
+                  const asigId = asignaciones[l.id];
+                  const fmtAsig = asigId ? formatos.find((f) => f.id === asigId) : null;
+                  const enEsteFormato = formatoActivo.esDefecto
+                    ? (!asigId || asigId === formatoActivo.id)
+                    : (asigId === formatoActivo.id);
+
+                  return (
+                    <TouchableOpacity
+                      key={l.id}
+                      onPress={() => toggleListeroEnFormatoActivo(l.id)}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: enEsteFormato ? colors.brand : colors.border,
+                        backgroundColor: enEsteFormato ? colors.brand : colors.surface,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 5,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      <Text style={{ color: enEsteFormato ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                        {enEsteFormato ? '✓ ' : ''}👤 {l.full_name || l.email || 'Listero'}
+                      </Text>
+                      {!enEsteFormato && fmtAsig ? (
+                        <Text style={{ color: colors.warning, fontSize: 10, fontWeight: '600' }}>
+                          (en {fmtAsig.nombre})
+                        </Text>
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        </View>
+      </View>
+
       <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
-        Esto vale para TODOS: lo que marques acá es lo que imprimen los chamos en el CDT.
+        Editando configuración de «{formatoActivo.nombre}». Lo que marques acá es lo que imprimirán los listeros que tengan este formato.
         {cambios > 0 ? ` Hay ${cambios} cambio(s) respecto a como viene de fábrica.` : ''}
       </Text>
 
@@ -171,7 +541,7 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
         maxWidth: enRollo ? 260 : undefined,
       }}>
         <Text style={{ color: colors.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1, marginBottom: 6 }}>
-          ASÍ VA A SALIR · EJEMPLO
+          ASÍ VA A SALIR · EJEMPLO ({formatoActivo.nombre.toUpperCase()})
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
           {LOGOS_TIQUE.filter((l) => config.logos[l.k]).map((l) => (
@@ -253,7 +623,13 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
           return (
             <TouchableOpacity
               key={`pu-${u.k}`}
-              onPress={() => setConfig((c) => ({ ...c, pesosUnidad: u.k }))}
+              onPress={() => {
+                setConfig((c) => {
+                  const nc = { ...c, pesosUnidad: u.k };
+                  setFormatos((prev) => prev.map((f) => (f.id === formatoActivoId ? { ...f, config: nc } : f)));
+                  return nc;
+                });
+              }}
               style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingVertical: 6, paddingHorizontal: spacing.sm }}
             >
               <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
@@ -296,7 +672,11 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
         <TouchableOpacity
-          onPress={() => setConfig(guardado)}
+          onPress={() => {
+            setConfig(guardado);
+            setFormatos(JSON.parse(JSON.stringify(guardadoFormatos)));
+            setAsignaciones(JSON.parse(JSON.stringify(guardadoAsignaciones)));
+          }}
           disabled={!sucio || ocupado}
           style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, opacity: !sucio || ocupado ? 0.5 : 1 }}
         >
@@ -315,3 +695,4 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
     </Plegable>
   );
 }
+

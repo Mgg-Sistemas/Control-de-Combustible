@@ -350,7 +350,7 @@ export function Badge({
   tone = 'muted',
 }: {
   label: string;
-  tone?: 'success' | 'warning' | 'danger' | 'muted';
+  tone?: 'success' | 'warning' | 'danger' | 'muted' | 'brand';
 }) {
   const { colors } = useTheme();
   const toneColor =
@@ -360,6 +360,8 @@ export function Badge({
       ? colors.warning
       : tone === 'danger'
       ? colors.danger
+      : tone === 'brand'
+      ? colors.brand
       : colors.muted;
   return (
     <View style={[styles.badge, { borderColor: toneColor }]}>

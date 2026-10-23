@@ -16,8 +16,8 @@ import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { etiquetaVehiculo, textoBusquedaVehiculo, detalleVehiculoNota, ladoTrasladoEnPalabras, PASOS_SIN_MIGRACION, PASOS_SIN_MIGRACION_TRASLADO, quitarColumnas, quitarColumnasFila } from '../lib/salidaVehiculo';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
+import { URGENCIA_CONFIG, ESTADO_EXISTENCIA_CONFIG, formatRejectionNote, parseRejectionNote } from '../lib/solicitudMaterial';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
-import { URGENCIA_CONFIG, ESTADO_EXISTENCIA_CONFIG } from '../lib/solicitudMaterial';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -2456,7 +2456,7 @@ function SolicitudesExistenciaTab({ canWrite }: { canWrite: boolean }) {
   });
   const { data: levels, refetch: refetchLevels } = useTable<InventoryLevel>('inventory_levels');
   const { data: machines } = useTable<Machinery>('machinery');
-  const { data: vehicles } = useTable<Vehicle>('vehicles');
+  const { data: vehicles } = useTable<any>('vehicles');
 
   const [filtro, setFiltro] = useState<'pendientes' | 'despachados' | 'rechazados' | 'todos'>('pendientes');
   const [search, setSearch] = useState('');
@@ -2558,11 +2558,14 @@ function SolicitudesExistenciaTab({ canWrite }: { canWrite: boolean }) {
     }
     setRechazoBusy(true);
     try {
+      const userQuien = fullName || session?.user?.email || 'Almacenista / Supervisor';
+      const notaFormateada = formatRejectionNote(userQuien, motivoRechazo.trim());
+
       const { error } = await supabase
         .from('inventory_stock_requests')
         .update({
           status: 'rechazado',
-          rejection_note: motivoRechazo.trim(),
+          rejection_note: notaFormateada,
         })
         .eq('id', targetReq.id);
 
@@ -2751,11 +2754,24 @@ function SolicitudesExistenciaTab({ canWrite }: { canWrite: boolean }) {
                 </Text>
               )}
 
-              {s.status === 'rechazado' && (
-                <Text style={{ color: '#DC2626', fontSize: 11.5, fontWeight: '700', marginTop: 2 }}>
-                  ✕ Motivo de rechazo: {s.rejection_note || 'Sin motivo'}
-                </Text>
-              )}
+              {s.status === 'rechazado' && (() => {
+                const rej = parseRejectionNote(s.rejection_note);
+                return (
+                  <View style={{ backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5', padding: spacing.sm, borderRadius: radius.sm, marginTop: 4, gap: 2 }}>
+                    <Text style={{ color: '#DC2626', fontSize: 11.5, fontWeight: '800' }}>
+                      ✕ Solicitud Rechazada
+                    </Text>
+                    {rej.rejectedBy ? (
+                      <Text style={{ color: '#991B1B', fontSize: 11, fontWeight: '700' }}>
+                        Rechazado por: {rej.rejectedBy} {rej.rejectedAt ? `· ${rej.rejectedAt}` : ''}
+                      </Text>
+                    ) : null}
+                    <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
+                      Motivo: {rej.note || 'Sin motivo especificado'}
+                    </Text>
+                  </View>
+                );
+              })()}
 
               {/* Botones de acción para el almacenista */}
               {s.status === 'pendiente' && canWrite && (

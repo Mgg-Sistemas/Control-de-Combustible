@@ -126,6 +126,7 @@ console.log('LOS MODULOS DE LA AUDITORIA\n');
     ventas: 'ventas',
     caja: 'caja',
     inventario: 'inventario',
+    solicitudes_material: 'inventario',
     reportes: null,                       // solo lee
     mangueras: 'fabricacion',
     acarreo: 'acarreo',

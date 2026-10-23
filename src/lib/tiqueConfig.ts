@@ -197,6 +197,182 @@ export function normalizarConfig(bruto: any): TiqueConfig {
   return { campos, logos, papel: esPapel(bruto?.papel) ? bruto.papel : CONFIG_POR_DEFECTO.papel, textos, pesosUnidad };
 }
 
+// ── FORMATOS MÚLTIPLES DE TICKET Y ASIGNACIÓN A LISTEROS ────────────────────
+//
+// Pedido del cliente (23-oct-2026):
+// «hace falta la opcion de poder crear un formato de ticket o varios y poder
+// asignar un formato a uno o mas listero, sin que se pierda la informacion de los
+// ticket que ya esta, ademas en la lista completa de viajes, ademas de que se
+// guarde el registor de esos ticket, poder agrupar o ver un formato u otro en
+// especifico y poder identificarlos facilmente».
+
+export type FormatoTique = {
+  id: string;
+  nombre: string;
+  esDefecto?: boolean;
+  config: TiqueConfig;
+  /** IDs de los listeros que tienen asignado este formato específicamente */
+  listeroIds: string[];
+};
+
+export const FORMATO_DEFECTO_ID = 'defecto';
+export const FORMATO_DEFECTO_NOMBRE = 'Formato Principal';
+
+export function crearFormatoDefecto(config?: TiqueConfig, listeroIds: string[] = []): FormatoTique {
+  const base = config ?? CONFIG_POR_DEFECTO;
+  return {
+    id: FORMATO_DEFECTO_ID,
+    nombre: FORMATO_DEFECTO_NOMBRE,
+    esDefecto: true,
+    config: {
+      campos: { ...base.campos },
+      logos: { ...base.logos },
+      papel: base.papel,
+      textos: { ...(base.textos ?? {}) },
+      pesosUnidad: base.pesosUnidad ?? 'kg',
+    },
+    listeroIds: Array.isArray(listeroIds) ? [...listeroIds] : [],
+  };
+}
+
+/**
+ * Normaliza la lista de formatos, las asignaciones listero→formato y los registros
+ * de folios emitidos desde la base o el almacenamiento local.
+ */
+export function normalizarFormatos(
+  bruto: any,
+  configBase: TiqueConfig,
+): {
+  formatos: FormatoTique[];
+  asignaciones: Record<string, string>;
+  foliosFormatos: Record<string, string>;
+} {
+  const dc = bruto?.campos;
+  const rawFormatos = (dc && typeof dc === 'object' && Array.isArray(dc.formatos))
+    ? dc.formatos
+    : (Array.isArray(bruto?.formatos) ? bruto.formatos : []);
+
+  const rawAsig = (dc && typeof dc === 'object' && dc.asignaciones && typeof dc.asignaciones === 'object')
+    ? dc.asignaciones
+    : (bruto?.asignaciones && typeof bruto.asignaciones === 'object' ? bruto.asignaciones : {});
+
+  const rawFolios = (dc && typeof dc === 'object' && dc.foliosFormatos && typeof dc.foliosFormatos === 'object')
+    ? dc.foliosFormatos
+    : (bruto?.foliosFormatos && typeof bruto.foliosFormatos === 'object' ? bruto.foliosFormatos : {});
+
+  const asignaciones: Record<string, string> = {};
+  if (rawAsig && typeof rawAsig === 'object') {
+    Object.entries(rawAsig).forEach(([lId, fId]) => {
+      const kl = String(lId ?? '').trim();
+      const kf = String(fId ?? '').trim();
+      if (kl && kf) asignaciones[kl] = kf;
+    });
+  }
+
+  const foliosFormatos: Record<string, string> = {};
+  if (rawFolios && typeof rawFolios === 'object') {
+    Object.entries(rawFolios).forEach(([fol, fmt]) => {
+      const kfol = String(fol ?? '').trim();
+      const kfmt = String(fmt ?? '').trim();
+      if (kfol && kfmt) foliosFormatos[kfol] = kfmt;
+    });
+  }
+
+  let formatos: FormatoTique[] = [];
+  if (rawFormatos.length > 0) {
+    formatos = rawFormatos.map((f: any, idx: number) => {
+      const id = String(f?.id || (idx === 0 ? FORMATO_DEFECTO_ID : `fmt_${Date.now()}_${idx}`)).trim();
+      const nombre = String(f?.nombre || (idx === 0 ? FORMATO_DEFECTO_NOMBRE : `Formato ${idx + 1}`)).trim();
+      const cfg = normalizarConfig(f?.config || f);
+      const listeroIds = Array.isArray(f?.listeroIds)
+        ? f.listeroIds.map(String).map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      return {
+        id,
+        nombre,
+        esDefecto: f?.esDefecto === true || (idx === 0 && !rawFormatos.some((x: any) => x?.esDefecto)),
+        config: cfg,
+        listeroIds,
+      };
+    });
+  }
+
+  // Garantizar que siempre haya al menos un formato por defecto y que no esté vacío
+  if (formatos.length === 0) {
+    formatos.push(crearFormatoDefecto(configBase));
+  } else if (!formatos.some((f) => f.esDefecto)) {
+    formatos[0].esDefecto = true;
+  }
+
+  // Sincronizar asignaciones con listeroIds de los formatos
+  formatos.forEach((f) => {
+    f.listeroIds.forEach((lId) => {
+      if (!asignaciones[lId]) asignaciones[lId] = f.id;
+    });
+  });
+  Object.entries(asignaciones).forEach(([lId, fId]) => {
+    const f = formatos.find((x) => x.id === fId);
+    if (f && !f.listeroIds.includes(lId)) {
+      f.listeroIds.push(lId);
+    }
+  });
+
+  return { formatos, asignaciones, foliosFormatos };
+}
+
+/**
+ * Resuelve qué formato de ticket le corresponde a un listero.
+ * Si no tiene uno asignado explícitamente, retorna el formato por defecto.
+ */
+export function resolverFormatoParaListero(
+  formatos: FormatoTique[],
+  asignaciones: Record<string, string>,
+  listeroId: string | null | undefined,
+): FormatoTique {
+  const defecto = (formatos && formatos.find((f) => f.esDefecto)) || (formatos && formatos[0]) || crearFormatoDefecto();
+  const idLimpio = String(listeroId ?? '').trim();
+  if (!idLimpio) return defecto;
+
+  // 1. Asignación directa en mapa
+  const fmtId = asignaciones?.[idLimpio];
+  if (fmtId) {
+    const hallado = formatos.find((f) => f.id === fmtId);
+    if (hallado) return hallado;
+  }
+
+  // 2. Búsqueda en el arreglo listeroIds
+  const porArray = formatos.find((f) => Array.isArray(f.listeroIds) && f.listeroIds.includes(idLimpio));
+  if (porArray) return porArray;
+
+  return defecto;
+}
+
+/**
+ * Resuelve el formato de ticket para un viaje:
+ * 1. Si el viaje/folio ya tiene un formato registrado (sellado al emitir), usa ese.
+ * 2. Si no, resuelve con el formato del listero que registró el viaje.
+ * 3. Si no, usa el formato por defecto.
+ */
+export function resolverFormatoDeViaje(
+  viaje: { folio?: string | null; listeroId?: string | null },
+  formatos: FormatoTique[],
+  asignaciones: Record<string, string>,
+  foliosFormatos?: Record<string, string>,
+): { id: string; nombre: string; config: TiqueConfig } {
+  const defecto = (formatos && formatos.find((f) => f.esDefecto)) || (formatos && formatos[0]) || crearFormatoDefecto();
+  const fol = String(viaje?.folio ?? '').trim();
+
+  if (fol && foliosFormatos && foliosFormatos[fol]) {
+    const fVal = foliosFormatos[fol];
+    const match = formatos.find((f) => f.id === fVal || f.nombre.toLowerCase() === fVal.toLowerCase());
+    if (match) return match;
+    return { id: fVal, nombre: fVal, config: defecto.config };
+  }
+
+  const fmtListero = resolverFormatoParaListero(formatos, asignaciones, viaje?.listeroId);
+  return fmtListero;
+}
+
 /** ¿Cuántos interruptores están distintos de como vienen de fábrica? */
 export function cambiosRespectoAlDefecto(c: TiqueConfig): number {
   let n = 0;
@@ -214,7 +390,7 @@ export function cambiosRespectoAlDefecto(c: TiqueConfig): number {
 }
 
 /** Lo que se ve en el encabezado plegado: cuántos datos trae el papel. */
-export function resumenConfig(c: TiqueConfig): string {
+export function resumenConfig(c: TiqueConfig, totalFormatos = 1): string {
   const datos = (Object.keys(c.campos) as ClaveCampo[]).filter((k) => c.campos[k]).length;
   const logos = (Object.keys(c.logos) as ClaveLogo[]).filter((k) => c.logos[k]).length;
   const papel = PAPELES.find((p) => p.k === c.papel)?.label ?? c.papel;
@@ -222,5 +398,7 @@ export function resumenConfig(c: TiqueConfig): string {
   // dato del viaje es algo que hay que poder ver sin abrir la tarjeta.
   const aMano = Object.keys(c.textos ?? {}).filter((k) => c.campos[k as ClaveCampo]).length;
   const ton = (c.pesosUnidad ?? 'kg') === 't' ? ' · ⚖️ pesos en Ton' : '';
-  return `${datos} dato(s) · ${logos} logo(s) · ${papel}${aMano > 0 ? ` · ✍️ ${aMano} a mano` : ''}${ton}`;
+  const fmts = totalFormatos > 1 ? ` · 🎟️ ${totalFormatos} formatos` : '';
+  return `${datos} dato(s) · ${logos} logo(s) · ${papel}${aMano > 0 ? ` · ✍️ ${aMano} a mano` : ''}${ton}${fmts}`;
 }
+

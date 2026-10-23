@@ -12,7 +12,7 @@
 //     y exportar el reporte del rango filtrado.
 // Pedido del cliente 12-ago-2026.
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, Image, Linking } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, Image, Linking, ActivityIndicator } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -68,8 +68,8 @@ import { InformeOperativoCard } from '../components/InformeOperativoCard';
 import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
 import QrScanner from '../components/QrScanner';
 import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
-import { CONFIG_POR_DEFECTO, PAPELES, type TiqueConfig } from '../lib/tiqueConfig';
-import { leerConfigTique } from '../lib/tiqueConfigDatos';
+import { CONFIG_POR_DEFECTO, PAPELES, crearFormatoDefecto, resolverFormatoDeViaje, FORMATO_DEFECTO_ID, type TiqueConfig, type FormatoTique } from '../lib/tiqueConfig';
+import { leerConfigTique, registrarFoliosFormatosEnBase } from '../lib/tiqueConfigDatos';
 import { avisoDeCapacidad, documentoDeTiques, hojasQueSalen, medioDeImpresion, nombreArchivoTiques, type DatosTique, type TiqueParaImprimir } from '../lib/tiqueDocumento';
 import { contarEmisionesPendientes, contarEmisionesPorFolio, flushEmisionesPendientes, nuevoUuid, registrarEmisiones, type EmisionNueva } from '../lib/tiqueEmisiones';
 import { LOGO_DATA_URI } from '../lib/logoData';
@@ -1532,6 +1532,96 @@ export default function ViajesCamionesScreen() {
     // que la pastilla del estado diga lo nuevo de una vez.
     loadTrucks();
   };
+
+  // 🚦 Cambio de estado a uno, varios o todos los camiones (pedido 23-oct-2026)
+  const [masivoOpen, setMasivoOpen] = useState(false);
+  const [masivoSelectedIds, setMasivoSelectedIds] = useState<Set<string>>(new Set());
+  const [masivoQuery, setMasivoQuery] = useState('');
+  const [masivoEstado, setMasivoEstado] = useState<EstadoBasico>('operativo');
+  const [masivoMotivo, setMasivoMotivo] = useState('');
+  const [masivoBusy, setMasivoBusy] = useState(false);
+  const [masivoProgreso, setMasivoProgreso] = useState<string | null>(null);
+
+  const masivoFilteredTrucks = useMemo(() => {
+    const list = trucksSeleccionables.filter((t) => t.id !== FUERA_CATALOGO_ID);
+    const q = norm(masivoQuery);
+    if (!q) return list;
+    return list.filter((t) => {
+      return (
+        norm(t.code).includes(q) ||
+        (t.plate && norm(t.plate).includes(q)) ||
+        (t.marca && norm(t.marca).includes(q)) ||
+        (t.modelo && norm(t.modelo).includes(q)) ||
+        (t.serial && norm(t.serial).includes(q)) ||
+        (t.companyName && norm(t.companyName).includes(q))
+      );
+    });
+  }, [trucksSeleccionables, masivoQuery]);
+
+  const toggleSelectMasivo = (id: string) => {
+    setMasivoSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const seleccionarTodosMasivo = () => {
+    setMasivoSelectedIds(new Set(masivoFilteredTrucks.map((t) => t.id)));
+  };
+
+  const deseleccionarTodosMasivo = () => {
+    setMasivoSelectedIds(new Set());
+  };
+
+  const aplicarMasivoEstado = async () => {
+    if (masivoSelectedIds.size === 0) {
+      toast.error('Selecciona al menos un camión para cambiarle el estado.');
+      return;
+    }
+    const meta = ESTADO_BASICO_META[masivoEstado];
+    if (meta.necesitaMotivo && !masivoMotivo.trim()) {
+      toast.error(`Escribe el motivo de ${meta.label.toLowerCase()} (obligatorio).`);
+      return;
+    }
+    setMasivoBusy(true);
+    const total = masivoSelectedIds.size;
+    let exitos = 0;
+    const errores: string[] = [];
+
+    const idsArray = Array.from(masivoSelectedIds);
+    for (let i = 0; i < idsArray.length; i++) {
+      const id = idsArray[i];
+      setMasivoProgreso(`Actualizando ${i + 1} de ${total}…`);
+      const r = await cambiarEstadoCamion(id, masivoEstado, masivoMotivo, {
+        id: uid || null,
+        nombre: fullName || listeroName || null,
+      });
+      if (r.error) {
+        const truckObj = truckById.get(id);
+        errores.push(`${truckObj?.code || 'Camión'}: ${r.error}`);
+      } else {
+        exitos++;
+      }
+    }
+
+    setMasivoBusy(false);
+    setMasivoProgreso(null);
+    loadTrucks();
+
+    if (exitos > 0) {
+      toast.success(`${meta.icon} Se actualizó el estado a ${meta.label} en ${exitos} camión(es).`);
+    }
+    if (errores.length > 0) {
+      toast.error(`Hubo problemas con ${errores.length} camión(es):\n${errores.slice(0, 3).join('\n')}`);
+    }
+    if (exitos > 0 && errores.length === 0) {
+      setMasivoOpen(false);
+      setMasivoSelectedIds(new Set());
+      setMasivoMotivo('');
+    }
+  };
   useEffect(() => {
     if (!canWrite || soyListero) return;
     let vivo = true;
@@ -2481,6 +2571,37 @@ export default function ViajesCamionesScreen() {
   //    viaje (`ubicacion_id` + `ubicacion_nombre`), congelada al registrarlo: es
   //    la obra donde estaba el listero ESE DÍA, no donde esté hoy.
   const [filterUbicacionSel, setFilterUbicacionSel] = useState<Map<string, string>>(new Map());
+  // 🎟️ FORMATO DE TICKET (23-oct-2026, a pedido: filtrar por formato asignado o sellado).
+  const [filterFormatoSel, setFilterFormatoSel] = useState<Map<string, string>>(new Map());
+
+  /** El formato del papel. Vive en la base (una sola fila para todo el sistema)
+   *  y se lee acá aparte de la tarjeta de configuración: el listero imprime sin
+   *  abrir esa tarjeta —ni siquiera la ve— y necesita el mismo formato. */
+  const [configTique, setConfigTique] = useState<TiqueConfig>(CONFIG_POR_DEFECTO);
+  const [formatosTique, setFormatosTique] = useState<FormatoTique[]>([crearFormatoDefecto()]);
+  const [asignacionesFormatos, setAsignacionesFormatos] = useState<Record<string, string>>({});
+  const [foliosFormatos, setFoliosFormatos] = useState<Record<string, string>>({});
+  const [sinTablaTique, setSinTablaTique] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    leerConfigTique().then((r) => {
+      if (!vivo) return;
+      setConfigTique(r.config);
+      setFormatosTique(r.formatos);
+      setAsignacionesFormatos(r.asignaciones);
+      setFoliosFormatos(r.foliosFormatos);
+      setSinTablaTique(r.sinTabla);
+    });
+    return () => { vivo = false; };
+  }, [configTique]);
+
+  const formatoDeViaje = React.useCallback(
+    (r: { folio?: string | null; listeroId?: string | null }) => {
+      return resolverFormatoDeViaje(r, formatosTique, asignacionesFormatos, foliosFormatos);
+    },
+    [formatosTique, asignacionesFormatos, foliosFormatos]
+  );
   // 'detallado' = una línea por viaje (como siempre) · 'resumen' = cantidad de
   // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje ·
   // 'camiones' = qué camiones salieron, SIN ninguna cantidad (14-sep-2026).
@@ -2511,6 +2632,7 @@ export default function ViajesCamionesScreen() {
   const porListero = resumenEje === 'listero';
   const porUbicacion = resumenEje === 'ubicacion';
   const porFrente = resumenEje === 'frente';
+  const porFormato = resumenEje === 'formato';
   const toggleEn = (set: React.Dispatch<React.SetStateAction<Map<string, string>>>) =>
     (id: string, label: string) => set((prev) => { const n = new Map(prev); n.has(id) ? n.delete(id) : n.set(id, label); return n; });
   const toggleFilterListero = toggleEn(setFilterListeroSel);
@@ -2518,6 +2640,7 @@ export default function ViajesCamionesScreen() {
   const toggleFilterCompany = toggleEn(setFilterCompanySel);
   const toggleFilterTurno = toggleEn(setFilterTurnoSel);
   const toggleFilterUbicacion = toggleEn(setFilterUbicacionSel);
+  const toggleFilterFormato = toggleEn(setFilterFormatoSel);
   /**
    * ⭐ La pastilla «Todos / Todas» de cada fila de filtros (19-sep-2026).
    *
@@ -2737,7 +2860,7 @@ export default function ViajesCamionesScreen() {
    * cuando un listero se apellida igual que una empresa. El turno no lleva
    * ícono acá porque su etiqueta ya trae el suyo (☀️/🌙).
    */
-  const ICONO_EJE: Record<EjeFiltro, string> = { listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '', ubicacion: '🏗️ ' };
+  const ICONO_EJE: Record<EjeFiltro, string> = { listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '', ubicacion: '🏗️ ', formato: '🎟️ ' };
 
   const clavesDe = (r: CamionViajeRow): ClavesViaje => ({
     listero: r.listeroId,
@@ -2749,10 +2872,11 @@ export default function ViajesCamionesScreen() {
     //    viajes que el resumen sí cuenta en esa obra, y los dos números del mismo
     //    papel no cuadrarían.
     ubicacion: claveUbicacionViaje({ ubicacionId: r.ubicacionId, ubicacionName: r.ubicacionNombre }),
+    formato: formatoDeViaje(r).id,
   });
   const seleccion: SeleccionFiltros = useMemo(
-    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel, ubicacion: filterUbicacionSel }),
-    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel, filterUbicacionSel]
+    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel, ubicacion: filterUbicacionSel, formato: filterFormatoSel }),
+    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel, filterUbicacionSel, filterFormatoSel]
   );
   const listeroOptions = useMemo(
     () => opcionesDeEje(dateScopedRows, 'listero', clavesDe, (r) => ({ id: r.listeroId, label: r.listeroName }), seleccion, cmpText),
@@ -2780,30 +2904,6 @@ export default function ViajesCamionesScreen() {
     [dateScopedRows, seleccion, truckById]
   );
 
-  // ── BUSCADOR DE LOS FILTROS (31-ago-2026) ────────────────────────────────
-  // La fila de CAMIÓN son treinta pastillas que dicen todas lo mismo. Con el
-  // buscador se escribe la placa (o parte del nombre del listero, o la empresa)
-  // y quedan las que coinciden. Lo MARCADO no se esconde nunca — ver
-  // `filtrarOpciones`.
-  const [busqFiltros, setBusqFiltros] = useState('');
-  const listeroOptionsVisibles = useMemo(
-    () => filtrarOpciones(listeroOptions, busqFiltros, filterListeroSel, norm),
-    [listeroOptions, busqFiltros, filterListeroSel]
-  );
-  const companyOptionsVisibles = useMemo(
-    () => filtrarOpciones(companyOptions, busqFiltros, filterCompanySel, norm),
-    [companyOptions, busqFiltros, filterCompanySel]
-  );
-  const truckOptionsVisibles = useMemo(
-    () => filtrarOpciones(truckOptions, busqFiltros, filterTruckSel, norm),
-    [truckOptions, busqFiltros, filterTruckSel]
-  );
-  /** Cuántas opciones dejó fuera la búsqueda — para no dejar la fila vacía y muda. */
-  const ocultasPorBusqueda =
-    (listeroOptions.length - listeroOptionsVisibles.length) +
-    (companyOptions.length - companyOptionsVisibles.length) +
-    (truckOptions.length - truckOptionsVisibles.length);
-
   const turnoOptions = useMemo(
     () => opcionesDeEje(dateScopedRows, 'turno', clavesDe,
       (r) => { const t = turnoDeViaje(r.registeredAt); return { id: t, label: turnoLabel(t) }; }, seleccion, cmpText)
@@ -2826,10 +2926,52 @@ export default function ViajesCamionesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dateScopedRows, seleccion, truckById]
   );
+
+  // ── BUSCADOR DE LOS FILTROS (31-ago-2026) ────────────────────────────────
+  // La fila de CAMIÓN son treinta pastillas que dicen todas lo mismo. Con el
+  // buscador se escribe la placa (o parte del nombre del listero, o la empresa)
+  // y quedan las que coinciden. Lo MARCADO no se esconde nunca — ver
+  // `filtrarOpciones`.
+  const [busqFiltros, setBusqFiltros] = useState('');
+  const listeroOptionsVisibles = useMemo(
+    () => filtrarOpciones(listeroOptions, busqFiltros, filterListeroSel, norm),
+    [listeroOptions, busqFiltros, filterListeroSel]
+  );
+  const companyOptionsVisibles = useMemo(
+    () => filtrarOpciones(companyOptions, busqFiltros, filterCompanySel, norm),
+    [companyOptions, busqFiltros, filterCompanySel]
+  );
+  const truckOptionsVisibles = useMemo(
+    () => filtrarOpciones(truckOptions, busqFiltros, filterTruckSel, norm),
+    [truckOptions, busqFiltros, filterTruckSel]
+  );
   const ubicacionOptionsVisibles = useMemo(
     () => filtrarOpciones(ubicacionOptions, busqFiltros, filterUbicacionSel, norm),
     [ubicacionOptions, busqFiltros, filterUbicacionSel]
   );
+
+  // 🎟️ FORMATO DE TICKET (23-oct-2026, a pedido: filtrar por formato asignado o sellado)
+  const formatoOptions = useMemo(
+    () => opcionesDeEje(dateScopedRows, 'formato', clavesDe,
+      (r) => {
+        const fmt = formatoDeViaje(r);
+        return { id: fmt.id, label: fmt.nombre };
+      }, seleccion, cmpText),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById, formatosTique, asignacionesFormatos, foliosFormatos]
+  );
+  const formatoOptionsVisibles = useMemo(
+    () => filtrarOpciones(formatoOptions, busqFiltros, filterFormatoSel, norm),
+    [formatoOptions, busqFiltros, filterFormatoSel]
+  );
+
+  /** Cuántas opciones dejó fuera la búsqueda — para no dejar la fila vacía y muda. */
+  const ocultasPorBusqueda =
+    (listeroOptions.length - listeroOptionsVisibles.length) +
+    (companyOptions.length - companyOptionsVisibles.length) +
+    (truckOptions.length - truckOptionsVisibles.length) +
+    (ubicacionOptions.length - ubicacionOptionsVisibles.length) +
+    (formatoOptions.length - formatoOptionsVisibles.length);
 
   // ⭐ BUSCAR POR NÚMERO DE TICKET (17-sep-2026). Lo escrito en el buscador recorta
   //    la lista SOLO si parece un ticket (dígitos o CDT-…); ver `tiqueBuscado`. Si no,
@@ -2866,8 +3008,17 @@ export default function ViajesCamionesScreen() {
     // ⚠️ `ubicacionName` a mano: la fila de la pantalla lo trae como `ubicacionNombre` y
     //    el resumen lo lee como `ubicacionName`. Sin esto, «Agrupar por obra» separaba bien
     //    los viajes (por id) pero rotulaba todas las obras «Sin ubicación» (15-sep-2026).
-    () => filteredRangeRows.map((r) => ({ ...r, ubicacionName: r.ubicacionNombre ?? null, turno: turnoDeViaje(r.registeredAt) })),
-    [filteredRangeRows]
+    () => filteredRangeRows.map((r) => {
+      const fmt = formatoDeViaje(r);
+      return {
+        ...r,
+        ubicacionName: r.ubicacionNombre ?? null,
+        turno: turnoDeViaje(r.registeredAt),
+        formatoId: fmt.id,
+        formatoNombre: fmt.nombre,
+      };
+    }),
+    [filteredRangeRows, formatoDeViaje]
   );
   const resumenViajes = useMemo(
     () => resumirViajes(filasResumen, (id) => truckById.get(id), resumenEje),
@@ -2888,6 +3039,13 @@ export default function ViajesCamionesScreen() {
       return {
         key: claveFrenteViaje(r),
         name: r.frenteNombre || 'Sin frente',
+      };
+    }
+    if (eje === 'formato') {
+      const fmt = formatoDeViaje(r);
+      return {
+        key: fmt.id,
+        name: fmt.nombre,
       };
     }
     return companyOfRow(r);
@@ -3250,6 +3408,7 @@ export default function ViajesCamionesScreen() {
         filterListeroSel.size ? `Listeros: ${esc(Array.from(filterListeroSel.values()).join(', '))}` : null,
         filterTurnoSel.size ? `Turno: ${esc(Array.from(filterTurnoSel.values()).join(', '))}` : null,
         filterUbicacionSel.size ? `Obras: ${esc(Array.from(filterUbicacionSel.values()).join(', '))}` : null,
+        filterFormatoSel.size ? `Formatos: ${esc(Array.from(filterFormatoSel.values()).join(', '))}` : null,
       ].filter(Boolean).join(' · ');
 
       // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
@@ -3261,8 +3420,8 @@ export default function ViajesCamionesScreen() {
       //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
       // Los tres ejes se rotulan desde un solo sitio: dos ternarios encadenados en
       // cada punto del PDF acabarian discrepando entre si.
-      const icoGrupo = porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢';
-      const palabraGrupo = porUbicacion ? 'obra(s)' : porListero ? 'listero(s)' : porFrente ? 'frente(s)' : 'empresa(s)';
+      const icoGrupo = porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : porFormato ? '🎟️' : '🏢';
+      const palabraGrupo = porUbicacion ? 'obra(s)' : porListero ? 'listero(s)' : porFrente ? 'frente(s)' : porFormato ? 'formato(s)' : 'empresa(s)';
       // Un 0 en una columna de números se lee peor que un guion: la fila del
       // camión que solo trabaja de día queda limpia en vez de arrastrar un
       // «0» en la de noche.
@@ -3453,7 +3612,7 @@ export default function ViajesCamionesScreen() {
       // m³ de un grupo: la suma de lo que vale cada uno de SUS viajes. El total general
       // sigue siendo el de siempre (arriba); el del grupo es su parte.
       const m3DeFilas = (fs: CamionViajeRow[]) => redondear(fs.reduce((a, r) => a + (r.machineryId ? porViajeDe(r.machineryId) : 0), 0));
-      const icoD = ejeD === 'ubicacion' ? '🏗️' : ejeD === 'listero' ? '👤' : ejeD === 'frente' ? '⛏️' : '🏢';
+      const icoD = ejeD === 'ubicacion' ? '🏗️' : ejeD === 'listero' ? '👤' : ejeD === 'frente' ? '⛏️' : ejeD === 'formato' ? '🎟️' : '🏢';
       const cuerpoD = gruposDetalle
         ? gruposDetalle.map((g) => {
           const pieG = colsD.map((c, i) => (
@@ -3467,7 +3626,7 @@ export default function ViajesCamionesScreen() {
         }).join('')
         : tabla(colsD, filasD, pieD);
       const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : ejeD === 'frente' ? 'frente(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3, 1)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
+        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : ejeD === 'frente' ? 'frente(s)' : ejeD === 'formato' ? 'formato(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3, 1)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
         ${cuerpoD}`;
 
       // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
@@ -3499,13 +3658,14 @@ export default function ViajesCamionesScreen() {
       const bloqueResumen = htmlResumenEjecutivo(tarjetas, esc);
       const html = pdfDocument({
         title: soloCamiones
-          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : porFrente ? 'Camiones que salieron · por frente' : 'Camiones que salieron · por empresa')
+          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : porFrente ? 'Camiones que salieron · por frente' : porFormato ? 'Camiones que salieron · por formato' : 'Camiones que salieron · por empresa')
           : reporteModo === 'resumen'
-          ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : porFrente ? 'Viajes de camiones · resumen por frente' : 'Viajes de camiones · resumen por camión')
+          ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : porFrente ? 'Viajes de camiones · resumen por frente' : porFormato ? 'Viajes de camiones · resumen por formato' : 'Viajes de camiones · resumen por camión')
           : detalleEje === 'ubicacion' ? 'Viajes de camiones · detallado por obra'
           : detalleEje === 'listero' ? 'Viajes de camiones · detallado por listero'
           : detalleEje === 'empresa' ? 'Viajes de camiones · detallado por empresa'
           : detalleEje === 'frente' ? 'Viajes de camiones · detallado por frente'
+          : detalleEje === 'formato' ? 'Viajes de camiones · detallado por formato'
           : 'Viajes de camiones',
         // El modo de volumen va en el subtítulo: dos reportes del mismo rango
         // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
@@ -3529,10 +3689,10 @@ export default function ViajesCamionesScreen() {
       //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los
       //    reciba no sabría cuál es cuál. Mismo criterio que porEmpresaReport.
       const sufijo = soloCamiones
-        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : porFrente ? 'camiones por frente ' : 'camiones por empresa ')
+        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : porFrente ? 'camiones por frente ' : porFormato ? 'camiones por formato ' : 'camiones por empresa ')
         : reporteModo === 'resumen'
-        ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : porFrente ? 'resumen por frente ' : 'resumen por camion ')
-        : detalleEje === 'ubicacion' ? 'detallado por obra ' : detalleEje === 'listero' ? 'detallado por listero ' : detalleEje === 'empresa' ? 'detallado por empresa ' : detalleEje === 'frente' ? 'detallado por frente ' : '';
+        ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : porFrente ? 'resumen por frente ' : porFormato ? 'resumen por formato ' : 'resumen por camion ')
+        : detalleEje === 'ubicacion' ? 'detallado por obra ' : detalleEje === 'listero' ? 'detallado por listero ' : detalleEje === 'empresa' ? 'detallado por empresa ' : detalleEje === 'frente' ? 'detallado por frente ' : detalleEje === 'formato' ? 'detallado por formato ' : '';
       await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
     } catch (e: any) {
       // Sin este catch, un fallo de exportPdf dejaba el botón como si nada y la
@@ -3625,11 +3785,6 @@ export default function ViajesCamionesScreen() {
   // guardarse tanto lo que marcaron, como los ticket que en teoría imprimieron
   // o dieron».
 
-  /** El formato del papel. Vive en la base (una sola fila para todo el sistema)
-   *  y se lee acá aparte de la tarjeta de configuración: el listero imprime sin
-   *  abrir esa tarjeta —ni siquiera la ve— y necesita el mismo formato. */
-  const [configTique, setConfigTique] = useState<TiqueConfig>(CONFIG_POR_DEFECTO);
-  const [sinTablaTique, setSinTablaTique] = useState(false);
   /** Cuántas veces se imprimió cada folio. Vacío NO significa «ninguno»: puede
    *  ser que la lista sea muy grande y no se haya consultado. Ver `foliosMedidos`. */
   const [emisionesPorFolio, setEmisionesPorFolio] = useState<Map<string, number>>(new Map());
@@ -3641,16 +3796,6 @@ export default function ViajesCamionesScreen() {
   /** De qué ticket se está mirando el historial de entregas. Null = ventana cerrada.
    *  Pedido del cliente (14-sep-2026): tocar «entregado ×7» y ver quién y cuándo. */
   const [historialFolio, setHistorialFolio] = useState<string | null>(null);
-
-  useEffect(() => {
-    let vivo = true;
-    leerConfigTique().then((r) => {
-      if (!vivo) return;
-      setConfigTique(r.config);
-      setSinTablaTique(r.sinTabla);
-    });
-    return () => { vivo = false; };
-  }, []);
 
   // Sube lo que quedó esperando señal: al entrar y cada vez que vuelva la
   // conexión. Sin esto, una constancia apartada en el teléfono se quedaría ahí
@@ -3846,7 +3991,9 @@ export default function ViajesCamionesScreen() {
         datos: datosTiqueDeViaje(r),
         reimpresion: (cuenta.porFolio.get(folioDeTique(r)) ?? 0) > 0,
       }));
-      const html = documentoDeTiques(tickets, configTique, LOGOS_DEL_TIQUE, { titulo: 'Ticket de viaje' });
+      const primerFormato = conTique.length > 0 ? formatoDeViaje(conTique[0]) : null;
+      const configAUsar = primerFormato?.config ?? configTique;
+      const html = documentoDeTiques(tickets, configAUsar, LOGOS_DEL_TIQUE, { titulo: 'Ticket de viaje' });
       const confirmado = await exportPdf(html, nombreArchivoTiques(tickets));
       // En la web se resuelve `false` si cerró la vista previa sin imprimir. Ese
       // papel no salió, así que no se entregó nada y no hay nada que anotar.
@@ -3855,6 +4002,17 @@ export default function ViajesCamionesScreen() {
       //    «Imprimir»; se anota acá, antes de cualquier espera de red, y viaja con la
       //    entrega aunque quede apartada sin señal y suba horas después.
       const emitidoAt = new Date().toISOString();
+
+      // 🎟️ Sellar el formato con el que se emitió cada ticket permanentemente
+      const paresFormatos = conTique.map((r) => ({ folio: folioDeTique(r), formatoNombreOId: formatoDeViaje(r).nombre }));
+      void registrarFoliosFormatosEnBase(paresFormatos, uid);
+      setFoliosFormatos((prev) => {
+        const next = { ...prev };
+        for (const p of paresFormatos) {
+          if (p.folio) next[p.folio] = p.formatoNombreOId;
+        }
+        return next;
+      });
 
       // Un mandado, un número de lote: los tickets que se imprimieron juntos se
       // pueden volver a encontrar juntos, que es como se reparten y como se
@@ -3974,6 +4132,12 @@ export default function ViajesCamionesScreen() {
               enseñar un número provisional sería peor que no enseñar ninguno,
               porque alguien lo cantaría y después no existiría. */}
           {tieneTique(row) ? <Badge label={`🎫 ${folioDeTique(row)}`} tone="success" /> : null}
+          {/* 🎟️ FORMATO DE TICKET: visible y fácilmente identificable */}
+          {(() => {
+            const fmt = formatoDeViaje(row);
+            const esDefecto = fmt.id === FORMATO_DEFECTO_ID;
+            return <Badge label={`🎟️ ${fmt.nombre}`} tone={esDefecto ? 'muted' : 'brand'} />;
+          })()}
           {/* ⭐ SI EL PAPEL YA SALIÓ, TIENE QUE VERSE. Volver a imprimir un ticket
               que ya se entregó pone dos papeles con el mismo número en el patio,
               y al cobrar se cuentan dos viajes donde hubo uno. La marca no
@@ -4358,6 +4522,34 @@ export default function ViajesCamionesScreen() {
           </TouchableOpacity>
         </View>
 
+        {puedoCambiarEstado ? (
+          <TouchableOpacity
+            onPress={() => {
+              setMasivoSelectedIds(new Set());
+              setMasivoQuery('');
+              setMasivoMotivo('');
+              setMasivoOpen(true);
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              backgroundColor: colors.surfaceAlt,
+              borderWidth: 1,
+              borderColor: '#F59E0B',
+              paddingVertical: 9,
+              borderRadius: radius.md,
+              marginTop: spacing.xs,
+            }}
+          >
+            <Text style={{ fontSize: 16 }}>🚦</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+              Cambiar estado a uno, varios o todos los camiones
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
         {selectedTruck ? (
           <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
@@ -4691,6 +4883,34 @@ export default function ViajesCamionesScreen() {
             <TouchableOpacity onPress={abrirEscaner} style={{ marginTop: spacing.xs, paddingVertical: 8, alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand }}>
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📷 Escanear el QR del camión</Text>
             </TouchableOpacity>
+            {puedoCambiarEstado ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setPickOpen(false);
+                  setMasivoSelectedIds(new Set());
+                  setMasivoQuery(pickQuery);
+                  setMasivoMotivo('');
+                  setMasivoOpen(true);
+                }}
+                style={{
+                  marginTop: spacing.xs,
+                  paddingVertical: 7,
+                  alignItems: 'center',
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: '#F59E0B',
+                  backgroundColor: colors.surfaceAlt,
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                <Text style={{ fontSize: 14 }}>🚦</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                  Cambiar estado a uno, varios o todos los camiones
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             {pickEstadoOptions.length > 1 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
@@ -4790,6 +5010,241 @@ export default function ViajesCamionesScreen() {
             <TouchableOpacity onPress={() => setPickOpen(false)} style={{ marginTop: spacing.sm, padding: spacing.md, alignItems: 'center' }}>
               <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal de cambio masivo de estado a camiones (pedido 23-oct-2026) ── */}
+      <Modal
+        visible={masivoOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          if (!masivoBusy) setMasivoOpen(false);
+        }}
+      >
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { maxHeight: '90%', paddingBottom: spacing.md }]}>
+            {/* Cabecera */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>
+                🚦 Cambiar estado de camiones
+              </Text>
+              <TouchableOpacity
+                disabled={masivoBusy}
+                onPress={() => setMasivoOpen(false)}
+                style={{ padding: 4 }}
+              >
+                <Text style={{ color: colors.muted, fontSize: 18, fontWeight: 'bold' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+              Selecciona uno, varios o todos los camiones para asignarles un estado operativo, averiado o parado sin registrar un viaje.
+            </Text>
+
+            {/* Buscador */}
+            <TextInput
+              value={masivoQuery}
+              onChangeText={setMasivoQuery}
+              placeholder="Buscar por código, placa, marca o empresa…"
+              placeholderTextColor={colors.muted}
+              style={styles.input}
+              editable={!masivoBusy}
+            />
+
+            {/* Barra de selección masiva */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs, marginBottom: spacing.xs }}>
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <TouchableOpacity
+                  disabled={masivoBusy || masivoFilteredTrucks.length === 0}
+                  onPress={seleccionarTodosMasivo}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.pill,
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: 5,
+                  }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>
+                    ☑️ Seleccionar todos ({masivoFilteredTrucks.length})
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={masivoBusy || masivoSelectedIds.size === 0}
+                  onPress={deseleccionarTodosMasivo}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.pill,
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: 5,
+                  }}
+                >
+                  <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 11.5 }}>
+                    ◻️ Deseleccionar
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={{ color: masivoSelectedIds.size > 0 ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 11.5 }}>
+                {masivoSelectedIds.size} de {masivoFilteredTrucks.length} seleccionados
+              </Text>
+            </View>
+
+            {/* Lista de camiones con selector */}
+            <ScrollView style={{ maxHeight: 220, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, padding: spacing.xs }}>
+              {masivoFilteredTrucks.length === 0 ? (
+                <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md, fontSize: 12 }}>
+                  No se encontraron camiones que coincidan con la búsqueda.
+                </Text>
+              ) : (
+                masivoFilteredTrucks.map((t) => {
+                  const sel = masivoSelectedIds.has(t.id);
+                  const metaConteo = ESTADO_CONTEO_META[truckEstadoConteo(t)] || { icon: '⚪', label: 'Desconocido', color: colors.muted };
+                  return (
+                    <TouchableOpacity
+                      key={t.id}
+                      disabled={masivoBusy}
+                      onPress={() => toggleSelectMasivo(t.id)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: spacing.sm,
+                        borderRadius: radius.sm,
+                        backgroundColor: sel ? colors.brand + '20' : colors.surface,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.brand : colors.border,
+                        marginBottom: 4,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flex: 1, marginRight: spacing.xs }}>
+                        <Text style={{ fontSize: 16 }}>{sel ? '☑️' : '◻️'}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                            🚜 {t.code} <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>· Placa: {t.plate || 'Sin placa'}</Text>
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            🏢 {t.companyName || 'Sin empresa'}{(t.marca || t.modelo) ? ` · ${[t.marca, t.modelo].filter(Boolean).join(' ')}` : ''}
+                          </Text>
+                        </View>
+                      </View>
+                      <View
+                        style={{
+                          backgroundColor: metaConteo.color + '22',
+                          borderColor: metaConteo.color,
+                          borderWidth: 1,
+                          borderRadius: radius.pill,
+                          paddingHorizontal: 7,
+                          paddingVertical: 3,
+                        }}
+                      >
+                        <Text style={{ color: metaConteo.color, fontSize: 11, fontWeight: '700' }}>
+                          {metaConteo.icon} {metaConteo.label}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            {/* Selector del nuevo estado */}
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5, marginTop: spacing.sm, marginBottom: 4 }}>
+              Estado a aplicar:
+            </Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+              {(['operativo', 'averiado', 'parado'] as EstadoBasico[]).map((e) => {
+                const meta = ESTADO_BASICO_META[e];
+                const active = masivoEstado === e;
+                return (
+                  <TouchableOpacity
+                    key={e}
+                    disabled={masivoBusy}
+                    onPress={() => setMasivoEstado(e)}
+                    style={{
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: active ? colors.brand : colors.border,
+                      backgroundColor: active ? colors.brand : colors.surface,
+                      paddingHorizontal: spacing.md,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+                      {meta.icon} {meta.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Campo motivo */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: spacing.xs }}>
+              {ESTADO_BASICO_META[masivoEstado].necesitaMotivo
+                ? `Motivo de ${ESTADO_BASICO_META[masivoEstado].label.toLowerCase()} (OBLIGATORIO):`
+                : 'Motivo u observación (opcional):'}
+            </Text>
+            <TextInput
+              value={masivoMotivo}
+              onChangeText={setMasivoMotivo}
+              placeholder={
+                ESTADO_BASICO_META[masivoEstado].necesitaMotivo
+                  ? 'Escribe la falla, avería o razón de parada...'
+                  : 'Detalle u observación opcional...'
+              }
+              placeholderTextColor={colors.muted}
+              editable={!masivoBusy}
+              style={[styles.input, { minHeight: 38 }]}
+            />
+
+            {/* Progreso */}
+            {masivoBusy ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginVertical: spacing.xs }}>
+                <ActivityIndicator size="small" color={colors.brand} />
+                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>
+                  {masivoProgreso || 'Actualizando camiones…'}
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Botones de acción */}
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+              <TouchableOpacity
+                disabled={masivoBusy}
+                onPress={() => setMasivoOpen(false)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 11,
+                  alignItems: 'center',
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surfaceAlt,
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={masivoBusy || masivoSelectedIds.size === 0}
+                onPress={aplicarMasivoEstado}
+                style={{
+                  flex: 2,
+                  paddingVertical: 11,
+                  alignItems: 'center',
+                  borderRadius: radius.md,
+                  backgroundColor: masivoSelectedIds.size > 0 && !masivoBusy ? colors.brand : colors.muted,
+                  opacity: masivoSelectedIds.size > 0 && !masivoBusy ? 1 : 0.6,
+                }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
+                  🚀 Aplicar {ESTADO_BASICO_META[masivoEstado].label} ({masivoSelectedIds.size})
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -5635,11 +6090,36 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
+            {/* FORMATO DE TICKET. Aparece si hay más de un formato o si alguno está filtrado. */}
+            {formatoOptionsVisibles.length > 0 && (formatoOptions.length > 1 || filterFormatoSel.size > 0) ? (
+              <View style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                  FORMATO DE TICKET{filterFormatoSel.size > 0 ? ` (${filterFormatoSel.size})` : ' (todos)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todos', filterFormatoSel, setFilterFormatoSel)}
+                  {formatoOptionsVisibles.map((o) => {
+                    const on = filterFormatoSel.has(o.id);
+                    return (
+                      <TouchableOpacity
+                        key={o.id}
+                        onPress={() => toggleFilterFormato(o.id, o.label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🎟️ {o.label}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || filterFormatoSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
               /* «Limpiar filtros» limpia TAMBIÉN la franja de horas: es un filtro
                  más, y dejarlo puesto tras «limpiar» sería la trampa del filtro
                  invisible otra vez (28-sep-2026). */
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterFormatoSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
@@ -5667,14 +6147,14 @@ export default function ViajesCamionesScreen() {
               {reporteModo !== 'detallado' ? (
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
-                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente']] as const).map(([key, label]) => {
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente'], ['formato', '🎟️ Formato']] as const).map(([key, label]) => {
                       const on = resumenEje === key;
                       return (
                         <TouchableOpacity
                           key={key}
                           onPress={() => setResumenEje(key)}
-                          style={{ flex: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 6 }}
+                          style={{ flexGrow: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 6 }}
                         >
                           <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
                         </TouchableOpacity>
@@ -5691,7 +6171,7 @@ export default function ViajesCamionesScreen() {
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-                    {([['ninguno', '📄 Sin agrupar'], ['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente']] as const).map(([key, label]) => {
+                    {([['ninguno', '📄 Sin agrupar'], ['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente'], ['formato', '🎟️ Formato']] as const).map(([key, label]) => {
                       const on = detalleEje === key;
                       return (
                         <TouchableOpacity
@@ -5756,7 +6236,7 @@ export default function ViajesCamionesScreen() {
                   {camionesSalieron.grupos.map((g) => (
                     <View key={g.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={2}>
-                        {porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢'} {g.name} · {g.camiones.length} camión(es)
+                        {porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : porFormato ? '🎟️' : '🏢'} {g.name} · {g.camiones.length} camión(es)
                       </Text>
                       {g.camiones.map((c, i) => (
                         <Text key={`${g.key}-${c.key}`} style={{ color: colors.muted, fontSize: 12, paddingVertical: 3, paddingLeft: spacing.sm }} numberOfLines={1}>
@@ -5789,7 +6269,7 @@ export default function ViajesCamionesScreen() {
                   {resumenViajes.empresas.map((e) => (
                     <View key={e.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢'} {e.name}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : porFormato ? '🎟️' : '🏢'} {e.name}</Text>
                         <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>
                           {cub.op.viajes ? `${e.total} viaje(s)` : `${e.camiones.length} camión(es)`}
                           {cub.op.m3 ? ` · ${m3Texto(redondear(e.camiones.reduce((a, c) => a + (volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes, 0)), 1)} m³` : ''}
@@ -5856,7 +6336,7 @@ export default function ViajesCamionesScreen() {
                         <View key={g.key}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, marginTop: spacing.xs, marginBottom: 2 }}>
                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
-                              {detalleEje === 'ubicacion' ? '🏗️' : detalleEje === 'listero' ? '👤' : detalleEje === 'frente' ? '⛏️' : '🏢'} {g.name}
+                              {detalleEje === 'ubicacion' ? '🏗️' : detalleEje === 'listero' ? '👤' : detalleEje === 'frente' ? '⛏️' : detalleEje === 'formato' ? '🎟️' : '🏢'} {g.name}
                             </Text>
                             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{g.filas.length} viaje(s)</Text>
                           </View>

@@ -35,3 +35,34 @@ export const ESTADO_COMPRA_CONFIG = {
   recibido: { label: 'Recibido en Almacén', color: '#16A34A', bg: '#DCFCE7', icon: '📦' },
   rechazado: { label: 'Rechazado', color: '#DC2626', bg: '#FEE2E2', icon: '❌' },
 };
+
+export interface ParsedRejection {
+  rejectedBy: string | null;
+  rejectedAt: string | null;
+  note: string;
+}
+
+export function formatRejectionNote(quien: string, motivo: string): string {
+  const ahora = new Date().toLocaleString('es-VE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return `[Rechazado por: ${quien.trim()} · ${ahora}]: ${motivo.trim()}`;
+}
+
+export function parseRejectionNote(raw?: string | null): ParsedRejection {
+  if (!raw) return { rejectedBy: null, rejectedAt: null, note: '' };
+  const m = raw.match(/^\[Rechazado por:\s*([^·|\]]+)(?:[·|]\s*([^\]]+))?\]\s*(?::\s*)?(.*)$/s);
+  if (m) {
+    return {
+      rejectedBy: m[1]?.trim() || null,
+      rejectedAt: m[2]?.trim() || null,
+      note: m[3]?.trim() || '',
+    };
+  }
+  return { rejectedBy: null, rejectedAt: null, note: raw.trim() };
+}

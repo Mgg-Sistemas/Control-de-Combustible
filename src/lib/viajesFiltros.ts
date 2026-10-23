@@ -38,8 +38,9 @@
  * camión—. Un filtro de turno por fuera se contradiría con los otros tres en
  * cuanto se marcaran juntos.
  */
-export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion';
-export const EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion'] as const;
+export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion' | 'formato';
+export const EJES_FILTRO: readonly ('listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion')[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion'] as const;
+export const TODOS_LOS_EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion', 'formato'] as const;
 
 /** Lo marcado en un eje: id → etiqueta. Vacío = «todos». */
 export type MarcadosEje = ReadonlyMap<string, string>;
@@ -56,7 +57,7 @@ export type OpcionFiltro = { id: string; label: string; count: number };
  * justamente lo que hace falta para contar las facetas de ese eje.
  */
 export function pasaFiltros(claves: ClavesViaje, sel: SeleccionFiltros, excepto?: EjeFiltro): boolean {
-  return EJES_FILTRO.every(
+  return TODOS_LOS_EJES_FILTRO.every(
     // `sel[eje]?.size` y no `sel[eje].size`: TypeScript exige el Record completo,
     // pero un eje NUEVO que un llamador viejo todavía no mande llegaría como
     // `undefined` y tumbaría el panel entero con un error ilegible. Un eje que
@@ -154,16 +155,16 @@ export function marcadosFueraDelRango<R>(
   // Se arma recorriendo EJES_FILTRO y no escribiendo los ejes a mano: cuando se
   // agregó `turno` como cuarto eje, la versión escrita a mano dejaba su cubeta
   // en `undefined` y esto reventaba con «Cannot read properties of undefined».
-  const presentes = Object.fromEntries(EJES_FILTRO.map((eje) => [eje, new Set<string>()])) as Record<EjeFiltro, Set<string>>;
+  const presentes = Object.fromEntries(TODOS_LOS_EJES_FILTRO.map((eje) => [eje, new Set<string>()])) as Record<EjeFiltro, Set<string>>;
   rows.forEach((r) => {
     const c = clavesDe(r);
-    EJES_FILTRO.forEach((eje) => presentes[eje].add(c[eje]));
+    TODOS_LOS_EJES_FILTRO.forEach((eje) => presentes[eje].add(c[eje]));
   });
   // Se devuelve el EJE junto a la etiqueta: sin él, un mensaje como
   // «(☀️ Día, MGG, MGG)» es irresoluble cuando un listero se apellida igual que
   // una empresa. Quien lo pinta le pone el ícono que corresponda.
   const fuera: Array<{ eje: EjeFiltro; label: string }> = [];
-  EJES_FILTRO.forEach((eje) => {
+  TODOS_LOS_EJES_FILTRO.forEach((eje) => {
     // `?.` por lo mismo que en `pasaFiltros`: un eje que un llamador viejo no
     // manda no puede tumbar el panel. Volvió a pasar al sumar OBRA (12-sep-2026),
     // que es el quinto eje — exactamente el mismo tropiezo que con el cuarto.

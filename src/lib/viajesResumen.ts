@@ -21,8 +21,8 @@
 // `ViajesCamionesScreen` solo le pasa las filas ya filtradas y el catálogo de
 // camiones. Ver `scripts/test-viajes-resumen.mjs`.
 
-/** Por cuál de los cuatro ejes se parte el resumen. */
-export type EjeResumen = 'empresa' | 'listero' | 'ubicacion' | 'frente';
+/** Por cuál de los cinco ejes se parte el resumen (23-oct-2026: formato de ticket añadido). */
+export type EjeResumen = 'empresa' | 'listero' | 'ubicacion' | 'frente' | 'formato';
 
 /** Clave de los camiones sin empresa asignada: van todos a una sola cubeta. */
 export const SIN_EMPRESA = '__sin_empresa__';
@@ -54,6 +54,11 @@ export const SIN_UBICACION = '__sin_ubicacion__';
  * dónde recoge ahora, no de dónde recogió cuando hizo el viaje.
  */
 export const SIN_FRENTE = '__sin_frente__';
+
+/**
+ * Cubeta de los viajes sin formato de ticket identificado (23-oct-2026).
+ */
+export const SIN_FORMATO = '__sin_formato__';
 
 /** Clave de los camiones que el listero anotó a mano por no estar en el catálogo. */
 export const FUERA_CATALOGO = '__fuera_catalogo__';
@@ -99,6 +104,9 @@ export type ViajeMin = {
    * resta, y el resumen lo dice sumando solo lo que existe.
    */
   pesoNetoKg?: number | null;
+  /** Formato de ticket asignado o sellado en el viaje (23-oct-2026). */
+  formatoId?: string | null;
+  formatoNombre?: string | null;
 };
 
 /**
@@ -233,6 +241,7 @@ const SIN_NOMBRE: Record<EjeResumen, string> = {
   listero: 'Sin listero',
   ubicacion: 'Sin ubicación',
   frente: 'Sin frente',
+  formato: 'Sin formato',
 };
 
 /** Texto de un nombre listo para agrupar: sin espacios dobles ni de los bordes. */
@@ -293,6 +302,11 @@ function grupoDeViaje(
       return {
         key: claveFrenteViaje(r),
         name: limpio(r.frenteNombre) || SIN_NOMBRE.frente,
+      };
+    case 'formato':
+      return {
+        key: String(r.formatoId ?? '').trim() || SIN_FORMATO,
+        name: limpio(r.formatoNombre) || SIN_NOMBRE.formato,
       };
     case 'empresa':
     default:
@@ -397,7 +411,7 @@ export type CamionSalio = { key: string; code: string; placa: string };
 export type GrupoCamiones = { key: string; name: string; camiones: CamionSalio[] };
 export type CamionesQueSalieron = { grupos: GrupoCamiones[]; totalCamiones: number; groupBy: EjeResumen };
 
-const esCubetaSin = (key: string) => key === SIN_EMPRESA || key === SIN_LISTERO || key === SIN_UBICACION || key === SIN_FRENTE;
+const esCubetaSin = (key: string) => key === SIN_EMPRESA || key === SIN_LISTERO || key === SIN_UBICACION || key === SIN_FRENTE || key === SIN_FORMATO;
 
 /**
  * La misma lista del resumido, sin ninguna cifra de viajes.

@@ -50,9 +50,25 @@ import {
   URGENCIA_CONFIG,
   ESTADO_EXISTENCIA_CONFIG,
   ESTADO_COMPRA_CONFIG,
+  parseRejectionNote,
 } from '../lib/solicitudMaterial';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+
+export interface SolicitudCartItem {
+  id: string;
+  tipo: 'stock' | 'compra';
+  itemId?: string | null;
+  name: string;
+  sku?: string | null;
+  unit: string;
+  qty: number;
+  stockDisponible?: number;
+  urgency?: StockRequestUrgency;
+  reason?: string;
+  medidas?: string;
+  fotoUrl?: string | null;
+}
 
 const parseNum = leerNumero;
 const qtyFmt = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString();
@@ -62,6 +78,16 @@ const dmyOf = (iso: string) => {
   const d = new Date(iso);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+};
+const dmyTimeOf = (iso: string) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, '0');
+  let h = d.getHours();
+  const ampm = h >= 12 ? 'p.m.' : 'a.m.';
+  h = h % 12 || 12;
+  const m = p(d.getMinutes());
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${h}:${m} ${ampm}`;
 };
 
 export default function SolicitudMaterialScreen() {
@@ -115,14 +141,79 @@ export default function SolicitudMaterialScreen() {
 
   // ── PASO 1: Destino y Solicitante ──────────────────────────────────────────
   const [destinoTipo, setDestinoTipo] = useState<'maquinaria' | 'vehiculo' | 'area'>('maquinaria');
-  const [machineryId, setMachineryId] = useState<string>('');
+  // Multi-selección de maquinaria y vehículos
+  const [selectedMachineryIds, setSelectedMachineryIds] = useState<string[]>([]);
   const [machineryQuery, setMachineryQuery] = useState<string>('');
-  const [vehicleId, setVehicleId] = useState<string>('');
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
   const [vehicleQuery, setVehicleQuery] = useState<string>('');
   const [areaTexto, setAreaTexto] = useState<string>('');
   const [solicitante, setSolicitante] = useState<PersonaElegida>(() => {
     return fullName ? { nombre: fullName.toUpperCase(), employeeId: null } : SIN_PERSONA;
   });
+
+  const machineryId = selectedMachineryIds[0] || '';
+  const vehicleId = selectedVehicleIds[0] || '';
+
+  const toggleMachinery = (id: string) => {
+    setSelectedMachineryIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleVehicle = (id: string) => {
+    setSelectedVehicleIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  // Carrito de repuestos / materiales agregados
+  const [cartItems, setCartItems] = useState<SolicitudCartItem[]>([]);
+  const [submittingCart, setSubmittingCart] = useState<boolean>(false);
+
+  const agregarItemAlCarrito = (item: Omit<SolicitudCartItem, 'id'>) => {
+    const id = 'it-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+    setCartItems((prev) => {
+      if (item.tipo === 'stock' && item.itemId) {
+        const existIdx = prev.findIndex((x) => x.tipo === 'stock' && x.itemId === item.itemId);
+        if (existIdx >= 0) {
+          const clon = [...prev];
+          clon[existIdx] = {
+            ...clon[existIdx],
+            qty: clon[existIdx].qty + item.qty,
+            reason: item.reason || clon[existIdx].reason,
+            urgency: item.urgency || clon[existIdx].urgency,
+          };
+          return clon;
+        }
+      }
+      return [...prev, { ...item, id }];
+    });
+    toast.success(`"${item.name}" agregado a tu lista (${qtyFmt(item.qty)} ${item.unit}).`);
+  };
+
+  const quitarItemDelCarrito = (id: string) => {
+    setCartItems((prev) => prev.filter((it) => it.id !== id));
+  };
+
+  const cambiarCantidadCarrito = (id: string, delta: number) => {
+    setCartItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== id) return it;
+        const newQty = Math.max(1, Math.round((it.qty + delta) * 100) / 100);
+        return { ...it, qty: newQty };
+      })
+    );
+  };
+
+  const setCantidadDirecta = (id: string, text: string) => {
+    const val = parseNum(text);
+    setCartItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== id) return it;
+        return { ...it, qty: val >= 0 ? val : 1 };
+      })
+    );
+  };
 
   // Filtro de maquinarias por código, placa, tipo, marca, modelo o serial
   const machinesFiltradas = useMemo(() => {
@@ -244,7 +335,6 @@ export default function SolicitudMaterialScreen() {
 
       const { error } = await supabase.from('inventory_stock_requests').insert(payload);
       if (error) {
-        // Si la tabla no está creada en la base aún, alertar con instrucciones
         if (/does not exist|schema cache/i.test(error.message)) {
           throw new Error(
             'La tabla de Solicitudes de Existencia aún no ha sido ejecutada en Supabase. Corre el archivo supabase/solicitudes_existencia.sql en el SQL Editor.'
@@ -402,6 +492,140 @@ export default function SolicitudMaterialScreen() {
     }
   };
 
+  // ── ENVIAR SOLICITUD COMPLETA (MÚLTIPLES REPUESTOS Y MÚLTIPLES EQUIPOS) ─────────
+  const enviarSolicitudCompleta = async () => {
+    if (cartItems.length === 0) {
+      return toast.error('Agrega al menos un repuesto a la solicitud antes de enviar.');
+    }
+
+    if (destinoTipo === 'maquinaria' && selectedMachineryIds.length === 0) {
+      return toast.error('Selecciona al menos una maquinaria para asignar la solicitud.');
+    }
+    if (destinoTipo === 'vehiculo' && selectedVehicleIds.length === 0) {
+      return toast.error('Selecciona al menos un vehículo para asignar la solicitud.');
+    }
+    if (destinoTipo === 'area' && !areaTexto.trim()) {
+      return toast.error('Indica el área o departamento de destino.');
+    }
+
+    setSubmittingCart(true);
+    try {
+      // 1. Armar etiquetas de destino
+      let targetLabel = '';
+      let targetPrimaryMachine: string | null = null;
+      let targetPrimaryVehicle: string | null = null;
+      let targetArea: string | null = null;
+
+      if (destinoTipo === 'maquinaria') {
+        const selMachs = machines.filter((m) => selectedMachineryIds.includes(m.id));
+        targetPrimaryMachine = selMachs[0]?.id || null;
+        targetLabel = selMachs
+          .map((m) => `${m.code}${m.plate ? ' · Placa: ' + m.plate : ' · Sin placa'}`)
+          .join(', ');
+      } else if (destinoTipo === 'vehiculo') {
+        const selVehs = vehicles.filter((v) => selectedVehicleIds.includes(v.id));
+        targetPrimaryVehicle = selVehs[0]?.id || null;
+        targetLabel = selVehs
+          .map((v) => `${v.plate} (${[v.brand, v.model].filter(Boolean).join(' ') || 'Vehículo'})`)
+          .join(', ');
+      } else {
+        targetArea = areaTexto.trim().toUpperCase() || 'TALLER GENERAL';
+        targetLabel = targetArea;
+      }
+
+      const stockItems = cartItems.filter((it) => it.tipo === 'stock');
+      const compraItems = cartItems.filter((it) => it.tipo === 'compra');
+
+      const codigosExistentes = (stockRequests || []).map((r) => r.code);
+
+      // Despacho de almacén para ítems de stock
+      for (let i = 0; i < stockItems.length; i++) {
+        const item = stockItems[i];
+        const code = nextStockRequestCode(codigosExistentes, i);
+        const equipTag = targetLabel ? `[Destino: ${targetLabel}]` : '';
+        const userReason = item.reason ? ` · ${item.reason}` : '';
+        const fullReason = `${equipTag}${userReason}`.trim() || null;
+
+        const payload = {
+          code,
+          item_id: item.itemId || null,
+          item_name: item.name,
+          unit: item.unit || 'UND',
+          qty: item.qty,
+          machinery_id: targetPrimaryMachine,
+          vehicle_id: targetPrimaryVehicle,
+          area: destinoTipo === 'area' ? targetArea : targetLabel.slice(0, 100),
+          solicitante_nombre: solicitante.nombre || fullName || 'Personal Taller',
+          solicitante_employee_id: solicitante.employeeId || null,
+          urgency: item.urgency || 'normal',
+          reason: fullReason,
+          status: 'pendiente',
+          created_by: uid,
+        };
+
+        const { error } = await supabase.from('inventory_stock_requests').insert(payload);
+        if (error) throw error;
+      }
+
+      // Requerimiento de compra técnica (agrupado en un único ticket con múltiples renglones)
+      if (compraItems.length > 0) {
+        const { data: codeRows } = await supabase.from('inventory_requirements').select('code');
+        let maxReq = 0;
+        (codeRows || []).forEach((c: any) => {
+          const m = String(c?.code ?? '').match(/(\d+)\s*$/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (n > maxReq) maxReq = n;
+          }
+        });
+        const reqCode = 'REQ-' + String(maxReq + 1).padStart(4, '0');
+
+        const reqLines = compraItems.map((ci) => ({
+          product_id: ci.itemId || null,
+          name: ci.name.trim(),
+          unit: ci.unit.trim().toUpperCase() || 'UND',
+          qty: ci.qty,
+          est_price: 0,
+          currency: 'USD' as const,
+          note: ci.medidas || '',
+          image_url: ci.fotoUrl || null,
+        }));
+
+        const firstPhoto = compraItems.find((c) => c.fotoUrl)?.fotoUrl || null;
+
+        const reqPayload = {
+          code: reqCode,
+          title: `Pedido técnico: ${compraItems.map((c) => c.name).join(', ')} para ${targetLabel}`,
+          note: `EQUIPOS: ${targetLabel} · SOLICITUD TÉCNICA CON ${compraItems.length} RENGLÓN(ES)`,
+          status: 'pendiente',
+          items: reqLines,
+          requested_by: uid,
+          requested_by_name: fullName || session?.user?.email || 'Taller',
+          solicitante_nombre: solicitante.nombre || fullName || 'Personal Taller',
+          solicitante_employee_id: solicitante.employeeId || null,
+          destino_tipo: destinoTipo === 'maquinaria' || destinoTipo === 'vehiculo' ? destinoTipo : null,
+          area: destinoTipo === 'area' ? targetArea : 'TALLER / MANTENIMIENTO',
+          observaciones: `Solicitud múltiple creada desde el portal técnico de taller para ${targetLabel}.`,
+          attachment_url: firstPhoto,
+          attachment_type: firstPhoto ? 'image' : null,
+        };
+
+        const { error: reqErr } = await supabase.from('inventory_requirements').insert(reqPayload);
+        if (reqErr) throw reqErr;
+      }
+
+      toast.success(`Solicitud de ${cartItems.length} repuesto(s) enviada con éxito.`);
+      setCartItems([]);
+      refetchStockReqs();
+      refetchReqs();
+      setTab('mis_solicitudes');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo enviar la solicitud.');
+    } finally {
+      setSubmittingCart(false);
+    }
+  };
+
   // ── MODAL: Responder Aclaratoria Técnica de Compras ──────────────────────────
   const [modalAclaratoriaOpen, setModalAclaratoriaOpen] = useState(false);
   const [aclaratoriaTarget, setAclaratoriaTarget] = useState<InventoryRequirement | null>(null);
@@ -448,11 +672,11 @@ export default function SolicitudMaterialScreen() {
   const stockRequestsFiltradas = useMemo(() => {
     if (esAdmin && verTodosAdmin) return stockRequests || [];
     return (stockRequests || []).filter((s) => {
+      // Filtrar estrictamente por el usuario que creó la solicitud
       if (s.created_by && s.created_by === uid) return true;
-      if (fullName && s.solicitante_nombre && norm(s.solicitante_nombre) === norm(fullName)) return true;
       return false;
     });
-  }, [stockRequests, esAdmin, verTodosAdmin, uid, fullName]);
+  }, [stockRequests, esAdmin, verTodosAdmin, uid]);
 
   const requirementsFiltradas = useMemo(() => {
     const soloTecnicas = (requirements || []).filter((r) => {
@@ -466,11 +690,11 @@ export default function SolicitudMaterialScreen() {
     if (esAdmin && verTodosAdmin) return soloTecnicas;
 
     return soloTecnicas.filter((r) => {
+      // Filtrar estrictamente por el usuario que creó la solicitud
       if (r.requested_by && r.requested_by === uid) return true;
-      if (fullName && r.solicitante_nombre && norm(r.solicitante_nombre) === norm(fullName)) return true;
       return false;
     });
-  }, [requirements, esAdmin, verTodosAdmin, uid, fullName]);
+  }, [requirements, esAdmin, verTodosAdmin, uid]);
 
   // Cantidad de aclaratorias pendientes por responder
   const totalAclaratorias = useMemo(() => {
@@ -652,44 +876,70 @@ export default function SolicitudMaterialScreen() {
             {/* Selector según el tipo */}
             {destinoTipo === 'maquinaria' && (
               <View style={{ marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
-                  Selecciona la Máquina:
-                </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    Selecciona una o más Máquinas ({selectedMachineryIds.length} seleccionada{selectedMachineryIds.length === 1 ? '' : 's'}):
+                  </Text>
+                  {selectedMachineryIds.length > 0 && (
+                    <TouchableOpacity onPress={() => setSelectedMachineryIds([])} style={{ padding: 2 }}>
+                      <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>
+                        ✕ Limpiar selección
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
 
-                {/* Resumen de maquinaria seleccionada con nombre y placa */}
-                {(() => {
-                  const selMach = machines.find((m) => m.id === machineryId);
-                  if (!selMach) return null;
-                  return (
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        backgroundColor: colors.surfaceAlt,
-                        borderLeftWidth: 3,
-                        borderLeftColor: colors.brand,
-                        padding: spacing.xs,
-                        paddingHorizontal: spacing.sm,
-                        borderRadius: radius.sm,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <View style={{ flex: 1, paddingRight: 6 }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                          🚜 {selMach.code} {selMach.plate ? `· 🏷️ Placa: ${selMach.plate}` : '· (Sin placa)'}
-                        </Text>
-                        <Text style={{ color: colors.muted, fontSize: 11 }}>
-                          {[selMach.marca, selMach.modelo].filter(Boolean).join(' ') || selMach.tipo || ''}
-                          {selMach.serial ? ` · Serial: ${selMach.serial}` : ''}
-                        </Text>
-                      </View>
-                      <TouchableOpacity onPress={() => setMachineryId('')} style={{ padding: 4 }}>
-                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>✕ Cambiar</Text>
-                      </TouchableOpacity>
+                {/* Resumen de maquinarias seleccionadas con código, placa y botón de remover */}
+                {selectedMachineryIds.length > 0 && (
+                  <View
+                    style={{
+                      backgroundColor: colors.surfaceAlt,
+                      borderRadius: radius.md,
+                      padding: spacing.xs,
+                      paddingHorizontal: spacing.sm,
+                      borderLeftWidth: 3,
+                      borderLeftColor: colors.brand,
+                      marginBottom: 8,
+                      gap: 4,
+                    }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                      🚜 Destinos elegidos para la solicitud:
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {selectedMachineryIds.map((id) => {
+                        const m = machines.find((x) => x.id === id);
+                        if (!m) return null;
+                        return (
+                          <View
+                            key={m.id}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.brand,
+                              borderRadius: radius.pill,
+                              paddingVertical: 3,
+                              paddingHorizontal: 8,
+                              gap: 6,
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                              🚜 {m.code} · Placa: {m.plate || 'Sin placa'}
+                            </Text>
+                            <TouchableOpacity
+                              onPress={() => toggleMachinery(m.id)}
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            >
+                              <Text style={{ color: colors.danger, fontWeight: '900', fontSize: 11 }}>✕</Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
                     </View>
-                  );
-                })()}
+                  </View>
+                )}
 
                 {/* Buscador de maquinarias por código, placa, marca o modelo */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
@@ -714,18 +964,21 @@ export default function SolicitudMaterialScreen() {
                 ) : (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
                     {machinesFiltradas.map((m) => {
-                      const sel = machineryId === m.id;
+                      const sel = selectedMachineryIds.includes(m.id);
                       return (
                         <TouchableOpacity
                           key={m.id}
-                          onPress={() => setMachineryId(m.id)}
+                          onPress={() => toggleMachinery(m.id)}
                           style={{
                             paddingHorizontal: 12,
                             paddingVertical: 7,
                             borderRadius: radius.pill,
                             backgroundColor: sel ? colors.brand : colors.surfaceAlt,
-                            borderWidth: 1,
+                            borderWidth: 1.5,
                             borderColor: sel ? colors.brand : colors.border,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
                           }}
                         >
                           <Text
@@ -735,7 +988,7 @@ export default function SolicitudMaterialScreen() {
                               fontSize: 12,
                             }}
                           >
-                            🚜 {m.code}{m.plate ? ` · Placa: ${m.plate}` : ''}
+                            {sel ? '✓' : '＋'} 🚜 {m.code} · Placa: {m.plate || 'Sin placa'}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -747,40 +1000,70 @@ export default function SolicitudMaterialScreen() {
 
             {destinoTipo === 'vehiculo' && (
               <View style={{ marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
-                  Selecciona el Vehículo / Camioneta:
-                </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    Selecciona uno o más Vehículos ({selectedVehicleIds.length} seleccionado{selectedVehicleIds.length === 1 ? '' : 's'}):
+                  </Text>
+                  {selectedVehicleIds.length > 0 && (
+                    <TouchableOpacity onPress={() => setSelectedVehicleIds([])} style={{ padding: 2 }}>
+                      <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>
+                        ✕ Limpiar selección
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
 
-                {/* Resumen de vehículo seleccionado */}
-                {(() => {
-                  const selVeh = vehicles.find((v) => v.id === vehicleId);
-                  if (!selVeh) return null;
-                  return (
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        backgroundColor: colors.surfaceAlt,
-                        borderLeftWidth: 3,
-                        borderLeftColor: colors.brand,
-                        padding: spacing.xs,
-                        paddingHorizontal: spacing.sm,
-                        borderRadius: radius.sm,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <View style={{ flex: 1, paddingRight: 6 }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                          🚗 {selVeh.plate} · {[selVeh.brand, selVeh.model].filter(Boolean).join(' ') || 'Vehículo'}
-                        </Text>
-                      </View>
-                      <TouchableOpacity onPress={() => setVehicleId('')} style={{ padding: 4 }}>
-                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>✕ Cambiar</Text>
-                      </TouchableOpacity>
+                {/* Resumen de vehículos seleccionados */}
+                {selectedVehicleIds.length > 0 && (
+                  <View
+                    style={{
+                      backgroundColor: colors.surfaceAlt,
+                      borderRadius: radius.md,
+                      padding: spacing.xs,
+                      paddingHorizontal: spacing.sm,
+                      borderLeftWidth: 3,
+                      borderLeftColor: colors.brand,
+                      marginBottom: 8,
+                      gap: 4,
+                    }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                      🚗 Vehículos elegidos para la solicitud:
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {selectedVehicleIds.map((id) => {
+                        const v = vehicles.find((x) => x.id === id);
+                        if (!v) return null;
+                        return (
+                          <View
+                            key={v.id}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.brand,
+                              borderRadius: radius.pill,
+                              paddingVertical: 3,
+                              paddingHorizontal: 8,
+                              gap: 6,
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                              🚗 {v.plate} ({[v.brand, v.model].filter(Boolean).join(' ') || 'Vehículo'})
+                            </Text>
+                            <TouchableOpacity
+                              onPress={() => toggleVehicle(v.id)}
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            >
+                              <Text style={{ color: colors.danger, fontWeight: '900', fontSize: 11 }}>✕</Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
                     </View>
-                  );
-                })()}
+                  </View>
+                )}
 
                 {/* Buscador de vehículos */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
@@ -805,18 +1088,21 @@ export default function SolicitudMaterialScreen() {
                 ) : (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
                     {vehiclesFiltrados.map((v) => {
-                      const sel = vehicleId === v.id;
+                      const sel = selectedVehicleIds.includes(v.id);
                       return (
                         <TouchableOpacity
                           key={v.id}
-                          onPress={() => setVehicleId(v.id)}
+                          onPress={() => toggleVehicle(v.id)}
                           style={{
                             paddingHorizontal: 12,
                             paddingVertical: 7,
                             borderRadius: radius.pill,
                             backgroundColor: sel ? colors.brand : colors.surfaceAlt,
-                            borderWidth: 1,
+                            borderWidth: 1.5,
                             borderColor: sel ? colors.brand : colors.border,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
                           }}
                         >
                           <Text
@@ -826,7 +1112,7 @@ export default function SolicitudMaterialScreen() {
                               fontSize: 12,
                             }}
                           >
-                            🚗 {v.plate} ({[v.brand, v.model].filter(Boolean).join(' ') || 'Vehículo'})
+                            {sel ? '✓' : '＋'} 🚗 {v.plate} ({[v.brand, v.model].filter(Boolean).join(' ') || 'Vehículo'})
                           </Text>
                         </TouchableOpacity>
                       );
@@ -975,57 +1261,82 @@ export default function SolicitudMaterialScreen() {
                               <Text style={{ color: colors.muted, fontSize: 11 }}>SKU: {item.sku}</Text>
                             ) : null}
                           </View>
-                          {tieneStock ? (
-                            <View
-                              style={{
-                                backgroundColor: '#DCFCE7',
-                                paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: radius.pill,
-                              }}
-                            >
-                              <Text style={{ color: '#16A34A', fontSize: 11, fontWeight: '800' }}>
-                                🟢 Stock: {qtyFmt(item.stock)} {item.unit || 'UND'}
-                              </Text>
-                            </View>
-                          ) : (
-                            <View
-                              style={{
-                                backgroundColor: '#FEE2E2',
-                                paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: radius.pill,
-                              }}
-                            >
-                              <Text style={{ color: '#DC2626', fontSize: 11, fontWeight: '800' }}>
-                                🔴 Sin Existencia (0)
-                              </Text>
-                            </View>
-                          )}
+                          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                            {tieneStock ? (
+                              <View
+                                style={{
+                                  backgroundColor: '#DCFCE7',
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 3,
+                                  borderRadius: radius.pill,
+                                }}
+                              >
+                                <Text style={{ color: '#16A34A', fontSize: 11, fontWeight: '800' }}>
+                                  🟢 Stock: {qtyFmt(item.stock)} {item.unit || 'UND'}
+                                </Text>
+                              </View>
+                            ) : (
+                              <View
+                                style={{
+                                  backgroundColor: '#FEE2E2',
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 3,
+                                  borderRadius: radius.pill,
+                                }}
+                              >
+                                <Text style={{ color: '#DC2626', fontSize: 11, fontWeight: '800' }}>
+                                  🔴 Sin Existencia (0)
+                                </Text>
+                              </View>
+                            )}
+                            {(() => {
+                              const enCart = cartItems.find((c) => c.tipo === 'stock' && c.itemId === item.id);
+                              if (!enCart) return null;
+                              return (
+                                <View
+                                  style={{
+                                    backgroundColor: '#DBEAFE',
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 2,
+                                    borderRadius: radius.pill,
+                                  }}
+                                >
+                                  <Text style={{ color: '#1E40AF', fontSize: 10.5, fontWeight: '800' }}>
+                                    ✓ En tu lista: {qtyFmt(enCart.qty)} {item.unit || 'UND'}
+                                  </Text>
+                                </View>
+                              );
+                            })()}
+                          </View>
                         </View>
 
                         {/* Botón según disponibilidad */}
                         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4 }}>
-                          {tieneStock ? (
-                            <TouchableOpacity
-                              onPress={() => abrirPedirStock(item)}
-                              style={{
-                                flex: 1,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                                backgroundColor: '#059669',
-                                paddingVertical: 9,
-                                borderRadius: radius.md,
-                              }}
-                            >
-                              <Text style={{ fontSize: 15 }}>📦</Text>
-                              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
-                                Solicitar de Almacén (Existencia)
-                              </Text>
-                            </TouchableOpacity>
-                          ) : (
+                          {tieneStock ? (() => {
+                            const enCart = cartItems.find((c) => c.tipo === 'stock' && c.itemId === item.id);
+                            return (
+                              <TouchableOpacity
+                                onPress={() => abrirPedirStock(item)}
+                                style={{
+                                  flex: 1,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 6,
+                                  backgroundColor: enCart ? '#047857' : '#059669',
+                                  paddingVertical: 9,
+                                  borderRadius: radius.md,
+                                }}
+                              >
+                                <Text style={{ fontSize: 15 }}>{enCart ? '➕' : '📦'}</Text>
+                                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
+                                  {enCart
+                                    ? `En tu lista (${qtyFmt(enCart.qty)}) · Ajustar o agregar más`
+                                    : 'Solicitar de Almacén (Existencia)'}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })() : (
                             <TouchableOpacity
                               onPress={() => abrirPedirCompra(item)}
                               style={{
@@ -1095,6 +1406,332 @@ export default function SolicitudMaterialScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+          </Card>
+
+          {/* PASO 3: Lista de Repuestos / Materiales a Solicitar (Carrito) */}
+          <Card
+            style={{
+              borderColor: cartItems.length > 0 ? colors.brand : colors.border,
+              borderWidth: cartItems.length > 0 ? 1.5 : 1,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 4,
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>
+                3. Repuestos y Materiales a Solicitar ({cartItems.length})
+              </Text>
+              {cartItems.length > 0 && (
+                <TouchableOpacity onPress={() => setCartItems([])} style={{ padding: 4 }}>
+                  <Text style={{ color: colors.danger, fontSize: 11.5, fontWeight: '700' }}>
+                    🗑 Vaciar lista
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              {cartItems.length === 0
+                ? 'Puedes pedir uno o más repuestos y se irán agregando aquí con la cantidad que necesitas.'
+                : 'Revisa las cantidades antes de enviar la solicitud a Almacén o Compras.'}
+            </Text>
+
+            {cartItems.length === 0 ? (
+              <View
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  padding: spacing.md,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Text style={{ fontSize: 24 }}>📋</Text>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                  Aún no has agregado ningún repuesto
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 11.5, textAlign: 'center' }}>
+                  Escribe en el buscador del paso 2 y presiona "Solicitar de Almacén" o "Solicitar Compra Técnica" para añadirlos aquí.
+                </Text>
+              </View>
+            ) : (
+              <View style={{ gap: spacing.sm }}>
+                {cartItems.map((item, idx) => {
+                  const esStock = item.tipo === 'stock';
+                  return (
+                    <View
+                      key={item.id}
+                      style={{
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: esStock ? '#10B981' : colors.brand,
+                        borderRadius: radius.md,
+                        padding: spacing.sm,
+                        gap: 6,
+                      }}
+                    >
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
+                        }}
+                      >
+                        <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                            <View
+                              style={{
+                                backgroundColor: esStock ? '#DCFCE7' : '#DBEAFE',
+                                paddingHorizontal: 6,
+                                paddingVertical: 1,
+                                borderRadius: radius.pill,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: esStock ? '#166534' : '#1E40AF',
+                                  fontSize: 10,
+                                  fontWeight: '800',
+                                }}
+                              >
+                                {esStock ? '📦 ALMACÉN' : '🛒 COMPRA TÉCNICA'}
+                              </Text>
+                            </View>
+
+                            {esStock && item.urgency ? (
+                              <View
+                                style={{
+                                  backgroundColor: URGENCIA_CONFIG[item.urgency]?.bg || '#FEF3C7',
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 1,
+                                  borderRadius: radius.sm,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    color: URGENCIA_CONFIG[item.urgency]?.color || '#B45309',
+                                    fontSize: 10,
+                                    fontWeight: '700',
+                                  }}
+                                >
+                                  {URGENCIA_CONFIG[item.urgency]?.icon} {URGENCIA_CONFIG[item.urgency]?.label}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13.5 }}>
+                            {idx + 1}. {item.name}
+                          </Text>
+                          {item.sku ? (
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>SKU: {item.sku}</Text>
+                          ) : null}
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={() => quitarItemDelCarrito(item.id)}
+                          style={{
+                            backgroundColor: '#FEE2E2',
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: radius.sm,
+                          }}
+                        >
+                          <Text style={{ color: '#DC2626', fontSize: 11, fontWeight: '800' }}>
+                            🗑 Quitar
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {esStock && item.stockDisponible !== undefined ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          Stock disponible en almacén: {qtyFmt(item.stockDisponible)} {item.unit}
+                          {item.qty > item.stockDisponible ? (
+                            <Text style={{ color: '#DC2626', fontWeight: '700' }}>
+                              {' '}(⚠️ Supera el stock actual)
+                            </Text>
+                          ) : null}
+                        </Text>
+                      ) : null}
+
+                      {!esStock && item.medidas ? (
+                        <View style={{ backgroundColor: '#EFF6FF', padding: 6, borderRadius: radius.sm }}>
+                          <Text style={{ color: '#1E40AF', fontSize: 11, fontWeight: '700' }}>
+                            📐 Medidas/Specs: <Text style={{ fontWeight: '400' }}>{item.medidas}</Text>
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {item.reason ? (
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic' }}>
+                          Motivo / Falla: {item.reason}
+                        </Text>
+                      ) : null}
+
+                      {/* Control de cantidad */}
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          backgroundColor: colors.surfaceAlt,
+                          padding: 6,
+                          borderRadius: radius.sm,
+                        }}
+                      >
+                        <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>
+                          Cantidad requerida:
+                        </Text>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <TouchableOpacity
+                            onPress={() => cambiarCantidadCarrito(item.id, -1)}
+                            style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              width: 28,
+                              height: 28,
+                              borderRadius: radius.sm,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>-</Text>
+                          </TouchableOpacity>
+
+                          <TextInput
+                            value={String(item.qty)}
+                            onChangeText={(t) => setCantidadDirecta(item.id, t)}
+                            keyboardType="numeric"
+                            inputMode="decimal"
+                            style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              color: colors.text,
+                              borderRadius: radius.sm,
+                              paddingVertical: 2,
+                              paddingHorizontal: 8,
+                              width: 60,
+                              textAlign: 'center',
+                              fontWeight: '800',
+                              fontSize: 13,
+                            }}
+                          />
+
+                          <TouchableOpacity
+                            onPress={() => cambiarCantidadCarrito(item.id, 1)}
+                            style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              width: 28,
+                              height: 28,
+                              borderRadius: radius.sm,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>+</Text>
+                          </TouchableOpacity>
+
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                            {item.unit}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+
+                {/* Resumen del envío y botón principal */}
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    padding: spacing.md,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    marginTop: spacing.xs,
+                    gap: 6,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                    📋 Resumen de la Solicitud:
+                  </Text>
+
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    • Total de repuestos:{' '}
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>{cartItems.length}</Text> (
+                    {cartItems.filter((x) => x.tipo === 'stock').length} de almacén,{' '}
+                    {cartItems.filter((x) => x.tipo === 'compra').length} de compras)
+                  </Text>
+
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    • Destino:{' '}
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>
+                      {destinoTipo === 'maquinaria'
+                        ? selectedMachineryIds.length > 0
+                          ? `${selectedMachineryIds.length} maquinaria(s): ${machines
+                              .filter((m) => selectedMachineryIds.includes(m.id))
+                              .map((m) => `🚜 ${m.code} [Placa: ${m.plate || 'Sin placa'}]`)
+                              .join(', ')}`
+                          : '⚠️ Ninguna seleccionada'
+                        : destinoTipo === 'vehiculo'
+                        ? selectedVehicleIds.length > 0
+                          ? `${selectedVehicleIds.length} vehículo(s): ${vehicles
+                              .filter((v) => selectedVehicleIds.includes(v.id))
+                              .map((v) => `🚗 ${v.plate}`)
+                              .join(', ')}`
+                          : '⚠️ Ninguno seleccionado'
+                        : areaTexto.trim() || 'TALLER GENERAL'}
+                    </Text>
+                  </Text>
+
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    • Para (Persona que solicita):{' '}
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>
+                      {solicitante.nombre || 'Personal Taller'}
+                    </Text>
+                  </Text>
+
+                  <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                    • Registrado automáticamente por:{' '}
+                    <Text style={{ color: colors.brandText, fontWeight: '800' }}>
+                      {fullName || 'Tu usuario'} (Tú)
+                    </Text>
+                  </Text>
+
+                  <TouchableOpacity
+                    onPress={enviarSolicitudCompleta}
+                    disabled={submittingCart}
+                    style={{
+                      backgroundColor: '#059669',
+                      paddingVertical: 13,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginTop: spacing.sm,
+                      opacity: submittingCart ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '900', fontSize: 14 }}>
+                      {submittingCart
+                        ? 'Enviando solicitud…'
+                        : `🚀 CONFIRMAR Y ENVIAR SOLICITUD (${cartItems.length} REPUESTOS)`}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </Card>
         </View>
       )}
@@ -1245,23 +1882,25 @@ export default function SolicitudMaterialScreen() {
           {stockRequestsFiltradas?.length === 0 ? (
             <EmptyState
               title="Sin pedidos de almacén"
-              subtitle="No hay solicitudes de existencia para mostrar."
+              subtitle="No hay solicitudes de existencia registradas por tu usuario."
             />
           ) : (
             stockRequestsFiltradas.map((s) => {
               const est = ESTADO_EXISTENCIA_CONFIG[s.status] || ESTADO_EXISTENCIA_CONFIG.pendiente;
               const urg = URGENCIA_CONFIG[s.urgency] || URGENCIA_CONFIG.normal;
+              const rej = parseRejectionNote(s.rejection_note);
+
               return (
-                <Card key={s.id} style={{ gap: 6 }}>
+                <Card key={s.id} style={{ gap: 6, borderColor: est.color, borderWidth: 1 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }}>
+                    <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text, flex: 1, paddingRight: 6 }}>
                       {s.code} · {s.item_name}
                     </Text>
                     <View
                       style={{
                         backgroundColor: est.bg,
                         paddingHorizontal: 8,
-                        paddingVertical: 2,
+                        paddingVertical: 3,
                         borderRadius: radius.pill,
                       }}
                     >
@@ -1272,16 +1911,16 @@ export default function SolicitudMaterialScreen() {
                   </View>
 
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
-                    Cantidad: <Text style={{ color: colors.text, fontWeight: '700' }}>{qtyFmt(s.qty)} {s.unit || 'UND'}</Text>
-                    {s.solicitante_nombre ? ` · Solicita: ${s.solicitante_nombre}` : ''}
+                    Cantidad: <Text style={{ color: colors.text, fontWeight: '800' }}>{qtyFmt(s.qty)} {s.unit || 'UND'}</Text>
                   </Text>
 
+                  {/* Destino con Código y PLACA siempre obligatoria */}
                   {s.machinery_id ? (() => {
                     const m = machines.find((x) => x.id === s.machinery_id);
                     return (
                       <Text style={{ color: colors.muted, fontSize: 11.5 }}>
                         🚜 <Text style={{ fontWeight: '700' }}>Destino:</Text>{' '}
-                        {m ? `${m.code}${m.plate ? ' · Placa: ' + m.plate : ''}` : 'Maquinaria'}
+                        {m ? `${m.code} · Placa: ${m.plate || 'Sin placa'}` : 'Maquinaria'}
                       </Text>
                     );
                   })() : s.vehicle_id ? (() => {
@@ -1300,13 +1939,39 @@ export default function SolicitudMaterialScreen() {
 
                   {s.reason ? (
                     <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic' }}>
-                      Motivo: {s.reason}
+                      Motivo / Detalle: {s.reason}
                     </Text>
                   ) : null}
 
+                  {/* Fila de registro y auditoría del usuario */}
+                  <View
+                    style={{
+                      backgroundColor: colors.surfaceAlt,
+                      padding: spacing.xs,
+                      paddingHorizontal: spacing.sm,
+                      borderRadius: radius.sm,
+                      marginTop: 2,
+                      gap: 2,
+                    }}
+                  >
+                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                      👷 <Text style={{ fontWeight: '700' }}>Persona que solicita (físico):</Text>{' '}
+                      <Text style={{ color: colors.text, fontWeight: '800' }}>
+                        {s.solicitante_nombre || 'Personal Taller'}
+                      </Text>
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                      👤 <Text style={{ fontWeight: '700' }}>Registrado automáticamente por:</Text>{' '}
+                      <Text style={{ color: colors.brandText, fontWeight: '800' }}>
+                        {s.created_by === uid ? `${fullName || 'Tu usuario'} (Tú)` : 'Usuario del sistema'}
+                      </Text>{' '}
+                      el {dmyTimeOf(s.created_at)}
+                    </Text>
+                  </View>
+
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>
-                      Fecha: {dmyOf(s.created_at)}
+                      Fecha solicitud: {dmyOf(s.created_at)}
                     </Text>
                     <View style={{ backgroundColor: urg.bg, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.sm }}>
                       <Text style={{ color: urg.color, fontSize: 10.5, fontWeight: '700' }}>
@@ -1315,16 +1980,88 @@ export default function SolicitudMaterialScreen() {
                     </View>
                   </View>
 
-                  {s.status === 'despachado' && s.dispatched_at ? (
-                    <Text style={{ color: '#16A34A', fontSize: 11, fontWeight: '700', marginTop: 2 }}>
-                      ✓ Despachado por {s.dispatched_by_name || 'Almacenista'} el {dmyOf(s.dispatched_at)}
-                    </Text>
-                  ) : null}
-                  {s.status === 'rechazado' && s.rejection_note ? (
-                    <Text style={{ color: '#DC2626', fontSize: 11, fontWeight: '700', marginTop: 2 }}>
-                      ✕ Motivo de rechazo: {s.rejection_note}
-                    </Text>
-                  ) : null}
+                  {/* Cuadro de Aprobado / Despachado */}
+                  {s.status === 'despachado' && (
+                    <View
+                      style={{
+                        backgroundColor: '#DCFCE7',
+                        borderWidth: 1.5,
+                        borderColor: '#86EFAC',
+                        padding: spacing.sm,
+                        borderRadius: radius.md,
+                        marginTop: 4,
+                        gap: 2,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 15 }}>✅</Text>
+                        <Text style={{ color: '#166534', fontWeight: '800', fontSize: 12 }}>
+                          SOLICITUD DESPACHADA Y ENTREGADA
+                        </Text>
+                      </View>
+                      <Text style={{ color: '#15803D', fontSize: 11.5, fontWeight: '700' }}>
+                        Despachado / Aprobado por: <Text style={{ color: '#166534', fontWeight: '800' }}>{s.dispatched_by_name || 'Almacenista'}</Text>
+                      </Text>
+                      {s.dispatched_at ? (
+                        <Text style={{ color: '#166534', fontSize: 11 }}>
+                          📅 Fecha y hora de despacho: {dmyTimeOf(s.dispatched_at)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  )}
+
+                  {/* Cuadro de Rechazo con quién rechazó, fecha/hora y motivo */}
+                  {s.status === 'rechazado' && (
+                    <View
+                      style={{
+                        backgroundColor: '#FEE2E2',
+                        borderWidth: 1.5,
+                        borderColor: '#F87171',
+                        padding: spacing.sm,
+                        borderRadius: radius.md,
+                        marginTop: 4,
+                        gap: 3,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 15 }}>❌</Text>
+                        <Text style={{ color: '#991B1B', fontWeight: '900', fontSize: 12 }}>
+                          SOLICITUD RECHAZADA POR ALMACÉN / SUPERVISIÓN
+                        </Text>
+                      </View>
+                      <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '700' }}>
+                        Rechazado por: <Text style={{ color: '#991B1B', fontWeight: '800' }}>{rej.rejectedBy || 'Almacén / Supervisor'}</Text>
+                      </Text>
+                      {rej.rejectedAt ? (
+                        <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
+                          📅 Fecha y hora de rechazo: <Text style={{ fontWeight: '700' }}>{rej.rejectedAt}</Text>
+                        </Text>
+                      ) : null}
+                      <View style={{ backgroundColor: '#fff', padding: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.sm, marginTop: 2 }}>
+                        <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
+                          💬 Motivo del rechazo: <Text style={{ fontWeight: '700' }}>{rej.note || 'Sin motivo especificado'}</Text>
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {s.status === 'pendiente' && (
+                    <View
+                      style={{
+                        backgroundColor: '#FEF3C7',
+                        borderWidth: 1,
+                        borderColor: '#FDE68A',
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        borderRadius: radius.sm,
+                        marginTop: 2,
+                      }}
+                    >
+                      <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '700' }}>
+                        ⏳ En espera de revisión y entrega física por el Almacén
+                      </Text>
+                    </View>
+                  )}
                 </Card>
               );
             })
@@ -1335,22 +2072,22 @@ export default function SolicitudMaterialScreen() {
           {requirementsFiltradas?.length === 0 ? (
             <EmptyState
               title="Sin solicitudes de compra"
-              subtitle="No hay solicitudes de compra técnica para mostrar."
+              subtitle="No hay solicitudes de compra técnica registradas por tu usuario."
             />
           ) : (
             requirementsFiltradas.slice(0, 30).map((r) => {
               const est = ESTADO_COMPRA_CONFIG[r.status] || ESTADO_COMPRA_CONFIG.pendiente;
               return (
-                <Card key={r.id} style={{ gap: 6 }}>
+                <Card key={r.id} style={{ gap: 6, borderColor: est.color, borderWidth: 1 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }}>
+                    <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text, flex: 1, paddingRight: 6 }}>
                       {r.code} · {r.title || 'Requerimiento de compra'}
                     </Text>
                     <View
                       style={{
                         backgroundColor: est.bg,
                         paddingHorizontal: 8,
-                        paddingVertical: 2,
+                        paddingVertical: 3,
                         borderRadius: radius.pill,
                       }}
                     >
@@ -1360,12 +2097,36 @@ export default function SolicitudMaterialScreen() {
                     </View>
                   </View>
 
-                  {r.solicitante_nombre ? (
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>
-                      Solicitante: <Text style={{ color: colors.text, fontWeight: '700' }}>{r.solicitante_nombre}</Text>
-                      {r.area ? ` · Área: ${r.area}` : ''}
+                  {/* Fila de registro y auditoría */}
+                  <View
+                    style={{
+                      backgroundColor: colors.surfaceAlt,
+                      padding: spacing.xs,
+                      paddingHorizontal: spacing.sm,
+                      borderRadius: radius.sm,
+                      marginTop: 2,
+                      gap: 2,
+                    }}
+                  >
+                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                      👷 <Text style={{ fontWeight: '700' }}>Persona que solicita (físico):</Text>{' '}
+                      <Text style={{ color: colors.text, fontWeight: '800' }}>
+                        {r.solicitante_nombre || 'Personal Taller'}
+                      </Text>
                     </Text>
-                  ) : null}
+                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                      👤 <Text style={{ fontWeight: '700' }}>Registrado automáticamente por:</Text>{' '}
+                      <Text style={{ color: colors.brandText, fontWeight: '800' }}>
+                        {r.requested_by_name || (r.requested_by === uid ? `${fullName || 'Tu usuario'} (Tú)` : 'Usuario registrado')}
+                      </Text>{' '}
+                      el {dmyTimeOf(r.created_at)}
+                    </Text>
+                    {r.area ? (
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        🏢 <Text style={{ fontWeight: '700' }}>Área / Destino:</Text> {r.area}
+                      </Text>
+                    ) : null}
+                  </View>
 
                   {/* Renglones */}
                   <View style={{ backgroundColor: colors.surfaceAlt, padding: spacing.sm, borderRadius: radius.sm, gap: 4 }}>
@@ -1385,7 +2146,7 @@ export default function SolicitudMaterialScreen() {
 
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>
-                      Fecha: {dmyOf(r.created_at)}
+                      Fecha solicitud: {dmyOf(r.created_at)}
                     </Text>
                     {r.attachment_url ? (
                       <Text style={{ color: colors.brand, fontSize: 11, fontWeight: '700' }}>
@@ -1393,6 +2154,128 @@ export default function SolicitudMaterialScreen() {
                       </Text>
                     ) : null}
                   </View>
+
+                  {/* Cuadro de Aprobado */}
+                  {(r.status === 'aprobado' || r.status === 'recibido') && (
+                    <View
+                      style={{
+                        backgroundColor: '#DCFCE7',
+                        borderWidth: 1.5,
+                        borderColor: '#86EFAC',
+                        padding: spacing.sm,
+                        borderRadius: radius.md,
+                        marginTop: 4,
+                        gap: 2,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 15 }}>✅</Text>
+                        <Text style={{ color: '#166534', fontWeight: '800', fontSize: 12 }}>
+                          REQUERIMIENTO APROBADO PARA COMPRA
+                        </Text>
+                      </View>
+                      <Text style={{ color: '#15803D', fontSize: 11.5, fontWeight: '700' }}>
+                        Aprobado por: <Text style={{ color: '#166534', fontWeight: '800' }}>{r.decided_by_name || 'Gerencia / Compras'}</Text>
+                      </Text>
+                      {r.decided_at ? (
+                        <Text style={{ color: '#166534', fontSize: 11 }}>
+                          📅 Fecha y hora de aprobación: {dmyTimeOf(r.decided_at)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  )}
+
+                  {/* Cuadro de Rechazo con quién rechazó, fecha/hora y motivo */}
+                  {r.status === 'rechazado' && (
+                    <View
+                      style={{
+                        backgroundColor: '#FEE2E2',
+                        borderWidth: 1.5,
+                        borderColor: '#F87171',
+                        padding: spacing.sm,
+                        borderRadius: radius.md,
+                        marginTop: 4,
+                        gap: 3,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 15 }}>❌</Text>
+                        <Text style={{ color: '#991B1B', fontWeight: '900', fontSize: 12 }}>
+                          SOLICITUD DE COMPRA RECHAZADA
+                        </Text>
+                      </View>
+                      <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '700' }}>
+                        Rechazado por: <Text style={{ color: '#991B1B', fontWeight: '800' }}>{r.decided_by_name || 'Compras / Gerencia'}</Text>
+                      </Text>
+                      {r.decided_at ? (
+                        <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
+                          📅 Fecha y hora de rechazo: <Text style={{ fontWeight: '700' }}>{dmyTimeOf(r.decided_at)}</Text>
+                        </Text>
+                      ) : null}
+                      <View style={{ backgroundColor: '#fff', padding: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.sm, marginTop: 2 }}>
+                        <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
+                          💬 Motivo del rechazo: <Text style={{ fontWeight: '700' }}>{r.decision_note || 'Sin motivo especificado'}</Text>
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Cuadro de Aclaratoria Técnica Pendiente */}
+                  {r.status === 'aclaratoria_solicitada' && (
+                    <View
+                      style={{
+                        backgroundColor: '#FFEDD5',
+                        borderWidth: 1.5,
+                        borderColor: '#FDBA74',
+                        padding: spacing.sm,
+                        borderRadius: radius.md,
+                        marginTop: 4,
+                        gap: 4,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 15 }}>⚠️</Text>
+                        <Text style={{ color: '#9A3412', fontWeight: '800', fontSize: 12 }}>
+                          ACLARATORIA TÉCNICA SOLICITADA POR COMPRAS
+                        </Text>
+                      </View>
+                      <Text style={{ color: '#7C2D12', fontSize: 11.5, fontStyle: 'italic' }}>
+                        "{r.aclaratoria_motivo}"
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => abrirResponderAclaratoria(r)}
+                        style={{
+                          backgroundColor: '#EA580C',
+                          paddingVertical: 7,
+                          borderRadius: radius.sm,
+                          alignItems: 'center',
+                          marginTop: 2,
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11.5 }}>
+                          ✏️ Responder medidas y especificaciones
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {r.status === 'pendiente' && (
+                    <View
+                      style={{
+                        backgroundColor: '#EFF6FF',
+                        borderWidth: 1,
+                        borderColor: '#BFDBFE',
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        borderRadius: radius.sm,
+                        marginTop: 2,
+                      }}
+                    >
+                      <Text style={{ color: '#1E40AF', fontSize: 11, fontWeight: '700' }}>
+                        🛒 En revisión por el departamento de Compras y cotización con proveedores
+                      </Text>
+                    </View>
+                  )}
                 </Card>
               );
             })
@@ -1453,13 +2336,52 @@ export default function SolicitudMaterialScreen() {
                 Cantidad a retirar / solicitar:
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    const current = parseNum(stockQty);
+                    setStockQty(String(Math.max(1, Math.round((current - 1) * 100) / 100)));
+                  }}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    width: 38,
+                    height: 38,
+                    borderRadius: radius.md,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>-</Text>
+                </TouchableOpacity>
+
                 <TextInput
                   value={stockQty}
                   onChangeText={(t) => setStockQty(onlyDecimal(t))}
                   keyboardType="numeric"
                   inputMode="decimal"
-                  style={[inp, { flex: 1, fontWeight: '700', fontSize: 16 }]}
+                  style={[inp, { flex: 1, fontWeight: '700', fontSize: 16, textAlign: 'center' }]}
                 />
+
+                <TouchableOpacity
+                  onPress={() => {
+                    const current = parseNum(stockQty);
+                    setStockQty(String(Math.round((current + 1) * 100) / 100));
+                  }}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    width: 38,
+                    height: 38,
+                    borderRadius: radius.md,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>+</Text>
+                </TouchableOpacity>
+
                 <Text style={{ color: colors.text, fontWeight: '700' }}>
                   {stockItem?.unit || 'UND'}
                 </Text>
@@ -1502,41 +2424,76 @@ export default function SolicitudMaterialScreen() {
                 placeholderTextColor={colors.muted}
                 multiline
                 numberOfLines={3}
-                style={[inp, { height: 75, textAlignVertical: 'top', marginBottom: spacing.lg }]}
+                style={[inp, { height: 75, textAlignVertical: 'top', marginBottom: spacing.md }]}
               />
 
               {/* Botones */}
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <View style={{ gap: spacing.xs }}>
                 <TouchableOpacity
-                  onPress={() => setModalStockOpen(false)}
-                  disabled={stockBusy}
+                  onPress={() => {
+                    if (!stockItem) return;
+                    const qty = Math.max(1, parseNum(stockQty));
+                    agregarItemAlCarrito({
+                      tipo: 'stock',
+                      itemId: stockItem.id,
+                      name: stockItem.name,
+                      sku: stockItem.sku,
+                      unit: stockItem.unit || 'UND',
+                      qty,
+                      stockDisponible: stockItem.stock || 0,
+                      urgency: stockUrgencia,
+                      reason: stockMotivo.trim() || undefined,
+                    });
+                    setModalStockOpen(false);
+                  }}
                   style={{
-                    flex: 1,
+                    backgroundColor: colors.brand,
                     paddingVertical: 12,
                     borderRadius: radius.md,
-                    backgroundColor: colors.surfaceAlt,
                     alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 6,
                   }}
                 >
-                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={enviarSolicitudStock}
-                  disabled={stockBusy}
-                  style={{
-                    flex: 2,
-                    paddingVertical: 12,
-                    borderRadius: radius.md,
-                    backgroundColor: '#059669',
-                    alignItems: 'center',
-                    opacity: stockBusy ? 0.6 : 1,
-                  }}
-                >
-                  <Text style={{ color: '#fff', fontWeight: '800' }}>
-                    {stockBusy ? 'Enviando…' : '🚀 Enviar Pedido a Almacén'}
+                  <Text style={{ fontSize: 16 }}>➕</Text>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 14 }}>
+                    Agregar a la Solicitud
                   </Text>
                 </TouchableOpacity>
+
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4 }}>
+                  <TouchableOpacity
+                    onPress={() => setModalStockOpen(false)}
+                    disabled={stockBusy}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 10,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.surfaceAlt,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={enviarSolicitudStock}
+                    disabled={stockBusy}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 10,
+                      borderRadius: radius.md,
+                      backgroundColor: '#059669',
+                      alignItems: 'center',
+                      opacity: stockBusy ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                      {stockBusy ? 'Enviando…' : '🚀 Enviar solo este'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </ScrollView>
           </View>
@@ -1692,16 +2649,57 @@ export default function SolicitudMaterialScreen() {
 
               {/* Cantidad y Unidad */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1.4 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Cantidad:</Text>
-                  <TextInput
-                    value={compraQty}
-                    onChangeText={(t) => setCompraQty(onlyDecimal(t))}
-                    keyboardType="numeric"
-                    inputMode="decimal"
-                    style={[inp, { textAlign: 'center', fontWeight: '700' }]}
-                  />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const current = parseNum(compraQty);
+                        setCompraQty(String(Math.max(1, Math.round((current - 1) * 100) / 100)));
+                      }}
+                      style={{
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        width: 36,
+                        height: 38,
+                        borderRadius: radius.md,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>-</Text>
+                    </TouchableOpacity>
+
+                    <TextInput
+                      value={compraQty}
+                      onChangeText={(t) => setCompraQty(onlyDecimal(t))}
+                      keyboardType="numeric"
+                      inputMode="decimal"
+                      style={[inp, { flex: 1, textAlign: 'center', fontWeight: '700', height: 38 }]}
+                    />
+
+                    <TouchableOpacity
+                      onPress={() => {
+                        const current = parseNum(compraQty);
+                        setCompraQty(String(Math.round((current + 1) * 100) / 100));
+                      }}
+                      style={{
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        width: 36,
+                        height: 38,
+                        borderRadius: radius.md,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>+</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
+
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Unidad:</Text>
                   <TextInput
@@ -1709,7 +2707,7 @@ export default function SolicitudMaterialScreen() {
                     onChangeText={(t) => setCompraUnit(t.toUpperCase())}
                     placeholder="UND"
                     placeholderTextColor={colors.muted}
-                    style={[inp, { textAlign: 'center', fontWeight: '700' }]}
+                    style={[inp, { textAlign: 'center', fontWeight: '700', height: 38 }]}
                   />
                 </View>
               </View>
@@ -1723,41 +2721,82 @@ export default function SolicitudMaterialScreen() {
                 onChangeText={setCompraMotivo}
                 placeholder="Ej: Desgaste severo en faena, pieza fracturada…"
                 placeholderTextColor={colors.muted}
-                style={[inp, { marginBottom: spacing.lg }]}
+                style={[inp, { marginBottom: spacing.md }]}
               />
 
               {/* Botones */}
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <View style={{ gap: spacing.xs }}>
                 <TouchableOpacity
-                  onPress={() => setModalCompraOpen(false)}
-                  disabled={compraBusy}
-                  style={{
-                    flex: 1,
-                    paddingVertical: 12,
-                    borderRadius: radius.md,
-                    backgroundColor: colors.surfaceAlt,
-                    alignItems: 'center',
+                  onPress={() => {
+                    if (!compraItemName.trim()) {
+                      return toast.error('Indica el nombre del repuesto o pieza a comprar.');
+                    }
+                    if (!compraMedidas.trim()) {
+                      return toast.error(
+                        'Las medidas y especificaciones técnicas son OBLIGATORIAS (diámetro, rosca, paso, N° de parte, etc.).'
+                      );
+                    }
+                    const qty = Math.max(1, parseNum(compraQty));
+                    agregarItemAlCarrito({
+                      tipo: 'compra',
+                      itemId: compraProductId,
+                      name: compraItemName.trim(),
+                      unit: compraUnit.trim().toUpperCase() || 'UND',
+                      qty,
+                      medidas: compraMedidas.trim(),
+                      reason: compraMotivo.trim() || undefined,
+                      fotoUrl: compraFoto || null,
+                    });
+                    setModalCompraOpen(false);
                   }}
-                >
-                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={enviarSolicitudCompra}
-                  disabled={compraBusy}
                   style={{
-                    flex: 2,
-                    paddingVertical: 12,
-                    borderRadius: radius.md,
                     backgroundColor: colors.brand,
+                    paddingVertical: 12,
+                    borderRadius: radius.md,
                     alignItems: 'center',
-                    opacity: compraBusy ? 0.6 : 1,
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 6,
                   }}
                 >
-                  <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>
-                    {compraBusy ? 'Enviando…' : '🛒 Enviar a Compras'}
+                  <Text style={{ fontSize: 16 }}>➕</Text>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 14 }}>
+                    Agregar a la Solicitud
                   </Text>
                 </TouchableOpacity>
+
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4 }}>
+                  <TouchableOpacity
+                    onPress={() => setModalCompraOpen(false)}
+                    disabled={compraBusy}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 10,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.surfaceAlt,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={enviarSolicitudCompra}
+                    disabled={compraBusy}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 10,
+                      borderRadius: radius.md,
+                      backgroundColor: '#2563EB',
+                      alignItems: 'center',
+                      opacity: compraBusy ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                      {compraBusy ? 'Enviando…' : '🛒 Enviar solo este'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </ScrollView>
           </View>
