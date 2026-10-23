@@ -1418,18 +1418,24 @@ export async function setAlertaHoras(horas: number, userId: string): Promise<{ e
 export type ListeroConRol = { id: string; full_name: string; ubicacion_id: string | null; esListero: boolean };
 
 export async function listListeros(): Promise<ListeroConRol[]> {
-  const [rolesRes, permsRes] = await Promise.all([
-    supabase.from('app_roles').select('id, modules'),
+  const [rolesResPrimary, permsRes] = await Promise.all([
+    supabase.from('app_roles').select('id, name, modules'),
     supabase.from('module_permissions').select('user_id, level').eq('module', 'viajes_camiones').neq('level', 'none'),
   ]);
+  const rolesRes = rolesResPrimary.error && !rolesResPrimary.data
+    ? await supabase.from('app_roles').select('id, modules')
+    : rolesResPrimary;
   if (rolesRes.error) throw rolesRes.error;
   if (permsRes.error) throw permsRes.error;
   const roleIds = (rolesRes.data ?? [])
-    .filter((r: any) => r?.modules && r.modules['viajes_camiones'] && r.modules['viajes_camiones'] !== 'none')
+    .filter((r: any) =>
+      (r?.modules && r.modules['viajes_camiones'] && r.modules['viajes_camiones'] !== 'none') ||
+      (r?.name && /listero/i.test(String(r.name)))
+    )
     .map((r: any) => r.id as string);
   // Quién tiene el ROL de listero, con la misma regla que el menú. Ver rolListero.ts.
   const rolesListero = new Set(
-    (rolesRes.data ?? []).filter((r: any) => esRolListero(r?.modules)).map((r: any) => r.id as string),
+    (rolesRes.data ?? []).filter((r: any) => esRolListero(r?.modules) || (r?.name && /listero/i.test(String(r.name)))).map((r: any) => r.id as string),
   );
   const permUserIds = (permsRes.data ?? []).map((p: any) => p.user_id as string);
   if (!roleIds.length && !permUserIds.length) return [];
@@ -1445,22 +1451,23 @@ export async function listListeros(): Promise<ListeroConRol[]> {
     } catch { /* se reintenta abajo */ }
     return filtro(supabase.from('profiles').select(COLS_PERFIL));
   };
-  const [byRole, byPerm] = await Promise.all([
+  const [byRole, byPerm, byListeroRole] = await Promise.all([
     roleIds.length ? perfiles((q: any) => q.in('app_role_id', roleIds)) : Promise.resolve({ data: [] as any[], error: null }),
     permUserIds.length ? perfiles((q: any) => q.in('id', permUserIds)) : Promise.resolve({ data: [] as any[], error: null }),
+    perfiles((q: any) => q.eq('role', 'listero')).catch(() => ({ data: [] as any[], error: null })),
   ]);
   if (byRole.error) throw byRole.error;
   if (byPerm.error) throw byPerm.error;
   const seen = new Set<string>();
   const out: ListeroConRol[] = [];
-  [...(byRole.data ?? []), ...(byPerm.data ?? [])].forEach((p: any) => {
+  [...(byRole.data ?? []), ...(byPerm.data ?? []), ...(byListeroRole?.data ?? [])].forEach((p: any) => {
     if (p.active === false || seen.has(p.id)) return;
     seen.add(p.id);
     out.push({
       id: p.id,
       full_name: p.full_name ?? '(sin nombre)',
       ubicacion_id: (p.ubicacion_id ?? null) as string | null,
-      esListero: rolesListero.has(p.app_role_id),
+      esListero: rolesListero.has(p.app_role_id) || p.role === 'listero',
     });
   });
   out.sort((a, b) => a.full_name.localeCompare(b.full_name, 'es', { sensitivity: 'base' }));

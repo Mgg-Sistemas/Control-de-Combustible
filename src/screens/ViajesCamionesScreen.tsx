@@ -1644,6 +1644,7 @@ export default function ViajesCamionesScreen() {
    *    mostrando a quién pertenece.
    */
   const listerosDeRol = useMemo(() => listeros.filter((l) => l.esListero), [listeros]);
+  const listerosParaTicket = useMemo(() => (listerosDeRol.length > 0 ? listerosDeRol : listeros), [listerosDeRol, listeros]);
 
   // ── EL CATÁLOGO DE OBRAS ───────────────────────────────────────────────────
   // Lo lee TODO EL MUNDO, no solo quien administra: el listero necesita saber en

@@ -29,6 +29,7 @@ import {
 import { guardarConfigTique, leerConfigTique } from '../lib/tiqueConfigDatos';
 import { avisoDeCapacidad, renglonesDelTique } from '../lib/tiqueDocumento';
 import { UNIDADES_PESO, pesosParaTique } from '../lib/viajesPeso';
+import { listListeros } from '../lib/camionViajes';
 
 /**
  * Un viaje de mentira para la vista previa.
@@ -100,7 +101,18 @@ export function TiqueConfigCard({
   useEffect(() => {
     if (listerosProp && listerosProp.length > 0) {
       setListerosLocales(listerosProp);
+      return;
     }
+    let vivo = true;
+    listListeros()
+      .then((res) => {
+        if (!vivo) return;
+        const deRol = res.filter((l) => l.esListero);
+        const lista = deRol.length > 0 ? deRol : res;
+        setListerosLocales(lista);
+      })
+      .catch((e) => console.warn('[tiqueConfig] no se pudo leer listeros:', e));
+    return () => { vivo = false; };
   }, [listerosProp]);
 
   // Carga inicial desde Supabase
