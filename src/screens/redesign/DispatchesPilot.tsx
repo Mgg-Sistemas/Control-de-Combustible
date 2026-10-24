@@ -107,9 +107,14 @@ export default function DispatchesPilot() {
   const defaultTank = useMemo(() => {
     if (activeTanks.length === 0) return null;
     const u = norm(currentUserName);
-    const matched = activeTanks.find(
-      (t) => (t.responsable && norm(t.responsable) === u) || (t.chofer && norm(t.chofer) === u)
-    );
+    const matched = activeTanks.find((t) => {
+      const resp = t.responsable ? norm(t.responsable) : '';
+      const chof = t.chofer ? norm(t.chofer) : '';
+      return (
+        (resp && (resp === u || resp.includes(u) || u.includes(resp))) ||
+        (chof && (chof === u || chof.includes(u) || u.includes(chof)))
+      );
+    });
     if (matched) return matched;
     if (activeTanks.length === 1) return activeTanks[0];
     return null;
@@ -121,9 +126,14 @@ export default function DispatchesPilot() {
       return activeTanks.length === 1 ? activeTanks[0] : null;
     }
     const d = norm(driverName);
-    const match = activeTanks.find(
-      (t) => (t.responsable && norm(t.responsable) === d) || (t.chofer && norm(t.chofer) === d)
-    );
+    const match = activeTanks.find((t) => {
+      const resp = t.responsable ? norm(t.responsable) : '';
+      const chof = t.chofer ? norm(t.chofer) : '';
+      return (
+        (resp && (resp === d || resp.includes(d) || d.includes(resp))) ||
+        (chof && (chof === d || chof.includes(d) || d.includes(chof)))
+      );
+    });
     return match || (activeTanks.length === 1 ? activeTanks[0] : null);
   };
 

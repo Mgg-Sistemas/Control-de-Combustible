@@ -82,11 +82,11 @@ function toNum(s: string): number {
 
 export default function FuelDriverScreen() {
   const { colors } = useTheme();
-  const { session, signOut } = useAuth();
+  const { session, signOut, fullName } = useAuth();
   const uid = session?.user?.id ?? '';
   const [activeTab, setActiveTab] = useState<'surtidor' | 'qr_averias'>('surtidor');
 
-  const [driverName, setDriverName] = useState('');
+  const [driverName, setDriverName] = useState(fullName || '');
   const [machines, setMachines] = useState<Machine[]>([]);
   const [tanks, setTanks] = useState<{ id: string; name: string; responsable?: string | null; chofer?: string | null; fuel: string; location?: string | null }[]>([]);
   const [selectedTankId, setSelectedTankId] = useState<string>('');
@@ -162,12 +162,18 @@ export default function FuelDriverScreen() {
 
   // Tanque asignado al chofer actual (por responsable o chofer del tanque)
   const myAssignedTank = useMemo(() => {
-    if (!driverName || tanks.length === 0) return null;
-    const d = norm(driverName);
-    return tanks.find(
-      (t) => (t.responsable && norm(t.responsable) === d) || (t.chofer && norm(t.chofer) === d)
-    ) || null;
-  }, [tanks, driverName]);
+    const effectiveName = driverName || fullName || '';
+    if (!effectiveName || tanks.length === 0) return null;
+    const d = norm(effectiveName);
+    return tanks.find((t) => {
+      const resp = t.responsable ? norm(t.responsable) : '';
+      const chof = t.chofer ? norm(t.chofer) : '';
+      return (
+        (resp && (resp === d || resp.includes(d) || d.includes(resp))) ||
+        (chof && (chof === d || chof.includes(d) || d.includes(chof)))
+      );
+    }) || null;
+  }, [tanks, driverName, fullName]);
 
   // Pre-selección por defecto: el tanque del chofer o el único tanque existente
   useEffect(() => {
