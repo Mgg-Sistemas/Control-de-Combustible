@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Modal, TextInput, Pressable } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Modal, TextInput, Pressable, Platform } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { useTable } from '../../hooks/useTable';
-import { TankLevel as TankLevelType } from '../../types/database';
+import { Tank, TankLevel as TankLevelType, Machinery } from '../../types/database';
 import { TankLevel, tankStatus } from '../../components/TankLevel';
-import { cmpText } from '../../lib/text';
+import { cmpText, norm } from '../../lib/text';
 import { family, useBrandFonts } from '../../components/redesign/fonts';
 import { supabase } from '../../lib/supabase';
+import { useToast } from '../../components/ToastProvider';
+import { useAuth } from '../../context/AuthContext';
 
 // Umbral mínimo por defecto (la vista tank_levels aún no expone umbral por tanque).
 const LOW_PCT = 20;
@@ -55,6 +57,141 @@ export default function TanksShowcase() {
     if (!error) { setEditTank(null); refetch(); }
   };
 
+  const toast = useToast();
+  const { session } = useAuth();
+  const { data: fullTanks, refetch: refetchFullTanks } = useTable<Tank>('tanks', { realtimeFrom: ['tanks'] });
+  const { data: machineryList } = useTable<Machinery>('machinery', { orderBy: 'code' });
+
+  // Modal para Crear / Editar Tanque
+  const [tankModalOpen, setTankModalOpen] = useState(false);
+  const [editingTankId, setEditingTankId] = useState<string | null>(null);
+
+  const [tankName, setTankName] = useState('');
+  const [tankFuel, setTankFuel] = useState<'diesel' | 'gasolina'>('diesel');
+  const [tankCapacity, setTankCapacity] = useState('');
+  const [tankIsMobile, setTankIsMobile] = useState(false);
+  const [tankLocation, setTankLocation] = useState('');
+  const [tankResponsable, setTankResponsable] = useState('');
+  const [tankChofer, setTankChofer] = useState('');
+  const [tankMachineryId, setTankMachineryId] = useState<string | null>(null);
+  const [tankSaldoInicial, setTankSaldoInicial] = useState('');
+  const [searchMachineryQuery, setSearchMachineryQuery] = useState('');
+  const [savingTank, setSavingTank] = useState(false);
+
+  const filteredMachinery = useMemo(() => {
+    const q = norm(searchMachineryQuery);
+    if (!q) return (machineryList || []).slice(0, 15);
+    return (machineryList || [])
+      .filter((m) => {
+        return (
+          norm(m.code).includes(q) ||
+          norm(m.plate || '').includes(q) ||
+          norm(m.tipo || '').includes(q)
+        );
+      })
+      .slice(0, 20);
+  }, [machineryList, searchMachineryQuery]);
+
+  const openCreateTank = () => {
+    setEditingTankId(null);
+    setTankName('');
+    setTankFuel('diesel');
+    setTankCapacity('');
+    setTankIsMobile(false);
+    setTankLocation('');
+    setTankResponsable('');
+    setTankChofer('');
+    setTankMachineryId(null);
+    setTankSaldoInicial('');
+    setSearchMachineryQuery('');
+    setTankModalOpen(true);
+  };
+
+  const openEditFullTank = (tankId: string) => {
+    const full = (fullTanks || []).find((t) => t.id === tankId);
+    if (!full) return;
+    setEditingTankId(full.id);
+    setTankName(full.name);
+    setTankFuel(full.fuel);
+    setTankCapacity(String(full.capacity_l));
+    setTankIsMobile(!!full.is_mobile);
+    setTankLocation(full.location || '');
+    setTankResponsable(full.responsable || '');
+    setTankChofer(full.chofer || '');
+    setTankMachineryId(full.machinery_id || null);
+    setTankSaldoInicial('');
+    setSearchMachineryQuery('');
+    setTankModalOpen(true);
+  };
+
+  const handleSaveTank = async () => {
+    const cleanName = tankName.trim();
+    const cap = Number(tankCapacity.replace(',', '.'));
+    if (!cleanName) {
+      toast.error('Indica el nombre del tanque.');
+      return;
+    }
+    if (!cap || cap <= 0) {
+      toast.error('Indica una capacidad válida en litros (mayor a 0).');
+      return;
+    }
+
+    setSavingTank(true);
+    try {
+      if (editingTankId) {
+        const { error } = await supabase.from('tanks').update({
+          name: cleanName,
+          fuel: tankFuel,
+          capacity_l: cap,
+          is_mobile: tankIsMobile,
+          location: tankLocation.trim() || null,
+          responsable: tankResponsable.trim() || null,
+          chofer: tankIsMobile ? (tankChofer.trim() || null) : null,
+          machinery_id: tankIsMobile ? (tankMachineryId || null) : null,
+        }).eq('id', editingTankId);
+
+        if (error) throw new Error(error.message);
+        toast.success('Tanque actualizado con éxito.');
+      } else {
+        const { data: newTank, error } = await supabase.from('tanks').insert({
+          name: cleanName,
+          fuel: tankFuel,
+          capacity_l: cap,
+          is_mobile: tankIsMobile,
+          location: tankLocation.trim() || null,
+          responsable: tankResponsable.trim() || null,
+          chofer: tankIsMobile ? (tankChofer.trim() || null) : null,
+          machinery_id: tankIsMobile ? (tankMachineryId || null) : null,
+          active: true,
+        }).select().single();
+
+        if (error) throw new Error(error.message);
+
+        const saldoIni = Number(tankSaldoInicial.replace(',', '.')) || 0;
+        if (newTank && saldoIni > 0) {
+          await supabase.from('fuel_intakes').insert({
+            tank_id: newTank.id,
+            intake_date: new Date().toISOString().slice(0, 10),
+            supplier: 'Saldo Inicial / Apertura',
+            fuel: tankFuel,
+            liters: saldoIni,
+            created_by: session?.user?.id || null,
+          });
+        }
+
+        toast.success('Tanque creado con éxito.');
+      }
+
+      setTankModalOpen(false);
+      refetch();
+      refetchFullTanks();
+    } catch (err: any) {
+      toast.error('Error al guardar tanque: ' + (err?.message || 'Error'));
+    } finally {
+      setSavingTank(false);
+    }
+  };
+
   const tanks = useMemo(() => {
     const list = [...(data ?? [])].sort((a, b) => cmpText(a.name, b.name));
     if (filter === 'diesel') return list.filter((t) => /dies/i.test(t.fuel));
@@ -100,9 +237,28 @@ export default function TanksShowcase() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      {/* Banda navy con título de marca + KPIs grandes. */}
+      {/* Banda navy con título de marca + KPIs grandes + Botón Crear Tanque. */}
       <View style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.lg }}>
-        <Text style={[{ color: colors.brandContrast, fontSize: 26, letterSpacing: 0.5, fontWeight: '900' }, f(family.display)]}>TANQUES</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={[{ color: colors.brandContrast, fontSize: 26, letterSpacing: 0.5, fontWeight: '900' }, f(family.display)]}>TANQUES</Text>
+          <TouchableOpacity
+            onPress={openCreateTank}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              backgroundColor: colors.primary,
+              paddingHorizontal: spacing.md,
+              paddingVertical: 7,
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.3)',
+            }}
+          >
+            <Text style={{ fontSize: 13 }}>➕</Text>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>Crear Tanque</Text>
+          </TouchableOpacity>
+        </View>
         <View style={{ flexDirection: 'row', marginTop: spacing.md, gap: spacing.sm }}>
           <Kpi n={kpis.total} label="Tanques" />
           <View style={{ width: 1, backgroundColor: colors.brandContrast, opacity: 0.2 }} />
@@ -147,8 +303,23 @@ export default function TanksShowcase() {
                   <View style={{ flex: 1, padding: spacing.md }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm }}>
                       <Text numberOfLines={1} style={[{ color: colors.text, fontSize: 17, flex: 1, fontWeight: '900' }, f(family.displayBold)]}>{t.name}</Text>
-                      <View style={{ backgroundColor: tone.bg, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
-                        <Text style={[{ color: tone.fg, fontSize: 10, letterSpacing: 0.5 }, f(family.bodySemi)]}>{st.label.toUpperCase()}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TouchableOpacity
+                          onPress={() => openEditFullTank(t.id)}
+                          style={{
+                            backgroundColor: colors.surfaceAlt,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                          }}
+                        >
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary }}>✏️ Editar</Text>
+                        </TouchableOpacity>
+                        <View style={{ backgroundColor: tone.bg, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                          <Text style={[{ color: tone.fg, fontSize: 10, letterSpacing: 0.5 }, f(family.bodySemi)]}>{st.label.toUpperCase()}</Text>
+                        </View>
                       </View>
                     </View>
                     <Text style={[{ color: colors.muted, fontSize: 12, marginTop: 2, textTransform: 'capitalize' }, f(family.body)]}>
@@ -231,6 +402,237 @@ export default function TanksShowcase() {
                 <Text style={{ color: colors.primaryContrast, fontWeight: '900' }}>{savingResp ? 'Guardando…' : 'Guardar'}</Text>
               </TouchableOpacity>
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Modal para CREAR / EDITAR TANQUE COMPLETO */}
+      <Modal visible={tankModalOpen} transparent animationType="slide" onRequestClose={() => setTankModalOpen(false)}>
+        <Pressable onPress={() => setTankModalOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.md }}>
+          <Pressable onPress={(e) => e.stopPropagation?.()} style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, maxHeight: '90%' }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={[{ color: colors.text, fontSize: 18, fontWeight: '900' }, f(family.displayBold)]}>
+                  {editingTankId ? '✏️ Editar Tanque' : '➕ Crear Nuevo Tanque'}
+                </Text>
+                <TouchableOpacity onPress={() => setTankModalOpen(false)}>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.muted }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Nombre del Tanque */}
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 2 }}>Nombre del Tanque *</Text>
+                <TextInput
+                  value={tankName}
+                  onChangeText={setTankName}
+                  placeholder="Ej. Tanque Principal Patio, Cisterna Móvil 01…"
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 14 }}
+                />
+              </View>
+
+              {/* Tipo de Combustible */}
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 4 }}>Tipo de Combustible *</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={() => setTankFuel('diesel')}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 9,
+                      alignItems: 'center',
+                      borderRadius: radius.md,
+                      backgroundColor: tankFuel === 'diesel' ? colors.primary : colors.surface,
+                      borderWidth: 1,
+                      borderColor: tankFuel === 'diesel' ? colors.primary : colors.border,
+                    }}
+                  >
+                    <Text style={{ fontWeight: '800', color: tankFuel === 'diesel' ? colors.primaryContrast : colors.text }}>⛽ Diésel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setTankFuel('gasolina')}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 9,
+                      alignItems: 'center',
+                      borderRadius: radius.md,
+                      backgroundColor: tankFuel === 'gasolina' ? colors.primary : colors.surface,
+                      borderWidth: 1,
+                      borderColor: tankFuel === 'gasolina' ? colors.primary : colors.border,
+                    }}
+                  >
+                    <Text style={{ fontWeight: '800', color: tankFuel === 'gasolina' ? colors.primaryContrast : colors.text }}>🚗 Gasolina</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Capacidad en Litros */}
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 2 }}>Capacidad Nominal (Litros) *</Text>
+                <TextInput
+                  value={tankCapacity}
+                  onChangeText={setTankCapacity}
+                  keyboardType="numeric"
+                  placeholder="Ej. 10000"
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 15, fontWeight: '800' }}
+                />
+              </View>
+
+              {/* Saldo Inicial (solo al crear) */}
+              {!editingTankId && (
+                <View style={{ backgroundColor: colors.surfaceAlt, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 2 }}>Saldo Inicial de Apertura (Litros)</Text>
+                  <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 4 }}>Litros actuales en el tanque al momento de registrarlo (opcional).</Text>
+                  <TextInput
+                    value={tankSaldoInicial}
+                    onChangeText={setTankSaldoInicial}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor={colors.muted}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.primary, fontSize: 15, fontWeight: '800' }}
+                  />
+                </View>
+              )}
+
+              {/* ¿Es Cisterna Móvil? */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surfaceAlt, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                <View style={{ flex: 1, marginRight: spacing.sm }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text }}>¿Es Cisterna Móvil?</Text>
+                  <Text style={{ fontSize: 11, color: colors.muted }}>Tanque montado en camión/chuto que se desplaza por los frentes.</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setTankIsMobile(!tankIsMobile)}
+                  style={{
+                    backgroundColor: tankIsMobile ? colors.primary : colors.surface,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: 6,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: tankIsMobile ? colors.primary : colors.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: tankIsMobile ? colors.primaryContrast : colors.text }}>
+                    {tankIsMobile ? 'SÍ (MÓVIL)' : 'NO (FIJO)'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Si es cisterna móvil: chofer y vehículo del catálogo */}
+              {tankIsMobile && (
+                <View style={{ gap: spacing.sm, backgroundColor: colors.surfaceAlt, padding: spacing.md, borderRadius: radius.md }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>Datos de la Cisterna Móvil</Text>
+                  
+                  <View>
+                    <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 2 }}>Chofer de la Cisterna</Text>
+                    <TextInput
+                      value={tankChofer}
+                      onChangeText={setTankChofer}
+                      placeholder="Nombre del chofer responsable…"
+                      placeholderTextColor={colors.muted}
+                      style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, fontSize: 13, color: colors.text }}
+                    />
+                  </View>
+
+                  {/* Selector con Buscador de Maquinaria vinculada (REGLA DEL PROYECTO: Código + PLACA) */}
+                  <View>
+                    <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 2 }}>Vincular a Maquinaria del Catálogo (Chuto / Cisterna)</Text>
+                    <TextInput
+                      value={searchMachineryQuery}
+                      onChangeText={setSearchMachineryQuery}
+                      placeholder="Buscar por código, placa o tipo…"
+                      placeholderTextColor={colors.muted}
+                      style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, fontSize: 13, color: colors.text }}
+                    />
+
+                    {tankMachineryId && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, marginTop: 4, borderWidth: 1, borderColor: colors.primary }}>
+                        {(() => {
+                          const m = (machineryList || []).find((x) => x.id === tankMachineryId);
+                          return (
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontWeight: '800', color: colors.text, fontSize: 12 }}>{m?.code || 'Maquinaria vinculada'}</Text>
+                              <Text style={{ fontSize: 11, fontWeight: '800', color: colors.danger }}>PLACA: {m?.plate || 'SIN PLACA'}</Text>
+                            </View>
+                          );
+                        })()}
+                        <TouchableOpacity onPress={() => setTankMachineryId(null)}>
+                          <Text style={{ fontSize: 11, color: colors.danger, fontWeight: '800' }}>Desvincular</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {!tankMachineryId && searchMachineryQuery.trim() !== '' && (
+                      <View style={{ maxHeight: 120, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, marginTop: 2 }}>
+                        <ScrollView nestedScrollEnabled>
+                          {filteredMachinery.map((m) => (
+                            <TouchableOpacity
+                              key={m.id}
+                              onPress={() => {
+                                setTankMachineryId(m.id);
+                                setSearchMachineryQuery('');
+                              }}
+                              style={{ padding: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', justifyContent: 'space-between' }}
+                            >
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text }}>{m.code}</Text>
+                              <Text style={{ fontSize: 11, fontWeight: '800', color: colors.danger }}>PLACA: {m.plate || 'S/P'}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* Ubicación y Responsable */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 2 }}>Ubicación / Patio</Text>
+                  <TextInput
+                    value={tankLocation}
+                    onChangeText={setTankLocation}
+                    placeholder="Ej. Patio Mina, Frente 1…"
+                    placeholderTextColor={colors.muted}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 13 }}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 2 }}>Responsable</Text>
+                  <TextInput
+                    value={tankResponsable}
+                    onChangeText={setTankResponsable}
+                    placeholder="Encargado del tanque…"
+                    placeholderTextColor={colors.muted}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 13 }}
+                  />
+                </View>
+              </View>
+
+              {/* Botones de acción */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => setTankModalOpen(false)}
+                  style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleSaveTank}
+                  disabled={savingTank}
+                  style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', opacity: savingTank ? 0.6 : 1 }}
+                >
+                  {savingTank ? (
+                    <ActivityIndicator color={colors.primaryContrast} />
+                  ) : (
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 14 }}>
+                      {editingTankId ? 'Guardar Cambios' : 'Crear Tanque'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
