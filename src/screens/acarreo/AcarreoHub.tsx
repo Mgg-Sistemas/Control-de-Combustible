@@ -19,6 +19,7 @@ const GROUPS: Group[] = [
       { label: 'Panel (KPIs y alertas)', desc: 'Acarreos, tiempo de tránsito, a tiempo, costo/km y alertas de vencimientos/retrasos', icon: '📊', route: 'HaulDashboard' },
       { label: 'Órdenes de acarreo', desc: 'Crear y despachar viajes, con validación de peso, vencimientos y solapamiento', icon: '📋', route: 'HaulOrders' },
       { label: 'Autorización de traslado (PDF)', desc: 'Generar salvoconducto de salida / traslado de maquinaria pesada (con o sin flete)', icon: '📄', route: 'TrasladoMaquinaria' },
+      { label: 'Acta de recepción de equipo', desc: 'Inspección inicial física, checklist de componentes y anexo fotográfico', icon: '📋', route: 'ActaRecepcion' },
     ],
   },
   {

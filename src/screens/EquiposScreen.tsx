@@ -16,6 +16,9 @@ import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { fichaTecnicaMaquinaHtml, nombreArchivoFichaTecnica, MaquinaFichaTecnica, OpcionesFichaTecnica, FichaPersonalizada } from '../lib/fichaTecnicaMaquina';
 import { FichaTecnicaModal } from '../components/FichaTecnicaModal';
+import { actaRecepcionHtml } from '../lib/actaRecepcionEquipo';
+import { autorizacionTrasladoHtml } from '../lib/autorizacionTraslado';
+import { STORAGE_ACTAS_KEY, ActaRegistro } from './ActaRecepcionScreen';
 import { ultimaFotoHorometro } from '../lib/horometroTrabajoDb';
 import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
 import { workedFromShifts } from './ControlMaquinariaScreen';
@@ -1051,6 +1054,75 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
     options: OpcionesFichaTecnica;
   } | null>(null);
 
+  // 📁 APARTADO DE DOCUMENTACIÓN DE LA MAQUINARIA (Actas de recepción, traslados y fichas)
+  const [docMachine, setDocMachine] = useState<Machinery | null>(null);
+  const [docTab, setDocTab] = useState<'actas' | 'traslados'>('actas');
+  const [docActas, setDocActas] = useState<ActaRegistro[]>([]);
+  const [docTraslados, setDocTraslados] = useState<any[]>([]);
+  const [cargandoDocs, setCargandoDocs] = useState(false);
+
+  const abrirDocumentacion = async (m: Machinery) => {
+    setDocMachine(m);
+    setDocTab('actas');
+    setCargandoDocs(true);
+    try {
+      // 1. Actas de recepción de esta máquina
+      const rawActas = await AsyncStorage.getItem(STORAGE_ACTAS_KEY);
+      if (rawActas) {
+        const todasActas: ActaRegistro[] = JSON.parse(rawActas);
+        const filtradas = todasActas.filter((a) => {
+          if (a.machineryId && a.machineryId === m.id) return true;
+          const dg = a.datosGenerales;
+          const codeMatch = m.code && (dg?.serialPin?.toLowerCase().includes(m.code.toLowerCase()) || a.equipoModeloHeader?.toLowerCase().includes(m.code.toLowerCase()));
+          const plateMatch = m.plate && (dg?.placa?.toLowerCase().includes(m.plate.toLowerCase()) || a.placaHeader?.toLowerCase().includes(m.plate.toLowerCase()));
+          const serialMatch = m.serial && (dg?.serialPin?.toLowerCase().includes(m.serial.toLowerCase()) || a.pinSerialHeader?.toLowerCase().includes(m.serial.toLowerCase()));
+          return codeMatch || plateMatch || serialMatch;
+        });
+        setDocActas(filtradas);
+      } else {
+        setDocActas([]);
+      }
+
+      // 2. Autorizaciones de traslado de esta máquina
+      const rawTras = await AsyncStorage.getItem('@traslados_maquinaria_historico_v1');
+      if (rawTras) {
+        const todosTras: any[] = JSON.parse(rawTras);
+        const filtrados = todosTras.filter((t) => {
+          if (t.machineryId && t.machineryId === m.id) return true;
+          const codeMatch = m.code && t.maquinaria?.codigo?.toLowerCase().includes(m.code.toLowerCase());
+          const plateMatch = m.plate && t.maquinaria?.placa?.toLowerCase().includes(m.plate.toLowerCase());
+          const serialMatch = m.serial && t.maquinaria?.serial?.toLowerCase().includes(m.serial.toLowerCase());
+          return codeMatch || plateMatch || serialMatch;
+        });
+        setDocTraslados(filtrados);
+      } else {
+        setDocTraslados([]);
+      }
+    } catch {
+      // noop
+    } finally {
+      setCargandoDocs(false);
+    }
+  };
+
+  const reimprimirActaDesdeModal = async (acta: ActaRegistro) => {
+    try {
+      const html = actaRecepcionHtml(acta);
+      await exportPdf(html, `Acta-Recepcion-${acta.codigo}`);
+    } catch (e: any) {
+      toast.error('Error al abrir acta: ' + (e?.message || ''));
+    }
+  };
+
+  const reimprimirTrasladoDesdeModal = async (traslado: any) => {
+    try {
+      const html = autorizacionTrasladoHtml(traslado);
+      await exportPdf(html, `Autorizacion-Traslado-${traslado.numeroControl}`);
+    } catch (e: any) {
+      toast.error('Error al abrir traslado: ' + (e?.message || ''));
+    }
+  };
+
   const handleExportFichaModal = async (personalizada: FichaPersonalizada) => {
     if (!modalFicha) return;
     const m = modalFicha.machine;
@@ -1828,6 +1900,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label={fichaBusy === m.id ? '📄 Generando…' : '📄 Ficha técnica'} disabled={fichaBusy === m.id} onPress={() => fichaTecnica(m)} color="#16324F" />
         <BigBtn label="🚜 Traslado / Salida" onPress={() => navigation.navigate('TrasladoMaquinaria', { machineId: m.id })} color="#1E3A8A" />
+        <BigBtn label="📁 Documentación" onPress={() => abrirDocumentacion(m)} color="#0F766E" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => onToggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
         {/* 🔁 Transferida a otros: fuera de servicio como retirada, contada aparte. */}
@@ -2842,6 +2915,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                           fue precisamente que saliera «en cualquiera de esos apartados». */}
                       <BigBtn label={fichaBusy === m.id ? '📄 Generando…' : '📄 Ficha técnica'} disabled={fichaBusy === m.id} onPress={() => fichaTecnica(m)} color="#16324F" />
                       <BigBtn label="🚜 Traslado / Salida" onPress={() => navigation.navigate('TrasladoMaquinaria', { machineId: m.id })} color="#1E3A8A" />
+                      <BigBtn label="📁 Documentación" onPress={() => abrirDocumentacion(m)} color="#0F766E" />
                       {/* Ver el QR también desde acá (incluye RETIRADAS): al escanear una
                           retirada solo debe salir el logo — este botón permite verificarlo. */}
                       <BigBtn label="🔳 Ver QR" onPress={() => openQr(m)} color="#111827" />
@@ -3341,6 +3415,222 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         onClose={() => setModalFicha(null)}
         onExport={handleExportFichaModal}
       />
+
+      {/* 📁 MODAL DE DOCUMENTACIÓN DE LA MAQUINARIA */}
+      <Modal visible={!!docMachine} animationType="slide" transparent onRequestClose={() => setDocMachine(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, maxHeight: '90%', padding: spacing.md, borderWidth: 1, borderColor: colors.border }}>
+            {docMachine && (
+              <>
+                {/* Cabecera del modal */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.sm, marginBottom: spacing.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>
+                      📁 Documentación · {docMachine.code}
+                    </Text>
+                    <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 12.5, marginTop: 2 }}>
+                      ⭐ Placa: {docMachine.plate || 'Sin placa'} · Serial: {docMachine.serial || '—'}
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }}>
+                      {[docMachine.clasificacion, docMachine.marca, docMachine.modelo].filter(Boolean).join(' · ')}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setDocMachine(null)} style={{ padding: 4 }}>
+                    <Text style={{ color: colors.muted, fontSize: 20, fontWeight: '700' }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Acciones directas para emitir nuevos documentos */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const mId = docMachine.id;
+                      setDocMachine(null);
+                      navigation.navigate('ActaRecepcion', { machineId: mId });
+                    }}
+                    style={{ flex: 1, minWidth: 140, backgroundColor: '#B45309', paddingVertical: 7, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11.5 }}>
+                      📋 + Nueva Acta Recepción
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      const mId = docMachine.id;
+                      setDocMachine(null);
+                      navigation.navigate('TrasladoMaquinaria', { machineId: mId });
+                    }}
+                    style={{ flex: 1, minWidth: 140, backgroundColor: '#1E3A8A', paddingVertical: 7, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11.5 }}>
+                      🚜 + Nuevo Traslado / Salida
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      const target = docMachine;
+                      setDocMachine(null);
+                      fichaTecnica(target);
+                    }}
+                    style={{ flex: 1, minWidth: 140, backgroundColor: '#16324F', paddingVertical: 7, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11.5 }}>
+                      📄 Ficha Técnica
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Pestañas de Documentos guardados */}
+                <View style={{ flexDirection: 'row', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 6, marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={() => setDocTab('actas')}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.pill,
+                      backgroundColor: docTab === 'actas' ? '#B45309' : colors.surfaceAlt,
+                    }}
+                  >
+                    <Text style={{ color: docTab === 'actas' ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                      📋 Actas de Recepción ({docActas.length})
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setDocTab('traslados')}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.pill,
+                      backgroundColor: docTab === 'traslados' ? '#1E3A8A' : colors.surfaceAlt,
+                    }}
+                  >
+                    <Text style={{ color: docTab === 'traslados' ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                      🚜 Traslados y Salidas ({docTraslados.length})
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Lista según pestaña */}
+                <ScrollView style={{ maxHeight: 350 }} contentContainerStyle={{ gap: spacing.xs }}>
+                  {cargandoDocs ? (
+                    <Loading />
+                  ) : docTab === 'actas' ? (
+                    docActas.length === 0 ? (
+                      <EmptyState
+                        title="Sin actas de recepción"
+                        subtitle="Aún no se ha registrado un acta de recepción para esta máquina. Pulsa '+ Nueva Acta Recepción' arriba para emitir la primera."
+                      />
+                    ) : (
+                      docActas.map((acta) => (
+                        <View
+                          key={acta.id}
+                          style={{
+                            backgroundColor: colors.surfaceAlt,
+                            padding: spacing.sm,
+                            borderRadius: radius.md,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <View style={{ flex: 1, paddingRight: spacing.xs }}>
+                            <Text style={{ color: '#B45309', fontWeight: '800', fontSize: 13 }}>
+                              {acta.codigo} &nbsp;·&nbsp; <Text style={{ color: colors.text, fontSize: 12 }}>{acta.fecha}</Text>
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+                              Horómetro: {acta.datosGenerales?.horometro || '—'} &nbsp;·&nbsp; Inspector: {acta.datosGenerales?.recibidoPor || '—'}
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>
+                              Entregó: {acta.datosGenerales?.entregadoPor || '—'} &nbsp;·&nbsp; 📷 {acta.fotos?.length || 0} fotos
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => reimprimirActaDesdeModal(acta)}
+                            style={{
+                              backgroundColor: '#B45309',
+                              paddingVertical: 5,
+                              paddingHorizontal: 10,
+                              borderRadius: radius.sm,
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
+                              🧾 Ver / Imprimir
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))
+                    )
+                  ) : docTraslados.length === 0 ? (
+                    <EmptyState
+                      title="Sin traslados o salidas"
+                      subtitle="Aún no hay autorizaciones de traslado emitidas para este equipo. Pulsa '+ Nuevo Traslado / Salida' arriba para crear una."
+                    />
+                  ) : (
+                    docTraslados.map((tr) => (
+                      <View
+                        key={tr.id}
+                        style={{
+                          backgroundColor: colors.surfaceAlt,
+                          padding: spacing.sm,
+                          borderRadius: radius.md,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <View style={{ flex: 1, paddingRight: spacing.xs }}>
+                          <Text style={{ color: '#1E3A8A', fontWeight: '800', fontSize: 13 }}>
+                            {tr.numeroControl} &nbsp;·&nbsp; <Text style={{ color: colors.text, fontSize: 12 }}>{tr.fecha}</Text>
+                          </Text>
+                          <Text style={{ color: colors.text, fontSize: 11.5, marginTop: 1 }}>
+                            <b>Ruta:</b> {tr.origen} ➔ {tr.destino}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            Chofer: {tr.transporte?.conductorNombre || '—'} &nbsp;·&nbsp; Chuto: {tr.transporte?.placaChuto || '—'}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => reimprimirTrasladoDesdeModal(tr)}
+                          style={{
+                            backgroundColor: '#1E3A8A',
+                            paddingVertical: 5,
+                            paddingHorizontal: 10,
+                            borderRadius: radius.sm,
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
+                            🧾 Ver / Imprimir
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
+
+                <TouchableOpacity
+                  onPress={() => setDocMachine(null)}
+                  style={{
+                    marginTop: spacing.md,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                    backgroundColor: colors.surfaceAlt,
+                    borderRadius: radius.md,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Cerrar</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
