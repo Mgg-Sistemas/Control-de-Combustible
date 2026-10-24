@@ -79,9 +79,13 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
 
   useEffect(() => {
     if (!selectedTankId && activeTanks.length > 0) {
-      setSelectedTankId(activeTanks[0].id);
+      const u = norm(currentUserName);
+      const myTank = activeTanks.find(
+        (t) => (t.responsable && norm(t.responsable) === u) || (t.chofer && norm(t.chofer) === u)
+      );
+      setSelectedTankId(myTank ? myTank.id : activeTanks[0].id);
     }
-  }, [activeTanks, selectedTankId]);
+  }, [activeTanks, selectedTankId, currentUserName]);
 
   const selectedTank = useMemo(() => {
     return activeTanks.find((t) => t.id === selectedTankId) || activeTanks[0] || null;

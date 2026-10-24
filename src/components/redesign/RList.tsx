@@ -197,7 +197,12 @@ export function RList<T extends { id: string }>({
   renderItem, subtitle, headerExtra, searchText, searchPlaceholder = 'Buscar…', defaultToday = false,
 }: RListProps<T>) {
   const { colors } = useTheme();
-  const { data, loading, refetch } = useTable<T>(table, { orderBy, select, ...(ascending != null ? { ascending } : {}) });
+  const { data, loading, refetch } = useTable<T>(table, {
+    orderBy,
+    select,
+    ...(ascending != null ? { ascending } : {}),
+    realtimeFrom: [table],
+  });
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<T | null>(null);
   const [from, setFrom] = useState('');

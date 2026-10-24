@@ -88,6 +88,8 @@ export default function FuelDriverScreen() {
 
   const [driverName, setDriverName] = useState('');
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [tanks, setTanks] = useState<{ id: string; name: string; responsable?: string | null; chofer?: string | null; fuel: string; location?: string | null }[]>([]);
+  const [selectedTankId, setSelectedTankId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [reloadTick, setReloadTick] = useState(0);
 
@@ -139,6 +141,44 @@ export default function FuelDriverScreen() {
       alive = false;
     };
   }, [uid]);
+
+  // Carga de tanques activos del sistema
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase
+        .from('tanks')
+        .select('id, name, responsable, chofer, fuel, location, active')
+        .neq('active', false);
+      if (alive && data) {
+        setTanks(data as any[]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [reloadTick]);
+  useRealtimeRefresh(['tanks'], () => setReloadTick((n) => n + 1));
+
+  // Tanque asignado al chofer actual (por responsable o chofer del tanque)
+  const myAssignedTank = useMemo(() => {
+    if (!driverName || tanks.length === 0) return null;
+    const d = norm(driverName);
+    return tanks.find(
+      (t) => (t.responsable && norm(t.responsable) === d) || (t.chofer && norm(t.chofer) === d)
+    ) || null;
+  }, [tanks, driverName]);
+
+  // Pre-selección por defecto: el tanque del chofer o el único tanque existente
+  useEffect(() => {
+    if (!selectedTankId) {
+      if (myAssignedTank) {
+        setSelectedTankId(myAssignedTank.id);
+      } else if (tanks.length === 1) {
+        setSelectedTankId(tanks[0].id);
+      }
+    }
+  }, [myAssignedTank, tanks, selectedTankId]);
 
   // Carga de TODAS las máquinas del catálogo. En realtime: si desde la web se
   // agrega una máquina o se le edita sector/parroquia/encargado, antes el chofer
@@ -290,6 +330,11 @@ export default function FuelDriverScreen() {
       setResult({ ok: false, msg: '❌ Ingresa un monto por litro válido (0 o más).' });
       return;
     }
+    const effectiveTankId = selectedTankId || myAssignedTank?.id || (tanks.length === 1 ? tanks[0].id : null);
+    if (!effectiveTankId && tanks.length > 0) {
+      setResult({ ok: false, msg: '❌ Por favor selecciona el tanque o cisterna de donde estás surtiendo.' });
+      return;
+    }
     setSaving(true);
     setResult(null);
     try {
@@ -297,6 +342,7 @@ export default function FuelDriverScreen() {
         machineryId: selected.id,
         dispatchDate: today(),
         liters: l,
+        tankId: effectiveTankId,
         pricePerLiter: p,
         photos,
         operator: driverName || null,
@@ -747,6 +793,55 @@ export default function FuelDriverScreen() {
                     </View>
                   ) : null}
                 </Card>
+
+                {/* Tanque / Cisterna de origen (para combustible) */}
+                {surtidoTipo === 'combustible' ? (
+                  <View>
+                    <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>
+                      🛢️ Tanque / Cisterna de origen *
+                    </Text>
+                    {tanks.length > 0 ? (
+                      <View style={{ gap: spacing.xs }}>
+                        {tanks.map((t) => {
+                          const isSel = (selectedTankId || myAssignedTank?.id || (tanks.length === 1 ? tanks[0].id : '')) === t.id;
+                          const isAssigned = (t.responsable && norm(t.responsable) === norm(driverName)) || (t.chofer && norm(t.chofer) === norm(driverName));
+                          return (
+                            <TouchableOpacity
+                              key={t.id}
+                              onPress={() => setSelectedTankId(t.id)}
+                              activeOpacity={0.8}
+                              style={{
+                                padding: spacing.sm,
+                                borderRadius: radius.md,
+                                borderWidth: 2,
+                                borderColor: isSel ? colors.primary : colors.border,
+                                backgroundColor: isSel ? colors.surfaceAlt : colors.surface,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                              }}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontWeight: '800', color: colors.text, fontSize: 13 }}>
+                                  {t.name} {t.fuel ? `(${String(t.fuel).toUpperCase()})` : ''}
+                                </Text>
+                                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                                  {t.responsable ? `Responsable: ${t.responsable}` : t.location ? `Ubicación: ${t.location}` : 'Tanque activo'}
+                                  {isAssigned ? ' · ⭐ Tu tanque asignado' : ''}
+                                </Text>
+                              </View>
+                              {isSel ? (
+                                <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 15 }}>✓</Text>
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ) : (
+                      <Text style={{ color: colors.danger, fontSize: 12 }}>⚠️ No hay tanques registrados en el sistema</Text>
+                    )}
+                  </View>
+                ) : null}
 
                 {/* Litros (combustible o aceite) — el AIRE no lleva litros. */}
                 {surtidoTipo !== 'aire' ? (

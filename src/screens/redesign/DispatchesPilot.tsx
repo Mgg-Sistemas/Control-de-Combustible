@@ -1,11 +1,15 @@
-import React, { useState } from 'react';
-import { View, Text, Image, Modal, Pressable, ScrollView } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, Image, Modal, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { RList, RRow, RAmount, RPill, RBarChart } from '../../components/redesign/RList';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
-import { cmpText } from '../../lib/text';
+import { cmpText, norm } from '../../lib/text';
 import { caracasParts } from '../../lib/jornada';
-import { Dispatch } from '../../types/database';
+import { Dispatch, Tank } from '../../types/database';
+import { useAuth } from '../../context/AuthContext';
+import { useTable } from '../../hooks/useTable';
+import { supabase } from '../../lib/supabase';
+import { useToast } from '../../components/ToastProvider';
 
 const ASSET_OPTIONS = [
   { label: 'Vehículo', value: 'vehiculo' },
@@ -80,11 +84,111 @@ function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
  *  - títulos en negrita y color de texto que ADAPTA al modo oscuro (brandText),
  *  - resumen con GRÁFICAS de barras (más visual),
  *  - BUSCADOR por máquina / placa / conductor / tipo / litros + rango de fecha.
+ *  - ASIGNACIÓN INTELIGENTE DE TANQUES según conductor u operador asignado.
  * Reusa RList → RecordForm (lógica intacta).
  */
 export default function DispatchesPilot() {
   const { colors } = useTheme();
+  const toast = useToast();
+  const { fullName, session } = useAuth();
+  const currentUserName = fullName || session?.user?.email || '';
   const [viewPhoto, setViewPhoto] = useState<string | null>(null);
+
+  // Tanques activos del sistema para deducción y auto-asignación
+  const { data: tanks } = useTable<Tank>('tanks', {
+    realtimeFrom: ['tanks', 'stock_movements'],
+  });
+
+  const activeTanks = useMemo(() => {
+    return (tanks || []).filter((t) => t.active !== false);
+  }, [tanks]);
+
+  // Tanque por defecto según el usuario logueado o único tanque disponible
+  const defaultTank = useMemo(() => {
+    if (activeTanks.length === 0) return null;
+    const u = norm(currentUserName);
+    const matched = activeTanks.find(
+      (t) => (t.responsable && norm(t.responsable) === u) || (t.chofer && norm(t.chofer) === u)
+    );
+    if (matched) return matched;
+    if (activeTanks.length === 1) return activeTanks[0];
+    return null;
+  }, [activeTanks, currentUserName]);
+
+  // Busca el tanque correspondiente para un conductor / chofer
+  const findTankForDriver = (driverName: string | null | undefined): Tank | null => {
+    if (!driverName) {
+      return activeTanks.length === 1 ? activeTanks[0] : null;
+    }
+    const d = norm(driverName);
+    const match = activeTanks.find(
+      (t) => (t.responsable && norm(t.responsable) === d) || (t.chofer && norm(t.chofer) === d)
+    );
+    return match || (activeTanks.length === 1 ? activeTanks[0] : null);
+  };
+
+  const [autoAssigning, setAutoAssigning] = useState(false);
+  const [autoAssignMsg, setAutoAssignMsg] = useState<string | null>(null);
+  const [assigningRowId, setAssigningRowId] = useState<string | null>(null);
+
+  const autoAsignarTanques = async (items: Dispatch[]) => {
+    if (autoAssigning) return;
+    const sinTanque = items.filter((r) => !r.tank_id);
+    if (sinTanque.length === 0) return;
+
+    setAutoAssigning(true);
+    setAutoAssignMsg(null);
+    let asignados = 0;
+    let noEncontrados = 0;
+
+    try {
+      for (const d of sinTanque) {
+        const matched = findTankForDriver(d.driver_operator);
+        if (matched) {
+          const { error } = await supabase
+            .from('dispatches')
+            .update({ tank_id: matched.id })
+            .eq('id', d.id);
+          if (!error) {
+            asignados++;
+          }
+        } else {
+          noEncontrados++;
+        }
+      }
+      if (asignados > 0) {
+        const msg = `✅ Se auto-asignaron ${asignados} consumo(s) a sus tanques y se descontó el stock.`;
+        setAutoAssignMsg(msg);
+        toast?.success?.(msg);
+      } else {
+        setAutoAssignMsg('⚠️ No se encontró tanque correspondiente para los conductores.');
+      }
+    } catch (e: any) {
+      setAutoAssignMsg(`❌ Error: ${e?.message || e}`);
+    } finally {
+      setAutoAssigning(false);
+    }
+  };
+
+  const asignarUnConsumo = async (dispatchId: string, tankId: string) => {
+    if (assigningRowId) return;
+    setAssigningRowId(dispatchId);
+    try {
+      const { error } = await supabase
+        .from('dispatches')
+        .update({ tank_id: tankId })
+        .eq('id', dispatchId);
+      if (error) {
+        toast?.error?.(`Error: ${error.message}`);
+      } else {
+        toast?.success?.('Tanque asignado con éxito. Stock sincronizado.');
+      }
+    } catch (e: any) {
+      toast?.error?.(`Error: ${e?.message || e}`);
+    } finally {
+      setAssigningRowId(null);
+    }
+  };
 
   return (
     <>
@@ -93,7 +197,7 @@ export default function DispatchesPilot() {
         table="dispatches"
         orderBy="dispatch_date"
         ascending={false}
-        select="*, machine:machinery_id(code, plate, serial, tipo), vehicle:vehicle_id(plate, name, model), tank:tank_id(id, name, fuel, is_mobile)"
+        select="*, machine:machinery_id(code, plate, serial, tipo), vehicle:vehicle_id(plate, name, model), tank:tank_id(id, name, fuel, is_mobile, responsable, chofer)"
         editable
         dateField="dispatch_date"
         defaultToday
@@ -112,6 +216,8 @@ export default function DispatchesPilot() {
           d.vehicle?.name,
           d.vehicle?.model,
           d.tank?.name,
+          d.tank?.responsable,
+          d.tank?.chofer,
           d.driver_operator,
           d.asset_kind,
           d.dispatch_date,
@@ -125,25 +231,53 @@ export default function DispatchesPilot() {
         // Por defecto: solo el TOTAL CONSUMIDO HOY. Al elegir un rango de fecha (o
         // buscar), se muestran las GRÁFICAS completas (por día y por máquina).
         headerExtra={(shown, ctx) => {
-          const sinTanque = shown.filter((r) => !r.tank_id).length;
+          const sinTanqueList = shown.filter((r) => !r.tank_id);
+          const sinTanque = sinTanqueList.length;
           return (
             <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
               {sinTanque > 0 ? (
                 <View
                   style={{
                     backgroundColor: '#FEF2F2',
-                    borderWidth: 1,
+                    borderWidth: 1.5,
                     borderColor: '#EF4444',
                     borderRadius: radius.md,
                     padding: spacing.md,
+                    gap: spacing.xs,
                   }}
                 >
-                  <Text style={{ color: '#B91C1C', fontWeight: '900', fontSize: 13 }}>
-                    ⚠️ {sinTanque} consumo(s) no tienen Tanque de Origen asignado
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
+                    <Text style={{ color: '#B91C1C', fontWeight: '900', fontSize: 13, flexShrink: 1 }}>
+                      ⚠️ {sinTanque} consumo(s) no tienen Tanque de Origen asignado
+                    </Text>
+                    <Pressable
+                      onPress={() => autoAsignarTanques(shown)}
+                      disabled={autoAssigning}
+                      style={{
+                        backgroundColor: '#DC2626',
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 7,
+                        borderRadius: radius.pill,
+                        opacity: autoAssigning ? 0.6 : 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      {autoAssigning ? <ActivityIndicator size="small" color="#fff" /> : null}
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                        {autoAssigning ? 'Asignando tanques…' : '⚡ Auto-asignar tanques por Conductor'}
+                      </Text>
+                    </Pressable>
+                  </View>
                   <Text style={{ color: '#7F1D1D', fontSize: 12, marginTop: 2 }}>
-                    Los tanques no bajarán su nivel hasta que se indique de qué tanque salió el combustible. Toca cada consumo marcado abajo para editarlo y asignarle su tanque.
+                    Los tanques no descuentan stock hasta tener su tanque de origen. Pulsa el botón rojo para auto-asignarlos al tanque asignado de cada conductor (o tócalos abajo para asignar individualmente).
                   </Text>
+                  {autoAssignMsg ? (
+                    <Text style={{ color: '#15803D', fontWeight: '700', fontSize: 12, marginTop: 4 }}>
+                      {autoAssignMsg}
+                    </Text>
+                  ) : null}
                 </View>
               ) : null}
               {ctx.dateActive || ctx.searching ? <DailyMachineCharts rows={shown} /> : <TodayTotal rows={shown} />}
@@ -152,7 +286,17 @@ export default function DispatchesPilot() {
         }}
         formFields={[
           { key: 'dispatch_date', label: 'Fecha', type: 'date', required: true },
-          { key: 'tank_id', label: 'Tanque / Cisterna origen *', type: 'lookup', table: 'tanks', labelCol: 'name', subLabelCols: ['fuel', 'location'], dropdown: true, required: true },
+          {
+            key: 'tank_id',
+            label: 'Tanque / Cisterna origen *',
+            type: 'lookup',
+            table: 'tanks',
+            labelCol: 'name',
+            subLabelCols: ['responsable', 'chofer', 'location', 'fuel'],
+            dropdown: true,
+            required: true,
+            defaultValue: defaultTank?.id,
+          },
           { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
           // Oculta los vehículos "Esperando instrucciones" (recién agregados, aún sin
           // decidir) — no deben poder recibir combustible hasta que se les dé de alta
@@ -163,13 +307,16 @@ export default function DispatchesPilot() {
           { key: 'liters', label: 'Litros despachados *', type: 'number', required: true },
           { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
           { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },
-          { key: 'driver_operator', label: 'Conductor/Operador', type: 'text' },
+          { key: 'driver_operator', label: 'Conductor/Operador', type: 'text', defaultValue: currentUserName },
         ]}
         renderItem={(d) => {
           const fotos = ((d as any).photos ?? []).filter(Boolean) as string[];
           const mach = (d as any).machine;
           const veh = (d as any).vehicle;
           const tank = (d as any).tank;
+          const suggestedTank = !tank ? findTankForDriver(d.driver_operator) : null;
+          const isRowBusy = assigningRowId === d.id;
+
           return (
             <>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -181,7 +328,7 @@ export default function DispatchesPilot() {
                 {tank ? (
                   <RRow
                     label="Tanque origen"
-                    value={`🛢️ ${tank.name}${tank.fuel ? ` (${String(tank.fuel).toUpperCase()})` : ''}`}
+                    value={`🛢️ ${tank.name}${tank.responsable ? ` (${tank.responsable})` : tank.fuel ? ` (${String(tank.fuel).toUpperCase()})` : ''}`}
                     mono
                   />
                 ) : (
@@ -189,19 +336,47 @@ export default function DispatchesPilot() {
                     style={{
                       backgroundColor: '#FEF2F2',
                       borderColor: '#EF4444',
-                      borderWidth: 1,
+                      borderWidth: 1.5,
                       borderRadius: radius.sm,
-                      paddingHorizontal: 8,
-                      paddingVertical: 5,
+                      paddingHorizontal: 10,
+                      paddingVertical: 8,
                       marginVertical: 4,
+                      gap: 4,
                     }}
                   >
                     <Text style={{ color: '#B91C1C', fontSize: 11, fontWeight: '900' }}>
                       ⚠️ SIN TANQUE ASIGNADO (No descuenta stock)
                     </Text>
-                    <Text style={{ color: '#DC2626', fontSize: 10.5, marginTop: 1 }}>
-                      👉 Toca este registro para editarlo y seleccionar de qué tanque o cisterna se extrajo.
-                    </Text>
+                    {suggestedTank ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                        <Text style={{ color: '#7F1D1D', fontSize: 11, flexShrink: 1 }}>
+                          Tanque asignado a {d.driver_operator}: <Text style={{ fontWeight: '800' }}>{suggestedTank.name}</Text>
+                        </Text>
+                        <Pressable
+                          onPress={() => asignarUnConsumo(d.id, suggestedTank.id)}
+                          disabled={isRowBusy}
+                          style={{
+                            backgroundColor: '#DC2626',
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: radius.pill,
+                            opacity: isRowBusy ? 0.6 : 1,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          {isRowBusy ? <ActivityIndicator size="small" color="#fff" /> : null}
+                          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>
+                            ⚡ Asignar a su tanque
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Text style={{ color: '#DC2626', fontSize: 10.5, marginTop: 1 }}>
+                        👉 Toca este registro para editarlo y seleccionar de qué tanque o cisterna se extrajo.
+                      </Text>
+                    )}
                   </View>
                 )}
                 {mach ? (
