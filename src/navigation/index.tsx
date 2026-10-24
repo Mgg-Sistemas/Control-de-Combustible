@@ -103,6 +103,7 @@ import HaulLocationsScreen from '../screens/acarreo/HaulLocationsScreen';
 import HaulDocumentsScreen from '../screens/acarreo/HaulDocumentsScreen';
 import HaulTariffsScreen from '../screens/acarreo/HaulTariffsScreen';
 import HaulDashboard from '../screens/acarreo/HaulDashboard';
+import TrasladoMaquinariaScreen from '../screens/TrasladoMaquinariaScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -318,6 +319,7 @@ function MoreStack() {
       <Stack.Screen name="Audit" component={AuditScreen} options={{ title: 'Auditoría' }} />
       <Stack.Screen name="Empresas" component={EmpresasScreen} options={{ title: 'Empresas' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="TrasladoMaquinaria" component={TrasladoMaquinariaScreen} options={{ title: 'Traslados y Salidas' }} />
       <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
   );
@@ -342,6 +344,7 @@ function CoordinadorStack() {
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
       <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
       <Stack.Screen name="ControlMaquinaria" component={ControlMaquinariaScreen} options={{ title: 'Control de maquinaria' }} />
+      <Stack.Screen name="TrasladoMaquinaria" component={TrasladoMaquinariaScreen} options={{ title: 'Traslados y Salidas' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
       <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
@@ -877,6 +880,7 @@ const moreScreens = {
   Audit: 'auditoria',
   Empresas: 'empresas',
   Manual: 'manual',
+  TrasladoMaquinaria: 'traslados-maquinaria',
   Ajustes: 'ajustes',
 };
 

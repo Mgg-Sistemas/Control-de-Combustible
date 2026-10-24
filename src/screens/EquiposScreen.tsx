@@ -1827,6 +1827,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label={fichaBusy === m.id ? '📄 Generando…' : '📄 Ficha técnica'} disabled={fichaBusy === m.id} onPress={() => fichaTecnica(m)} color="#16324F" />
+        <BigBtn label="🚜 Traslado / Salida" onPress={() => navigation.navigate('TrasladoMaquinaria', { machineId: m.id })} color="#1E3A8A" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => onToggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
         {/* 🔁 Transferida a otros: fuera de servicio como retirada, contada aparte. */}
@@ -2840,6 +2841,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                           una máquina retirada o en espera SIGUE teniendo ficha — el pedido
                           fue precisamente que saliera «en cualquiera de esos apartados». */}
                       <BigBtn label={fichaBusy === m.id ? '📄 Generando…' : '📄 Ficha técnica'} disabled={fichaBusy === m.id} onPress={() => fichaTecnica(m)} color="#16324F" />
+                      <BigBtn label="🚜 Traslado / Salida" onPress={() => navigation.navigate('TrasladoMaquinaria', { machineId: m.id })} color="#1E3A8A" />
                       {/* Ver el QR también desde acá (incluye RETIRADAS): al escanear una
                           retirada solo debe salir el logo — este botón permite verificarlo. */}
                       <BigBtn label="🔳 Ver QR" onPress={() => openQr(m)} color="#111827" />
