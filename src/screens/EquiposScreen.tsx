@@ -19,6 +19,7 @@ import { fichaTecnicaMaquinaHtml, nombreArchivoFichaTecnica, MaquinaFichaTecnica
 import { FichaTecnicaModal } from '../components/FichaTecnicaModal';
 import { actaRecepcionHtml } from '../lib/actaRecepcionEquipo';
 import { autorizacionTrasladoHtml } from '../lib/autorizacionTraslado';
+import { informeTrasladoCargaHtml } from '../lib/informeTrasladoCarga';
 import { STORAGE_ACTAS_KEY, ActaRegistro } from './ActaRecepcionScreen';
 import {
   cargarActasCompartidas,
@@ -1257,6 +1258,15 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       await exportPdf(html, `Autorizacion-Traslado-${traslado.numeroControl}`);
     } catch (e: any) {
       toast.error('Error al abrir traslado: ' + (e?.message || ''));
+    }
+  };
+
+  const reimprimirInformeCargaDesdeModal = async (traslado: TrasladoCompartido) => {
+    try {
+      const html = informeTrasladoCargaHtml(traslado.datos || traslado);
+      await exportPdf(html, `Informe-Traslado-Carga-${traslado.numeroControl}`);
+    } catch (e: any) {
+      toast.error('Error al abrir informe de carga: ' + (e?.message || ''));
     }
   };
 
@@ -3982,16 +3992,30 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                             </TouchableOpacity>
 
                             <TouchableOpacity
-                              onPress={() => reimprimirTrasladoDesdeModal(tr)}
+                              onPress={() => reimprimirInformeCargaDesdeModal(tr)}
                               style={{
-                                backgroundColor: '#1E3A8A',
+                                backgroundColor: '#0F766E',
                                 paddingVertical: 4,
-                                paddingHorizontal: 10,
+                                paddingHorizontal: 9,
                                 borderRadius: radius.sm,
                               }}
                             >
                               <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
-                                🧾 Ver / Imprimir
+                                📄 Informe Carga
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={() => reimprimirTrasladoDesdeModal(tr)}
+                              style={{
+                                backgroundColor: '#1E3A8A',
+                                paddingVertical: 4,
+                                paddingHorizontal: 9,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
+                                🖨️ Salvoconducto
                               </Text>
                             </TouchableOpacity>
                           </View>

@@ -19,6 +19,7 @@ import { useAuth } from '../context/AuthContext';
 import { Machinery, Company } from '../types/database';
 import { LogosConfig } from '../lib/notaEntrega';
 import { autorizacionTrasladoHtml, AutorizacionTrasladoData } from '../lib/autorizacionTraslado';
+import { informeTrasladoCargaHtml } from '../lib/informeTrasladoCarga';
 import { exportPdf } from '../lib/pdf';
 import { norm, cmpText } from '../lib/text';
 import { caracasParts } from '../lib/jornada';
@@ -481,13 +482,61 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
     }
   };
 
-  // Reimprimir desde el historial
+  // Generar e Imprimir Informe de Traslado de Carga (formato ejecutivo / resumen logístico)
+  const emitirInformeCarga = async () => {
+    if (!origen.trim()) {
+      toast.error('Indica el lugar de origen.');
+      return;
+    }
+    if (!destino.trim()) {
+      toast.error('Indica el lugar de destino.');
+      return;
+    }
+    if (!choferNombre.trim()) {
+      toast.error('Indica el nombre del conductor o transportista.');
+      return;
+    }
+
+    try {
+      setGenerandoPdf(true);
+      const datos = armarDatosDocumento();
+      const html = informeTrasladoCargaHtml(datos);
+
+      // Guardar en historial compartido
+      await guardarRegistro(datos);
+
+      // Abrir PDF
+      await exportPdf(html, `Informe-Traslado-Carga-${datos.numeroControl}`);
+      toast.success(editingTrasladoId ? 'Informe de Traslado actualizado con éxito.' : 'Informe de Traslado de Carga generado con éxito.');
+
+      if (editingTrasladoId) {
+        setEditingTrasladoId(null);
+      }
+      setNumeroControl(generarFolio(historico.length + 2));
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo generar el informe.');
+    } finally {
+      setGenerandoPdf(false);
+    }
+  };
+
+  // Reimprimir desde el historial (Salvoconducto / Autorización oficial)
   const reimprimir = async (item: TrasladoCompartido) => {
     try {
       const html = autorizacionTrasladoHtml(item.datos || item);
       await exportPdf(html, `Autorizacion-Traslado-${item.numeroControl}`);
     } catch (e: any) {
       toast.error(e?.message ?? 'Error al reimprimir la autorización.');
+    }
+  };
+
+  // Reimprimir Informe de Carga desde el historial
+  const reimprimirInformeCarga = async (item: TrasladoCompartido) => {
+    try {
+      const html = informeTrasladoCargaHtml(item.datos || item);
+      await exportPdf(html, `Informe-Traslado-Carga-${item.numeroControl}`);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Error al imprimir el informe de carga.');
     }
   };
 
@@ -1293,35 +1342,66 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
             )}
           </Card>
 
-          {/* BOTÓN PRINCIPAL: EMITIR E IMPRIMIR */}
-          <TouchableOpacity
-            onPress={emitirEImprimir}
-            disabled={generandoPdf}
-            activeOpacity={0.8}
-            style={{
-              backgroundColor: '#1E3A8A',
-              paddingVertical: spacing.md,
-              borderRadius: radius.lg,
-              alignItems: 'center',
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.2,
-              shadowRadius: 4,
-            }}
-          >
-            {generandoPdf ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <View style={{ alignItems: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
-                  🖨️ Generar e Imprimir Autorización (PDF)
-                </Text>
-                <Text style={{ color: '#BFDBFE', fontSize: 12, marginTop: 2 }}>
-                  Crea el documento oficial con salvoconducto y guarda en historial
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          {/* BOTONES PRINCIPALES: INFORME DE TRASLADO DE CARGA Y SALVOCONDUCTO */}
+          <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+            <TouchableOpacity
+              onPress={emitirInformeCarga}
+              disabled={generandoPdf}
+              activeOpacity={0.8}
+              style={{
+                backgroundColor: '#0F766E',
+                paddingVertical: spacing.md,
+                borderRadius: radius.lg,
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.2,
+                shadowRadius: 4,
+              }}
+            >
+              {generandoPdf ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
+                    📄 Generar Informe de Traslado de Carga (PDF)
+                  </Text>
+                  <Text style={{ color: '#CCFBF1', fontSize: 12, marginTop: 2 }}>
+                    Formato ejecutivo con cronograma, tabla de rutas y resumen narrativo
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={emitirEImprimir}
+              disabled={generandoPdf}
+              activeOpacity={0.8}
+              style={{
+                backgroundColor: '#1E3A8A',
+                paddingVertical: spacing.md,
+                borderRadius: radius.lg,
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.2,
+                shadowRadius: 4,
+              }}
+            >
+              {generandoPdf ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
+                    🖨️ Generar Salvoconducto / Autorización (PDF)
+                  </Text>
+                  <Text style={{ color: '#BFDBFE', fontSize: 12, marginTop: 2 }}>
+                    Documento oficial para tránsito en carretera con especificaciones técnicas
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       )}
 
@@ -1442,16 +1522,30 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        onPress={() => reimprimir(it)}
+                        onPress={() => reimprimirInformeCarga(it)}
                         style={{
-                          backgroundColor: '#1E3A8A',
+                          backgroundColor: '#0F766E',
                           paddingVertical: 6,
-                          paddingHorizontal: 12,
+                          paddingHorizontal: 11,
                           borderRadius: radius.md,
                         }}
                       >
                         <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
-                          🧾 Reimprimir (PDF)
+                          📄 Informe Carga (PDF)
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => reimprimir(it)}
+                        style={{
+                          backgroundColor: '#1E3A8A',
+                          paddingVertical: 6,
+                          paddingHorizontal: 11,
+                          borderRadius: radius.md,
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
+                          🖨️ Salvoconducto (PDF)
                         </Text>
                       </TouchableOpacity>
                     </View>
