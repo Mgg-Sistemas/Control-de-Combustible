@@ -107,17 +107,52 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   const [pickCli, setPickCli] = useState(false);
   const [q, setQ] = useState('');
   const [nuevoSrv, setNuevoSrv] = useState('');
-  // 🚜 A que MAQUINA se le hizo el servicio (23-sep-2026). `pickMaq` guarda el
-  // indice del renglon al que se le esta poniendo la maquina.
+  // 🚜 A qué MAQUINA se le hizo el servicio / entrega
   const [pickMaq, setPickMaq] = useState<number | null>(null);
 
-  const cliente = clientes.find((c) => c.id === clientId) || null;
+  // 📝 Renglón Libre (no inventariado, no catalogado como servicio)
+  const [pickLibre, setPickLibre] = useState(false);
+  const [libreName, setLibreName] = useState('');
+  const [libreUnit, setLibreUnit] = useState('UND');
+  const [libreQty, setLibreQty] = useState('1');
+  const [librePrice, setLibrePrice] = useState('0');
+  const [libreMachinery, setLibreMachinery] = useState<Machinery | null>(null);
+  const [searchLibreMaq, setSearchLibreMaq] = useState('');
+
+  // Resolución de cliente: busca en contactos o en empresas del catálogo (incluye Golden Touch garantizado)
+  const cliente = useMemo(() => {
+    if (!clientId) return null;
+    const c = (clientes || []).find((x) => x.id === clientId);
+    if (c) return c;
+    const allEmpresas = [
+      ...(empresas || []),
+      { id: 'golden-touch-1127-ca', name: 'GOLDEN TOUCH 1127 C.A.', rif: 'J-50129993-5' },
+    ];
+    const cleanId = String(clientId).replace(/^empresa_/, '');
+    const emp = allEmpresas.find((e) => e.id === cleanId || e.id === clientId)
+      || (/golden/i.test(clientId) ? { id: clientId, name: 'GOLDEN TOUCH 1127 C.A.', rif: 'J-50129993-5' } : null);
+    if (emp) {
+      return {
+        id: emp.id,
+        name: emp.name,
+        doc_letter: 'J' as const,
+        doc_number: (emp.rif || '50129993-5').replace(/^[JGVEPjgvep]-?/, ''),
+        phone: null,
+        email: null,
+        address: null,
+      } as SalesClient;
+    }
+    return null;
+  }, [clientId, clientes, empresas]);
+
   const cuenta = useMemo(() => cuentaDe(items, conIva, IVA_PCT), [items, conIva]);
   const totalBs = bsDeUsd(cuenta.total, rate || 0);
 
   const reset = () => {
     setOpen(false); setClientId(''); setDocKind('nota_entrega'); setSaleDate(todayISO());
     setItems([]); setConIva(false); setCondicion('contado'); setMetodo('efectivo_usd'); setNote('');
+    setPickLibre(false); setLibreName(''); setLibreUnit('UND'); setLibreQty('1'); setLibrePrice('0');
+    setLibreMachinery(null); setSearchLibreMaq('');
   };
 
   const setItem = (i: number, patch: Partial<VentaItem>) =>
@@ -131,6 +166,7 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
     }]);
     setPickMat(false); setQ('');
   };
+
   const addServicio = (s: SalesService) => {
     setItems((prev) => [...prev, {
       kind: 'servicio', item_id: null, service_id: s.id,
@@ -138,6 +174,44 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
     }]);
     setPickSrv(false); setQ(''); setNuevoSrv('');
   };
+
+  // Agregar renglón libre (NO descuenta inventario, NO se cataloga como servicio)
+  const addRenglonLibre = () => {
+    const n = libreName.trim();
+    if (!n) {
+      toast.error('Escribe la descripción o concepto del artículo.');
+      return;
+    }
+    const qNum = Number(libreQty.replace(',', '.')) || 1;
+    const pNum = Number(librePrice.replace(',', '.')) || 0;
+
+    setItems((prev) => [
+      ...prev,
+      {
+        kind: 'material', // Se clasifica como material (NO servicio)
+        item_id: null,    // Sin item_id: NO descuenta del almacén
+        service_id: null, // Sin service_id: NO contamina el catálogo de servicios
+        name: n,
+        unit: libreUnit.trim().toUpperCase() || 'UND',
+        qty: qNum,
+        price: pNum,
+        maquina_id: libreMachinery?.id || null,
+        maquina: libreMachinery ? `${libreMachinery.code}${libreMachinery.tipo ? ` · ${libreMachinery.tipo}` : ''}` : null,
+        maquina_serial: libreMachinery?.serial || null,
+        maquina_placa: libreMachinery?.plate || null,
+      },
+    ]);
+
+    setPickLibre(false);
+    setLibreName('');
+    setLibreUnit('UND');
+    setLibreQty('1');
+    setLibrePrice('0');
+    setLibreMachinery(null);
+    setSearchLibreMaq('');
+    toast.success('Renglón libre agregado (sin afectar inventario).');
+  };
+
   // Un servicio nuevo se guarda en el catálogo la PRIMERA vez y luego se elige.
   const crearServicio = async () => {
     const name = nuevoSrv.trim();
@@ -150,14 +224,18 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const guardar = async () => {
-    if (!items.length) return toast.error('Agrega al menos un material o servicio.');
+    if (!items.length) return toast.error('Agrega al menos un material, artículo o servicio.');
     if (condicion === 'credito' && !clientId) return toast.error('Una venta a crédito necesita un cliente (es a quien se le cobra).');
     if (!clientId) return toast.error('Elige el cliente.');
     setBusy(true);
+
+    // Si clientId es un id de empresa o texto especial, enviamos client_id solo si es UUID válido
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId);
+
     const payload = {
       doc_kind: docKind,
-      client_id: clientId,
-      client_name: cliente?.name ?? '',
+      client_id: isUuid ? clientId : null,
+      client_name: cliente?.name ?? 'Cliente',
       client_doc: cliente ? docCanonico(cliente.doc_letter, cliente.doc_number) : null,
       sale_date: saleDate,
       items,

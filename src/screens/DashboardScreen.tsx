@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView, useWindowDimensions } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { TankLevel as TankGauge } from '../components/TankLevel'; // rediseño: medidor con marca de umbral (el tipo TankLevel viene de types/database)
@@ -83,6 +83,8 @@ function BarChart({ data, fmt = money }: { data: { label: string; value: number;
 
 export default function DashboardScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
+  const isMobile = screenWidth < 680;
   const { data: tanks, loading } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
 
   const [activeMachines, setActiveMachines] = useState<number | null>(null);
@@ -294,33 +296,201 @@ export default function DashboardScreen({ navigation }: any) {
       {/* Estados de las máquinas: cada uno lleva al módulo Equipos mostrando esas máquinas. */}
       <Card>
         {/* TOTAL DE FLOTA DISPONIBLE = operativas + averiadas + esperando (las retiradas NO cuentan). */}
-        <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
-          <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800', letterSpacing: 1, opacity: 0.9 }}>TOTAL DE FLOTA DISPONIBLE</Text>
-          <Text style={{ color: colors.brandContrast, fontSize: 34, fontWeight: '900', fontVariant: ['tabular-nums'] as any, lineHeight: 38 }}>
+        <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, paddingHorizontal: spacing.md, marginBottom: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800', letterSpacing: 1, opacity: 0.9, textAlign: 'center' }}>
+            TOTAL DE FLOTA DISPONIBLE
+          </Text>
+          <Text style={{ color: colors.brandContrast, fontSize: 36, fontWeight: '900', fontVariant: ['tabular-nums'] as any, lineHeight: 42, textAlign: 'center' }}>
             {states ? (states.op + states.ave + states.esp) : '…'}
           </Text>
         </View>
-        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Estado de las máquinas · toca uno para ver las máquinas</Text>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          {([
-            { key: 'active', n: states?.op, color: colors.success, label: '🟢 Operativas' },
-            { key: 'averiada', n: states?.ave, color: colors.warning, label: '🔴 Averiadas' },
-            { key: 'espera', n: states?.esp, color: '#3B82F6', label: '🔵 Esperando instrucciones' },
-            { key: 'retirada', n: states?.ret, color: colors.danger, label: '⬛ Retiradas' },
-            { key: 'transferida', n: states?.tra, color: '#0D9488', label: '🔁 Transferidas a otros' },
-          ] as const).map((s) => (
+
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs, textAlign: isMobile ? 'center' : 'left' }}>
+          Estado de las máquinas · toca uno para ver las máquinas
+        </Text>
+
+        {isMobile ? (
+          <View style={{ gap: 8, marginTop: 4 }}>
+            {/* Fila 1: Operativas y Averiadas */}
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => navigation?.navigate('Equipos', { status: 'active' })}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surfaceAlt,
+                  borderRadius: radius.md,
+                  paddingVertical: 10,
+                  paddingHorizontal: 10,
+                  borderLeftWidth: 4,
+                  borderLeftColor: colors.success,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.success }} />
+                    <Text numberOfLines={1} style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>Operativas</Text>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>›</Text>
+                </View>
+                <Text style={{ color: colors.success, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>
+                  {states ? states.op : '…'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => navigation?.navigate('Equipos', { status: 'averiada' })}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surfaceAlt,
+                  borderRadius: radius.md,
+                  paddingVertical: 10,
+                  paddingHorizontal: 10,
+                  borderLeftWidth: 4,
+                  borderLeftColor: colors.warning,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.warning }} />
+                    <Text numberOfLines={1} style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>Averiadas</Text>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>›</Text>
+                </View>
+                <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>
+                  {states ? states.ave : '…'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Fila 2: Esperando instrucciones (ancho completo para máxima legibilidad) */}
             <TouchableOpacity
-              key={s.key}
               activeOpacity={0.7}
-              onPress={() => navigation?.navigate('Equipos', { status: s.key })}
-              style={{ alignItems: 'center', flex: 1 }}
+              onPress={() => navigation?.navigate('Equipos', { status: 'espera' })}
+              style={{
+                width: '100%',
+                backgroundColor: colors.surfaceAlt,
+                borderRadius: radius.md,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderLeftWidth: 4,
+                borderLeftColor: '#3B82F6',
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
             >
-              <Text style={{ color: s.color, fontWeight: '800', fontSize: 22 }}>{states ? s.n : '…'}</Text>
-              <Text style={{ color: colors.muted, fontSize: 11 }}>{s.label}</Text>
-              <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>ver ›</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3B82F6' }} />
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>Esperando instrucciones</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={{ color: '#3B82F6', fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>
+                    {states ? states.esp : '…'}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                </View>
+              </View>
             </TouchableOpacity>
-          ))}
-        </View>
+
+            {/* Fila 3: Retiradas y Transferidas a otros */}
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => navigation?.navigate('Equipos', { status: 'retirada' })}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surfaceAlt,
+                  borderRadius: radius.md,
+                  paddingVertical: 10,
+                  paddingHorizontal: 10,
+                  borderLeftWidth: 4,
+                  borderLeftColor: colors.danger,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.danger }} />
+                    <Text numberOfLines={1} style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>Retiradas</Text>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>›</Text>
+                </View>
+                <Text style={{ color: colors.danger, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>
+                  {states ? states.ret : '…'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => navigation?.navigate('Equipos', { status: 'transferida' })}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surfaceAlt,
+                  borderRadius: radius.md,
+                  paddingVertical: 10,
+                  paddingHorizontal: 10,
+                  borderLeftWidth: 4,
+                  borderLeftColor: '#0D9488',
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#0D9488' }} />
+                    <Text numberOfLines={1} style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>Transferidas</Text>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>›</Text>
+                </View>
+                <Text style={{ color: '#0D9488', fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>
+                  {states ? states.tra : '…'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+            {([
+              { key: 'active', n: states?.op, color: colors.success, label: 'Operativas', dot: colors.success },
+              { key: 'averiada', n: states?.ave, color: colors.warning, label: 'Averiadas', dot: colors.warning },
+              { key: 'espera', n: states?.esp, color: '#3B82F6', label: 'Esperando', dot: '#3B82F6' },
+              { key: 'retirada', n: states?.ret, color: colors.danger, label: 'Retiradas', dot: colors.danger },
+              { key: 'transferida', n: states?.tra, color: '#0D9488', label: 'Transferidas', dot: '#0D9488' },
+            ] as const).map((s) => (
+              <TouchableOpacity
+                key={s.key}
+                activeOpacity={0.7}
+                onPress={() => navigation?.navigate('Equipos', { status: s.key })}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surfaceAlt,
+                  borderRadius: radius.md,
+                  paddingVertical: 10,
+                  paddingHorizontal: 8,
+                  borderLeftWidth: 4,
+                  borderLeftColor: s.color,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  alignItems: 'center',
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: s.dot }} />
+                  <Text numberOfLines={1} style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{s.label}</Text>
+                </View>
+                <Text style={{ color: s.color, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{states ? s.n : '…'}</Text>
+                <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>ver ›</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </Card>
 
       <StatCard

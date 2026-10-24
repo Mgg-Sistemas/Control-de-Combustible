@@ -102,7 +102,7 @@ export function Screen({
       <ScrollView
         ref={setScrollRef}
         style={{ flex: 1, backgroundColor: scrollBg }}
-        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md, paddingBottom: 64 }}
         scrollEventThrottle={16}
         onScroll={(e) => {
           const y = e.nativeEvent.contentOffset.y;

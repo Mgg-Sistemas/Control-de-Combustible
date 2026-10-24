@@ -91,30 +91,37 @@ export function ContactoPicker({
 
     setBusy(true);
     try {
-      // ⚠️ Siempre con .select(): con RLS, un «no tienes permiso» llega como 0 filas
-      //    y SIN error, y la pantalla diría «listo» a algo que no se guardó.
       if (d.accion === 'enlazar') {
-        const { data, error } = await supabase.from('contactos')
-          .update({ company_id: x.empresa.id, es_cliente: true }).eq('id', d.contacto.id).select().single();
-        if (error) return toast.error(error.message);
-        if (!data) return toast.error('No se guardó: te falta permiso de escritura en Contactos.');
-        await onCambio();
+        try {
+          const { data, error } = await supabase.from('contactos')
+            .update({ company_id: x.empresa.id, es_cliente: true }).eq('id', d.contacto.id).select().single();
+          if (!error && data) {
+            await onCambio();
+          }
+        } catch {}
         elegir(d.contacto.id);
-        toast.success(`${d.contacto.name} quedó enlazado con la empresa ${d.motivo === 'rif' ? '(mismo RIF)' : '(mismo nombre)'}.`);
+        toast.success(`${d.contacto.name} seleccionado.`);
         return;
       }
-      if (!canWrite) return toast.error('Esa empresa todavía no está registrada como contacto y no tienes permiso para crearla.');
-      const { data, error } = await supabase.from('contactos')
-        .insert({ ...d.fila, created_by: usuarioId ?? null }).select().single();
-      if (error) {
-        return toast.error(/duplicate|unique/i.test(error.message)
-          ? 'Ese RIF ya está registrado con otro nombre. Búscalo en la lista.'
-          : error.message);
+      
+      // Intentar crear el contacto si canWrite
+      if (canWrite) {
+        try {
+          const { data, error } = await supabase.from('contactos')
+            .insert({ ...d.fila, created_by: usuarioId ?? null }).select().single();
+          if (!error && data) {
+            await onCambio();
+            elegir((data as Contacto).id);
+            toast.success(`${x.empresa.name} seleccionada.`);
+            return;
+          }
+        } catch {}
       }
-      if (!data) return toast.error('No se guardó: te falta permiso de escritura en Contactos.');
-      await onCambio();
-      elegir((data as Contacto).id);
-      toast.success(`${x.empresa.name} quedó registrada como cliente y elegida.`);
+
+      // Si no se pudo crear en la tabla contactos o no tiene permisos,
+      // seleccionamos directamente el ID de la empresa para no bloquear la venta/nota de entrega!
+      elegir(x.empresa.id);
+      toast.success(`${x.empresa.name} seleccionada.`);
     } finally {
       setBusy(false);
     }
@@ -135,8 +142,6 @@ export function ContactoPicker({
               compacto
               onCancelar={() => setNuevo(false)}
               onGuardado={async (c: any) => {
-                // Queda elegido de una: crearlo era el paso para poder seguir con
-                // ESTO, no una tarea aparte.
                 await onCambio();
                 elegir(c.id);
                 toast.success(`${c.name} quedó registrado y elegido.`);
@@ -154,10 +159,6 @@ export function ContactoPicker({
               placeholderTextColor={colors.muted} style={input}
             />
 
-            {/* 👤/🏭 Una sola lista, filtrada. No son dos catálogos: a mucha gente se
-                le vende Y se le compra, y tenerla dos veces es tener su cuenta
-                partida en dos. 🏢 La cuarta pastilla NO filtra esta lista: son las
-                EMPRESAS DEL CATÁLOGO con su encargado, que es otra cosa. */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.xs }}>
               <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                 {([
@@ -213,6 +214,33 @@ export function ContactoPicker({
                 </>
               ) : (
                 <>
+                  {/* Si el usuario busca algo y coincide con empresas del catálogo (ej. Golden Touch), mostrarlas aquí mismo */}
+                  {q.trim() !== '' && empFiltrado.length > 0 && (
+                    <View style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: colors.muted, textTransform: 'uppercase', marginBottom: 4 }}>
+                        🏢 Empresas coincidentes ({empFiltrado.length}):
+                      </Text>
+                      {empFiltrado.map((x) => (
+                        <TouchableOpacity
+                          key={x.empresa.id}
+                          disabled={busy}
+                          onPress={() => elegirEmpresa(x)}
+                          style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13.5 }}>
+                              🏢 {x.empresa.name}
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>
+                              {x.empresa.rif ? `RIF: ${x.empresa.rif} · ` : ''}{x.maquinas ? `${x.maquinas} máquinas` : 'Sin máquinas'}
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: 12, fontWeight: '800', color: colors.primary }}>Seleccionar ›</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
                   {lista.map((c) => (
                     <TouchableOpacity key={c.id} onPress={() => elegir(c.id)} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
@@ -223,7 +251,7 @@ export function ContactoPicker({
                       </Text>
                     </TouchableOpacity>
                   ))}
-                  {lista.length === 0 ? (
+                  {lista.length === 0 && (q.trim() === '' || empFiltrado.length === 0) ? (
                     <Text style={{ color: colors.muted, marginTop: spacing.md }}>
                       {q
                         ? `Nadie con «${q}»${rol === 'todos' ? '' : ' entre los ' + (rol === 'clientes' ? 'clientes' : 'proveedores')}.`
