@@ -91,7 +91,7 @@ export default function DispatchesPilot() {
         table="dispatches"
         orderBy="dispatch_date"
         ascending={false}
-        select="*, machine:machinery_id(code, plate, serial, tipo), vehicle:vehicle_id(plate, name, model)"
+        select="*, machine:machinery_id(code, plate, serial, tipo), vehicle:vehicle_id(plate, name, model), tank:tank_id(id, name, fuel, is_mobile)"
         editable
         dateField="dispatch_date"
         defaultToday
@@ -99,7 +99,7 @@ export default function DispatchesPilot() {
         emptyTitle="Sin consumos"
         emptySubtitle="Registra los despachos a vehículos o maquinaria."
         formTitle="Nuevo consumo"
-        searchPlaceholder="Buscar por máquina, placa, conductor, tipo, litros…"
+        searchPlaceholder="Buscar por máquina, placa, conductor, tanque, litros…"
         // Buscable por TODAS las características útiles del movimiento.
         searchText={(d: any) => [
           d.machine?.code,
@@ -108,6 +108,7 @@ export default function DispatchesPilot() {
           d.vehicle?.plate,
           d.vehicle?.name,
           d.vehicle?.model,
+          d.tank?.name,
           d.driver_operator,
           d.asset_kind,
           d.dispatch_date,
@@ -115,13 +116,40 @@ export default function DispatchesPilot() {
         ].filter(Boolean).join(' ')}
         subtitle={(rows) => {
           const l = rows.reduce((s, r) => s + (Number(r.liters) || 0), 0);
-          return `${rows.length} consumo(s) · ${l.toLocaleString()} L`;
+          const sinTanque = rows.filter((r) => !r.tank_id).length;
+          return `${rows.length} consumo(s) · ${l.toLocaleString()} L${sinTanque > 0 ? ` · ⚠️ ${sinTanque} sin tanque` : ''}`;
         }}
         // Por defecto: solo el TOTAL CONSUMIDO HOY. Al elegir un rango de fecha (o
         // buscar), se muestran las GRÁFICAS completas (por día y por máquina).
-        headerExtra={(shown, ctx) => (ctx.dateActive || ctx.searching ? <DailyMachineCharts rows={shown} /> : <TodayTotal rows={shown} />)}
+        headerExtra={(shown, ctx) => {
+          const sinTanque = shown.filter((r) => !r.tank_id).length;
+          return (
+            <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
+              {sinTanque > 0 ? (
+                <View
+                  style={{
+                    backgroundColor: '#FEF2F2',
+                    borderWidth: 1,
+                    borderColor: '#EF4444',
+                    borderRadius: radius.md,
+                    padding: spacing.md,
+                  }}
+                >
+                  <Text style={{ color: '#B91C1C', fontWeight: '900', fontSize: 13 }}>
+                    ⚠️ {sinTanque} consumo(s) no tienen Tanque de Origen asignado
+                  </Text>
+                  <Text style={{ color: '#7F1D1D', fontSize: 12, marginTop: 2 }}>
+                    Los tanques no bajarán su nivel hasta que se indique de qué tanque salió el combustible. Toca cada consumo marcado abajo para editarlo y asignarle su tanque.
+                  </Text>
+                </View>
+              ) : null}
+              {ctx.dateActive || ctx.searching ? <DailyMachineCharts rows={shown} /> : <TodayTotal rows={shown} />}
+            </View>
+          );
+        }}
         formFields={[
           { key: 'dispatch_date', label: 'Fecha', type: 'date', required: true },
+          { key: 'tank_id', label: 'Tanque / Cisterna origen *', type: 'lookup', table: 'tanks', labelCol: 'name', subLabelCols: ['fuel', 'location'], dropdown: true, required: true },
           { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
           // Oculta los vehículos "Esperando instrucciones" (recién agregados, aún sin
           // decidir) — no deben poder recibir combustible hasta que se les dé de alta
@@ -129,16 +157,16 @@ export default function DispatchesPilot() {
           // nace con en_espera=false (default de la columna), porque se está usando ya.
           { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
           { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate'], filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
-          { key: 'liters', label: 'Litros', type: 'number', required: true },
+          { key: 'liters', label: 'Litros despachados *', type: 'number', required: true },
           { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
           { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },
           { key: 'driver_operator', label: 'Conductor/Operador', type: 'text' },
-          { key: 'tank_id', label: 'Tanque origen (opcional · vacío = directo de bomba)', type: 'lookup', table: 'tanks', labelCol: 'name' },
         ]}
         renderItem={(d) => {
           const fotos = ((d as any).photos ?? []).filter(Boolean) as string[];
           const mach = (d as any).machine;
           const veh = (d as any).vehicle;
+          const tank = (d as any).tank;
           return (
             <>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -147,6 +175,32 @@ export default function DispatchesPilot() {
               </View>
               <View style={{ marginTop: 6 }}>
                 <RRow label="Fecha" value={d.dispatch_date} />
+                {tank ? (
+                  <RRow
+                    label="Tanque origen"
+                    value={`🛢️ ${tank.name}${tank.fuel ? ` (${String(tank.fuel).toUpperCase()})` : ''}`}
+                    mono
+                  />
+                ) : (
+                  <View
+                    style={{
+                      backgroundColor: '#FEF2F2',
+                      borderColor: '#EF4444',
+                      borderWidth: 1,
+                      borderRadius: radius.sm,
+                      paddingHorizontal: 8,
+                      paddingVertical: 5,
+                      marginVertical: 4,
+                    }}
+                  >
+                    <Text style={{ color: '#B91C1C', fontSize: 11, fontWeight: '900' }}>
+                      ⚠️ SIN TANQUE ASIGNADO (No descuenta stock)
+                    </Text>
+                    <Text style={{ color: '#DC2626', fontSize: 10.5, marginTop: 1 }}>
+                      👉 Toca este registro para editarlo y seleccionar de qué tanque o cisterna se extrajo.
+                    </Text>
+                  </View>
+                )}
                 {mach ? (
                   <RRow
                     label="Máquina"
