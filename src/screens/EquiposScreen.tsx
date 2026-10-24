@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView, Plat
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useToast } from '../components/ToastProvider';
+import { useAuth } from '../context/AuthContext';
 import { RecordForm, Field } from '../components/RecordForm';
 import { DateField } from '../components/DateField';
 import { useTable } from '../hooks/useTable';
@@ -19,6 +20,14 @@ import { FichaTecnicaModal } from '../components/FichaTecnicaModal';
 import { actaRecepcionHtml } from '../lib/actaRecepcionEquipo';
 import { autorizacionTrasladoHtml } from '../lib/autorizacionTraslado';
 import { STORAGE_ACTAS_KEY, ActaRegistro } from './ActaRecepcionScreen';
+import {
+  cargarActasCompartidas,
+  eliminarActaCompartida,
+  cargarTrasladosCompartidos,
+  eliminarTrasladoCompartido,
+  ActaCompartida,
+  TrasladoCompartido,
+} from '../lib/actasYTrasladosDb';
 import { ultimaFotoHorometro } from '../lib/horometroTrabajoDb';
 import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
 import { workedFromShifts } from './ControlMaquinariaScreen';
@@ -49,7 +58,6 @@ import { edificioCanonico, edificioLabel } from '../lib/edificios';
 import MachineQuickScreen from './MachineQuickScreen';
 import { ObrasPublicasAssignModal } from '../components/ObrasPublicasAssignModal';
 import { listOpAssignments, OpAssignment } from '../lib/obrasPublicas';
-import { useAuth } from '../context/AuthContext';
 import { Machinery, Vehicle, Company, MachineGuard } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -237,6 +245,7 @@ const VIAJES_FIELDS: Field[] = [
 export default function EquiposScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const toast = useToast();
+  const { role, canSee, fullName, session } = useAuth();
   const [kind, setKind] = useState<Kind>('vehiculo');
 
   const vehicles = useTable<Vehicle>('vehicles', { orderBy: 'plate', ascending: true });
@@ -285,7 +294,6 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [qrStr, setQrStr] = useState<string>('');
   const [qrBlockBusy, setQrBlockBusy] = useState(false);
   // Guardia / militar encargado actual por máquina (historial acumulable).
-  const { session, role, fullName } = useAuth();
   // Los SUPERVISORES pueden iniciar jornada desde el catálogo (sin escanear el
   // QR) — y el ADMIN también (27-sep-2026, regla de la casa: admin = acceso a
   // todo; antes tenía que irse a la vista de inspector para lo mismo).
@@ -1110,47 +1118,40 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
   // 📁 APARTADO DE DOCUMENTACIÓN DE LA MAQUINARIA (Actas de recepción, traslados y fichas)
   const [docMachine, setDocMachine] = useState<Machinery | null>(null);
   const [docTab, setDocTab] = useState<'actas' | 'traslados'>('actas');
-  const [docActas, setDocActas] = useState<ActaRegistro[]>([]);
-  const [docTraslados, setDocTraslados] = useState<any[]>([]);
+  const [docActas, setDocActas] = useState<ActaCompartida[]>([]);
+  const [docTraslados, setDocTraslados] = useState<TrasladoCompartido[]>([]);
   const [cargandoDocs, setCargandoDocs] = useState(false);
+  const [docItemAEliminar, setDocItemAEliminar] = useState<{ tipo: 'acta' | 'traslado'; item: any } | null>(null);
+  const [eliminandoDoc, setEliminandoDoc] = useState(false);
 
   const abrirDocumentacion = async (m: Machinery) => {
     setDocMachine(m);
     setDocTab('actas');
     setCargandoDocs(true);
     try {
-      // 1. Actas de recepción de esta máquina
-      const rawActas = await AsyncStorage.getItem(STORAGE_ACTAS_KEY);
-      if (rawActas) {
-        const todasActas: ActaRegistro[] = JSON.parse(rawActas);
-        const filtradas = todasActas.filter((a) => {
-          if (a.machineryId && a.machineryId === m.id) return true;
-          const dg = a.datosGenerales;
-          const codeMatch = m.code && (dg?.serialPin?.toLowerCase().includes(m.code.toLowerCase()) || a.equipoModeloHeader?.toLowerCase().includes(m.code.toLowerCase()));
-          const plateMatch = m.plate && (dg?.placa?.toLowerCase().includes(m.plate.toLowerCase()) || a.placaHeader?.toLowerCase().includes(m.plate.toLowerCase()));
-          const serialMatch = m.serial && (dg?.serialPin?.toLowerCase().includes(m.serial.toLowerCase()) || a.pinSerialHeader?.toLowerCase().includes(m.serial.toLowerCase()));
-          return codeMatch || plateMatch || serialMatch;
-        });
-        setDocActas(filtradas);
-      } else {
-        setDocActas([]);
-      }
+      // 1. Actas de recepción compartidas de esta máquina
+      const todasActas = await cargarActasCompartidas(m.id);
+      const filtradasActas = todasActas.filter((a) => {
+        if (a.machineryId && a.machineryId === m.id) return true;
+        const dg = a.datos?.datosGenerales || (a as any).datosGenerales;
+        const codeMatch = m.code && (dg?.serialPin?.toLowerCase().includes(m.code.toLowerCase()) || a.datos?.equipoModeloHeader?.toLowerCase().includes(m.code.toLowerCase()) || a.machineCode?.toLowerCase().includes(m.code.toLowerCase()));
+        const plateMatch = m.plate && (dg?.placa?.toLowerCase().includes(m.plate.toLowerCase()) || a.datos?.placaHeader?.toLowerCase().includes(m.plate.toLowerCase()) || a.machinePlate?.toLowerCase().includes(m.plate.toLowerCase()));
+        const serialMatch = m.serial && (dg?.serialPin?.toLowerCase().includes(m.serial.toLowerCase()) || a.datos?.pinSerialHeader?.toLowerCase().includes(m.serial.toLowerCase()));
+        return codeMatch || plateMatch || serialMatch;
+      });
+      setDocActas(filtradasActas);
 
-      // 2. Autorizaciones de traslado de esta máquina
-      const rawTras = await AsyncStorage.getItem('@traslados_maquinaria_historico_v1');
-      if (rawTras) {
-        const todosTras: any[] = JSON.parse(rawTras);
-        const filtrados = todosTras.filter((t) => {
-          if (t.machineryId && t.machineryId === m.id) return true;
-          const codeMatch = m.code && t.maquinaria?.codigo?.toLowerCase().includes(m.code.toLowerCase());
-          const plateMatch = m.plate && t.maquinaria?.placa?.toLowerCase().includes(m.plate.toLowerCase());
-          const serialMatch = m.serial && t.maquinaria?.serial?.toLowerCase().includes(m.serial.toLowerCase());
-          return codeMatch || plateMatch || serialMatch;
-        });
-        setDocTraslados(filtrados);
-      } else {
-        setDocTraslados([]);
-      }
+      // 2. Autorizaciones de traslado compartidas de esta máquina
+      const todosTras = await cargarTrasladosCompartidos(m.id);
+      const filtradosTras = todosTras.filter((t) => {
+        if (t.machineryId && t.machineryId === m.id) return true;
+        const maq = t.datos?.maquinaria || (t as any).maquinaria;
+        const codeMatch = m.code && (maq?.codigo?.toLowerCase().includes(m.code.toLowerCase()) || t.machineCode?.toLowerCase().includes(m.code.toLowerCase()));
+        const plateMatch = m.plate && (maq?.placa?.toLowerCase().includes(m.plate.toLowerCase()) || t.machinePlate?.toLowerCase().includes(m.plate.toLowerCase()));
+        const serialMatch = m.serial && (maq?.serial?.toLowerCase().includes(m.serial.toLowerCase()));
+        return codeMatch || plateMatch || serialMatch;
+      });
+      setDocTraslados(filtradosTras);
     } catch {
       // noop
     } finally {
@@ -1172,18 +1173,80 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
     }
   };
 
-  const reimprimirActaDesdeModal = async (acta: ActaRegistro) => {
+  const editarActaDesdeModal = (acta: ActaCompartida) => {
+    const mId = docMachine?.id;
+    setDocMachine(null);
     try {
-      const html = actaRecepcionHtml(acta);
+      navigation.navigate('ActaRecepcion', { editActaId: acta.id, machineId: mId });
+      return;
+    } catch {}
+    try {
+      navigation.navigate('More', { screen: 'ActaRecepcion', params: { editActaId: acta.id, machineId: mId } });
+    } catch (e: any) {
+      toast.error('No se pudo abrir editor de acta');
+    }
+  };
+
+  const editarTrasladoDesdeModal = (tr: TrasladoCompartido) => {
+    const mId = docMachine?.id;
+    setDocMachine(null);
+    try {
+      navigation.navigate('TrasladoMaquinaria', { editTrasladoId: tr.id, machineId: mId });
+      return;
+    } catch {}
+    try {
+      navigation.navigate('More', { screen: 'TrasladoMaquinaria', params: { editTrasladoId: tr.id, machineId: mId } });
+    } catch (e: any) {
+      toast.error('No se pudo abrir editor de traslado');
+    }
+  };
+
+  const confirmarEliminarDoc = (tipo: 'acta' | 'traslado', item: any) => {
+    setDocItemAEliminar({ tipo, item });
+  };
+
+  const ejecutarEliminarDoc = async () => {
+    if (!docItemAEliminar) return;
+    const { tipo, item } = docItemAEliminar;
+    try {
+      setEliminandoDoc(true);
+      if (tipo === 'acta') {
+        const ok = await eliminarActaCompartida(item.id, { id: session?.user?.id, name: fullName });
+        if (ok) {
+          toast.success(`Acta ${item.codigo} eliminada.`);
+          setDocActas((prev) => prev.filter((a) => a.id !== item.id));
+        } else {
+          toast.error('No se pudo eliminar el acta.');
+        }
+      } else {
+        const ok = await eliminarTrasladoCompartido(item.id, { id: session?.user?.id, name: fullName });
+        if (ok) {
+          toast.success(`Traslado ${item.numeroControl} eliminado.`);
+          setDocTraslados((prev) => prev.filter((t) => t.id !== item.id));
+        } else {
+          toast.error('No se pudo eliminar el traslado.');
+        }
+      }
+    } catch (e: any) {
+      toast.error('Error al eliminar: ' + (e?.message || 'Error'));
+    } finally {
+      setEliminandoDoc(false);
+      setDocItemAEliminar(null);
+    }
+  };
+
+  const reimprimirActaDesdeModal = async (acta: ActaCompartida) => {
+    try {
+      const html = actaRecepcionHtml(acta.datos || acta);
       await exportPdf(html, `Acta-Recepcion-${acta.codigo}`);
     } catch (e: any) {
       toast.error('Error al abrir acta: ' + (e?.message || ''));
     }
   };
 
-  const reimprimirTrasladoDesdeModal = async (traslado: any) => {
+  const reimprimirTrasladoDesdeModal = async (traslado: TrasladoCompartido) => {
     try {
-      const html = autorizacionTrasladoHtml(traslado);
+      const html = autorizacionTrasladoHtml(traslado.datos || traslado);
       await exportPdf(html, `Autorizacion-Traslado-${traslado.numeroControl}`);
     } catch (e: any) {
       toast.error('Error al abrir traslado: ' + (e?.message || ''));
@@ -3558,46 +3621,97 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                         </TouchableOpacity>
                       </View>
                     ) : (
-                      docActas.map((acta) => (
-                        <View
-                          key={acta.id}
-                          style={{
-                            backgroundColor: colors.surfaceAlt,
-                            padding: spacing.sm,
-                            borderRadius: radius.md,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            flexDirection: 'row',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <View style={{ flex: 1, paddingRight: spacing.xs }}>
-                            <Text style={{ color: '#B45309', fontWeight: '800', fontSize: 13 }}>
-                              {acta.codigo} &nbsp;·&nbsp; <Text style={{ color: colors.text, fontSize: 12 }}>{acta.fecha}</Text>
-                            </Text>
-                            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
-                              Horómetro: {acta.datosGenerales?.horometro || '—'} &nbsp;·&nbsp; Inspector: {acta.datosGenerales?.recibidoPor || '—'}
-                            </Text>
-                            <Text style={{ color: colors.muted, fontSize: 11 }}>
-                              Entregó: {acta.datosGenerales?.entregadoPor || '—'} &nbsp;·&nbsp; 📷 {acta.fotos?.length || 0} fotos
-                            </Text>
-                          </View>
-                          <TouchableOpacity
-                            onPress={() => reimprimirActaDesdeModal(acta)}
+                      docActas.map((acta) => {
+                        const dg = acta.datos?.datosGenerales || (acta as any).datosGenerales || {};
+                        return (
+                          <View
+                            key={acta.id}
                             style={{
-                              backgroundColor: '#B45309',
-                              paddingVertical: 5,
-                              paddingHorizontal: 10,
-                              borderRadius: radius.sm,
+                              backgroundColor: colors.surfaceAlt,
+                              padding: spacing.sm,
+                              borderRadius: radius.md,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              gap: spacing.xs,
                             }}
                           >
-                            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
-                              🧾 Ver / Imprimir
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <View style={{ flex: 1, paddingRight: spacing.xs }}>
+                                <Text style={{ color: '#B45309', fontWeight: '800', fontSize: 13.5 }}>
+                                  {acta.codigo} &nbsp;·&nbsp; <Text style={{ color: colors.text, fontSize: 12 }}>{acta.datos?.fecha || (acta as any).fecha || ''}</Text>
+                                </Text>
+                                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+                                  Horómetro: {dg.horometro || '—'} &nbsp;·&nbsp; Inspector: {dg.recibidoPor || '—'}
+                                </Text>
+                                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                                  Entregó: {dg.entregadoPor || '—'} &nbsp;·&nbsp; 📷 {acta.datos?.fotos?.length || 0} fotos
+                                </Text>
+                              </View>
+                            </View>
+
+                            {/* AUDITORÍA COMPARTIDA */}
+                            <View style={{ backgroundColor: colors.surface, borderRadius: radius.sm, padding: 6, gap: 2, borderWidth: 1, borderColor: colors.border }}>
+                              <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                                👤 <Text style={{ fontWeight: '700', color: colors.text }}>Creado por:</Text> {acta.createdByName || 'Personal'} · {acta.createdAt ? new Date(acta.createdAt).toLocaleDateString() : '—'}
+                              </Text>
+                              {acta.updatedAt ? (
+                                <Text style={{ color: colors.brand, fontSize: 10.5 }}>
+                                  ✏️ <Text style={{ fontWeight: '700' }}>Última edición:</Text> {acta.updatedByName || 'Usuario'} · {new Date(acta.updatedAt).toLocaleDateString()} {new Date(acta.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </Text>
+                              ) : null}
+                            </View>
+
+                            {/* BOTONES DE ACCIÓN: EDITAR / ELIMINAR / REIMPRIMIR */}
+                            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                              <TouchableOpacity
+                                onPress={() => editarActaDesdeModal(acta)}
+                                style={{
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  paddingVertical: 4,
+                                  paddingHorizontal: 8,
+                                  borderRadius: radius.sm,
+                                }}
+                              >
+                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
+                                  ✏️ Editar
+                                </Text>
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                onPress={() => confirmarEliminarDoc('acta', acta)}
+                                style={{
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.danger,
+                                  paddingVertical: 4,
+                                  paddingHorizontal: 8,
+                                  borderRadius: radius.sm,
+                                }}
+                              >
+                                <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>
+                                  🗑️ Eliminar
+                                </Text>
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                onPress={() => reimprimirActaDesdeModal(acta)}
+                                style={{
+                                  backgroundColor: '#B45309',
+                                  paddingVertical: 4,
+                                  paddingHorizontal: 10,
+                                  borderRadius: radius.sm,
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
+                                  🧾 Ver / Imprimir
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        );
+                      })
                     )
                   ) : docTraslados.length === 0 ? (
                     <View style={{ alignItems: 'center', paddingVertical: spacing.md }}>
@@ -3621,48 +3735,133 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                       </TouchableOpacity>
                     </View>
                   ) : (
-                    docTraslados.map((tr) => (
-                      <View
-                        key={tr.id}
-                        style={{
-                          backgroundColor: colors.surfaceAlt,
-                          padding: spacing.sm,
-                          borderRadius: radius.md,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          flexDirection: 'row',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <View style={{ flex: 1, paddingRight: spacing.xs }}>
-                          <Text style={{ color: '#1E3A8A', fontWeight: '800', fontSize: 13 }}>
-                            {tr.numeroControl} &nbsp;·&nbsp; <Text style={{ color: colors.text, fontSize: 12 }}>{tr.fecha}</Text>
-                          </Text>
-                          <Text style={{ color: colors.text, fontSize: 11.5, marginTop: 1 }}>
-                            <Text style={{ fontWeight: '700' }}>Ruta:</Text> {tr.origen} ➔ {tr.destino}
-                          </Text>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>
-                            Chofer: {tr.transporte?.conductorNombre || '—'} &nbsp;·&nbsp; Chuto: {tr.transporte?.placaChuto || '—'}
-                          </Text>
-                        </View>
-                        <TouchableOpacity
-                          onPress={() => reimprimirTrasladoDesdeModal(tr)}
+                    docTraslados.map((tr) => {
+                      const t = tr.datos?.transporte || (tr as any).transporte;
+                      return (
+                        <View
+                          key={tr.id}
                           style={{
-                            backgroundColor: '#1E3A8A',
-                            paddingVertical: 5,
-                            paddingHorizontal: 10,
-                            borderRadius: radius.sm,
+                            backgroundColor: colors.surfaceAlt,
+                            padding: spacing.sm,
+                            borderRadius: radius.md,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            gap: spacing.xs,
                           }}
                         >
-                          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
-                            🧾 Ver / Imprimir
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <View style={{ flex: 1, paddingRight: spacing.xs }}>
+                              <Text style={{ color: '#1E3A8A', fontWeight: '800', fontSize: 13.5 }}>
+                                {tr.numeroControl} &nbsp;·&nbsp; <Text style={{ color: colors.text, fontSize: 12 }}>{tr.datos?.fecha || (tr as any).fecha || ''}</Text>
+                              </Text>
+                              <Text style={{ color: colors.text, fontSize: 11.5, marginTop: 1 }}>
+                                <Text style={{ fontWeight: '700' }}>Ruta:</Text> {tr.datos?.origen || (tr as any).origen} ➔ {tr.datos?.destino || (tr as any).destino}
+                              </Text>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>
+                                Chofer: {t?.conductorNombre || '—'} &nbsp;·&nbsp; Chuto: {t?.placaChuto || '—'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* AUDITORÍA COMPARTIDA */}
+                          <View style={{ backgroundColor: colors.surface, borderRadius: radius.sm, padding: 6, gap: 2, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                              👤 <Text style={{ fontWeight: '700', color: colors.text }}>Creado por:</Text> {tr.createdByName || 'Personal'} · {tr.createdAt ? new Date(tr.createdAt).toLocaleDateString() : '—'}
+                            </Text>
+                            {tr.updatedAt ? (
+                              <Text style={{ color: colors.brand, fontSize: 10.5 }}>
+                                ✏️ <Text style={{ fontWeight: '700' }}>Última edición:</Text> {tr.updatedByName || 'Usuario'} · {new Date(tr.updatedAt).toLocaleDateString()} {new Date(tr.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </Text>
+                            ) : null}
+                          </View>
+
+                          {/* BOTONES DE ACCIÓN: EDITAR / ELIMINAR / REIMPRIMIR */}
+                          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                            <TouchableOpacity
+                              onPress={() => editarTrasladoDesdeModal(tr)}
+                              style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                paddingVertical: 4,
+                                paddingHorizontal: 8,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
+                                ✏️ Editar
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={() => confirmarEliminarDoc('traslado', tr)}
+                              style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.danger,
+                                paddingVertical: 4,
+                                paddingHorizontal: 8,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>
+                                🗑️ Eliminar
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={() => reimprimirTrasladoDesdeModal(tr)}
+                              style={{
+                                backgroundColor: '#1E3A8A',
+                                paddingVertical: 4,
+                                paddingHorizontal: 10,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
+                                🧾 Ver / Imprimir
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+
+                {/* MODAL DE CONFIRMACIÓN DE ELIMINACIÓN DESDE DOCUMENTACIÓN */}
+                <Modal visible={!!docItemAEliminar} transparent animationType="fade">
+                  <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+                    <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, width: '100%', maxWidth: 400, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 16, marginBottom: spacing.xs }}>
+                        🗑️ ¿Eliminar {docItemAEliminar?.tipo === 'acta' ? 'Acta de Recepción' : 'Autorización de Traslado'}?
+                      </Text>
+                      <Text style={{ color: colors.text, fontSize: 13, marginBottom: spacing.sm, lineHeight: 19 }}>
+                        ¿Estás seguro de eliminar el documento <Text style={{ fontWeight: '800' }}>{docItemAEliminar?.tipo === 'acta' ? docItemAEliminar?.item?.codigo : docItemAEliminar?.item?.numeroControl}</Text>?
+                        {'\n\n'}
+                        Se registrará en la bitácora que fue eliminado por <Text style={{ fontWeight: '700' }}>{fullName || 'tu usuario'}</Text>.
+                      </Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm, marginTop: spacing.md }}>
+                        <TouchableOpacity
+                          onPress={() => setDocItemAEliminar(null)}
+                          disabled={eliminandoDoc}
+                          style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={ejecutarEliminarDoc}
+                          disabled={eliminandoDoc}
+                          style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.danger }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
+                            {eliminandoDoc ? 'Eliminando...' : 'Eliminar Documento'}
                           </Text>
                         </TouchableOpacity>
                       </View>
-                    ))
-                  )}
-                </ScrollView>
+                    </View>
+                  </View>
+                </Modal>
 
                 <TouchableOpacity
                   onPress={() => setDocMachine(null)}

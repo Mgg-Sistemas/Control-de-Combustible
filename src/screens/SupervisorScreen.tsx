@@ -1058,6 +1058,53 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   }, [machines, assignMap, roundsById]);
   const toggleExp = (k: string) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
+  // Turno ACTUAL según la hora del sistema (Caracas): 7am–7pm = ☀️ día · 7pm–7am = 🌙
+  // noche. Es el turno con el que el COORDINADOR inicia la jornada (no lo elige a mano)
+  // y por el que se filtran los inspectores que se muestran en la sub-vista "👥 Inspectores".
+  const nowShift = useMemo<Shift>(() => {
+    const h = caracasParts(new Date()).hour;
+    return h >= 7 && h < 19 ? 'day' : 'night';
+  }, [nowTick]);
+
+  // Turno del inspector LOGUEADO en esta máquina (día/noche), o null si no es suya
+  // (admin/coordinador viendo todo → sin turno específico = comportamiento global).
+  const shiftOfMine = (id: string): 'day' | 'night' | null => {
+    const s = assignMap[id] || {};
+    const mineDay = s.day?.id === uid;
+    const mineNight = s.night?.id === uid;
+    // Cubre AMBOS turnos → el turno vigente lo dicta la hora actual (mismo criterio que
+    // `myShift`). Así de noche ve/opera el estado de NOCHE (la avería/parada de DÍA le
+    // sale como pendiente), no el de día por chequear día-primero.
+    if (mineDay && mineNight) return nowShift;
+    if (mineDay) return 'day';
+    if (mineNight) return 'night';
+    return null;
+  };
+  const openMine = (id: string): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    const sh = shiftOfMine(id);
+    if (sh === 'day') return r.openDay;
+    if (sh === 'night') return r.openNight;
+    return r.open;
+  };
+  // ¿MI turno tiene HORAS registradas (finalizó la jornada)? Sirve para separar
+  // CERRADA (finalizó con horas, ya no abierta) de INICIADA (abierta ahora).
+  const hoursMine = (id: string): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    const sh = shiftOfMine(id);
+    if (sh === 'day') return r.dayWorked > MIN_WORKED_HOURS;
+    if (sh === 'night') return r.nightWorked > MIN_WORKED_HOURS;
+    return r.worked > MIN_WORKED_HOURS;
+  };
+  const openEn = (id: string, sh: 'day' | 'night'): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    return sh === 'day' ? r.openDay : r.openNight;
+  };
+  const hoursEn = (id: string, sh: 'day' | 'night'): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    return sh === 'day' ? r.dayWorked > MIN_WORKED_HOURS : r.nightWorked > MIN_WORKED_HOURS;
+  };
+
   // ── REGLA DE TURNOS DEL INSPECTOR ──────────────────────────────────────────
   // El inspector solo puede iniciar jornada de SU turno asignado (día/noche) en
   // esta máquina, y solo una por turno por día (tras finalizar, vuelve a poder
@@ -1084,14 +1131,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!ci) return false;
     if (openMine(ci.id)) return false;
     return hoursMine(ci.id);
-  }, [ci, roundsById, assignMap, uid]);
-  // Turno ACTUAL según la hora del sistema (Caracas): 7am–7pm = ☀️ día · 7pm–7am = 🌙
-  // noche. Es el turno con el que el COORDINADOR inicia la jornada (no lo elige a mano)
-  // y por el que se filtran los inspectores que se muestran en la sub-vista "👥 Inspectores".
-  const nowShift = useMemo<Shift>(() => {
-    const h = caracasParts(new Date()).hour;
-    return h >= 7 && h < 19 ? 'day' : 'night';
-  }, [nowTick]);
+  }, [ci, roundsById, assignMap, uid, nowShift]);
   // GRACIA DE NOCHE (7am–9am): una jornada de NOCHE (7pm–7am) ya finalizada sigue
   // viéndose CERRADA/finalizada hasta las 9am (regla cliente). A las 9am pasa a
   // pendiente por iniciar. Solo aplica a la noche; no toca el flujo del día.
@@ -1148,44 +1188,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     paradaRawList.forEach((p) => { if (!p.arrastrada) s.add(p.id); });
     return s;
   }, [paradaRawList]);
-  // Turno del inspector LOGUEADO en esta máquina (día/noche), o null si no es suya
-  // (admin/coordinador viendo todo → sin turno específico = comportamiento global).
-  const shiftOfMine = (id: string): 'day' | 'night' | null => {
-    const s = assignMap[id] || {};
-    const mineDay = s.day?.id === uid;
-    const mineNight = s.night?.id === uid;
-    // Cubre AMBOS turnos → el turno vigente lo dicta la hora actual (mismo criterio que
-    // `myShift`). Así de noche ve/opera el estado de NOCHE (la avería/parada de DÍA le
-    // sale como pendiente), no el de día por chequear día-primero.
-    if (mineDay && mineNight) return nowShift;
-    if (mineDay) return 'day';
-    if (mineNight) return 'night';
-    return null;
-  };
-  const openMine = (id: string): boolean => {
-    const r = roundsById[id]; if (!r) return false;
-    const sh = shiftOfMine(id);
-    if (sh === 'day') return r.openDay;
-    if (sh === 'night') return r.openNight;
-    return r.open;
-  };
-  // ¿MI turno tiene HORAS registradas (finalizó la jornada)? Sirve para separar
-  // CERRADA (finalizó con horas, ya no abierta) de INICIADA (abierta ahora).
-  const hoursMine = (id: string): boolean => {
-    const r = roundsById[id]; if (!r) return false;
-    const sh = shiftOfMine(id);
-    if (sh === 'day') return r.dayWorked > MIN_WORKED_HOURS;
-    if (sh === 'night') return r.nightWorked > MIN_WORKED_HOURS;
-    return r.worked > MIN_WORKED_HOURS;
-  };
-  const openEn = (id: string, sh: 'day' | 'night'): boolean => {
-    const r = roundsById[id]; if (!r) return false;
-    return sh === 'day' ? r.openDay : r.openNight;
-  };
-  const hoursEn = (id: string, sh: 'day' | 'night'): boolean => {
-    const r = roundsById[id]; if (!r) return false;
-    return sh === 'day' ? r.dayWorked > MIN_WORKED_HOURS : r.nightWorked > MIN_WORKED_HOURS;
-  };
   // ÍNDICE O(1) de averías/paradas por máquina y turno. RENDIMIENTO: antes `segmentoDe`
   // hacía hasta 4 `.some()` sobre averiaRawList/paradaRawList por CADA llamada, y se llama
   // miles de veces por render (una por máquina en varias listas/contadores) → O(n²). Aquí

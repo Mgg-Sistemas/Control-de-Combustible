@@ -15,20 +15,23 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useTable } from '../hooks/useTable';
 import { useToast } from '../components/ToastProvider';
+import { useAuth } from '../context/AuthContext';
 import { Machinery, Company } from '../types/database';
 import { LogosConfig } from '../lib/notaEntrega';
 import { autorizacionTrasladoHtml, AutorizacionTrasladoData } from '../lib/autorizacionTraslado';
 import { exportPdf } from '../lib/pdf';
 import { norm, cmpText } from '../lib/text';
 import { caracasParts } from '../lib/jornada';
+import {
+  cargarTrasladosCompartidos,
+  guardarTrasladoCompartido,
+  eliminarTrasladoCompartido,
+  TrasladoCompartido,
+  STORAGE_TRASLADOS_COMPARTIDOS,
+} from '../lib/actasYTrasladosDb';
 
-const STORAGE_KEY = '@traslados_maquinaria_historico_v1';
-
-export interface TrasladoRegistro extends AutorizacionTrasladoData {
-  id: string;
-  createdAt: string;
-  tipoOperacion: 'salida_simple' | 'servicio_flete';
-}
+export const STORAGE_KEY = STORAGE_TRASLADOS_COMPARTIDOS;
+export type TrasladoRegistro = TrasladoCompartido;
 
 function hoyDmy(): string {
   const d = new Date();
@@ -50,8 +53,11 @@ function generarFolio(contador: number): string {
 export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const toast = useToast();
+  const { role, canSee, fullName, session } = useAuth();
+  const tienePermiso = role === 'admin' || canSee('traslados_maquinaria');
 
   const preselectedMachineId = route?.params?.machineId || null;
+  const editTrasladoIdParam = route?.params?.editTrasladoId || null;
 
   // Datos de empresas y maquinaria desde Supabase
   const { data: companies, loading: loadingComp } = useTable<Company>('companies', { orderBy: 'name' });
@@ -60,10 +66,15 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
   // Pestaña activa: 'emitir' | 'historial'
   const [tab, setTab] = useState<'emitir' | 'historial'>('emitir');
 
-  // Historial de traslados
-  const [historico, setHistorico] = useState<TrasladoRegistro[]>([]);
+  // Historial de traslados compartidos
+  const [historico, setHistorico] = useState<TrasladoCompartido[]>([]);
   const [filtroHistorial, setFiltroHistorial] = useState('');
   const [cargandoHistorico, setCargandoHistorico] = useState(true);
+
+  // Modo edición y eliminación
+  const [editingTrasladoId, setEditingTrasladoId] = useState<string | null>(null);
+  const [trasladoAEliminar, setTrasladoAEliminar] = useState<TrasladoCompartido | null>(null);
+  const [eliminando, setEliminando] = useState(false);
 
   // Estados del Formulario:
   // 1. Membrete y Empresa
@@ -126,15 +137,12 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
 
   const [generandoPdf, setGenerandoPdf] = useState(false);
 
-  // Cargar Historial desde almacenamiento local
+  // Cargar Historial compartido
   const cargarHistorico = async () => {
     try {
       setCargandoHistorico(true);
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setHistorico(Array.isArray(parsed) ? parsed : []);
-      }
+      const data = await cargarTrasladosCompartidos();
+      setHistorico(data);
     } catch {
       // noop
     } finally {
@@ -146,22 +154,131 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
     cargarHistorico();
   }, []);
 
-  // Pre-generar número de control si está vacío
+  // Pre-generar número de control si está vacío y no estamos en edición
   useEffect(() => {
-    if (!numeroControl) {
+    if (!numeroControl && !editingTrasladoId) {
       setNumeroControl(generarFolio(historico.length + 1));
     }
-  }, [historico.length, numeroControl]);
+  }, [historico.length, numeroControl, editingTrasladoId]);
 
   // Si se envió una máquina por parámetro (desde EquiposScreen), cargarla de una vez
   useEffect(() => {
-    if (preselectedMachineId && machineryList.length > 0) {
+    if (preselectedMachineId && machineryList.length > 0 && !selectedMachine && !editingTrasladoId) {
       const target = machineryList.find((m) => m.id === preselectedMachineId);
       if (target) {
         seleccionarMaquina(target);
       }
     }
-  }, [preselectedMachineId, machineryList]);
+  }, [preselectedMachineId, machineryList, selectedMachine, editingTrasladoId]);
+
+  // Si se solicita editar un traslado específico por parámetro
+  useEffect(() => {
+    if (editTrasladoIdParam && historico.length > 0 && !editingTrasladoId) {
+      const target = historico.find((t) => t.id === editTrasladoIdParam);
+      if (target) {
+        iniciarEdicion(target);
+      }
+    }
+  }, [editTrasladoIdParam, historico, editingTrasladoId]);
+
+  const iniciarEdicion = (item: TrasladoCompartido) => {
+    setEditingTrasladoId(item.id);
+    setNumeroControl(item.numeroControl); // Mantener folio original intacto
+    const d: any = item.datos;
+    setFecha(d?.fecha || hoyDmy());
+    setEmpresaId(d?.empresaId || '');
+    setEmpresaLibre(d?.empresaNombre || '');
+    setEmpresaRif(d?.empresaRif || '');
+    setLogos(d?.logos || {});
+
+    const m = d?.maquinaria;
+    setMaqTipo(m?.tipo || '');
+    setMaqMarca(m?.marca || '');
+    setMaqModelo(m?.modelo || '');
+    setMaqAnio(m?.anio || '');
+    setMaqColor(m?.color || '');
+    setMaqSerial(m?.serial || '');
+    setMaqPlaca(m?.placa || '');
+    setMaqPeso(m?.peso || '');
+    setMaqPotencia(m?.potencia || '');
+    setMaqCodigo(m?.codigo || '');
+
+    setOrigen(d?.origen || 'Camurí Chico / La Guaira');
+    setDestino(d?.destino || '');
+
+    const t = d?.transporte;
+    setChoferNombre(t?.conductorNombre || '');
+    setChoferCedula(t?.conductorCedula || '');
+    setChoferTelefono(t?.conductorTelefono || '');
+    setVehiculoChuto(t?.vehiculoChuto || 'Chuto');
+    setPlacaChuto(t?.placaChuto || '');
+    setVehiculoLowboy(t?.vehiculoLowboy || 'Lowboy');
+    setPlacaLowboy(t?.placaLowboy || '');
+    setVigencia(t?.vigencia || '');
+
+    const est = d?.estadoEquipo;
+    setEstadoOperativo(est?.operativo ?? true);
+    setCombustiblePct(est?.nivelTanquePct ? String(est.nivelTanquePct) : '80');
+    setLimpiezaAceptable(est?.limpio ?? true);
+    setObservaciones(est?.observaciones || '');
+
+    setAutorizadoPor(d?.firmas?.autorizadoPorNombre || '');
+
+    if (d?.servicio) {
+      setAplicaServicio(true);
+      setModalidadServicio(d.servicio.modalidad || 'monto_fijo');
+      setMontoFlete(d.servicio.monto ? String(d.servicio.monto) : '');
+      setDiasJornada(d.servicio.jornadas ? String(d.servicio.jornadas) : '1');
+      setTarifaJornada(d.servicio.tarifaJornada ? String(d.servicio.tarifaJornada) : '');
+      setClienteProveedor(d.servicio.clienteOProveedor || '');
+      setEstadoPago(d.servicio.estadoPago || 'pendiente');
+    } else {
+      setAplicaServicio(false);
+    }
+
+    if (item.machineryId && machineryList.length > 0) {
+      const targetM = machineryList.find((maq) => maq.id === item.machineryId);
+      if (targetM) setSelectedMachine(targetM);
+    }
+
+    setTab('emitir');
+    toast.info(`Modo edición activado para traslado ${item.numeroControl}`);
+  };
+
+  const cancelarEdicion = () => {
+    setEditingTrasladoId(null);
+    setNumeroControl(generarFolio(historico.length + 1));
+    setFecha(hoyDmy());
+    setSelectedMachine(null);
+    setMaqTipo('');
+    setMaqMarca('');
+    setMaqModelo('');
+    setMaqSerial('');
+    setMaqPlaca('');
+    setDestino('');
+    setChoferNombre('');
+    setChoferCedula('');
+    toast.info('Edición cancelada.');
+  };
+
+  const confirmarEliminarTraslado = (item: TrasladoCompartido) => {
+    setTrasladoAEliminar(item);
+  };
+
+  const ejecutarEliminar = async () => {
+    if (!trasladoAEliminar) return;
+    try {
+      setEliminando(true);
+      await eliminarTrasladoCompartido(trasladoAEliminar.id, { id: session?.user?.id, name: fullName });
+      toast.success(`Traslado ${trasladoAEliminar.numeroControl} eliminado correctamente.`);
+      await cargarHistorico();
+    } catch (e: any) {
+      toast.error('Error al eliminar traslado: ' + (e?.message || 'Error'));
+    } finally {
+      setEliminando(false);
+      setTrasladoAEliminar(null);
+    }
+  };
 
   // Si cambian las empresas, pre-seleccionar Liccione o Golden Touch
   useEffect(() => {
@@ -309,18 +426,20 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
     };
   };
 
-  // Guardar en el Historial local
-  const guardarRegistro = async (datos: AutorizacionTrasladoData): Promise<TrasladoRegistro> => {
-    const nuevo: TrasladoRegistro = {
-      ...datos,
-      id: `traslado_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      createdAt: new Date().toISOString(),
+  // Guardar en el Historial compartido
+  const guardarRegistro = async (datos: AutorizacionTrasladoData): Promise<TrasladoCompartido> => {
+    const saved = await guardarTrasladoCompartido({
+      id: editingTrasladoId || undefined,
+      numeroControl: datos.numeroControl,
+      machineryId: selectedMachine?.id || null,
+      machineCode: selectedMachine?.code || maqCodigo || maqTipo,
+      machinePlate: maqPlaca || selectedMachine?.plate,
       tipoOperacion: aplicaServicio ? 'servicio_flete' : 'salida_simple',
-    };
-    const updated = [nuevo, ...historico];
-    setHistorico(updated);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    return nuevo;
+      datos,
+      user: { id: session?.user?.id, name: fullName },
+    });
+    await cargarHistorico();
+    return saved;
   };
 
   // Generar e Imprimir PDF
@@ -343,13 +462,16 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
       const datos = armarDatosDocumento();
       const html = autorizacionTrasladoHtml(datos);
 
-      // Guardar en historial
+      // Guardar en historial compartido
       await guardarRegistro(datos);
 
       // Abrir PDF
       await exportPdf(html, `Autorizacion-Traslado-${datos.numeroControl}`);
-      toast.success('Autorización de Traslado generada con éxito.');
+      toast.success(editingTrasladoId ? 'Autorización de Traslado actualizada con éxito.' : 'Autorización de Traslado generada con éxito.');
 
+      if (editingTrasladoId) {
+        setEditingTrasladoId(null);
+      }
       // Generar nuevo folio para la siguiente
       setNumeroControl(generarFolio(historico.length + 2));
     } catch (e: any) {
@@ -360,9 +482,9 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
   };
 
   // Reimprimir desde el historial
-  const reimprimir = async (item: TrasladoRegistro) => {
+  const reimprimir = async (item: TrasladoCompartido) => {
     try {
-      const html = autorizacionTrasladoHtml(item);
+      const html = autorizacionTrasladoHtml(item.datos || item);
       await exportPdf(html, `Autorizacion-Traslado-${item.numeroControl}`);
     } catch (e: any) {
       toast.error(e?.message ?? 'Error al reimprimir la autorización.');
@@ -374,8 +496,8 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
     const q = norm(filtroHistorial.trim());
     if (!q) return historico;
     return historico.filter((it) => {
-      const m = it.maquinaria;
-      const t = it.transporte;
+      const m = it.datos?.maquinaria;
+      const t = it.datos?.transporte;
       const texto = [
         it.numeroControl,
         m?.codigo,
@@ -383,17 +505,44 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
         m?.tipo,
         m?.marca,
         m?.modelo,
-        it.destino,
-        it.origen,
+        it.datos?.destino,
+        it.datos?.origen,
         t?.conductorNombre,
         t?.placaChuto,
         t?.placaLowboy,
+        it.createdByName,
+        it.updatedByName,
       ]
         .filter(Boolean)
         .join(' ');
       return norm(texto).includes(q);
     });
   }, [historico, filtroHistorial]);
+
+  if (!tienePermiso) {
+    return (
+      <Screen>
+        <Card style={{ marginTop: spacing.xl, padding: spacing.lg, alignItems: 'center' }}>
+          <Text style={{ fontSize: 36, marginBottom: spacing.sm }}>🔒</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: spacing.xs, textAlign: 'center' }}>
+            Acceso Restringido
+          </Text>
+          <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginBottom: spacing.md, lineHeight: 18 }}>
+            Este módulo es de acceso exclusivo para administradores o personal con permiso explícito en Traslados y Salidas de Maquinaria.
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              if (navigation?.canGoBack?.()) navigation.goBack();
+              else navigation.navigate('More');
+            }}
+            style={{ backgroundColor: colors.brand, paddingVertical: 10, paddingHorizontal: 20, borderRadius: radius.md }}
+          >
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>← Volver</Text>
+          </TouchableOpacity>
+        </Card>
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
@@ -462,6 +611,26 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
       {/* VISTA 1: EMITIR AUTORIZACIÓN */}
       {tab === 'emitir' && (
         <ScrollView contentContainerStyle={{ gap: spacing.md, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+          {/* BANNER DE MODO EDICIÓN */}
+          {editingTrasladoId && (
+            <View style={{ backgroundColor: '#DBEAFE', borderColor: '#1E3A8A', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flex: 1, paddingRight: spacing.xs }}>
+                <Text style={{ color: '#1E3A8A', fontWeight: '800', fontSize: 13.5 }}>
+                  ✏️ Modo Edición: Traslado {numeroControl}
+                </Text>
+                <Text style={{ color: '#1E40AF', fontSize: 11, marginTop: 1 }}>
+                  Al guardar, se actualizarán los datos y quedará registrado que lo editaste tú ({fullName || 'Usuario'}).
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={cancelarEdicion}
+                style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#1E3A8A', paddingVertical: 5, paddingHorizontal: 10, borderRadius: radius.sm }}
+              >
+                <Text style={{ color: '#1E3A8A', fontWeight: '700', fontSize: 11 }}>✕ Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* BLOQUE A: EMPRESA EMISORA Y LOGOS */}
           <Card>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14.5, marginBottom: spacing.xs }}>
@@ -1181,9 +1350,10 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
           ) : (
             <ScrollView contentContainerStyle={{ gap: spacing.sm, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
               {historicoFiltrado.map((it) => {
-                const m = it.maquinaria;
-                const t = it.transporte;
+                const m = it.datos?.maquinaria || (it as any).maquinaria;
+                const t = it.datos?.transporte || (it as any).transporte;
                 const esFlete = it.tipoOperacion === 'servicio_flete';
+                const serv = it.datos?.servicio || (it as any).servicio;
                 return (
                   <Card key={it.id}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1201,7 +1371,7 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
                           {it.numeroControl}
                         </Text>
                         <Text style={{ color: colors.muted, fontSize: 11 }}>
-                          {it.fecha}
+                          {it.datos?.fecha || (it as any).fecha || ''}
                         </Text>
                       </View>
                     </View>
@@ -1210,14 +1380,14 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
 
                     <View style={{ gap: 2 }}>
                       <Text style={{ color: colors.text, fontSize: 12 }}>
-                        <b>Ruta:</b> {it.origen} ➔ {it.destino}
+                        <b>Ruta:</b> {it.datos?.origen || (it as any).origen} ➔ {it.datos?.destino || (it as any).destino}
                       </Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>
                         <b>Transporte:</b> {t?.conductorNombre || '—'} · Chuto: {t?.placaChuto || '—'} · Lowboy: {t?.placaLowboy || '—'}
                       </Text>
-                      {esFlete && it.servicio ? (
+                      {esFlete && serv ? (
                         <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 2 }}>
-                          💰 Flete: ${it.servicio.monto?.toLocaleString() || 0} USD ({it.servicio.estadoPago?.toUpperCase() || 'PENDIENTE'})
+                          💰 Flete: ${serv.monto?.toLocaleString() || 0} USD ({serv.estadoPago?.toUpperCase() || 'PENDIENTE'})
                         </Text>
                       ) : (
                         <Text style={{ color: colors.muted, fontSize: 11.5 }}>
@@ -1226,9 +1396,21 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
                       )}
                     </View>
 
-                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: spacing.sm }}>
+                    {/* AUDITORÍA COMPARTIDA */}
+                    <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, padding: 8, marginTop: spacing.xs, gap: 2, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        👤 <Text style={{ fontWeight: '700', color: colors.text }}>Creado por:</Text> {it.createdByName || 'Personal'} · {it.createdAt ? new Date(it.createdAt).toLocaleDateString() : '—'}
+                      </Text>
+                      {it.updatedAt ? (
+                        <Text style={{ color: colors.brand, fontSize: 11 }}>
+                          ✏️ <Text style={{ fontWeight: '700' }}>Última edición:</Text> {it.updatedByName || 'Usuario'} · {new Date(it.updatedAt).toLocaleDateString()} {new Date(it.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                       <TouchableOpacity
-                        onPress={() => reimprimir(it)}
+                        onPress={() => iniciarEdicion(it)}
                         style={{
                           backgroundColor: colors.surfaceAlt,
                           borderWidth: 1,
@@ -1239,7 +1421,37 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
                         }}
                       >
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
-                          🧾 Reimprimir Autorización
+                          ✏️ Editar
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => confirmarEliminarTraslado(it)}
+                        style={{
+                          backgroundColor: colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: colors.danger,
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: radius.md,
+                        }}
+                      >
+                        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>
+                          🗑️ Eliminar
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => reimprimir(it)}
+                        style={{
+                          backgroundColor: '#1E3A8A',
+                          paddingVertical: 6,
+                          paddingHorizontal: 12,
+                          borderRadius: radius.md,
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
+                          🧾 Reimprimir (PDF)
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -1314,6 +1526,42 @@ export default function TrasladoMaquinariaScreen({ navigation, route }: any) {
             >
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Cerrar</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL DE CONFIRMACIÓN DE ELIMINACIÓN */}
+      <Modal visible={!!trasladoAEliminar} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface, maxWidth: 420 }]}>
+            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 16, marginBottom: spacing.xs }}>
+              🗑️ ¿Eliminar Autorización de Traslado?
+            </Text>
+            <Text style={{ color: colors.text, fontSize: 13, marginBottom: spacing.sm, lineHeight: 19 }}>
+              ¿Estás seguro de eliminar el traslado <Text style={{ fontWeight: '800' }}>{trasladoAEliminar?.numeroControl}</Text>?
+              {'\n\n'}
+              Se mantendrá registrado en la auditoría que fue eliminado por <Text style={{ fontWeight: '700' }}>{fullName || 'tu usuario'}</Text>.
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm, marginTop: spacing.md }}>
+              <TouchableOpacity
+                onPress={() => setTrasladoAEliminar(null)}
+                disabled={eliminando}
+                style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={ejecutarEliminar}
+                disabled={eliminando}
+                style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.danger }}
+              >
+                {eliminando ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>Eliminar Traslado</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

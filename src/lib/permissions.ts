@@ -65,12 +65,14 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'ventas', label: 'Ventas' },
   { key: 'caja', label: 'Caja' },
   { key: 'solicitudes_material', label: 'Pedir Material / Repuestos' },
+  { key: 'actas_recepcion', label: 'Actas de Recepción (ingreso maquinaria)' },
+  { key: 'traslados_maquinaria', label: 'Traslados y Salidas de Maquinaria' },
 ];
 
 /** Nivel por defecto para un usuario no-admin sin fila explícita.
  *  Control de Pagos y Usuarios quedan restringidos; el resto abierto (compat.). */
 export function defaultLevel(moduleKey: string): PermLevel {
-  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'uniformes' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'viajes_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores' || moduleKey === 'coordinacion_operadores' || moduleKey === 'mangueras' || moduleKey === 'fabricacion_planta' || moduleKey === 'acarreo' || moduleKey === 'geodesta' || moduleKey === 'lavado_maquinaria' || moduleKey === 'cuentas' || moduleKey === 'ventas' || moduleKey === 'contactos' || moduleKey === 'caja' || moduleKey === 'cobro_viajes' || moduleKey === 'horometros' || moduleKey === 'frentes_maquinaria') return 'none';
+  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'uniformes' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'viajes_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores' || moduleKey === 'coordinacion_operadores' || moduleKey === 'mangueras' || moduleKey === 'fabricacion_planta' || moduleKey === 'acarreo' || moduleKey === 'geodesta' || moduleKey === 'lavado_maquinaria' || moduleKey === 'cuentas' || moduleKey === 'ventas' || moduleKey === 'contactos' || moduleKey === 'caja' || moduleKey === 'cobro_viajes' || moduleKey === 'horometros' || moduleKey === 'frentes_maquinaria' || moduleKey === 'actas_recepcion' || moduleKey === 'traslados_maquinaria') return 'none';
   // ⭐ 'cobro_viajes' y 'horometros' (14-sep-2026) todavía no existen como módulos: están
   //    acá ANTES de crearlos para que nazcan CERRADOS. Un módulo nuevo sin fila en
   //    module_permissions cae en el 'escritura' de abajo, abierto para cualquier usuario.
