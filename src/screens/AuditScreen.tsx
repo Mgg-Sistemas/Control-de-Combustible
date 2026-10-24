@@ -16,6 +16,8 @@ import {
   cambiosEstadoMaquina, esCambioDeEstadoMaquina, conteoPorEstado, acompanantes,
   TABLAS_CON_ESTADO, CambioEstadoMaquina,
 } from '../lib/auditMachineState';
+// Un serial, código o placa que la máquina YA NO tiene (24-oct-2026): ver el archivo.
+import { filtroNombresAnteriores, mezclarPorFecha } from '../lib/auditNombresAnteriores';
 import { machineLabel } from '../lib/machineLabel';
 import { useAuth } from '../context/AuthContext';
 import { AuditLog } from '../types/database';
@@ -457,8 +459,16 @@ export default function AuditScreen() {
       // en la bitácora — se resuelve su id y se busca por id (row_id / user_id).
       let matchRowIds: string[] = [];
       let matchUserIds: string[] = [];
+      // 🔎 NOMBRES ANTERIORES (24-oct-2026, pedido: «si busco APP26 me debería salir el
+      // día que le cambiaron el nombre»). Los cambios donde el texto fue el código,
+      // serial, placa… de ANTES o de DESPUÉS de una máquina. Se suman al resultado
+      // AUNQUE caigan fuera del rango de fechas: es justo el día que se viene a buscar.
+      // Acotado a máquinas/vehículos y a acciones de tabla (índice por table_name; los
+      // eventos de jornada nunca traen cambios), así que no escanea la bitácora entera.
+      let historicos: AuditLog[] = [];
       if (hasQuery) {
-        const [{ data: mach }, { data: profs }, { data: emps }] = await Promise.all([
+        const filtroHist = filtroNombresAnteriores(safe);
+        const [{ data: mach }, { data: profs }, { data: emps }, nombresAnteriores] = await Promise.all([
           supabase.from('machinery').select('id')
             .or(`code.ilike.%${safe}%,plate.ilike.%${safe}%,serial.ilike.%${safe}%,identifier.ilike.%${safe}%,encargado.ilike.%${safe}%,tipo.ilike.%${safe}%,clasificacion.ilike.%${safe}%,referencia.ilike.%${safe}%`)
             .limit(200),
@@ -472,8 +482,17 @@ export default function AuditScreen() {
           supabase.from('employees').select('id')
             .or(`first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,cedula.ilike.%${safe}%`)
             .limit(200),
+          supabase.from('audit_log').select('*')
+            .in('table_name', TABLAS_CON_ESTADO as unknown as string[])
+            .in('action', ACCIONES_DE_TABLA)
+            .or(filtroHist)
+            .order('at', { ascending: false })
+            .limit(MAX_MATCH_IDS),
         ]);
-        const machIds = (mach ?? []).map((m: any) => m.id as string);
+        // Si esta consulta falla, la búsqueda de siempre sigue igual: no tumba la pantalla.
+        historicos = nombresAnteriores.error ? [] : ((nombresAnteriores.data as AuditLog[]) ?? []);
+        const idsNombresAnteriores = [...new Set(historicos.map((r) => r.row_id).filter(Boolean) as string[])];
+        const machIds = [...new Set([...(mach ?? []).map((m: any) => m.id as string), ...idsNombresAnteriores])];
         const profIds = (profs ?? []).map((p: any) => p.id as string);
         const empIds = (emps ?? []).map((e: any) => e.id as string);
         // Tope combinado: una búsqueda que resuelve a cientos de máquinas/personas ya
@@ -560,6 +579,8 @@ export default function AuditScreen() {
               .slice(0, limit);
           }
         }
+        // Los cambios de nombre se ven aunque estén fuera del rango (ver más arriba).
+        if (!error && historicos.length) data = mezclarPorFecha((data ?? []) as AuditLog[], historicos, limit);
       } else {
         let base = supabase.from('audit_log').select('*');
         if (!searchAllTime) base = base.gte('at', fromTs).lte('at', toTs);
