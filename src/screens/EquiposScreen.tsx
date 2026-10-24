@@ -1105,6 +1105,20 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
     }
   };
 
+  const abrirModuloDocumento = (screenName: 'ActaRecepcion' | 'TrasladoMaquinaria', mId: string) => {
+    setDocMachine(null);
+    try {
+      navigation.navigate(screenName, { machineId: mId });
+      return;
+    } catch {}
+    try {
+      navigation.navigate('More', { screen: screenName, params: { machineId: mId } });
+      return;
+    } catch (e: any) {
+      toast.error('No se pudo abrir ' + screenName);
+    }
+  };
+
   const reimprimirActaDesdeModal = async (acta: ActaRegistro) => {
     try {
       const html = actaRecepcionHtml(acta);
@@ -3443,27 +3457,19 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                 {/* Acciones directas para emitir nuevos documentos */}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
                   <TouchableOpacity
-                    onPress={() => {
-                      const mId = docMachine.id;
-                      setDocMachine(null);
-                      navigation.navigate('ActaRecepcion', { machineId: mId });
-                    }}
-                    style={{ flex: 1, minWidth: 140, backgroundColor: '#B45309', paddingVertical: 7, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
+                    onPress={() => abrirModuloDocumento('ActaRecepcion', docMachine.id)}
+                    style={{ flex: 1, minWidth: 140, backgroundColor: '#B45309', paddingVertical: 8, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
                   >
-                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11.5 }}>
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
                       📋 + Nueva Acta Recepción
                     </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    onPress={() => {
-                      const mId = docMachine.id;
-                      setDocMachine(null);
-                      navigation.navigate('TrasladoMaquinaria', { machineId: mId });
-                    }}
-                    style={{ flex: 1, minWidth: 140, backgroundColor: '#1E3A8A', paddingVertical: 7, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
+                    onPress={() => abrirModuloDocumento('TrasladoMaquinaria', docMachine.id)}
+                    style={{ flex: 1, minWidth: 140, backgroundColor: '#1E3A8A', paddingVertical: 8, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
                   >
-                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11.5 }}>
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
                       🚜 + Nuevo Traslado / Salida
                     </Text>
                   </TouchableOpacity>
@@ -3474,9 +3480,9 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                       setDocMachine(null);
                       fichaTecnica(target);
                     }}
-                    style={{ flex: 1, minWidth: 140, backgroundColor: '#16324F', paddingVertical: 7, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
+                    style={{ flex: 1, minWidth: 140, backgroundColor: '#16324F', paddingVertical: 8, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
                   >
-                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11.5 }}>
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
                       📄 Ficha Técnica
                     </Text>
                   </TouchableOpacity>
@@ -3519,10 +3525,26 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                     <Loading />
                   ) : docTab === 'actas' ? (
                     docActas.length === 0 ? (
-                      <EmptyState
-                        title="Sin actas de recepción"
-                        subtitle="Aún no se ha registrado un acta de recepción para esta máquina. Pulsa '+ Nueva Acta Recepción' arriba para emitir la primera."
-                      />
+                      <View style={{ alignItems: 'center', paddingVertical: spacing.md }}>
+                        <EmptyState
+                          title="Sin actas de recepción"
+                          subtitle="Aún no se ha registrado un acta de recepción para esta máquina. Puedes emitir la primera ahora."
+                        />
+                        <TouchableOpacity
+                          onPress={() => abrirModuloDocumento('ActaRecepcion', docMachine.id)}
+                          style={{
+                            marginTop: spacing.sm,
+                            backgroundColor: '#B45309',
+                            paddingVertical: 7,
+                            paddingHorizontal: 14,
+                            borderRadius: radius.md,
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                            📋 + Emitir Acta de Recepción
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     ) : (
                       docActas.map((acta) => (
                         <View
@@ -3566,10 +3588,26 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                       ))
                     )
                   ) : docTraslados.length === 0 ? (
-                    <EmptyState
-                      title="Sin traslados o salidas"
-                      subtitle="Aún no hay autorizaciones de traslado emitidas para este equipo. Pulsa '+ Nuevo Traslado / Salida' arriba para crear una."
-                    />
+                    <View style={{ alignItems: 'center', paddingVertical: spacing.md }}>
+                      <EmptyState
+                        title="Sin traslados o salidas"
+                        subtitle="Aún no hay autorizaciones de traslado emitidas para este equipo."
+                      />
+                      <TouchableOpacity
+                        onPress={() => abrirModuloDocumento('TrasladoMaquinaria', docMachine.id)}
+                        style={{
+                          marginTop: spacing.sm,
+                          backgroundColor: '#1E3A8A',
+                          paddingVertical: 7,
+                          paddingHorizontal: 14,
+                          borderRadius: radius.md,
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                          🚜 + Emitir Traslado / Salida
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   ) : (
                     docTraslados.map((tr) => (
                       <View
@@ -3590,7 +3628,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                             {tr.numeroControl} &nbsp;·&nbsp; <Text style={{ color: colors.text, fontSize: 12 }}>{tr.fecha}</Text>
                           </Text>
                           <Text style={{ color: colors.text, fontSize: 11.5, marginTop: 1 }}>
-                            <b>Ruta:</b> {tr.origen} ➔ {tr.destino}
+                            <Text style={{ fontWeight: '700' }}>Ruta:</Text> {tr.origen} ➔ {tr.destino}
                           </Text>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>
                             Chofer: {tr.transporte?.conductorNombre || '—'} &nbsp;·&nbsp; Chuto: {tr.transporte?.placaChuto || '—'}

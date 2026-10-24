@@ -788,6 +788,24 @@ function Tabs() {
         />
       ) : null}
       <Tab.Screen
+        name="ActaRecepcion"
+        component={ActaRecepcionScreen}
+        options={{
+          title: 'Acta de Recepción',
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
+        }}
+      />
+      <Tab.Screen
+        name="TrasladoMaquinaria"
+        component={TrasladoMaquinariaScreen}
+        options={{
+          title: 'Traslados y Salidas',
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
+        }}
+      />
+      <Tab.Screen
         name="More"
         component={MoreStack}
         // Sin popToTopOnBlur: reseteaba el stack de "Más" al menú, y al RECARGAR la

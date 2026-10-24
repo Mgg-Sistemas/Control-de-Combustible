@@ -368,11 +368,29 @@ export default function ActaRecepcionScreen({ navigation, route }: any) {
 
   return (
     <Screen>
-      <View style={{ marginBottom: spacing.md }}>
-        <SectionTitle>📋 Acta de Recepción de Equipo</SectionTitle>
-        <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>
-          Inspección inicial física, checklist de componentes, horómetro de llegada y anexo fotográfico.
-        </Text>
+      <View style={{ marginBottom: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={{ flex: 1, paddingRight: spacing.sm }}>
+          <SectionTitle>📋 Acta de Recepción de Equipo</SectionTitle>
+          <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>
+            Inspección inicial física, checklist de componentes, horómetro de llegada y anexo fotográfico.
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => {
+            if (navigation?.canGoBack?.()) navigation.goBack();
+            else navigation.navigate('Equipos');
+          }}
+          style={{
+            paddingVertical: 6,
+            paddingHorizontal: 12,
+            backgroundColor: colors.surfaceAlt,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>← Volver</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Selector de Pestañas: EMITIR vs HISTORIAL */}
