@@ -566,7 +566,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: spacing.md, gap: spacing.sm }}
+          contentContainerStyle={{ paddingHorizontal: spacing.md, gap: 8, paddingBottom: 2 }}
         >
           {loadingTanks ? (
             <ActivityIndicator size="small" color={colors.primary} />
@@ -588,19 +588,24 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                   style={{
                     backgroundColor: isSelected ? colors.primary : colors.surfaceAlt,
                     borderRadius: radius.md,
-                    paddingHorizontal: spacing.md,
-                    paddingVertical: spacing.sm,
-                    minWidth: 135,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    width: 142,
                     borderWidth: 1,
                     borderColor: isSelected ? colors.primary : colors.border,
+                    shadowColor: isSelected ? colors.primary : 'transparent',
+                    shadowOpacity: isSelected ? 0.2 : 0,
+                    shadowRadius: 4,
+                    elevation: isSelected ? 2 : 0,
                   }}
                 >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                     <Text
                       numberOfLines={1}
                       style={{
+                        flex: 1,
                         fontWeight: '800',
-                        fontSize: 13,
+                        fontSize: 12,
                         color: isSelected ? colors.primaryContrast : colors.text,
                       }}
                     >
@@ -608,11 +613,11 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                     </Text>
                     {t.is_mobile ? <Text style={{ fontSize: 11 }}>🚚</Text> : null}
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 3 }}>
                     <Text
                       style={{
                         fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-                        fontSize: 18,
+                        fontSize: 16,
                         fontWeight: '900',
                         color: isSelected ? colors.primaryContrast : isLow ? colors.danger : colors.text,
                       }}
@@ -629,13 +634,28 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                       L
                     </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2, alignItems: 'center' }}>
                     <Text style={{ fontSize: 10, color: isSelected ? colors.primaryContrast : colors.muted, textTransform: 'capitalize' }}>
                       {t.fuel}
                     </Text>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: isSelected ? colors.primaryContrast : isLow ? colors.danger : colors.muted }}>
-                      {pct}%
-                    </Text>
+                    <View
+                      style={{
+                        backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : isLow ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
+                        paddingHorizontal: 5,
+                        paddingVertical: 1,
+                        borderRadius: radius.pill,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: '800',
+                          color: isSelected ? colors.primaryContrast : isLow ? colors.danger : colors.success,
+                        }}
+                      >
+                        {pct}%
+                      </Text>
+                    </View>
                   </View>
                 </TouchableOpacity>
               );
@@ -650,49 +670,157 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
           <View
             style={{
               backgroundColor: colors.surface,
-              borderRadius: radius.md,
+              borderRadius: radius.lg,
               borderWidth: 1,
               borderColor: colors.border,
               padding: spacing.md,
               marginBottom: spacing.md,
+              shadowColor: '#000',
+              shadowOpacity: 0.05,
+              shadowRadius: 5,
+              elevation: 1,
             }}
           >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <View>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  {selectedTank.is_mobile ? '🚚 Cisterna Móvil Activa' : '🛢️ Tanque de Patio Activo'}
+            {/* Fila superior: Badge de tipo y Capacidad total a la derecha */}
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 6,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  backgroundColor: colors.surfaceAlt,
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: radius.pill,
+                }}
+              >
+                <Text style={{ fontSize: 11 }}>{selectedTank.is_mobile ? '🚚' : '🛢️'}</Text>
+                <Text
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: '800',
+                    color: colors.primary,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  {selectedTank.is_mobile ? 'Cisterna Móvil Activa' : 'Tanque Fijo'}
                 </Text>
-                <Text style={{ fontSize: 20, fontWeight: '900', color: colors.text, marginTop: 2 }}>
-                  {selectedTank.name}
-                </Text>
-                {selectedTank.responsable ? (
-                  <Text style={{ fontSize: 11.5, color: colors.muted, marginTop: 1 }}>
-                    Encargado: <Text style={{ fontWeight: '700', color: colors.text }}>{selectedTank.responsable}</Text>
-                  </Text>
-                ) : null}
               </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ fontSize: 11, color: colors.muted }}>Capacidad total</Text>
-                <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text }}>
+
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3, flexShrink: 0 }}>
+                <Text style={{ fontSize: 11, color: colors.muted }}>Capacidad:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
                   {fmtNum(selectedTank.capacity_l)} L
                 </Text>
               </View>
             </View>
 
-            {/* Barra de nivel visual */}
-            <View style={{ marginTop: spacing.sm }}>
+            {/* Nombre del Tanque */}
+            <Text
+              numberOfLines={2}
+              style={{
+                fontSize: 18,
+                fontWeight: '900',
+                color: colors.text,
+                letterSpacing: 0.2,
+                marginBottom: 2,
+              }}
+            >
+              {selectedTank.name}
+            </Text>
+
+            {/* Datos operativos: Chofer / Encargado y Ubicación */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 2, marginBottom: spacing.sm }}>
+              {(selectedTank.responsable || selectedTank.chofer) ? (
+                <Text numberOfLines={1} style={{ fontSize: 11.5, color: colors.muted }}>
+                  👤 <Text style={{ fontWeight: '700', color: colors.text }}>
+                    {selectedTank.chofer || selectedTank.responsable}
+                  </Text>
+                </Text>
+              ) : null}
+              {selectedTank.location ? (
+                <Text numberOfLines={1} style={{ fontSize: 11.5, color: colors.muted }}>
+                  📍 <Text style={{ color: colors.text }}>{selectedTank.location}</Text>
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Gran Métrica Central: Litros Disponibles y % Lleno */}
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: colors.surfaceAlt,
+                paddingHorizontal: spacing.md,
+                paddingVertical: spacing.sm,
+                borderRadius: radius.md,
+                marginBottom: spacing.xs,
+              }}
+            >
+              <View>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: colors.muted, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  Disponible ({selectedTank.fuel.toUpperCase()})
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5, marginTop: 1 }}>
+                  <Text
+                    style={{
+                      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+                      fontSize: 24,
+                      fontWeight: '900',
+                      color:
+                        (selectedTankLevel?.pct || 0) < 20
+                          ? colors.danger
+                          : colors.text,
+                    }}
+                  >
+                    {fmtNum(selectedTankLevel?.current_l ?? 0)}
+                  </Text>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.muted }}>L</Text>
+                </View>
+              </View>
+
               <View
                 style={{
-                  height: 10,
-                  backgroundColor: colors.surfaceAlt,
-                  borderRadius: 5,
+                  backgroundColor:
+                    (selectedTankLevel?.pct || 0) < 20
+                      ? colors.danger
+                      : (selectedTankLevel?.pct || 0) < 40
+                      ? colors.accent
+                      : colors.success,
+                  paddingHorizontal: 9,
+                  paddingVertical: 4,
+                  borderRadius: radius.pill,
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '900', color: '#fff' }}>
+                  {selectedTankLevel?.pct ?? (selectedTank.capacity_l > 0 ? Math.round(((selectedTankLevel?.current_l ?? 0) / selectedTank.capacity_l) * 100) : 0)}%
+                </Text>
+              </View>
+            </View>
+
+            {/* Barra de progreso de llenado */}
+            <View style={{ marginTop: 4 }}>
+              <View
+                style={{
+                  height: 7,
+                  backgroundColor: colors.border,
+                  borderRadius: 4,
                   overflow: 'hidden',
                 }}
               >
                 <View
                   style={{
                     height: '100%',
-                    width: `${Math.min(100, selectedTankLevel?.pct || 0)}%`,
+                    width: `${Math.min(100, Math.max(0, selectedTankLevel?.pct || 0))}%`,
                     backgroundColor:
                       (selectedTankLevel?.pct || 0) < 20
                         ? colors.danger
@@ -713,16 +841,16 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
               resetSurtirForm();
               setModalMode('surtir');
             }}
-            activeOpacity={0.85}
+            activeOpacity={0.88}
             style={{
               backgroundColor: colors.primary,
-              borderRadius: radius.md,
+              borderRadius: radius.lg,
               paddingVertical: spacing.md,
-              paddingHorizontal: spacing.lg,
+              paddingHorizontal: spacing.md,
               flexDirection: 'row',
               alignItems: 'center',
-              shadowColor: '#000',
-              shadowOpacity: 0.12,
+              shadowColor: colors.primary,
+              shadowOpacity: 0.25,
               shadowRadius: 5,
               elevation: 3,
             }}
@@ -741,11 +869,11 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
               <Text style={{ fontSize: 24 }}>⛽</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 17, fontWeight: '900', color: colors.primaryContrast }}>
-                Surtir a un equipo
+              <Text style={{ fontSize: 16, fontWeight: '900', color: colors.primaryContrast, letterSpacing: 0.3 }}>
+                SURTIR A UN EQUIPO
               </Text>
-              <Text style={{ fontSize: 12, color: colors.primaryContrast, opacity: 0.85 }}>
-                Despachar combustible a maquinaria o vehículo con horómetro y contador
+              <Text style={{ fontSize: 11, color: colors.primaryContrast, opacity: 0.88, marginTop: 2, lineHeight: 14 }}>
+                Despachar combustible a maquinaria con horómetro y contador
               </Text>
             </View>
           </TouchableOpacity>
@@ -767,10 +895,10 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
             >
               <Text style={{ fontSize: 20, marginRight: spacing.sm }}>🔄</Text>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: '800', color: colors.text }}>
+                <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '800', color: colors.text }}>
                   Pasar a otro tanque
                 </Text>
-                <Text style={{ fontSize: 11, color: colors.muted }}>Traslado interno</Text>
+                <Text numberOfLines={1} style={{ fontSize: 10.5, color: colors.muted }}>Traslado interno</Text>
               </View>
             </TouchableOpacity>
 
@@ -790,10 +918,10 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
             >
               <Text style={{ fontSize: 20, marginRight: spacing.sm }}>📥</Text>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: '800', color: colors.text }}>
+                <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '800', color: colors.text }}>
                   Entrada
                 </Text>
-                <Text style={{ fontSize: 11, color: colors.muted }}>Recepción de cisterna</Text>
+                <Text numberOfLines={1} style={{ fontSize: 10.5, color: colors.muted }}>Recepción cisterna</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -809,10 +937,10 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
               marginBottom: spacing.sm,
             }}
           >
-            <Text style={{ fontSize: 15, fontWeight: '900', color: colors.text }}>
+            <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '900', color: colors.text, flex: 1, marginRight: 8 }}>
               Últimos movimientos · {selectedTank?.name || 'Tanque'}
             </Text>
-            <Text style={{ fontSize: 12, color: colors.muted }}>{tankDispatches.length} reciente(s)</Text>
+            <Text style={{ fontSize: 11.5, color: colors.muted, flexShrink: 0 }}>{tankDispatches.length} reciente(s)</Text>
           </View>
 
           {tankDispatches.length === 0 ? (

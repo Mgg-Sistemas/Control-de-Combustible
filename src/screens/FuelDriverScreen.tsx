@@ -407,96 +407,76 @@ export default function FuelDriverScreen() {
   const showVal = (v: string | null | undefined) => (v && String(v).trim() ? String(v) : '—');
 
   return (
-    <Screen>
-      {/* Encabezado */}
+    <Screen scroll={false}>
+      {/* Selector de modo estilo pastilla moderna (fijo en la parte superior, sin desbordes) */}
       <View
         style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: spacing.md,
-          gap: spacing.sm,
+          paddingHorizontal: spacing.md,
+          paddingTop: spacing.xs,
+          paddingBottom: spacing.xs,
+          backgroundColor: colors.surface,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
         }}
       >
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 22, fontWeight: '800', color: colors.text }}>
-            ⛽ Surtir combustible
-          </Text>
-          {driverName ? (
-            <Text style={{ color: colors.muted, marginTop: 2 }}>{driverName}</Text>
-          ) : null}
-        </View>
-        <TouchableOpacity
-          onPress={signOut}
+        <View
           style={{
+            flexDirection: 'row',
             backgroundColor: colors.surfaceAlt,
+            borderRadius: radius.pill,
+            padding: 3,
             borderWidth: 1,
             borderColor: colors.border,
-            paddingVertical: spacing.sm,
-            paddingHorizontal: spacing.md,
-            borderRadius: radius.pill,
           }}
         >
-          <Text style={{ color: colors.text, fontWeight: '700' }}>Salir</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={{ marginBottom: spacing.md }}>
-        <ChangePasswordButton />
-      </View>
-
-      {/* Selector de modo: Surtidor de Combustible (Golden) vs Escáner / Averías */}
-      <View
-        style={{
-          flexDirection: 'row',
-          backgroundColor: colors.surfaceAlt,
-          borderRadius: radius.pill,
-          padding: 4,
-          marginBottom: spacing.md,
-          borderWidth: 1,
-          borderColor: colors.border,
-        }}
-      >
-        <TouchableOpacity
-          onPress={() => setActiveTab('surtidor')}
-          style={{
-            flex: 1,
-            paddingVertical: 9,
-            alignItems: 'center',
-            borderRadius: radius.pill,
-            backgroundColor: activeTab === 'surtidor' ? colors.primary : 'transparent',
-          }}
-        >
-          <Text
+          <TouchableOpacity
+            onPress={() => setActiveTab('surtidor')}
+            activeOpacity={0.8}
             style={{
-              fontSize: 13,
-              fontWeight: '800',
-              color: activeTab === 'surtidor' ? colors.primaryContrast : colors.text,
+              flex: 1,
+              paddingVertical: 7,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: radius.pill,
+              backgroundColor: activeTab === 'surtidor' ? colors.primary : 'transparent',
             }}
           >
-            📱 Surtidor con Tanques
-          </Text>
-        </TouchableOpacity>
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: 12.5,
+                fontWeight: '800',
+                color: activeTab === 'surtidor' ? colors.primaryContrast : colors.text,
+              }}
+            >
+              ⛽ Surtidor & Tanques
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => setActiveTab('qr_averias')}
-          style={{
-            flex: 1,
-            paddingVertical: 9,
-            alignItems: 'center',
-            borderRadius: radius.pill,
-            backgroundColor: activeTab === 'qr_averias' ? colors.primary : 'transparent',
-          }}
-        >
-          <Text
+          <TouchableOpacity
+            onPress={() => setActiveTab('qr_averias')}
+            activeOpacity={0.8}
             style={{
-              fontSize: 13,
-              fontWeight: '800',
-              color: activeTab === 'qr_averias' ? colors.primaryContrast : colors.text,
+              flex: 1,
+              paddingVertical: 7,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: radius.pill,
+              backgroundColor: activeTab === 'qr_averias' ? colors.primary : 'transparent',
             }}
           >
-            🔍 Escáner QR & Averías
-          </Text>
-        </TouchableOpacity>
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: 12.5,
+                fontWeight: '800',
+                color: activeTab === 'qr_averias' ? colors.primaryContrast : colors.text,
+              }}
+            >
+              📷 Escáner QR / Fallas
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {activeTab === 'surtidor' ? (
@@ -504,7 +484,44 @@ export default function FuelDriverScreen() {
           <SurtidorMovil isStandalone />
         </View>
       ) : (
-        <>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: spacing.md, gap: spacing.md, paddingBottom: 80 }}
+        >
+          {/* Encabezado Chofer */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: spacing.sm,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: colors.text }}>
+                📷 Escaneo & Averías
+              </Text>
+              {driverName ? (
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{driverName}</Text>
+              ) : null}
+            </View>
+            <TouchableOpacity
+              onPress={signOut}
+              style={{
+                backgroundColor: colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingVertical: 6,
+                paddingHorizontal: spacing.md,
+                borderRadius: radius.pill,
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Salir</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ChangePasswordButton />
+
           {/* Botón grande: ESCANEAR MÁQUINA */}
           <TouchableOpacity
             onPress={() => {
@@ -516,7 +533,7 @@ export default function FuelDriverScreen() {
               borderRadius: radius.md,
               paddingVertical: spacing.lg,
               alignItems: 'center',
-              marginBottom: spacing.sm,
+              marginBottom: spacing.xs,
             }}
           >
             <Text style={{ color: colors.primaryContrast, fontSize: 18, fontWeight: '800' }}>
@@ -572,6 +589,8 @@ export default function FuelDriverScreen() {
             </TouchableOpacity>
           ))}
         </View>
+      )}
+        </ScrollView>
       )}
 
       {/* Modal del escáner QR */}
@@ -931,8 +950,6 @@ export default function FuelDriverScreen() {
         onPickCamera={() => onPhotoSourcePicked('camera')}
         onPickGallery={() => onPhotoSourcePicked('gallery')}
       />
-        </>
-      )}
     </Screen>
   );
 }
