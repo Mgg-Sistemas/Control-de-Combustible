@@ -39,40 +39,69 @@ export function UpdateBanner() {
 
   if (!show) return null;
 
-  // Botón CENTRADO en medio de la pantalla, del mismo tamaño que el botón
-  // "ESCANEAR QR" del inspector (cuadro grande, aspectRatio 1.35, maxHeight 220).
-  // Fondo semitransparente para que resalte; tocar FUERA lo oculta (no atrapa al
-  // usuario) y vuelve a aparecer en el próximo chequeo si sigue habiendo versión nueva.
   return (
     <View
       // @ts-ignore — 'fixed' es válido en web (react-native-web).
       style={{
         position: (Platform.OS === 'web' ? 'fixed' : 'absolute') as any,
-        left: 0, right: 0, top: 0, bottom: 0, zIndex: 999999,
-        alignItems: 'center', justifyContent: 'center', padding: 24,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        left: 0,
+        right: 0,
+        top: 0,
+        zIndex: 999999,
+        backgroundColor: '#F2B705',
+        borderBottomWidth: 2,
+        borderBottomColor: '#D97706',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.18,
+        shadowRadius: 4,
+        elevation: 6,
       }}
     >
-      {/* Capa para descartar tocando fuera del botón. */}
-      <TouchableOpacity
-        activeOpacity={1}
-        onPress={() => setShow(false)}
-        // @ts-ignore
-        style={{ position: (Platform.OS === 'web' ? 'fixed' : 'absolute') as any, left: 0, right: 0, top: 0, bottom: 0 }}
-      />
+      <View style={{ width: 28 }} />
       <TouchableOpacity
         activeOpacity={0.85}
         onPress={actualizar}
         style={{
-          backgroundColor: '#1E3A5F',
-          borderRadius: 16, borderWidth: 2, borderColor: '#F2B705',
-          aspectRatio: 1.35, maxHeight: 220, width: '80%', maxWidth: 320,
-          alignItems: 'center', justifyContent: 'center', padding: 16,
+          flex: 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+          paddingHorizontal: 4,
         }}
       >
-        <Text style={{ fontSize: 64 }}>🔄</Text>
-        <Text style={{ color: '#F2B705', fontWeight: '900', fontSize: 22, marginTop: 8, letterSpacing: 0.5 }}>ACTUALIZAR</Text>
-        <Text style={{ color: '#fff', fontSize: 12, opacity: 0.9, marginTop: 4, textAlign: 'center' }}>Hay una versión nueva — toca para actualizar</Text>
+        <Text style={{ color: '#1E3A5F', fontWeight: '900', fontSize: 13, textAlign: 'center' }}>
+          🔄 Actualización: Hay una versión nueva disponible
+        </Text>
+        <View
+          style={{
+            backgroundColor: '#1E3A5F',
+            borderRadius: 6,
+            paddingVertical: 4,
+            paddingHorizontal: 12,
+            borderWidth: 1,
+            borderColor: '#0F2744',
+          }}
+        >
+          <Text style={{ color: '#F2B705', fontWeight: '900', fontSize: 12, letterSpacing: 0.5 }}>
+            ACTUALIZAR
+          </Text>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => setShow(false)}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}
+        accessibilityLabel="Cerrar aviso de actualización"
+      >
+        <Text style={{ color: '#1E3A5F', fontWeight: '900', fontSize: 16 }}>✕</Text>
       </TouchableOpacity>
     </View>
   );
