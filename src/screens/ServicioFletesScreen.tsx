@@ -8,18 +8,23 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
-  FlatList,
 } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
-import { supabase, selectAllRows } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
 import { DateField } from '../components/DateField';
 import { onlyDecimal, onlyDigits, norm } from '../lib/text';
 import { caracasParts } from '../lib/jornada';
-import { exportarComprobanteFlete, exportarReporteConsolidadoFletes } from '../lib/fletePdf';
+import {
+  exportarComprobanteFlete,
+  exportarReporteConsolidadoFletes,
+  parseFleteNote,
+  formatFleteNote,
+  ParsedFleteNote,
+} from '../lib/fletePdf';
 import { Machinery } from '../types/database';
 
 interface FleteRow {
@@ -60,6 +65,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
   const [dateTo, setDateTo] = useState(today);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('__all__');
   const [selectedMachineId, setSelectedMachineId] = useState<string>('__all__');
+  const [filterTipo, setFilterTipo] = useState<'todos' | 'pagar' | 'cobrar'>('todos');
+  const [filterEstado, setFilterEstado] = useState<'todos' | 'pendiente' | 'completado'>('todos');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Selector modal de máquina para filtro
@@ -69,6 +76,9 @@ export default function ServicioFletesScreen({ navigation }: any) {
   // Modal Crear / Editar Flete
   const [modalVisible, setModalVisible] = useState(false);
   const [editingFleteId, setEditingFleteId] = useState<string | null>(null);
+  const [formOperacionTipo, setFormOperacionTipo] = useState<'pagar' | 'cobrar'>('pagar');
+  const [formOperacionEstado, setFormOperacionEstado] = useState<'pendiente' | 'completado'>('pendiente');
+  const [formCliente, setFormCliente] = useState('');
   const [formCompanyId, setFormCompanyId] = useState('');
   const [formMachineId, setFormMachineId] = useState<string | null>(null);
   const [formDate, setFormDate] = useState(today);
@@ -138,34 +148,57 @@ export default function ServicioFletesScreen({ navigation }: any) {
       // Filtro por camión
       if (selectedMachineId !== '__all__' && f.machinery_id !== selectedMachineId) return false;
 
+      // Metadata parseada (por pagar / por cobrar, estado, cliente)
+      const parsed = parseFleteNote(f.note);
+
+      // Filtro por tipo de operación (pagar o cobrar)
+      if (filterTipo !== 'todos' && parsed.operacionTipo !== filterTipo) return false;
+
+      // Filtro por estado (pendiente o completado)
+      if (filterEstado !== 'todos' && parsed.operacionEstado !== filterEstado) return false;
+
       // Búsqueda de texto
       if (q) {
         const coName = norm(f.company?.name || '');
         const code = norm(f.code || f.machinery?.code || '');
         const plate = norm(f.machinery?.plate || '');
-        const note = norm(f.note || '');
-        const match = coName.includes(q) || code.includes(q) || plate.includes(q) || note.includes(q);
+        const cli = norm(parsed.cliente || '');
+        const note = norm(parsed.detalle || '');
+        const match = coName.includes(q) || code.includes(q) || plate.includes(q) || cli.includes(q) || note.includes(q);
         if (!match) return false;
       }
 
       return true;
     });
-  }, [fletes, dateFrom, dateTo, selectedCompanyId, selectedMachineId, searchQuery]);
+  }, [fletes, dateFrom, dateTo, selectedCompanyId, selectedMachineId, filterTipo, filterEstado, searchQuery]);
 
   // Totales de la selección actual
   const summary = useMemo(() => {
     const count = filteredFletes.length;
     const viajes = filteredFletes.reduce((s, f) => s + (Number(f.viajes) || 0), 0);
-    const totalUSD = filteredFletes.reduce(
-      (s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0),
-      0
-    );
-    return { count, viajes, totalUSD };
+
+    let totalPagarUSD = 0;
+    let totalCobrarUSD = 0;
+
+    filteredFletes.forEach((f) => {
+      const sub = (Number(f.viajes) || 0) * (Number(f.precio) || 0);
+      const parsed = parseFleteNote(f.note);
+      if (parsed.operacionTipo === 'cobrar') {
+        totalCobrarUSD += sub;
+      } else {
+        totalPagarUSD += sub;
+      }
+    });
+
+    return { count, viajes, totalPagarUSD, totalCobrarUSD };
   }, [filteredFletes]);
 
   // Abrir modal de nuevo flete
-  const openNewModal = () => {
+  const openNewModal = (defaultTipo?: 'pagar' | 'cobrar') => {
     setEditingFleteId(null);
+    setFormOperacionTipo(defaultTipo || (filterTipo !== 'todos' ? filterTipo : 'pagar'));
+    setFormOperacionEstado('pendiente');
+    setFormCliente('');
     setFormCompanyId(selectedCompanyId !== '__all__' ? selectedCompanyId : (companies[0]?.id || ''));
     setFormMachineId(selectedMachineId !== '__all__' ? selectedMachineId : null);
     setFormDate(today);
@@ -178,13 +211,44 @@ export default function ServicioFletesScreen({ navigation }: any) {
   // Abrir modal de edición
   const openEditModal = (f: FleteRow) => {
     setEditingFleteId(f.id);
+    const parsed = parseFleteNote(f.note);
+    setFormOperacionTipo(parsed.operacionTipo);
+    setFormOperacionEstado(parsed.operacionEstado);
+    setFormCliente(parsed.cliente || '');
     setFormCompanyId(f.company_id || '');
     setFormMachineId(f.machinery_id || null);
     setFormDate(f.flete_date || today);
     setFormViajes(f.viajes != null ? String(f.viajes) : '');
     setFormPrecio(f.precio != null ? String(f.precio) : '');
-    setFormNote(f.note || '');
+    setFormNote(parsed.detalle || '');
     setModalVisible(true);
+  };
+
+  // Alternar estado rápido (Pendiente <-> Completado/Pagado/Cobrado)
+  const toggleEstadoFlete = async (f: FleteRow) => {
+    const parsed = parseFleteNote(f.note);
+    const nuevoEstado = parsed.operacionEstado === 'completado' ? 'pendiente' : 'completado';
+    const nuevaNota = formatFleteNote({
+      operacionTipo: parsed.operacionTipo,
+      operacionEstado: nuevoEstado,
+      cliente: parsed.cliente,
+      detalle: parsed.detalle,
+    });
+
+    try {
+      const { data, error } = await supabase
+        .from('fletes')
+        .update({ note: nuevaNota })
+        .eq('id', f.id)
+        .select('*, company:company_id(id, name), machinery:machinery_id(id, code, plate, tipo)')
+        .single();
+
+      if (error) throw error;
+      setFletes((prev) => prev.map((x) => (x.id === f.id ? data : x)));
+      toast.success(nuevoEstado === 'completado' ? 'Marcado como pagado/cobrado' : 'Marcado como pendiente');
+    } catch (err: any) {
+      toast.error('Error al cambiar estado: ' + (err?.message || err));
+    }
   };
 
   // Guardar flete
@@ -204,6 +268,13 @@ export default function ServicioFletesScreen({ navigation }: any) {
     const selectedM = machinery.find((m) => m.id === formMachineId);
     const code = selectedM ? selectedM.code : 'General';
 
+    const fullNote = formatFleteNote({
+      operacionTipo: formOperacionTipo,
+      operacionEstado: formOperacionEstado,
+      cliente: formCliente,
+      detalle: formNote,
+    });
+
     setFormSaving(true);
     try {
       if (editingFleteId) {
@@ -216,7 +287,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
             flete_date: formDate,
             viajes,
             precio,
-            note: formNote.trim() || null,
+            note: fullNote,
           })
           .eq('id', editingFleteId)
           .select('*, company:company_id(id, name), machinery:machinery_id(id, code, plate, tipo)')
@@ -236,7 +307,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
             flete_date: formDate,
             viajes,
             precio,
-            note: formNote.trim() || null,
+            note: fullNote,
           })
           .select('*, company:company_id(id, name), machinery:machinery_id(id, code, plate, tipo)')
           .single();
@@ -273,6 +344,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
     try {
       const coName = f.company?.name || 'Empresa';
       const m = f.machinery || machinery.find((x) => x.id === f.machinery_id);
+      const parsed = parseFleteNote(f.note);
       await exportarComprobanteFlete({
         flete: {
           id: f.id,
@@ -282,6 +354,10 @@ export default function ServicioFletesScreen({ navigation }: any) {
           code: f.code || m?.code,
           plate: m?.plate,
           tipo: m?.tipo,
+          note: f.note,
+          operacionTipo: parsed.operacionTipo,
+          operacionEstado: parsed.operacionEstado,
+          cliente: parsed.cliente,
         },
         companyName: coName,
         machineCode: m?.code || (f.code !== 'General' ? f.code : undefined),
@@ -314,8 +390,10 @@ export default function ServicioFletesScreen({ navigation }: any) {
         machinePlate: mach?.plate,
         machineTipo: mach?.tipo,
         periodLabel: `${fmtDate(dateFrom)} al ${fmtDate(dateTo)}`,
+        filterTipo,
         fletes: filteredFletes.map((f) => {
           const m = f.machinery || machinery.find((x) => x.id === f.machinery_id);
+          const parsed = parseFleteNote(f.note);
           return {
             id: f.id,
             flete_date: f.flete_date,
@@ -324,6 +402,10 @@ export default function ServicioFletesScreen({ navigation }: any) {
             code: m?.code || f.code,
             plate: m?.plate,
             tipo: m?.tipo,
+            note: f.note,
+            operacionTipo: parsed.operacionTipo,
+            operacionEstado: parsed.operacionEstado,
+            cliente: parsed.cliente,
           };
         }),
       });
@@ -344,7 +426,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
           <View style={{ flex: 1, minWidth: 200 }}>
             <SectionTitle>🚚 Servicio de Fletes y Viajes</SectionTitle>
             <Text style={{ color: colors.muted, fontSize: 12.5, marginTop: 2 }}>
-              Control y liquidación de viajes por empresa contratista, por camión específico o individual con comprobantes en PDF.
+              Control integral de fletes por pagar (a fleteros/choferes) y por cobrar (a clientes/obras), por camión o flete individual en PDF.
             </Text>
           </View>
           <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
@@ -365,12 +447,12 @@ export default function ServicioFletesScreen({ navigation }: any) {
               }}
             >
               <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>
-                📑 Reporte de Fletes (PDF)
+                📑 Reporte Consolidado (PDF)
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={openNewModal}
+              onPress={() => openNewModal('pagar')}
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -405,23 +487,133 @@ export default function ServicioFletesScreen({ navigation }: any) {
           }}
         >
           <View style={{ alignItems: 'flex-start' }}>
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' }}>Fletes Registrados</Text>
-            <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{summary.count}</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' }}>Fletes Filtrados</Text>
+            <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{summary.count} ({summary.viajes} viajes)</Text>
           </View>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' }}>Viajes Realizados</Text>
-            <Text style={{ color: colors.brandText, fontSize: 18, fontWeight: '800' }}>{summary.viajes}</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' }}>💸 Total Por Pagar</Text>
+            <Text style={{ color: '#1E3A8A', fontSize: 18, fontWeight: '800' }}>
+              ${summary.totalPagarUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' }}>Total Liquidado ($ USD)</Text>
-            <Text style={{ color: colors.success, fontSize: 18, fontWeight: '800' }}>
-              ${summary.totalUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' }}>💰 Total Por Cobrar</Text>
+            <Text style={{ color: '#059669', fontSize: 18, fontWeight: '800' }}>
+              ${summary.totalCobrarUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
           </View>
         </View>
 
         {/* Filtros */}
         <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+          {/* Selector de Tipo (Por Pagar vs Por Cobrar) */}
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <TouchableOpacity
+              onPress={() => setFilterTipo('todos')}
+              style={{
+                flex: 1,
+                paddingVertical: 7,
+                alignItems: 'center',
+                borderRadius: radius.md,
+                backgroundColor: filterTipo === 'todos' ? colors.brand : colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: filterTipo === 'todos' ? colors.brand : colors.border,
+              }}
+            >
+              <Text style={{ color: filterTipo === 'todos' ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                🔄 Todos los fletes
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setFilterTipo('pagar')}
+              style={{
+                flex: 1,
+                paddingVertical: 7,
+                alignItems: 'center',
+                borderRadius: radius.md,
+                backgroundColor: filterTipo === 'pagar' ? '#1E3A8A' : colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: filterTipo === 'pagar' ? '#1E3A8A' : colors.border,
+              }}
+            >
+              <Text style={{ color: filterTipo === 'pagar' ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                💸 Por Pagar (Fleteros)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setFilterTipo('cobrar')}
+              style={{
+                flex: 1,
+                paddingVertical: 7,
+                alignItems: 'center',
+                borderRadius: radius.md,
+                backgroundColor: filterTipo === 'cobrar' ? '#059669' : colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: filterTipo === 'cobrar' ? '#059669' : colors.border,
+              }}
+            >
+              <Text style={{ color: filterTipo === 'cobrar' ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                💰 Por Cobrar (Clientes)
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Selector de Estado */}
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <TouchableOpacity
+              onPress={() => setFilterEstado('todos')}
+              style={{
+                flex: 1,
+                paddingVertical: 6,
+                alignItems: 'center',
+                borderRadius: radius.md,
+                backgroundColor: filterEstado === 'todos' ? colors.surfaceAlt : colors.surface,
+                borderWidth: 1,
+                borderColor: filterEstado === 'todos' ? colors.brand : colors.border,
+              }}
+            >
+              <Text style={{ color: filterEstado === 'todos' ? colors.brandText : colors.muted, fontWeight: '700', fontSize: 11.5 }}>
+                Todos los estados
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setFilterEstado('pendiente')}
+              style={{
+                flex: 1,
+                paddingVertical: 6,
+                alignItems: 'center',
+                borderRadius: radius.md,
+                backgroundColor: filterEstado === 'pendiente' ? '#FEF3C7' : colors.surface,
+                borderWidth: 1,
+                borderColor: filterEstado === 'pendiente' ? '#B45309' : colors.border,
+              }}
+            >
+              <Text style={{ color: filterEstado === 'pendiente' ? '#92400E' : colors.muted, fontWeight: '700', fontSize: 11.5 }}>
+                ⏳ Solo Pendientes
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setFilterEstado('completado')}
+              style={{
+                flex: 1,
+                paddingVertical: 6,
+                alignItems: 'center',
+                borderRadius: radius.md,
+                backgroundColor: filterEstado === 'completado' ? '#DCFCE7' : colors.surface,
+                borderWidth: 1,
+                borderColor: filterEstado === 'completado' ? '#166534' : colors.border,
+              }}
+            >
+              <Text style={{ color: filterEstado === 'completado' ? '#166534' : colors.muted, fontWeight: '700', fontSize: 11.5 }}>
+                ✅ Solo Pagados / Cobrados
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           {/* Fechas */}
           <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
             <View style={{ flex: 1 }}>
@@ -519,7 +711,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
 
           {/* Buscador de texto libre */}
           <TextInput
-            placeholder="🔎 Buscar por código, placa, empresa, nota..."
+            placeholder="🔎 Buscar por código, placa, empresa, cliente, nota..."
             placeholderTextColor={colors.muted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -551,6 +743,9 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 const m = f.machinery || machinery.find((x) => x.id === f.machinery_id);
                 const co = f.company || companies.find((c) => c.id === f.company_id);
                 const subtotal = (Number(f.viajes) || 0) * (Number(f.precio) || 0);
+                const parsed = parseFleteNote(f.note);
+                const esCobro = parsed.operacionTipo === 'cobrar';
+                const esCompletado = parsed.operacionEstado === 'completado';
 
                 return (
                   <View
@@ -560,50 +755,70 @@ export default function ServicioFletesScreen({ navigation }: any) {
                       borderRadius: radius.md,
                       padding: spacing.md,
                       borderWidth: 1,
-                      borderColor: colors.border,
+                      borderColor: esCobro ? '#A7F3D0' : '#BFDBFE',
                       gap: 6,
                     }}
                   >
                     {/* Header de la tarjeta */}
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 6 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <View style={{ backgroundColor: esCobro ? '#ECFDF5' : '#EFF6FF', paddingVertical: 2, paddingHorizontal: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: esCobro ? '#059669' : '#1E3A8A' }}>
+                          <Text style={{ color: esCobro ? '#059669' : '#1E3A8A', fontWeight: '800', fontSize: 11 }}>
+                            {esCobro ? '💰 POR COBRAR' : '💸 POR PAGAR'}
+                          </Text>
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={() => toggleEstadoFlete(f)}
+                          style={{
+                            backgroundColor: esCompletado ? '#DCFCE7' : '#FEF3C7',
+                            paddingVertical: 2,
+                            paddingHorizontal: 6,
+                            borderRadius: radius.sm,
+                          }}
+                        >
+                          <Text style={{ color: esCompletado ? '#166534' : '#92400E', fontWeight: '800', fontSize: 11 }}>
+                            {esCompletado ? `✅ ${esCobro ? 'COBRADO' : 'PAGADO'}` : '⏳ PENDIENTE'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
                           📅 {fmtDate(f.flete_date)}
                         </Text>
-                        <Text style={{ color: colors.muted, fontSize: 12 }}>·</Text>
-                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
-                          🏢 {co?.name || 'Empresa'}
-                        </Text>
                       </View>
-                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>
+
+                      <Text style={{ color: esCobro ? '#059669' : '#1E3A8A', fontWeight: '800', fontSize: 16 }}>
                         ${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                     </View>
 
-                    {/* Camión / Maquinaria con Placa Obligatoria */}
+                    {/* Camión / Maquinaria con Placa Obligatoria y Empresa */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
                           {m ? `🚜 ${m.code}${m.plate ? ` · Placa: ${m.plate}` : ''}` : `🚚 ${f.code || 'Flete General'}`}
                         </Text>
-                        {m?.tipo ? (
-                          <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-                            🏷️ {m.tipo}
-                          </Text>
-                        ) : null}
+                        <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                          🏢 {co?.name || 'Empresa'} {m?.tipo ? `· 🏷️ ${m.tipo}` : ''}
+                        </Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
                           {f.viajes} viaje(s) × ${Number(f.precio).toLocaleString()} c/u
                         </Text>
+                        {parsed.cliente ? (
+                          <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '600' }}>
+                            👤 Cliente: {parsed.cliente}
+                          </Text>
+                        ) : null}
                       </View>
                     </View>
 
                     {/* Nota si existe */}
-                    {f.note ? (
+                    {parsed.detalle ? (
                       <View style={{ backgroundColor: colors.surfaceAlt, padding: 6, borderRadius: radius.sm, marginTop: 2 }}>
                         <Text style={{ color: colors.text, fontSize: 12, fontStyle: 'italic' }}>
-                          📝 {f.note}
+                          📝 {parsed.detalle}
                         </Text>
                       </View>
                     ) : null}
@@ -763,24 +978,125 @@ export default function ServicioFletesScreen({ navigation }: any) {
       {/* Modal: Registrar o Editar Flete */}
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
-          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, maxHeight: '90%', borderWidth: 1, borderColor: colors.border }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, maxHeight: '92%', borderWidth: 1, borderColor: colors.border }}>
             <ScrollView>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: 2 }}>
                 {editingFleteId ? '✏️ Modificar Flete' : '➕ Registrar Flete / Viaje'}
               </Text>
               <Text style={{ color: colors.muted, fontSize: 12.5, marginBottom: spacing.md }}>
-                Carga el flete indicando la empresa, camión, fecha, cantidad de viajes y precio.
+                Define si el viaje es por pagar a un fletero o por cobrar a un cliente.
               </Text>
 
+              {/* Selector Por Pagar vs Por Cobrar */}
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>Modalidad de Operación (*)</Text>
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.md }}>
+                <TouchableOpacity
+                  onPress={() => setFormOperacionTipo('pagar')}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 9,
+                    alignItems: 'center',
+                    borderRadius: radius.md,
+                    backgroundColor: formOperacionTipo === 'pagar' ? '#1E3A8A' : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: formOperacionTipo === 'pagar' ? '#1E3A8A' : colors.border,
+                  }}
+                >
+                  <Text style={{ color: formOperacionTipo === 'pagar' ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                    💸 Por Pagar (A Fletero)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setFormOperacionTipo('cobrar')}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 9,
+                    alignItems: 'center',
+                    borderRadius: radius.md,
+                    backgroundColor: formOperacionTipo === 'cobrar' ? '#059669' : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: formOperacionTipo === 'cobrar' ? '#059669' : colors.border,
+                  }}
+                >
+                  <Text style={{ color: formOperacionTipo === 'cobrar' ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                    💰 Por Cobrar (A Cliente)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Estado de Pago / Cobro */}
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>Estado del Flete</Text>
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.md }}>
+                <TouchableOpacity
+                  onPress={() => setFormOperacionEstado('pendiente')}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 7,
+                    alignItems: 'center',
+                    borderRadius: radius.md,
+                    backgroundColor: formOperacionEstado === 'pendiente' ? '#FEF3C7' : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: formOperacionEstado === 'pendiente' ? '#B45309' : colors.border,
+                  }}
+                >
+                  <Text style={{ color: formOperacionEstado === 'pendiente' ? '#92400E' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                    ⏳ Pendiente
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setFormOperacionEstado('completado')}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 7,
+                    alignItems: 'center',
+                    borderRadius: radius.md,
+                    backgroundColor: formOperacionEstado === 'completado' ? '#DCFCE7' : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: formOperacionEstado === 'completado' ? '#166534' : colors.border,
+                  }}
+                >
+                  <Text style={{ color: formOperacionEstado === 'completado' ? '#166534' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                    ✅ {formOperacionTipo === 'cobrar' ? 'Cobrado' : 'Pagado'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Si es por cobrar, campo de cliente */}
+              {formOperacionTipo === 'cobrar' ? (
+                <View style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+                    👤 Cliente / Obra Facturable (opcional)
+                  </Text>
+                  <TextInput
+                    value={formCliente}
+                    onChangeText={setFormCliente}
+                    placeholder="Ej. Inversiones El Carmen, C.A."
+                    placeholderTextColor={colors.muted}
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.md,
+                      padding: spacing.md,
+                      color: colors.text,
+                      fontSize: 14,
+                    }}
+                  />
+                </View>
+              ) : null}
+
               {/* Selector Empresa */}
-              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>🏢 Empresa Contratista (*)</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+                🏢 Empresa Contratista / Proveedor (*)
+              </Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
                 {companies.map((c) => (
                   <TouchableOpacity
                     key={c.id}
                     onPress={() => {
                       setFormCompanyId(c.id);
-                      // Si la máquina actual no pertenece a esta empresa, resetear máquina
                       const curM = machinery.find((m) => m.id === formMachineId);
                       if (curM && curM.company_id !== c.id) {
                         setFormMachineId(null);
@@ -887,8 +1203,10 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 const tot = v * p;
                 return (
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
-                    <Text style={{ color: colors.text, fontWeight: '800' }}>Total del Flete:</Text>
-                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>
+                      {formOperacionTipo === 'cobrar' ? 'Total a Cobrar:' : 'Total a Pagar:'}
+                    </Text>
+                    <Text style={{ color: formOperacionTipo === 'cobrar' ? '#059669' : '#1E3A8A', fontWeight: '800', fontSize: 18 }}>
                       ${tot.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                     </Text>
                   </View>
@@ -926,7 +1244,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   padding: spacing.md,
                   borderRadius: radius.md,
                   alignItems: 'center',
-                  backgroundColor: colors.brand,
+                  backgroundColor: formOperacionTipo === 'cobrar' ? '#059669' : colors.brand,
                   opacity: formSaving ? 0.6 : 1,
                 }}
               >
