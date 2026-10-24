@@ -250,6 +250,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [fletePrecio, setFletePrecio] = useState('');
   const [fleteBusy, setFleteBusy] = useState(false);
   const [fleteDelConfirm, setFleteDelConfirm] = useState<string | null>(null); // id del flete pendiente de confirmar borrado
+  const [fleteEditingId, setFleteEditingId] = useState<string | null>(null); // id del flete que se está editando en el modal
 
   // Marcar equipo AVERIADO desde el control: empresa → máquina (serial/placa) → motivo.
   // Registra la AVERÍA y abre una traza de reparación para Mantenimiento. NO retira la
@@ -1270,6 +1271,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   //    El monto (viajes × precio) se suma al TOTAL POR PAGAR de la empresa en la semana de esa fecha.
   const openFlete = (m: Machinery) => {
     setFleteDelConfirm(null);
+    setFleteEditingId(null);
     setFleteGeneralCo(null);
     setFleteFor(m);
     setFleteDate(weekEnd); // por defecto el último día del bloque en pantalla
@@ -1280,9 +1282,24 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // Flete GENERAL de una empresa (sin máquina): mismo modal, se guarda con machinery_id nulo.
   const openFleteGeneral = (companyId: string, companyName: string) => {
     setFleteDelConfirm(null);
+    setFleteEditingId(null);
     setFleteFor(null);
     setFleteGeneralCo({ id: companyId, name: companyName });
     setFleteDate(weekEnd);
+    setFleteViajes('');
+    setFletePrecio('');
+  };
+
+  const startEditFlete = (f: any) => {
+    setFleteEditingId(f.id);
+    setFleteDate(f.flete_date || todayISO());
+    setFleteViajes(f.viajes != null ? String(f.viajes) : '');
+    setFletePrecio(f.precio != null ? String(f.precio) : '');
+    setFleteDelConfirm(null);
+  };
+
+  const cancelEditFlete = () => {
+    setFleteEditingId(null);
     setFleteViajes('');
     setFletePrecio('');
   };
@@ -1296,6 +1313,37 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const companyId = fleteGeneralCo ? fleteGeneralCo.id : fleteFor?.company_id ?? null;
     if (!companyId) { toast.error('La máquina no tiene empresa asignada; asígnale una en Equipos para poder registrar su flete.'); return; }
     setFleteBusy(true);
+
+    if (fleteEditingId) {
+      // Modificar flete existente
+      const { data, error } = await supabase
+        .from('fletes')
+        .update({ flete_date: fleteDate, viajes, precio })
+        .eq('id', fleteEditingId)
+        .select()
+        .single();
+      setFleteBusy(false);
+      if (error) return toast.error(error.message);
+
+      const updater = (prevList: any[] = []) => {
+        if (weekDays.includes(fleteDate)) {
+          return prevList.map((x) => (x.id === fleteEditingId ? data : x));
+        }
+        return prevList.filter((x) => x.id !== fleteEditingId);
+      };
+
+      if (fleteGeneralCo) setFletesGeneral((p) => ({ ...p, [companyId]: updater(p[companyId]) }));
+      else setFletesByMachine((p) => ({ ...p, [fleteFor!.id]: updater(p[fleteFor!.id]) }));
+
+      setFleteEditingId(null);
+      setFleteViajes('');
+      setFletePrecio('');
+      toast.success('Flete actualizado');
+      const donde = fleteGeneralCo ? `${fleteGeneralCo.name} (general)` : fleteFor!.code;
+      setNotice(`✏️ Flete actualizado en ${donde}: ${viajes} viaje(s) × $${precio.toLocaleString()} = $${(viajes * precio).toLocaleString()} · ${fmtDMY(fleteDate)}`);
+      return;
+    }
+
     const payload = {
       company_id: companyId,
       machinery_id: fleteGeneralCo ? null : fleteFor!.id,
@@ -1319,10 +1367,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // La confirmación se hace en línea dentro del modal (dos toques).
   const deleteFlete = async (f: any) => {
     setFleteDelConfirm(null);
+    if (fleteEditingId === f.id) {
+      setFleteEditingId(null);
+      setFleteViajes('');
+      setFletePrecio('');
+    }
     const { error } = await supabase.from('fletes').delete().eq('id', f.id);
     if (error) return toast.error(error.message);
     if (f.machinery_id) setFletesByMachine((p) => ({ ...p, [f.machinery_id]: (p[f.machinery_id] ?? []).filter((x) => x.id !== f.id) }));
     else if (f.company_id) setFletesGeneral((p) => ({ ...p, [f.company_id]: (p[f.company_id] ?? []).filter((x) => x.id !== f.id) }));
+    toast.success('Flete eliminado');
   };
 
   // ── Marcar equipo AVERIADO (desde el control) ───────────────────────────────
@@ -2526,11 +2580,29 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               const listUSD = list.reduce((s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0), 0);
               return (
                 <ScrollView>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>{isGen ? `🚚 Flete general · ${coName}` : `➕ Flete / viaje · ${fleteFor!.code}`}</Text>
-                  {!isGen && fleteFor!.tipo ? <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 2 }} numberOfLines={1}>🏷️ {fleteFor!.tipo}</Text> : null}
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>
+                    {isGen ? `🚚 Flete general · ${coName}` : `➕ Flete / viaje · ${fleteFor!.code}${fleteFor!.plate ? ` · Placa: ${fleteFor!.plate}` : ''}`}
+                  </Text>
+                  {!isGen && fleteFor ? (
+                    <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 2 }} numberOfLines={1}>
+                      🏷️ {[fleteFor.tipo, fleteFor.plate ? `Placa: ${fleteFor.plate}` : null].filter(Boolean).join(' · ')}
+                    </Text>
+                  ) : null}
                   <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
                     🏢 {coName}{isGen ? ' · flete general (no asignado a una máquina)' : ''} · el monto se suma al TOTAL POR PAGAR de la empresa en la semana de la fecha del flete.
                   </Text>
+
+                  {fleteEditingId ? (
+                    <View style={{ marginBottom: spacing.sm, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flex: 1, marginRight: spacing.sm }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✏️ Modificando flete seleccionado</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>Ajusta la fecha, viajes o precio y guarda los cambios.</Text>
+                      </View>
+                      <TouchableOpacity onPress={cancelEditFlete} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>Cancelar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
 
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>📅 Fecha del flete</Text>
                   <DateField value={fleteDate} onChange={(v) => v && setFleteDate(v)} />
@@ -2566,7 +2638,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     disabled={fleteBusy}
                     style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: fleteBusy ? 0.6 : 1 }}
                   >
-                    <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{fleteBusy ? 'Guardando…' : '💾 Registrar flete'}</Text>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>
+                      {fleteBusy ? 'Guardando…' : (fleteEditingId ? '💾 Guardar cambios del flete' : '💾 Registrar flete')}
+                    </Text>
                   </TouchableOpacity>
 
                   {/* Fletes ya registrados de este equipo dentro del bloque visible. */}
@@ -2581,26 +2655,47 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{fmtDMY(f.flete_date)} · {f.viajes} viaje(s) × ${Number(f.precio).toLocaleString()}</Text>
                             <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>= ${(Number(f.viajes) * Number(f.precio)).toLocaleString()}</Text>
                           </View>
-                          {fleteDelConfirm === f.id ? (
-                            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                              <TouchableOpacity onPress={() => deleteFlete(f)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.danger }}>
-                                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Sí, eliminar</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity onPress={() => setFleteDelConfirm(null)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
-                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>No</Text>
-                              </TouchableOpacity>
-                            </View>
-                          ) : (
-                            <TouchableOpacity onPress={() => setFleteDelConfirm(f.id)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger }}>
-                              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑 Eliminar</Text>
+                          <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+                            <TouchableOpacity
+                              onPress={() => startEditFlete(f)}
+                              style={{
+                                paddingVertical: 4,
+                                paddingHorizontal: spacing.sm,
+                                borderRadius: radius.sm,
+                                borderWidth: 1,
+                                borderColor: colors.brand,
+                                backgroundColor: fleteEditingId === f.id ? colors.brand : 'transparent',
+                              }}
+                            >
+                              <Text style={{ color: fleteEditingId === f.id ? colors.brandContrast : colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                                {fleteEditingId === f.id ? '✏️ Editando' : '✏️ Editar'}
+                              </Text>
                             </TouchableOpacity>
-                          )}
+
+                            {fleteDelConfirm === f.id ? (
+                              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                                <TouchableOpacity onPress={() => deleteFlete(f)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.danger }}>
+                                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Sí, eliminar</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => setFleteDelConfirm(null)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>No</Text>
+                                </TouchableOpacity>
+                              </View>
+                            ) : (
+                              <TouchableOpacity onPress={() => setFleteDelConfirm(f.id)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger }}>
+                                <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑 Eliminar</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         </View>
                       ))}
                     </View>
                   ) : null}
 
-                  <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => { setFleteFor(null); setFleteGeneralCo(null); setFleteDelConfirm(null); }}>
+                  <TouchableOpacity
+                    style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
+                    onPress={() => { setFleteFor(null); setFleteGeneralCo(null); setFleteDelConfirm(null); setFleteEditingId(null); }}
+                  >
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Listo</Text>
                   </TouchableOpacity>
                 </ScrollView>
