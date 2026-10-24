@@ -98,10 +98,10 @@ eq('hoy · jornada ya cerrada → solo bancado',
 eq('hoy · jornada de otro día NO infla',
   r2(h({ day_hours: 0, jornada_start_at: `${AYER}T07:00:00-04:00`, jornada_shift: 'day' }).dia), 0);
 
-// ── 3) Tope de 12 h por turno ──────────────────────────────────────────────
+// ── 3) Máquina puede trabajar más de 12 h (tope físico 24 h) ────────────────
 const tarde = new Date(`${HOY}T23:00:00-04:00`).getTime(); // 16 h después de las 7am
-eq('tope de 12 h en el cálculo en vivo',
-  r2(horasTurnoDelDia({ day_hours: 0, jornada_start_at: `${HOY}T07:00:00-04:00`, jornada_shift: 'day' }, HOY, tarde).dia), 12);
+eq('permite más de 12 h en vivo (16 h)',
+  r2(horasTurnoDelDia({ day_hours: 0, jornada_start_at: `${HOY}T07:00:00-04:00`, jornada_shift: 'day' }, HOY, tarde).dia), 16);
 
 // ── 4) Umbral mínimo: residuos por debajo de 0.05 h se descartan ───────────
 eq('umbral · residuo de 0.02 h se descarta', h({ day_hours: 0.02 }, AYER).dia, 0);

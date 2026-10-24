@@ -76,14 +76,15 @@ eq('inicio real 9am, nada bancado → a las 12 lleva 3 h (no 5 desde las 7am)',
 
 // ── 3) Jornada cerrada: devuelve lo bancado ────────────────────────────────
 eq('cerrada (startMs null) → bancado', viva(4.5, null, 'day', ms('12:00')), 4.5);
-eq('cerrada → bancado topa en 12', viva(14, null, 'day', ms('12:00')), 12);
+eq('cerrada → bancado permite >12h sin cortar en 12', viva(14, null, 'day', ms('12:00')), 14);
+eq('cerrada → bancado topa en 24', viva(26, null, 'day', ms('12:00')), 24);
 
 // ── 4) TOPE FÍSICO: el re-inicio tecleado hacia atrás no cuenta doble ──────
 // Reactivan a las 11 pero escriben 07:00 → bancado+tramo daría 2+5=7 a las 12,
 // pero el turno solo ha durado 5 h desde las 7am → 5.
 eq('re-inicio tecleado 7am con 2h bancadas → tope físico 5 h a las 12',
   viva(2, ms('07:00'), 'day', ms('12:00')), 5);
-eq('tope duro de 12 h por turno', viva(6, ms('08:00'), 'day', ms('23:30')), 12);
+eq('tope físico con jornada extendida > 12 h (hasta 24 h)', viva(6, ms('08:00'), 'day', ms('23:30')), 16.5);
 
 // ── 5) PISO: lo ya bancado nunca se reduce ─────────────────────────────────
 // 11 h bancadas a las 4:30pm superan lo físicamente posible (9.5 h desde las

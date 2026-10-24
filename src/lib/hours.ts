@@ -54,12 +54,12 @@ export function horasVivasTurno(opts: {
   nowMs: number;
 }): number {
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  const bancado = Math.min(12, Math.max(0, Number(opts.bancado) || 0));
+  const bancado = Math.min(24, Math.max(0, Number(opts.bancado) || 0));
   if (!opts.startMs) return r2(bancado);
   const rd = businessRoundDateOf(new Date(opts.startMs), opts.shift);
   const shiftStart = new Date(`${rd}T${opts.shift === 'night' ? '19' : '07'}:00:00-04:00`).getTime();
   const elapsed = Math.max(0, (opts.nowMs - opts.startMs) / 3600000);
-  const topeFisico = Math.min(12, Math.max(0, (opts.nowMs - shiftStart) / 3600000));
+  const topeFisico = Math.min(24, Math.max(0, (opts.nowMs - shiftStart) / 3600000));
   return r2(Math.max(bancado, Math.min(topeFisico, bancado + elapsed)));
 }
 

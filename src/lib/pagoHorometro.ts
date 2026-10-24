@@ -438,7 +438,7 @@ export function validarCambioHorometro(c: {
   }
   if (c.nuevaFinal != null) {
     if (num(c.nuevaFinal) < num(c.nuevaInicial)) return 'El final del aparato nuevo no puede ser menor que su inicial.';
-    if (num(c.nuevaFinal) - num(c.nuevaInicial) > 12.5) return 'Entre inicial y final del nuevo hay más de 12,5 h: la base lo marcaría inválido. Revisa los números.';
+    if (num(c.nuevaFinal) - num(c.nuevaInicial) > 24.5) return 'Entre inicial y final del nuevo hay más de 24 h: la base lo marcaría inválido. Revisa los números.';
   }
   if (!Number.isFinite(num(c.horasAjuste)) || Math.abs(num(c.horasAjuste)) > 24) {
     return 'Las horas a reconocer no pueden pasar de 24 (en más o en menos).';

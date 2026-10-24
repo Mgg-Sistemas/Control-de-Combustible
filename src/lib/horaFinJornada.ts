@@ -88,7 +88,8 @@ export function resolverFinJornada(opts: {
     declarado = true;
   }
 
-  // El tope de siempre: cerrar (o declarar) después del fin nominal no regala horas.
-  const efectivoMs = Math.min(finMs, opts.nominalEndMs);
-  return { ok: true, finMs, efectivoMs, anticipado: efectivoMs < opts.nominalEndMs, declarado };
+  // Permitir que la máquina trabaje más de 12 horas (hasta el tope físico de 24h desde el inicio).
+  const maxPhysicalEndMs = opts.startMs + 24 * 3600000;
+  const efectivoMs = Math.min(finMs, maxPhysicalEndMs);
+  return { ok: true, finMs, efectivoMs, anticipado: finMs < opts.nominalEndMs, declarado };
 }

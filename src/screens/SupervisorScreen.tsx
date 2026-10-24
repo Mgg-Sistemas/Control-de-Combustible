@@ -1077,20 +1077,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (mineNight) return 'night';
     return null;
   }, [ci, assignMap, uid, nowTick]);
-  // ¿El turno del inspector en esta máquina YA CERRÓ hoy? Se decide por la HORA DE
-  // CIERRE del turno (hora de Caracas), NO por horas>0: así puede INICIAR/REINICIAR
-  // varias veces el mismo día (p.ej. tras una parada) mientras su turno siga abierto,
-  // y solo se bloquea cuando el turno ya cerró (día: 19:00 · noche: 07:00, y sigue
-  // cerrada hasta las 19:00). Recién mañana podrá iniciar de nuevo.
+  // ¿El turno del inspector en esta máquina YA CERRÓ hoy?
+  // Se decide SOLO si el turno ya finalizó con horas registradas y NO tiene jornada abierta.
+  // Ya NO se bloquea por hora de reloj (7:00pm) para que no cierre jornadas arbitrariamente.
   const shiftClosed = useMemo(() => {
-    if (!myShift) return false;
-    const h = caracasParts(new Date()).hour;
-    if (myShift === 'day') return h >= 19;               // día cierra a las 7:00pm
-    // NOCHE cierra a las 7:00am (12h, 7pm→7am) para TODAS las máquinas (regla cliente
-    // 14-ago-2026, igual que el auto-cierre del servidor): cerrada de 7am a 7pm; solo se
-    // puede iniciar/reiniciar de 7pm a 7am. Antes cerraba a la 1am (excepto LUMINARIA).
-    return h >= 7 && h < 19;
-  }, [myShift, nowTick]);
+    if (!ci) return false;
+    if (openMine(ci.id)) return false;
+    return hoursMine(ci.id);
+  }, [ci, roundsById, assignMap, uid]);
   // Turno ACTUAL según la hora del sistema (Caracas): 7am–7pm = ☀️ día · 7pm–7am = 🌙
   // noche. Es el turno con el que el COORDINADOR inicia la jornada (no lo elige a mano)
   // y por el que se filtran los inspectores que se muestran en la sub-vista "👥 Inspectores".
@@ -1394,12 +1388,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (!g) { g = { id, name, ids: new Set<string>() }; byId.set(id, g); }
       return g;
     };
-    // Solo el turno ACTUAL: de día se muestran los inspectores (y máquinas) del turno
-    // ☀️ día; de noche, los del 🌙 noche. Así el coordinador ve/opera lo que toca ahora.
+    // Turno ACTUAL según la hora, MÁS máquinas con jornada aún ABIERTA de cualquier turno:
+    // así a las 7:00pm los inspectores de día con máquinas trabajando siguen visibles para el coordinador
     machines.forEach((m) => {
       const s = assignMap[m.id] || {};
       const slot = s[nowShift];
       if (slot?.id && !esVirtual(slot.id)) ensure(slot.id, slot.name).ids.add(m.id);
+      const r = roundsById[m.id];
+      if (r?.openDay && s.day?.id && !esVirtual(s.day.id)) {
+        ensure(s.day.id, s.day.name).ids.add(m.id);
+      }
+      if (r?.openNight && s.night?.id && !esVirtual(s.night.id)) {
+        ensure(s.night.id, s.night.name).ids.add(m.id);
+      }
     });
     const machById = new Map(machines.map((m) => [m.id, m] as const));
     const rows = Array.from(byId.values()).map((g) => {
@@ -1407,7 +1408,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       g.ids.forEach((id) => {
         const m = machById.get(id);
         if (!m || !visibleParaInspector(m)) return;
-        const seg = segmentoConTurno(id, nowShift);
+        const r = roundsById[id];
+        const abierto = r?.openDay || r?.openNight;
+        const seg = abierto ? 'iniciada' : segmentoConTurno(id, nowShift);
         buckets[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : seg === 'cerrada' ? 'cerradas' : 'pendientes'].push(m);
       });
       (Object.keys(buckets) as (keyof InspBuckets)[]).forEach((k) => buckets[k].sort((a, b) => cmpText(a.code, b.code)));
@@ -1417,16 +1420,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     return rows;
   }, [machines, assignMap, roundsById, averiaRawList, paradaRawList, nowShift]);
 
-  // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
-  // global cuando es único. Para el COORDINADOR (que opera por otros) el turno lo DICTA
-  // la hora del sistema (7am–7pm día / 7pm–7am noche): no lo elige a mano. null = puede
-  // elegir (admin, o sin asignaciones).
+  // Turno FIJO para iniciar / operar: automático y sin margen de error humano.
+  // 1) Si la máquina ya tiene una jornada en curso, se usa el turno de esa jornada.
+  // 2) Si el inspector tiene turno asignado en esta máquina, se usa su turno.
+  // 3) Si no, se usa el turno del momento (7am-7pm día / 7pm-7am noche).
+  // Ningún inspector ni coordinador debe seleccionar el turno a mano.
   const fixedShift = useMemo<Shift | null>(() => {
+    const r = ci ? roundsById[ci.id] : null;
+    if (r?.openNight) return 'night';
+    if (r?.openDay) return 'day';
     if (myShift) return myShift;
-    if (esCoordinador) return nowShift;
     if (!puedeCualquierTurno && myGlobalShifts.size === 1) return Array.from(myGlobalShifts)[0];
-    return null;
-  }, [myShift, myGlobalShifts, puedeCualquierTurno, esCoordinador, nowShift]);
+    return nowShift;
+  }, [ci, roundsById, myShift, puedeCualquierTurno, myGlobalShifts, nowShift]);
   // Fuerza el turno declarado al turno del inspector (no puede elegir el otro).
   useEffect(() => {
     if (fixedShift) { setIniShift(fixedShift); setIniTime(nowHHMM()); }
@@ -2210,15 +2216,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const shiftStartMs = jornadaShift === 'night'
       ? new Date(roundDate + 'T19:00:00-04:00').getTime()
       : new Date(roundDate + 'T07:00:00-04:00').getTime();
-    const topeFisico = Math.min(12, Math.max(0, (cierreEfectivoMs - shiftStartMs) / 3600000));
+    const topeFisico = Math.min(24, Math.max(0, (cierreEfectivoMs - shiftStartMs) / 3600000));
     // Las horas bancadas NUNCA pueden ser MENORES a lo realmente trabajado en ESTA
-    // sesión (inicio → ahora, tope 12h). El `min(topeFisico, …)` protege del doble
+    // sesión (inicio → ahora, tope 24h). El `min(topeFisico, …)` protege del doble
     // conteo al re-abrir, PERO cuando `jornada_start_at` cae antes del inicio nominal
     // del turno (p. ej. una jornada de día marcada de madrugada) y se cierra temprano,
     // `topeFisico` daba 0 y bancaba 0 aunque el tramo tuviera 6-12h reales (bug ago-2026:
     // decenas de máquinas de ayer con horas_ronda=0 y horas_tramo=9-12). El piso real
     // lo evita sin romper el tope físico ni el anti-doble-conteo del re-abrir.
-    const pisoReal = Math.min(12, Math.max(0, horas));
+    const pisoReal = Math.min(24, Math.max(0, horas));
     const totalTurno = Math.round(Math.max(pisoReal, Math.min(topeFisico, base + horas)) * 100) / 100;
     const res = await upsertMachineRound(ci.id, roundDate, { [key]: totalTurno, ...(hfValid ? { horometro_final: hfNum } : {}), ...(horoFinPhoto ? { horometro_photo: horoFinPhoto } : {}), jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
@@ -2326,7 +2332,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const shiftStartMs = jornadaShift === 'night'
         ? new Date(roundDate + 'T19:00:00-04:00').getTime()
         : new Date(roundDate + 'T07:00:00-04:00').getTime();
-      const topeFisico = Math.min(12, Math.max(0, (Date.now() - shiftStartMs) / 3600000));
+      const topeFisico = Math.min(24, Math.max(0, (Date.now() - shiftStartMs) / 3600000));
       const total = Math.round(Math.min(topeFisico, base + horas) * 100) / 100;
       const res = await upsertMachineRound(ci.id, roundDate, { [key]: total, jornada_start_at: null }, uid || null);
       // Si el bancado de horas falla, NO seguimos como si hubiera ido bien: se
@@ -3826,7 +3832,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>
                       🟢 Jornada en curso ({jornadaShift === 'night' ? '🌙 noche' : '☀️ día'}) · desde {caracasClock(jornadaStart)}
                     </Text>
-                    <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>⏱️ Este tramo: {elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
+                    <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>⏱️ Este tramo: {elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 86400000))}</Text>
                     {/* ACUMULADO DEL TURNO (08-oct-2026): si antes de este tramo ya se bancaron
                         horas (parada→reactivación), el inspector tiene que VER que no se
                         perdieron — reclamo «no suma las horas de antes con las de después». */}
@@ -3840,8 +3846,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
                       <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>¿Finalizar la jornada?</Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 13, marginTop: 4, textAlign: 'center' }}>
-                        Este tramo: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
-                        {'  '}({Math.min(12, Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000).toFixed(2)} h)
+                        Este tramo: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 86400000))}</Text>
+                        {'  '}({Math.min(24, Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000).toFixed(2)} h)
                       </Text>
                       {/* ACUMULADO del turno = bancado + este tramo (horasVivasTurno, 08-oct-2026).
                           Antes tomaba el MAYOR entre ambos — regla de cuando el re-inicio se
@@ -3884,7 +3890,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                             </View>
                           );
                         }
-                        const h = Math.min(12, Math.max(0, (r.efectivoMs - new Date(jornadaStart).getTime()) / 3600000));
+                        const h = Math.min(24, Math.max(0, (r.efectivoMs - new Date(jornadaStart).getTime()) / 3600000));
                         return (
                           <Text style={{ color: colors.infoSoftText, fontSize: 12, marginBottom: spacing.sm, textAlign: 'center' }}>
                             🕐 Con esa hora, este tramo: <Text style={{ fontWeight: '900' }}>{h.toFixed(2)} h</Text>{r.finMs > e ? ' (topado al fin del turno)' : ''}

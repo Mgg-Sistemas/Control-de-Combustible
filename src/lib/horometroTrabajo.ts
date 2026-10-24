@@ -67,8 +67,8 @@ export type LecturaTrabajo = {
   updatedBy?: string | null;
 };
 
-/** Ventana del turno (12 h) más media hora de gracia. Se compara contra la ventana, no contra la hora de captura. */
-export const TOPE_HORAS_TURNO = 12.5;
+/** Ventana máxima física en un día (24 h) más media hora de gracia. Permite jornadas de más de 12 horas. */
+export const TOPE_HORAS_TURNO = 24.5;
 
 /**
  * Espejo exacto de la validación del disparador en la base. Marca, no rechaza.
@@ -86,7 +86,7 @@ export function validarLectura(
   if (fin != null && ini != null && fin < ini) return { valida: false, motivo: 'final menor que inicial' };
   // Un reinicio sienta base nueva (aparato cambiado): no se compara con lo anterior.
   if (!l.reinicio && ultimaValida != null && ini != null && ini < ultimaValida) return { valida: false, motivo: 'menor que la última lectura válida' };
-  if (fin != null && ini != null && fin - ini > TOPE_HORAS_TURNO) return { valida: false, motivo: 'salto mayor a 12,5 h' };
+  if (fin != null && ini != null && fin - ini > TOPE_HORAS_TURNO) return { valida: false, motivo: 'salto mayor a 24 h' };
   return { valida: true, motivo: '' };
 }
 
