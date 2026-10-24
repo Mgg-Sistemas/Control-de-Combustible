@@ -1162,6 +1162,10 @@ export interface Dispatch {
   total_amount: number | null;
   /** Fotos del surtido (URLs del bucket 'machinery'). */
   photos: string[] | null;
+  fuel_start?: number | null;
+  fuel_end?: number | null;
+  km_ida?: number | null;
+  km_vuelta?: number | null;
 }
 
 export interface Payroll {

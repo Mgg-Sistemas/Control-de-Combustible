@@ -71,6 +71,7 @@ function generarCodigoActa(contador: number): string {
 
 export default function ActaRecepcionScreen({ navigation, route }: any) {
   const { colors } = useTheme();
+  const toast = useToast();
   const { role, canSee, fullName, session } = useAuth();
   const tienePermiso = role === 'admin' || canSee('actas_recepcion');
 

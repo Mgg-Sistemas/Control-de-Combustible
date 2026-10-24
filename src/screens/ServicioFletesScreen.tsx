@@ -730,12 +730,11 @@ export default function ServicioFletesScreen({ navigation }: any) {
         {/* Lista de Fletes */}
         <View style={{ marginTop: spacing.lg }}>
           {loading ? (
-            <Loading message="Cargando servicio de fletes..." />
+            <Loading />
           ) : filteredFletes.length === 0 ? (
             <EmptyState
-              icon="🚚"
               title="No se encontraron fletes"
-              description="No hay registros de fletes para el rango o los filtros seleccionados."
+              subtitle="No hay registros de fletes para el rango o los filtros seleccionados."
             />
           ) : (
             <View style={{ gap: spacing.sm }}>

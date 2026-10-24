@@ -27,6 +27,7 @@ import { insertMachineService, MachineServiceKind } from '../lib/machineServices
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import EdificioPicker from '../components/EdificioPicker';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
+import SurtidorMovil from '../components/combustible/SurtidorMovil';
 
 // Máquina cargada del catálogo (solo los campos que usamos aquí).
 type Machine = {
@@ -83,6 +84,7 @@ export default function FuelDriverScreen() {
   const { colors } = useTheme();
   const { session, signOut } = useAuth();
   const uid = session?.user?.id ?? '';
+  const [activeTab, setActiveTab] = useState<'surtidor' | 'qr_averias'>('surtidor');
 
   const [driverName, setDriverName] = useState('');
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -442,24 +444,85 @@ export default function FuelDriverScreen() {
         <ChangePasswordButton />
       </View>
 
-      {/* Botón grande: ESCANEAR MÁQUINA */}
-      <TouchableOpacity
-        onPress={() => {
-          setScanMsg('');
-          setScanOpen(true);
-        }}
+      {/* Selector de modo: Surtidor de Combustible (Golden) vs Escáner / Averías */}
+      <View
         style={{
-          backgroundColor: colors.primary,
-          borderRadius: radius.md,
-          paddingVertical: spacing.lg,
-          alignItems: 'center',
-          marginBottom: spacing.sm,
+          flexDirection: 'row',
+          backgroundColor: colors.surfaceAlt,
+          borderRadius: radius.pill,
+          padding: 4,
+          marginBottom: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.border,
         }}
       >
-        <Text style={{ color: colors.primaryContrast, fontSize: 18, fontWeight: '800' }}>
-          📷 ESCANEAR MÁQUINA
-        </Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setActiveTab('surtidor')}
+          style={{
+            flex: 1,
+            paddingVertical: 9,
+            alignItems: 'center',
+            borderRadius: radius.pill,
+            backgroundColor: activeTab === 'surtidor' ? colors.primary : 'transparent',
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 13,
+              fontWeight: '800',
+              color: activeTab === 'surtidor' ? colors.primaryContrast : colors.text,
+            }}
+          >
+            📱 Surtidor con Tanques
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => setActiveTab('qr_averias')}
+          style={{
+            flex: 1,
+            paddingVertical: 9,
+            alignItems: 'center',
+            borderRadius: radius.pill,
+            backgroundColor: activeTab === 'qr_averias' ? colors.primary : 'transparent',
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 13,
+              fontWeight: '800',
+              color: activeTab === 'qr_averias' ? colors.primaryContrast : colors.text,
+            }}
+          >
+            🔍 Escáner QR & Averías
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'surtidor' ? (
+        <View style={{ flex: 1 }}>
+          <SurtidorMovil isStandalone />
+        </View>
+      ) : (
+        <>
+          {/* Botón grande: ESCANEAR MÁQUINA */}
+          <TouchableOpacity
+            onPress={() => {
+              setScanMsg('');
+              setScanOpen(true);
+            }}
+            style={{
+              backgroundColor: colors.primary,
+              borderRadius: radius.md,
+              paddingVertical: spacing.lg,
+              alignItems: 'center',
+              marginBottom: spacing.sm,
+            }}
+          >
+            <Text style={{ color: colors.primaryContrast, fontSize: 18, fontWeight: '800' }}>
+              📷 ESCANEAR MÁQUINA
+            </Text>
+          </TouchableOpacity>
       {scanMsg ? (
         <Text style={{ color: colors.danger, marginBottom: spacing.sm }}>{scanMsg}</Text>
       ) : null}
@@ -868,6 +931,8 @@ export default function FuelDriverScreen() {
         onPickCamera={() => onPhotoSourcePicked('camera')}
         onPickGallery={() => onPhotoSourcePicked('gallery')}
       />
+        </>
+      )}
     </Screen>
   );
 }
