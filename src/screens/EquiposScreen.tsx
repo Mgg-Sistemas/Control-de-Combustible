@@ -249,6 +249,11 @@ export default function EquiposScreen({ navigation, route }: any) {
   });
   const companies = useTable<Company>('companies');
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 120);
+    return () => clearTimeout(t);
+  }, [query]);
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('__all__'); // '__all__' | valor | '__none__'
@@ -355,17 +360,20 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Pre-calienta el GPS al entrar para que "Marcar ubicación" sea instantáneo.
   useEffect(() => { warmLocation(); }, []);
 
+  // Clave estable de IDs para no disparar las 7 consultas si los IDs de maquinaria no cambiaron
+  const machIdsKey = useMemo(() => machinery.data.map((m) => m.id).sort().join(','), [machinery.data]);
+
   // Carga el guardia/militar actual de cada máquina para mostrarlo en la ficha.
   const loadGuards = () => {
     const ids = machinery.data.map((m) => m.id);
     if (ids.length === 0) { setGuards({}); return; }
     fetchActiveGuards(ids).then(setGuards).catch(() => {});
   };
-  useEffect(() => { loadGuards(); }, [machinery.data]);
+  useEffect(() => { loadGuards(); }, [machIdsKey]);
 
   // Inspector "asignado" = quien hizo el último check-in en cada máquina.
   const loadInspectors = () => { latestInspectorByMachine().then(setInspectors).catch(() => {}); };
-  useEffect(() => { loadInspectors(); }, [machinery.data]);
+  useEffect(() => { loadInspectors(); }, [machIdsKey]);
 
   // Operador PLANEADO (día/noche) por máquina — asignación del Coordinador de Operadores
   // (machine_operators), independiente del inspector de arriba.
@@ -376,7 +384,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       setPlannedOperators(map);
     }).catch(() => {});
   };
-  useEffect(() => { loadPlannedOperators(); }, [machinery.data]);
+  useEffect(() => { loadPlannedOperators(); }, [machIdsKey]);
   // Operador planeado a mostrar en la tarjeta: el del turno vigente AHORA (mismo criterio
   // día/noche que `shiftOf()`, usado en toda la app para jornadas); si ese turno no tiene
   // a nadie planeado, cae al otro turno para no dejar la línea vacía si solo hay uno cargado.
@@ -394,7 +402,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // los mismos datos — ver AGENTS.md, "un solo lugar por regla de negocio".)
   const [inspByShift, setInspByShift] = useState<Record<string, InspByShiftEntry>>({});
   const loadInspByShift = () => { fetchInspByShift().then(setInspByShift).catch(() => {}); };
-  useEffect(() => { loadInspByShift(); }, [machinery.data]);
+  useEffect(() => { loadInspByShift(); }, [machIdsKey]);
 
   // Avería/parada reportada por un inspector (Mantenimiento de Maquinaria) — el Catálogo
   // no la mostraba: `operational` solo lo cambia el admin a mano con "⛔ Inactiva", así
@@ -406,7 +414,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // (fetch centralizado en src/lib/machineLiveStatus.ts — ver comentario de `inspByShift`.)
   const [averiaCat, setAveriaCat] = useState<Record<string, AveriaEntry>>({});
   const loadAveriaCat = () => { fetchAveriaCat().then(setAveriaCat).catch(() => {}); };
-  useEffect(() => { loadAveriaCat(); }, [machinery.data]);
+  useEffect(() => { loadAveriaCat(); }, [machIdsKey]);
 
   // Última inactividad RESUELTA (parada/avería ya cerrada con "Volver a Operativa" o
   // reactivación de jornada) por máquina — para mostrar en la ficha del catálogo un
@@ -435,7 +443,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       setLastInactivity(m);
     } catch {}
   };
-  useEffect(() => { loadLastInactivity(); }, [machinery.data]);
+  useEffect(() => { loadLastInactivity(); }, [machIdsKey]);
 
   // Estatus EN VIVO por jornada (machine_rounds): horas trabajadas hoy + jornada abierta.
   // Se lee la ronda de HOY (día de negocio Caracas) y la de ANOCHE si es una jornada de
@@ -444,7 +452,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // (fetch centralizado en src/lib/machineLiveStatus.ts — ver comentario de `inspByShift`.)
   const [jornadaCat, setJornadaCat] = useState<Record<string, JornadaEntry>>({});
   const loadJornadaCat = () => { fetchJornadaCat().then(setJornadaCat).catch(() => {}); };
-  useEffect(() => { loadJornadaCat(); }, [machinery.data]);
+  useEffect(() => { loadJornadaCat(); }, [machIdsKey]);
 
   // "Tick" en vivo: cada 60s re-renderiza para que las horas en curso crezcan solas.
   const [nowTick, setNowTick] = useState<number>(Date.now());
@@ -498,7 +506,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     const t = canonDim(m, catDim);
     return typeFilter === '__none__' ? !t : t === typeFilter;
   };
-  const q = norm(query.trim());
+  const q = norm(debouncedQuery.trim());
   const matchQ = (hay: any[]) => !q || hay.filter(Boolean).some((v: any) => norm(v).includes(q));
   // Catálogo unificado: maquinaria (agrupada por empresa) + vehículos.
   // Las máquinas INACTIVAS (No operativa) NO se muestran en el catálogo: solo
@@ -525,9 +533,12 @@ export default function EquiposScreen({ navigation, route }: any) {
     (m as any).marca, (m as any).modelo,
     inspectors[m.id]?.name, inspByShift[m.id]?.day, inspByShift[m.id]?.night,
   ];
-  const machineryList = machinery.data.filter(
-    (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchTapa(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, edificioLabel((m as any).referencia), companyName(m.company_id), tapaLabelOf(m), ...extrasBusqueda(m)])
-  );
+  const machineryList = useMemo(() => {
+    return machinery.data.filter(
+      (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchTapa(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, edificioLabel((m as any).referencia), companyName(m.company_id), tapaLabelOf(m), ...extrasBusqueda(m)])
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machinery.data, companyFilter, typeFilter, tapaFilter, q, catDim, companyName, inspectors, inspByShift]);
   // Opciones del filtro por la dimensión activa (Modelo/Clasificación), con conteo.
   const typeOptions = useMemo(() => {
     const c = new Map<string, number>();
@@ -543,7 +554,10 @@ export default function EquiposScreen({ navigation, route }: any) {
   }, [machinery.data, companyFilter, catDim]);
   // Los vehículos se muestran DENTRO del catálogo, agrupados por empresa igual que las
   // máquinas (no en una caja aparte). Respetan el filtro de empresa y la búsqueda.
-  const vehicleList = vehicles.data.filter((v) => matchCompany(v as any) && matchQ([v.name, v.plate, v.brand, v.model, v.vehicle_type, v.identifier, v.serial, v.encargado]));
+  const vehicleList = useMemo(() => {
+    return vehicles.data.filter((v) => matchCompany(v as any) && matchQ([v.name, v.plate, v.brand, v.model, v.vehicle_type, v.identifier, v.serial, v.encargado]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicles.data, companyFilter, q]);
   const totalResults = machineryList.length + vehicleList.length;
   const loading = machinery.loading || vehicles.loading;
   const refetchAll = () => { machinery.refetch(); vehicles.refetch(); };
@@ -627,6 +641,45 @@ export default function EquiposScreen({ navigation, route }: any) {
   // 🏷️ La clasificación de la ficha (misma regla en las tarjetas por categoría y
   //    en el filtro del detalle): vacía = «SIN CLASIFICACIÓN».
   const clasifDeMaquina = (m: Machinery) => (m.clasificacion && String(m.clasificacion).trim().toUpperCase()) || 'SIN CLASIFICACIÓN';
+
+  // ⚡ OPTIMIZACIÓN RENDIMIENTO: Memoización de definiciones y totales de tarjetas por categoría
+  const ESTADOS_CAT_DEFS = useMemo(() => [
+    { k: 'operativa' as EstadoTarjeta, s: 'active' as const, label: 'Operativas', color: colors.success },
+    { k: 'averiada' as EstadoTarjeta, s: 'averiada' as const, label: 'Averiadas', color: colors.warning },
+    { k: 'parada' as EstadoTarjeta, s: 'parada' as const, label: 'Paradas', color: '#B45309' },
+    { k: 'espera' as EstadoTarjeta, s: 'espera' as const, label: 'Esperando instrucciones', color: '#8B5CF6' },
+    { k: 'transferida' as EstadoTarjeta, s: 'transferida' as const, label: 'Transferidas a otros', color: '#0D9488' },
+  ], [colors]);
+
+  type FilaCat = { operativa: number; averiada: number; parada: number; espera: number; retirada: number; transferida: number; total: number };
+  const desgloseCategoriasData = useMemo(() => {
+    if (machinery.loading) return null;
+    const claseDe = clasifDeMaquina;
+    const vacia = (): FilaCat => ({ operativa: 0, averiada: 0, parada: 0, espera: 0, retirada: 0, transferida: 0, total: 0 });
+    const porCat = new Map<string, FilaCat>();
+    const suma = (lista: Machinery[], k: 'operativa' | 'averiada' | 'parada' | 'espera' | 'retirada' | 'transferida') =>
+      lista.forEach((m) => { const c = porCat.get(claseDe(m)) ?? vacia(); c[k] += 1; c.total += 1; porCat.set(claseDe(m), c); });
+
+    suma(activeMachines.filter((m) => liveStatusOf(m.id).estado !== 'parada'), 'operativa');
+    suma(activeMachines.filter((m) => liveStatusOf(m.id).estado === 'parada'), 'parada');
+    suma(averiadaMachines, 'averiada');
+    suma(esperaMachines, 'espera');
+    suma(transferidaMachines, 'transferida');
+    const cats = Array.from(porCat.entries()).sort((a, b) => cmpText(a[0], b[0]));
+    const total = vacia();
+    cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.parada += c.parada; total.espera += c.espera; total.transferida += c.transferida; total.total += c.total; });
+    return { cats, total };
+  }, [machinery.loading, activeMachines, averiadaMachines, esperaMachines, transferidaMachines, liveStatusOf]);
+
+  const tapaCounts = useMemo(() => {
+    const base = machinery.data.filter((m) => m.operational !== false && matchCompany(m) && esEscombro(m));
+    return {
+      __all__: base.length,
+      sencilla: base.filter((m) => !!m.con_tapa && !m.tapa_doble).length,
+      doble: base.filter((m) => !!m.con_tapa && !!m.tapa_doble).length,
+      sin: base.filter((m) => !m.con_tapa).length,
+    } as const;
+  }, [machinery.data, companyFilter]);
   // Detalle acotado a UNA categoría (14-oct-2026, a pedido: «si yo selecciono las
   // retiradas me salga las retiradas de ESA categoría»). null = todas, como siempre.
   const [detailCat, setDetailCat] = useState<string | null>(null);
@@ -2180,41 +2233,10 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         );
       })()}
 
-      {/* 🏷️ DESGLOSE POR CATEGORÍA (14-oct-2026, a pedido: «una tarjeta por
-          categoría con todas las máquinas por estado… y al final una tarjeta con
-          el total de todas las categorías»). Usa la CLASIFICACIÓN de la ficha y
-          los MISMOS buckets EXCLUYENTES de los cubos de arriba — las sumas de
-          las tarjetas siempre cuadran con los cubos. */}
-      {!machinery.loading ? (() => {
-        const claseDe = clasifDeMaquina; // misma regla que el filtro del detalle
-        type FilaCat = { operativa: number; averiada: number; parada: number; espera: number; retirada: number; transferida: number; total: number };
-        const vacia = (): FilaCat => ({ operativa: 0, averiada: 0, parada: 0, espera: 0, retirada: 0, transferida: 0, total: 0 });
-        const porCat = new Map<string, FilaCat>();
-        const suma = (lista: Machinery[], k: 'operativa' | 'averiada' | 'parada' | 'espera' | 'retirada' | 'transferida') =>
-          lista.forEach((m) => { const c = porCat.get(claseDe(m)) ?? vacia(); c[k] += 1; c.total += 1; porCat.set(claseDe(m), c); });
-        // 🟡 Las PARADAS se cuentan aparte (20-oct-2026, a pedido): si la tarjeta
-        //    no muestra ese renglón, se suman de vuelta a «Operativas» al pintar —
-        //    el total de la tarjeta no cambia nunca por una preferencia visual.
-        suma(activeMachines.filter((m) => liveStatusOf(m.id).estado !== 'parada'), 'operativa');
-        suma(activeMachines.filter((m) => liveStatusOf(m.id).estado === 'parada'), 'parada');
-        suma(averiadaMachines, 'averiada');
-        suma(esperaMachines, 'espera');
-        // 🚫 Las RETIRADAS no se suman ni se muestran en estas tarjetas (14-oct-2026,
-        //    a pedido: «que en ninguno de eso se vea ni se cuente las retiradas»).
-        //    No se eliminan de ningún lado: siguen en los cubos por estado (ocultos
-        //    tras «Mostrar cubos por estado») y en su lista de siempre. Por eso el
-        //    configurador de abajo tampoco las ofrece.
-        suma(transferidaMachines, 'transferida');
-        const cats = Array.from(porCat.entries()).sort((a, b) => cmpText(a[0], b[0]));
-        const total = vacia();
-        cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.parada += c.parada; total.espera += c.espera; total.transferida += c.transferida; total.total += c.total; });
-        const ESTADOS_CAT: { k: EstadoTarjeta; s: 'active' | 'averiada' | 'parada' | 'espera' | 'transferida'; label: string; color: string }[] = [
-          { k: 'operativa', s: 'active', label: 'Operativas', color: colors.success },
-          { k: 'averiada', s: 'averiada', label: 'Averiadas', color: colors.warning },
-          { k: 'parada', s: 'parada', label: 'Paradas', color: '#B45309' },
-          { k: 'espera', s: 'espera', label: 'Esperando instrucciones', color: '#8B5CF6' },
-          { k: 'transferida', s: 'transferida', label: 'Transferidas a otros', color: '#0D9488' },
-        ];
+      {/* 🏷️ DESGLOSE POR CATEGORÍA MEMOIZADO (alto rendimiento):
+          Usa desgloseCategoriasData precalculado sin iterar en cada frame */}
+      {desgloseCategoriasData ? (() => {
+        const { cats, total } = desgloseCategoriasData;
         // VERTICAL y CLICKEABLE (14-oct-2026, a pedido): un renglón por estado;
         // tocarlo abre el detalle de ESE estado acotado a ESA categoría (en la
         // tarjeta Σ, sin acotar: todas las categorías).
@@ -2224,7 +2246,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         const filaEstados = (c: FilaCat, cat: string | null) => {
           const visibles = new Set(estadosDeTarjeta(tarjetasCfg, cat ?? TARJETA_TOTAL));
           const valorDe = (k: EstadoTarjeta) => (k === 'operativa' && !visibles.has('parada') ? c.operativa + c.parada : c[k]);
-          const lista = ESTADOS_CAT.filter((e) => visibles.has(e.k));
+          const lista = ESTADOS_CAT_DEFS.filter((e) => visibles.has(e.k));
           return (
             <View style={{ marginTop: 4 }}>
               {lista.length === 0 ? (
@@ -2270,7 +2292,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                         {nombre === TARJETA_TOTAL ? 'Σ TODAS LAS CATEGORÍAS' : `🏷️ ${nombre}`}
                       </Text>
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 3 }}>
-                        {ESTADOS_CAT.map((e) => {
+                        {ESTADOS_CAT_DEFS.map((e) => {
                           const on = visibles.has(e.k);
                           return (
                             <TouchableOpacity key={`cfg-${nombre}-${e.k}`} onPress={() => alternarTarjeta(nombre, e.k)}
@@ -2416,30 +2438,20 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       <View style={{ marginTop: spacing.sm }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por tapa</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
-          {(() => {
-            const base = machinery.data.filter((m) => m.operational !== false && matchCompany(m) && esEscombro(m));
-            const counts = {
-              __all__: base.length,
-              sencilla: base.filter((m) => !!m.con_tapa && !m.tapa_doble).length,
-              doble: base.filter((m) => !!m.con_tapa && !!m.tapa_doble).length,
-              sin: base.filter((m) => !m.con_tapa).length,
-            } as const;
-            const chips: [typeof tapaFilter, string][] = [['__all__', 'Todas'], ['sencilla', '🛡️ Tapa sencilla'], ['doble', '🛡️🛡️ Doble tapa'], ['sin', 'Sin tapa']];
-            return chips.map(([val, label]) => {
-              const active = tapaFilter === val;
-              return (
-                <TouchableOpacity
-                  key={val}
-                  onPress={() => setTapaFilter(val)}
-                  activeOpacity={0.7}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: active ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
-                >
-                  <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
-                  <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12 }}>({counts[val]})</Text>
-                </TouchableOpacity>
-              );
-            });
-          })()}
+          {([['__all__', 'Todas'], ['sencilla', '🛡️ Tapa sencilla'], ['doble', '🛡️🛡️ Doble tapa'], ['sin', 'Sin tapa']] as [typeof tapaFilter, string][]).map(([val, label]) => {
+            const active = tapaFilter === val;
+            return (
+              <TouchableOpacity
+                key={val}
+                onPress={() => setTapaFilter(val)}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: active ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+              >
+                <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
+                <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12 }}>({tapaCounts[val]})</Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
 
