@@ -4823,6 +4823,17 @@ que antes no quedaban:
 Se filtra por **día**, por **usuario** y por **tipo**. Tocando un renglón se ve el detalle
 completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 
+> **🔎 Buscar por un nombre que la máquina ya no tiene (24/10/2026, a pedido: «si yo busco APP26
+> en auditoría me debería salir el día que le cambiaron el nombre»).** El buscador reconocía una
+> máquina solo por su ficha **de hoy** (código, placa, serial, identificador, encargado, modelo,
+> clasificación, referencia). Si le habían corregido el serial, el viejo ya no estaba en ninguna
+> ficha y la búsqueda no traía nada. Ahora también mira el **antes y el después** de los cambios
+> de esos mismos campos: escribir el serial, código o placa **viejo** trae **el cambio donde se lo
+> quitaron** (con quién y cuándo, y «APP26 → el nuevo» al abrirlo) **aunque haya sido fuera del
+> rango de fechas** que tengas puesto, y además la historia de esa máquina dentro del rango. Para
+> ver toda su historia, marca *«🕘 Buscar en TODO el historial»* como siempre. Es una búsqueda
+> liviana: solo revisa los cambios de máquinas y vehículos, no la bitácora entera.
+
 > **🚜 «¿Quién puso esta máquina retirada?» — filtro propio (20/08/2026):** debajo del contador de
 > acciones hay una casilla nueva: **«🚜 Estados de máquina — quién la retiró, reactivó o puso en
 > espera»**. Al marcarla la bitácora deja **solo** las acciones que cambiaron el estado de una
