@@ -91,7 +91,7 @@ export default function DispatchesPilot() {
         table="dispatches"
         orderBy="dispatch_date"
         ascending={false}
-        select="*, machine:machinery_id(code), vehicle:vehicle_id(plate)"
+        select="*, machine:machinery_id(code, plate, serial, tipo), vehicle:vehicle_id(plate, name, model)"
         editable
         dateField="dispatch_date"
         defaultToday
@@ -103,7 +103,11 @@ export default function DispatchesPilot() {
         // Buscable por TODAS las características útiles del movimiento.
         searchText={(d: any) => [
           d.machine?.code,
+          d.machine?.plate,
+          d.machine?.tipo,
           d.vehicle?.plate,
+          d.vehicle?.name,
+          d.vehicle?.model,
           d.driver_operator,
           d.asset_kind,
           d.dispatch_date,
@@ -133,6 +137,8 @@ export default function DispatchesPilot() {
         ]}
         renderItem={(d) => {
           const fotos = ((d as any).photos ?? []).filter(Boolean) as string[];
+          const mach = (d as any).machine;
+          const veh = (d as any).vehicle;
           return (
             <>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -141,8 +147,20 @@ export default function DispatchesPilot() {
               </View>
               <View style={{ marginTop: 6 }}>
                 <RRow label="Fecha" value={d.dispatch_date} />
-                {(d as any).machine?.code ? <RRow label="Máquina" value={(d as any).machine.code} mono /> : null}
-                {(d as any).vehicle?.plate ? <RRow label="Placa" value={(d as any).vehicle.plate} mono /> : null}
+                {mach ? (
+                  <RRow
+                    label="Máquina"
+                    value={`${mach.code || '—'}${mach.plate ? ` · 🚗 Placa: ${mach.plate}` : ''}${mach.tipo ? ` (${mach.tipo})` : ''}`}
+                    mono
+                  />
+                ) : null}
+                {veh ? (
+                  <RRow
+                    label="Vehículo"
+                    value={`🚗 Placa: ${veh.plate || '—'}${veh.name ? ` · ${veh.name}` : ''}${veh.model ? ` (${veh.model})` : ''}`}
+                    mono
+                  />
+                ) : null}
                 {d.driver_operator ? <RRow label="Conductor/Operador" value={d.driver_operator} /> : null}
                 {d.odometer_km != null ? <RRow label="Odómetro" value={`${d.odometer_km} km`} mono /> : null}
                 {d.hourmeter_h != null ? <RRow label="Horómetro" value={`${d.hourmeter_h} h`} mono /> : null}

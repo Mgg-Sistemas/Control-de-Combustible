@@ -194,9 +194,9 @@ export function RecordForm({
         // Columnas extra para DISTINGUIR opciones con el mismo nombre (p. ej. dos tanques
         // "TANQUE DE COMBUSTIBLE"): se agregan al label como " · valor" (ubicación,
         // responsable…). Solo se muestran las que tengan valor.
-        const subCols = f.subLabelCols ?? [];
-        const extra = [f.activeCol, ...subCols].filter(Boolean).join(', ');
-        let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}${extra ? `, ${extra}` : ''}`);
+        const subCols = f.subLabelCols ?? (f.table === 'machinery' ? ['plate'] : []);
+        const queryCols = Array.from(new Set([f.activeCol, ...subCols, ...(f.table === 'machinery' ? ['plate'] : [])].filter(Boolean))).join(', ');
+        let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}${queryCols ? `, ${queryCols}` : ''}`);
         if (f.filter) Object.entries(f.filter).forEach(([col, val]) => { qb = qb.eq(col, val); });
         const { data } = await qb;
         const activeCol = f.activeCol;
@@ -204,7 +204,20 @@ export function RecordForm({
           ...prev,
           [f.key]: (data ?? [])
             .map((r: any) => {
-              const sub = subCols.map((c) => String(r[c] ?? '').trim()).filter(Boolean).join(' · ');
+              const subItems = subCols
+                .map((c) => {
+                  const val = String(r[c] ?? '').trim();
+                  if (!val) return '';
+                  if (c === 'plate' || c === 'placa') return `🚗 Placa: ${val}`;
+                  if (c === 'serial') return `Serial: ${val}`;
+                  return val;
+                })
+                .filter(Boolean);
+              if (f.table === 'machinery' && !subItems.some((s) => s.includes('Placa'))) {
+                const p = String(r.plate ?? '').trim();
+                subItems.push(p ? `🚗 Placa: ${p}` : '🚗 Placa: S/P');
+              }
+              const sub = subItems.join(' · ');
               const base = String(r[f.labelCol]);
               const withSub = sub ? `${base} · ${sub}` : base;
               return {
@@ -680,6 +693,11 @@ function SearchSelectChip({
   styles: ReturnType<typeof makeStyles>;
   onPress: (v: string) => void;
 }) {
+  const raw = option.label || '';
+  const parts = raw.split(' · ');
+  const mainTitle = parts[0] || '';
+  const details = parts.slice(1).join(' · ');
+
   return (
     <TouchableOpacity
       onPress={() => onPress(option.value)}
@@ -689,13 +707,28 @@ function SearchSelectChip({
         numberOfLines={2}
         style={{
           color: active ? colors.primaryContrast : colors.text,
-          fontSize: 15,
-          fontWeight: '600',
+          fontSize: 13,
+          fontWeight: '800',
           textAlign: 'center',
         }}
       >
-        {shortLabel(option.label)}
+        {mainTitle}
       </Text>
+      {details ? (
+        <Text
+          numberOfLines={2}
+          style={{
+            color: active ? colors.primaryContrast : colors.muted,
+            fontSize: 11,
+            fontWeight: '700',
+            textAlign: 'center',
+            marginTop: 3,
+            opacity: active ? 0.95 : 1,
+          }}
+        >
+          {details}
+        </Text>
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -999,7 +1032,8 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   ssChip: {
-    width: 104,
+    minWidth: 130,
+    maxWidth: 300,
     minHeight: 56,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -1007,8 +1041,8 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
   ssChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   selectedRow: {

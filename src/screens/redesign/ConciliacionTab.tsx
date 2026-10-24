@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTable } from '../../hooks/useTable';
 import { Tank, TankLevel, FuelIntake, Dispatch, Transfer } from '../../types/database';
 import { exportarConciliacionPdf, FilaConciliacionCombustible } from '../../lib/combustiblePdf';
+import { exportarConciliacionExcel } from '../../lib/combustibleExcel';
 import { useToast } from '../../components/ToastProvider';
 
 const fmtNum = (n: number | null | undefined) =>
@@ -24,23 +25,44 @@ export default function ConciliacionTab() {
   const { fullName, session } = useAuth();
   const currentUserName = fullName || session?.user?.email || 'Encargado de Combustible';
 
-  const { data: tanks, loading: loadingTanks } = useTable<Tank>('tanks', { realtimeFrom: ['tanks', 'stock_movements', 'dispatches', 'fuel_intakes', 'transfers'] });
-  const { data: tankLevels } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks', 'dispatches', 'fuel_intakes', 'transfers'] });
-  const { data: intakes } = useTable<FuelIntake>('fuel_intakes', { realtimeFrom: ['fuel_intakes'] });
-  const { data: dispatches } = useTable<Dispatch>('dispatches', { realtimeFrom: ['dispatches'] });
-  const { data: transfers } = useTable<Transfer>('transfers', { realtimeFrom: ['transfers'] });
+  const { data: tanks, loading: loadingTanks, refetch: refetchTanks } = useTable<Tank>('tanks', { realtimeFrom: ['tanks', 'stock_movements', 'dispatches', 'fuel_intakes', 'transfers'] });
+  const { data: tankLevels, refetch: refetchLevels } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks', 'dispatches', 'fuel_intakes', 'transfers'] });
+  const { data: intakes, refetch: refetchIntakes } = useTable<FuelIntake>('fuel_intakes', { realtimeFrom: ['fuel_intakes'] });
+  const { data: dispatches, refetch: refetchDispatches } = useTable<Dispatch>('dispatches', { realtimeFrom: ['dispatches'] });
+  const { data: transfers, refetch: refetchTransfers } = useTable<Transfer>('transfers', { realtimeFrom: ['transfers'] });
 
   const [desde, setDesde] = useState(daysAgoIso(7));
   const [hasta, setHasta] = useState(todayIso());
   const [elaboradoPor, setElaboradoPor] = useState(currentUserName);
   const [revisadoPor, setRevisadoPor] = useState('Auditoría Interna');
   const [observaciones, setObservaciones] = useState('');
-  const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   // Mediciones físicas auditadas por tanque (ingresadas por el encargado/auditor)
   const [medicionesFisicas, setMedicionesFisicas] = useState<Record<string, string>>({});
 
   const activeTanks = useMemo(() => (tanks || []).filter((t) => t.active !== false), [tanks]);
+
+  // Sincronización manual en tiempo real
+  const handleSincronizar = async () => {
+    setSyncing(true);
+    try {
+      await Promise.all([
+        refetchTanks?.(),
+        refetchLevels?.(),
+        refetchIntakes?.(),
+        refetchDispatches?.(),
+        refetchTransfers?.(),
+      ]);
+      toast.success('Conciliación sincronizada con los últimos datos.');
+    } catch (err: any) {
+      toast.error('Error al sincronizar datos: ' + (err?.message || 'Error'));
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Cálculo de la conciliación por tanque en el período
   const filasConciliacion: FilaConciliacionCombustible[] = useMemo(() => {
@@ -99,7 +121,7 @@ export default function ConciliacionTab() {
   }, [activeTanks, tankLevels, intakes, dispatches, transfers, desde, hasta, medicionesFisicas]);
 
   const handleDescargarPdf = async () => {
-    setExporting(true);
+    setExportingPdf(true);
     try {
       await exportarConciliacionPdf({
         periodoDesde: desde,
@@ -109,11 +131,34 @@ export default function ConciliacionTab() {
         observaciones: observaciones.trim() || undefined,
         filas: filasConciliacion,
       });
-      toast.success('Acta de conciliación descargada con éxito.');
+      toast.success('Acta de conciliación descargada en PDF.');
     } catch (err: any) {
-      toast.error('Error al exportar conciliación: ' + (err?.message || 'Error'));
+      toast.error('Error al exportar conciliación en PDF: ' + (err?.message || 'Error'));
     } finally {
-      setExporting(false);
+      setExportingPdf(false);
+    }
+  };
+
+  const handleDescargarExcel = async () => {
+    setExportingExcel(true);
+    try {
+      const ok = await exportarConciliacionExcel({
+        periodoDesde: desde,
+        periodoHasta: hasta,
+        elaboradoPor: elaboradoPor.trim() || currentUserName,
+        revisadoPor: revisadoPor.trim() || undefined,
+        observaciones: observaciones.trim() || undefined,
+        filas: filasConciliacion,
+      });
+      if (ok) {
+        toast.success('Conciliación exportada a Excel (.xlsx).');
+      } else {
+        toast.error('La exportación a Excel solo está disponible en entorno Web.');
+      }
+    } catch (err: any) {
+      toast.error('Error al exportar conciliación a Excel: ' + (err?.message || 'Error'));
+    } finally {
+      setExportingExcel(false);
     }
   };
 
@@ -127,15 +172,47 @@ export default function ConciliacionTab() {
           padding: spacing.md,
           borderWidth: 1,
           borderColor: colors.border,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: spacing.sm,
         }}
       >
-        <Text style={{ fontSize: 16, fontWeight: '900', color: colors.text }}>
-          📊 Conciliación & Cierre Periódico de Combustible
-        </Text>
-        <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
-          Audita el balance volumétrico de combustible (Saldo inicial + Entradas - Consumos ± Traslados = Saldo
-          Teórico) y coteja con la medición física de vara para cerrar el período y emitir el acta formal.
-        </Text>
+        <View style={{ flex: 1, minWidth: 260 }}>
+          <Text style={{ fontSize: 16, fontWeight: '900', color: colors.text }}>
+            📊 Conciliación & Cierre Periódico de Combustible
+          </Text>
+          <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
+            Audita el balance volumétrico de combustible (Saldo inicial + Entradas - Consumos ± Traslados = Saldo
+            Teórico) y coteja con la medición física de vara para cerrar el período y emitir el acta formal.
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          onPress={handleSincronizar}
+          disabled={syncing}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: colors.surfaceAlt,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.sm,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: colors.primary,
+            gap: 6,
+          }}
+        >
+          {syncing ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Text style={{ fontSize: 14 }}>🔄</Text>
+          )}
+          <Text style={{ fontSize: 13, fontWeight: '800', color: colors.primary }}>
+            {syncing ? 'Sincronizando…' : 'Sincronizar datos'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Rango de Fechas y Firmantes */}
@@ -346,27 +423,52 @@ export default function ConciliacionTab() {
           })}
         </View>
 
-        {/* Botón Exportar PDF */}
-        <TouchableOpacity
-          onPress={handleDescargarPdf}
-          disabled={exporting}
-          style={{
-            backgroundColor: colors.primary,
-            borderRadius: radius.md,
-            paddingVertical: spacing.md,
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginTop: spacing.lg,
-          }}
-        >
-          {exporting ? (
-            <ActivityIndicator color={colors.primaryContrast} />
-          ) : (
-            <Text style={{ fontSize: 15, fontWeight: '900', color: colors.primaryContrast }}>
-              📄 Descargar Acta de Conciliación en PDF
-            </Text>
-          )}
-        </TouchableOpacity>
+        {/* Botones de Exportación ("Sacarlo" en PDF y Excel) */}
+        <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg, flexWrap: 'wrap' }}>
+          <TouchableOpacity
+            onPress={handleDescargarPdf}
+            disabled={exportingPdf || exportingExcel}
+            style={{
+              flex: 1,
+              minWidth: 200,
+              backgroundColor: colors.primary,
+              borderRadius: radius.md,
+              paddingVertical: spacing.md,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {exportingPdf ? (
+              <ActivityIndicator color={colors.primaryContrast} />
+            ) : (
+              <Text style={{ fontSize: 14, fontWeight: '900', color: colors.primaryContrast }}>
+                📄 Descargar Acta en PDF
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleDescargarExcel}
+            disabled={exportingPdf || exportingExcel}
+            style={{
+              flex: 1,
+              minWidth: 200,
+              backgroundColor: '#1E7E34', // Verde Excel corporativo
+              borderRadius: radius.md,
+              paddingVertical: spacing.md,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {exportingExcel ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={{ fontSize: 14, fontWeight: '900', color: '#FFFFFF' }}>
+                📊 Exportar a Excel (.xlsx)
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     </ScrollView>
   );
