@@ -46,11 +46,11 @@ export function RRow({ label, value, mono = false }: { label: string; value: Rea
       <Text
         {...(mono ? figFont : {})}
         style={[
-          { color: colors.text, fontSize: 12.5, fontWeight: '600', textAlign: 'right' },
+          { color: colors.text, fontSize: 12.5, fontWeight: '600', textAlign: 'right', flexShrink: 1 },
           mono ? { fontVariant: ['tabular-nums'] as any } : null,
           mono ? figFontStyle : null,
         ]}
-        numberOfLines={1}
+        numberOfLines={2}
       >
         {value}
       </Text>

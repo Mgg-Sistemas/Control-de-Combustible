@@ -45,7 +45,9 @@ function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
     const day = String(d.dispatch_date).slice(0, 10);
     byDay.set(day, (byDay.get(day) || 0) + (Number(d.liters) || 0));
     const code = d.machine?.code || '—';
-    byMachine.set(code, (byMachine.get(code) || 0) + (Number(d.liters) || 0));
+    const plate = d.machine?.plate ? ` · 🚗 ${d.machine.plate}` : '';
+    const label = `${code}${plate}`;
+    byMachine.set(label, (byMachine.get(label) || 0) + (Number(d.liters) || 0));
   });
   const days = Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   const machines = Array.from(byMachine.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
@@ -99,11 +101,12 @@ export default function DispatchesPilot() {
         emptyTitle="Sin consumos"
         emptySubtitle="Registra los despachos a vehículos o maquinaria."
         formTitle="Nuevo consumo"
-        searchPlaceholder="Buscar por máquina, placa, conductor, tanque, litros…"
+        searchPlaceholder="Buscar por máquina, placa, serial, conductor, tanque, litros…"
         // Buscable por TODAS las características útiles del movimiento.
         searchText={(d: any) => [
           d.machine?.code,
           d.machine?.plate,
+          d.machine?.serial,
           d.machine?.tipo,
           d.vehicle?.plate,
           d.vehicle?.name,
@@ -202,18 +205,34 @@ export default function DispatchesPilot() {
                   </View>
                 )}
                 {mach ? (
-                  <RRow
-                    label="Máquina"
-                    value={`${mach.code || '—'}${mach.plate ? ` · 🚗 Placa: ${mach.plate}` : ''}${mach.tipo ? ` (${mach.tipo})` : ''}`}
-                    mono
-                  />
+                  <>
+                    <RRow label="Máquina" value={mach.code || '—'} mono />
+                    <RRow
+                      label="🚗 Placa"
+                      value={mach.plate ? String(mach.plate).trim() : 'S/P (Sin placa)'}
+                      mono
+                    />
+                    <RRow
+                      label="🔢 Serial"
+                      value={mach.serial ? String(mach.serial).trim() : 'S/S (Sin serial)'}
+                      mono
+                    />
+                    {mach.tipo ? <RRow label="Tipo" value={mach.tipo} /> : null}
+                  </>
                 ) : null}
                 {veh ? (
-                  <RRow
-                    label="Vehículo"
-                    value={`🚗 Placa: ${veh.plate || '—'}${veh.name ? ` · ${veh.name}` : ''}${veh.model ? ` (${veh.model})` : ''}`}
-                    mono
-                  />
+                  <>
+                    <RRow
+                      label="Vehículo"
+                      value={veh.name ? `${veh.name}${veh.model ? ` (${veh.model})` : ''}` : 'Vehículo'}
+                      mono
+                    />
+                    <RRow
+                      label="🚗 Placa"
+                      value={veh.plate ? String(veh.plate).trim() : 'S/P (Sin placa)'}
+                      mono
+                    />
+                  </>
                 ) : null}
                 {d.driver_operator ? <RRow label="Conductor/Operador" value={d.driver_operator} /> : null}
                 {d.odometer_km != null ? <RRow label="Odómetro" value={`${d.odometer_km} km`} mono /> : null}
