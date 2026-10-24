@@ -11,8 +11,8 @@ const fmtNum = (n: number | null | undefined) =>
 
 export default function CubicacionTab() {
   const { colors } = useTheme();
-  const { data: tanks } = useTable<Tank>('tanks');
-  const { data: tankLevels } = useTable<TankLevel>('tank_levels');
+  const { data: tanks } = useTable<Tank>('tanks', { realtimeFrom: ['tanks', 'stock_movements', 'dispatches', 'fuel_intakes', 'transfers'] });
+  const { data: tankLevels } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks', 'dispatches', 'fuel_intakes', 'transfers'] });
 
   const [selectedTankId, setSelectedTankId] = useState<string>('');
   const [tipoGeom, setTipoGeom] = useState<TipoGeometriaTanque>('cilindrico_horizontal');

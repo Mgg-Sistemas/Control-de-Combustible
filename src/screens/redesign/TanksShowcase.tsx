@@ -26,7 +26,7 @@ const LOW_PCT = 20;
 export default function TanksShowcase() {
   const { colors } = useTheme();
   const fontsReady = useBrandFonts();
-  const { data, loading, refetch } = useTable<TankLevelType>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
+  const { data, loading, refetch } = useTable<TankLevelType>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks', 'dispatches', 'fuel_intakes', 'transfers'] });
   // Usuarios que tienen combustible (conductores/choferes de combustible) para
   // vincular el RESPONSABLE del tanque a una persona real en vez de texto libre.
   const { data: usuarios } = useTable<any>('profiles', { orderBy: 'full_name' });

@@ -51,10 +51,10 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
 
   // 1. Datos principales
   const { data: tanks, loading: loadingTanks, refetch: refetchTanks } = useTable<Tank>('tanks', {
-    realtimeFrom: ['tanks', 'stock_movements'],
+    realtimeFrom: ['tanks', 'stock_movements', 'dispatches', 'fuel_intakes', 'transfers'],
   });
   const { data: tankLevels, refetch: refetchLevels } = useTable<TankLevel>('tank_levels', {
-    realtimeFrom: ['stock_movements', 'tanks'],
+    realtimeFrom: ['stock_movements', 'tanks', 'dispatches', 'fuel_intakes', 'transfers'],
   });
   const { data: machineryList } = useTable<Machinery>('machinery', {
     realtimeFrom: ['machinery'],

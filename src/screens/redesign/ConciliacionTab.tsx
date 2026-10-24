@@ -24,11 +24,11 @@ export default function ConciliacionTab() {
   const { fullName, session } = useAuth();
   const currentUserName = fullName || session?.user?.email || 'Encargado de Combustible';
 
-  const { data: tanks, loading: loadingTanks } = useTable<Tank>('tanks');
-  const { data: tankLevels } = useTable<TankLevel>('tank_levels');
-  const { data: intakes } = useTable<FuelIntake>('fuel_intakes');
-  const { data: dispatches } = useTable<Dispatch>('dispatches');
-  const { data: transfers } = useTable<Transfer>('transfers');
+  const { data: tanks, loading: loadingTanks } = useTable<Tank>('tanks', { realtimeFrom: ['tanks', 'stock_movements', 'dispatches', 'fuel_intakes', 'transfers'] });
+  const { data: tankLevels } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks', 'dispatches', 'fuel_intakes', 'transfers'] });
+  const { data: intakes } = useTable<FuelIntake>('fuel_intakes', { realtimeFrom: ['fuel_intakes'] });
+  const { data: dispatches } = useTable<Dispatch>('dispatches', { realtimeFrom: ['dispatches'] });
+  const { data: transfers } = useTable<Transfer>('transfers', { realtimeFrom: ['transfers'] });
 
   const [desde, setDesde] = useState(daysAgoIso(7));
   const [hasta, setHasta] = useState(todayIso());

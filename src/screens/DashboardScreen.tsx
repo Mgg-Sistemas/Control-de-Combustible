@@ -85,7 +85,7 @@ export default function DashboardScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const isMobile = screenWidth < 680;
-  const { data: tanks, loading } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
+  const { data: tanks, loading } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks', 'dispatches', 'fuel_intakes', 'transfers'] });
 
   const [activeMachines, setActiveMachines] = useState<number | null>(null);
   // Detalle de las máquinas activas (con ronda) agrupadas por empresa.
