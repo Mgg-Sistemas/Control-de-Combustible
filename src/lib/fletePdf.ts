@@ -37,6 +37,8 @@ export interface ParsedFleteNote {
   cedulaConductor?: string;
   cliente?: string;
   detalle: string;
+  viajeIds?: string[];
+  tickets?: string[];
 }
 
 export function parseFleteNote(raw?: string | null): ParsedFleteNote {
@@ -50,6 +52,8 @@ export function parseFleteNote(raw?: string | null): ParsedFleteNote {
   let cedulaConductor = '';
   let cliente = '';
   let detalle = str;
+  let viajeIds: string[] = [];
+  let tickets: string[] = [];
 
   const match = str.match(/^\[([^\]]+)\]\s*(.*)$/s);
   if (match) {
@@ -77,8 +81,14 @@ export function parseFleteNote(raw?: string | null): ParsedFleteNote {
 
     const cliMatch = meta.match(/CLIENTE:([^|]+)/);
     if (cliMatch) cliente = cliMatch[1].trim();
+
+    const vIdsMatch = meta.match(/VIAJES_IDS:([^|]+)/);
+    if (vIdsMatch) viajeIds = vIdsMatch[1].split(',').map((x) => x.trim()).filter(Boolean);
+
+    const tksMatch = meta.match(/TICKETS:([^|]+)/);
+    if (tksMatch) tickets = tksMatch[1].split(',').map((x) => x.trim()).filter(Boolean);
   }
-  return { operacionTipo, operacionEstado, modalidad, origen, destino, conductor, cedulaConductor, cliente, detalle };
+  return { operacionTipo, operacionEstado, modalidad, origen, destino, conductor, cedulaConductor, cliente, detalle, viajeIds, tickets };
 }
 
 export function formatFleteNote(opts: {
@@ -91,6 +101,8 @@ export function formatFleteNote(opts: {
   cedulaConductor?: string;
   cliente?: string;
   detalle?: string;
+  viajeIds?: string[];
+  tickets?: string[];
 }): string {
   const parts = [
     opts.operacionTipo === 'cobrar' ? 'POR_COBRAR' : 'POR_PAGAR',
@@ -113,6 +125,12 @@ export function formatFleteNote(opts: {
   }
   if (opts.cliente && opts.cliente.trim()) {
     parts.push(`CLIENTE:${opts.cliente.trim()}`);
+  }
+  if (opts.viajeIds && opts.viajeIds.length > 0) {
+    parts.push(`VIAJES_IDS:${opts.viajeIds.join(',')}`);
+  }
+  if (opts.tickets && opts.tickets.length > 0) {
+    parts.push(`TICKETS:${opts.tickets.join(',')}`);
   }
   const meta = `[${parts.join('|')}]`;
   const text = (opts.detalle || '').trim();

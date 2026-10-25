@@ -93,6 +93,22 @@ export default function ServicioFletesScreen({ navigation }: any) {
   const [formMachinePicker, setFormMachinePicker] = useState(false);
   const [formMachineQuery, setFormMachineQuery] = useState('');
 
+  // Modal Importar desde Viajes de Camiones
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [importDate, setImportDate] = useState(today);
+  const [importMachineId, setImportMachineId] = useState<string | null>(null);
+  const [importMachinePicker, setImportMachinePicker] = useState(false);
+  const [importMachineQuery, setImportMachineQuery] = useState('');
+  const [candidateViajes, setCandidateViajes] = useState<any[]>([]);
+  const [loadingViajes, setLoadingViajes] = useState(false);
+  const [selectedViajeIds, setSelectedViajeIds] = useState<string[]>([]);
+  const [importPrecio, setImportPrecio] = useState('');
+  const [importOperacionTipo, setImportOperacionTipo] = useState<'pagar' | 'cobrar'>('pagar');
+  const [importCompanyId, setImportCompanyId] = useState('');
+  const [importCliente, setImportCliente] = useState('');
+  const [importNote, setImportNote] = useState('');
+  const [importSaving, setImportSaving] = useState(false);
+
   // Cargar datos
   const loadData = useCallback(async () => {
     try {
@@ -133,6 +149,149 @@ export default function ServicioFletesScreen({ navigation }: any) {
     if (!formCompanyId) return machinery;
     return machinery.filter((m) => m.company_id === formCompanyId);
   }, [machinery, formCompanyId]);
+
+  // Set de todos los viajes que ya están asignados a algún flete
+  const allAssignedViajeIds = useMemo(() => {
+    const s = new Set<string>();
+    fletes.forEach((f) => {
+      const parsed = parseFleteNote(f.note);
+      if (parsed.viajeIds && parsed.viajeIds.length > 0) {
+        parsed.viajeIds.forEach((id) => s.add(id));
+      }
+    });
+    return s;
+  }, [fletes]);
+
+  // Consultar viajes de camiones para la fecha y camión seleccionados
+  const fetchCandidateViajes = useCallback(async (mId: string | null, dateStr: string) => {
+    if (!mId) {
+      setCandidateViajes([]);
+      setSelectedViajeIds([]);
+      return;
+    }
+    setLoadingViajes(true);
+    try {
+      const startIso = `${dateStr}T00:00:00-04:00`;
+      const endIso = `${dateStr}T23:59:59-04:00`;
+
+      const { data, error } = await supabase
+        .from('camion_viajes')
+        .select('id, folio, registered_at, chofer_name, ubicacion_nombre, peso_neto_kg, shift, notes')
+        .eq('machinery_id', mId)
+        .gte('registered_at', startIso)
+        .lte('registered_at', endIso)
+        .order('registered_at', { ascending: true });
+
+      if (error) throw error;
+      const list = data || [];
+      setCandidateViajes(list);
+      // Preseleccionar los que no estén asignados
+      const available = list.filter((v: any) => !allAssignedViajeIds.has(v.id)).map((v: any) => v.id);
+      setSelectedViajeIds(available);
+    } catch (err: any) {
+      toast.error('Error al cargar viajes: ' + (err?.message || err));
+      setCandidateViajes([]);
+    } finally {
+      setLoadingViajes(false);
+    }
+  }, [allAssignedViajeIds, toast]);
+
+  // Abrir modal de importación
+  const openImportModal = () => {
+    const defMachine = (selectedMachineId !== '__all__' ? selectedMachineId : machinery[0]?.id) || null;
+    const defComp = (defMachine ? machinery.find((m) => m.id === defMachine)?.company_id : companies[0]?.id) || companies[0]?.id || '';
+    setImportDate(today);
+    setImportMachineId(defMachine);
+    setImportCompanyId(defComp);
+    setImportPrecio('');
+    setImportOperacionTipo('pagar');
+    setImportCliente('');
+    setImportNote('');
+    setImportModalVisible(true);
+    if (defMachine) {
+      fetchCandidateViajes(defMachine, today);
+    }
+  };
+
+  const handleSelectImportMachine = (mId: string) => {
+    setImportMachineId(mId);
+    const m = machinery.find((x) => x.id === mId);
+    if (m?.company_id) {
+      setImportCompanyId(m.company_id);
+    }
+    setImportMachinePicker(false);
+    fetchCandidateViajes(mId, importDate);
+  };
+
+  const handleImportDateChange = (newDate: string) => {
+    setImportDate(newDate);
+    if (importMachineId) {
+      fetchCandidateViajes(importMachineId, newDate);
+    }
+  };
+
+  // Guardar flete importado desde viajes
+  const saveImportedFlete = async () => {
+    if (!importMachineId) {
+      toast.error('Selecciona el camión de los viajes.');
+      return;
+    }
+    if (!importCompanyId) {
+      toast.error('Selecciona la empresa contratista.');
+      return;
+    }
+    if (selectedViajeIds.length === 0) {
+      toast.error('Debes seleccionar al menos un viaje para crear el flete.');
+      return;
+    }
+    const precio = Math.max(0, Number(importPrecio.replace(',', '.')) || 0);
+    if (precio <= 0) {
+      toast.error('Indica un precio unitario válido por viaje.');
+      return;
+    }
+
+    const selectedM = machinery.find((m) => m.id === importMachineId);
+    const code = selectedM ? selectedM.code : 'General';
+
+    const selectedObjs = candidateViajes.filter((v) => selectedViajeIds.includes(v.id));
+    const tickets = selectedObjs.map((v) => v.folio || `ID-${v.id.slice(0, 6)}`);
+
+    const fullNote = formatFleteNote({
+      operacionTipo: importOperacionTipo,
+      operacionEstado: 'pendiente',
+      cliente: importCliente,
+      detalle: importNote || `Flete importado desde ${selectedViajeIds.length} viaje(s) de camión`,
+      viajeIds: selectedViajeIds,
+      tickets,
+    });
+
+    setImportSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from('fletes')
+        .insert({
+          company_id: importCompanyId,
+          machinery_id: importMachineId,
+          code,
+          flete_date: importDate,
+          viajes: selectedViajeIds.length,
+          precio,
+          note: fullNote,
+        })
+        .select('*, company:company_id(id, name), machinery:machinery_id(id, code, plate, tipo)')
+        .single();
+
+      if (error) throw error;
+
+      setFletes((prev) => [data, ...prev]);
+      toast.success(`Flete registrado exitosamente con ${selectedViajeIds.length} viaje(s) vinculado(s).`);
+      setImportModalVisible(false);
+    } catch (err: any) {
+      toast.error('Error al importar flete: ' + (err?.message || err));
+    } finally {
+      setImportSaving(false);
+    }
+  };
 
   // Fletes filtrados
   const filteredFletes = useMemo(() => {
@@ -233,6 +392,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
       operacionEstado: nuevoEstado,
       cliente: parsed.cliente,
       detalle: parsed.detalle,
+      viajeIds: parsed.viajeIds,
+      tickets: parsed.tickets,
     });
 
     try {
@@ -268,11 +429,16 @@ export default function ServicioFletesScreen({ navigation }: any) {
     const selectedM = machinery.find((m) => m.id === formMachineId);
     const code = selectedM ? selectedM.code : 'General';
 
+    const origFlete = editingFleteId ? fletes.find((x) => x.id === editingFleteId) : null;
+    const origParsed = origFlete ? parseFleteNote(origFlete.note) : null;
+
     const fullNote = formatFleteNote({
       operacionTipo: formOperacionTipo,
       operacionEstado: formOperacionEstado,
       cliente: formCliente,
       detalle: formNote,
+      viajeIds: origParsed?.viajeIds,
+      tickets: origParsed?.tickets,
     });
 
     setFormSaving(true);
@@ -448,6 +614,23 @@ export default function ServicioFletesScreen({ navigation }: any) {
             >
               <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>
                 📑 Reporte Consolidado (PDF)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={openImportModal}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                paddingVertical: spacing.sm,
+                paddingHorizontal: spacing.md,
+                borderRadius: radius.md,
+                backgroundColor: '#1E3A8A',
+              }}
+            >
+              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 13 }}>
+                📥 Importar desde Viajes
               </Text>
             </TouchableOpacity>
 
@@ -821,6 +1004,20 @@ export default function ServicioFletesScreen({ navigation }: any) {
                         </Text>
                       </View>
                     ) : null}
+
+                    {/* Badge de Viajes Vinculados si fue importado */}
+                    {parsed.viajeIds && parsed.viajeIds.length > 0 && (
+                      <View style={{ backgroundColor: '#F0FDF4', padding: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: '#86EFAC', marginTop: 4 }}>
+                        <Text style={{ color: '#166534', fontSize: 12, fontWeight: '800' }}>
+                          🚛 Vinculado a {parsed.viajeIds.length} viaje(s) de camión
+                        </Text>
+                        {parsed.tickets && parsed.tickets.length > 0 && (
+                          <Text style={{ color: '#15803D', fontSize: 11.5, marginTop: 2 }}>
+                            🎟️ Tickets: {parsed.tickets.join(', ')}
+                          </Text>
+                        )}
+                      </View>
+                    )}
 
                     {/* Acciones */}
                     <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.xs, marginTop: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
@@ -1320,6 +1517,426 @@ export default function ServicioFletesScreen({ navigation }: any) {
             </ScrollView>
             <TouchableOpacity
               onPress={() => setFormMachinePicker(false)}
+              style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center' }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Importar Flete desde Viajes de Camiones */}
+      <Modal visible={importModalVisible} transparent animationType="slide" onRequestClose={() => setImportModalVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, maxHeight: '92%', borderWidth: 1, borderColor: colors.border }}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: 2 }}>
+                📥 Importar Flete desde Viajes de Camiones
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>
+                Selecciona la fecha y el camión para vincular sus viajes registrados a un flete formal por pagar o por cobrar.
+              </Text>
+
+              {/* Selector de Fecha y Camión */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+                    📅 Fecha de los Viajes *
+                  </Text>
+                  <DateField value={importDate} onChange={handleImportDateChange} />
+                </View>
+
+                <View style={{ flex: 1.5, minWidth: 200 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+                    🚜 Camión / Volqueta *
+                  </Text>
+                  {(() => {
+                    const selM = machinery.find((m) => m.id === importMachineId);
+                    return (
+                      <TouchableOpacity
+                        onPress={() => { setImportMachineQuery(''); setImportMachinePicker(true); }}
+                        style={{
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radius.md,
+                          padding: spacing.md,
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ color: selM ? colors.text : colors.muted, fontSize: 13, fontWeight: '700' }}>
+                          {selM ? `🚜 ${selM.code}${selM.plate ? ` · Placa: ${selM.plate}` : ' (Sin placa)'}` : 'Seleccionar camión...'}
+                        </Text>
+                        <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🔍 Buscar</Text>
+                      </TouchableOpacity>
+                    );
+                  })()}
+                </View>
+              </View>
+
+              {/* Empresa Contratista */}
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>
+                🏢 Empresa Contratista / Proveedora *
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+                {companies.map((c) => (
+                  <TouchableOpacity
+                    key={c.id}
+                    onPress={() => setImportCompanyId(c.id)}
+                    style={{
+                      paddingVertical: 6,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.md,
+                      backgroundColor: importCompanyId === c.id ? colors.brand : colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: importCompanyId === c.id ? colors.brand : colors.border,
+                      marginRight: 6,
+                    }}
+                  >
+                    <Text style={{ color: importCompanyId === c.id ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                      {c.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Tipo de Operación (Por Pagar vs Por Cobrar) */}
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>
+                🔄 Tipo de Operación Contable *
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={() => setImportOperacionTipo('pagar')}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    alignItems: 'center',
+                    borderRadius: radius.md,
+                    backgroundColor: importOperacionTipo === 'pagar' ? '#1E3A8A' : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: importOperacionTipo === 'pagar' ? '#1E3A8A' : colors.border,
+                  }}
+                >
+                  <Text style={{ color: importOperacionTipo === 'pagar' ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>
+                    💸 Por Pagar (a Transportista)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setImportOperacionTipo('cobrar')}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    alignItems: 'center',
+                    borderRadius: radius.md,
+                    backgroundColor: importOperacionTipo === 'cobrar' ? '#059669' : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: importOperacionTipo === 'cobrar' ? '#059669' : colors.border,
+                  }}
+                >
+                  <Text style={{ color: importOperacionTipo === 'cobrar' ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>
+                    💰 Por Cobrar (a Cliente / Obra)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Cliente si es por cobrar */}
+              {importOperacionTipo === 'cobrar' && (
+                <View style={{ marginTop: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+                    👤 Cliente / Obra / Destinatario *
+                  </Text>
+                  <TextInput
+                    value={importCliente}
+                    onChangeText={setImportCliente}
+                    placeholder="Ej. Constructora ABC / Cantera Norte..."
+                    placeholderTextColor={colors.muted}
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.md,
+                      padding: spacing.md,
+                      color: colors.text,
+                      fontSize: 14,
+                    }}
+                  />
+                </View>
+              )}
+
+              {/* Lista de Viajes Candidatos */}
+              <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                    📋 Viajes Registrados ({candidateViajes.length})
+                  </Text>
+                  {candidateViajes.length > 0 && (
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          const avail = candidateViajes.filter((v) => !allAssignedViajeIds.has(v.id)).map((v) => v.id);
+                          setSelectedViajeIds(avail);
+                        }}
+                        style={{ paddingVertical: 3, paddingHorizontal: 8, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                      >
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Todos</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setSelectedViajeIds([])}
+                        style={{ paddingVertical: 3, paddingHorizontal: 8, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                      >
+                        <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>Ninguno</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                {loadingViajes ? (
+                  <View style={{ padding: spacing.md, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color={colors.brand} />
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Buscando viajes del camión...</Text>
+                  </View>
+                ) : candidateViajes.length === 0 ? (
+                  <View style={{ padding: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, alignItems: 'center' }}>
+                    <Text style={{ color: colors.muted, fontSize: 12.5, textAlign: 'center' }}>
+                      {importMachineId
+                        ? 'No se encontraron viajes registrados para este camión en esta fecha.'
+                        : 'Selecciona un camión para listar sus viajes.'}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={{ gap: 6, maxHeight: 220 }}>
+                    <ScrollView nestedScrollEnabled>
+                      {candidateViajes.map((v) => {
+                        const isAssigned = allAssignedViajeIds.has(v.id);
+                        const isSelected = selectedViajeIds.includes(v.id);
+                        const hora = v.registered_at ? new Date(v.registered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+                        const pesoTon = v.peso_neto_kg ? `${(Number(v.peso_neto_kg) / 1000).toFixed(2)} Ton` : null;
+
+                        return (
+                          <TouchableOpacity
+                            key={v.id}
+                            disabled={isAssigned}
+                            onPress={() => {
+                              if (isSelected) {
+                                setSelectedViajeIds((prev) => prev.filter((id) => id !== v.id));
+                              } else {
+                                setSelectedViajeIds((prev) => [...prev, v.id]);
+                              }
+                            }}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: spacing.sm,
+                              borderRadius: radius.md,
+                              backgroundColor: isAssigned ? colors.surfaceAlt : isSelected ? '#EFF6FF' : colors.surface,
+                              borderWidth: 1,
+                              borderColor: isAssigned ? colors.border : isSelected ? colors.brand : colors.border,
+                              marginBottom: 4,
+                              opacity: isAssigned ? 0.6 : 1,
+                            }}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                              <View
+                                style={{
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: 4,
+                                  borderWidth: 1.5,
+                                  borderColor: isAssigned ? colors.muted : isSelected ? colors.brand : colors.border,
+                                  backgroundColor: isSelected ? colors.brand : 'transparent',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                {isSelected && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>✓</Text>}
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                                    🎟️ {v.folio || `ID: ${v.id.slice(0, 6)}`}
+                                  </Text>
+                                  {v.shift && (
+                                    <Text style={{ color: colors.muted, fontSize: 11 }}>({v.shift})</Text>
+                                  )}
+                                  <Text style={{ color: colors.muted, fontSize: 11 }}>⏰ {hora}</Text>
+                                </View>
+                                <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                                  👤 {v.chofer_name || 'Sin chofer'} · 📍 {v.ubicacion_nombre || 'Destino general'}
+                                  {pesoTon ? ` · ⚖️ ${pesoTon}` : ''}
+                                </Text>
+                              </View>
+                            </View>
+
+                            {isAssigned && (
+                              <View style={{ backgroundColor: '#FEE2E2', paddingVertical: 2, paddingHorizontal: 6, borderRadius: radius.sm }}>
+                                <Text style={{ color: '#DC2626', fontSize: 10.5, fontWeight: '800' }}>🔒 En Flete</Text>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              {/* Configuración de Precio y Cálculo */}
+              <View style={{ marginTop: spacing.md, backgroundColor: colors.surfaceAlt, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+                      Viajes Seleccionados:
+                    </Text>
+                    <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '900' }}>
+                      {selectedViajeIds.length} viaje(s)
+                    </Text>
+                  </View>
+
+                  <View style={{ flex: 1.2 }}>
+                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: 2 }}>
+                      Precio por Viaje ($) *
+                    </Text>
+                    <TextInput
+                      value={importPrecio}
+                      onChangeText={(t) => setImportPrecio(onlyDecimal(t))}
+                      placeholder="0.00"
+                      placeholderTextColor={colors.muted}
+                      keyboardType="numeric"
+                      style={{
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.md,
+                        padding: spacing.sm,
+                        color: colors.text,
+                        fontSize: 15,
+                        fontWeight: '800',
+                      }}
+                    />
+                  </View>
+                </View>
+
+                {/* Subtotal en tiempo real */}
+                {(() => {
+                  const p = Number(importPrecio.replace(',', '.')) || 0;
+                  const total = selectedViajeIds.length * p;
+                  return (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                        {importOperacionTipo === 'cobrar' ? 'Total a Cobrar:' : 'Total a Pagar:'}
+                      </Text>
+                      <Text style={{ color: importOperacionTipo === 'cobrar' ? '#059669' : '#1E3A8A', fontWeight: '900', fontSize: 18 }}>
+                        ${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                      </Text>
+                    </View>
+                  );
+                })()}
+              </View>
+
+              {/* Observaciones opcionales */}
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>
+                📝 Observaciones / Ruta (opcional)
+              </Text>
+              <TextInput
+                value={importNote}
+                onChangeText={setImportNote}
+                placeholder="Ej. Flete correspondiente a viajes de agregados del día..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.md,
+                  padding: spacing.md,
+                  color: colors.text,
+                  fontSize: 13,
+                  minHeight: 50,
+                }}
+              />
+
+              {/* Botón Guardar */}
+              <TouchableOpacity
+                onPress={saveImportedFlete}
+                disabled={importSaving || selectedViajeIds.length === 0}
+                style={{
+                  marginTop: spacing.md,
+                  padding: spacing.md,
+                  borderRadius: radius.md,
+                  alignItems: 'center',
+                  backgroundColor: importOperacionTipo === 'cobrar' ? '#059669' : colors.brand,
+                  opacity: importSaving || selectedViajeIds.length === 0 ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 15 }}>
+                  {importSaving ? 'Guardando Flete…' : `💾 Importar y Crear Flete (${selectedViajeIds.length} viajes)`}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setImportModalVisible(false)}
+                style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Selector modal de máquina para Importación (con Placa y Buscador) */}
+      <Modal visible={importMachinePicker} transparent animationType="fade" onRequestClose={() => setImportMachinePicker(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, maxHeight: '80%', borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: spacing.sm }}>
+              🚜 Seleccionar Camión para Importar Viajes
+            </Text>
+            <TextInput
+              placeholder="🔍 Buscar por código, placa, tipo..."
+              placeholderTextColor={colors.muted}
+              value={importMachineQuery}
+              onChangeText={setImportMachineQuery}
+              style={{
+                backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: radius.md,
+                padding: spacing.md,
+                color: colors.text,
+                fontSize: 14,
+                marginBottom: spacing.sm,
+              }}
+            />
+            <ScrollView>
+              {machinery
+                .filter((m) => {
+                  const q = norm(importMachineQuery);
+                  if (!q) return true;
+                  return (
+                    norm(m.code || '').includes(q) ||
+                    norm(m.plate || '').includes(q) ||
+                    norm(m.tipo || '').includes(q)
+                  );
+                })
+                .map((m) => (
+                  <TouchableOpacity
+                    key={m.id}
+                    onPress={() => handleSelectImportMachine(m.id)}
+                    style={{ paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
+                      🚜 {m.code} {m.plate ? `· Placa: ${m.plate}` : '· (Sin placa)'}
+                    </Text>
+                    {m.tipo && <Text style={{ color: colors.muted, fontSize: 11.5 }}>🏷️ {m.tipo}</Text>}
+                  </TouchableOpacity>
+                ))}
+            </ScrollView>
+            <TouchableOpacity
+              onPress={() => setImportMachinePicker(false)}
               style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center' }}
             >
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
