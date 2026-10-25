@@ -76,7 +76,12 @@ export function TiqueConfigCard({
   listeros: listerosProp,
 }: {
   uid: string | null;
-  onGuardado?: (c: TiqueConfig) => void;
+  onGuardado?: (
+    c: TiqueConfig,
+    formatos?: FormatoTique[],
+    asignaciones?: Record<string, string>,
+    foliosFormatos?: Record<string, string>
+  ) => void;
   listeros?: { id: string; full_name?: string | null; email?: string | null }[];
 }) {
   const { colors } = useTheme();
@@ -159,15 +164,14 @@ export function TiqueConfigCard({
   // Cambiar de formato activo en la UI
   const seleccionarFormato = (id: string) => {
     if (id === formatoActivoId) return;
-    // Sincronizar el formato que se deja
-    setFormatos((prev) =>
-      prev.map((f) => (f.id === formatoActivoId ? { ...f, config: { ...config } } : f))
-    );
     const target = formatos.find((f) => f.id === id);
-    if (target) {
-      setFormatoActivoId(target.id);
-      setConfig(target.config);
-    }
+    if (!target) return;
+    // Sincronizar profundamente el formato que se deja
+    setFormatos((prev) =>
+      prev.map((f) => (f.id === formatoActivoId ? { ...f, config: JSON.parse(JSON.stringify(config)) } : f))
+    );
+    setFormatoActivoId(target.id);
+    setConfig(JSON.parse(JSON.stringify(target.config)));
   };
 
   // Crear nuevo formato
@@ -182,9 +186,10 @@ export function TiqueConfigCard({
       listeroIds: [],
     };
     // Sincronizar el formato actual antes de cambiar
-    const actualizados = formatos.map((f) => (f.id === formatoActivoId ? { ...f, config: { ...config } } : f));
+    const actualizados = formatos.map((f) => (f.id === formatoActivoId ? { ...f, config: JSON.parse(JSON.stringify(config)) } : f));
     setFormatos([...actualizados, nuevoFmt]);
     setFormatoActivoId(nuevoId);
+    setConfig(JSON.parse(JSON.stringify(nuevoFmt.config)));
     toast.success(`Formato «Formato ${nuevoNum}» creado. Configura sus campos y asigna sus listeros.`);
   };
 
@@ -198,9 +203,10 @@ export function TiqueConfigCard({
       config: JSON.parse(JSON.stringify(config)),
       listeroIds: [],
     };
-    const actualizados = formatos.map((f) => (f.id === formatoActivoId ? { ...f, config: { ...config } } : f));
+    const actualizados = formatos.map((f) => (f.id === formatoActivoId ? { ...f, config: JSON.parse(JSON.stringify(config)) } : f));
     setFormatos([...actualizados, clonado]);
     setFormatoActivoId(nuevoId);
+    setConfig(JSON.parse(JSON.stringify(clonado.config)));
     toast.success(`Copia creada: «${clonado.nombre}».`);
   };
 
@@ -222,7 +228,7 @@ export function TiqueConfigCard({
     setFormatos(filtrados);
     const def = filtrados.find((f) => f.esDefecto) || filtrados[0];
     setFormatoActivoId(def.id);
-    setConfig(def.config);
+    setConfig(JSON.parse(JSON.stringify(def.config)));
     toast.success(`Formato «${objetivo.nombre}» eliminado.`);
   };
 
@@ -327,10 +333,9 @@ export function TiqueConfigCard({
     setOcupado(true);
     // Sincronizar el formato activo antes de guardar
     const formatosFinales = formatos.map((f) =>
-      f.id === formatoActivoId ? { ...f, config: { ...config } } : f
+      f.id === formatoActivoId ? { ...f, config: JSON.parse(JSON.stringify(config)) } : f
     );
     const def = formatosFinales.find((f) => f.esDefecto) || formatosFinales[0] || crearFormatoDefecto(config);
-    const configPrincipal = def.config;
 
     void (() => guardarConfigTique(config, uid));
     const r = await guardarConfigTique(config, uid, {
@@ -342,7 +347,7 @@ export function TiqueConfigCard({
     if (r.sinTabla) { setSinTabla(true); toast.error('Falta correr el SQL de la ticketera. La configuración no se guardó.'); return; }
     if (r.error) { toast.error(`No se pudo guardar: ${r.error}`); return; }
 
-    setGuardado({ ...config });
+    setGuardado(JSON.parse(JSON.stringify(config)));
     setGuardadoFormatos(JSON.parse(JSON.stringify(formatosFinales)));
     setGuardadoAsignaciones(JSON.parse(JSON.stringify(asignaciones)));
     // La pantalla de viajes tiene su propia copia para poder imprimir sin abrir

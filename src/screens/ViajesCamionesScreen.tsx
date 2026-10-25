@@ -2598,8 +2598,10 @@ export default function ViajesCamionesScreen() {
   }, [configTique]);
 
   const formatoDeViaje = React.useCallback(
-    (r: { folio?: string | null; listeroId?: string | null }) => {
-      return resolverFormatoDeViaje(r, formatosTique, asignacionesFormatos, foliosFormatos);
+    (r: any) => {
+      const folio = (r && (folioDeTique(r) || r.folio)) || null;
+      const listeroId = (r && (r.listeroId || r.listero_id || r.usuarioId || r.usuario_id)) || null;
+      return resolverFormatoDeViaje({ folio, listeroId }, formatosTique, asignacionesFormatos, foliosFormatos);
     },
     [formatosTique, asignacionesFormatos, foliosFormatos]
   );
@@ -3988,10 +3990,14 @@ export default function ViajesCamionesScreen() {
       });
       if (!ok) return;
 
-      const tickets: TiqueParaImprimir[] = conTique.map((r) => ({
-        datos: datosTiqueDeViaje(r),
-        reimpresion: (cuenta.porFolio.get(folioDeTique(r)) ?? 0) > 0,
-      }));
+      const tickets: TiqueParaImprimir[] = conTique.map((r) => {
+        const fmt = formatoDeViaje(r);
+        return {
+          datos: datosTiqueDeViaje(r),
+          reimpresion: (cuenta.porFolio.get(folioDeTique(r)) ?? 0) > 0,
+          config: fmt?.config,
+        };
+      });
       const primerFormato = conTique.length > 0 ? formatoDeViaje(conTique[0]) : null;
       const configAUsar = primerFormato?.config ?? configTique;
       const html = documentoDeTiques(tickets, configAUsar, LOGOS_DEL_TIQUE, { titulo: 'Ticket de viaje' });

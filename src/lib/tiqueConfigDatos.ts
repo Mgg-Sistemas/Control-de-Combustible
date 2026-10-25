@@ -93,9 +93,9 @@ export async function guardarConfigTique(
       }))
     : [crearFormatoDefecto(limpia)];
 
-  // El formato por defecto siempre sincronizado con las columnas raíz
+  // El formato por defecto siempre sincronizado con las columnas raíz de forma segura
   const def = fmtsLimpios.find((f) => f.esDefecto) || fmtsLimpios[0];
-  def.config = limpia;
+  def.config = normalizarConfig(def.config);
 
   const fila = {
     id: true,
