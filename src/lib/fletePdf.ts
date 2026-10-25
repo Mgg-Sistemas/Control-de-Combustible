@@ -477,6 +477,7 @@ export async function exportarComprobanteFlete(opts: {
         <td>
           <div class="desc-main">${esc(detalleServicio)}</div>
           <div class="desc-sub">Carga en ${esc(origTitle)} y bote en ${esc(destTitle)}</div>
+          ${parsed.tickets && parsed.tickets.length > 0 ? `<div class="desc-sub" style="color: #0284C7; font-weight: 700; margin-top: 4px;">🎫 Tickets de romana: ${esc(parsed.tickets.join(', '))}</div>` : ''}
         </td>
         <td class="center" style="font-weight: 700;">${viajes}</td>
         <td>${esc(modalidad)}</td>
@@ -559,7 +560,10 @@ export async function exportarReporteConsolidadoFletes(opts: FleteReportOpts): P
         <td style="text-align: center; color: #64748B;">${i + 1}</td>
         <td>${fmtDate(f.flete_date)}</td>
         <td>${tagTipo}</td>
-        <td><b>${esc(eqRow)}</b></td>
+        <td>
+          <b>${esc(eqRow)}</b>
+          ${parsed.tickets && parsed.tickets.length > 0 ? `<div style="font-size: 9.5px; color: #0284C7; font-weight: 600;">Tickets: ${esc(parsed.tickets.join(', '))}</div>` : ''}
+        </td>
         <td>${esc(plRow)}</td>
         <td class="num" style="font-weight: 700;">${v}</td>
         <td class="num">$${p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
