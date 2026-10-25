@@ -50,7 +50,10 @@ import {
   URGENCIA_CONFIG,
   ESTADO_EXISTENCIA_CONFIG,
   ESTADO_COMPRA_CONFIG,
+  ESTADO_GRUPO_CONFIG,
   parseRejectionNote,
+  agruparSolicitudesStock,
+  type GrupoSolicitudStock,
 } from '../lib/solicitudMaterial';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -538,13 +541,15 @@ export default function SolicitudMaterialScreen() {
 
       const codigosExistentes = (stockRequests || []).map((r) => r.code);
 
-      // Despacho de almacén para ítems de stock
+      // Despacho de almacén para ítems de stock (agrupados bajo el mismo pedido si son varios)
+      const codigoBaseLote = stockItems.length > 1 ? nextStockRequestCode(codigosExistentes, 0) : null;
       for (let i = 0; i < stockItems.length; i++) {
         const item = stockItems[i];
         const code = nextStockRequestCode(codigosExistentes, i);
+        const ordenTag = codigoBaseLote ? `[ORDEN: ${codigoBaseLote}] ` : '';
         const equipTag = targetLabel ? `[Destino: ${targetLabel}]` : '';
         const userReason = item.reason ? ` · ${item.reason}` : '';
-        const fullReason = `${equipTag}${userReason}`.trim() || null;
+        const fullReason = `${ordenTag}${equipTag}${userReason}`.trim() || null;
 
         const payload = {
           code,
@@ -677,6 +682,10 @@ export default function SolicitudMaterialScreen() {
       return false;
     });
   }, [stockRequests, esAdmin, verTodosAdmin, uid]);
+
+  const gruposStockFiltrados = useMemo(() => {
+    return agruparSolicitudesStock(stockRequestsFiltradas || []);
+  }, [stockRequestsFiltradas]);
 
   const requirementsFiltradas = useMemo(() => {
     const soloTecnicas = (requirements || []).filter((r) => {
@@ -1877,175 +1886,219 @@ export default function SolicitudMaterialScreen() {
             </Card>
           )}
 
-          {/* 2) Solicitudes de Despacho de Almacén (Existencias) */}
-          <SectionTitle>📦 Pedidos de Despacho al Almacén ({stockRequestsFiltradas?.length || 0})</SectionTitle>
-          {stockRequestsFiltradas?.length === 0 ? (
+          {/* 2) Solicitudes de Despacho de Almacén (Existencias Consolidadas por Pedido) */}
+          <SectionTitle>📦 Pedidos de Despacho al Almacén ({gruposStockFiltrados.length})</SectionTitle>
+          {gruposStockFiltrados.length === 0 ? (
             <EmptyState
               title="Sin pedidos de almacén"
               subtitle="No hay solicitudes de existencia registradas por tu usuario."
             />
           ) : (
-            stockRequestsFiltradas.map((s) => {
-              const est = ESTADO_EXISTENCIA_CONFIG[s.status] || ESTADO_EXISTENCIA_CONFIG.pendiente;
-              const urg = URGENCIA_CONFIG[s.urgency] || URGENCIA_CONFIG.normal;
-              const rej = parseRejectionNote(s.rejection_note);
+            gruposStockFiltrados.map((grupo) => {
+              const est = (ESTADO_GRUPO_CONFIG as any)[grupo.estadoGrupo] || ESTADO_GRUPO_CONFIG.pendiente;
+              const urg = (URGENCIA_CONFIG as any)[grupo.urgencyMax || 'normal'] || URGENCIA_CONFIG.normal;
+              const mach = grupo.machinery_id ? machines.find((m) => m.id === grupo.machinery_id) : null;
+              const veh = grupo.vehicle_id ? vehicles.find((v) => v.id === grupo.vehicle_id) : null;
 
               return (
-                <Card key={s.id} style={{ gap: 6, borderColor: est.color, borderWidth: 1 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text, flex: 1, paddingRight: 6 }}>
-                      {s.code} · {s.item_name}
-                    </Text>
+                <Card key={grupo.id} style={{ gap: 8, borderColor: est.color, borderWidth: 1.5 }}>
+                  {/* Cabecera del pedido consolidado */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6 }}>
+                    <View style={{ flex: 1, minWidth: 200 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <Text style={{ fontWeight: '900', fontSize: 15, color: colors.text }}>
+                          {grupo.codigoLote}
+                        </Text>
+                        <View
+                          style={{
+                            backgroundColor: colors.surfaceAlt,
+                            paddingHorizontal: 8,
+                            paddingVertical: 2,
+                            borderRadius: radius.pill,
+                          }}
+                        >
+                          <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 11 }}>
+                            {grupo.totalItems} {grupo.totalItems === 1 ? 'repuesto' : 'repuestos'}
+                          </Text>
+                        </View>
+                        <View style={{ backgroundColor: urg.bg, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.sm }}>
+                          <Text style={{ color: urg.color, fontSize: 10.5, fontWeight: '700' }}>
+                            Urgencia {urg.label}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                        Fecha de solicitud: {dmyOf(grupo.fechaCreacion)}
+                      </Text>
+                    </View>
+
                     <View
                       style={{
                         backgroundColor: est.bg,
-                        paddingHorizontal: 8,
-                        paddingVertical: 3,
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
                         borderRadius: radius.pill,
                       }}
                     >
-                      <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }}>
+                      <Text style={{ color: est.color, fontWeight: '800', fontSize: 12 }}>
                         {est.icon} {est.label}
                       </Text>
                     </View>
                   </View>
 
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>
-                    Cantidad: <Text style={{ color: colors.text, fontWeight: '800' }}>{qtyFmt(s.qty)} {s.unit || 'UND'}</Text>
-                  </Text>
-
-                  {/* Destino con Código y PLACA siempre obligatoria */}
-                  {s.machinery_id ? (() => {
-                    const m = machines.find((x) => x.id === s.machinery_id);
-                    return (
-                      <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-                        🚜 <Text style={{ fontWeight: '700' }}>Destino:</Text>{' '}
-                        {m ? `${m.code} · Placa: ${m.plate || 'Sin placa'}` : 'Maquinaria'}
-                      </Text>
-                    );
-                  })() : s.vehicle_id ? (() => {
-                    const v = vehicles.find((x) => x.id === s.vehicle_id);
-                    return (
-                      <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-                        🚗 <Text style={{ fontWeight: '700' }}>Destino:</Text>{' '}
-                        {v ? `${v.plate} (${[v.brand, v.model].filter(Boolean).join(' ') || 'Vehículo'})` : 'Vehículo'}
-                      </Text>
-                    );
-                  })() : s.area ? (
-                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-                      🏢 <Text style={{ fontWeight: '700' }}>Destino:</Text> {s.area}
-                    </Text>
-                  ) : null}
-
-                  {s.reason ? (
-                    <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic' }}>
-                      Motivo / Detalle: {s.reason}
-                    </Text>
-                  ) : null}
-
-                  {/* Fila de registro y auditoría del usuario */}
+                  {/* Destino con Código + PLACA obligatoria (Regla de Maquinaria) */}
                   <View
                     style={{
                       backgroundColor: colors.surfaceAlt,
                       padding: spacing.xs,
                       paddingHorizontal: spacing.sm,
                       borderRadius: radius.sm,
-                      marginTop: 2,
                       gap: 2,
                     }}
                   >
+                    {mach ? (
+                      <Text style={{ color: colors.text, fontSize: 12 }}>
+                        🚜 <Text style={{ fontWeight: '700' }}>Destino:</Text>{' '}
+                        <Text style={{ fontWeight: '800' }}>{mach.code}</Text> · Placa:{' '}
+                        <Text style={{ fontWeight: '800' }}>{mach.plate || 'Sin placa'}</Text>
+                        {mach.tipo ? ` (${mach.tipo})` : ''}
+                      </Text>
+                    ) : veh ? (
+                      <Text style={{ color: colors.text, fontSize: 12 }}>
+                        🚗 <Text style={{ fontWeight: '700' }}>Destino:</Text> Placa:{' '}
+                        <Text style={{ fontWeight: '800' }}>{veh.plate}</Text>{' '}
+                        ({[veh.brand, veh.model].filter(Boolean).join(' ') || 'Vehículo'})
+                      </Text>
+                    ) : (
+                      <Text style={{ color: colors.text, fontSize: 12 }}>
+                        🏢 <Text style={{ fontWeight: '700' }}>Destino:</Text>{' '}
+                        <Text style={{ fontWeight: '800' }}>{grupo.area || 'TALLER / GENERAL'}</Text>
+                      </Text>
+                    )}
+
                     <Text style={{ color: colors.muted, fontSize: 11.5 }}>
                       👷 <Text style={{ fontWeight: '700' }}>Persona que solicita (físico):</Text>{' '}
                       <Text style={{ color: colors.text, fontWeight: '800' }}>
-                        {s.solicitante_nombre || 'Personal Taller'}
+                        {grupo.solicitanteNombre}
                       </Text>
-                    </Text>
-                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-                      👤 <Text style={{ fontWeight: '700' }}>Registrado automáticamente por:</Text>{' '}
-                      <Text style={{ color: colors.brandText, fontWeight: '800' }}>
-                        {s.created_by === uid ? `${fullName || 'Tu usuario'} (Tú)` : 'Usuario del sistema'}
-                      </Text>{' '}
-                      el {dmyTimeOf(s.created_at)}
                     </Text>
                   </View>
 
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>
-                      Fecha solicitud: {dmyOf(s.created_at)}
+                  {/* Lista de Artículos de esta Orden */}
+                  <View style={{ gap: 6, marginTop: 2 }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Artículos solicitados en este pedido:
                     </Text>
-                    <View style={{ backgroundColor: urg.bg, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.sm }}>
-                      <Text style={{ color: urg.color, fontSize: 10.5, fontWeight: '700' }}>
-                        Urgencia {urg.label}
-                      </Text>
-                    </View>
+
+                    {grupo.items.map((s, idx) => {
+                      const itemEst = (ESTADO_EXISTENCIA_CONFIG as any)[s.status] || ESTADO_EXISTENCIA_CONFIG.pendiente;
+                      const rej = parseRejectionNote(s.rejection_note);
+
+                      return (
+                        <View
+                          key={s.id}
+                          style={{
+                            backgroundColor: '#fff',
+                            borderWidth: 1,
+                            borderColor: s.status === 'despachado' ? '#86EFAC' : s.status === 'rechazado' ? '#FCA5A5' : colors.border,
+                            borderRadius: radius.md,
+                            padding: spacing.sm,
+                            gap: 4,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontWeight: '800', fontSize: 13, color: colors.text, flex: 1, paddingRight: 6 }}>
+                              {idx + 1}. {s.item_name}
+                            </Text>
+                            <View
+                              style={{
+                                backgroundColor: itemEst.bg,
+                                paddingHorizontal: 7,
+                                paddingVertical: 2,
+                                borderRadius: radius.pill,
+                              }}
+                            >
+                              <Text style={{ color: itemEst.color, fontWeight: '800', fontSize: 10.5 }}>
+                                {itemEst.icon} {itemEst.label}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                            <Text style={{ color: colors.muted, fontSize: 12 }}>
+                              Cantidad: <Text style={{ color: colors.text, fontWeight: '800' }}>{qtyFmt(s.qty)} {s.unit || 'UND'}</Text>
+                              <Text style={{ color: colors.muted, fontSize: 10.5 }}> · Ticket {s.code}</Text>
+                            </Text>
+                          </View>
+
+                          {s.cleanReason ? (
+                            <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic' }}>
+                              Nota: {s.cleanReason}
+                            </Text>
+                          ) : null}
+
+                          {s.status === 'despachado' && (
+                            <Text style={{ color: '#15803D', fontSize: 11, fontWeight: '700' }}>
+                              ✅ Despachado por {s.dispatched_by_name || 'Almacenista'}{s.dispatched_at ? ` el ${dmyTimeOf(s.dispatched_at)}` : ''}
+                            </Text>
+                          )}
+
+                          {s.status === 'rechazado' && (
+                            <View style={{ backgroundColor: '#FEE2E2', padding: spacing.xs, borderRadius: radius.sm, marginTop: 2 }}>
+                              <Text style={{ color: '#991B1B', fontSize: 11, fontWeight: '700' }}>
+                                ❌ Rechazado por {rej.rejectedBy || 'Almacén'}: {rej.note || 'Sin motivo'}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
                   </View>
 
-                  {/* Cuadro de Aprobado / Despachado */}
-                  {s.status === 'despachado' && (
+                  {/* Resumen al pie del grupo */}
+                  {grupo.estadoGrupo === 'despachado' && (
                     <View
                       style={{
                         backgroundColor: '#DCFCE7',
-                        borderWidth: 1.5,
+                        borderWidth: 1,
                         borderColor: '#86EFAC',
-                        padding: spacing.sm,
-                        borderRadius: radius.md,
-                        marginTop: 4,
-                        gap: 2,
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        borderRadius: radius.sm,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
                       }}
                     >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ fontSize: 15 }}>✅</Text>
-                        <Text style={{ color: '#166534', fontWeight: '800', fontSize: 12 }}>
-                          SOLICITUD DESPACHADA Y ENTREGADA
-                        </Text>
-                      </View>
-                      <Text style={{ color: '#15803D', fontSize: 11.5, fontWeight: '700' }}>
-                        Despachado / Aprobado por: <Text style={{ color: '#166534', fontWeight: '800' }}>{s.dispatched_by_name || 'Almacenista'}</Text>
+                      <Text style={{ fontSize: 14 }}>✅</Text>
+                      <Text style={{ color: '#166534', fontWeight: '800', fontSize: 11.5 }}>
+                        Todos los artículos de esta orden fueron despachados y entregados.
                       </Text>
-                      {s.dispatched_at ? (
-                        <Text style={{ color: '#166534', fontSize: 11 }}>
-                          📅 Fecha y hora de despacho: {dmyTimeOf(s.dispatched_at)}
-                        </Text>
-                      ) : null}
                     </View>
                   )}
 
-                  {/* Cuadro de Rechazo con quién rechazó, fecha/hora y motivo */}
-                  {s.status === 'rechazado' && (
+                  {grupo.estadoGrupo === 'parcial' && (
                     <View
                       style={{
-                        backgroundColor: '#FEE2E2',
-                        borderWidth: 1.5,
-                        borderColor: '#F87171',
-                        padding: spacing.sm,
-                        borderRadius: radius.md,
-                        marginTop: 4,
-                        gap: 3,
+                        backgroundColor: '#EFF6FF',
+                        borderWidth: 1,
+                        borderColor: '#BFDBFE',
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        borderRadius: radius.sm,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
                       }}
                     >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ fontSize: 15 }}>❌</Text>
-                        <Text style={{ color: '#991B1B', fontWeight: '900', fontSize: 12 }}>
-                          SOLICITUD RECHAZADA POR ALMACÉN / SUPERVISIÓN
-                        </Text>
-                      </View>
-                      <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '700' }}>
-                        Rechazado por: <Text style={{ color: '#991B1B', fontWeight: '800' }}>{rej.rejectedBy || 'Almacén / Supervisor'}</Text>
+                      <Text style={{ fontSize: 14 }}>🔄</Text>
+                      <Text style={{ color: '#1E40AF', fontWeight: '800', fontSize: 11.5 }}>
+                        Entrega parcial: {grupo.despachados} de {grupo.totalItems} artículos despachados.
                       </Text>
-                      {rej.rejectedAt ? (
-                        <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
-                          📅 Fecha y hora de rechazo: <Text style={{ fontWeight: '700' }}>{rej.rejectedAt}</Text>
-                        </Text>
-                      ) : null}
-                      <View style={{ backgroundColor: '#fff', padding: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.sm, marginTop: 2 }}>
-                        <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
-                          💬 Motivo del rechazo: <Text style={{ fontWeight: '700' }}>{rej.note || 'Sin motivo especificado'}</Text>
-                        </Text>
-                      </View>
                     </View>
                   )}
 
-                  {s.status === 'pendiente' && (
+                  {grupo.estadoGrupo === 'pendiente' && (
                     <View
                       style={{
                         backgroundColor: '#FEF3C7',
@@ -2054,11 +2107,35 @@ export default function SolicitudMaterialScreen() {
                         padding: spacing.xs,
                         paddingHorizontal: spacing.sm,
                         borderRadius: radius.sm,
-                        marginTop: 2,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
                       }}
                     >
-                      <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '700' }}>
-                        ⏳ En espera de revisión y entrega física por el Almacén
+                      <Text style={{ fontSize: 14 }}>⏳</Text>
+                      <Text style={{ color: '#92400E', fontWeight: '700', fontSize: 11.5 }}>
+                        En espera de revisión y entrega física por el Almacén.
+                      </Text>
+                    </View>
+                  )}
+
+                  {grupo.estadoGrupo === 'rechazado' && (
+                    <View
+                      style={{
+                        backgroundColor: '#FEE2E2',
+                        borderWidth: 1,
+                        borderColor: '#F87171',
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        borderRadius: radius.sm,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <Text style={{ fontSize: 14 }}>❌</Text>
+                      <Text style={{ color: '#991B1B', fontWeight: '800', fontSize: 11.5 }}>
+                        Todos los artículos de esta orden fueron rechazados.
                       </Text>
                     </View>
                   )}

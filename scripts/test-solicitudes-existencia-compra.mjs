@@ -67,9 +67,20 @@ const sql = leer('supabase/solicitudes_existencia.sql');
 ok('💾 Migración SQL crea tabla inventory_stock_requests', sql.includes('create table if not exists public.inventory_stock_requests'));
 ok('💾 Migración SQL incluye RLS y correlativo automático', sql.includes('enable row level security') && sql.includes('trg_assign_stock_request_code'));
 
+// 7. Consolidación de Solicitudes por Pedido (Órdenes Agrupadas)
+ok('📦 agruparSolicitudesStock agrupa registros atómicos en pedidos únicos', lib.includes('export function agruparSolicitudesStock'));
+ok('📦 ESTADO_GRUPO_CONFIG incluye pendiente, parcial, despachado y rechazado', lib.includes('ESTADO_GRUPO_CONFIG') && lib.includes('parcial'));
+ok('🏢 InventarioScreen agrupa solicitudes en tarjetas únicas por pedido', inv.includes('gruposFiltrados') && inv.includes('agruparSolicitudesStock'));
+ok('🏢 InventarioScreen permite despachar disponibles de una orden en lote', inv.includes('despacharGrupoDisponibles'));
+ok('🏢 InventarioScreen permite rechazar orden consolidada completa', inv.includes('abrirRechazarGrupo') && inv.includes('confirmarRechazo'));
+ok('🛒 SolicitudMaterialScreen etiqueta carritos multi-ítem con tag de orden', screen.includes('codigoBaseLote') && screen.includes('[ORDEN:'));
+ok('📱 SolicitudMaterialScreen muestra pedidos consolidados en Mis Solicitudes', screen.includes('gruposStockFiltrados') && screen.includes('agruparSolicitudesStock'));
+ok('🚜 Cumple regla de maquinaria en tarjeta consolidada (código + PLACA obligatoria)', (inv.includes('m.plate') || inv.includes('mach.plate')) && (screen.includes('m.plate') || screen.includes('mach.plate')));
+
 console.log(`\n🧪 Solicitudes de Existencia y Compra: ${pass} OK · ${fail} FALLO(S)`);
 if (fail) {
   failures.forEach((f) => console.log(`  ✗ ${f}`));
   process.exit(1);
 }
 console.log('   Todo el flujo técnico y operativo está integrado y verificado.');
+
