@@ -128,6 +128,26 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     [allReqs]
   );
 
+  // Estado para acordeón plegable/desplegable individual y masivo
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const expandirTodas = () => {
+    setExpandedIds(new Set(solicitudes.map((s) => s.id)));
+  };
+  const plegarTodas = () => {
+    setExpandedIds(new Set());
+  };
+
+  // Asignación de proveedor por renglón en conversión (compras consolidadas multi-proveedor)
+  const [convertItemSuppliers, setConvertItemSuppliers] = useState<Record<number, string | null>>({});
+
   // Abrir Modal de Conversión a Requerimiento
   const abrirConvertir = (r: InventoryRequirement) => {
     setConvertTarget(r);
@@ -138,6 +158,13 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     setConvertPrice(primerItem && Number(primerItem.est_price) > 0 ? String(primerItem.est_price) : '');
     setConvertCurrency((primerItem?.currency as 'USD' | 'VES') || 'USD');
     setConvertNote(r.note || '');
+
+    // Precargar proveedores individuales de los renglones si ya tenían
+    const itemSups: Record<number, string | null> = {};
+    r.items.forEach((it, idx) => {
+      itemSups[idx] = it.supplier_id || null;
+    });
+    setConvertItemSuppliers(itemSups);
   };
 
   const ejecutarConversion = async () => {
@@ -146,11 +173,17 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
 
     try {
       const priceNum = parseNum(convertPrice);
-      const updatedItems = convertTarget.items.map((it) => ({
-        ...it,
-        est_price: priceNum > 0 ? priceNum : it.est_price || 0,
-        currency: convertCurrency,
-      }));
+      const updatedItems = convertTarget.items.map((it, idx) => {
+        const supId = convertItemSuppliers[idx] !== undefined ? convertItemSuppliers[idx] : convertSupplierId;
+        const supObj = supId ? suppliers.find((s) => s.id === supId) : null;
+        return {
+          ...it,
+          est_price: priceNum > 0 ? priceNum : it.est_price || 0,
+          currency: convertCurrency,
+          supplier_id: supId || null,
+          supplier_name: supObj?.name || null,
+        };
+      });
 
       const empPagadora = companies.find((c) => c.id === convertEmpresaPagadoraId);
 
@@ -320,6 +353,41 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         })}
       </ScrollView>
 
+      {/* Barra de conteo y controles de acordeón masivo */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs, flexWrap: 'wrap', gap: 6 }}>
+        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>
+          Mostrando {solicitudes.length} {solicitudes.length === 1 ? 'solicitud' : 'solicitudes'}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <TouchableOpacity
+            onPress={expandirTodas}
+            style={{
+              backgroundColor: colors.surfaceAlt,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📂 Desplegar todas</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={plegarTodas}
+            style={{
+              backgroundColor: colors.surfaceAlt,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📁 Plegar todas</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* Lista de Solicitudes */}
       {loading ? (
         <SkeletonList count={4} />
@@ -337,28 +405,50 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           const est = ESTADOS_SOLICITUD[r.status] || ESTADOS_SOLICITUD.pendiente;
           const primerItem = r.items[0];
           const tieneFoto = r.attachment_url || primerItem?.image_url;
+          const isAbierto = expandedIds.has(r.id);
 
           return (
-            <Card key={r.id} style={{ gap: 8, marginBottom: spacing.xs }}>
-              {/* Encabezado: Código y Estado */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View style={{ flex: 1, paddingRight: spacing.sm }}>
+            <Card key={r.id} style={{ gap: 8, marginBottom: spacing.sm, borderWidth: 1, borderColor: isAbierto ? colors.brand : colors.border }}>
+              {/* Encabezado: Código, Título, Estado y Botón Plegar/Desplegar */}
+              <TouchableOpacity
+                onPress={() => toggleExpand(r.id)}
+                activeOpacity={0.8}
+                style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}
+              >
+                <View style={{ flex: 1 }}>
                   <Text style={{ fontWeight: '900', fontSize: 15, color: colors.text }}>
-                    {r.code} · {primerItem ? primerItem.name : r.title || 'Solicitud de Compra'}
+                    {r.code} · {r.items.length === 1 ? primerItem?.name : `Solicitud Multi-Ítem (${r.items.length} Renglones)`}
                   </Text>
                   {r.title && r.title !== primerItem?.name ? (
                     <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }}>{r.title}</Text>
                   ) : null}
                 </View>
 
-                <View style={{ backgroundColor: est.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill }}>
-                  <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }}>
-                    {est.icon} {est.label}
-                  </Text>
-                </View>
-              </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ backgroundColor: est.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill }}>
+                    <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }}>
+                      {est.icon} {est.label}
+                    </Text>
+                  </View>
 
-              {/* Fila destacada de Metadatos Obligatorios (Quién, Fecha/Hora, Destino) */}
+                  <View
+                    style={{
+                      backgroundColor: isAbierto ? colors.surfaceAlt : colors.brand,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: isAbierto ? colors.border : colors.brand,
+                    }}
+                  >
+                    <Text style={{ color: isAbierto ? colors.text : colors.brandContrast, fontSize: 11, fontWeight: '800' }}>
+                      {isAbierto ? '▲ Plegar' : `▼ Ver ${r.items.length} ${r.items.length === 1 ? 'ítem' : 'ítems'}`}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* Fila de Metadatos Obligatorios (Quién, Fecha/Hora, Destino, Área) */}
               <View
                 style={{
                   backgroundColor: colors.surfaceAlt,
@@ -415,44 +505,114 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               </View>
 
-              {/* Renglones y Especificaciones Técnicas Obligatorias */}
-              <View style={{ gap: 6 }}>
-                {r.items.map((it, idx) => (
-                  <View
-                    key={idx}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: '#93C5FD',
-                      backgroundColor: '#EFF6FF',
-                      padding: spacing.sm,
-                      borderRadius: radius.sm,
-                      gap: 4,
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                        {idx + 1}. {it.name}
-                      </Text>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
-                        Cant: {qtyFmt(it.qty)} {it.unit || 'UND'}
-                      </Text>
-                    </View>
+              {/* Vista compacta cuando está PLEGADO */}
+              {!isAbierto && (
+                <TouchableOpacity
+                  onPress={() => toggleExpand(r.id)}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    padding: 8,
+                    borderRadius: radius.sm,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                    📦 Renglones ({r.items.length}):{' '}
+                    <Text style={{ color: colors.muted, fontWeight: '500' }}>
+                      {r.items.map((it, idx) => `${idx + 1}. ${it.name}`).join('  |  ')}
+                    </Text>
+                  </Text>
+                  <Text style={{ color: colors.brand, fontSize: 11, fontWeight: '700', marginTop: 3 }}>
+                    Toque para desplegar medidas técnicas y desglose detallado ➔
+                  </Text>
+                </TouchableOpacity>
+              )}
 
-                    {/* Especificaciones / Medidas técnicas del taller */}
-                    {it.note ? (
-                      <View style={{ marginTop: 2, backgroundColor: '#fff', padding: 6, borderRadius: 4, borderWidth: 1, borderColor: '#BFDBFE' }}>
-                        <Text style={{ color: '#1E40AF', fontSize: 11.5, fontWeight: '700' }}>
-                          📐 Especificaciones y Medidas Técnicas:
-                        </Text>
-                        <Text style={{ color: '#1E3A8A', fontSize: 12, marginTop: 1 }}>{it.note}</Text>
+              {/* Desglose Detallado por Renglón cuando está DESPLEGADO */}
+              {isAbierto && (
+                <View style={{ gap: 8, marginTop: 2 }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>
+                    📋 Desglose Técnico por Renglón ({r.items.length} {r.items.length === 1 ? 'ítem' : 'ítems'}):
+                  </Text>
+                  {r.items.map((it, idx) => {
+                    const tieneNota = Boolean(it.note && it.note.trim());
+                    return (
+                      <View
+                        key={idx}
+                        style={{
+                          borderWidth: 1.5,
+                          borderColor: tieneNota ? '#3B82F6' : colors.border,
+                          backgroundColor: colors.surfaceAlt,
+                          padding: spacing.sm,
+                          borderRadius: radius.md,
+                          gap: 6,
+                        }}
+                      >
+                        {/* Cabecera del renglón con alto contraste */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                            <View style={{ backgroundColor: '#2563EB', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}>
+                              <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 11 }}>#{idx + 1}</Text>
+                            </View>
+                            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13.5, flexShrink: 1 }}>
+                              {it.name}
+                            </Text>
+                          </View>
+                          <View style={{ backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                              Cantidad: <Text style={{ color: colors.brandText }}>{qtyFmt(it.qty)} {it.unit || 'UND'}</Text>
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Caja Destacada de Especificación Técnica / Medidas */}
+                        <View
+                          style={{
+                            backgroundColor: colors.dark ? '#0F172A' : '#EFF6FF',
+                            borderWidth: 1,
+                            borderColor: tieneNota ? '#60A5FA' : colors.border,
+                            borderRadius: radius.sm,
+                            padding: 8,
+                            gap: 3,
+                          }}
+                        >
+                          <Text style={{ color: tieneNota ? '#38BDF8' : colors.muted, fontSize: 11, fontWeight: '900', letterSpacing: 0.3 }}>
+                            📐 ESPECIFICACIÓN Y MEDIDAS TÉCNICAS DEL ÍTEM #{idx + 1}:
+                          </Text>
+                          {tieneNota ? (
+                            <Text style={{ color: colors.dark ? '#F8FAFC' : '#1E293B', fontSize: 13, fontWeight: '700', lineHeight: 18 }}>
+                              {it.note}
+                            </Text>
+                          ) : (
+                            <Text style={{ color: colors.muted, fontSize: 11.5, fontStyle: 'italic' }}>
+                              Sin especificación ni medidas técnicas adicionales registradas para este artículo.
+                            </Text>
+                          )}
+                        </View>
+
+                        {/* Proveedor individual asignado a este renglón (si existe) */}
+                        {it.supplier_name ? (
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
+                            🏢 Proveedor exclusivo del ítem: {it.supplier_name}
+                          </Text>
+                        ) : null}
+
+                        {/* Foto propia del ítem */}
+                        {it.image_url ? (
+                          <TouchableOpacity onPress={() => setFotoModalUrl(it.image_url || null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                            <Image source={{ uri: it.image_url }} style={{ width: 38, height: 38, borderRadius: radius.sm, backgroundColor: colors.surface }} />
+                            <Text style={{ color: colors.brand, fontSize: 11, fontWeight: '700' }}>Ver muestra técnica adjunta ➔</Text>
+                          </TouchableOpacity>
+                        ) : null}
                       </View>
-                    ) : null}
-                  </View>
-                ))}
-              </View>
+                    );
+                  })}
+                </View>
+              )}
 
-              {/* Foto adjunta de la pieza */}
-              {tieneFoto ? (
+              {/* Foto general adjunta de la solicitud */}
+              {tieneFoto && isAbierto ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 }}>
                   <TouchableOpacity onPress={() => setFotoModalUrl(tieneFoto)}>
                     <Image
@@ -619,9 +779,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 <Text style={{ fontWeight: '800', color: colors.text }}>{convertTarget?.code}</Text>.
               </Text>
 
-              {/* Proveedor cotizado */}
+              {/* Proveedor cotizado General */}
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
-                Proveedor Sugerido / Cotizado:
+                Proveedor General Sugerido / Cotizado:
               </Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: spacing.sm, paddingVertical: 2 }}>
                 <TouchableOpacity
@@ -661,6 +821,66 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   );
                 })}
               </ScrollView>
+
+              {/* Asignación individual de proveedores por renglón (Compras consolidadas multi-proveedor) */}
+              {convertTarget && convertTarget.items.length > 1 && (
+                <View style={{ marginBottom: spacing.sm, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: 2 }}>
+                    🏢 Asignación individual de proveedor por artículo (opcional):
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 8 }}>
+                    Permite compras consolidadas donde algunos ítems se adquieran con el proveedor principal y otros con proveedores distintos en una sola orden.
+                  </Text>
+                  {convertTarget.items.map((it, idx) => {
+                    const selectedSupId = convertItemSuppliers[idx] !== undefined ? convertItemSuppliers[idx] : convertSupplierId;
+                    return (
+                      <View key={idx} style={{ marginBottom: 8, paddingBottom: 6, borderBottomWidth: idx < convertTarget.items.length - 1 ? 1 : 0, borderBottomColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+                          #{idx + 1}. {it.name} ({qtyFmt(it.qty)} {it.unit || 'UND'})
+                        </Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4, marginTop: 4 }}>
+                          <TouchableOpacity
+                            onPress={() => setConvertItemSuppliers((prev) => ({ ...prev, [idx]: convertSupplierId }))}
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: radius.pill,
+                              backgroundColor: !convertItemSuppliers[idx] || convertItemSuppliers[idx] === convertSupplierId ? colors.brand : colors.surface,
+                              borderWidth: 1,
+                              borderColor: !convertItemSuppliers[idx] || convertItemSuppliers[idx] === convertSupplierId ? colors.brand : colors.border,
+                            }}
+                          >
+                            <Text style={{ color: !convertItemSuppliers[idx] || convertItemSuppliers[idx] === convertSupplierId ? colors.brandContrast : colors.text, fontSize: 10.5, fontWeight: '700' }}>
+                              (Usa proveedor general)
+                            </Text>
+                          </TouchableOpacity>
+                          {suppliers.map((s) => {
+                            const sel = convertItemSuppliers[idx] === s.id;
+                            return (
+                              <TouchableOpacity
+                                key={s.id}
+                                onPress={() => setConvertItemSuppliers((prev) => ({ ...prev, [idx]: s.id }))}
+                                style={{
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  borderRadius: radius.pill,
+                                  backgroundColor: sel ? colors.brand : colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: sel ? colors.brand : colors.border,
+                                }}
+                              >
+                                <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 10.5, fontWeight: '700' }}>
+                                  {s.name}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
 
               {/* Empresa Pagadora */}
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>

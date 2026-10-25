@@ -860,6 +860,9 @@ export interface RequirementLine {
   note?: string | null;
   image_url?: string | null;        // foto/imagen de referencia del producto (Storage)
   received?: boolean;               // ya se recibió en inventario
+  // 🏢 Proveedor asignado individualmente a este artículo (compra consolidada multi-proveedor)
+  supplier_id?: string | null;
+  supplier_name?: string | null;
 }
 
 export type RequirementStatus = 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'aclaratoria_solicitada';
@@ -913,6 +916,11 @@ export interface InventoryRequirement {
   // 🏢 Empresa Pagadora (Fase de asignación antes de Tesorería):
   empresa_pagadora_id?: string | null;
   empresa_pagadora_nombre?: string | null;
+
+  // 👔 Filtro de Seguridad por Monto (> $1,000 USD): Aprobación del Gerente General antes del Pago
+  gerente_aprobado?: boolean | null;
+  gerente_aprobado_por?: string | null;
+  gerente_aprobado_at?: string | null;
 }
 
 export interface MachineryLocation {

@@ -31,6 +31,12 @@ import {
   type PersonaElegida, type PersonaNomina,
 } from '../lib/requerimientoPersonas';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
+import {
+  calcularEstadoRequerimiento,
+  LIMITE_MONTO_GERENTE_GENERAL_USD,
+  obtenerProveedorDeLinea,
+  type InfoEstadoRequerimiento,
+} from '../lib/requerimientoFlujo';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -49,9 +55,21 @@ function Pill({ label, color }: { label: string; color: string }) {
   );
 }
 
-type ReqRow = { key: string; product_id: string | null; name: string; unit: string; qty: string; price: string; currency: 'USD' | 'VES'; note: string; image_url: string };
+type ReqRow = {
+  key: string;
+  product_id: string | null;
+  name: string;
+  unit: string;
+  qty: string;
+  price: string;
+  currency: 'USD' | 'VES';
+  note: string;
+  image_url: string;
+  supplier_id?: string | null;
+  supplier_name?: string | null;
+};
 const REQ_STATUS: Record<string, { label: string; color: string; short: string }> = {
-  pendiente: { label: '⏳ Pendiente por aprobación del Gerente General', color: '#D97706', short: 'Pendiente' },
+  pendiente: { label: '⏳ Pendiente', color: '#D97706', short: 'Pendiente' },
   aprobado: { label: '✅ Aprobado', color: '#2563EB', short: 'Aprobado' },
   rechazado: { label: '❌ Rechazado', color: '#DC2626', short: 'Rechazado' },
   recibido: { label: '📦 Recibido', color: '#16A34A', short: 'Recibido' },
@@ -242,7 +260,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setRows((r) => [...r, { key: newKey(), product_id: it.id, name: it.name, unit: it.unit || '', qty: '1', price: String(Number(it.avg_cost) || 0), currency: 'USD', note: '', image_url: '' }]);
     setPickOpen(false); setQ('');
   };
-  const upd = (key: string, field: keyof ReqRow, val: string) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
+  const upd = (key: string, field: keyof ReqRow, val: any) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
   const rm = (key: string) => setRows((r) => r.filter((x) => x.key !== key));
 
   // Sube una IMAGEN de referencia de un producto (toma foto o elige de galería) y la
@@ -404,11 +422,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   const crear = async () => {
     setFormErr(null);
-    const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => ({
-      product_id: x.product_id, name: x.name.trim().toUpperCase(), unit: x.unit.trim().toUpperCase() || null,
-      qty: parseNum(x.qty), est_price: parseNum(x.price), currency: x.currency, note: x.note.trim() || null,
-      image_url: x.image_url || null,
-    }));
+    const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => {
+      const supObj = x.supplier_id ? suppliers.find((s) => s.id === x.supplier_id) : (supplierId ? suppliers.find((s) => s.id === supplierId) : null);
+      return {
+        product_id: x.product_id, name: x.name.trim().toUpperCase(), unit: x.unit.trim().toUpperCase() || null,
+        qty: parseNum(x.qty), est_price: parseNum(x.price), currency: x.currency, note: x.note.trim() || null,
+        image_url: x.image_url || null,
+        supplier_id: x.supplier_id || supplierId || null,
+        supplier_name: x.supplier_name || supObj?.name || null,
+      };
+    });
     if (items.length === 0) { const m = 'Agrega al menos un producto (del inventario o nuevo) antes de guardar.'; setFormErr(m); return toast.error(m); }
     setBusy(true);
     // EDITAR: actualiza el requerimiento existente (conserva su código y estado).
@@ -546,9 +569,24 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       key: `${Date.now()}-${s++}`, product_id: it.product_id, name: it.name, unit: it.unit ?? '',
       qty: String(it.qty), price: String(it.est_price ?? 0), currency: (it.currency as 'USD' | 'VES') || 'USD', note: it.note ?? '',
       image_url: it.image_url ?? '',
+      supplier_id: it.supplier_id || null,
+      supplier_name: it.supplier_name || null,
     })));
     setFormErr(null);
     setCreateOpen(true);
+  };
+
+  // Aprobación de seguridad para requerimientos > $1,000 USD
+  const aprobarGerenteGeneral = async (r: InventoryRequirement) => {
+    const decName = await perfilNombre();
+    const { error } = await supabase.from('inventory_requirements').update({
+      gerente_aprobado: true,
+      gerente_aprobado_por: decName,
+      gerente_aprobado_at: nowISO(),
+    }).eq('id', r.id);
+    if (error) return toast.error(error.message);
+    refetch();
+    toast.success(`Requerimiento ${r.code} aprobado por Gerente General (> $1,000 USD). Pasa a espera de pago.`);
   };
 
   // Eliminar TODO el requerimiento (con confirmación). No revierte movimientos de
@@ -751,6 +789,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const itemsToPdf = (r: InventoryRequirement) => Promise.all(r.items.map(async (it) => ({
     name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency,
     isNew: !it.product_id, note: it.note,
+    supplier_name: it.supplier_name || null,
     image: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
   })));
 
@@ -929,9 +968,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
               {(() => {
-        const st = REQ_STATUS[r.status] ?? REQ_STATUS.pendiente;
-        const tUsd = totalUsdDe(r);
-        const faltaPrecio = faltaPrecioDe(r);
+        const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+        const estDinamico = calcularEstadoRequerimiento(r, rate, provGeneral);
+        const tUsd = estDinamico.totalUSD;
+        const faltaPrecio = !estDinamico.tieneCotizacionCompleta;
         return (
           <ExpandableCard
             key={r.id}
@@ -945,21 +985,57 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>💳 Pagadora: {r.empresa_pagadora_nombre}</Text>
                     ) : null}
                   </View>
-                  <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 170 }}>
+                  <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 210 }}>
                     {canReceive ? (
                       <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); setStatusPickerId((id) => (id === r.id ? null : r.id)); }}>
-                        <Pill label={`${st.label} ${statusPickerId === r.id ? '▴' : '▾'}`} color={st.color} />
+                        <Pill label={`${estDinamico.label} ${statusPickerId === r.id ? '▴' : '▾'}`} color={estDinamico.color} />
                       </TouchableOpacity>
                     ) : (
-                      <Pill label={st.label} color={st.color} />
+                      <Pill label={estDinamico.label} color={estDinamico.color} />
                     )}
                     {faltaPrecio ? <Pill label="❗ Pendiente por cargar precio" color={colors.danger} /> : null}
                   </View>
                 </View>
 
-                {tUsd >= 1000 ? (
-                  <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#FEF2F2', borderColor: '#DC2626', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                    <Text style={{ color: '#DC2626', fontWeight: '800', fontSize: 11 }}>🚨 Umbral &gt; $1,000 USD (Req. Doble Aprobación / Tesorería)</Text>
+                {/* Badge de Compra Consolidada Multi-Proveedor */}
+                {estDinamico.esMultiProveedor ? (
+                  <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                    <Text style={{ color: '#1D4ED8', fontWeight: '800', fontSize: 11 }}>
+                      🏢 Compra Consolidada Multi-Proveedor ({estDinamico.proveedoresNombres.join(', ')})
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* Filtro de Seguridad por Monto (> $1,000 USD) */}
+                {estDinamico.requiereAprobacionGG ? (
+                  <View style={{ alignSelf: 'stretch', marginTop: 5, backgroundColor: '#FAF5FF', borderColor: '#8B5CF6', borderWidth: 1.5, borderRadius: radius.md, padding: spacing.sm, gap: 4 }}>
+                    <Text style={{ color: '#6D28D9', fontWeight: '900', fontSize: 12 }}>
+                      👔 Umbral &gt; $1,000 USD: Esperando Aprobación del Gerente General
+                    </Text>
+                    <Text style={{ color: '#7C3AED', fontSize: 11 }}>
+                      Monto total: {usd(tUsd)}. Exige revisión y aprobación obligatoria del Gerente General antes de proceder al pago.
+                    </Text>
+                    {isAdmin && (
+                      <TouchableOpacity
+                        onPress={() => aprobarGerenteGeneral(r)}
+                        style={{
+                          marginTop: 3,
+                          backgroundColor: '#7C3AED',
+                          paddingVertical: 7,
+                          paddingHorizontal: 12,
+                          borderRadius: radius.md,
+                          alignSelf: 'flex-start',
+                        }}
+                      >
+                        <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 11.5 }}>
+                          ✓ Aprobar como Gerente General (&gt; $1,000 USD)
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ) : tUsd >= 1000 && r.gerente_aprobado ? (
+                  <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                    <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11 }}>✓ Aprobado por GG ({r.gerente_aprobado_por || 'Gerente'})</Text>
                   </View>
                 ) : null}
 
@@ -990,7 +1066,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
                     {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
                       <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s].short}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s]?.short || s}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -1000,12 +1076,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             detail={
               <View>
                 {r.items.map((it, i) => (
-                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 3, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 4, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
                     <View style={{ flex: 1 }}>
-                      {/* 🔢 El mismo número que la columna «#» del PDF y que el
-                          formulario: así «el renglón 3» es el mismo para todos. */}
+                      {/* 🔢 Número de renglón */}
                       <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}><Text style={{ color: colors.muted }}>{i + 1}. </Text>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}</Text>
                       {it.note ? <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginTop: 1 }}>📐 {it.note}</Text> : null}
+                      {it.supplier_name ? (
+                        <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '700', marginTop: 1 }}>🏢 Proveedor del ítem: {it.supplier_name}</Text>
+                      ) : null}
                       <Text style={{ color: colors.muted, fontSize: 11 }}>{qtyFmt(it.qty)} {it.unit || ''} · {it.currency === 'USD' ? usd(it.est_price) : fmtBs(it.est_price)} c/u</Text>
                     </View>
                     {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
@@ -1028,7 +1106,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   const hasBin = !!s.binance_id;
                   return (
                     <View style={{ marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
-                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>Proveedor: {s.name}</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>Proveedor General: {s.name}</Text>
                       {hasBank || hasPm || hasBin ? (
                         <Text style={{ fontSize: 10, color: colors.muted }}>
                           {hasBank ? `🏦 ${s.bank_name} (${s.account_number?.slice(-4) || '—'}) ` : ''}
@@ -1080,6 +1158,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       </TouchableOpacity>
                     );
                   })() : null}
+                  {/* Botón de aprobación Gerente General si supera los $1,000 USD */}
+                  {isAdmin && estDinamico.requiereAprobacionGG ? (
+                    <TouchableOpacity onPress={() => aprobarGerenteGeneral(r)} style={{ backgroundColor: '#7C3AED', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>👔 Aprobar GG (&gt; $1k)</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   {isAdmin && r.status === 'pendiente' ? (
                     <>
                       <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
@@ -1391,6 +1475,57 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     {x.image_url ? (
                       <TouchableOpacity onPress={() => upd(x.key, 'image_url', '')}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
                     ) : null}
+                  </View>
+
+                  {/* Asignación individual de proveedor por renglón (Multi-proveedor) */}
+                  <View style={{ marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                      🏢 Proveedor de este ítem (opcional para compras consolidadas):
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4, paddingVertical: 2 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          upd(x.key, 'supplier_id', null);
+                          upd(x.key, 'supplier_name', null);
+                        }}
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 4,
+                          borderRadius: radius.pill,
+                          backgroundColor: !x.supplier_id ? colors.brand : colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: !x.supplier_id ? colors.brand : colors.border,
+                        }}
+                      >
+                        <Text style={{ color: !x.supplier_id ? colors.brandContrast : colors.text, fontSize: 10.5, fontWeight: '700' }}>
+                          (Usa proveedor general)
+                        </Text>
+                      </TouchableOpacity>
+                      {suppliers.map((s) => {
+                        const sel = x.supplier_id === s.id;
+                        return (
+                          <TouchableOpacity
+                            key={s.id}
+                            onPress={() => {
+                              upd(x.key, 'supplier_id', s.id);
+                              upd(x.key, 'supplier_name', s.name);
+                            }}
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: radius.pill,
+                              backgroundColor: sel ? colors.brand : colors.surfaceAlt,
+                              borderWidth: 1,
+                              borderColor: sel ? colors.brand : colors.border,
+                            }}
+                          >
+                            <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 10.5, fontWeight: '700' }}>
+                              {s.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
                   </View>
                 </Card>
               );

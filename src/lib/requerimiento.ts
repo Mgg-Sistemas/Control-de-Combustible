@@ -5,7 +5,7 @@
 import { pdfDocument } from './pdf';
 import { FIRMA_DATA_URI, FIRMA2_DATA_URI } from './firmaData';
 
-export type ReqPdfItem = { name: string; unit?: string | null; qty: number; est_price: number; currency: 'USD' | 'VES'; isNew?: boolean; note?: string | null; image?: string | null };
+export type ReqPdfItem = { name: string; unit?: string | null; qty: number; est_price: number; currency: 'USD' | 'VES'; isNew?: boolean; note?: string | null; image?: string | null; supplier_name?: string | null };
 export type ReqPdfData = {
   code?: string | null;
   fecha: string;              // ya formateada (dd/mm/aaaa)
@@ -124,10 +124,13 @@ function reqTableHtml(d: ReqPdfData): { rows: string; totalUsd: number; hasImg: 
     const lineUsd = uUsd * (Number(it.qty) || 0);
     totalUsd += lineUsd;
     const imgCell = hasImg ? `<td class="c">${it.image ? `<img class="pimg" src="${it.image}"/>` : ''}</td>` : '';
-    const desc = it.note ? `<div class="pdesc">${esc(it.note)}</div>` : '';
+    const desc = it.note ? `<div class="pdesc">📐 ${esc(it.note)}</div>` : '';
+    const provLine = it.supplier_name && it.supplier_name !== d.proveedor
+      ? `<div class="pdesc" style="color:#2563EB;font-weight:700">🏢 Proveedor: ${esc(it.supplier_name)}</div>`
+      : '';
     return `<tr>
       <td class="c">${i + 1}</td>
-      <td>${esc(it.name)}${it.isNew ? ' <span class="new">NUEVO</span>' : ''}${desc}</td>
+      <td>${esc(it.name)}${it.isNew ? ' <span class="new">NUEVO</span>' : ''}${desc}${provLine}</td>
       ${imgCell}
       <td class="c">${money(it.qty)} ${esc(it.unit || '')}</td>
       <td class="r">$${money(uUsd)}</td>
