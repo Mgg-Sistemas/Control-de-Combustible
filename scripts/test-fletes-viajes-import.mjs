@@ -106,4 +106,13 @@ test('Panel de 6 Agentes - Validación de Importación de Viajes de Camiones a F
     assert.ok(pdfCode.includes('parseFleteNote'), 'El generador de PDF debe invocar parseFleteNote');
     assert.ok(pdfCode.includes('parsed.tickets'), 'El generador de PDF debe renderizar los tickets asociados');
   });
+
+  await t.test('Auditoría DB: Consulta a camion_viajes no usa columna inexistente notes', () => {
+    const fletesScreenPath = path.resolve('src/screens/ServicioFletesScreen.tsx');
+    const screenCode = fs.readFileSync(fletesScreenPath, 'utf-8');
+
+    assert.ok(!screenCode.includes(", notes'"), 'No debe pedir la columna inexistente notes');
+    assert.ok(screenCode.includes(", note'"), 'Debe pedir la columna singular note');
+    assert.ok(screenCode.includes("queryRes.error.code === '42703'"), 'Debe tener reintento resiliente ante 42703');
+  });
 });

@@ -174,16 +174,26 @@ export default function ServicioFletesScreen({ navigation }: any) {
       const startIso = `${dateStr}T00:00:00-04:00`;
       const endIso = `${dateStr}T23:59:59-04:00`;
 
-      const { data, error } = await supabase
+      let queryRes = await supabase
         .from('camion_viajes')
-        .select('id, folio, registered_at, chofer_name, ubicacion_nombre, peso_neto_kg, shift, notes')
+        .select('id, folio, registered_at, chofer_name, ubicacion_nombre, frente_nombre, peso_neto_kg, shift, note')
         .eq('machinery_id', mId)
         .gte('registered_at', startIso)
         .lte('registered_at', endIso)
         .order('registered_at', { ascending: true });
 
-      if (error) throw error;
-      const list = data || [];
+      if (queryRes.error && queryRes.error.code === '42703') {
+        queryRes = await supabase
+          .from('camion_viajes')
+          .select('id, folio, registered_at, chofer_name, ubicacion_nombre, shift, note')
+          .eq('machinery_id', mId)
+          .gte('registered_at', startIso)
+          .lte('registered_at', endIso)
+          .order('registered_at', { ascending: true });
+      }
+
+      if (queryRes.error) throw queryRes.error;
+      const list = queryRes.data || [];
       setCandidateViajes(list);
       // Preseleccionar los que no estén asignados
       const available = list.filter((v: any) => !allAssignedViajeIds.has(v.id)).map((v: any) => v.id);
@@ -1765,7 +1775,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                                   <Text style={{ color: colors.muted, fontSize: 11 }}>⏰ {hora}</Text>
                                 </View>
                                 <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-                                  👤 {v.chofer_name || 'Sin chofer'} · 📍 {v.ubicacion_nombre || 'Destino general'}
+                                  👤 {v.chofer_name || 'Sin chofer'} · 📍 {v.frente_nombre || v.ubicacion_nombre || 'Destino general'}
                                   {pesoTon ? ` · ⚖️ ${pesoTon}` : ''}
                                 </Text>
                               </View>
