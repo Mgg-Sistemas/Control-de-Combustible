@@ -687,6 +687,28 @@ export default function SolicitudMaterialScreen() {
     return agruparSolicitudesStock(stockRequestsFiltradas || []);
   }, [stockRequestsFiltradas]);
 
+  // Plegado / Desplegado de tarjetas consolidadas en Mis Solicitudes
+  const [expandidosStock, setExpandidosStock] = useState<Record<string, boolean>>({});
+
+  const toggleExpandStock = (id: string, defaultOpen: boolean) => {
+    setExpandidosStock((prev) => {
+      const current = prev[id] !== undefined ? prev[id] : defaultOpen;
+      return { ...prev, [id]: !current };
+    });
+  };
+
+  const expandirTodosStock = () => {
+    const next: Record<string, boolean> = {};
+    gruposStockFiltrados.forEach((g) => { next[g.id] = true; });
+    setExpandidosStock(next);
+  };
+
+  const plegarTodosStock = () => {
+    const next: Record<string, boolean> = {};
+    gruposStockFiltrados.forEach((g) => { next[g.id] = false; });
+    setExpandidosStock(next);
+  };
+
   const requirementsFiltradas = useMemo(() => {
     const soloTecnicas = (requirements || []).filter((r) => {
       return (
@@ -1888,6 +1910,49 @@ export default function SolicitudMaterialScreen() {
 
           {/* 2) Solicitudes de Despacho de Almacén (Existencias Consolidadas por Pedido) */}
           <SectionTitle>📦 Pedidos de Despacho al Almacén ({gruposStockFiltrados.length})</SectionTitle>
+
+          {/* Barra de control para desplegar / plegar todas */}
+          {gruposStockFiltrados.length > 0 && (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>
+                {gruposStockFiltrados.length} {gruposStockFiltrados.length === 1 ? 'pedido consolidado' : 'pedidos consolidados'}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={expandirTodosStock}
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: radius.sm,
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                    📂 Desplegar todas
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={plegarTodosStock}
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: radius.sm,
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                    📁 Plegar todas
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           {gruposStockFiltrados.length === 0 ? (
             <EmptyState
               title="Sin pedidos de almacén"
@@ -1900,11 +1965,18 @@ export default function SolicitudMaterialScreen() {
               const mach = grupo.machinery_id ? machines.find((m) => m.id === grupo.machinery_id) : null;
               const veh = grupo.vehicle_id ? vehicles.find((v) => v.id === grupo.vehicle_id) : null;
 
+              const isOpenDefault = grupo.estadoGrupo === 'pendiente' || grupo.estadoGrupo === 'parcial';
+              const isAbierto = expandidosStock[grupo.id] !== undefined ? expandidosStock[grupo.id] : isOpenDefault;
+
               return (
                 <Card key={grupo.id} style={{ gap: 8, borderColor: est.color, borderWidth: 1.5 }}>
-                  {/* Cabecera del pedido consolidado */}
+                  {/* Cabecera del pedido consolidado y toggle plegar/desplegar */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6 }}>
-                    <View style={{ flex: 1, minWidth: 200 }}>
+                    <TouchableOpacity
+                      onPress={() => toggleExpandStock(grupo.id, isOpenDefault)}
+                      activeOpacity={0.7}
+                      style={{ flex: 1, minWidth: 200 }}
+                    >
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         <Text style={{ fontWeight: '900', fontSize: 15, color: colors.text }}>
                           {grupo.codigoLote}
@@ -1930,19 +2002,41 @@ export default function SolicitudMaterialScreen() {
                       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
                         Fecha de solicitud: {dmyOf(grupo.fechaCreacion)}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
 
-                    <View
-                      style={{
-                        backgroundColor: est.bg,
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: radius.pill,
-                      }}
-                    >
-                      <Text style={{ color: est.color, fontWeight: '800', fontSize: 12 }}>
-                        {est.icon} {est.label}
-                      </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View
+                        style={{
+                          backgroundColor: est.bg,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: radius.pill,
+                        }}
+                      >
+                        <Text style={{ color: est.color, fontWeight: '800', fontSize: 12 }}>
+                          {est.icon} {est.label}
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        onPress={() => toggleExpandStock(grupo.id, isOpenDefault)}
+                        activeOpacity={0.7}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                          backgroundColor: isAbierto ? colors.surfaceAlt : colors.brandLight || '#EFF6FF',
+                          paddingHorizontal: 9,
+                          paddingVertical: 4,
+                          borderRadius: radius.pill,
+                          borderWidth: 1,
+                          borderColor: isAbierto ? colors.border : '#93C5FD',
+                        }}
+                      >
+                        <Text style={{ fontSize: 11.5, fontWeight: '800', color: isAbierto ? colors.muted : '#1D4ED8' }}>
+                          {isAbierto ? '▲ Plegar' : `▼ Desplegar (${grupo.totalItems})`}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
 
@@ -1984,160 +2078,189 @@ export default function SolicitudMaterialScreen() {
                     </Text>
                   </View>
 
-                  {/* Lista de Artículos de esta Orden */}
-                  <View style={{ gap: 6, marginTop: 2 }}>
-                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Artículos solicitados en este pedido:
-                    </Text>
+                  {/* Vista rápida si está plegada */}
+                  {!isAbierto && (
+                    <TouchableOpacity
+                      onPress={() => toggleExpandStock(grupo.id, isOpenDefault)}
+                      activeOpacity={0.7}
+                      style={{
+                        backgroundColor: colors.surfaceAlt,
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        borderRadius: radius.sm,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ color: colors.muted, fontSize: 11.5, flex: 1, paddingRight: 6 }}>
+                        📦 <Text style={{ fontWeight: '800', color: colors.text }}>{grupo.totalItems}</Text> {grupo.totalItems === 1 ? 'repuesto' : 'repuestos'}: {grupo.items.map((i) => i.item_name).slice(0, 3).join(', ')}{grupo.items.length > 3 ? '…' : ''}
+                      </Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                        Toca para desplegar ▾
+                      </Text>
+                    </TouchableOpacity>
+                  )}
 
-                    {grupo.items.map((s, idx) => {
-                      const itemEst = (ESTADO_EXISTENCIA_CONFIG as any)[s.status] || ESTADO_EXISTENCIA_CONFIG.pendiente;
-                      const rej = parseRejectionNote(s.rejection_note);
+                  {/* Detalle desplegable de repuestos y estado */}
+                  {isAbierto && (
+                    <>
+                      {/* Lista de Artículos de esta Orden */}
+                      <View style={{ gap: 6, marginTop: 2 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Artículos solicitados en este pedido:
+                        </Text>
 
-                      return (
-                        <View
-                          key={s.id}
-                          style={{
-                            backgroundColor: '#fff',
-                            borderWidth: 1,
-                            borderColor: s.status === 'despachado' ? '#86EFAC' : s.status === 'rechazado' ? '#FCA5A5' : colors.border,
-                            borderRadius: radius.md,
-                            padding: spacing.sm,
-                            gap: 4,
-                          }}
-                        >
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Text style={{ fontWeight: '800', fontSize: 13, color: colors.text, flex: 1, paddingRight: 6 }}>
-                              {idx + 1}. {s.item_name}
-                            </Text>
+                        {grupo.items.map((s, idx) => {
+                          const itemEst = (ESTADO_EXISTENCIA_CONFIG as any)[s.status] || ESTADO_EXISTENCIA_CONFIG.pendiente;
+                          const rej = parseRejectionNote(s.rejection_note);
+
+                          return (
                             <View
+                              key={s.id}
                               style={{
-                                backgroundColor: itemEst.bg,
-                                paddingHorizontal: 7,
-                                paddingVertical: 2,
-                                borderRadius: radius.pill,
+                                backgroundColor: '#fff',
+                                borderWidth: 1,
+                                borderColor: s.status === 'despachado' ? '#86EFAC' : s.status === 'rechazado' ? '#FCA5A5' : colors.border,
+                                borderRadius: radius.md,
+                                padding: spacing.sm,
+                                gap: 4,
                               }}
                             >
-                              <Text style={{ color: itemEst.color, fontWeight: '800', fontSize: 10.5 }}>
-                                {itemEst.icon} {itemEst.label}
-                              </Text>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Text style={{ fontWeight: '800', fontSize: 13, color: colors.text, flex: 1, paddingRight: 6 }}>
+                                  {idx + 1}. {s.item_name}
+                                </Text>
+                                <View
+                                  style={{
+                                    backgroundColor: itemEst.bg,
+                                    paddingHorizontal: 7,
+                                    paddingVertical: 2,
+                                    borderRadius: radius.pill,
+                                  }}
+                                >
+                                  <Text style={{ color: itemEst.color, fontWeight: '800', fontSize: 10.5 }}>
+                                    {itemEst.icon} {itemEst.label}
+                                  </Text>
+                                </View>
+                              </View>
+
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                                  Cantidad: <Text style={{ color: colors.text, fontWeight: '800' }}>{qtyFmt(s.qty)} {s.unit || 'UND'}</Text>
+                                  <Text style={{ color: colors.muted, fontSize: 10.5 }}> · Ticket {s.code}</Text>
+                                </Text>
+                              </View>
+
+                              {s.cleanReason ? (
+                                <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic' }}>
+                                  Nota: {s.cleanReason}
+                                </Text>
+                              ) : null}
+
+                              {s.status === 'despachado' && (
+                                <Text style={{ color: '#15803D', fontSize: 11, fontWeight: '700' }}>
+                                  ✅ Despachado por {s.dispatched_by_name || 'Almacenista'}{s.dispatched_at ? ` el ${dmyTimeOf(s.dispatched_at)}` : ''}
+                                </Text>
+                              )}
+
+                              {s.status === 'rechazado' && (
+                                <View style={{ backgroundColor: '#FEE2E2', padding: spacing.xs, borderRadius: radius.sm, marginTop: 2 }}>
+                                  <Text style={{ color: '#991B1B', fontSize: 11, fontWeight: '700' }}>
+                                    ❌ Rechazado por {rej.rejectedBy || 'Almacén'}: {rej.note || 'Sin motivo'}
+                                  </Text>
+                                </View>
+                              )}
                             </View>
-                          </View>
+                          );
+                        })}
+                      </View>
 
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                            <Text style={{ color: colors.muted, fontSize: 12 }}>
-                              Cantidad: <Text style={{ color: colors.text, fontWeight: '800' }}>{qtyFmt(s.qty)} {s.unit || 'UND'}</Text>
-                              <Text style={{ color: colors.muted, fontSize: 10.5 }}> · Ticket {s.code}</Text>
-                            </Text>
-                          </View>
-
-                          {s.cleanReason ? (
-                            <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic' }}>
-                              Nota: {s.cleanReason}
-                            </Text>
-                          ) : null}
-
-                          {s.status === 'despachado' && (
-                            <Text style={{ color: '#15803D', fontSize: 11, fontWeight: '700' }}>
-                              ✅ Despachado por {s.dispatched_by_name || 'Almacenista'}{s.dispatched_at ? ` el ${dmyTimeOf(s.dispatched_at)}` : ''}
-                            </Text>
-                          )}
-
-                          {s.status === 'rechazado' && (
-                            <View style={{ backgroundColor: '#FEE2E2', padding: spacing.xs, borderRadius: radius.sm, marginTop: 2 }}>
-                              <Text style={{ color: '#991B1B', fontSize: 11, fontWeight: '700' }}>
-                                ❌ Rechazado por {rej.rejectedBy || 'Almacén'}: {rej.note || 'Sin motivo'}
-                              </Text>
-                            </View>
-                          )}
+                      {/* Resumen al pie del grupo */}
+                      {grupo.estadoGrupo === 'despachado' && (
+                        <View
+                          style={{
+                            backgroundColor: '#DCFCE7',
+                            borderWidth: 1,
+                            borderColor: '#86EFAC',
+                            padding: spacing.xs,
+                            paddingHorizontal: spacing.sm,
+                            borderRadius: radius.sm,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <Text style={{ fontSize: 14 }}>✅</Text>
+                          <Text style={{ color: '#166534', fontWeight: '800', fontSize: 11.5 }}>
+                            Todos los artículos de esta orden fueron despachados y entregados.
+                          </Text>
                         </View>
-                      );
-                    })}
-                  </View>
+                      )}
 
-                  {/* Resumen al pie del grupo */}
-                  {grupo.estadoGrupo === 'despachado' && (
-                    <View
-                      style={{
-                        backgroundColor: '#DCFCE7',
-                        borderWidth: 1,
-                        borderColor: '#86EFAC',
-                        padding: spacing.xs,
-                        paddingHorizontal: spacing.sm,
-                        borderRadius: radius.sm,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                      }}
-                    >
-                      <Text style={{ fontSize: 14 }}>✅</Text>
-                      <Text style={{ color: '#166534', fontWeight: '800', fontSize: 11.5 }}>
-                        Todos los artículos de esta orden fueron despachados y entregados.
-                      </Text>
-                    </View>
-                  )}
+                      {grupo.estadoGrupo === 'parcial' && (
+                        <View
+                          style={{
+                            backgroundColor: '#EFF6FF',
+                            borderWidth: 1,
+                            borderColor: '#BFDBFE',
+                            padding: spacing.xs,
+                            paddingHorizontal: spacing.sm,
+                            borderRadius: radius.sm,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <Text style={{ fontSize: 14 }}>🔄</Text>
+                          <Text style={{ color: '#1E40AF', fontWeight: '800', fontSize: 11.5 }}>
+                            Entrega parcial: {grupo.despachados} de {grupo.totalItems} artículos despachados.
+                          </Text>
+                        </View>
+                      )}
 
-                  {grupo.estadoGrupo === 'parcial' && (
-                    <View
-                      style={{
-                        backgroundColor: '#EFF6FF',
-                        borderWidth: 1,
-                        borderColor: '#BFDBFE',
-                        padding: spacing.xs,
-                        paddingHorizontal: spacing.sm,
-                        borderRadius: radius.sm,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                      }}
-                    >
-                      <Text style={{ fontSize: 14 }}>🔄</Text>
-                      <Text style={{ color: '#1E40AF', fontWeight: '800', fontSize: 11.5 }}>
-                        Entrega parcial: {grupo.despachados} de {grupo.totalItems} artículos despachados.
-                      </Text>
-                    </View>
-                  )}
+                      {grupo.estadoGrupo === 'pendiente' && (
+                        <View
+                          style={{
+                            backgroundColor: '#FEF3C7',
+                            borderWidth: 1,
+                            borderColor: '#FDE68A',
+                            padding: spacing.xs,
+                            paddingHorizontal: spacing.sm,
+                            borderRadius: radius.sm,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <Text style={{ fontSize: 14 }}>⏳</Text>
+                          <Text style={{ color: '#92400E', fontWeight: '700', fontSize: 11.5 }}>
+                            En espera de revisión y entrega física por el Almacén.
+                          </Text>
+                        </View>
+                      )}
 
-                  {grupo.estadoGrupo === 'pendiente' && (
-                    <View
-                      style={{
-                        backgroundColor: '#FEF3C7',
-                        borderWidth: 1,
-                        borderColor: '#FDE68A',
-                        padding: spacing.xs,
-                        paddingHorizontal: spacing.sm,
-                        borderRadius: radius.sm,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                      }}
-                    >
-                      <Text style={{ fontSize: 14 }}>⏳</Text>
-                      <Text style={{ color: '#92400E', fontWeight: '700', fontSize: 11.5 }}>
-                        En espera de revisión y entrega física por el Almacén.
-                      </Text>
-                    </View>
-                  )}
-
-                  {grupo.estadoGrupo === 'rechazado' && (
-                    <View
-                      style={{
-                        backgroundColor: '#FEE2E2',
-                        borderWidth: 1,
-                        borderColor: '#F87171',
-                        padding: spacing.xs,
-                        paddingHorizontal: spacing.sm,
-                        borderRadius: radius.sm,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                      }}
-                    >
-                      <Text style={{ fontSize: 14 }}>❌</Text>
-                      <Text style={{ color: '#991B1B', fontWeight: '800', fontSize: 11.5 }}>
-                        Todos los artículos de esta orden fueron rechazados.
-                      </Text>
-                    </View>
+                      {grupo.estadoGrupo === 'rechazado' && (
+                        <View
+                          style={{
+                            backgroundColor: '#FEE2E2',
+                            borderWidth: 1,
+                            borderColor: '#F87171',
+                            padding: spacing.xs,
+                            paddingHorizontal: spacing.sm,
+                            borderRadius: radius.sm,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <Text style={{ fontSize: 14 }}>❌</Text>
+                          <Text style={{ color: '#991B1B', fontWeight: '800', fontSize: 11.5 }}>
+                            Todos los artículos de esta orden fueron rechazados.
+                          </Text>
+                        </View>
+                      )}
+                    </>
                   )}
                 </Card>
               );

@@ -76,6 +76,8 @@ ok('🏢 InventarioScreen permite rechazar orden consolidada completa', inv.incl
 ok('🛒 SolicitudMaterialScreen etiqueta carritos multi-ítem con tag de orden', screen.includes('codigoBaseLote') && screen.includes('[ORDEN:'));
 ok('📱 SolicitudMaterialScreen muestra pedidos consolidados en Mis Solicitudes', screen.includes('gruposStockFiltrados') && screen.includes('agruparSolicitudesStock'));
 ok('🚜 Cumple regla de maquinaria en tarjeta consolidada (código + PLACA obligatoria)', (inv.includes('m.plate') || inv.includes('mach.plate')) && (screen.includes('m.plate') || screen.includes('mach.plate')));
+ok('📂 InventarioScreen tarjetas son plegables/desplegables (toggle y masivo)', inv.includes('toggleExpand') && inv.includes('expandirTodos') && inv.includes('plegarTodos'));
+ok('📂 SolicitudMaterialScreen tarjetas son plegables/desplegables (toggle y masivo)', screen.includes('toggleExpandStock') && screen.includes('expandirTodosStock') && screen.includes('plegarTodosStock'));
 
 console.log(`\n🧪 Solicitudes de Existencia y Compra: ${pass} OK · ${fail} FALLO(S)`);
 if (fail) {
