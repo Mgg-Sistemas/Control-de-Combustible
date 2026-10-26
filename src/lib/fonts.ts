@@ -40,6 +40,16 @@ export const FONT_FAMILY = 'Tahoma, Geneva, Verdana, sans-serif';
  */
 export const passField: any = Platform.OS === 'web' ? { dataSet: { pass: '1' } } : {};
 
+/**
+ * Props a esparcir en campos o textos que DEBEN conservar minúsculas/mayúsculas tal cual:
+ * correos electrónicos, billeteras digitales (Binance Pay / USDT / Cripto / Hash),
+ * notas de pago, enlaces, etc.
+ *
+ * <TextInput {...rawCaseField} style={[tuEstilo, { textTransform: 'none' }]} ... />
+ * <Text {...rawCaseField} style={{ textTransform: 'none' }}>user@domain.com</Text>
+ */
+export const rawCaseField: any = Platform.OS === 'web' ? { dataSet: { rawcase: '1' } } : {};
+
 if (Platform.OS === 'web' && typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.setAttribute('data-app-font', 'tahoma');
@@ -71,7 +81,9 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
     //    Hay una prueba que exige la marca en TODO campo con secureTextEntry:
     //    scripts/test-password-mayusculas.mjs
     ` input[type="password"], input[data-pass] { text-transform: none !important; }` +
-    ` input::placeholder, textarea::placeholder { text-transform: uppercase; }`;
+    ` input::placeholder, textarea::placeholder { text-transform: uppercase; }` +
+    // EXCEPCIÓN: Billeteras digitales, correos y campos marcados para conservar minúsculas tal cual.
+    ` [data-rawcase], [data-rawcase] *, input[data-rawcase], textarea[data-rawcase], input[data-rawcase]::placeholder, textarea[data-rawcase]::placeholder, input[type="email"], .r-textTransform-none, .r-textTransform-none::placeholder { text-transform: none !important; }`;
   document.head.appendChild(style);
 
   // REDISEÑO: IBM Plex Mono SOLO para CIFRAS (litros, placas/seriales, horas, montos).

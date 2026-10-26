@@ -18,6 +18,7 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
+import { rawCaseField } from '../lib/fonts';
 import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee } from '../types/database';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
 import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile } from '../lib/photo';
@@ -1918,7 +1919,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 2 }}>
                           {hasBank ? <Text style={{ fontSize: 10, color: colors.muted }}>🏦 {s.bank_name} ({s.account_number?.slice(-4) || '—'})</Text> : null}
                           {hasPm ? <Text style={{ fontSize: 10, color: colors.muted }}>📱 PM: {s.pago_movil_phone}</Text> : null}
-                          {hasBin ? <Text style={{ fontSize: 10, color: colors.muted }}>🟡 Binance: {s.binance_id}</Text> : null}
+                          {hasBin ? <Text {...rawCaseField} style={{ fontSize: 10, color: colors.muted, textTransform: 'none' }}>🟡 Binance: {s.binance_id}</Text> : null}
                           {(() => {
                             const cap = extraerCapturaPago(s);
                             if (!cap) return null;
@@ -2387,7 +2388,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       <View style={{ marginTop: 4, gap: 2 }}>
                         {hasBank ? <Text style={{ fontSize: 11, color: colors.muted }}>🏦 {s.bank_name} · Cta: {s.account_number ? `...${s.account_number.slice(-4)}` : '—'} · {s.account_holder} ({s.account_id_doc})</Text> : null}
                         {hasPm ? <Text style={{ fontSize: 11, color: colors.muted }}>📱 PM: {s.pago_movil_phone} · {s.pago_movil_bank ?? '—'} · {s.pago_movil_id ?? '—'}</Text> : null}
-                        {hasBin ? <Text style={{ fontSize: 11, color: colors.muted }}>🟡 Binance Pay ID: {s.binance_id}</Text> : null}
+                        {hasBin ? <Text {...rawCaseField} style={{ fontSize: 11, color: colors.muted, textTransform: 'none' }}>🟡 Binance Pay ID: {s.binance_id}</Text> : null}
                         {(() => {
                           const cap = extraerCapturaPago(s);
                           if (!cap) return null;
@@ -2814,10 +2815,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             <Card>
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🟡 Billetera Digital (Binance Pay / Cripto)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Binance Pay ID / Correo</Text>
-              <TextInput value={provBinanceId} onChangeText={setProvBinanceId} autoCapitalize="none" keyboardType="email-address" placeholder="Binance ID o correo de cuenta" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+              <TextInput value={provBinanceId} onChangeText={setProvBinanceId} autoCapitalize="none" keyboardType="email-address" placeholder="Binance ID o correo de cuenta" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6, textTransform: 'none' }]} {...rawCaseField} />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Notas adicionales de pago (opcional)</Text>
-              <TextInput value={provNotasPago} onChangeText={setProvNotasPago} autoCapitalize="sentences" placeholder="Instrucciones especiales de pago…" placeholderTextColor={colors.muted} multiline style={[inp, { minHeight: 50, textAlignVertical: 'top' }]} />
+              <TextInput value={provNotasPago} onChangeText={setProvNotasPago} autoCapitalize="none" placeholder="Instrucciones especiales de pago…" placeholderTextColor={colors.muted} multiline style={[inp, { minHeight: 50, textAlignVertical: 'top', textTransform: 'none' }]} {...rawCaseField} />
             </Card>
 
             {/* 📸 Captura de Pago / Billetera TRX / Tron / QR */}

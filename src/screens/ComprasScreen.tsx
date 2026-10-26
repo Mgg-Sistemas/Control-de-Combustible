@@ -22,6 +22,7 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { norm, cmpText } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
+import { rawCaseField } from '../lib/fonts';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Acepta punto O coma como separador decimal (12,50 y 12.50 valen igual). Si vienen
@@ -472,7 +473,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
               ) : null}
               {s.binance_id ? (
                 <View style={{ backgroundColor: '#713F12', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                  <Text style={{ color: '#FCD34D', fontSize: 10.5, fontWeight: '800' }}>🟡 Binance: {s.binance_id}</Text>
+                  <Text {...rawCaseField} style={{ color: '#FCD34D', fontSize: 10.5, fontWeight: '800', textTransform: 'none' }}>🟡 Binance: {s.binance_id}</Text>
                 </View>
               ) : null}
               {(() => {
@@ -531,14 +532,14 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
               </View>
 
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Correo electrónico</Text>
-              <TextInput value={email} onChangeText={setEmail} placeholder="correo@empresa.com" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" keyboardType="email-address" />
+              <TextInput value={email} onChangeText={setEmail} placeholder="correo@empresa.com" placeholderTextColor={colors.muted} style={[input, { textTransform: 'none' }]} {...rawCaseField} autoCapitalize="none" keyboardType="email-address" />
               
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Dirección fiscal / física</Text>
               <TextInput value={address} onChangeText={setAddress} autoCapitalize="sentences" placeholder="Dirección" placeholderTextColor={colors.muted} style={input} />
 
               {/* 💳 SECCIÓN DE DATOS FINANCIEROS Y MÉTODOS DE PAGO */}
               <View style={{ marginTop: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
-                <Text style={{ color: '#16324F', fontWeight: '900', fontSize: 13, marginBottom: 4, textTransform: 'uppercase' }}>
+                <Text style={{ color: '#1E3A5F', fontWeight: '900', fontSize: 13, marginBottom: 4, textTransform: 'uppercase' }}>
                   💳 Datos Financieros (Para Transición a Tesorería / Pagos)
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
@@ -552,11 +553,11 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: 6 }}>
                     <View style={{ flex: 2 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco emisor</Text>
-                      <TextInput value={bankName} onChangeText={setBankName} autoCapitalize="words" placeholder="Ej. Banesco, Mercantil, Venezuela" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={bankName} onChangeText={setBankName} autoCapitalize="words" placeholder="Ej. Banesco, Mercantil, Venezuela" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Tipo de cuenta</Text>
-                      <TextInput value={accountType} onChangeText={setAccountType} autoCapitalize="words" placeholder="Corriente / Ahorro" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={accountType} onChangeText={setAccountType} autoCapitalize="words" placeholder="Corriente / Ahorro" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                   </View>
 
@@ -566,11 +567,11 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                     <View style={{ flex: 2 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Titular de la cuenta</Text>
-                      <TextInput value={accountHolder} onChangeText={setAccountHolder} autoCapitalize="words" placeholder="Nombre o Razón social" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={accountHolder} onChangeText={setAccountHolder} autoCapitalize="words" placeholder="Nombre o Razón social" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Cédula / RIF</Text>
-                      <TextInput value={accountIdDoc} onChangeText={setAccountIdDoc} autoCapitalize="none" placeholder="J-12345678-9" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={accountIdDoc} onChangeText={setAccountIdDoc} autoCapitalize="none" placeholder="J-12345678-9" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                   </View>
                 </View>
@@ -581,7 +582,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco</Text>
-                      <TextInput value={pagoMovilBank} onChangeText={setPagoMovilBank} autoCapitalize="words" placeholder="Ej. Banesco (0134)" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={pagoMovilBank} onChangeText={setPagoMovilBank} autoCapitalize="words" placeholder="Ej. Banesco (0134)" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Teléfono</Text>
@@ -589,7 +590,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>C.I. / RIF</Text>
-                      <TextInput value={pagoMovilId} onChangeText={setPagoMovilId} autoCapitalize="none" placeholder="V-12345678" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={pagoMovilId} onChangeText={setPagoMovilId} autoCapitalize="none" placeholder="V-12345678" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                   </View>
                 </View>
@@ -598,10 +599,10 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                 <View style={{ backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 6 }}>🟡 Billetera Digital (Binance Pay / USDT)</Text>
                   <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Binance Pay ID o Correo electrónico registrado</Text>
-                  <TextInput value={binanceId} onChangeText={setBinanceId} placeholder="Binance ID (ej. 123456789) o correo de cuenta" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 6 }]} autoCapitalize="none" />
+                  <TextInput value={binanceId} onChangeText={setBinanceId} placeholder="Binance ID (ej. 123456789) o correo de cuenta" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 6, textTransform: 'none' }]} {...rawCaseField} autoCapitalize="none" />
 
                   <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Notas / Instrucciones adicionales de pago</Text>
-                  <TextInput value={paymentNotes} onChangeText={setPaymentNotes} autoCapitalize="sentences" placeholder="Ej. Solo transferencias antes de las 2:00 PM…" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                  <TextInput value={paymentNotes} onChangeText={setPaymentNotes} autoCapitalize="none" placeholder="Ej. Solo transferencias antes de las 2:00 PM…" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                 </View>
 
                 {/* 4. Captura de Billetera / QR / Tron TRX / Volante bancario */}
@@ -627,7 +628,9 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                     onChangeText={setPaymentPhotoName}
                     placeholder="Ej. Billetera Tron TRX (TRC-20)"
                     placeholderTextColor={colors.muted}
-                    style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 8 }]}
+                    style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 8, textTransform: 'none' }]}
+                    {...rawCaseField}
+                    autoCapitalize="none"
                   />
 
                   {paymentPhotoUrl ? (
