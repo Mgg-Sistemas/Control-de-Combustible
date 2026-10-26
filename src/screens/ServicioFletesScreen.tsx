@@ -174,7 +174,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
       const startIso = `${dateStr}T00:00:00-04:00`;
       const endIso = `${dateStr}T23:59:59-04:00`;
 
-      let queryRes = await supabase
+      let queryRes: any = await supabase
         .from('camion_viajes')
         .select('id, folio, registered_at, chofer_name, ubicacion_nombre, frente_nombre, peso_neto_kg, shift, note')
         .eq('machinery_id', mId)

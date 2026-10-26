@@ -15,6 +15,7 @@ import {
   Platform,
   Image,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Badge, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -35,6 +36,7 @@ import {
   Employee,
   Contacto,
   StockRequestUrgency,
+  Supplier,
 } from '../types/database';
 import { pickAndUploadRequirementFile, captureAndUploadPhoto } from '../lib/photo';
 import { PersonaNominaPicker } from '../components/PersonaNominaPicker';
@@ -55,6 +57,14 @@ import {
   agruparSolicitudesStock,
   type GrupoSolicitudStock,
 } from '../lib/solicitudMaterial';
+import { calcularEstadoRequerimiento, type InfoEstadoRequerimiento } from '../lib/requerimientoFlujo';
+import {
+  extraerFactura,
+  extraerDespacho,
+  expedienteCompletoHtml,
+} from '../lib/requerimientoExpediente';
+import { exportPdf, urlToDataUri } from '../lib/pdf';
+import { machineLabel } from '../lib/machineLabel';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -71,6 +81,11 @@ export interface SolicitudCartItem {
   reason?: string;
   medidas?: string;
   fotoUrl?: string | null;
+  proveedorSugerido?: {
+    nombre?: string;
+    telefono?: string;
+    direccion?: string;
+  } | null;
 }
 
 const parseNum = leerNumero;
@@ -142,6 +157,104 @@ export default function SolicitudMaterialScreen() {
     ascending: false,
   });
 
+  const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
+
+  // ── Expediente Completo (PDF - Falta 2) ──
+  const descargarExpediente = async (r: InventoryRequirement) => {
+    try {
+      toast.info('Generando Expediente Completo de Compra...');
+      const factura = extraerFactura(r);
+      const despacho = extraerDespacho(r);
+
+      const prov = suppliers.find((s) => s.id === r.supplier_id);
+      let provDatosPago: string | null = null;
+      if (prov) {
+        const parts = [
+          prov.bank_name || prov.account_number ? `🏦 ${prov.bank_name ?? ''} Cta: ${prov.account_number ?? ''}${prov.account_holder ? ` (${prov.account_holder} ${prov.account_id_doc ?? ''})` : ''}`.trim() : '',
+          prov.pago_movil_phone ? `📱 PM: ${prov.pago_movil_bank ?? ''} - ${prov.pago_movil_phone} (${prov.pago_movil_id ?? ''})` : '',
+          prov.binance_id ? `🟡 Binance: ${prov.binance_id}` : '',
+        ].filter(Boolean);
+        provDatosPago = parts.join(' · ');
+      }
+
+      let pagoInfo: any = null;
+      try {
+        const { data: cuentaRows } = await supabase
+          .from('cuentas')
+          .select('id, estado, monto, concepto')
+          .eq('inventory_requirement_id', r.id)
+          .limit(1);
+
+        if (cuentaRows && cuentaRows[0]) {
+          const c = cuentaRows[0];
+          const { data: abonoRows } = await supabase
+            .from('cuenta_abonos')
+            .select('fecha, monto, metodo, referencia, nota')
+            .eq('cuenta_id', c.id)
+            .order('fecha', { ascending: true });
+
+          const abonos = abonoRows || [];
+          const pagado = abonos.reduce((sum: number, ab: any) => sum + (Number(ab.monto) || 0), 0);
+          pagoInfo = {
+            estadoCuenta: c.estado,
+            montoTotal: Number(c.monto) || 0,
+            montoPagado: pagado,
+            saldoPendiente: Math.max(0, (Number(c.monto) || 0) - pagado),
+            concepto: c.concepto,
+            abonos,
+          };
+        }
+      } catch (e) {
+        console.warn('No se pudo cargar cuentas:', e);
+      }
+
+      let maqLabel = '';
+      if (despacho.maquinariaCodigo) {
+        maqLabel = `${despacho.maquinariaCodigo}${despacho.maquinariaPlaca ? ` · Placa ${despacho.maquinariaPlaca}` : ''}`;
+      } else if (r.title && r.title.includes('para ')) {
+        maqLabel = r.title.split('para ')[1]?.trim();
+      } else if (r.area) {
+        maqLabel = r.area;
+      }
+
+      const itemsConImagenes = await Promise.all(
+        (r.items || []).map(async (it) => ({
+          name: it.name,
+          unit: it.unit,
+          qty: it.qty,
+          est_price: it.est_price,
+          currency: it.currency || 'USD',
+          note: it.note,
+          image_url: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
+          supplier_name: it.supplier_name,
+        }))
+      );
+
+      let facturaParaPdf = factura;
+      if (factura && factura.url && factura.tipo === 'image') {
+        const dataUri = await urlToDataUri(factura.url);
+        facturaParaPdf = { ...factura, url: dataUri || factura.url };
+      }
+
+      const html = expedienteCompletoHtml({
+        req: r,
+        factura: facturaParaPdf,
+        despacho,
+        pagoInfo,
+        proveedorNombre: prov?.name ?? null,
+        proveedorRif: prov?.rif ?? null,
+        proveedorDatosPago: provDatosPago,
+        maquinariaLabel: maqLabel || 'Destino asignado',
+        itemsConImagenes,
+      });
+
+      await exportPdf(html, `Expediente-${r.code || 'REQ'}`);
+      toast.success('Expediente generado exitosamente.');
+    } catch (err: any) {
+      toast.error('Error al generar expediente: ' + (err?.message ?? err));
+    }
+  };
+
   // ── PASO 1: Destino y Solicitante ──────────────────────────────────────────
   const [destinoTipo, setDestinoTipo] = useState<'maquinaria' | 'vehiculo' | 'area'>('maquinaria');
   // Multi-selección de maquinaria y vehículos
@@ -151,7 +264,7 @@ export default function SolicitudMaterialScreen() {
   const [vehicleQuery, setVehicleQuery] = useState<string>('');
   const [areaTexto, setAreaTexto] = useState<string>('');
   const [solicitante, setSolicitante] = useState<PersonaElegida>(() => {
-    return fullName ? { nombre: fullName.toUpperCase(), employeeId: null } : SIN_PERSONA;
+    return fullName ? { nombre: fullName.trim(), employeeId: null } : SIN_PERSONA;
   });
 
   const machineryId = selectedMachineryIds[0] || '';
@@ -369,6 +482,11 @@ export default function SolicitudMaterialScreen() {
   const [compraSubiendoFoto, setCompraSubiendoFoto] = useState(false);
   const [compraBusy, setCompraBusy] = useState(false);
 
+  // 🏬 Proveedor Sugerido (Opcional - Audio Jefes de Dpto)
+  const [compraProvNombre, setCompraProvNombre] = useState('');
+  const [compraProvTelefono, setCompraProvTelefono] = useState('');
+  const [compraProvDireccion, setCompraProvDireccion] = useState('');
+
   const abrirPedirCompra = (item?: InventoryLevel | null) => {
     if (item) {
       setCompraItemName(item.name);
@@ -383,6 +501,9 @@ export default function SolicitudMaterialScreen() {
     setCompraQty('1');
     setCompraMotivo('');
     setCompraFoto(null);
+    setCompraProvNombre('');
+    setCompraProvTelefono('');
+    setCompraProvDireccion('');
     setModalCompraOpen(true);
   };
 
@@ -446,6 +567,11 @@ export default function SolicitudMaterialScreen() {
             : 'Vehículo'
           : areaTexto.trim() || 'Taller General';
 
+      const provInfo =
+        compraProvNombre.trim() || compraProvTelefono.trim() || compraProvDireccion.trim()
+          ? `\n[PROVEEDOR SUGERIDO: Nombre: ${compraProvNombre.trim() || 'No indicado'} | Tel: ${compraProvTelefono.trim() || 'No indicado'} | Dirección: ${compraProvDireccion.trim() || 'No indicada'}]`
+          : '';
+
       const items = [
         {
           product_id: compraProductId,
@@ -454,7 +580,7 @@ export default function SolicitudMaterialScreen() {
           qty,
           est_price: 0,
           currency: 'USD' as const,
-          note: compraMedidas.trim(),
+          note: `${compraMedidas.trim()}${provInfo ? ` · Prov. sugerido: ${compraProvNombre.trim() || 'Ver observaciones'}` : ''}`,
           image_url: compraFoto || null,
         },
       ];
@@ -466,8 +592,8 @@ export default function SolicitudMaterialScreen() {
         code,
         title: `Pedido técnico: ${compraItemName.trim()} para ${targetLabel}`,
         note: compraMotivo.trim()
-          ? `MOTIVO: ${compraMotivo.trim()} · ESPECIFICACIONES: ${compraMedidas.trim()}`
-          : `ESPECIFICACIONES: ${compraMedidas.trim()}`,
+          ? `MOTIVO: ${compraMotivo.trim()} · ESPECIFICACIONES: ${compraMedidas.trim()}${provInfo}`
+          : `ESPECIFICACIONES: ${compraMedidas.trim()}${provInfo}`,
         status: 'pendiente',
         items,
         requested_by: uid,
@@ -476,7 +602,7 @@ export default function SolicitudMaterialScreen() {
         solicitante_employee_id: solicitante.employeeId || null,
         destino_tipo: destinoTipo === 'maquinaria' || destinoTipo === 'vehiculo' ? destinoTipo : null,
         area: destinoTipo === 'area' ? areaTexto.trim() || null : 'TALLER / MANTENIMIENTO',
-        observaciones: `Solicitud creada desde el portal técnico de taller para ${targetLabel}.`,
+        observaciones: `Solicitud creada desde el portal técnico de taller para ${targetLabel}.${provInfo}`,
         attachment_url: compraFoto || null,
         attachment_type: compraFoto ? 'image' : null,
       };
@@ -585,23 +711,36 @@ export default function SolicitudMaterialScreen() {
         });
         const reqCode = 'REQ-' + String(maxReq + 1).padStart(4, '0');
 
-        const reqLines = compraItems.map((ci) => ({
-          product_id: ci.itemId || null,
-          name: ci.name.trim(),
-          unit: ci.unit.trim().toUpperCase() || 'UND',
-          qty: ci.qty,
-          est_price: 0,
-          currency: 'USD' as const,
-          note: ci.medidas || '',
-          image_url: ci.fotoUrl || null,
-        }));
+        const provGlobalList = compraItems
+          .map((c) => {
+            if (!c.proveedorSugerido?.nombre && !c.proveedorSugerido?.telefono && !c.proveedorSugerido?.direccion) return null;
+            return `[PROVEEDOR SUGERIDO (${c.name}): Nombre: ${c.proveedorSugerido.nombre || 'No indicado'} | Tel: ${c.proveedorSugerido.telefono || 'No indicado'} | Dirección: ${c.proveedorSugerido.direccion || 'No indicada'}]`;
+          })
+          .filter(Boolean);
+        const provGlobal = provGlobalList.length > 0 ? `\n${provGlobalList.join('\n')}` : '';
+
+        const reqLines = compraItems.map((ci) => {
+          const provItemText = ci.proveedorSugerido?.nombre || ci.proveedorSugerido?.telefono
+            ? ` · Prov. sugerido: ${[ci.proveedorSugerido.nombre, ci.proveedorSugerido.telefono].filter(Boolean).join(' - ')}`
+            : '';
+          return {
+            product_id: ci.itemId || null,
+            name: ci.name.trim(),
+            unit: ci.unit.trim().toUpperCase() || 'UND',
+            qty: ci.qty,
+            est_price: 0,
+            currency: 'USD' as const,
+            note: `${ci.medidas || ''}${provItemText}`.trim(),
+            image_url: ci.fotoUrl || null,
+          };
+        });
 
         const firstPhoto = compraItems.find((c) => c.fotoUrl)?.fotoUrl || null;
 
         const reqPayload = {
           code: reqCode,
           title: `Pedido técnico: ${compraItems.map((c) => c.name).join(', ')} para ${targetLabel}`,
-          note: `EQUIPOS: ${targetLabel} · SOLICITUD TÉCNICA CON ${compraItems.length} RENGLÓN(ES)`,
+          note: `EQUIPOS: ${targetLabel} · SOLICITUD TÉCNICA CON ${compraItems.length} RENGLÓN(ES)${provGlobal ? ` · PROVEEDORES SUGERIDOS: ${compraItems.map((c) => c.proveedorSugerido?.nombre).filter(Boolean).join(', ')}` : ''}`,
           status: 'pendiente',
           items: reqLines,
           requested_by: uid,
@@ -610,7 +749,7 @@ export default function SolicitudMaterialScreen() {
           solicitante_employee_id: solicitante.employeeId || null,
           destino_tipo: destinoTipo === 'maquinaria' || destinoTipo === 'vehiculo' ? destinoTipo : null,
           area: destinoTipo === 'area' ? targetArea : 'TALLER / MANTENIMIENTO',
-          observaciones: `Solicitud múltiple creada desde el portal técnico de taller para ${targetLabel}.`,
+          observaciones: `Solicitud múltiple creada desde el portal técnico de taller para ${targetLabel}.${provGlobal}`,
           attachment_url: firstPhoto,
           attachment_type: firstPhoto ? 'image' : null,
         };
@@ -1600,6 +1739,14 @@ export default function SolicitudMaterialScreen() {
                         </View>
                       ) : null}
 
+                      {!esStock && (item.proveedorSugerido?.nombre || item.proveedorSugerido?.telefono) ? (
+                        <View style={{ backgroundColor: '#F0FDF4', padding: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: '#BBF7D0' }}>
+                          <Text style={{ color: '#166534', fontSize: 11, fontWeight: '700' }}>
+                            🏬 Prov. sugerido: <Text style={{ fontWeight: '500' }}>{item.proveedorSugerido.nombre || 'Sin nombre'}{item.proveedorSugerido.telefono ? ` · Tel: ${item.proveedorSugerido.telefono}` : ''}{item.proveedorSugerido.direccion ? ` · Dir: ${item.proveedorSugerido.direccion}` : ''}</Text>
+                          </Text>
+                        </View>
+                      ) : null}
+
                       {item.reason ? (
                         <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic' }}>
                           Motivo / Falla: {item.reason}
@@ -2025,7 +2172,7 @@ export default function SolicitudMaterialScreen() {
                           flexDirection: 'row',
                           alignItems: 'center',
                           gap: 4,
-                          backgroundColor: isAbierto ? colors.surfaceAlt : colors.brandLight || '#EFF6FF',
+                          backgroundColor: isAbierto ? colors.surfaceAlt : (colors as any).brandLight || '#EFF6FF',
                           paddingHorizontal: 9,
                           paddingVertical: 4,
                           borderRadius: radius.pill,
@@ -2277,25 +2424,233 @@ export default function SolicitudMaterialScreen() {
           ) : (
             requirementsFiltradas.slice(0, 30).map((r) => {
               const est = ESTADO_COMPRA_CONFIG[r.status] || ESTADO_COMPRA_CONFIG.pendiente;
+              const estadoDinamico = calcularEstadoRequerimiento(r);
+              const fac = extraerFactura(r);
+              const desp = extraerDespacho(r);
+              const esRetirado = desp.estado === 'retirado';
+
+              // Proveedor propuesto si lo hubiera en observaciones o notas
+              const matchProv = (r.observaciones || '').match(/\[PROVEEDOR SUGERIDO(?:\s*\([^)]*\))?: Nombre:\s*([^|]+)\|\s*Tel:\s*([^|]+)\|\s*Dirección:\s*([^\]]+)\]/i);
+              const provSugerido = matchProv ? {
+                nombre: matchProv[1].trim() === 'No indicado' ? '' : matchProv[1].trim(),
+                telefono: matchProv[2].trim() === 'No indicado' ? '' : matchProv[2].trim(),
+                direccion: matchProv[3].trim() === 'No indicada' ? '' : matchProv[3].trim(),
+              } : null;
+
+              // Determinar la fase actual del Stepper (1: Solicitado, 2: Cotizando/Proveedor, 3: Aprobación/Pago, 4: En Almacén)
+              const pasoActual = (() => {
+                if (r.status === 'rechazado') return 0;
+                if (r.status === 'recibido') return 4;
+                if (r.status === 'aprobado' || estadoDinamico.codigo === 'aprobado') return 3;
+                if (estadoDinamico.codigo === 'esperando_pago' || estadoDinamico.codigo === 'esperando_aprobacion_gg') return 3;
+                if (estadoDinamico.codigo === 'esperando_cotizacion' || estadoDinamico.codigo === 'esperando_proveedor' || r.supplier_id) return 2;
+                return 1;
+              })();
+
               return (
-                <Card key={r.id} style={{ gap: 6, borderColor: est.color, borderWidth: 1 }}>
+                <Card key={r.id} style={{ gap: 6, borderColor: estadoDinamico.color || est.color, borderWidth: 1 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text, flex: 1, paddingRight: 6 }}>
                       {r.code} · {r.title || 'Requerimiento de compra'}
                     </Text>
                     <View
                       style={{
-                        backgroundColor: est.bg,
+                        backgroundColor: estadoDinamico.bg || est.bg,
                         paddingHorizontal: 8,
                         paddingVertical: 3,
                         borderRadius: radius.pill,
                       }}
                     >
-                      <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }}>
-                        {est.icon} {est.label}
+                      <Text style={{ color: estadoDinamico.color || est.color, fontWeight: '800', fontSize: 11 }}>
+                        {estadoDinamico.icon} {estadoDinamico.short || est.label}
                       </Text>
                     </View>
                   </View>
+
+                  {/* ── Stepper de Seguimiento en Tiempo Real (Responsive Móvil y PC) ── */}
+                  <View
+                    style={{
+                      backgroundColor: colors.surfaceAlt,
+                      borderRadius: radius.md,
+                      padding: spacing.sm,
+                      marginVertical: 4,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      {/* Paso 1: Solicitado */}
+                      <View style={{ alignItems: 'center', flex: 1 }}>
+                        <View
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: radius.pill,
+                            backgroundColor: pasoActual >= 1 ? '#059669' : colors.muted,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>✓</Text>
+                        </View>
+                        <Text style={{ fontSize: 9.5, fontWeight: '700', color: pasoActual >= 1 ? colors.text : colors.muted, marginTop: 2, textAlign: 'center' }}>
+                          1. Solicitado
+                        </Text>
+                      </View>
+
+                      {/* Línea 1-2 */}
+                      <View style={{ height: 2, flex: 1, backgroundColor: pasoActual >= 2 ? '#059669' : colors.border, marginHorizontal: 2, marginBottom: 12 }} />
+
+                      {/* Paso 2: Cotización */}
+                      <View style={{ alignItems: 'center', flex: 1 }}>
+                        <View
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: radius.pill,
+                            backgroundColor: pasoActual > 2 ? '#059669' : pasoActual === 2 ? '#D97706' : colors.surface,
+                            borderWidth: pasoActual < 2 ? 1.5 : 0,
+                            borderColor: colors.muted,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: pasoActual >= 2 ? '#fff' : colors.muted, fontSize: 10, fontWeight: '800' }}>
+                            {pasoActual > 2 ? '✓' : '2'}
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 9.5, fontWeight: '700', color: pasoActual >= 2 ? (pasoActual === 2 ? '#D97706' : colors.text) : colors.muted, marginTop: 2, textAlign: 'center' }}>
+                          2. Cotizado
+                        </Text>
+                      </View>
+
+                      {/* Línea 2-3 */}
+                      <View style={{ height: 2, flex: 1, backgroundColor: pasoActual >= 3 ? '#059669' : colors.border, marginHorizontal: 2, marginBottom: 12 }} />
+
+                      {/* Paso 3: Aprobación / Pago */}
+                      <View style={{ alignItems: 'center', flex: 1 }}>
+                        <View
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: radius.pill,
+                            backgroundColor: pasoActual > 3 ? '#059669' : pasoActual === 3 ? '#2563EB' : colors.surface,
+                            borderWidth: pasoActual < 3 ? 1.5 : 0,
+                            borderColor: colors.muted,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: pasoActual >= 3 ? '#fff' : colors.muted, fontSize: 10, fontWeight: '800' }}>
+                            {pasoActual > 3 ? '✓' : '3'}
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 9.5, fontWeight: '700', color: pasoActual >= 3 ? (pasoActual === 3 ? '#2563EB' : colors.text) : colors.muted, marginTop: 2, textAlign: 'center' }}>
+                          3. Pago
+                        </Text>
+                      </View>
+
+                      {/* Línea 3-4 */}
+                      <View style={{ height: 2, flex: 1, backgroundColor: pasoActual >= 4 ? (esRetirado ? '#2563EB' : '#059669') : colors.border, marginHorizontal: 2, marginBottom: 12 }} />
+
+                      {/* Paso 4: En Almacén / Retirado (Falta 3) */}
+                      <View style={{ alignItems: 'center', flex: 1 }}>
+                        <View
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: radius.pill,
+                            backgroundColor: pasoActual === 4 ? (esRetirado ? '#2563EB' : '#059669') : colors.surface,
+                            borderWidth: pasoActual < 4 ? 1.5 : 0,
+                            borderColor: colors.muted,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: pasoActual === 4 ? '#fff' : colors.muted, fontSize: 10, fontWeight: '800' }}>
+                            {pasoActual === 4 ? '✓' : '4'}
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 9.5, fontWeight: '700', color: pasoActual === 4 ? (esRetirado ? '#2563EB' : '#059669') : colors.muted, marginTop: 2, textAlign: 'center' }}>
+                          {pasoActual === 4 ? (esRetirado ? '4. Retirado' : '4. 🟢 Disponible') : '4. Almacén'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Explicación en lenguaje claro del estatus en tiempo real */}
+                    <View
+                      style={{
+                        backgroundColor: pasoActual === 4 ? (esRetirado ? '#DBEAFE' : '#DCFCE7') : estadoDinamico.bg,
+                        paddingVertical: 5,
+                        paddingHorizontal: 8,
+                        borderRadius: radius.sm,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <Text style={{ fontSize: 13 }}>
+                        {pasoActual === 4 ? (esRetirado ? '📦' : '🟢') : estadoDinamico.icon}
+                      </Text>
+                      <Text style={{ color: pasoActual === 4 ? (esRetirado ? '#1E40AF' : '#15803D') : estadoDinamico.color, fontWeight: '800', fontSize: 11.5, flex: 1 }}>
+                        {pasoActual === 4
+                          ? (esRetirado
+                              ? `Retirado de almacén por ${desp.retiradoPor || 'Personal'}${desp.fecha ? ` (${dmyOf(desp.fecha)})` : ''}`
+                              : '🟢 ¡Disponible en almacén! Tu repuesto está listo para retiro en galpón')
+                          : `Estatus en tiempo real: ${estadoDinamico.label}`}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Ficha de Proveedor Propuesto si existe */}
+                  {provSugerido && (provSugerido.nombre || provSugerido.telefono) ? (
+                    <View
+                      style={{
+                        backgroundColor: '#F8FAFC',
+                        borderWidth: 1,
+                        borderColor: '#CBD5E1',
+                        borderRadius: radius.sm,
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 6,
+                      }}
+                    >
+                      <View style={{ flex: 1, minWidth: 160 }}>
+                        <Text style={{ color: '#0F172A', fontWeight: '800', fontSize: 11.5 }}>
+                          🏬 Proveedor propuesto por ti: <Text style={{ color: colors.brandText }}>{provSugerido.nombre || 'Sin nombre'}</Text>
+                        </Text>
+                        {provSugerido.telefono ? (
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            📞 Tel: {provSugerido.telefono} {provSugerido.direccion ? `· 📍 ${provSugerido.direccion}` : ''}
+                          </Text>
+                        ) : null}
+                      </View>
+                      {provSugerido.telefono ? (
+                        <View style={{ flexDirection: 'row', gap: 4 }}>
+                          <TouchableOpacity
+                            onPress={() => Linking.openURL(`tel:${provSugerido.telefono.replace(/\s+/g, '')}`)}
+                            style={{ backgroundColor: '#DBEAFE', paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}
+                          >
+                            <Text style={{ color: '#1E40AF', fontSize: 10.5, fontWeight: '700' }}>📞 Llamar</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => {
+                              const cleanTel = provSugerido.telefono.replace(/\D/g, '');
+                              const numInt = cleanTel.startsWith('58') ? cleanTel : cleanTel.startsWith('0') ? '58' + cleanTel.slice(1) : cleanTel;
+                              Linking.openURL(`https://wa.me/${numInt}`);
+                            }}
+                            style={{ backgroundColor: '#DCFCE7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}
+                          >
+                            <Text style={{ color: '#166534', fontSize: 10.5, fontWeight: '700' }}>💬 WhatsApp</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
 
                   {/* Fila de registro y auditoría */}
                   <View
@@ -2476,6 +2831,110 @@ export default function SolicitudMaterialScreen() {
                       </Text>
                     </View>
                   )}
+
+                  {/* 🧾 Ficha Informativa: Factura Fiscal / Comercial (Abraham - Falta 1) */}
+                  {fac && fac.numero ? (
+                    <View
+                      style={{
+                        backgroundColor: fac.empresa?.toLowerCase().includes('golden') ? '#FEF3C7' : '#EEF2FF',
+                        borderWidth: 1,
+                        borderColor: fac.empresa?.toLowerCase().includes('golden') ? '#F59E0B' : '#818CF8',
+                        borderRadius: radius.sm,
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 6,
+                        marginTop: 2,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: fac.empresa?.toLowerCase().includes('golden') ? '#92400E' : '#3730A3', fontWeight: '800', fontSize: 11.5 }}>
+                          🧾 Factura: N° {fac.numero} ({fac.empresa})
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          📅 Fecha: {fac.fecha || 'Sin fecha'}{fac.subidaPor ? ` · Subida por: ${fac.subidaPor}` : ''}
+                        </Text>
+                      </View>
+                      {fac.url ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (Platform.OS === 'web') {
+                              window.open(fac.url!, '_blank');
+                            } else {
+                              Linking.openURL(fac.url!);
+                            }
+                          }}
+                          style={{ backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                        >
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>👁️ Ver Factura</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {/* 📦 Ficha Informativa: Control Físico en Almacén (Falta 3) */}
+                  {r.status === 'recibido' && (
+                    <View
+                      style={{
+                        backgroundColor: esRetirado ? '#F8FAFC' : '#F0FDF4',
+                        borderWidth: 1,
+                        borderColor: esRetirado ? '#93C5FD' : '#86EFAC',
+                        borderRadius: radius.sm,
+                        padding: spacing.xs,
+                        paddingHorizontal: spacing.sm,
+                        gap: 3,
+                        marginTop: 2,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 13 }}>{esRetirado ? '📦' : '🟢'}</Text>
+                        <Text style={{ color: esRetirado ? '#1E40AF' : '#15803D', fontWeight: '800', fontSize: 11.5 }}>
+                          {esRetirado ? 'Retiro Físico de Almacén Registrado' : 'Repuesto Disponible en Galpón de Almacén'}
+                        </Text>
+                      </View>
+                      {esRetirado ? (
+                        <>
+                          <Text style={{ color: colors.text, fontSize: 11 }}>
+                            Retirado por: <Text style={{ fontWeight: '700' }}>{desp.retiradoPor}</Text>
+                            {desp.retiradoCedula ? ` (CI: ${desp.retiradoCedula})` : ''}
+                            {desp.fecha ? ` el ${dmyOf(desp.fecha)}` : ''}
+                          </Text>
+                          {desp.maquinariaCodigo || desp.maquinariaPlaca ? (
+                            <Text style={{ color: '#1E3A5F', fontSize: 11, fontWeight: '700' }}>
+                              🚜 Destino: {desp.maquinariaCodigo || ''} · Placa: {desp.maquinariaPlaca || 'Sin placa'}
+                            </Text>
+                          ) : null}
+                        </>
+                      ) : (
+                        <Text style={{ color: '#166534', fontSize: 11 }}>
+                          Tu repuesto ya fue recibido por compras y está listo para ser retirado en galpón.
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Botón: Expediente Completo de Compra (Falta 2) */}
+                  <TouchableOpacity
+                    onPress={() => descargarExpediente(r)}
+                    style={{
+                      backgroundColor: '#1E3A5F',
+                      paddingVertical: 8,
+                      borderRadius: radius.sm,
+                      alignItems: 'center',
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      gap: 6,
+                      marginTop: 4,
+                    }}
+                  >
+                    <Text style={{ fontSize: 13 }}>📑</Text>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                      Expediente Completo de Compra (PDF)
+                    </Text>
+                  </TouchableOpacity>
                 </Card>
               );
             })
@@ -2924,6 +3383,62 @@ export default function SolicitudMaterialScreen() {
                 style={[inp, { marginBottom: spacing.md }]}
               />
 
+              {/* 🏬 Proveedor Sugerido (Opcional - Audio Jefes de Dpto) */}
+              <View
+                style={{
+                  backgroundColor: '#F8FAFC',
+                  borderWidth: 1.5,
+                  borderColor: '#CBD5E1',
+                  borderRadius: radius.md,
+                  padding: spacing.sm,
+                  marginBottom: spacing.md,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <Text style={{ fontSize: 16 }}>🏬</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                    ¿Tienes un Proveedor Sugerido? (Opcional)
+                  </Text>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 8 }}>
+                  Si ya conoces un proveedor o tienda donde conseguir este repuesto, anota sus datos para que Compras lo gestione más rápido.
+                </Text>
+
+                <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '700', marginBottom: 2 }}>
+                  Nombre del Proveedor / Tienda:
+                </Text>
+                <TextInput
+                  value={compraProvNombre}
+                  onChangeText={setCompraProvNombre}
+                  placeholder="Ej: Repuestos El Tren, Tornillos y Tuercas C.A.…"
+                  placeholderTextColor={colors.muted}
+                  style={[inp, { marginBottom: 6, fontSize: 12.5 }]}
+                />
+
+                <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '700', marginBottom: 2 }}>
+                  Teléfono de Contacto:
+                </Text>
+                <TextInput
+                  value={compraProvTelefono}
+                  onChangeText={setCompraProvTelefono}
+                  keyboardType="phone-pad"
+                  placeholder="Ej: 0414-1234567 / 0286-9234567"
+                  placeholderTextColor={colors.muted}
+                  style={[inp, { marginBottom: 6, fontSize: 12.5 }]}
+                />
+
+                <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '700', marginBottom: 2 }}>
+                  Dirección o Ubicación física:
+                </Text>
+                <TextInput
+                  value={compraProvDireccion}
+                  onChangeText={setCompraProvDireccion}
+                  placeholder="Ej: Calle 4 con Av. 5, diagonal a la bomba…"
+                  placeholderTextColor={colors.muted}
+                  style={[inp, { fontSize: 12.5 }]}
+                />
+              </View>
+
               {/* Botones */}
               <View style={{ gap: spacing.xs }}>
                 <TouchableOpacity
@@ -2946,6 +3461,11 @@ export default function SolicitudMaterialScreen() {
                       medidas: compraMedidas.trim(),
                       reason: compraMotivo.trim() || undefined,
                       fotoUrl: compraFoto || null,
+                      proveedorSugerido: (compraProvNombre.trim() || compraProvTelefono.trim() || compraProvDireccion.trim()) ? {
+                        nombre: compraProvNombre.trim(),
+                        telefono: compraProvTelefono.trim(),
+                        direccion: compraProvDireccion.trim(),
+                      } : null,
                     });
                     setModalCompraOpen(false);
                   }}

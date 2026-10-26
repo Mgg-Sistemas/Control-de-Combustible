@@ -67,6 +67,7 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'solicitudes_material', label: 'Pedir Material / Repuestos' },
   { key: 'actas_recepcion', label: 'Actas de Recepción (ingreso maquinaria)' },
   { key: 'traslados_maquinaria', label: 'Traslados y Salidas de Maquinaria' },
+  { key: 'inicio', label: 'Inicio (Panel Principal / KPIs)' },
 ];
 
 /** Nivel por defecto para un usuario no-admin sin fila explícita.

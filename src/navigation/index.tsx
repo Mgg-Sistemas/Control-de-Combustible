@@ -165,14 +165,16 @@ function HeaderClock() {
 function HeaderHomeButton() {
   const navigation = useNavigation<any>();
   const { colors } = useTheme();
+  const { role, appRole, canSee } = useAuth();
   return (
     <TouchableOpacity
       onPress={() => {
         // Primero intenta volver a la pantalla anterior (p. ej. Tanques → menú Más);
-        // si no hay a dónde volver (pantalla raíz de un tab), va al inicio.
+        // si no hay a dónde volver (pantalla raíz de un tab), va al inicio permitido.
         if (navigation.canGoBack?.()) { navigation.goBack(); return; }
         const parent = navigation.getParent?.();
-        (parent ?? navigation).navigate('Dashboard');
+        const homeTarget = tabsHomeRoute(role, appRole, canSee).name;
+        (parent ?? navigation).navigate(homeTarget);
       }}
       style={{ paddingHorizontal: 12, paddingVertical: 4 }}
       accessibilityLabel="Volver al inicio"
@@ -473,10 +475,12 @@ function ViajesStack() {
  *  `name` = pantalla del Tab.Navigator; `path` = URL equivalente (deben ir
  *  siempre juntos: si difieren, recargar la página manda a Inicio y pisa esto). */
 function tabsHomeRoute(role: UserRole | null, appRole: AppRole | null, canSee: (k: string) => boolean): { name: string; path: string } {
-  if (!appRole || role === 'admin') return { name: 'Dashboard', path: '/inicio' };
+  const puedeInicio = role === 'admin' || canSee('inicio');
+  if (puedeInicio && (!appRole || role === 'admin')) return { name: 'Dashboard', path: '/inicio' };
   if (canSee('control_maquinaria')) return { name: 'ControlMaquinaria', path: '/control' };
   if (canSee('mapa')) return { name: 'Map', path: '/mapa' };
   if (canSee('equipos')) return { name: 'Equipos', path: '/catalogo' };
+  if (puedeInicio) return { name: 'Dashboard', path: '/inicio' };
   return { name: 'More', path: '/mas' };
 }
 
@@ -764,11 +768,13 @@ function Tabs() {
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
       }}
     >
-      <Tab.Screen
-        name="Dashboard"
-        component={DashboardScreen}
-        options={{ title: 'Inicio', tabBarIcon: tabIcon('🏠') }}
-      />
+      {role === 'admin' || canSee('inicio') ? (
+        <Tab.Screen
+          name="Dashboard"
+          component={DashboardScreen}
+          options={{ title: 'Inicio', tabBarIcon: tabIcon('🏠') }}
+        />
+      ) : null}
       {canSee('control_maquinaria') ? (
         <Tab.Screen
           name="ControlMaquinaria"

@@ -13,6 +13,8 @@ import { RequerimientoTab } from './RequerimientoTab';
 import { SolicitudesCompraTab } from './SolicitudesCompraTab';
 import { ServiciosTab } from './ServiciosTab';
 import { pickAndUploadDocFile } from '../lib/photo';
+import * as ImagePicker from 'expo-image-picker';
+import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
 import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa, DirectPurchase } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
@@ -264,6 +266,11 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
   const [pagoMovilBank, setPagoMovilBank] = useState('');
   const [binanceId, setBinanceId] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
+  // 📸 Captura de Pago / Billetera / QR (TRX, Tron, Banco)
+  const [paymentPhotoUrl, setPaymentPhotoUrl] = useState('');
+  const [paymentPhotoName, setPaymentPhotoName] = useState('');
+  const [subiendoCaptura, setSubiendoCaptura] = useState(false);
+  const [visorCaptura, setVisorCaptura] = useState<CapturaPagoInfo | null>(null);
   const [busy, setBusy] = useState(false);
   // Error EN LÍNEA dentro del Modal: el toast queda TAPADO por el Modal a pantalla
   // completa (web), así el usuario no veía por qué "no deja registrar". Ver la
@@ -283,9 +290,91 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
     setPagoMovilId(s?.pago_movil_id ?? (s?.rif ?? ''));
     setPagoMovilBank(s?.pago_movil_bank ?? (s?.bank_name ?? ''));
     setBinanceId(s?.binance_id ?? '');
-    setPaymentNotes(s?.payment_notes ?? '');
+    const cap = extraerCapturaPago(s);
+    setPaymentPhotoUrl(cap?.url ?? '');
+    setPaymentPhotoName(cap?.name ?? '');
+    setPaymentNotes(limpiarNotasUsuario(s?.payment_notes));
     setOpen(true);
   };
+
+  const subirCapturaArchivo = async () => {
+    try {
+      setSubiendoCaptura(true);
+      const res = await pickAndUploadDocFile('proveedores', editing?.id || 'nuevo');
+      if (res.ok && res.url) {
+        setPaymentPhotoUrl(res.url);
+        if (!paymentPhotoName.trim()) {
+          setPaymentPhotoName(res.name || 'Captura de pago / QR');
+        }
+        toast.success('Captura cargada con éxito.');
+      } else if (res.error) {
+        toast.error(res.error);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al subir captura');
+    } finally {
+      setSubiendoCaptura(false);
+    }
+  };
+
+  const tomarFotoCaptura = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        toast.error('Permiso de cámara denegado.');
+        return;
+      }
+      setSubiendoCaptura(true);
+      const res = await ImagePicker.launchCameraAsync({
+        quality: 0.7,
+        base64: true,
+      });
+      if (res.canceled || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      const folder = 'proveedores';
+      const id = editing?.id || 'nuevo';
+      const path = `${folder}/${id}/${Date.now()}.jpg`;
+
+      let up: any;
+      if (Platform.OS === 'web') {
+        const resp = await fetch(asset.uri);
+        const blob = await resp.blob();
+        up = await supabase.storage.from('machinery').upload(path, blob, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      } else {
+        const base64Str = asset.base64 || '';
+        const byteCharacters = atob(base64Str);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        up = await supabase.storage.from('machinery').upload(path, byteArray, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      }
+      if (up?.error) {
+        toast.error(up.error.message);
+        return;
+      }
+      const { data } = supabase.storage.from('machinery').getPublicUrl(path);
+      if (data?.publicUrl) {
+        setPaymentPhotoUrl(data.publicUrl);
+        if (!paymentPhotoName.trim()) {
+          setPaymentPhotoName('Foto tomada con cámara');
+        }
+        toast.success('Foto guardada con éxito.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al tomar foto');
+    } finally {
+      setSubiendoCaptura(false);
+    }
+  };
+
   const addTag = (raw?: string) => {
     const t = (raw ?? tagInput).trim().toUpperCase();
     if (!t) return;
@@ -296,8 +385,9 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
     setFormErr(null);
     if (!name.trim()) { setFormErr('El nombre es obligatorio.'); return; }
     setBusy(true);
+    const finalNotes = empaquetarNotasConCaptura(paymentNotes, paymentPhotoUrl, paymentPhotoName);
     const payload = {
-      name: name.trim().toUpperCase(), rif: rif.trim() || null, phone: phone.trim() || null,
+      name: name.trim(), rif: rif.trim() || null, phone: phone.trim() || null,
       email: email.trim() || null, address: address.trim() || null, tags: tags.length ? tags : null,
       bank_name: bankName.trim() || null,
       account_number: accountNumber.trim() || null,
@@ -308,7 +398,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
       pago_movil_id: pagoMovilId.trim() || null,
       pago_movil_bank: pagoMovilBank.trim() || null,
       binance_id: binanceId.trim() || null,
-      payment_notes: paymentNotes.trim() || null,
+      payment_notes: finalNotes,
     };
     const { error } = editing
       ? await supabase.from('suppliers').update(payload).eq('id', editing.id)
@@ -384,6 +474,23 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <Text style={{ color: '#FCD34D', fontSize: 10.5, fontWeight: '800' }}>🟡 Binance: {s.binance_id}</Text>
                 </View>
               ) : null}
+              {(() => {
+                const cap = extraerCapturaPago(s);
+                if (!cap) return null;
+                return (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      setVisorCaptura(cap);
+                    }}
+                    style={{ backgroundColor: '#581C87', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                  >
+                    <Text style={{ color: '#E9D5FF', fontSize: 10.5, fontWeight: '800' }}>
+                      📸 {cap.name || 'Captura TRX / Tron / QR'} 👁️
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()}
             </View>
 
             {(s.tags ?? []).length ? (
@@ -409,12 +516,12 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, marginBottom: spacing.sm }}>{editing ? 'Editar proveedor' : 'Nuevo proveedor'}</Text>
               
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre o Razón Social *</Text>
-              <TextInput value={name} onChangeText={setName} placeholder="Nombre o razón social" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={name} onChangeText={setName} autoCapitalize="words" placeholder="Nombre o razón social" placeholderTextColor={colors.muted} style={input} />
               
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>RIF</Text>
-                  <TextInput value={rif} onChangeText={setRif} placeholder="J-000000000" placeholderTextColor={colors.muted} style={input} />
+                  <TextInput value={rif} onChangeText={setRif} autoCapitalize="none" placeholder="J-000000000" placeholderTextColor={colors.muted} style={input} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Teléfono de contacto</Text>
@@ -426,7 +533,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
               <TextInput value={email} onChangeText={setEmail} placeholder="correo@empresa.com" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" keyboardType="email-address" />
               
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Dirección fiscal / física</Text>
-              <TextInput value={address} onChangeText={setAddress} placeholder="Dirección" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={address} onChangeText={setAddress} autoCapitalize="sentences" placeholder="Dirección" placeholderTextColor={colors.muted} style={input} />
 
               {/* 💳 SECCIÓN DE DATOS FINANCIEROS Y MÉTODOS DE PAGO */}
               <View style={{ marginTop: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
@@ -444,11 +551,11 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: 6 }}>
                     <View style={{ flex: 2 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco emisor</Text>
-                      <TextInput value={bankName} onChangeText={setBankName} placeholder="Ej. Banesco, Mercantil, Venezuela" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={bankName} onChangeText={setBankName} autoCapitalize="words" placeholder="Ej. Banesco, Mercantil, Venezuela" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Tipo de cuenta</Text>
-                      <TextInput value={accountType} onChangeText={setAccountType} placeholder="Corriente / Ahorro" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={accountType} onChangeText={setAccountType} autoCapitalize="words" placeholder="Corriente / Ahorro" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
                     </View>
                   </View>
 
@@ -458,11 +565,11 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                     <View style={{ flex: 2 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Titular de la cuenta</Text>
-                      <TextInput value={accountHolder} onChangeText={setAccountHolder} placeholder="Nombre o Razón social" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={accountHolder} onChangeText={setAccountHolder} autoCapitalize="words" placeholder="Nombre o Razón social" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Cédula / RIF</Text>
-                      <TextInput value={accountIdDoc} onChangeText={setAccountIdDoc} placeholder="J-12345678-9" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={accountIdDoc} onChangeText={setAccountIdDoc} autoCapitalize="none" placeholder="J-12345678-9" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
                     </View>
                   </View>
                 </View>
@@ -473,7 +580,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco</Text>
-                      <TextInput value={pagoMovilBank} onChangeText={setPagoMovilBank} placeholder="Ej. Banesco (0134)" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={pagoMovilBank} onChangeText={setPagoMovilBank} autoCapitalize="words" placeholder="Ej. Banesco (0134)" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Teléfono</Text>
@@ -481,7 +588,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>C.I. / RIF</Text>
-                      <TextInput value={pagoMovilId} onChangeText={setPagoMovilId} placeholder="V-12345678" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={pagoMovilId} onChangeText={setPagoMovilId} autoCapitalize="none" placeholder="V-12345678" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
                     </View>
                   </View>
                 </View>
@@ -493,7 +600,90 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <TextInput value={binanceId} onChangeText={setBinanceId} placeholder="Binance ID (ej. 123456789) o correo de cuenta" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 6 }]} autoCapitalize="none" />
 
                   <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Notas / Instrucciones adicionales de pago</Text>
-                  <TextInput value={paymentNotes} onChangeText={setPaymentNotes} placeholder="Ej. Solo transferencias antes de las 2:00 PM…" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                  <TextInput value={paymentNotes} onChangeText={setPaymentNotes} autoCapitalize="sentences" placeholder="Ej. Solo transferencias antes de las 2:00 PM…" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                </View>
+
+                {/* 4. Captura de Billetera / QR / Tron TRX / Volante bancario */}
+                <View style={{ backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginTop: spacing.xs }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
+                      📸 Captura de Pago / Billetera TRX / Tron / QR
+                    </Text>
+                    {paymentPhotoUrl ? (
+                      <View style={{ backgroundColor: '#064E3B', borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ color: '#34D399', fontSize: 10, fontWeight: '800' }}>✓ Adjuntada</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 8 }}>
+                    Sube la captura de pantalla que envió el proveedor (ej. QR de wallet Tron/TRX, dirección USDT, comprobante o cuenta bancaria).
+                  </Text>
+
+                  {/* Nombre/descripción opcional de la captura */}
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Descripción / Red (ej. Wallet TRX Tron TRC-20 / QR Mercantil)</Text>
+                  <TextInput
+                    value={paymentPhotoName}
+                    onChangeText={setPaymentPhotoName}
+                    placeholder="Ej. Billetera Tron TRX (TRC-20)"
+                    placeholderTextColor={colors.muted}
+                    style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 8 }]}
+                  />
+
+                  {paymentPhotoUrl ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surfaceAlt, padding: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: 8 }}>
+                      <Image
+                        source={{ uri: paymentPhotoUrl }}
+                        style={{ width: 56, height: 56, borderRadius: 6, backgroundColor: '#000' }}
+                        resizeMode="cover"
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
+                          {paymentPhotoName || 'Captura de pago / QR'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                          <TouchableOpacity
+                            onPress={() => setVisorCaptura({ url: paymentPhotoUrl, name: paymentPhotoName })}
+                            style={{ backgroundColor: colors.brand, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}
+                          >
+                            <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800' }}>👁️ Ver grande</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setPaymentPhotoUrl('');
+                              setPaymentPhotoName('');
+                            }}
+                            style={{ backgroundColor: colors.dangerSoftBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.dangerSoftBorder }}
+                          >
+                            <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Quitar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {/* Botones de acción */}
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      disabled={subiendoCaptura}
+                      onPress={tomarFotoCaptura}
+                      style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 5 }}
+                    >
+                      <Text style={{ fontSize: 14 }}>📷</Text>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                        {subiendoCaptura ? 'Cargando…' : 'Tomar Foto'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      disabled={subiendoCaptura}
+                      onPress={subirCapturaArchivo}
+                      style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 5 }}
+                    >
+                      <Text style={{ fontSize: 14 }}>📎</Text>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                        {subiendoCaptura ? 'Subiendo…' : 'Subir Captura'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
 
@@ -544,6 +734,47 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                 </TouchableOpacity>
               ) : null}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Visor de Captura / QR a Pantalla Completa */}
+      <Modal visible={!!visorCaptura} transparent animationType="fade" onRequestClose={() => setVisorCaptura(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+          <View style={{ width: '100%', maxWidth: 500, backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden', maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>
+                📸 {visorCaptura?.name || 'Captura de Billetera / QR'}
+              </Text>
+              <TouchableOpacity onPress={() => setVisorCaptura(null)} style={{ padding: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '900' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ alignItems: 'center', padding: spacing.md }}>
+              {visorCaptura?.url ? (
+                <Image
+                  source={{ uri: visorCaptura.url }}
+                  style={{ width: '100%', height: 420, borderRadius: radius.md }}
+                  resizeMode="contain"
+                />
+              ) : null}
+            </ScrollView>
+            <View style={{ padding: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+              {visorCaptura?.url ? (
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(visorCaptura.url)}
+                  style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🔗 Abrir original</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                onPress={() => setVisorCaptura(null)}
+                style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.brand }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 12 }}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -598,7 +829,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     const nombre = nuevoProv.trim();
     if (!nombre) return;
     setCreandoProv(true);
-    const { data, error } = await supabase.from('suppliers').insert({ name: nombre.toUpperCase() }).select('id').single();
+    const { data, error } = await supabase.from('suppliers').insert({ name: nombre }).select('id').single();
     setCreandoProv(false);
     if (error) return toast.error(error.message);
     setNuevoProv('');
@@ -769,7 +1000,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
               </View>
               <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
                 <View style={{ flex: 1 }}>
-                  <TextInput value={nuevoProv} onChangeText={(t) => setNuevoProv(t.toUpperCase())} autoCapitalize="characters" placeholder="Nuevo proveedor…" placeholderTextColor={colors.muted}
+                  <TextInput value={nuevoProv} onChangeText={setNuevoProv} autoCapitalize="words" placeholder="Nuevo proveedor…" placeholderTextColor={colors.muted}
                     style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, color: colors.text }} />
                 </View>
                 <TouchableOpacity onPress={crearProveedor} disabled={creandoProv || !nuevoProv.trim()} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center', opacity: creandoProv || !nuevoProv.trim() ? 0.5 : 1 }}>
@@ -822,7 +1053,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
             </Card>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nota (opcional)</Text>
-              <TextInput value={note} onChangeText={(t) => setNote(t.toUpperCase())} autoCapitalize="characters" placeholder="OBSERVACIÓN…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+              <TextInput value={note} onChangeText={setNote} autoCapitalize="sentences" placeholder="Observación…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
             </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity onPress={resetForm} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
@@ -881,7 +1112,7 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
   const guardar = async () => {
     if (!sel) return;
     setBusy(true);
-    await supabase.from('purchase_orders').update({ supplier_id: supplier || null, items, total: linesTotal(items), note: note.trim().toUpperCase() || null }).eq('id', sel.id);
+    await supabase.from('purchase_orders').update({ supplier_id: supplier || null, items, total: linesTotal(items), note: note.trim() || null }).eq('id', sel.id);
     setBusy(false); setSel(null); refetch();
   };
 
@@ -890,7 +1121,7 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
     if (!supplier) return toast.error('Elige el proveedor antes de aprobar.');
     const ok = await confirm({ title: 'Aprobar orden', message: `Aprobar la orden a ${supplierName(supplier)} por ${usd(linesTotal(items))}?`, confirmText: 'Aprobar' });
     if (!ok) return;
-    await supabase.from('purchase_orders').update({ supplier_id: supplier, items, total: linesTotal(items), note: note.trim().toUpperCase() || null, status: 'aprobada', approved_by: session?.user?.id ?? null, approved_at: nowISO() }).eq('id', sel.id);
+    await supabase.from('purchase_orders').update({ supplier_id: supplier, items, total: linesTotal(items), note: note.trim() || null, status: 'aprobada', approved_by: session?.user?.id ?? null, approved_at: nowISO() }).eq('id', sel.id);
     setSel(null); refetch();
   };
 

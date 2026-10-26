@@ -5,7 +5,7 @@
 // `req_sync_compra`). Si se compra, se RECIBE en el inventario (genera entradas
 // con el precio real). La recepción de stock sigue necesitando permiso de
 // inventario. Solo los administradores aprueban/rechazan.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform, Image, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -18,10 +18,23 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
-import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus } from '../types/database';
+import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee } from '../types/database';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
-import { pickAndUploadRequirementFile, captureAndUploadPhoto } from '../lib/photo';
+import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile } from '../lib/photo';
+import * as ImagePicker from 'expo-image-picker';
+import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
 import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
+import {
+  extraerFactura,
+  inyectarFacturaEnObservaciones,
+  extraerDespacho,
+  inyectarDespachoEnObservaciones,
+  expedienteCompletoHtml,
+  type FacturaData,
+  type DespachoAlmacenData,
+  type EmpresaFactura,
+} from '../lib/requerimientoExpediente';
+import { machineLabel, machineMatches } from '../lib/machineLabel';
 // 👤 Quién solicitó / quién autorizó, para qué (vehículo o maquinaria), a qué
 //    área, y las observaciones del final (20-oct-2026, a pedido).
 import { PersonaNominaPicker } from '../components/PersonaNominaPicker';
@@ -82,6 +95,226 @@ function nextReqCode(codes: (string | null | undefined)[], bump = 0): string {
 }
 const dmyOf = (iso: string) => { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
 
+function ItemSupplierPicker({
+  supplierId,
+  supplierName,
+  suppliers,
+  onSelect,
+}: {
+  supplierId: string | null | undefined;
+  supplierName?: string | null | undefined;
+  suppliers: Supplier[];
+  onSelect: (id: string | null, name: string | null) => void;
+}) {
+  const { colors } = useTheme();
+  const [activo, setActivo] = useState(Boolean(supplierId));
+  const [search, setSearch] = useState('');
+  const [abierto, setAbierto] = useState(!supplierId);
+
+  useEffect(() => {
+    if (supplierId) {
+      setActivo(true);
+    }
+  }, [supplierId]);
+
+  const toggleCheck = () => {
+    if (activo) {
+      setActivo(false);
+      setSearch('');
+      setAbierto(false);
+      onSelect(null, null);
+    } else {
+      setActivo(true);
+      setAbierto(true);
+    }
+  };
+
+  const selectedSupplier = suppliers.find((s) => s.id === supplierId);
+  const currentName = selectedSupplier?.name || supplierName;
+
+  const filteredSuppliers = useMemo(() => {
+    if (!search.trim()) return suppliers;
+    const q = norm(search);
+    return suppliers.filter((s) => norm(s.name).includes(q) || (s.rif && norm(s.rif).includes(q)));
+  }, [suppliers, search]);
+
+  return (
+    <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
+      {/* Checkbox para activar proveedor individual */}
+      <TouchableOpacity
+        onPress={toggleCheck}
+        activeOpacity={0.7}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}
+      >
+        <View
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 4,
+            borderWidth: 1.5,
+            borderColor: activo ? colors.brand : colors.border,
+            backgroundColor: activo ? colors.brand : colors.surfaceAlt,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {activo ? <Text style={{ color: colors.brandContrast, fontSize: 13, fontWeight: '900', lineHeight: 14 }}>✓</Text> : null}
+        </View>
+        <Text style={{ color: activo ? colors.text : colors.muted, fontSize: 12, fontWeight: activo ? '700' : '600' }}>
+          Asignar proveedor específico a este ítem (compra consolidada)
+        </Text>
+      </TouchableOpacity>
+
+      {/* Panel de opciones y buscador (solo si el check está activo) */}
+      {activo ? (
+        <View
+          style={{
+            marginTop: 6,
+            padding: 8,
+            borderRadius: radius.md,
+            backgroundColor: colors.surfaceAlt,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
+          {supplierId && currentName ? (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: colors.surface,
+                paddingHorizontal: 10,
+                paddingVertical: 8,
+                borderRadius: radius.sm,
+                borderWidth: 1,
+                borderColor: colors.brand,
+                marginBottom: abierto ? 8 : 0,
+              }}
+            >
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }}>
+                  🏢 Proveedor Asignado
+                </Text>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }} numberOfLines={1}>
+                  {currentName}
+                </Text>
+                {selectedSupplier?.rif ? (
+                  <Text style={{ color: colors.muted, fontSize: 10 }}>RIF: {selectedSupplier.rif}</Text>
+                ) : null}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={() => setAbierto((v) => !v)}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: radius.sm,
+                  }}
+                >
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
+                    {abierto ? '▲ Cerrar' : '🔍 Cambiar'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    onSelect(null, null);
+                    setAbierto(true);
+                  }}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: radius.sm,
+                  }}
+                >
+                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>
+                    ✕
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Desplegable vertical con buscador */}
+          {abierto || !supplierId ? (
+            <View>
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="🔍 Buscar proveedor por nombre o RIF…"
+                placeholderTextColor={colors.muted}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.sm,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  color: colors.text,
+                  fontSize: 12,
+                  marginBottom: 6,
+                }}
+              />
+              <View style={{ maxHeight: 180, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: colors.surface }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled style={{ maxHeight: 180 }}>
+                  {filteredSuppliers.map((s) => {
+                    const sel = s.id === supplierId;
+                    return (
+                      <TouchableOpacity
+                        key={s.id}
+                        onPress={() => {
+                          onSelect(s.id, s.name);
+                          setAbierto(false);
+                          setSearch('');
+                        }}
+                        style={{
+                          paddingVertical: 8,
+                          paddingHorizontal: 10,
+                          borderBottomWidth: 1,
+                          borderBottomColor: colors.border,
+                          backgroundColor: sel ? colors.brand : 'transparent',
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <View style={{ flex: 1, marginRight: 6 }}>
+                          <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: sel ? '800' : '600' }} numberOfLines={1}>
+                            {s.name}
+                          </Text>
+                          {s.rif ? (
+                            <Text style={{ color: sel ? colors.brandContrast : colors.muted, fontSize: 10 }}>
+                              {s.rif}
+                            </Text>
+                          ) : null}
+                        </View>
+                        {sel ? (
+                          <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text>
+                        ) : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {filteredSuppliers.length === 0 ? (
+                    <View style={{ padding: 12, alignItems: 'center' }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Sin coincidencias para «{search}»</Text>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session, role, moduleLevel } = useAuth();
@@ -124,6 +357,43 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [empresaPagadoraId, setEmpresaPagadoraId] = useState<string | null>(null);
   const [empresaPagadoraNombre, setEmpresaPagadoraNombre] = useState<string | null>(null);
 
+  // 🚜 Catálogo de maquinaria y personal para selectores con buscador y placa
+  const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  const { data: employees } = useTable<Employee>('employees', { orderBy: 'name' });
+
+  // 🧾 Factura Fiscal / Comercial (Abraham - Ilusiones / Golden Touch)
+  const [facturaModalOpen, setFacturaModalOpen] = useState(false);
+  const [facturaTarget, setFacturaTarget] = useState<InventoryRequirement | null>(null);
+  const [facturaNumero, setFacturaNumero] = useState('');
+  const [facturaEmpresa, setFacturaEmpresa] = useState<EmpresaFactura>('Inversiones Las Ilusiones');
+  const [facturaFecha, setFacturaFecha] = useState('');
+  const [facturaUrl, setFacturaUrl] = useState<string | null>(null);
+  const [facturaTipo, setFacturaTipo] = useState<'image' | 'pdf' | null>('image');
+  const [facturaNombre, setFacturaNombre] = useState<string | null>(null);
+  const [subiendoFactura, setSubiendoFactura] = useState(false);
+  const [guardandoFactura, setGuardandoFactura] = useState(false);
+
+  // 👁️ Visor de Factura Modal
+  const [facturaViewerOpen, setFacturaViewerOpen] = useState(false);
+  const [facturaViewerUrl, setFacturaViewerUrl] = useState<string | null>(null);
+  const [facturaViewerTipo, setFacturaViewerTipo] = useState<'image' | 'pdf' | null>('image');
+  const [facturaViewerNombre, setFacturaViewerNombre] = useState<string | null>(null);
+
+  // 📦 Control de Almacén: Despacho / Retiro Físico
+  const [despachoModalOpen, setDespachoModalOpen] = useState(false);
+  const [despachoTarget, setDespachoTarget] = useState<InventoryRequirement | null>(null);
+  const [retiradoPor, setRetiradoPor] = useState('');
+  const [retiradoCedula, setRetiradoCedula] = useState('');
+  const [retiradoCargo, setRetiradoCargo] = useState('');
+  const [retiradoEmployeeId, setRetiradoEmployeeId] = useState<string | null>(null);
+  const [despachadoPor, setDespachadoPor] = useState('');
+  const [despachoFecha, setDespachoFecha] = useState('');
+  const [despachoNota, setDespachoNota] = useState('');
+  const [despachoMaquinariaId, setDespachoMaquinariaId] = useState<string | null>(null);
+  const [empBusquedaQ, setEmpBusquedaQ] = useState('');
+  const [maqBusquedaQ, setMaqBusquedaQ] = useState('');
+  const [guardandoDespacho, setGuardandoDespacho] = useState(false);
+
   // 💳 Modal de edición rápida de datos de pago del proveedor en tiempo real
   const [modalPagoProvOpen, setModalPagoProvOpen] = useState(false);
   const [provParaPago, setProvParaPago] = useState<Supplier | null>(null);
@@ -137,6 +407,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [provPagoMovilBanco, setProvPagoMovilBanco] = useState('');
   const [provBinanceId, setProvBinanceId] = useState('');
   const [provNotasPago, setProvNotasPago] = useState('');
+  const [provPaymentPhotoUrl, setProvPaymentPhotoUrl] = useState('');
+  const [provPaymentPhotoName, setProvPaymentPhotoName] = useState('');
+  const [subiendoCapturaProv, setSubiendoCapturaProv] = useState(false);
+  const [visorCapturaProv, setVisorCapturaProv] = useState<CapturaPagoInfo | null>(null);
   const [guardandoPagoProv, setGuardandoPagoProv] = useState(false);
 
   // 🔄 Ciclo de Retroalimentación Técnica (Bucle de Cotización)
@@ -250,6 +524,43 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [recvFor, setRecvFor] = useState<InventoryRequirement | null>(null);
   const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; unit: string | null; qty: string; price: string; currency: 'USD' | 'VES' }[]>([]);
   const [recvBusy, setRecvBusy] = useState(false);
+  // 🧾 Factura al recibir en Almacén (sincronizada con Cuentas por Pagar)
+  const [recvFacturaNumero, setRecvFacturaNumero] = useState('');
+  const [recvFacturaUrl, setRecvFacturaUrl] = useState<string | null>(null);
+  const [recvFacturaTipo, setRecvFacturaTipo] = useState<'image' | 'pdf' | null>(null);
+  const [recvFacturaNombre, setRecvFacturaNombre] = useState<string | null>(null);
+  const [recvSubiendoFactura, setRecvSubiendoFactura] = useState(false);
+
+  const subirFacturaRecibir = async (origen: 'camara' | 'archivo') => {
+    setRecvSubiendoFactura(true);
+    try {
+      if (origen === 'camara') {
+        const r = await captureAndUploadPhoto('requerimientos');
+        if (r.ok && r.url) {
+          setRecvFacturaUrl(r.url);
+          setRecvFacturaTipo('image');
+          setRecvFacturaNombre('Foto Factura.jpg');
+          toast.success('Foto de factura cargada.');
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      } else {
+        const r = await pickAndUploadRequirementFile('requerimientos');
+        if (r.ok && r.url) {
+          setRecvFacturaUrl(r.url);
+          setRecvFacturaTipo(r.kind === 'pdf' ? 'pdf' : 'image');
+          setRecvFacturaNombre(r.name || 'Factura');
+          toast.success('Archivo de factura cargado.');
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo subir la factura.');
+    } finally {
+      setRecvSubiendoFactura(false);
+    }
+  };
 
   const inp = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -322,14 +633,93 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setProvPagoMovilDoc(s.pago_movil_id ?? (s.rif ?? ''));
     setProvPagoMovilBanco(s.pago_movil_bank ?? (s.bank_name ?? ''));
     setProvBinanceId(s.binance_id ?? '');
-    setProvNotasPago(s.payment_notes ?? '');
+    const cap = extraerCapturaPago(s);
+    setProvPaymentPhotoUrl(cap?.url ?? '');
+    setProvPaymentPhotoName(cap?.name ?? '');
+    setProvNotasPago(limpiarNotasUsuario(s.payment_notes));
     setModalPagoProvOpen(true);
+  };
+
+  const subirCapturaProvArchivo = async () => {
+    try {
+      setSubiendoCapturaProv(true);
+      const res = await pickAndUploadDocFile('proveedores', provParaPago?.id || 'nuevo');
+      if (res.ok && res.url) {
+        setProvPaymentPhotoUrl(res.url);
+        if (!provPaymentPhotoName.trim()) {
+          setProvPaymentPhotoName(res.name || 'Captura de pago / QR');
+        }
+        toast.success('Captura del proveedor cargada con éxito.');
+      } else if (res.error) {
+        toast.error(res.error);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al subir captura');
+    } finally {
+      setSubiendoCapturaProv(false);
+    }
+  };
+
+  const tomarFotoCapturaProv = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        toast.error('Permiso de cámara denegado.');
+        return;
+      }
+      setSubiendoCapturaProv(true);
+      const res = await ImagePicker.launchCameraAsync({ quality: 0.7, base64: true });
+      if (res.canceled || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      const folder = 'proveedores';
+      const id = provParaPago?.id || 'nuevo';
+      const path = `${folder}/${id}/${Date.now()}.jpg`;
+
+      let up: any;
+      if (Platform.OS === 'web') {
+        const resp = await fetch(asset.uri);
+        const blob = await resp.blob();
+        up = await supabase.storage.from('machinery').upload(path, blob, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      } else {
+        const base64Str = asset.base64 || '';
+        const byteCharacters = atob(base64Str);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        up = await supabase.storage.from('machinery').upload(path, byteArray, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      }
+      if (up?.error) {
+        toast.error(up.error.message);
+        return;
+      }
+      const { data } = supabase.storage.from('machinery').getPublicUrl(path);
+      if (data?.publicUrl) {
+        setProvPaymentPhotoUrl(data.publicUrl);
+        if (!provPaymentPhotoName.trim()) {
+          setProvPaymentPhotoName('Foto tomada con cámara');
+        }
+        toast.success('Foto guardada con éxito.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al tomar foto');
+    } finally {
+      setSubiendoCapturaProv(false);
+    }
   };
 
   const guardarPagoProv = async () => {
     if (!provParaPago) return;
     setGuardandoPagoProv(true);
     try {
+      const finalNotes = empaquetarNotasConCaptura(provNotasPago, provPaymentPhotoUrl, provPaymentPhotoName);
       const payload = {
         bank_name: provBanco.trim() || null,
         account_number: provNumCuenta.trim() || null,
@@ -340,7 +730,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         pago_movil_id: provPagoMovilDoc.trim() || null,
         pago_movil_bank: provPagoMovilBanco.trim() || null,
         binance_id: provBinanceId.trim() || null,
-        payment_notes: provNotasPago.trim() || null,
+        payment_notes: finalNotes,
       };
       const { error } = await supabase.from('suppliers').update(payload).eq('id', provParaPago.id);
       if (error) throw error;
@@ -348,9 +738,292 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       await refetch();
       toast.success('Coordenadas de pago del proveedor actualizadas con éxito.');
     } catch (e: any) {
-      toast.error(e?.message ?? 'No se pudieron guardar las coordenadas.');
+      toast.error(e?.message ?? 'No se pudieron guardar los datos de pago.');
     } finally {
       setGuardandoPagoProv(false);
+    }
+  };
+
+  // ── Factura Fiscal / Comercial (Abraham) ──────────────────────────────────
+  const abrirSubirFactura = (r: InventoryRequirement) => {
+    setFacturaTarget(r);
+    const fac = extraerFactura(r);
+    if (fac) {
+      setFacturaNumero(fac.numero);
+      setFacturaEmpresa(fac.empresa);
+      setFacturaFecha(fac.fecha || new Date().toISOString().slice(0, 10));
+      setFacturaUrl(fac.url || null);
+      setFacturaTipo(fac.tipo || 'image');
+      setFacturaNombre(fac.nombre || null);
+    } else {
+      setFacturaNumero('');
+      setFacturaEmpresa(r.company_id ? 'Inversiones Las Ilusiones' : 'Golden Touch');
+      setFacturaFecha(new Date().toISOString().slice(0, 10));
+      setFacturaUrl(null);
+      setFacturaTipo('image');
+      setFacturaNombre(null);
+    }
+    setFacturaModalOpen(true);
+  };
+
+  const subirArchivoFactura = async () => {
+    if (!facturaTarget) return;
+    setSubiendoFactura(true);
+    try {
+      const res = await pickAndUploadRequirementFile(`facturas/${facturaTarget.id}`);
+      if (!res.ok) {
+        if (res.error) toast.error(res.error);
+        return;
+      }
+      setFacturaUrl(res.url || null);
+      setFacturaTipo(res.kind || 'image');
+      setFacturaNombre(res.name || 'factura');
+      toast.success('Archivo de factura cargado.');
+    } catch (e: any) {
+      toast.error('Error al subir archivo: ' + (e?.message ?? e));
+    } finally {
+      setSubiendoFactura(false);
+    }
+  };
+
+  const tomarFotoFactura = async () => {
+    if (!facturaTarget) return;
+    setSubiendoFactura(true);
+    try {
+      const res = await captureAndUploadPhoto(`facturas/${facturaTarget.id}`);
+      if (!res.ok) {
+        if (res.error) toast.error(res.error);
+        return;
+      }
+      setFacturaUrl(res.url || null);
+      setFacturaTipo('image');
+      setFacturaNombre('Foto Factura');
+      toast.success('Foto de factura capturada.');
+    } catch (e: any) {
+      toast.error('Error al capturar foto: ' + (e?.message ?? e));
+    } finally {
+      setSubiendoFactura(false);
+    }
+  };
+
+  const guardarFacturaModal = async () => {
+    if (!facturaTarget) return;
+    if (!facturaNumero.trim()) {
+      toast.error('Indica el número de factura fiscal o comercial.');
+      return;
+    }
+    setGuardandoFactura(true);
+    try {
+      const userName = await perfilNombre();
+      const dataFac: FacturaData = {
+        numero: facturaNumero.trim(),
+        empresa: facturaEmpresa,
+        fecha: facturaFecha || new Date().toISOString().slice(0, 10),
+        url: facturaUrl || null,
+        tipo: facturaTipo || 'image',
+        nombre: facturaNombre || null,
+        subidaPor: userName || session?.user?.email || 'Abraham',
+        subidaAt: nowISO(),
+      };
+
+      const nuevaObs = inyectarFacturaEnObservaciones(facturaTarget.observaciones, dataFac);
+      const patchPayload: Record<string, any> = {
+        observaciones: nuevaObs,
+      };
+      if (dataFac.url && !facturaTarget.attachment_url) {
+        patchPayload.attachment_url = dataFac.url;
+        patchPayload.attachment_type = dataFac.tipo || 'image';
+        patchPayload.attachment_name = dataFac.nombre || `Factura ${dataFac.numero}`;
+      }
+
+      const { error } = await supabase
+        .from('inventory_requirements')
+        .update(patchPayload)
+        .eq('id', facturaTarget.id);
+
+      if (error) throw error;
+      setFacturaModalOpen(false);
+      setFacturaTarget(null);
+      refetch();
+      toast.success(`Factura N° ${dataFac.numero} de ${dataFac.empresa} registrada.`);
+    } catch (e: any) {
+      toast.error('Error al guardar factura: ' + (e?.message ?? e));
+    } finally {
+      setGuardandoFactura(false);
+    }
+  };
+
+  const abrirVisorFactura = (url?: string | null, tipo?: 'image' | 'pdf' | null, nombre?: string | null) => {
+    if (!url) return;
+    if (Platform.OS === 'web' && tipo === 'pdf') {
+      window.open(url, '_blank');
+      return;
+    }
+    setFacturaViewerUrl(url);
+    setFacturaViewerTipo(tipo || 'image');
+    setFacturaViewerNombre(nombre || 'Factura');
+    setFacturaViewerOpen(true);
+  };
+
+  // ── Control de Almacén: Despacho Físico ────────────────────────────────────
+  const abrirDespachoModal = async (r: InventoryRequirement) => {
+    setDespachoTarget(r);
+    const desp = extraerDespacho(r);
+    const userName = await perfilNombre();
+    setRetiradoPor(desp.retiradoPor || r.solicitante_nombre || '');
+    setRetiradoCedula(desp.retiradoCedula || '');
+    setRetiradoCargo(desp.retiradoCargo || '');
+    setRetiradoEmployeeId(desp.retiradoEmployeeId || null);
+    setDespachadoPor(desp.despachadoPor || userName || 'Almacén');
+    setDespachoFecha(desp.fecha || new Date().toISOString());
+    setDespachoNota(desp.nota || '');
+    setEmpBusquedaQ('');
+    setMaqBusquedaQ('');
+
+    if (desp.maquinariaCodigo) {
+      const maqEncontrada = machines.find((m) => m.code === desp.maquinariaCodigo);
+      if (maqEncontrada) setDespachoMaquinariaId(maqEncontrada.id);
+    } else {
+      setDespachoMaquinariaId(null);
+    }
+
+    setDespachoModalOpen(true);
+  };
+
+  const guardarDespachoModal = async () => {
+    if (!despachoTarget) return;
+    if (!retiradoPor.trim()) {
+      toast.error('Indica quién retiró físicamente el material (mecánico o chofer).');
+      return;
+    }
+    setGuardandoDespacho(true);
+    try {
+      const userName = await perfilNombre();
+      const maqObj = machines.find((m) => m.id === despachoMaquinariaId);
+      const dataDespacho: DespachoAlmacenData = {
+        estado: 'retirado',
+        retiradoPor: retiradoPor.trim(),
+        retiradoCedula: retiradoCedula.trim() || null,
+        retiradoCargo: retiradoCargo.trim() || null,
+        retiradoEmployeeId: retiradoEmployeeId || null,
+        despachadoPor: userName || despachadoPor || 'Almacén',
+        fecha: despachoFecha || nowISO(),
+        nota: despachoNota.trim() || null,
+        maquinariaCodigo: maqObj?.code || null,
+        maquinariaPlaca: maqObj?.plate || null,
+      };
+
+      const nuevaObs = inyectarDespachoEnObservaciones(despachoTarget.observaciones, dataDespacho);
+      const { error } = await supabase
+        .from('inventory_requirements')
+        .update({ observaciones: nuevaObs })
+        .eq('id', despachoTarget.id);
+
+      if (error) throw error;
+      setDespachoModalOpen(false);
+      setDespachoTarget(null);
+      refetch();
+      toast.success(`Retiro físico registrado a nombre de ${dataDespacho.retiradoPor}.`);
+    } catch (e: any) {
+      toast.error('Error al registrar retiro: ' + (e?.message ?? e));
+    } finally {
+      setGuardandoDespacho(false);
+    }
+  };
+
+  // ── Generación de Expediente Completo (PDF) ───────────────────────────────
+  const descargarExpediente = async (r: InventoryRequirement) => {
+    try {
+      toast.info('Generando Expediente Completo de Compra...');
+      const factura = extraerFactura(r);
+      const despacho = extraerDespacho(r);
+
+      const prov = suppliers.find((s) => s.id === r.supplier_id);
+      let provDatosPago: string | null = null;
+      if (prov) {
+        const parts = [
+          prov.bank_name || prov.account_number ? `🏦 ${prov.bank_name ?? ''} Cta: ${prov.account_number ?? ''}${prov.account_holder ? ` (${prov.account_holder} ${prov.account_id_doc ?? ''})` : ''}`.trim() : '',
+          prov.pago_movil_phone ? `📱 PM: ${prov.pago_movil_bank ?? ''} - ${prov.pago_movil_phone} (${prov.pago_movil_id ?? ''})` : '',
+          prov.binance_id ? `🟡 Binance: ${prov.binance_id}` : '',
+        ].filter(Boolean);
+        provDatosPago = parts.join(' · ');
+      }
+
+      let pagoInfo: any = null;
+      try {
+        const { data: cuentaRows } = await supabase
+          .from('cuentas')
+          .select('id, estado, monto, concepto')
+          .eq('inventory_requirement_id', r.id)
+          .limit(1);
+
+        if (cuentaRows && cuentaRows[0]) {
+          const c = cuentaRows[0];
+          const { data: abonoRows } = await supabase
+            .from('cuenta_abonos')
+            .select('fecha, monto, metodo, referencia, nota')
+            .eq('cuenta_id', c.id)
+            .order('fecha', { ascending: true });
+
+          const abonos = abonoRows || [];
+          const pagado = abonos.reduce((sum: number, ab: any) => sum + (Number(ab.monto) || 0), 0);
+          pagoInfo = {
+            estadoCuenta: c.estado,
+            montoTotal: Number(c.monto) || 0,
+            montoPagado: pagado,
+            saldoPendiente: Math.max(0, (Number(c.monto) || 0) - pagado),
+            concepto: c.concepto,
+            abonos,
+          };
+        }
+      } catch (e) {
+        console.warn('No se pudo cargar cuentas:', e);
+      }
+
+      let maqLabel = '';
+      if (despacho.maquinariaCodigo) {
+        maqLabel = `${despacho.maquinariaCodigo}${despacho.maquinariaPlaca ? ` · Placa ${despacho.maquinariaPlaca}` : ''}`;
+      } else if (r.title && r.title.includes('para ')) {
+        maqLabel = r.title.split('para ')[1]?.trim();
+      } else if (r.area) {
+        maqLabel = r.area;
+      }
+
+      const itemsConImagenes = await Promise.all(
+        (r.items || []).map(async (it) => ({
+          name: it.name,
+          unit: it.unit,
+          qty: it.qty,
+          est_price: it.est_price,
+          currency: it.currency || 'USD',
+          note: it.note,
+          image_url: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
+          supplier_name: it.supplier_name,
+        }))
+      );
+
+      let facturaParaPdf = factura;
+      if (factura && factura.url && factura.tipo === 'image') {
+        const dataUri = await urlToDataUri(factura.url);
+        facturaParaPdf = { ...factura, url: dataUri || factura.url };
+      }
+
+      const html = expedienteCompletoHtml({
+        req: r,
+        factura: facturaParaPdf,
+        despacho,
+        pagoInfo,
+        proveedorNombre: prov?.name ?? null,
+        proveedorRif: prov?.rif ?? null,
+        proveedorDatosPago: provDatosPago,
+        maquinariaLabel: maqLabel || destinoLabel(r.destino_tipo) || 'Destino asignado',
+        itemsConImagenes,
+      });
+
+      await exportPdf(html, `Expediente-${r.code || 'REQ'}`);
+      toast.success('Expediente generado exitosamente.');
+    } catch (err: any) {
+      toast.error('Error al generar expediente: ' + (err?.message ?? err));
     }
   };
 
@@ -739,6 +1412,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const abrirRecibir = (r: InventoryRequirement) => {
     setRecvFor(r);
     setRecvRows(r.items.map((it) => ({ product_id: it.product_id, name: it.name, unit: it.unit, qty: String(it.qty), price: String(it.est_price || 0), currency: it.currency || 'USD' })));
+    setRecvFacturaNumero('');
+    setRecvFacturaUrl(null);
+    setRecvFacturaTipo(null);
+    setRecvFacturaNombre(null);
   };
 
   const recibir = async () => {
@@ -769,11 +1446,74 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         if (mErr) throw mErr;
       }
       const items2 = recvFor.items.map((it) => ({ ...it, received: true }));
-      const { error: uErr } = await supabase.from('inventory_requirements').update({ status: 'recibido', received_at: nowISO(), items: items2 }).eq('id', recvFor.id);
+      const facturaInfo = recvFacturaNumero.trim()
+        ? ` · Factura N° ${recvFacturaNumero.trim()}${recvFacturaUrl ? ' (con soporte adjunto)' : ''}`
+        : '';
+      const obsFinal = `${recvFor.observaciones || ''}${facturaInfo ? `\n[RECEPCIÓN ALMACÉN: ${facturaInfo}]` : ''}`.trim() || null;
+
+      const reqPatch: Record<string, any> = {
+        status: 'recibido',
+        received_at: nowISO(),
+        items: items2,
+        observaciones: obsFinal,
+      };
+      if (recvFacturaUrl && !recvFor.attachment_url) {
+        reqPatch.attachment_url = recvFacturaUrl;
+        reqPatch.attachment_type = recvFacturaTipo || 'image';
+        reqPatch.attachment_name = recvFacturaNombre || `Factura ${recvFacturaNumero || recvFor.code}`;
+      }
+
+      const { error: uErr } = await supabase.from('inventory_requirements').update(reqPatch).eq('id', recvFor.id);
       if (uErr) throw uErr;
+
+      // 🧾 Sincronización automática con Cuentas por Pagar (Para que Abraham no tenga que subirla por separado)
+      if (recvFor.supplier_id) {
+        try {
+          const totalMontoRecv = recvRows.reduce((s, it) => {
+            const pr = it.currency === 'USD' ? parseNum(it.price) : usdFromBs(parseNum(it.price), rate || 0);
+            return s + pr * parseNum(it.qty);
+          }, 0);
+
+          const { data: existCxp } = await supabase
+            .from('cuentas')
+            .select('id')
+            .eq('order_id', recvFor.id)
+            .limit(1);
+
+          if (existCxp && existCxp.length > 0) {
+            await supabase
+              .from('cuentas')
+              .update({
+                documento: recvFacturaNumero.trim() || undefined,
+                factura_url: recvFacturaUrl || undefined,
+                monto: totalMontoRecv > 0 ? totalMontoRecv : undefined,
+                updated_at: nowISO(),
+              })
+              .eq('id', existCxp[0].id);
+          } else {
+            await supabase.from('cuentas').insert({
+              tipo: 'por_pagar',
+              supplier_id: recvFor.supplier_id,
+              order_id: recvFor.id,
+              concepto: `Compra recibida en almacén: ${recvFor.title || recvFor.code}`,
+              documento: recvFacturaNumero.trim() || null,
+              factura_url: recvFacturaUrl || null,
+              monto: totalMontoRecv,
+              moneda: 'USD',
+              fecha_emision: nowISO().slice(0, 10),
+              estado: 'pendiente',
+              nota: `Factura cargada por Almacén al recibir requerimiento ${recvFor.code}.`,
+              created_by: uid,
+            });
+          }
+        } catch (cxpErr) {
+          console.warn('Sync cxp error:', cxpErr);
+        }
+      }
+
       setRecvBusy(false); setRecvFor(null); setRecvRows([]);
       refetch();
-      toast.success('Recibido en el inventario. Las entradas quedaron registradas con su precio.');
+      toast.success('Recibido en el inventario. Las entradas y la factura quedaron registradas.');
     } catch (e: any) {
       setRecvBusy(false);
       toast.error(e?.message ?? 'No se pudo recibir en inventario.');
@@ -1107,12 +1847,26 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   return (
                     <View style={{ marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>Proveedor General: {s.name}</Text>
-                      {hasBank || hasPm || hasBin ? (
-                        <Text style={{ fontSize: 10, color: colors.muted }}>
-                          {hasBank ? `🏦 ${s.bank_name} (${s.account_number?.slice(-4) || '—'}) ` : ''}
-                          {hasPm ? `📱 PM: ${s.pago_movil_phone} ` : ''}
-                          {hasBin ? `🟡 Binance: ${s.binance_id}` : ''}
-                        </Text>
+                      {hasBank || hasPm || hasBin || !!extraerCapturaPago(s) ? (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 2 }}>
+                          {hasBank ? <Text style={{ fontSize: 10, color: colors.muted }}>🏦 {s.bank_name} ({s.account_number?.slice(-4) || '—'})</Text> : null}
+                          {hasPm ? <Text style={{ fontSize: 10, color: colors.muted }}>📱 PM: {s.pago_movil_phone}</Text> : null}
+                          {hasBin ? <Text style={{ fontSize: 10, color: colors.muted }}>🟡 Binance: {s.binance_id}</Text> : null}
+                          {(() => {
+                            const cap = extraerCapturaPago(s);
+                            if (!cap) return null;
+                            return (
+                              <TouchableOpacity
+                                onPress={() => setVisorCapturaProv(cap)}
+                                style={{ backgroundColor: '#581C87', borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2 }}
+                              >
+                                <Text style={{ color: '#E9D5FF', fontSize: 10, fontWeight: '800' }}>
+                                  📸 {cap.name || 'Captura TRX/Tron'} 👁️
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })()}
+                        </View>
                       ) : (
                         <Text style={{ fontSize: 10, color: '#D97706' }}>⚠️ Proveedor sin datos bancarios ni de pago móvil registrados</Text>
                       )}
@@ -1120,9 +1874,277 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   );
                 })() : null}
 
+                {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial (Abraham - Ilusiones / Golden) */}
+                {(() => {
+                  const fac = extraerFactura(r);
+                  const tieneFac = Boolean(fac && fac.numero);
+                  const esGoldenFac = fac?.empresa?.toLowerCase().includes('golden');
+                  return (
+                    <View
+                      style={{
+                        marginTop: spacing.sm,
+                        backgroundColor: colors.surfaceAlt,
+                        borderRadius: radius.md,
+                        borderWidth: 1.5,
+                        borderColor: tieneFac ? (esGoldenFac ? '#F59E0B' : '#6366F1') : colors.border,
+                        padding: spacing.sm,
+                        gap: 6,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 14 }}>🧾</Text>
+                          <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                            Factura Fiscal / Comercial (Abraham)
+                          </Text>
+                        </View>
+                        {tieneFac ? (
+                          <View
+                            style={{
+                              backgroundColor: esGoldenFac ? '#FEF3C7' : '#E0E7FF',
+                              borderColor: esGoldenFac ? '#F59E0B' : '#6366F1',
+                              borderWidth: 1,
+                              paddingHorizontal: 8,
+                              paddingVertical: 2,
+                              borderRadius: radius.pill,
+                            }}
+                          >
+                            <Text style={{ color: esGoldenFac ? '#92400E' : '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
+                              {fac?.empresa}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+
+                      {tieneFac ? (
+                        <View style={{ gap: 4 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                            <Text style={{ fontSize: 12, color: colors.text }}>
+                              <Text style={{ fontWeight: '700' }}>N° Factura:</Text>{' '}
+                              <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero}</Text>
+                            </Text>
+                            {fac?.fecha ? (
+                              <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                📅 Fecha: {fac.fecha}
+                              </Text>
+                            ) : null}
+                          </View>
+                          {fac?.subidaPor ? (
+                            <Text style={{ fontSize: 11, color: colors.muted }}>
+                              👤 Subida por: {fac.subidaPor}
+                            </Text>
+                          ) : null}
+                          <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                            {fac?.url ? (
+                              <TouchableOpacity
+                                onPress={() => abrirVisorFactura(fac.url, fac.tipo, fac.nombre)}
+                                style={{
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.brand,
+                                  borderRadius: radius.sm,
+                                  paddingHorizontal: spacing.sm,
+                                  paddingVertical: 4,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <Text style={{ fontSize: 11 }}>👁️</Text>
+                                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>
+                                  Ver Factura Adjunta
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {canWrite ? (
+                              <TouchableOpacity
+                                onPress={() => abrirSubirFactura(r)}
+                                style={{
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  borderRadius: radius.sm,
+                                  paddingHorizontal: spacing.sm,
+                                  paddingVertical: 4,
+                                }}
+                              >
+                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                                  ✏️ Modificar Factura
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+                        </View>
+                      ) : (
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <Text style={{ fontSize: 11.5, color: colors.muted, fontStyle: 'italic', flex: 1 }}>
+                            Sin factura cargada todavía por Abraham.
+                          </Text>
+                          {canWrite ? (
+                            <TouchableOpacity
+                              onPress={() => abrirSubirFactura(r)}
+                              style={{
+                                backgroundColor: colors.brand,
+                                borderRadius: radius.sm,
+                                paddingHorizontal: spacing.sm,
+                                paddingVertical: 5,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <Text style={{ fontSize: 12 }}>➕</Text>
+                              <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11.5 }}>
+                                Subir Factura (Abraham)
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
+
+                {/* 📦 Sección Dedicada: Control Físico de Almacén (Disponible vs Retirado) */}
+                {r.status === 'recibido' && (() => {
+                  const desp = extraerDespacho(r);
+                  const esRetirado = desp.estado === 'retirado';
+                  return (
+                    <View
+                      style={{
+                        marginTop: spacing.sm,
+                        backgroundColor: esRetirado ? '#F8FAFC' : '#F0FDF4',
+                        borderRadius: radius.md,
+                        borderWidth: 1.5,
+                        borderColor: esRetirado ? '#3B82F6' : '#22C55E',
+                        padding: spacing.sm,
+                        gap: 6,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 14 }}>{esRetirado ? '📦' : '🟢'}</Text>
+                          <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                            Control Físico en Almacén: {esRetirado ? 'Retirado / Despachado' : 'Disponible en Almacén'}
+                          </Text>
+                        </View>
+                        <View
+                          style={{
+                            backgroundColor: esRetirado ? '#DBEAFE' : '#DCFCE7',
+                            borderColor: esRetirado ? '#2563EB' : '#16A34A',
+                            borderWidth: 1,
+                            paddingHorizontal: 8,
+                            paddingVertical: 2,
+                            borderRadius: radius.pill,
+                          }}
+                        >
+                          <Text style={{ color: esRetirado ? '#1E40AF' : '#15803D', fontSize: 10.5, fontWeight: '800' }}>
+                            {esRetirado ? 'DESPACHADO' : 'LISTO PARA ENTREGA'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {esRetirado ? (
+                        <View style={{ gap: 4 }}>
+                          <Text style={{ fontSize: 12, color: colors.text }}>
+                            👤 <Text style={{ fontWeight: '700' }}>Retirado por:</Text>{' '}
+                            <Text style={{ fontWeight: '800', color: colors.brandText }}>{desp.retiradoPor}</Text>
+                            {desp.retiradoCedula ? ` (CI: ${desp.retiradoCedula})` : ''}
+                            {desp.retiradoCargo ? ` · ${desp.retiradoCargo}` : ''}
+                          </Text>
+                          <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                            {desp.fecha ? (
+                              <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                🕒 Fecha: {dmyOf(desp.fecha)}
+                              </Text>
+                            ) : null}
+                            {desp.despachadoPor ? (
+                              <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                📦 Entregó: {desp.despachadoPor}
+                              </Text>
+                            ) : null}
+                          </View>
+                          {desp.maquinariaCodigo || desp.maquinariaPlaca ? (
+                            <Text style={{ fontSize: 11.5, color: '#1E3A5F', fontWeight: '700' }}>
+                              🚜 Destino: {desp.maquinariaCodigo || ''} · Placa: {desp.maquinariaPlaca || 'Sin placa'}
+                            </Text>
+                          ) : null}
+                          {desp.nota ? (
+                            <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic', backgroundColor: colors.surface, padding: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                              "{desp.nota}"
+                            </Text>
+                          ) : null}
+                          {canReceive ? (
+                            <TouchableOpacity
+                              onPress={() => abrirDespachoModal(r)}
+                              style={{
+                                alignSelf: 'flex-start',
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                borderRadius: radius.sm,
+                                paddingHorizontal: spacing.sm,
+                                paddingVertical: 4,
+                                marginTop: 2,
+                              }}
+                            >
+                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
+                                ✏️ Editar Registro de Retiro
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ) : (
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <Text style={{ fontSize: 11.5, color: '#166534', fontWeight: '600', flex: 1 }}>
+                            El repuesto ya está físicamente en el estante de almacén listo para ser retirado.
+                          </Text>
+                          {canReceive ? (
+                            <TouchableOpacity
+                              onPress={() => abrirDespachoModal(r)}
+                              style={{
+                                backgroundColor: '#16A34A',
+                                borderRadius: radius.sm,
+                                paddingHorizontal: spacing.sm,
+                                paddingVertical: 6,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <Text style={{ fontSize: 12 }}>📦</Text>
+                              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11.5 }}>
+                                Registrar Retiro / Despacho
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
+
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                   <TouchableOpacity onPress={() => pdf(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
+                  </TouchableOpacity>
+                  {/* Botón de Expediente Completo Oficial (PDF) */}
+                  <TouchableOpacity
+                    onPress={() => descargarExpediente(r)}
+                    style={{
+                      backgroundColor: '#1E3A5F',
+                      borderRadius: radius.md,
+                      paddingHorizontal: spacing.md,
+                      paddingVertical: spacing.xs,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 5,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12 }}>📑</Text>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                      Expediente Completo (PDF)
+                    </Text>
                   </TouchableOpacity>
                   {/* Subir formato (imagen o PDF) al requerimiento. */}
                   {canWrite ? (
@@ -1294,11 +2316,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                         <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>✏️ {hasBank || hasPm || hasBin ? 'Actualizar datos' : 'Registrar datos'}</Text>
                       </TouchableOpacity>
                     </View>
-                    {hasBank || hasPm || hasBin ? (
+                    {hasBank || hasPm || hasBin || !!extraerCapturaPago(s) ? (
                       <View style={{ marginTop: 4, gap: 2 }}>
                         {hasBank ? <Text style={{ fontSize: 11, color: colors.muted }}>🏦 {s.bank_name} · Cta: {s.account_number ? `...${s.account_number.slice(-4)}` : '—'} · {s.account_holder} ({s.account_id_doc})</Text> : null}
                         {hasPm ? <Text style={{ fontSize: 11, color: colors.muted }}>📱 PM: {s.pago_movil_phone} · {s.pago_movil_bank ?? '—'} · {s.pago_movil_id ?? '—'}</Text> : null}
                         {hasBin ? <Text style={{ fontSize: 11, color: colors.muted }}>🟡 Binance Pay ID: {s.binance_id}</Text> : null}
+                        {(() => {
+                          const cap = extraerCapturaPago(s);
+                          if (!cap) return null;
+                          return (
+                            <TouchableOpacity
+                              onPress={() => setVisorCapturaProv(cap)}
+                              style={{ alignSelf: 'flex-start', backgroundColor: '#581C87', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2, marginTop: 2 }}
+                            >
+                              <Text style={{ color: '#E9D5FF', fontSize: 10.5, fontWeight: '800' }}>
+                                📸 {cap.name || 'Captura de Billetera TRX / Tron / QR'} 👁️ Ver grande
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })()}
                       </View>
                     ) : (
                       <Text style={{ fontSize: 11, color: '#D97706', marginTop: 2 }}>⚠️ Sin coordenadas financieras registradas. Toca "Registrar datos" para agilizar el envío a Tesorería.</Text>
@@ -1477,56 +2513,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     ) : null}
                   </View>
 
-                  {/* Asignación individual de proveedor por renglón (Multi-proveedor) */}
-                  <View style={{ marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
-                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
-                      🏢 Proveedor de este ítem (opcional para compras consolidadas):
-                    </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4, paddingVertical: 2 }}>
-                      <TouchableOpacity
-                        onPress={() => {
-                          upd(x.key, 'supplier_id', null);
-                          upd(x.key, 'supplier_name', null);
-                        }}
-                        style={{
-                          paddingHorizontal: 8,
-                          paddingVertical: 4,
-                          borderRadius: radius.pill,
-                          backgroundColor: !x.supplier_id ? colors.brand : colors.surfaceAlt,
-                          borderWidth: 1,
-                          borderColor: !x.supplier_id ? colors.brand : colors.border,
-                        }}
-                      >
-                        <Text style={{ color: !x.supplier_id ? colors.brandContrast : colors.text, fontSize: 10.5, fontWeight: '700' }}>
-                          (Usa proveedor general)
-                        </Text>
-                      </TouchableOpacity>
-                      {suppliers.map((s) => {
-                        const sel = x.supplier_id === s.id;
-                        return (
-                          <TouchableOpacity
-                            key={s.id}
-                            onPress={() => {
-                              upd(x.key, 'supplier_id', s.id);
-                              upd(x.key, 'supplier_name', s.name);
-                            }}
-                            style={{
-                              paddingHorizontal: 8,
-                              paddingVertical: 4,
-                              borderRadius: radius.pill,
-                              backgroundColor: sel ? colors.brand : colors.surfaceAlt,
-                              borderWidth: 1,
-                              borderColor: sel ? colors.brand : colors.border,
-                            }}
-                          >
-                            <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 10.5, fontWeight: '700' }}>
-                              {s.name}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
+                  {/* Asignación individual de proveedor por renglón (Multi-proveedor con checkbox y buscador vertical) */}
+                  <ItemSupplierPicker
+                    supplierId={x.supplier_id}
+                    supplierName={x.supplier_name}
+                    suppliers={suppliers}
+                    onSelect={(id, name) => {
+                      upd(x.key, 'supplier_id', id);
+                      upd(x.key, 'supplier_name', name);
+                    }}
+                  />
                 </Card>
               );
             })}
@@ -1637,6 +2633,64 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 </Card>
               );
             })}
+
+            {/* 🧾 Carga de Factura de Compra / Soporte Fiscal (Para Almacén y Abraham en Cuentas por Pagar) */}
+            <Card style={{ marginTop: spacing.sm, borderWidth: 1.5, borderColor: '#0284C7', backgroundColor: '#F0F9FF' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <Text style={{ fontSize: 16 }}>🧾</Text>
+                <Text style={{ color: '#0369A1', fontWeight: '800', fontSize: 13 }}>
+                  Factura de Compra / Soporte Fiscal
+                </Text>
+              </View>
+              <Text style={{ color: '#075985', fontSize: 11.5, marginBottom: spacing.xs }}>
+                Ingresa los datos de la factura para que queden registrados en Almacén y Abraham (en Cuentas por Pagar) no tenga que volver a subirlos.
+              </Text>
+
+              <Text style={{ color: '#0C4A6E', fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
+                N° de Factura / Control:
+              </Text>
+              <TextInput
+                value={recvFacturaNumero}
+                onChangeText={setRecvFacturaNumero}
+                placeholder="Ej: FACT-009842 o CTRL-1102"
+                placeholderTextColor="#94A3B8"
+                style={[inp, { backgroundColor: '#fff', marginBottom: spacing.xs }]}
+              />
+
+              <Text style={{ color: '#0C4A6E', fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
+                Foto o Documento PDF de la Factura:
+              </Text>
+              {recvFacturaUrl ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', padding: 8, borderRadius: radius.md, borderWidth: 1, borderColor: '#BAE6FD', marginBottom: spacing.xs }}>
+                  <Text style={{ fontSize: 20 }}>{recvFacturaTipo === 'pdf' ? '📄' : '🖼️'}</Text>
+                  <Text style={{ flex: 1, fontSize: 12, color: colors.text }} numberOfLines={1}>{recvFacturaNombre || 'Factura adjunta'}</Text>
+                  <TouchableOpacity onPress={() => { setRecvFacturaUrl(null); setRecvFacturaTipo(null); setRecvFacturaNombre(null); }}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+                  <TouchableOpacity
+                    onPress={() => subirFacturaRecibir('camara')}
+                    disabled={recvSubiendoFactura}
+                    style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#0284C7', paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', opacity: recvSubiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: '#0284C7', fontWeight: '700', fontSize: 12 }}>
+                      {recvSubiendoFactura ? '⏳ Subiendo…' : '📷 Tomar Foto'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => subirFacturaRecibir('archivo')}
+                    disabled={recvSubiendoFactura}
+                    style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#0284C7', paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', opacity: recvSubiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: '#0284C7', fontWeight: '700', fontSize: 12 }}>
+                      {recvSubiendoFactura ? '⏳ Subiendo…' : '📎 Subir Archivo/PDF'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
               <TouchableOpacity onPress={() => setRecvFor(null)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={recibir} disabled={recvBusy} style={{ flex: 2, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: recvBusy ? 0.6 : 1 }}><Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{recvBusy ? 'Recibiendo…' : '📥 Confirmar entrada'}</Text></TouchableOpacity>
@@ -1672,31 +2726,103 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </View>
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nombre del Titular</Text>
-              <TextInput value={provTitular} onChangeText={setProvTitular} placeholder="Nombre de la empresa o titular" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+              <TextInput value={provTitular} onChangeText={setProvTitular} autoCapitalize="words" placeholder="Nombre de la empresa o titular" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula / RIF del Titular</Text>
-              <TextInput value={provDocTitular} onChangeText={(t) => setProvDocTitular(t.toUpperCase())} placeholder="J-12345678-9 o V-12345678" placeholderTextColor={colors.muted} style={inp} />
+              <TextInput value={provDocTitular} onChangeText={setProvDocTitular} autoCapitalize="none" placeholder="J-12345678-9 o V-12345678" placeholderTextColor={colors.muted} style={inp} />
             </Card>
 
             <Card>
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>📱 Pago Móvil</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Banco Pago Móvil</Text>
-              <TextInput value={provPagoMovilBanco} onChangeText={setProvPagoMovilBanco} placeholder="Ej. Banesco, BDV, Mercantil…" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+              <TextInput value={provPagoMovilBanco} onChangeText={setProvPagoMovilBanco} autoCapitalize="words" placeholder="Ej. Banesco, BDV, Mercantil…" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Teléfono Pago Móvil</Text>
               <TextInput value={provPagoMovilTel} onChangeText={setProvPagoMovilTel} keyboardType="phone-pad" placeholder="0414-1234567" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula / RIF Pago Móvil</Text>
-              <TextInput value={provPagoMovilDoc} onChangeText={(t) => setProvPagoMovilDoc(t.toUpperCase())} placeholder="V-12345678 o J-12345678-9" placeholderTextColor={colors.muted} style={inp} />
+              <TextInput value={provPagoMovilDoc} onChangeText={setProvPagoMovilDoc} autoCapitalize="none" placeholder="V-12345678 o J-12345678-9" placeholderTextColor={colors.muted} style={inp} />
             </Card>
 
             <Card>
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🟡 Billetera Digital (Binance Pay / Cripto)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Binance Pay ID / Correo</Text>
-              <TextInput value={provBinanceId} onChangeText={setProvBinanceId} placeholder="Binance ID o correo de cuenta" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+              <TextInput value={provBinanceId} onChangeText={setProvBinanceId} autoCapitalize="none" keyboardType="email-address" placeholder="Binance ID o correo de cuenta" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Notas adicionales de pago (opcional)</Text>
-              <TextInput value={provNotasPago} onChangeText={setProvNotasPago} placeholder="Instrucciones especiales de pago…" placeholderTextColor={colors.muted} multiline style={[inp, { minHeight: 50, textAlignVertical: 'top' }]} />
+              <TextInput value={provNotasPago} onChangeText={setProvNotasPago} autoCapitalize="sentences" placeholder="Instrucciones especiales de pago…" placeholderTextColor={colors.muted} multiline style={[inp, { minHeight: 50, textAlignVertical: 'top' }]} />
+            </Card>
+
+            {/* 📸 Captura de Pago / Billetera TRX / Tron / QR */}
+            <Card>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                  📸 Captura de Billetera TRX / Tron / QR Banco
+                </Text>
+                {provPaymentPhotoUrl ? (
+                  <View style={{ backgroundColor: '#064E3B', borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2 }}>
+                    <Text style={{ color: '#34D399', fontSize: 10, fontWeight: '800' }}>✓ Adjuntada</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+                Captura de pantalla de la billetera (TRC-20, TRX, Tron, QR bancario) enviada por el proveedor.
+              </Text>
+
+              {provPaymentPhotoUrl ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surfaceAlt, padding: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: 8 }}>
+                  <Image
+                    source={{ uri: provPaymentPhotoUrl }}
+                    style={{ width: 56, height: 56, borderRadius: 6, backgroundColor: '#000' }}
+                    resizeMode="cover"
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
+                      {provPaymentPhotoName || 'Captura de pago / QR'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => setVisorCapturaProv({ url: provPaymentPhotoUrl, name: provPaymentPhotoName })}
+                        style={{ backgroundColor: colors.brand, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}
+                      >
+                        <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800' }}>👁️ Ver grande</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setProvPaymentPhotoUrl('');
+                          setProvPaymentPhotoName('');
+                        }}
+                        style={{ backgroundColor: colors.dangerSoftBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.dangerSoftBorder }}
+                      >
+                        <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Quitar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  disabled={subiendoCapturaProv}
+                  onPress={tomarFotoCapturaProv}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 5 }}
+                >
+                  <Text style={{ fontSize: 14 }}>📷</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                    {subiendoCapturaProv ? 'Cargando…' : 'Tomar Foto'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={subiendoCapturaProv}
+                  onPress={subirCapturaProvArchivo}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 5 }}
+                >
+                  <Text style={{ fontSize: 14 }}>📎</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                    {subiendoCapturaProv ? 'Subiendo…' : 'Subir Captura'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </Card>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
@@ -1709,6 +2835,47 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             </View>
           </ScrollView>
         </Screen>
+      </Modal>
+
+      {/* Visor modal de captura de pago de proveedor */}
+      <Modal visible={!!visorCapturaProv} transparent animationType="fade" onRequestClose={() => setVisorCapturaProv(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+          <View style={{ width: '100%', maxWidth: 500, backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden', maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>
+                📸 {visorCapturaProv?.name || 'Captura de Billetera / QR'}
+              </Text>
+              <TouchableOpacity onPress={() => setVisorCapturaProv(null)} style={{ padding: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '900' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ alignItems: 'center', padding: spacing.md }}>
+              {visorCapturaProv?.url ? (
+                <Image
+                  source={{ uri: visorCapturaProv.url }}
+                  style={{ width: '100%', height: 420, borderRadius: radius.md }}
+                  resizeMode="contain"
+                />
+              ) : null}
+            </ScrollView>
+            <View style={{ padding: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+              {visorCapturaProv?.url ? (
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(visorCapturaProv.url)}
+                  style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🔗 Abrir original</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                onPress={() => setVisorCapturaProv(null)}
+                style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.brand }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 12 }}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* ── Modal: Solicitar Aclaratoria Técnica (Bucle de Cotización) ── */}
@@ -1787,6 +2954,392 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* ── Modal: Carga de Factura Fiscal / Comercial (Abraham - Falta 1) ── */}
+      <Modal visible={facturaModalOpen} animationType="slide" onRequestClose={() => setFacturaModalOpen(false)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>🧾 Carga de Factura de Compra (Abraham)</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Requerimiento {facturaTarget?.code ?? ''}: Asigna la empresa fiscal/comercial emisora e ingresa los datos de control para trazabilidad en Cuentas por Pagar.
+            </Text>
+
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: 4 }}>
+                Empresa Pagadora / Emisora de la Factura:
+              </Text>
+              <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+                {(['Inversiones Las Ilusiones', 'Golden Touch'] as const).map((emp) => {
+                  const sel = facturaEmpresa === emp;
+                  return (
+                    <TouchableOpacity
+                      key={emp}
+                      onPress={() => setFacturaEmpresa(emp)}
+                      style={{
+                        flex: 1,
+                        paddingVertical: spacing.sm,
+                        paddingHorizontal: spacing.xs,
+                        borderRadius: radius.md,
+                        borderWidth: 1.5,
+                        borderColor: sel ? (emp === 'Golden Touch' ? '#F59E0B' : '#6366F1') : colors.border,
+                        backgroundColor: sel ? (emp === 'Golden Touch' ? '#FEF3C7' : '#EEF2FF') : colors.surfaceAlt,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ color: sel ? (emp === 'Golden Touch' ? '#92400E' : '#3730A3') : colors.text, fontWeight: '800', fontSize: 12 }}>
+                        {emp === 'Golden Touch' ? '✨ Golden Touch' : '🏢 Las Ilusiones'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>N° de Factura / Control</Text>
+              <TextInput
+                value={facturaNumero}
+                onChangeText={setFacturaNumero}
+                placeholder="Ej. FACT-00892 o 0001248"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Fecha de Emisión (AAAA-MM-DD)</Text>
+              <TextInput
+                value={facturaFecha}
+                onChangeText={setFacturaFecha}
+                placeholder="2026-10-26"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Documento Adjunto (PDF o Imagen de la Factura)</Text>
+              {facturaUrl ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surfaceAlt, padding: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm }}>
+                  <Text style={{ fontSize: 22 }}>{facturaTipo === 'pdf' ? '📄' : '🖼️'}</Text>
+                  <Text style={{ flex: 1, fontSize: 12, color: colors.text }} numberOfLines={1}>
+                    {facturaNombre || 'Factura adjunta'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => abrirVisorFactura(facturaUrl, facturaTipo, facturaNombre)}
+                    style={{ backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                  >
+                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => { setFacturaUrl(null); setFacturaNombre(null); }}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>Quitar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={tomarFotoFactura}
+                    disabled={subiendoFactura}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', opacity: subiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                      {subiendoFactura ? '⏳ Subiendo…' : '📷 Tomar Foto'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={subirArchivoFactura}
+                    disabled={subiendoFactura}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', opacity: subiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                      {subiendoFactura ? '⏳ Subiendo…' : '📎 Subir Archivo/PDF'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Card>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity
+                onPress={() => setFacturaModalOpen(false)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={guardarFacturaModal}
+                disabled={guardandoFactura}
+                style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoFactura ? 0.6 : 1 }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>
+                  {guardandoFactura ? 'Guardando…' : '💾 Guardar Factura'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Visor de Factura Adjunta ── */}
+      <Modal visible={facturaViewerOpen} animationType="fade" transparent onRequestClose={() => setFacturaViewerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%', overflow: 'hidden' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
+                🧾 {facturaViewerNombre || 'Factura'}
+              </Text>
+              <TouchableOpacity onPress={() => setFacturaViewerOpen(false)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ padding: spacing.md }}>
+              {facturaViewerUrl ? (
+                facturaViewerTipo === 'pdf' ? (
+                  Platform.OS === 'web'
+                    ? React.createElement('iframe', { src: facturaViewerUrl, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
+                    : <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginVertical: 20 }}>Toca "⬇️ Descargar / Abrir" para ver el PDF.</Text>
+                ) : (
+                  <Image source={{ uri: facturaViewerUrl }} style={{ width: '100%', height: 420, borderRadius: radius.md }} resizeMode="contain" />
+                )
+              ) : null}
+            </ScrollView>
+            <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', gap: spacing.sm }}>
+              <TouchableOpacity
+                onPress={() => setFacturaViewerOpen(false)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+              </TouchableOpacity>
+              {facturaViewerUrl ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      window.open(facturaViewerUrl, '_blank');
+                    } else {
+                      Linking.openURL(facturaViewerUrl);
+                    }
+                  }}
+                  style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Abrir / Descargar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal: Control Físico de Retiro en Almacén (Falta 3) ── */}
+      <Modal visible={despachoModalOpen} animationType="slide" onRequestClose={() => setDespachoModalOpen(false)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>📦 Retiro / Despacho Físico de Almacén</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Requerimiento {despachoTarget?.code ?? ''}: Registra a qué mecánico o chofer se le entregó el material y para cuál maquinaria o vehículo (código y placa).
+            </Text>
+
+            {/* Persona que retira */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                👤 Personal que Retira (Mecánico / Chofer)
+              </Text>
+              <TextInput
+                value={empBusquedaQ}
+                onChangeText={setEmpBusquedaQ}
+                placeholder="🔎 Buscar en nómina (nombre, cargo, cédula)…"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6, fontSize: 12 }]}
+              />
+              {empBusquedaQ.trim().length > 0 ? (
+                <View style={{ maxHeight: 150, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, marginBottom: 8, overflow: 'hidden' }}>
+                  <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                    {employees
+                      .map((e) => ({
+                        e,
+                        fullName: [e.first_name, e.last_name].filter(Boolean).join(' ') || 'Sin Nombre',
+                      }))
+                      .filter(({ e, fullName }) => {
+                        const q = norm(empBusquedaQ);
+                        return norm(fullName).includes(q) || (e.cedula && norm(e.cedula).includes(q)) || (e.cargo && norm(e.cargo).includes(q));
+                      })
+                      .map(({ e, fullName }) => (
+                        <TouchableOpacity
+                          key={e.id}
+                          onPress={() => {
+                            setRetiradoPor(fullName);
+                            setRetiradoCedula(e.cedula || '');
+                            setRetiradoCargo(e.cargo || '');
+                            setRetiradoEmployeeId(e.id);
+                            setEmpBusquedaQ('');
+                          }}
+                          style={{ padding: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{fullName}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            {e.cedula ? `CI: ${e.cedula} · ` : ''}{e.cargo || 'Personal'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nombre Completo de quien retira</Text>
+              <TextInput
+                value={retiradoPor}
+                onChangeText={setRetiradoPor}
+                placeholder="Nombre y Apellido"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6 }]}
+              />
+
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: 6 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula</Text>
+                  <TextInput
+                    value={retiradoCedula}
+                    onChangeText={setRetiradoCedula}
+                    placeholder="V-12345678"
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cargo / Rol</Text>
+                  <TextInput
+                    value={retiradoCargo}
+                    onChangeText={setRetiradoCargo}
+                    placeholder="Ej. Mecánico, Chofer"
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+              </View>
+            </Card>
+
+            {/* Maquinaria o Vehículo de Destino (con PLACA y Buscador) */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                🚜 Maquinaria o Vehículo de Destino
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 6 }}>
+                Identifica la unidad que recibirá el repuesto mostrando siempre Código y Placa.
+              </Text>
+
+              {despachoMaquinariaId ? (() => {
+                const selMaq = machines.find((m) => m.id === despachoMaquinariaId);
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#3B82F6', borderRadius: radius.md, padding: 8, marginBottom: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#1E3A8A', fontWeight: '800', fontSize: 12.5 }}>
+                        🚜 {selMaq ? machineLabel(selMaq) : 'Maquinaria seleccionada'}
+                      </Text>
+                      <Text style={{ color: '#2563EB', fontSize: 11 }}>
+                        Placa: {selMaq?.plate || 'Sin placa'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setDespachoMaquinariaId(null)}>
+                      <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Cambiar</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })() : null}
+
+              <TextInput
+                value={maqBusquedaQ}
+                onChangeText={setMaqBusquedaQ}
+                placeholder="🔎 Buscar maquinaria por código, placa, serial…"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6, fontSize: 12 }]}
+              />
+              <View style={{ maxHeight: 180, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, overflow: 'hidden' }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {machines
+                    .filter((m) => machineMatches(m, maqBusquedaQ))
+                    .map((m) => {
+                      const isSel = m.id === despachoMaquinariaId;
+                      return (
+                        <TouchableOpacity
+                          key={m.id}
+                          onPress={() => {
+                            setDespachoMaquinariaId(m.id);
+                            setMaqBusquedaQ('');
+                          }}
+                          style={{
+                            padding: 8,
+                            borderBottomWidth: 1,
+                            borderBottomColor: colors.border,
+                            backgroundColor: isSel ? '#DBEAFE' : 'transparent',
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                              {machineLabel(m)}
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>
+                              Placa: <Text style={{ fontWeight: '700', color: colors.brandText }}>{m.plate || 'Sin placa'}</Text>{m.serial ? ` · Serial: ${m.serial}` : ''}
+                            </Text>
+                          </View>
+                          {isSel ? <Text style={{ color: '#2563EB', fontWeight: '900', fontSize: 14 }}>✓</Text> : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                </ScrollView>
+              </View>
+            </Card>
+
+            {/* Detalles de Almacén */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                📋 Trazabilidad de Entrega
+              </Text>
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Almacenista que Despacha</Text>
+              <TextInput
+                value={despachadoPor}
+                onChangeText={setDespachadoPor}
+                placeholder="Nombre del almacenista"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6 }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Fecha / Hora de Retiro</Text>
+              <TextInput
+                value={despachoFecha}
+                onChangeText={setDespachoFecha}
+                placeholder="2026-10-26T14:30:00Z"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6 }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Observaciones / Notas de Entrega</Text>
+              <TextInput
+                value={despachoNota}
+                onChangeText={setDespachoNota}
+                placeholder="Ej. Entregado en galpón principal, verificado con mecánico..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { minHeight: 60, textAlignVertical: 'top' }]}
+              />
+            </Card>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity
+                onPress={() => setDespachoModalOpen(false)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={guardarDespachoModal}
+                disabled={guardandoDespacho}
+                style={{ flex: 2, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoDespacho ? 0.6 : 1 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>
+                  {guardandoDespacho ? 'Guardando…' : '📦 Confirmar Despacho Físico'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
       </Modal>
     </Screen>
   );

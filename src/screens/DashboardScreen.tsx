@@ -13,6 +13,7 @@ import { TankLevel } from '../types/database';
 import { horasTurnoDelDia } from '../lib/hours';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 import { caracasParts } from '../lib/jornada';
 import { fetchAveriaCat, fetchJornadaCat, fetchInspByShift, bucketMachineStatus, makeLiveStatusOf } from '../lib/machineLiveStatus';
 
@@ -83,8 +84,34 @@ function BarChart({ data, fmt = money }: { data: { label: string; value: number;
 
 export default function DashboardScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const { role, canSee } = useAuth();
   const { width: screenWidth } = useWindowDimensions();
   const isMobile = screenWidth < 680;
+
+  if (role !== 'admin' && !canSee('inicio')) {
+    return (
+      <Screen>
+        <Card style={{ marginVertical: spacing.md, padding: spacing.lg, alignItems: 'center' }}>
+          <Text style={{ fontSize: 36, marginBottom: spacing.sm }}>🔒</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: spacing.xs, textAlign: 'center' }}>
+            Acceso Restringido a Inicio
+          </Text>
+          <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', maxWidth: 400, marginBottom: spacing.md }}>
+            Tu usuario no tiene asignado el permiso para visualizar las métricas y gráficos del panel de inicio.
+          </Text>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('More', { screen: 'MoreMenu' })}
+            style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+          >
+            <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>
+              ☰ Ir al Menú de Módulos
+            </Text>
+          </TouchableOpacity>
+        </Card>
+      </Screen>
+    );
+  }
+
   const { data: tanks, loading } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks', 'dispatches', 'fuel_intakes', 'transfers'] });
 
   const [activeMachines, setActiveMachines] = useState<number | null>(null);

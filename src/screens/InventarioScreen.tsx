@@ -3690,7 +3690,7 @@ function SolicitudesExistenciaTab({ canWrite }: { canWrite: boolean }) {
                       flexDirection: 'row',
                       alignItems: 'center',
                       gap: 4,
-                      backgroundColor: isAbierto ? colors.surfaceAlt : colors.brandLight || '#EFF6FF',
+                      backgroundColor: isAbierto ? colors.surfaceAlt : (colors as any).brandLight || '#EFF6FF',
                       paddingHorizontal: 9,
                       paddingVertical: 4,
                       borderRadius: radius.pill,

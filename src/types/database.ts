@@ -602,6 +602,8 @@ export interface Supplier {
   pago_movil_bank?: string | null;
   binance_id?: string | null;
   payment_notes?: string | null;
+  payment_photo_url?: string | null;
+  payment_photo_name?: string | null;
 }
 
 /** Renglón de una solicitud/orden de compra (guardado en JSONB). */
@@ -921,6 +923,24 @@ export interface InventoryRequirement {
   gerente_aprobado?: boolean | null;
   gerente_aprobado_por?: string | null;
   gerente_aprobado_at?: string | null;
+
+  // 🧾 Factura Fiscal / Comercial (Abraham - Ilusiones o Golden Touch):
+  factura_numero?: string | null;
+  factura_url?: string | null;
+  factura_tipo?: 'image' | 'pdf' | null;
+  factura_nombre?: string | null;
+  factura_empresa?: string | null;
+  factura_fecha?: string | null;
+  factura_subida_por?: string | null;
+  factura_subida_at?: string | null;
+
+  // 📦 Control Físico de Almacén (Disponible vs Retirado):
+  despacho_estado?: 'disponible' | 'retirado' | null;
+  despachado_a_nombre?: string | null;
+  despachado_a_id?: string | null;
+  despachado_por?: string | null;
+  despachado_at?: string | null;
+  despacho_nota?: string | null;
 }
 
 export interface MachineryLocation {

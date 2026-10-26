@@ -267,14 +267,14 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       supplier_id: tipo === 'por_pagar' ? contraparteId : null,
       company_id: tipo === 'por_cobrar' ? contraparteId : null,
       order_id: orderId,
-      concepto: concepto.trim().toUpperCase(),
-      documento: documento.trim().toUpperCase() || null,
+      concepto: concepto.trim(),
+      documento: documento.trim() || null,
       factura_url: facturaUrl,
       prioridad,
       monto: importe,
       fecha_emision: emision,
       fecha_vencimiento: vence || null,
-      nota: nota.trim().toUpperCase() || null,
+      nota: nota.trim() || null,
     };
 
     setBusy(true);
@@ -378,7 +378,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     setBusy(true);
     const { error } = await supabase.from('cuenta_abonos').insert({
       cuenta_id: abonoDe.id, monto: importe, fecha: abFecha,
-      metodo: abMetodo.trim().toUpperCase() || null, referencia: abRef.trim().toUpperCase() || null,
+      metodo: abMetodo.trim() || null, referencia: abRef.trim() || null,
       created_by: session?.user?.id ?? null,
     });
     setBusy(false);
@@ -607,9 +607,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Concepto (por qué se debe)</Text>
-              <TextInput value={concepto} onChangeText={(t) => setConcepto(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. REPUESTOS FACTURA 0123" placeholderTextColor={colors.muted} style={inputStyle} />
+              <TextInput value={concepto} onChangeText={setConcepto} autoCapitalize="sentences" placeholder="Ej. Repuestos factura 0123" placeholderTextColor={colors.muted} style={inputStyle} />
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Nº de factura / control (opcional)</Text>
-              <TextInput value={documento} onChangeText={(t) => setDocumento(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. F-00123" placeholderTextColor={colors.muted} style={inputStyle} />
+              <TextInput value={documento} onChangeText={setDocumento} autoCapitalize="none" placeholder="Ej. F-00123" placeholderTextColor={colors.muted} style={inputStyle} />
             </Card>
 
             <Card>
@@ -634,7 +634,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nota (opcional)</Text>
-              <TextInput value={nota} onChangeText={(t) => setNota(t.toUpperCase())} autoCapitalize="characters" placeholder="OBSERVACIÓN…" placeholderTextColor={colors.muted} style={inputStyle} />
+              <TextInput value={nota} onChangeText={setNota} autoCapitalize="sentences" placeholder="Observación…" placeholderTextColor={colors.muted} style={inputStyle} />
             </Card>
 
             {/* Prioridad (opcional) */}
@@ -732,9 +732,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Fecha (AAAA-MM-DD)</Text>
                   <TextInput value={abFecha} onChangeText={setAbFecha} placeholder={hoy} placeholderTextColor={colors.muted} style={inputStyle} />
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Método (opcional)</Text>
-                  <TextInput value={abMetodo} onChangeText={(t) => setAbMetodo(t.toUpperCase())} autoCapitalize="characters" placeholder="EFECTIVO / TRANSFERENCIA / CHEQUE" placeholderTextColor={colors.muted} style={inputStyle} />
+                  <TextInput value={abMetodo} onChangeText={setAbMetodo} autoCapitalize="words" placeholder="Efectivo / Transferencia / Pago Móvil / Binance / Zelle" placeholderTextColor={colors.muted} style={inputStyle} />
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Referencia (opcional)</Text>
-                  <TextInput value={abRef} onChangeText={(t) => setAbRef(t.toUpperCase())} autoCapitalize="characters" placeholder="Nº DE TRANSFERENCIA / CHEQUE" placeholderTextColor={colors.muted} style={inputStyle} />
+                  <TextInput value={abRef} onChangeText={setAbRef} autoCapitalize="none" placeholder="Nº de transferencia / hash / correo" placeholderTextColor={colors.muted} style={inputStyle} />
                 </Card>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
                   Saldo después del abono: {usd(Math.max(0, abonoDe.saldo - parseNum(abMonto)))}
