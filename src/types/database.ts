@@ -617,6 +617,7 @@ export interface PurchaseLine {
    *  en la base imponible. Solo lo usa la COMPRA DIRECTA; en los renglones
    *  viejos no existe (= gravado, como siempre). */
   exento?: boolean;
+  image_url?: string | null; // foto de referencia de la pieza / producto
 }
 
 export type PurchaseRequestStatus = 'solicitada' | 'aprobada' | 'rechazada' | 'ordenada';
@@ -681,6 +682,8 @@ export interface DirectPurchase {
   factura_url: string | null;
   factura_type: 'image' | 'pdf' | null;
   factura_name: string | null;
+  foto_producto_url?: string | null;
+  foto_producto_name?: string | null;
   note: string | null;
   created_by: string | null;
   created_at: string;
