@@ -28,6 +28,14 @@ const require = createRequire(path.join(ROOT, 'package.json'));
 const ts = require('typescript');
 const Module = require('module');
 
+// `pagoHorometro.ts` importa `./ordenMaquinas` (la regla única del agrupado por
+// encargado): se registra un cargador de .ts para que el require relativo resuelva.
+Module._extensions['.ts'] = (mm, filename) => {
+  const js = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 },
+  }).outputText;
+  mm._compile(js, filename);
+};
 const srcPath = path.join(ROOT, 'src/lib/pagoHorometro.ts');
 const out = ts.transpileModule(fs.readFileSync(srcPath, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 },
@@ -166,7 +174,7 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
 // ── 5) ⭐ LOS DOS CONTROLES NO SE TOCAN ──────────────────────────────────────
 {
   const lib = sinComentarios(leer('src/lib/pagoHorometro.ts'));
-  ok('⭐ la librería es pura: sin imports', !/^\s*import\s/m.test(lib));
+  ok('⭐ la librería es pura: solo importa la regla del agrupado por encargado (ordenMaquinas)', (lib.match(/^\s*import\s.*$/gm) || []).every((l) => /'\.\/ordenMaquinas'/.test(l)));
   ok('⭐ …y no nombra las tablas de Control de jornadas', !/machine_rounds|control_closures|price_per_hour|machinery_precio_historial/.test(lib));
   const db = sinComentarios(leer('src/lib/pagoHorometroDb.ts'));
   ok('⭐ la capa de datos NO lee ni escribe rondas ni cierres de Control', !/machine_rounds|control_closures|machinery_precio_historial/.test(db));
@@ -222,7 +230,7 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   ok('sin motivo se rechaza', /motivo/.test(P.validarAjusteHorometro({ inicial: 1, final: 2, motivo: ' ' })));
   ok('sin los dos números se rechaza', /inicial y el final/.test(P.validarAjusteHorometro({ inicial: '', final: 2, motivo: 'x' })));
   ok('final menor que inicial se rechaza', /no puede ser menor/.test(P.validarAjusteHorometro({ inicial: 10, final: 2, motivo: 'x' })));
-  ok('más de 24 h en un turno se rechaza', /24 horas/.test(P.validarAjusteHorometro({ inicial: 0, final: 30, motivo: 'x' })));
+  ok('más de 23 h en un turno se rechaza', /23 horas/.test(P.validarAjusteHorometro({ inicial: 0, final: 30, motivo: 'x' })));
   // El modal de los dos destinos, por su código.
   const modal = sinComentarios(leer('src/components/HorometroAjusteModal.tsx'));
   ok('⭐ el modal ofrece los DOS destinos', /Solo para Control de horómetros/.test(modal) && /Cambiar la lectura del inspector/.test(modal));
@@ -317,6 +325,50 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   ok('⭐ el panel valida el solape ANTES de cerrar y pide confirmación', /validarCierreHorometro\(\{ desde, hasta, filas: filasConAlgo \}, cierres\)/.test(panel8) && /await confirm\(/.test(panel8));
   ok('⭐ un día cerrado no se puede tocar', /disabled=\{!canEdit \|\| faltaSql \|\| d\.cerrado\}/.test(panel8));
   ok('el histórico ofrece el PDF y reabrir con motivo', /Histórico de cierres/.test(panel8) && /pdfDeCierre\(c\)/.test(panel8) && /Motivo para reabrir/.test(panel8));
+}
+
+// ── 9) 👤 POR ENCARGADO Y COLUMNAS A ELEGIR (26-oct-2026) ───────────────────
+// Pedido: «sacar el reporte de control de horómetro, ya sea por encargado también,
+// y poder quitar o colocarle los logos, o poder quitar o colocarle columnas, que
+// si placa, serial, o marca y modelo».
+{
+  const MAQ9 = [
+    { id: 'm1', code: 'RETRO-01', placa: 'A1', placaSola: 'A1', serial: 'S-111', empresa: 'EMPRESA ALFA', clasificacion: 'Tierra', marca: 'CAT', modelo: '320', encargado: 'Pedro Pérez' },
+    { id: 'm2', code: 'JUMBO-02', placa: 'B2', placaSola: 'B2', serial: 'S-222', empresa: 'EMPRESA BETA', clasificacion: 'Tierra', marca: 'XCMG', modelo: 'X1', encargado: 'PEDRO PEREZ' },
+    { id: 'm4', code: 'SIN-PRECIO', placa: 'D4', placaSola: '', serial: 'D4', empresa: 'EMPRESA BETA', clasificacion: 'Tierra', marca: '', modelo: '', encargado: null },
+  ];
+  const filas9 = P.filasPagoHorometro({ maquinas: MAQ9, lecturas: LECT, precios: PRECIOS, desde: '2026-09-14', hasta: '2026-09-16' });
+  const porEnc = P.gruposPagoHorometro(filas9, 'encargado');
+  eq('⭐ agrupa por encargado con la regla de la casa (dos grafías = una persona; sin encargado al final)',
+    porEnc.map((g) => [g.label, g.filas.map((f) => f.maquina.code), g.total.monto]),
+    [['PEDRO PEREZ', ['JUMBO-02', 'RETRO-01'], 248], ['SIN ENCARGADO', ['SIN-PRECIO'], 0]]);
+  eq('⭐ agrupar NO es filtrar: el total por encargado = el total por empresa', porEnc.reduce((a, g) => a + g.total.monto, 0), P.gruposPagoHorometro(filas9, 'empresa').reduce((a, g) => a + g.total.monto, 0));
+  eq('por empresa sigue siendo lo de siempre', P.gruposPagoHorometro(filas9, 'empresa').map((g) => g.label), ['EMPRESA ALFA', 'EMPRESA BETA']);
+  const D9 = { desde: '2026-09-14', hasta: '2026-09-16', filas: filas9 };
+  const base9 = P.cuerpoPagoHorometro(D9);
+  ok('⭐ las columnas nuevas NACEN APAGADAS: ni Encargado, ni Serial, ni Placa sola', !/>Encargado</.test(base9) && !/>Serial</.test(base9) && !/>Placa</.test(base9) && !base9.includes('S-111') && !base9.includes('PEDRO'));
+  ok('⭐ el papel de siempre no cambió (resumen por empresa, Serial / Placa, TOTAL)', /Resumen por empresa/.test(base9) && /Serial \/ Placa/.test(base9) && base9.includes(P.usd(248)));
+  const conEnc = P.cuerpoPagoHorometro(D9, { ...P.OPCIONES_PAGO_HOROMETRO, sinEncargado: false });
+  ok('encendida, la columna Encargado sale con el nombre; sin encargado = guion', />Encargado</.test(conEnc) && conEnc.includes('Pedro Pérez') && /<td>—<\/td>/.test(conEnc));
+  const conSer = P.cuerpoPagoHorometro(D9, { ...P.OPCIONES_PAGO_HOROMETRO, sinSerial: false, sinPlacaSola: false });
+  ok('encendidas, Serial y Placa salen aparte', />Serial</.test(conSer) && />Placa</.test(conSer) && conSer.includes('S-111'));
+  const agr = P.cuerpoPagoHorometro(D9, { ...P.OPCIONES_PAGO_HOROMETRO, agruparPor: 'encargado' });
+  ok('⭐ agrupado por encargado: resumen y bloques por encargado, con subtotal, y el TOTAL igual', /Resumen por encargado/.test(agr) && /PEDRO PEREZ/.test(agr) && /SIN ENCARGADO/.test(agr) && /Subtotal/.test(agr) && agr.includes(P.usd(248)) && !/Resumen por empresa/.test(agr));
+  ok('texto del encargado escapado', !P.cuerpoPagoHorometro({ ...D9, filas: filas9.map((f) => ({ ...f, maquina: { ...f.maquina, encargado: '<b>x</b>' } })) }, { ...P.OPCIONES_PAGO_HOROMETRO, sinEncargado: false }).includes('<b>x</b>'));
+  // El sufijo del archivo dice lo cambiado (lo oculto NO va al papel).
+  ok('el sufijo dice «con encargado», «con serial», «con placa sola» y «por encargado»', /con encargado/.test(P.sufijoArchivoPagoHorometro({ ...P.OPCIONES_PAGO_HOROMETRO, sinEncargado: false })) && /con serial/.test(P.sufijoArchivoPagoHorometro({ ...P.OPCIONES_PAGO_HOROMETRO, sinSerial: false })) && /con placa sola/.test(P.sufijoArchivoPagoHorometro({ ...P.OPCIONES_PAGO_HOROMETRO, sinPlacaSola: false })) && /por encargado/.test(P.sufijoArchivoPagoHorometro({ ...P.OPCIONES_PAGO_HOROMETRO, agruparPor: 'encargado' })));
+  eq('el archivo de siempre sigue sin sufijo', P.sufijoArchivoPagoHorometro(P.OPCIONES_PAGO_HOROMETRO), '');
+  // Un cierre VIEJO (foto sin encargado ni serial) no revienta.
+  const viejo = { id: 'cv', desde: '2026-09-14', hasta: '2026-09-16', total_horas: 0, total_monto: 0, maquinas: 1, detalle: JSON.parse(JSON.stringify(filas)), created_at: '2026-09-17T00:00:00Z' };
+  const fv = P.filasDeCierre(viejo);
+  const papelViejo = P.cuerpoPagoHorometro({ desde: viejo.desde, hasta: viejo.hasta, filas: fv }, { ...P.OPCIONES_PAGO_HOROMETRO, agruparPor: 'encargado', sinEncargado: false, sinSerial: false, sinPlacaSola: false });
+  ok('⭐ un cierre viejo sin encargado sale en SIN ENCARGADO, con guiones, sin romper', /SIN ENCARGADO/.test(papelViejo) && /TOTAL A PAGAR/.test(papelViejo) && papelViejo.includes(P.usd(248)));
+  const fvFicha = P.filasDeCierre(viejo, new Map(MAQ9.map((m) => [m.id, m])));
+  eq('…y con la ficha de hoy a mano completa encargado y serial (los montos no se tocan)', [fvFicha.find((f) => f.maquina.id === 'm1').maquina.encargado, fvFicha.find((f) => f.maquina.id === 'm1').maquina.serial, fvFicha.find((f) => f.maquina.id === 'm1').monto], ['Pedro Pérez', 'S-111', 200]);
+  const db9 = sinComentarios(leer('src/lib/pagoHorometroDb.ts'));
+  ok('la ficha trae encargado, placa y serial', /encargado/.test(db9) && /placaSola/.test(db9) && /serial:/.test(db9));
+  const panel9 = sinComentarios(leer('src/components/ControlHorometrosPanel.tsx'));
+  ok('el panel ofrece Agrupar por (empresa / encargado) y usa los grupos de la librería', /agruparPor/.test(panel9) && /gruposPagoHorometro\(/.test(panel9));
 }
 
 console.log('\nCONTROL DE HORÓMETROS — pago por horómetro, al lado de Control de jornadas\n');

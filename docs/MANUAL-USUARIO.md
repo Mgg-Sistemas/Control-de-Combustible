@@ -3825,7 +3825,7 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   una tabla nueva, aparte de la jornada, al iniciar y al cerrar. Si eso falla, la jornada se guarda
   igual: nunca bloquea ni retrasa el cierre.
 - La base marca cada lectura como válida o inválida (final menor que inicial, retroceso respecto a
-  la última válida, salto mayor a 12,5 horas). **Marca, no rechaza**: el inspector no ve ningún
+  la última válida, salto mayor a 23 horas). **Marca, no rechaza**: el inspector no ve ningún
   error nuevo.
 - **Control de Maquinaria** muestra, debajo de las horas de cada día, `⚙️ N h` con lo que dice el
   horómetro de trabajo, en rojo con ⚠️ si es inválida. Solo aparece cuando la semana tiene alguna
@@ -3834,7 +3834,7 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   horas de horómetro, diferencia y estado (cuadra, horómetro mayor, jornada mayor, sin lectura,
   inválida), con una lista de **máquinas listas para encender** (5 días seguidos cuadrando o con
   menos de 3 horas de diferencia). Desde el 27/09/2026 la columna Estado ya **no dice «Inválida»
-  a secas: dice la razón real** que anotó la base — «Salto mayor a 12,5 h», «Menor que la última
+  a secas: dice la razón real** que anotó la base — «Salto mayor a 23 h», «Menor que la última
   lectura válida», «Final menor que inicial» — y una lectura incompleta dice **qué le falta**
   («Incompleta: falta el final», el caso típico de un número borrado) en vez del genérico «Sin
   lectura». Mismos filtros de empresa, clasificación y máquina que Jornada.
@@ -4323,7 +4323,7 @@ máquinas que tienen alguna lectura (o ajuste) en el rango.
 - Un día **sin lectura** vale **0 h** y no es una alerta (no todas las máquinas trabajan todos los
   días). Acá **no** se cae a las horas de la jornada: para ver «hubo jornada pero no hay lectura»
   está el reporte ⚙️ Horómetro vs jornada.
-- Una lectura **inválida** (la base la marcó: salto mayor a 12,5 h, final menor que inicial…) deja
+- Una lectura **inválida** (la base la marcó: salto mayor a 23 h, final menor que inicial…) deja
   el **día en 0 h, con alerta**, hasta que se corrija.
 - Un turno **incompleto** (inicial sin final) vale 0 h con alerta; el otro turno, si está completo,
   sí cuenta.
@@ -4476,6 +4476,24 @@ Si marcaste alguna empresa, el selector solo ofrece las máquinas de esa empresa
 
 ⚠️ **Esto sí saca máquinas y cambia el total:** la pantalla y el PDF salen marcados **FILTRADO**.
 El **cierre 🔒 no se filtra**: siempre guarda la foto de todas las máquinas con lecturas.
+
+#### 👤 El pago por horómetro sale por encargado, y con las columnas a elegir (26/10/2026)
+
+Pedido del cliente: «sacar el reporte de control de horómetro, ya sea por encargado también, y poder
+quitar o colocarle los logos, o poder quitar o colocarle columnas, que si placa, serial, o marca y modelo».
+
+- **Agrupar por: 🏢 Empresa / 👤 Encargado** (en la tarjeta de filtros). Por encargado, la pantalla y el
+  PDF se parten por el **responsable de la máquina** (el `encargado` de la ficha, la misma regla del Informe
+  por jornada: dos grafías del mismo nombre son una persona; los sin encargado van de últimos en
+  «SIN ENCARGADO»), con **Resumen por encargado** y **subtotal por bloque**. **Agrupar no es filtrar**: entran
+  las mismas máquinas y el **total no cambia**; el papel no dice FILTRADO y el archivo dice «por encargado».
+- **📋 Qué columnas de la máquina lleva** (en el reporte, pastillas positivas: encendida = sale): Marca,
+  Modelo, Serial / Placa, Empresa (como siempre, encendidas) y **Placa**, **Serial** y **Encargado** (nuevas,
+  **nacen apagadas**). Lo apagado **no deja rastro** en el papel: ni columna vacía ni «(oculto)»; lo que se
+  cambió va al **nombre del archivo** («con encargado», «sin placa»…). Un cierre viejo cuya foto no traía
+  encargado o serial los completa con la ficha de hoy (los montos no se tocan); si no hay dato, sale «—».
+- Los **logos** del membrete (BCV, SOS, Golden Touch, Venezuela Renace, Jhenzaen) siguen con sus checks, y las
+  mismas opciones valen para el PDF del rango y el PDF de cada cierre del histórico.
 
 #### 🔁 Cambio de horómetro completo — desde Control de Horómetros (10/10/2026)
 

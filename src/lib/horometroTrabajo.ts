@@ -67,8 +67,10 @@ export type LecturaTrabajo = {
   updatedBy?: string | null;
 };
 
-/** Ventana máxima física en un día (24 h) más media hora de gracia. Permite jornadas de más de 12 horas. */
-export const TOPE_HORAS_TURNO = 24.5;
+/** Tope de horas de horómetro en un día: 23 h (decisión del cliente, 26-oct-2026: «una máquina por ley no
+ *  trabaja más de 24 horas»). Permite jornadas de más de 12 h. Es el ESPEJO del disparador de la base
+ *  (`lectura_horometro_validar`, también en 23). */
+export const TOPE_HORAS_TURNO = 23;
 
 /**
  * Espejo exacto de la validación del disparador en la base. Marca, no rechaza.
@@ -86,7 +88,7 @@ export function validarLectura(
   if (fin != null && ini != null && fin < ini) return { valida: false, motivo: 'final menor que inicial' };
   // Un reinicio sienta base nueva (aparato cambiado): no se compara con lo anterior.
   if (!l.reinicio && ultimaValida != null && ini != null && ini < ultimaValida) return { valida: false, motivo: 'menor que la última lectura válida' };
-  if (fin != null && ini != null && fin - ini > TOPE_HORAS_TURNO) return { valida: false, motivo: 'salto mayor a 24 h' };
+  if (fin != null && ini != null && fin - ini > TOPE_HORAS_TURNO) return { valida: false, motivo: 'salto mayor a 23 h' };
   return { valida: true, motivo: '' };
 }
 

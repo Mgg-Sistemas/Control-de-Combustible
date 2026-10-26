@@ -30,8 +30,8 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { LecturaTrabajo } from '../lib/horometroTrabajo';
 import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import {
-  AjusteHorometro, CSS_PAGO_HOROMETRO, OPCIONES_PAGO_HOROMETRO, OpcionesPagoHorometro, PASTILLAS_PAGO_HOROMETRO,
-  PrecioHorometro, CambioHorometro, MaquinaPago, cuerpoPagoHorometro, filasPagoHorometro, fmtHoras, motivoAlertaDia, pagoPorEmpresa,
+  AjusteHorometro, AgruparPagoHorometro, COLUMNAS_PAGO_HOROMETRO, CSS_PAGO_HOROMETRO, OPCIONES_PAGO_HOROMETRO, OpcionesPagoHorometro, PASTILLAS_PAGO_HOROMETRO,
+  PrecioHorometro, CambioHorometro, MaquinaPago, cuerpoPagoHorometro, filasPagoHorometro, fmtHoras, gruposPagoHorometro, motivoAlertaDia, pagoPorEmpresa,
   sufijoArchivoPagoHorometro, textoPrecioHorometro, totalPagoHorometro, usd, validarPrecioHorometro,
   CierreHorometro, cierresSolapados, filasDeCierre, validarCierreHorometro,
 } from '../lib/pagoHorometro';
@@ -204,9 +204,14 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
       && (!q || norm(`${f.maquina.code} ${f.maquina.placa} ${f.maquina.empresa} ${f.maquina.marca} ${f.maquina.modelo}`).includes(q)));
   }, [filasTodas, busca, empresasSel, maqSel, soloAlertas]);
   const tot = useMemo(() => totalPagoHorometro(filas), [filas]);
-  const grupos = useMemo(() => pagoPorEmpresa(filas), [filas]);
+  // 👤 Los bloques de la pantalla y del papel: por empresa (hoy) o por encargado.
+  //    Agrupar NO filtra: las mismas máquinas, el mismo total, otros subtotales.
+  const agruparPor = opciones.agruparPor;
+  const grupos = useMemo(() => gruposPagoHorometro(filas, agruparPor), [filas, agruparPor]);
   const filtrado = empresasSel.size > 0 || maqSel.size > 0 || !!busca.trim() || soloAlertas;
   const referencia = useMemo(() => new Map(maquinas.map((m) => [m.id, m.precioJornada])), [maquinas]);
+  // La ficha de hoy por id: completa encargado/placa/serial en la foto de un cierre viejo.
+  const fichas = useMemo(() => new Map<string, MaquinaPago>(maquinas.map((m) => [m.id, m])), [maquinas]);
 
   const abrirPrecio = (id: string, vigente: number | null) => {
     if (abierta === id) { setAbierta(null); return; }
@@ -284,7 +289,7 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
         extraCss: CSS_PAGO_HOROMETRO,
         // El precio de Control es el de HOY (referencia viva): un cierre viejo lo
         // muestra como dato de hoy, no como foto del cierre. Los montos no cambian.
-        body: cuerpoPagoHorometro({ desde: c.desde, hasta: c.hasta, filas: filasDeCierre(c) }, opciones, referencia),
+        body: cuerpoPagoHorometro({ desde: c.desde, hasta: c.hasta, filas: filasDeCierre(c, fichas) }, opciones, referencia),
         logos,
         marcaTexto: false,
       });
@@ -382,6 +387,15 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
                 ))}
               </View>
             ) : null}
+            {/* 👤 Agrupar por empresa o por encargado (26-oct-2026). No filtra: mismo total. */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800' }}>Agrupar por:</Text>
+              {([['empresa', '🏢 Empresa'], ['encargado', '👤 Encargado']] as [AgruparPagoHorometro, string][]).map(([k, label]) => (
+                <TouchableOpacity key={k} onPress={() => setOpciones((o) => ({ ...o, agruparPor: k }))} style={chip(agruparPor === k)}>
+                  <Text style={chipTxt(agruparPor === k)}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             {/* 🚜 Máquina en específico: el mismo selector de los reportes de Reportes. */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm }}>
               <TouchableOpacity onPress={() => setMaqOpen((v) => !v)} style={chip(maqOpen || maqSel.size > 0)}>
@@ -507,6 +521,16 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
             titulo="📄 Reporte de pago por horómetro"
             resumen={`${tot.maquinas} máquina(s) · ${usd(tot.monto)}${filtrado ? ' · filtrado' : ''}`}
           >
+            {/* 📋 Columnas de la ficha (26-oct-2026): pastillas POSITIVAS, encendida = sale. */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>📋 QUÉ COLUMNAS DE LA MÁQUINA LLEVA (encendida = sale)</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {COLUMNAS_PAGO_HOROMETRO.map((p) => (
+                <TouchableOpacity key={p.key} onPress={() => setOpciones((o) => ({ ...o, [p.key]: !o[p.key] }))} style={chip(!opciones[p.key])}>
+                  <Text style={chipTxt(!opciones[p.key])}>{opciones[p.key] ? '☐' : '☑'} {p.chip}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, marginBottom: spacing.sm }}>Placa, Serial y Encargado nacen apagadas. Lo apagado no deja rastro en el papel: va al nombre del archivo.</Text>
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>🖨️ ¿QUÉ SE OCULTA EN EL PDF?</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {PASTILLAS_PAGO_HOROMETRO.map((p) => (
@@ -536,9 +560,9 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
           ) : null}
 
           {grupos.map((g) => (
-            <Card key={g.empresa}>
+            <Card key={g.key}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={{ color: colors.text, fontWeight: '900', flex: 1 }}>🏢 {g.empresa}</Text>
+                <Text style={{ color: colors.text, fontWeight: '900', flex: 1 }}>{agruparPor === 'encargado' ? '👤' : '🏢'} {g.label}</Text>
                 <Text style={{ color: colors.brandText, fontWeight: '900' }}>{usd(g.total.monto)}</Text>
               </View>
               <Text style={{ color: colors.muted, fontSize: 12 }}>{g.total.maquinas} máquina(s) · {fmtHoras(g.total.horas)} h</Text>
@@ -554,6 +578,8 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{m.code}{m.placa ? ` · ${m.placa}` : ''}</Text>
                         <Text style={{ color: colors.muted, fontSize: 11 }}>
                           {[m.marca, m.modelo].filter(Boolean).join(' ') || ' '}
+                          {/* 👤 Por encargado, cada fila recuerda su empresa; por empresa, su encargado. */}
+                          {agruparPor === 'encargado' ? `  ·  🏢 ${m.empresa}` : m.encargado ? `  ·  👤 ${m.encargado}` : ''}
                           {'  '}{f.precioVigente != null ? `💲 ${usd(f.precioVigente)}/h${f.variosPrecios ? ' (cambió en el rango)' : ''}` : '⚠️ sin precio por hora'}
                           {/* 19-oct-2026: el precio ya colocado en Control (por jornada de 12 h),
                               visible para todos como referencia — antes solo salía dentro del editor. */}
@@ -627,7 +653,7 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
                           </View>
                         ) : null}
                         <TextInput value={pNota} onChangeText={setPNota} placeholder="Nota (opcional)" placeholderTextColor={colors.muted} style={{ ...input, marginTop: spacing.sm }} />
-                        <Toggle on={pTodaEmpresa} label={`Aplicar a TODAS las máquinas de ${m.empresa} que se ven (${g.filas.length})`} onPress={() => setPTodaEmpresa((v) => !v)} />
+                        <Toggle on={pTodaEmpresa} label={`Aplicar a TODAS las máquinas de ${m.empresa} que se ven (${filas.filter((x) => x.maquina.empresa === m.empresa).length})`} onPress={() => setPTodaEmpresa((v) => !v)} />
                         <TouchableOpacity onPress={() => guardarPrecio(m.id, m.empresa)} disabled={guardando}
                           style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginTop: spacing.xs, opacity: guardando ? 0.6 : 1 }}>
                           <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{guardando ? 'Guardando…' : '💾 Guardar precio'}</Text>

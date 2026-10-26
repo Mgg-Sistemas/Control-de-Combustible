@@ -45,13 +45,17 @@ export type MaquinaConReferencia = MaquinaPago & {
 };
 
 export async function cargarMaquinasPagoHorometro(): Promise<MaquinaConReferencia[]> {
-  const rows = await selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, price_per_hour, operational, en_espera, company:company_id(name)');
+  const rows = await selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, encargado, price_per_hour, operational, en_espera, company:company_id(name)');
   return (rows as any[]).map((m) => {
     const pj = Number(m.price_per_hour);
     return {
       id: String(m.id), code: limpio(m.code) || '—',
       // Igual que los demás reportes de maquinaria: placa, o serial si no tiene.
       placa: limpio(m.plate) || limpio(m.serial),
+      // 26-oct-2026: columnas a elegir y agrupado por encargado (misma ficha que
+      // usan el Informe por jornada y el reporte por empresa: `machinery.encargado`).
+      placaSola: limpio(m.plate), serial: limpio(m.serial),
+      encargado: limpio(m.encargado) || null,
       empresa: limpio(m.company?.name) || 'Sin empresa',
       clasificacion: limpio(m.clasificacion) || 'Sin clasificación',
       marca: limpio(m.marca), modelo: limpio(m.modelo),

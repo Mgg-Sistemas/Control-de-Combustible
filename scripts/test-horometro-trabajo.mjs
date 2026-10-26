@@ -41,7 +41,7 @@ const ok = (name, cond) => eq(name, !!cond, true);
 
 const H = loadTs('src/lib/horometroTrabajo.ts');
 ok('la librería no importa nada', !/^\s*import\s/m.test(sinComentarios(leer('src/lib/horometroTrabajo.ts'))));
-eq('el tope físico en un día es 24,5 h', H.TOPE_HORAS_TURNO, 24.5);
+eq('el tope en un día es 23 h (decisión del 26-oct-2026)', H.TOPE_HORAS_TURNO, 23);
 
 // Fábrica de lecturas inventadas (máquina, fecha, turno, inicial, final, extras).
 const L = (machineryId, roundDate, shift, inicial, final, x = {}) => ({
@@ -58,8 +58,8 @@ const R = (dia, noche, parada = 0, extras = 0) => ({ dia, noche, parada, extras 
   eq('inicial menor que la última válida', H.validarLectura({ inicial: 1190, final: 1198, reinicio: false }, 1195), { valida: false, motivo: 'menor que la última lectura válida' });
   eq('...pero el reinicio sienta base nueva', H.validarLectura({ inicial: 10, final: 18, reinicio: true }, 1195), { valida: true, motivo: '' });
   eq('salto mayor a 12h (ej. 14h) es VÁLIDO', H.validarLectura({ inicial: 1000, final: 1014, reinicio: false }, null), { valida: true, motivo: '' });
-  eq('salto de exactamente 24,5 h pasa', H.validarLectura({ inicial: 1000, final: 1024.5, reinicio: false }, null), { valida: true, motivo: '' });
-  eq('salto mayor a 24 h (ej. 26h)', H.validarLectura({ inicial: 1000, final: 1026, reinicio: false }, null), { valida: false, motivo: 'salto mayor a 24 h' });
+  eq('salto de exactamente 23 h pasa', H.validarLectura({ inicial: 1000, final: 1023, reinicio: false }, null), { valida: true, motivo: '' });
+  eq('salto mayor a 23 h (ej. 26h)', H.validarLectura({ inicial: 1000, final: 1026, reinicio: false }, null), { valida: false, motivo: 'salto mayor a 23 h' });
   eq('una lectura normal es válida', H.validarLectura({ inicial: 1200, final: 1208.5, reinicio: false }, 1200), { valida: true, motivo: '' });
   eq('inicial igual a la última válida pasa', H.validarLectura({ inicial: 1200, final: 1205, reinicio: false }, 1200), { valida: true, motivo: '' });
   eq('sin final no es inválida (incompleta)', H.validarLectura({ inicial: 1200, final: null, reinicio: false }, 1100), { valida: true, motivo: '' });

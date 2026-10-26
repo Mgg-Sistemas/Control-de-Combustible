@@ -30,8 +30,10 @@
 //    precios: cada día se multiplica por el suyo, así cambiar el precio hoy no
 //    reescribe lo ya trabajado (mismo principio que las tarifas de viajes).
 //
-// TODO ESTE ARCHIVO ES PURO Y SIN IMPORTS: `scripts/test-pago-horometro.mjs` lo
-// prueba solo. Lo que toca la red vive en `pagoHorometroDb.ts`.
+// TODO ESTE ARCHIVO ES PURO (su único import es la regla compartida del agrupado
+// por encargado, `ordenMaquinas.ts`): `scripts/test-pago-horometro.mjs` lo prueba
+// solo. Lo que toca la red vive en `pagoHorometroDb.ts`.
+import { agruparMaquinas, ordenarMaquinas } from './ordenMaquinas';
 
 // ── PRECIOS ─────────────────────────────────────────────────────────────────
 
@@ -170,7 +172,7 @@ export function validarAjusteHorometro(a: { inicial: unknown; final: unknown; mo
   if (!Number.isFinite(i) || i < 0) return 'El horómetro inicial no es un número válido (0 o más).';
   if (!Number.isFinite(f) || f < 0) return 'El horómetro final no es un número válido (0 o más).';
   if (f < i) return `El final (${f}) no puede ser menor al inicial (${i}).`;
-  if (f - i > 24) return 'Ese ajuste da más de 24 horas en un turno: revisa los números.';
+  if (f - i > 23) return 'Ese ajuste da más de 23 horas en un turno: revisa los números.';
   return null;
 }
 
@@ -260,8 +262,18 @@ export function horasDelDia(lecturas: readonly LecturaEfectiva[] | null | undefi
 // ── EL PAGO ─────────────────────────────────────────────────────────────────
 
 export type MaquinaPago = {
-  id: string; code: string; placa: string; empresa: string;
+  id: string; code: string;
+  /** Placa, o serial si no tiene (la columna «Serial / Placa» de siempre). */
+  placa: string; empresa: string;
   clasificacion: string; marca: string; modelo: string;
+  // 26-oct-2026: columnas a elegir y agrupado por encargado. Opcionales porque la
+  // FOTO de un cierre viejo no las trae: salen con guion / «SIN ENCARGADO».
+  /** Responsable de la máquina (`machinery.encargado`). */
+  encargado?: string | null;
+  /** La placa sola (sin caer al serial). */
+  placaSola?: string;
+  /** El serial solo. */
+  serial?: string;
 };
 
 export type DiaPago = HorasDia & {
@@ -438,7 +450,7 @@ export function validarCambioHorometro(c: {
   }
   if (c.nuevaFinal != null) {
     if (num(c.nuevaFinal) < num(c.nuevaInicial)) return 'El final del aparato nuevo no puede ser menor que su inicial.';
-    if (num(c.nuevaFinal) - num(c.nuevaInicial) > 24.5) return 'Entre inicial y final del nuevo hay más de 24 h: la base lo marcaría inválido. Revisa los números.';
+    if (num(c.nuevaFinal) - num(c.nuevaInicial) > 23) return 'Entre inicial y final del nuevo hay más de 23 h: la base lo marcaría inválido. Revisa los números.';
   }
   if (!Number.isFinite(num(c.horasAjuste)) || Math.abs(num(c.horasAjuste)) > 24) {
     return 'Las horas a reconocer no pueden pasar de 24 (en más o en menos).';
@@ -574,15 +586,28 @@ export function filasPagoHorometro(opts: {
 }
 
 /** Las filas de la FOTO de un cierre, para su PDF del histórico. Los totales se
- *  recalculan de los días guardados (no se confía en un número suelto). */
-export function filasDeCierre(c: CierreHorometro | null | undefined): FilaPagoHorometro[] {
+ *  recalculan de los días guardados (no se confía en un número suelto).
+ *
+ *  `fichas` (opcional, 26-oct-2026): la ficha de HOY por id de máquina. Solo
+ *  completa los datos de la ficha que la foto no trae (encargado, placa sola,
+ *  serial): son datos del catálogo, no del pago; horas y montos no se tocan. */
+export function filasDeCierre(c: CierreHorometro | null | undefined, fichas?: ReadonlyMap<string, MaquinaPago> | null): FilaPagoHorometro[] {
   const out: FilaPagoHorometro[] = [];
   for (const fila of c?.detalle ?? []) {
     if (!fila?.maquina?.id) continue;
     const ds = (fila.dias ?? []).map((d: any) => diaDeFoto(d, dia(d?.fecha)));
     const precios = new Set(ds.filter((d) => d.horas > 0 && d.precio != null).map((d) => d.precio as number));
+    const ficha = fichas?.get(fila.maquina.id);
+    const maquina: MaquinaPago = ficha
+      ? {
+        ...fila.maquina,
+        encargado: fila.maquina.encargado ?? ficha.encargado ?? null,
+        placaSola: fila.maquina.placaSola ?? ficha.placaSola,
+        serial: fila.maquina.serial ?? ficha.serial,
+      }
+      : fila.maquina;
     out.push({
-      maquina: fila.maquina, dias: ds,
+      maquina, dias: ds,
       horas: r2(ds.reduce((s, d) => s + d.horas, 0)), monto: r2(ds.reduce((s, d) => s + d.monto, 0)),
       alertas: 0, precioVigente: precios.size === 1 ? [...precios][0] : null, variosPrecios: precios.size > 1,
     });
@@ -608,6 +633,26 @@ export function pagoPorEmpresa(filas: readonly FilaPagoHorometro[] | null | unde
   for (const f of filas ?? []) { const a = m.get(f.maquina.empresa) ?? []; a.push(f); m.set(f.maquina.empresa, a); }
   return Array.from(m, ([empresa, fs]) => ({ empresa, filas: fs, total: totalPagoHorometro(fs) }))
     .sort((a, b) => a.empresa.localeCompare(b.empresa, 'es', { sensitivity: 'base' }));
+}
+
+// ── 👤 AGRUPAR POR EMPRESA O POR ENCARGADO (26-oct-2026) ────────────────────
+// Pedido: «sacar el reporte de control de horómetro, ya sea por encargado también».
+// AGRUPAR NO ES FILTRAR: entran las mismas máquinas y el TOTAL no cambia; solo
+// cambia cómo se parten los bloques y sus subtotales. El agrupado por encargado
+// se delega en `ordenMaquinas.ts` (la única regla: dos grafías del mismo nombre
+// son UNA persona, y «SIN ENCARGADO» va de último).
+
+export type AgruparPagoHorometro = 'empresa' | 'encargado';
+
+export type GrupoPagoHorometro = { key: string; label: string; filas: FilaPagoHorometro[]; total: TotalPagoHorometro };
+
+export function gruposPagoHorometro(filas: readonly FilaPagoHorometro[] | null | undefined, por: AgruparPagoHorometro): GrupoPagoHorometro[] {
+  if (por !== 'encargado') return pagoPorEmpresa(filas).map((e) => ({ key: e.empresa, label: e.empresa, filas: e.filas, total: e.total }));
+  const envueltas = (filas ?? []).map((fila) => ({ id: fila.maquina.id, code: fila.maquina.code, encargado: fila.maquina.encargado ?? null, fila }));
+  return agruparMaquinas(ordenarMaquinas(envueltas, 'encargado'), 'encargado').map((g) => {
+    const fs = g.items.map((x) => x.fila);
+    return { key: g.key, label: g.label, filas: fs, total: totalPagoHorometro(fs) };
+  });
 }
 
 // ── EL PAPEL ────────────────────────────────────────────────────────────────
@@ -645,19 +690,42 @@ export type OpcionesPagoHorometro = {
   sinInicioFin: boolean;
   /** Sin la lista de días que piden atención. */
   sinAlertas: boolean;
+  // 26-oct-2026: columnas de la ficha a elegir (NACEN APAGADAS) y el agrupado.
+  /** Sin la columna «Placa» (la placa sola, aparte de «Serial / Placa»). */
+  sinPlacaSola: boolean;
+  /** Sin la columna «Serial» (el serial solo). */
+  sinSerial: boolean;
+  /** Sin la columna «Encargado» (responsable de la máquina). */
+  sinEncargado: boolean;
+  /** 👤 Cómo se parten los bloques del papel y de la pantalla: por empresa (hoy) o por encargado. */
+  agruparPor: AgruparPagoHorometro;
 };
+
+/** Las opciones de sí/no (las pastillas); `agruparPor` va aparte. */
+export type PastillaPagoHorometro = Exclude<keyof OpcionesPagoHorometro, 'agruparPor'>;
 
 export const OPCIONES_PAGO_HOROMETRO: OpcionesPagoHorometro = {
   sinMarca: false, sinModelo: false, sinPlaca: false, sinEmpresas: false, sinPrecio: false,
   sinPrecioControl: false,
   sinResumen: false, sinListado: false, sinDias: true, sinInicioFin: false, sinAlertas: false,
+  sinPlacaSola: true, sinSerial: true, sinEncargado: true,
+  agruparPor: 'empresa',
 };
 
-export const PASTILLAS_PAGO_HOROMETRO: { key: keyof OpcionesPagoHorometro; chip: string; archivo: string }[] = [
-  { key: 'sinMarca', chip: '🚫 Marca', archivo: 'sin marca' },
-  { key: 'sinModelo', chip: '🚫 Modelo', archivo: 'sin modelo' },
-  { key: 'sinPlaca', chip: '🚫 Serial / Placa', archivo: 'sin placa' },
-  { key: 'sinEmpresas', chip: '🚫 Nombre de empresas', archivo: 'sin empresas' },
+/** 📋 Las COLUMNAS DE LA FICHA que se pueden poner o quitar (en pantalla van como
+ *  pastillas positivas: encendida = sale). Las nuevas nacen apagadas. */
+export const COLUMNAS_PAGO_HOROMETRO: { key: PastillaPagoHorometro; chip: string; archivo: string }[] = [
+  { key: 'sinMarca', chip: '🏷️ Marca', archivo: 'sin marca' },
+  { key: 'sinModelo', chip: '🏷️ Modelo', archivo: 'sin modelo' },
+  { key: 'sinPlaca', chip: '🔢 Serial / Placa', archivo: 'sin placa' },
+  { key: 'sinPlacaSola', chip: '🚗 Placa', archivo: 'sin placa sola' },
+  { key: 'sinSerial', chip: '🔩 Serial', archivo: 'sin serial' },
+  { key: 'sinEmpresas', chip: '🏢 Empresa', archivo: 'sin empresas' },
+  { key: 'sinEncargado', chip: '👤 Encargado', archivo: 'sin encargado' },
+];
+
+/** 🖨️ Lo demás que se oculta en el PDF (encendida = NO sale). */
+export const PASTILLAS_PAGO_HOROMETRO: { key: PastillaPagoHorometro; chip: string; archivo: string }[] = [
   { key: 'sinPrecio', chip: '🚫 Precio por hora', archivo: 'sin precio' },
   { key: 'sinPrecioControl', chip: '🚫 Precio en Control', archivo: 'sin precio control' },
   { key: 'sinResumen', chip: '🚫 Resumen por empresa', archivo: 'sin resumen' },
@@ -667,10 +735,12 @@ export const PASTILLAS_PAGO_HOROMETRO: { key: keyof OpcionesPagoHorometro; chip:
   { key: 'sinAlertas', chip: '🚫 Días por revisar', archivo: 'sin alertas' },
 ];
 
+/** Lo que se cambió respecto al papel de siempre va al NOMBRE DEL ARCHIVO, no al papel. */
 export function sufijoArchivoPagoHorometro(o: OpcionesPagoHorometro): string {
-  const partes = PASTILLAS_PAGO_HOROMETRO
+  const partes = [...COLUMNAS_PAGO_HOROMETRO, ...PASTILLAS_PAGO_HOROMETRO]
     .filter((p) => o[p.key] !== OPCIONES_PAGO_HOROMETRO[p.key])
     .map((p) => (o[p.key] ? p.archivo : p.archivo.replace(/^sin /, 'con ')));
+  if (o.agruparPor === 'encargado') partes.push('por encargado');
   return partes.length ? ` (${partes.join(', ')})` : '';
 }
 
@@ -683,6 +753,8 @@ export const CSS_PAGO_HOROMETRO = `
   .ph .b{font-weight:800}
   .ph tr.tot td{background:#16324F;color:#fff;font-weight:800}
   .ph tr.al td{background:#FEF3C7}
+  .ph tr.grp td{background:#E8EEF5;color:#16324F;font-weight:800}
+  .ph tr.sub td{background:#F3F6F9;font-weight:700}
   .ph .nota{font-size:10px;color:#555;margin:4px 0 8px}
 `;
 
@@ -701,7 +773,7 @@ export function motivoAlertaDia(d: DiaPago): string {
 /** El cuerpo del PDF «Pago por horómetro». */
 export function cuerpoPagoHorometro(
   d: { desde: string; hasta: string; filas: readonly FilaPagoHorometro[] },
-  o: OpcionesPagoHorometro = OPCIONES_PAGO_HOROMETRO,
+  oIn: Partial<OpcionesPagoHorometro> = OPCIONES_PAGO_HOROMETRO,
   /**
    * Precio por JORNADA (12 h) ya colocado en Control de maquinaria, por id de
    * máquina (19-oct-2026, pedido del cliente). SOLO REFERENCIA: se pinta como
@@ -710,10 +782,17 @@ export function cuerpoPagoHorometro(
    */
   precioControl?: ReadonlyMap<string, number | null>,
 ): string {
-  const filas = d.filas ?? [];
+  // Lo que no venga toma el valor de siempre (así un llamado viejo no enciende
+  // de rebote una columna nueva).
+  const o: OpcionesPagoHorometro = { ...OPCIONES_PAGO_HOROMETRO, ...oIn };
+  // 👤 Los bloques (por empresa o por encargado) mandan el ORDEN de todo el papel.
+  const grupos = gruposPagoHorometro(d.filas ?? [], o.agruparPor);
+  const filas = grupos.flatMap((g) => g.filas);
+  const porEnc = o.agruparPor === 'encargado';
   const tot = totalPagoHorometro(filas);
   // La columna de referencia solo existe si llegó el mapa y la pastilla no la oculta.
   const conControl = !!precioControl && !o.sinPrecioControl;
+  const guion = (v: unknown) => { const t = limpio(v); return t ? esc(t) : '—'; };
   const tdControl = (id: string) => {
     const p = precioControl?.get(id);
     return p != null && p > 0 ? `${usd(p)} <i>(${usd(p / 12)}/h)</i>` : '—';
@@ -726,21 +805,38 @@ export function cuerpoPagoHorometro(
   const thMM = o.sinMarca && o.sinModelo ? '' : `<th>${o.sinMarca ? 'Modelo' : o.sinModelo ? 'Marca' : 'Marca / Modelo'}</th>`;
   const tdMM = (m: MaquinaPago) => (o.sinMarca && o.sinModelo ? '' : `<td>${esc(mm(m))}</td>`);
 
-  if (!o.sinResumen && !o.sinEmpresas) {
-    html += `<h3>Resumen por empresa</h3><table><thead><tr><th>Empresa</th><th class="r">Máquinas</th><th class="r">Horas</th><th class="r">Monto</th></tr></thead><tbody>`;
-    for (const e of pagoPorEmpresa(filas)) {
-      html += `<tr><td>${esc(e.empresa)}</td><td class="r">${e.total.maquinas}</td><td class="r">${fmtHoras(e.total.horas)}</td><td class="r b">${usd(e.total.monto)}</td></tr>`;
+  // El resumen: por empresa (si no se ocultan los nombres) o por encargado.
+  if (!o.sinResumen && (porEnc || !o.sinEmpresas)) {
+    html += `<h3>Resumen por ${porEnc ? 'encargado' : 'empresa'}</h3><table><thead><tr><th>${porEnc ? 'Encargado' : 'Empresa'}</th><th class="r">Máquinas</th><th class="r">Horas</th><th class="r">Monto</th></tr></thead><tbody>`;
+    for (const g of grupos) {
+      html += `<tr><td>${esc(g.label)}</td><td class="r">${g.total.maquinas}</td><td class="r">${fmtHoras(g.total.horas)}</td><td class="r b">${usd(g.total.monto)}</td></tr>`;
     }
     html += `<tr class="tot"><td>TOTAL A PAGAR</td><td class="r">${tot.maquinas}</td><td class="r">${fmtHoras(tot.horas)}</td><td class="r">${usd(tot.monto)}</td></tr></tbody></table>`;
   }
 
   if (!o.sinListado) {
-    html += `<h3>Pago por máquina</h3><table><thead><tr><th>Máquina</th>${thMM}${o.sinPlaca ? '' : '<th>Serial / Placa</th>'}${o.sinEmpresas ? '' : '<th>Empresa</th>'}<th class="r">Horas</th>${o.sinPrecio ? '' : '<th class="r">Precio/h</th>'}${conControl ? '<th class="r">Control $/jornada</th>' : ''}<th class="r">Monto</th></tr></thead><tbody>`;
-    for (const f of filas) {
-      const precio = f.variosPrecios ? 'varios' : f.precioVigente != null ? usd(f.precioVigente) : '—';
-      html += `<tr><td>${esc(f.maquina.code)}</td>${tdMM(f.maquina)}${o.sinPlaca ? '' : `<td>${esc(f.maquina.placa)}</td>`}${o.sinEmpresas ? '' : `<td>${esc(f.maquina.empresa)}</td>`}<td class="r">${fmtHoras(f.horas)}</td>${o.sinPrecio ? '' : `<td class="r">${precio}</td>`}${conControl ? `<td class="r">${tdControl(f.maquina.id)}</td>` : ''}<td class="r b">${usd(f.monto)}</td></tr>`;
+    // Columnas de la ficha, en este orden. Las apagadas NO existen (ni cabecera ni celda).
+    const colsFicha: { th: string; td: (m: MaquinaPago) => string }[] = [];
+    if (thMM) colsFicha.push({ th: thMM, td: tdMM });
+    if (!o.sinPlaca) colsFicha.push({ th: '<th>Serial / Placa</th>', td: (m) => `<td>${esc(m.placa)}</td>` });
+    if (!o.sinPlacaSola) colsFicha.push({ th: '<th>Placa</th>', td: (m) => `<td>${guion(m.placaSola)}</td>` });
+    if (!o.sinSerial) colsFicha.push({ th: '<th>Serial</th>', td: (m) => `<td>${guion(m.serial)}</td>` });
+    if (!o.sinEmpresas) colsFicha.push({ th: '<th>Empresa</th>', td: (m) => `<td>${esc(m.empresa)}</td>` });
+    if (!o.sinEncargado) colsFicha.push({ th: '<th>Encargado</th>', td: (m) => `<td>${guion(m.encargado)}</td>` });
+    const cols = 1 + colsFicha.length;
+    // Las celdas de la derecha (horas · precio · control · monto) y su colspan al pie.
+    const derecha = (horas: number, precio: string, control: string, monto: number) =>
+      `<td class="r">${fmtHoras(horas)}</td>${o.sinPrecio ? '' : `<td class="r">${precio}</td>`}${conControl ? `<td class="r">${control}</td>` : ''}<td class="r b">${usd(monto)}</td>`;
+    html += `<h3>Pago por máquina</h3><table><thead><tr><th>Máquina</th>${colsFicha.map((c) => c.th).join('')}<th class="r">Horas</th>${o.sinPrecio ? '' : '<th class="r">Precio/h</th>'}${conControl ? '<th class="r">Control $/jornada</th>' : ''}<th class="r">Monto</th></tr></thead><tbody>`;
+    for (const g of grupos) {
+      // 👤 Por encargado, cada bloque lleva su título y su subtotal (agrupar no cambia el TOTAL).
+      if (porEnc) html += `<tr class="grp"><td colspan="${cols + 1 + (o.sinPrecio ? 0 : 1) + (conControl ? 1 : 0) + 1}">👤 ${esc(g.label)} · ${g.total.maquinas} máquina(s)</td></tr>`;
+      for (const f of g.filas) {
+        const precio = f.variosPrecios ? 'varios' : f.precioVigente != null ? usd(f.precioVigente) : '—';
+        html += `<tr><td>${esc(f.maquina.code)}</td>${colsFicha.map((c) => c.td(f.maquina)).join('')}${derecha(f.horas, precio, tdControl(f.maquina.id), f.monto)}</tr>`;
+      }
+      if (porEnc) html += `<tr class="sub"><td colspan="${cols}">Subtotal ${esc(g.label)}</td>${derecha(g.total.horas, '', '', g.total.monto)}</tr>`;
     }
-    const cols = 1 + (thMM ? 1 : 0) + (o.sinPlaca ? 0 : 1) + (o.sinEmpresas ? 0 : 1);
     html += `<tr class="tot"><td colspan="${cols}">TOTAL A PAGAR</td><td class="r">${fmtHoras(tot.horas)}</td>${o.sinPrecio ? '' : '<td></td>'}${conControl ? '<td></td>' : ''}<td class="r">${usd(tot.monto)}</td></tr></tbody></table>`;
   }
 
