@@ -27,8 +27,45 @@ function fmtDateLong(iso: string): string {
   return `${parseInt(d, 10)} de ${mesNombre}, ${y}`;
 }
 
+/**
+ * Los tres tipos de operación de un flete (26/10/2026):
+ *  · 'pagar'  → se le paga al fletero.
+ *  · 'cobrar' → se le cobra al cliente.
+ *  · 'exento' → se registra (camión, empresa, viajes y precio de referencia) pero
+ *    NO se cobra ni se paga: no suma a ningún total y no tiene estado
+ *    pendiente/pagado/cobrado.
+ * No hay columna en la base: el tipo es el PRIMER token del metadato de la nota.
+ */
+export type FleteOperacionTipo = 'pagar' | 'cobrar' | 'exento';
+
+/** Primer token del metadato ↔ tipo: `[POR_PAGAR|…]`, `[POR_COBRAR|…]`, `[EXENTO|…]`. */
+const TOKEN_TIPO: Record<string, FleteOperacionTipo> = {
+  POR_PAGAR: 'pagar',
+  POR_COBRAR: 'cobrar',
+  EXENTO: 'exento',
+};
+
+/**
+ * Decide el tipo por el PRIMER token del metadato (lo que va antes del primer «|»),
+ * que es donde siempre lo escribió `formatFleteNote`. Antes se buscaba la palabra en
+ * todo el metadato y un CLIENTE o DETALLE que la trajera («CLIENTE:POR_PAGAR C.A.»)
+ * cambiaba el tipo. Si el primer token no es un tipo (nota escrita a mano), se busca
+ * un token EXACTO en el resto — nunca una subcadena —; sin ninguno, «por pagar», como
+ * siempre se leyeron las notas sin etiqueta.
+ */
+export function tipoDesdeMeta(meta: string): FleteOperacionTipo {
+  const tokens = String(meta || '').split('|').map((t) => t.trim().toUpperCase());
+  const primero = TOKEN_TIPO[tokens[0]];
+  if (primero) return primero;
+  for (const t of tokens) {
+    if (TOKEN_TIPO[t]) return TOKEN_TIPO[t];
+  }
+  return 'pagar';
+}
+
 export interface ParsedFleteNote {
-  operacionTipo: 'pagar' | 'cobrar';
+  operacionTipo: FleteOperacionTipo;
+  /** En un exento no aplica: queda fijo en 'pendiente' y la pantalla no lo muestra. */
   operacionEstado: 'pendiente' | 'completado';
   modalidad?: string;
   origen?: string;
@@ -43,7 +80,7 @@ export interface ParsedFleteNote {
 
 export function parseFleteNote(raw?: string | null): ParsedFleteNote {
   const str = String(raw || '').trim();
-  let operacionTipo: 'pagar' | 'cobrar' = 'pagar';
+  let operacionTipo: FleteOperacionTipo = 'pagar';
   let operacionEstado: 'pendiente' | 'completado' = 'pendiente';
   let modalidad = 'Día / Jornada';
   let origen = '';
@@ -59,9 +96,10 @@ export function parseFleteNote(raw?: string | null): ParsedFleteNote {
   if (match) {
     const meta = match[1];
     detalle = match[2];
-    if (meta.includes('POR_COBRAR')) operacionTipo = 'cobrar';
-    if (meta.includes('POR_PAGAR')) operacionTipo = 'pagar';
-    if (meta.includes('ESTADO:completado') || meta.includes('ESTADO:pagado') || meta.includes('ESTADO:cobrado')) {
+    operacionTipo = tipoDesdeMeta(meta);
+    // Un exento no tiene estado: aunque la nota trajera uno (lo tenía antes de
+    // cambiarlo a exento), se queda en 'pendiente' fijo y no se muestra.
+    if (operacionTipo !== 'exento' && (meta.includes('ESTADO:completado') || meta.includes('ESTADO:pagado') || meta.includes('ESTADO:cobrado'))) {
       operacionEstado = 'completado';
     }
     const modMatch = meta.match(/MOD:([^|]+)/);
@@ -92,7 +130,8 @@ export function parseFleteNote(raw?: string | null): ParsedFleteNote {
 }
 
 export function formatFleteNote(opts: {
-  operacionTipo: 'pagar' | 'cobrar';
+  operacionTipo: FleteOperacionTipo;
+  /** Se ignora en un exento: su nota no lleva ESTADO. */
   operacionEstado: 'pendiente' | 'completado';
   modalidad?: string;
   origen?: string;
@@ -104,10 +143,10 @@ export function formatFleteNote(opts: {
   viajeIds?: string[];
   tickets?: string[];
 }): string {
-  const parts = [
-    opts.operacionTipo === 'cobrar' ? 'POR_COBRAR' : 'POR_PAGAR',
-    `ESTADO:${opts.operacionEstado || 'pendiente'}`,
-  ];
+  const esExento = opts.operacionTipo === 'exento';
+  // El tipo va SIEMPRE de primer token: es lo que lee `tipoDesdeMeta`.
+  const parts = [esExento ? 'EXENTO' : opts.operacionTipo === 'cobrar' ? 'POR_COBRAR' : 'POR_PAGAR'];
+  if (!esExento) parts.push(`ESTADO:${opts.operacionEstado || 'pendiente'}`);
   if (opts.modalidad && opts.modalidad.trim()) {
     parts.push(`MOD:${opts.modalidad.trim()}`);
   }
@@ -137,6 +176,44 @@ export function formatFleteNote(opts: {
   return text ? `${meta} ${text}` : meta;
 }
 
+export interface TotalesFletes {
+  pagar: { fletes: number; viajes: number; usd: number };
+  cobrar: { fletes: number; viajes: number; usd: number };
+  /** Se cuentan APARTE: `refUsd` es solo el valor de referencia y no entra en ningún saldo. */
+  exento: { fletes: number; viajes: number; refUsd: number };
+}
+
+/**
+ * LA regla de los totales, la misma para la pantalla y el reporte consolidado:
+ * un exento NO suma a «por pagar» ni a «por cobrar»; tiene su propio contador.
+ * El tipo sale de `operacionTipo` si viene, si no de la nota.
+ */
+export function totalesFletes(
+  fletes: { viajes: any; precio: any; note?: string | null; operacionTipo?: FleteOperacionTipo }[],
+): TotalesFletes {
+  const t: TotalesFletes = {
+    pagar: { fletes: 0, viajes: 0, usd: 0 },
+    cobrar: { fletes: 0, viajes: 0, usd: 0 },
+    exento: { fletes: 0, viajes: 0, refUsd: 0 },
+  };
+  for (const f of fletes) {
+    const v = Number(f.viajes) || 0;
+    const sub = v * (Number(f.precio) || 0);
+    const tipo = f.operacionTipo || parseFleteNote(f.note).operacionTipo;
+    if (tipo === 'exento') {
+      t.exento.fletes += 1;
+      t.exento.viajes += v;
+      t.exento.refUsd += sub;
+    } else {
+      const b = tipo === 'cobrar' ? t.cobrar : t.pagar;
+      b.fletes += 1;
+      b.viajes += v;
+      b.usd += sub;
+    }
+  }
+  return t;
+}
+
 export interface FleteItemData {
   id: string;
   flete_date: string;
@@ -146,7 +223,7 @@ export interface FleteItemData {
   machinery_id?: string | null;
   plate?: string | null;
   tipo?: string | null;
-  operacionTipo?: 'pagar' | 'cobrar';
+  operacionTipo?: FleteOperacionTipo;
   operacionEstado?: 'pendiente' | 'completado';
   modalidad?: string;
   origen?: string;
@@ -163,7 +240,7 @@ export interface FleteReportOpts {
   machinePlate?: string | null;
   machineTipo?: string | null;
   periodLabel?: string;
-  filterTipo?: 'todos' | 'pagar' | 'cobrar';
+  filterTipo?: 'todos' | FleteOperacionTipo;
   fletes: FleteItemData[];
 }
 
@@ -195,7 +272,12 @@ export async function exportarComprobanteFlete(opts: {
   const detalleServicio = parsed.detalle || 'Servicio de Acarreo y Disposición Final';
 
   const esCobro = operacionTipo === 'cobrar';
+  const esExento = operacionTipo === 'exento';
   const esCompletado = operacionEstado === 'completado';
+  const montoTxt = `$${totalUSD.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Un exento no tiene estado pendiente/completado: el papel dice EXENTO.
+  const estadoTxt = esExento ? 'EXENTO' : esCompletado ? 'COMPLETADO' : 'PENDIENTE';
+  const estadoColor = esExento ? '#475569' : esCompletado ? '#059669' : '#D97706';
 
   const equipo = machineCode ? esc(machineCode) : (flete.code ? esc(flete.code) : 'Camión Volteo');
   const placa = machinePlate ? esc(machinePlate) : (flete.plate ? esc(flete.plate) : '—');
@@ -392,6 +474,20 @@ export async function exportarComprobanteFlete(opts: {
       letter-spacing: 0.5px;
     }
 
+    /* Flete exento: no se cobra ni se paga */
+    .exento-banner {
+      margin-top: 4px;
+      padding: 9px 12px;
+      border: 2px solid #475569;
+      border-radius: 6px;
+      background: #F1F5F9;
+      color: #0F172A;
+      font-size: 12.5px;
+      font-weight: 800;
+      text-align: center;
+      letter-spacing: 0.3px;
+    }
+
     /* Firmas */
     .firmas-grid {
       display: grid;
@@ -427,10 +523,12 @@ export async function exportarComprobanteFlete(opts: {
     <div class="top-right">
       <div class="badge-orden">ORDEN DE ACARREO</div>
       <div class="meta-line">Fecha: <b>${fechaLarga}</b></div>
-      <div class="meta-line">Estado: <b style="color: ${esCompletado ? '#059669' : '#D97706'};">${esCompletado ? 'COMPLETADO' : 'PENDIENTE'}</b></div>
+      <div class="meta-line">Estado: <b style="color: ${estadoColor};">${estadoTxt}</b></div>
     </div>
   </div>
-
+${esExento ? `
+  <div class="exento-banner">🚫 SERVICIO EXENTO · NO SE COBRA NI SE PAGA · El monto es solo de referencia</div>
+` : ''}
   <!-- SECCIÓN 1: UBICACIÓN Y RUTA DEL SERVICIO -->
   <div class="section-title">UBICACIÓN Y RUTA DEL SERVICIO</div>
   <div class="grid-2">
@@ -469,7 +567,7 @@ export async function exportarComprobanteFlete(opts: {
         <th style="width: 50%;">DESCRIPCIÓN</th>
         <th class="center" style="width: 12%;">CANT.</th>
         <th style="width: 20%;">MODALIDAD</th>
-        <th class="right" style="width: 18%;">MONTO ($)</th>
+        <th class="right" style="width: 18%;">${esExento ? 'VALOR REF. ($)' : 'MONTO ($)'}</th>
       </tr>
     </thead>
     <tbody>
@@ -481,21 +579,27 @@ export async function exportarComprobanteFlete(opts: {
         </td>
         <td class="center" style="font-weight: 700;">${viajes}</td>
         <td>${esc(modalidad)}</td>
-        <td class="right" style="font-weight: 700;">$${totalUSD.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td class="right" style="font-weight: 700;${esExento ? ' color: #64748B;' : ''}">${montoTxt}</td>
       </tr>
     </tbody>
   </table>
 
-  <!-- TOTAL A PAGAR / COBRAR -->
-  <div class="total-container">
+  <!-- TOTAL A PAGAR / COBRAR (o EXENTO: sin cobro ni pago) -->
+  ${esExento ? `<div class="total-container">
+    <div class="total-label-box">
+      <h2>SERVICIO EXENTO</h2>
+      <p>No se cobra ni se paga · Valor de referencia: ${montoTxt}</p>
+    </div>
+    <div class="total-amount" style="color: #475569;">EXENTO</div>
+  </div>` : `<div class="total-container">
     <div class="total-label-box">
       <h2>TOTAL A ${esCobro ? 'COBRAR' : 'PAGAR'}</h2>
       <p>Tarifa acordada por la jornada del servicio</p>
     </div>
     <div class="total-amount">
-      $${totalUSD.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      ${montoTxt}
     </div>
-  </div>
+  </div>`}
 
   <!-- FIRMAS -->
   <div class="firmas-grid">
@@ -524,30 +628,30 @@ export async function exportarReporteConsolidadoFletes(opts: FleteReportOpts): P
   const equipo = machineCode ? esc(machineCode) : '';
   const placa = machinePlate ? esc(machinePlate) : '';
 
-  let totalViajesPagar = 0;
-  let totalUSDPagar = 0;
-  let totalViajesCobrar = 0;
-  let totalUSDCobrar = 0;
+  // Los exentos NO entran en ningún saldo: se cuentan y se listan APARTE.
+  const tot = totalesFletes(fletes);
+  const totalViajesPagar = tot.pagar.viajes;
+  const totalUSDPagar = tot.pagar.usd;
+  const totalViajesCobrar = tot.cobrar.viajes;
+  const totalUSDCobrar = tot.cobrar.usd;
+  const hayExentos = tot.exento.fletes > 0;
+  const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const rows = fletes
+  const ordenados = fletes
     .slice()
-    .sort((a, b) => String(a.flete_date).localeCompare(String(b.flete_date)))
+    .sort((a, b) => String(a.flete_date).localeCompare(String(b.flete_date)));
+  const tipoDe = (f: FleteItemData) => f.operacionTipo || parseFleteNote(f.note).operacionTipo;
+  const conSaldo = ordenados.filter((f) => tipoDe(f) !== 'exento');
+  const exentos = ordenados.filter((f) => tipoDe(f) === 'exento');
+
+  const rows = conSaldo
     .map((f, i) => {
       const v = Number(f.viajes) || 0;
       const p = Number(f.precio) || 0;
       const sub = v * p;
 
       const parsed = parseFleteNote(f.note);
-      const operacionTipo = f.operacionTipo || parsed.operacionTipo;
-      const esCobro = operacionTipo === 'cobrar';
-
-      if (esCobro) {
-        totalViajesCobrar += v;
-        totalUSDCobrar += sub;
-      } else {
-        totalViajesPagar += v;
-        totalUSDPagar += sub;
-      }
+      const esCobro = tipoDe(f) === 'cobrar';
 
       const eqRow = f.code || machineCode || 'General';
       const plRow = f.plate || machinePlate || '—';
@@ -568,6 +672,29 @@ export async function exportarReporteConsolidadoFletes(opts: FleteReportOpts): P
         <td class="num" style="font-weight: 700;">${v}</td>
         <td class="num">$${p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         <td class="num" style="font-weight: 800; color: ${esCobro ? '#059669' : '#1E3A8A'};">$${sub.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const rowsExentos = exentos
+    .map((f, i) => {
+      const v = Number(f.viajes) || 0;
+      const p = Number(f.precio) || 0;
+      const parsed = parseFleteNote(f.note);
+      const eqRow = f.code || machineCode || 'General';
+      const plRow = f.plate || machinePlate || '—';
+      return `<tr>
+        <td style="text-align: center; color: #64748B;">${i + 1}</td>
+        <td>${fmtDate(f.flete_date)}</td>
+        <td><span style="color: #475569; font-weight: 800; font-size: 10px;">🚫 EXENTO</span></td>
+        <td>
+          <b>${esc(eqRow)}</b>
+          ${parsed.tickets && parsed.tickets.length > 0 ? `<div style="font-size: 9.5px; color: #0284C7; font-weight: 600;">Tickets: ${esc(parsed.tickets.join(', '))}</div>` : ''}
+        </td>
+        <td>${esc(plRow)}</td>
+        <td class="num" style="font-weight: 700;">${v}</td>
+        <td class="num" style="color: #64748B;">${usd(p)}</td>
+        <td class="num" style="color: #64748B;">${usd(v * p)}</td>
       </tr>`;
     })
     .join('');
@@ -597,6 +724,9 @@ export async function exportarReporteConsolidadoFletes(opts: FleteReportOpts): P
     td { padding: 9px 10px; border-bottom: 1px solid #E2E8F0; color: #0F172A; }
     .num { text-align: right; }
     .tot-row { background: #F1F5F9; font-weight: 800; font-size: 13px; }
+    .exento-title { margin: 6px 0 2px; font-size: 13px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.4px; }
+    .exento-sub { margin: 0 0 8px; font-size: 11px; color: #64748B; }
+    table.exento th { background: #475569; }
 
     .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; text-align: center; }
     .sign-box { border-top: 1px solid #64748B; padding-top: 8px; }
@@ -616,7 +746,7 @@ export async function exportarReporteConsolidadoFletes(opts: FleteReportOpts): P
     </div>
   </div>
 
-  <div class="summary-grid">
+  <div class="summary-grid"${hayExentos ? ' style="grid-template-columns: 1fr 1fr 1fr 1fr;"' : ''}>
     <div class="summary-card">
       <div class="sum-title">Criterio / Entidad:</div>
       <div style="font-weight: 800; font-size: 13px; color: #0F172A;">${esc(companyName)}</div>
@@ -632,9 +762,14 @@ export async function exportarReporteConsolidadoFletes(opts: FleteReportOpts): P
       <div class="sum-amt" style="color: #059669;">$${totalUSDCobrar.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
       <div style="font-size: 11px; color: #64748B;">${totalViajesCobrar} viaje(s) por cobrar</div>
     </div>
+    ${hayExentos ? `<div class="summary-card" style="border-left: 3px solid #475569;">
+      <div class="sum-title">🚫 Exentos (sin cobro ni pago):</div>
+      <div class="sum-amt" style="color: #475569;">${tot.exento.fletes} flete(s)</div>
+      <div style="font-size: 11px; color: #64748B;">${tot.exento.viajes} viaje(s) exento(s) · no suman a ningún total</div>
+    </div>` : ''}
   </div>
 
-  <table>
+  ${conSaldo.length > 0 ? `<table>
     <thead>
       <tr>
         <th style="width: 25px; text-align: center;">#</th>
@@ -658,7 +793,33 @@ export async function exportarReporteConsolidadoFletes(opts: FleteReportOpts): P
         </td>
       </tr>
     </tbody>
-  </table>
+  </table>` : ''}
+
+  ${hayExentos ? `<div class="exento-title">🚫 Fletes exentos · no se cobran ni se pagan</div>
+  <p class="exento-sub">Se listan aparte para control. Su tarifa es solo de referencia: no entran en el total por pagar ni en el total por cobrar.</p>
+  <table class="exento">
+    <thead>
+      <tr>
+        <th style="width: 25px; text-align: center;">#</th>
+        <th style="width: 80px;">Fecha</th>
+        <th style="width: 75px;">Tipo</th>
+        <th>Camión / Equipo</th>
+        <th style="width: 95px;">Placa</th>
+        <th class="num" style="width: 65px;">Viajes</th>
+        <th class="num" style="width: 90px;">Tarifa ref. ($)</th>
+        <th class="num" style="width: 105px;">Valor ref. ($)</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsExentos}
+      <tr class="tot-row">
+        <td colspan="5" style="text-align: right; text-transform: uppercase;">Total exento (no se suma):</td>
+        <td class="num">${tot.exento.viajes}</td>
+        <td></td>
+        <td class="num" style="color: #475569;">${usd(tot.exento.refUsd)}</td>
+      </tr>
+    </tbody>
+  </table>` : ''}
 
   <div class="signatures">
     <div class="sign-box">

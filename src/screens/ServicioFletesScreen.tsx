@@ -23,9 +23,17 @@ import {
   exportarReporteConsolidadoFletes,
   parseFleteNote,
   formatFleteNote,
+  totalesFletes,
   ParsedFleteNote,
+  FleteOperacionTipo,
 } from '../lib/fletePdf';
 import { Machinery } from '../types/database';
+
+// 🚫 Exento (26/10/2026): se registra pero no se cobra ni se paga. Gris pizarra,
+// para que no se confunda con el azul de «por pagar» ni el verde de «por cobrar».
+const EXENTO_COLOR = '#475569';
+const EXENTO_BG = '#F1F5F9';
+const EXENTO_BORDER = '#CBD5E1';
 
 interface FleteRow {
   id: string;
@@ -65,7 +73,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
   const [dateTo, setDateTo] = useState(today);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('__all__');
   const [selectedMachineId, setSelectedMachineId] = useState<string>('__all__');
-  const [filterTipo, setFilterTipo] = useState<'todos' | 'pagar' | 'cobrar'>('todos');
+  const [filterTipo, setFilterTipo] = useState<'todos' | FleteOperacionTipo>('todos');
   const [filterEstado, setFilterEstado] = useState<'todos' | 'pendiente' | 'completado'>('todos');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -76,7 +84,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
   // Modal Crear / Editar Flete
   const [modalVisible, setModalVisible] = useState(false);
   const [editingFleteId, setEditingFleteId] = useState<string | null>(null);
-  const [formOperacionTipo, setFormOperacionTipo] = useState<'pagar' | 'cobrar'>('pagar');
+  const [formOperacionTipo, setFormOperacionTipo] = useState<FleteOperacionTipo>('pagar');
   const [formOperacionEstado, setFormOperacionEstado] = useState<'pendiente' | 'completado'>('pendiente');
   const [formCliente, setFormCliente] = useState('');
   const [formCompanyId, setFormCompanyId] = useState('');
@@ -103,7 +111,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
   const [loadingViajes, setLoadingViajes] = useState(false);
   const [selectedViajeIds, setSelectedViajeIds] = useState<string[]>([]);
   const [importPrecio, setImportPrecio] = useState('');
-  const [importOperacionTipo, setImportOperacionTipo] = useState<'pagar' | 'cobrar'>('pagar');
+  const [importOperacionTipo, setImportOperacionTipo] = useState<FleteOperacionTipo>('pagar');
   const [importCompanyId, setImportCompanyId] = useState('');
   const [importCliente, setImportCliente] = useState('');
   const [importNote, setImportNote] = useState('');
@@ -255,7 +263,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
       return;
     }
     const precio = Math.max(0, Number(importPrecio.replace(',', '.')) || 0);
-    if (precio <= 0) {
+    // En un exento el precio es solo de referencia: puede quedar en 0.
+    if (precio <= 0 && importOperacionTipo !== 'exento') {
       toast.error('Indica un precio unitario válido por viaje.');
       return;
     }
@@ -320,11 +329,16 @@ export default function ServicioFletesScreen({ navigation }: any) {
       // Metadata parseada (por pagar / por cobrar, estado, cliente)
       const parsed = parseFleteNote(f.note);
 
-      // Filtro por tipo de operación (pagar o cobrar)
+      // Filtro por tipo de operación (pagar, cobrar o exento)
       if (filterTipo !== 'todos' && parsed.operacionTipo !== filterTipo) return false;
 
-      // Filtro por estado (pendiente o completado)
-      if (filterEstado !== 'todos' && parsed.operacionEstado !== filterEstado) return false;
+      // Filtro por estado (pendiente o completado). Un exento no tiene estado:
+      // «Solo pendientes» / «Solo pagados» no lo muestran, y con la pastilla
+      // «Exentos» el filtro de estado no aplica (se esconde).
+      if (filterTipo !== 'exento' && filterEstado !== 'todos') {
+        if (parsed.operacionTipo === 'exento') return false;
+        if (parsed.operacionEstado !== filterEstado) return false;
+      }
 
       // Búsqueda de texto
       if (q) {
@@ -346,24 +360,21 @@ export default function ServicioFletesScreen({ navigation }: any) {
     const count = filteredFletes.length;
     const viajes = filteredFletes.reduce((s, f) => s + (Number(f.viajes) || 0), 0);
 
-    let totalPagarUSD = 0;
-    let totalCobrarUSD = 0;
+    // La misma regla que el reporte consolidado: los exentos no suman a ningún total.
+    const t = totalesFletes(filteredFletes);
 
-    filteredFletes.forEach((f) => {
-      const sub = (Number(f.viajes) || 0) * (Number(f.precio) || 0);
-      const parsed = parseFleteNote(f.note);
-      if (parsed.operacionTipo === 'cobrar') {
-        totalCobrarUSD += sub;
-      } else {
-        totalPagarUSD += sub;
-      }
-    });
-
-    return { count, viajes, totalPagarUSD, totalCobrarUSD };
+    return {
+      count,
+      viajes,
+      totalPagarUSD: t.pagar.usd,
+      totalCobrarUSD: t.cobrar.usd,
+      exentoFletes: t.exento.fletes,
+      exentoViajes: t.exento.viajes,
+    };
   }, [filteredFletes]);
 
   // Abrir modal de nuevo flete
-  const openNewModal = (defaultTipo?: 'pagar' | 'cobrar') => {
+  const openNewModal = (defaultTipo?: FleteOperacionTipo) => {
     setEditingFleteId(null);
     setFormOperacionTipo(defaultTipo || (filterTipo !== 'todos' ? filterTipo : 'pagar'));
     setFormOperacionEstado('pendiente');
@@ -396,6 +407,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
   // Alternar estado rápido (Pendiente <-> Completado/Pagado/Cobrado)
   const toggleEstadoFlete = async (f: FleteRow) => {
     const parsed = parseFleteNote(f.note);
+    if (parsed.operacionTipo === 'exento') return; // un exento no tiene estado
     const nuevoEstado = parsed.operacionEstado === 'completado' ? 'pendiente' : 'completado';
     const nuevaNota = formatFleteNote({
       operacionTipo: parsed.operacionTipo,
@@ -431,8 +443,10 @@ export default function ServicioFletesScreen({ navigation }: any) {
       toast.error('Selecciona la empresa contratista.');
       return;
     }
-    if (viajes <= 0 || precio <= 0) {
-      toast.error('Indica el nº de viajes y el precio por viaje.');
+    // En un exento el precio es solo de referencia: puede quedar en 0.
+    const esExento = formOperacionTipo === 'exento';
+    if (viajes <= 0 || (!esExento && precio <= 0)) {
+      toast.error(esExento ? 'Indica el nº de viajes.' : 'Indica el nº de viajes y el precio por viaje.');
       return;
     }
 
@@ -602,7 +616,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
           <View style={{ flex: 1, minWidth: 200 }}>
             <SectionTitle>🚚 Servicio de Fletes y Viajes</SectionTitle>
             <Text style={{ color: colors.muted, fontSize: 12.5, marginTop: 2 }}>
-              Control integral de fletes por pagar (a fleteros/choferes) y por cobrar (a clientes/obras), por camión o flete individual en PDF.
+              Control integral de fletes por pagar (a fleteros/choferes), por cobrar (a clientes/obras) y exentos (sin cobro ni pago), por camión o flete individual en PDF.
             </Text>
           </View>
           <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
@@ -689,22 +703,30 @@ export default function ServicioFletesScreen({ navigation }: any) {
               ${summary.totalPagarUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
           </View>
-          <View style={{ alignItems: 'flex-end' }}>
+          <View style={{ alignItems: 'center' }}>
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' }}>💰 Total Por Cobrar</Text>
             <Text style={{ color: '#059669', fontSize: 18, fontWeight: '800' }}>
               ${summary.totalCobrarUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+          </View>
+          {/* Exentos: contador propio, no suma a ninguno de los dos totales */}
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' }}>🚫 Exentos (sin cobro ni pago)</Text>
+            <Text style={{ color: EXENTO_COLOR, fontSize: 18, fontWeight: '800' }}>
+              {summary.exentoFletes} ({summary.exentoViajes} viajes)
             </Text>
           </View>
         </View>
 
         {/* Filtros */}
         <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
-          {/* Selector de Tipo (Por Pagar vs Por Cobrar) */}
-          <View style={{ flexDirection: 'row', gap: 6 }}>
+          {/* Selector de Tipo (Por Pagar / Por Cobrar / Exento) */}
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
             <TouchableOpacity
               onPress={() => setFilterTipo('todos')}
               style={{
                 flex: 1,
+                minWidth: 130,
                 paddingVertical: 7,
                 alignItems: 'center',
                 borderRadius: radius.md,
@@ -722,6 +744,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               onPress={() => setFilterTipo('pagar')}
               style={{
                 flex: 1,
+                minWidth: 130,
                 paddingVertical: 7,
                 alignItems: 'center',
                 borderRadius: radius.md,
@@ -739,6 +762,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               onPress={() => setFilterTipo('cobrar')}
               style={{
                 flex: 1,
+                minWidth: 130,
                 paddingVertical: 7,
                 alignItems: 'center',
                 borderRadius: radius.md,
@@ -751,9 +775,28 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 💰 Por Cobrar (Clientes)
               </Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setFilterTipo('exento')}
+              style={{
+                flex: 1,
+                minWidth: 130,
+                paddingVertical: 7,
+                alignItems: 'center',
+                borderRadius: radius.md,
+                backgroundColor: filterTipo === 'exento' ? EXENTO_COLOR : colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: filterTipo === 'exento' ? EXENTO_COLOR : colors.border,
+              }}
+            >
+              <Text style={{ color: filterTipo === 'exento' ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                🚫 Exentos (Sin cobro ni pago)
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          {/* Selector de Estado */}
+          {/* Selector de Estado (un exento no tiene estado: con «Exentos» se esconde) */}
+          {filterTipo !== 'exento' && (
           <View style={{ flexDirection: 'row', gap: 6 }}>
             <TouchableOpacity
               onPress={() => setFilterEstado('todos')}
@@ -806,6 +849,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               </Text>
             </TouchableOpacity>
           </View>
+          )}
 
           {/* Fechas */}
           <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
@@ -937,7 +981,9 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 const subtotal = (Number(f.viajes) || 0) * (Number(f.precio) || 0);
                 const parsed = parseFleteNote(f.note);
                 const esCobro = parsed.operacionTipo === 'cobrar';
+                const esExento = parsed.operacionTipo === 'exento';
                 const esCompletado = parsed.operacionEstado === 'completado';
+                const tipoColor = esExento ? EXENTO_COLOR : esCobro ? '#059669' : '#1E3A8A';
 
                 return (
                   <View
@@ -947,19 +993,25 @@ export default function ServicioFletesScreen({ navigation }: any) {
                       borderRadius: radius.md,
                       padding: spacing.md,
                       borderWidth: 1,
-                      borderColor: esCobro ? '#A7F3D0' : '#BFDBFE',
+                      borderColor: esExento ? EXENTO_BORDER : esCobro ? '#A7F3D0' : '#BFDBFE',
                       gap: 6,
                     }}
                   >
                     {/* Header de la tarjeta */}
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 6 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <View style={{ backgroundColor: esCobro ? '#ECFDF5' : '#EFF6FF', paddingVertical: 2, paddingHorizontal: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: esCobro ? '#059669' : '#1E3A8A' }}>
-                          <Text style={{ color: esCobro ? '#059669' : '#1E3A8A', fontWeight: '800', fontSize: 11 }}>
-                            {esCobro ? '💰 POR COBRAR' : '💸 POR PAGAR'}
+                        <View style={{ backgroundColor: esExento ? EXENTO_BG : esCobro ? '#ECFDF5' : '#EFF6FF', paddingVertical: 2, paddingHorizontal: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: tipoColor }}>
+                          <Text style={{ color: tipoColor, fontWeight: '800', fontSize: 11 }}>
+                            {esExento ? '🚫 EXENTO' : esCobro ? '💰 POR COBRAR' : '💸 POR PAGAR'}
                           </Text>
                         </View>
 
+                        {/* Un exento no tiene estado pendiente/pagado/cobrado */}
+                        {esExento ? (
+                          <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 11 }}>
+                            Sin cobro ni pago
+                          </Text>
+                        ) : (
                         <TouchableOpacity
                           onPress={() => toggleEstadoFlete(f)}
                           style={{
@@ -973,15 +1025,22 @@ export default function ServicioFletesScreen({ navigation }: any) {
                             {esCompletado ? `✅ ${esCobro ? 'COBRADO' : 'PAGADO'}` : '⏳ PENDIENTE'}
                           </Text>
                         </TouchableOpacity>
+                        )}
 
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
                           📅 {fmtDate(f.flete_date)}
                         </Text>
                       </View>
 
-                      <Text style={{ color: esCobro ? '#059669' : '#1E3A8A', fontWeight: '800', fontSize: 16 }}>
+                      {esExento ? (
+                        <Text style={{ color: EXENTO_COLOR, fontWeight: '700', fontSize: 13 }}>
+                          Ref. ${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Text>
+                      ) : (
+                      <Text style={{ color: tipoColor, fontWeight: '800', fontSize: 16 }}>
                         ${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
+                      )}
                     </View>
 
                     {/* Camión / Maquinaria con Placa Obligatoria y Empresa */}
@@ -996,7 +1055,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
-                          {f.viajes} viaje(s) × ${Number(f.precio).toLocaleString()} c/u
+                          {f.viajes} viaje(s) × ${Number(f.precio).toLocaleString()} c/u{esExento ? ' (ref.)' : ''}
                         </Text>
                         {parsed.cliente ? (
                           <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '600' }}>
@@ -1190,16 +1249,17 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 {editingFleteId ? '✏️ Modificar Flete' : '➕ Registrar Flete / Viaje'}
               </Text>
               <Text style={{ color: colors.muted, fontSize: 12.5, marginBottom: spacing.md }}>
-                Define si el viaje es por pagar a un fletero o por cobrar a un cliente.
+                Define si el viaje es por pagar a un fletero, por cobrar a un cliente o exento (no se cobra ni se paga).
               </Text>
 
-              {/* Selector Por Pagar vs Por Cobrar */}
+              {/* Selector Por Pagar / Por Cobrar / Exento */}
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>Modalidad de Operación (*)</Text>
-              <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.md }}>
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.md, flexWrap: 'wrap' }}>
                 <TouchableOpacity
                   onPress={() => setFormOperacionTipo('pagar')}
                   style={{
                     flex: 1,
+                    minWidth: 130,
                     paddingVertical: 9,
                     alignItems: 'center',
                     borderRadius: radius.md,
@@ -1217,6 +1277,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   onPress={() => setFormOperacionTipo('cobrar')}
                   style={{
                     flex: 1,
+                    minWidth: 130,
                     paddingVertical: 9,
                     alignItems: 'center',
                     borderRadius: radius.md,
@@ -1229,9 +1290,35 @@ export default function ServicioFletesScreen({ navigation }: any) {
                     💰 Por Cobrar (A Cliente)
                   </Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setFormOperacionTipo('exento')}
+                  style={{
+                    flex: 1,
+                    minWidth: 130,
+                    paddingVertical: 9,
+                    alignItems: 'center',
+                    borderRadius: radius.md,
+                    backgroundColor: formOperacionTipo === 'exento' ? EXENTO_COLOR : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: formOperacionTipo === 'exento' ? EXENTO_COLOR : colors.border,
+                  }}
+                >
+                  <Text style={{ color: formOperacionTipo === 'exento' ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                    🚫 Exento (Sin cobro ni pago)
+                  </Text>
+                </TouchableOpacity>
               </View>
 
-              {/* Estado de Pago / Cobro */}
+              {/* Estado de Pago / Cobro (un exento no tiene estado: se esconde) */}
+              {formOperacionTipo === 'exento' ? (
+                <View style={{ backgroundColor: EXENTO_BG, borderWidth: 1, borderColor: EXENTO_BORDER, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.md }}>
+                  <Text style={{ color: EXENTO_COLOR, fontSize: 12, fontWeight: '700' }}>
+                    🚫 Este flete queda registrado pero no se cobra ni se paga: no suma al total por pagar ni al total por cobrar, y no tiene estado pendiente / pagado.
+                  </Text>
+                </View>
+              ) : (
+              <>
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>Estado del Flete</Text>
               <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.md }}>
                 <TouchableOpacity
@@ -1268,6 +1355,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   </Text>
                 </TouchableOpacity>
               </View>
+              </>
+              )}
 
               {/* Si es por cobrar, campo de cliente */}
               {formOperacionTipo === 'cobrar' ? (
@@ -1380,7 +1469,9 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>Precio por Viaje ($)</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>
+                    {formOperacionTipo === 'exento' ? 'Precio de referencia ($)' : 'Precio por Viaje ($)'}
+                  </Text>
                   <TextInput
                     value={formPrecio}
                     onChangeText={(t) => setFormPrecio(onlyDecimal(t))}
@@ -1410,9 +1501,9 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 return (
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>
-                      {formOperacionTipo === 'cobrar' ? 'Total a Cobrar:' : 'Total a Pagar:'}
+                      {formOperacionTipo === 'exento' ? 'Valor de referencia (exento):' : formOperacionTipo === 'cobrar' ? 'Total a Cobrar:' : 'Total a Pagar:'}
                     </Text>
-                    <Text style={{ color: formOperacionTipo === 'cobrar' ? '#059669' : '#1E3A8A', fontWeight: '800', fontSize: 18 }}>
+                    <Text style={{ color: formOperacionTipo === 'exento' ? EXENTO_COLOR : formOperacionTipo === 'cobrar' ? '#059669' : '#1E3A8A', fontWeight: '800', fontSize: 18 }}>
                       ${tot.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                     </Text>
                   </View>
@@ -1426,7 +1517,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               <TextInput
                 value={formNote}
                 onChangeText={setFormNote}
-                placeholder="Ej. Traslado de agregados hacia Muelle Norte..."
+                placeholder={formOperacionTipo === 'exento' ? 'Ej. Por qué es exento: cortesía, viaje de reposición...' : 'Ej. Traslado de agregados hacia Muelle Norte...'}
                 placeholderTextColor={colors.muted}
                 multiline
                 style={{
@@ -1450,7 +1541,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   padding: spacing.md,
                   borderRadius: radius.md,
                   alignItems: 'center',
-                  backgroundColor: formOperacionTipo === 'cobrar' ? '#059669' : colors.brand,
+                  backgroundColor: formOperacionTipo === 'exento' ? EXENTO_COLOR : formOperacionTipo === 'cobrar' ? '#059669' : colors.brand,
                   opacity: formSaving ? 0.6 : 1,
                 }}
               >
@@ -1544,7 +1635,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 📥 Importar Flete desde Viajes de Camiones
               </Text>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>
-                Selecciona la fecha y el camión para vincular sus viajes registrados a un flete formal por pagar o por cobrar.
+                Selecciona la fecha y el camión para vincular sus viajes registrados a un flete formal por pagar, por cobrar o exento.
               </Text>
 
               {/* Selector de Fecha y Camión */}
@@ -1612,15 +1703,16 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 ))}
               </ScrollView>
 
-              {/* Tipo de Operación (Por Pagar vs Por Cobrar) */}
+              {/* Tipo de Operación (Por Pagar / Por Cobrar / Exento) */}
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>
                 🔄 Tipo de Operación Contable *
               </Text>
-              <View style={{ flexDirection: 'row', gap: 6 }}>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
                 <TouchableOpacity
                   onPress={() => setImportOperacionTipo('pagar')}
                   style={{
                     flex: 1,
+                    minWidth: 130,
                     paddingVertical: 8,
                     alignItems: 'center',
                     borderRadius: radius.md,
@@ -1638,6 +1730,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   onPress={() => setImportOperacionTipo('cobrar')}
                   style={{
                     flex: 1,
+                    minWidth: 130,
                     paddingVertical: 8,
                     alignItems: 'center',
                     borderRadius: radius.md,
@@ -1648,6 +1741,24 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 >
                   <Text style={{ color: importOperacionTipo === 'cobrar' ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>
                     💰 Por Cobrar (a Cliente / Obra)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setImportOperacionTipo('exento')}
+                  style={{
+                    flex: 1,
+                    minWidth: 130,
+                    paddingVertical: 8,
+                    alignItems: 'center',
+                    borderRadius: radius.md,
+                    backgroundColor: importOperacionTipo === 'exento' ? EXENTO_COLOR : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: importOperacionTipo === 'exento' ? EXENTO_COLOR : colors.border,
+                  }}
+                >
+                  <Text style={{ color: importOperacionTipo === 'exento' ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>
+                    🚫 Exento (Sin cobro ni pago)
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1808,7 +1919,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
 
                   <View style={{ flex: 1.2 }}>
                     <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: 2 }}>
-                      Precio por Viaje ($) *
+                      {importOperacionTipo === 'exento' ? 'Precio de referencia ($)' : 'Precio por Viaje ($) *'}
                     </Text>
                     <TextInput
                       value={importPrecio}
@@ -1837,9 +1948,9 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   return (
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                        {importOperacionTipo === 'cobrar' ? 'Total a Cobrar:' : 'Total a Pagar:'}
+                        {importOperacionTipo === 'exento' ? 'Valor de referencia (exento):' : importOperacionTipo === 'cobrar' ? 'Total a Cobrar:' : 'Total a Pagar:'}
                       </Text>
-                      <Text style={{ color: importOperacionTipo === 'cobrar' ? '#059669' : '#1E3A8A', fontWeight: '900', fontSize: 18 }}>
+                      <Text style={{ color: importOperacionTipo === 'exento' ? EXENTO_COLOR : importOperacionTipo === 'cobrar' ? '#059669' : '#1E3A8A', fontWeight: '900', fontSize: 18 }}>
                         ${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                       </Text>
                     </View>
@@ -1854,7 +1965,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               <TextInput
                 value={importNote}
                 onChangeText={setImportNote}
-                placeholder="Ej. Flete correspondiente a viajes de agregados del día..."
+                placeholder={importOperacionTipo === 'exento' ? 'Ej. Por qué es exento: cortesía, viaje de reposición...' : 'Ej. Flete correspondiente a viajes de agregados del día...'}
                 placeholderTextColor={colors.muted}
                 multiline
                 style={{
@@ -1878,7 +1989,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   padding: spacing.md,
                   borderRadius: radius.md,
                   alignItems: 'center',
-                  backgroundColor: importOperacionTipo === 'cobrar' ? '#059669' : colors.brand,
+                  backgroundColor: importOperacionTipo === 'exento' ? EXENTO_COLOR : importOperacionTipo === 'cobrar' ? '#059669' : colors.brand,
                   opacity: importSaving || selectedViajeIds.length === 0 ? 0.6 : 1,
                 }}
               >

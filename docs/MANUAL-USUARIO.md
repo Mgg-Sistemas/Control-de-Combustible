@@ -8100,6 +8100,40 @@ historial de abonos. Ahí abajo están los botones:
 
 ---
 
+## 4.33. Servicio de Fletes 🚚
+
+Se entra por *Más → 🚚 **Servicio de Fletes*** (o *Acarreo / Transporte → Servicio de Fletes y
+Viajes*). Registra los fletes de cada camión —empresa, fecha, nº de viajes y precio por viaje— y
+saca el **comprobante PDF** de cada uno o el **reporte consolidado**.
+
+**Cada flete es de uno de tres tipos (26/10/2026):**
+- **💸 Por pagar** — se le paga al **fletero**. Suma al **Total por pagar**. Tiene estado
+  ⏳ Pendiente / ✅ Pagado.
+- **💰 Por cobrar** — se le cobra al **cliente u obra**. Suma al **Total por cobrar**. Tiene estado
+  ⏳ Pendiente / ✅ Cobrado.
+- **🚫 Exento** — el flete **queda registrado** (camión, empresa, viajes y un precio **de
+  referencia**) pero **no se cobra ni se paga**. **No suma** al Total por pagar ni al Total por
+  cobrar de este módulo: tiene su **propio contador** (fletes y viajes exentos) al lado de esos
+  totales. **No tiene estado** pendiente/pagado, y el precio puede quedar en 0.
+
+**Dónde se elige el tipo:** en **➕ Registrar Flete** / **✏️ Editar** y en **📥 Importar desde
+Viajes** (tres botones). Para ver uno solo, usa las pastillas de arriba: **🔄 Todos · 💸 Por pagar
+· 💰 Por cobrar · 🚫 Exentos**. Con «Exentos» se esconde el filtro de estado (no aplica), y
+«Solo pendientes» / «Solo pagados» no muestran exentos.
+
+**En papel:**
+- **📄 Comprobante (PDF)** de un exento: dice **SERVICIO EXENTO · NO SE COBRA NI SE PAGA**, el
+  estado sale como **EXENTO** y el monto como **valor de referencia**, sin «total a pagar» ni
+  «total a cobrar».
+- **📑 Reporte consolidado (PDF):** los exentos salen en una **tabla aparte** («Fletes exentos ·
+  no se cobran ni se pagan») con su propio total y una tarjeta que dice cuántos son. **No se
+  suman** al total por pagar, al total por cobrar ni a la fila de totales. Si en lo filtrado no
+  hay exentos, el reporte sale como siempre.
+
+> El tipo se guarda al principio de la nota del flete: no hubo que correr nada en Supabase.
+
+---
+
 ## 5. Cosas que sirven en TODAS las secciones
 
 > **👑 Un ADMINISTRADOR tiene acceso a todo (27/09/2026).** Es la regla de la casa y se

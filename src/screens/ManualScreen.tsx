@@ -1182,6 +1182,26 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🚚',
+    title: 'Servicio de Fletes',
+    blocks: [
+      { t: 'p', text: 'Se entra por Más → 🚚 Servicio de Fletes (o Acarreo / Transporte → Servicio de Fletes y Viajes). Registra los fletes de cada camión —empresa, fecha, nº de viajes y precio por viaje— y saca el comprobante PDF de cada uno o el reporte consolidado.' },
+      { t: 'p', text: 'Cada flete es de uno de tres tipos (26/10/2026):' },
+      { t: 'bullets', items: [
+        '💸 Por pagar — se le paga al fletero. Suma al Total por pagar. Tiene estado ⏳ Pendiente / ✅ Pagado.',
+        '💰 Por cobrar — se le cobra al cliente u obra. Suma al Total por cobrar. Tiene estado ⏳ Pendiente / ✅ Cobrado.',
+        '🚫 Exento — el flete queda registrado (camión, empresa, viajes y un precio de referencia) pero NO se cobra ni se paga. No suma al Total por pagar ni al Total por cobrar de este módulo: tiene su propio contador (fletes y viajes exentos) al lado de esos totales. No tiene estado pendiente/pagado, y el precio puede quedar en 0.',
+      ] },
+      { t: 'p', text: 'Dónde se elige el tipo: en ➕ Registrar Flete / ✏️ Editar y en 📥 Importar desde Viajes (tres botones). Para ver uno solo, usa las pastillas de arriba: 🔄 Todos · 💸 Por pagar · 💰 Por cobrar · 🚫 Exentos. Con «Exentos» se esconde el filtro de estado (no aplica), y «Solo pendientes» / «Solo pagados» no muestran exentos.' },
+      { t: 'p', text: 'En papel:' },
+      { t: 'bullets', items: [
+        '📄 Comprobante (PDF) de un exento: dice SERVICIO EXENTO · NO SE COBRA NI SE PAGA, el estado sale como EXENTO y el monto como valor de referencia, sin «total a pagar» ni «total a cobrar».',
+        '📑 Reporte consolidado (PDF): los exentos salen en una tabla aparte («Fletes exentos · no se cobran ni se pagan») con su propio total y una tarjeta que dice cuántos son. NO se suman al total por pagar, al total por cobrar ni a la fila de totales. Si en lo filtrado no hay exentos, el reporte sale como siempre.',
+      ] },
+      { t: 'note', text: 'El tipo se guarda al principio de la nota del flete: no hubo que correr nada en Supabase.' },
+    ],
+  },
+  {
     icon: '⚙️',
     title: 'Ajustes',
     blocks: [
