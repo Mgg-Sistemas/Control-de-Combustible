@@ -29,6 +29,7 @@ import {
   inyectarFacturaEnObservaciones,
   extraerDespacho,
   inyectarDespachoEnObservaciones,
+  extraerProveedorSugerido,
   expedienteCompletoHtml,
   type FacturaData,
   type DespachoAlmacenData,
@@ -1837,6 +1838,72 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
                 {r.status === 'recibido' ? <Text style={{ color: colors.success, fontSize: 11, marginTop: 2 }}>Recibido en inventario{r.received_at ? ` · ${dmyOf(r.received_at)}` : ''}</Text> : null}
                 {r.attachment_url ? <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2, fontWeight: '700' }}>📎 Formato adjunto{r.attachment_type === 'pdf' ? ' (PDF)' : ' (imagen)'}</Text> : null}
+
+                {/* 🏬 Ficha de Proveedor Propuesto por el Solicitante (si existe) */}
+                {(() => {
+                  const provSug = extraerProveedorSugerido(r.observaciones);
+                  if (!provSug) return null;
+                  return (
+                    <View
+                      style={{
+                        marginTop: spacing.xs,
+                        backgroundColor: '#FEF3C7',
+                        borderWidth: 1.5,
+                        borderColor: '#F59E0B',
+                        borderRadius: radius.md,
+                        padding: spacing.sm,
+                        gap: 4,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 16 }}>🏬</Text>
+                          <Text style={{ color: '#92400E', fontWeight: '900', fontSize: 12.5 }}>
+                            PROVEEDOR PROPUESTO POR EL SOLICITANTE
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 4 }}>
+                          {provSug.telefono ? (
+                            <>
+                              <TouchableOpacity
+                                onPress={() => Linking.openURL(`tel:${provSug.telefono.replace(/\s+/g, '')}`)}
+                                style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#D97706', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
+                              >
+                                <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '800' }}>📞 Llamar</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  const clean = provSug.telefono.replace(/\D/g, '');
+                                  const wa = clean.startsWith('58') ? clean : clean.startsWith('0') ? '58' + clean.slice(1) : clean;
+                                  Linking.openURL(`https://wa.me/${wa}`);
+                                }}
+                                style={{ backgroundColor: '#059669', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
+                              >
+                                <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>💬 WhatsApp</Text>
+                              </TouchableOpacity>
+                            </>
+                          ) : null}
+                        </View>
+                      </View>
+
+                      {provSug.nombre ? (
+                        <Text style={{ color: '#78350F', fontSize: 12.5 }}>
+                          🏢 <Text style={{ fontWeight: '800' }}>Nombre / Tienda:</Text> {provSug.nombre}
+                        </Text>
+                      ) : null}
+                      {provSug.telefono ? (
+                        <Text style={{ color: '#78350F', fontSize: 12 }}>
+                          📞 <Text style={{ fontWeight: '800' }}>Teléfono:</Text> {provSug.telefono}
+                        </Text>
+                      ) : null}
+                      {provSug.direccion ? (
+                        <Text style={{ color: '#78350F', fontSize: 12 }}>
+                          📍 <Text style={{ fontWeight: '800' }}>Dirección / Ubicación:</Text> {provSug.direccion}
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                })()}
 
                 {r.supplier_id ? (() => {
                   const s = suppliers.find((sup) => sup.id === r.supplier_id);

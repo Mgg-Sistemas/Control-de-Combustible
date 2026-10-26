@@ -48,6 +48,7 @@ const {
   extraerDespacho,
   inyectarDespachoEnObservaciones,
   limpiarObservacionesUsuario,
+  extraerProveedorSugerido,
   expedienteCompletoHtml,
 } = expedienteMod;
 
@@ -150,8 +151,15 @@ const reqDummy = {
     { name: 'FILTRO DE COMBUSTIBLE', qty: 4, est_price: 25, currency: 'USD', note: 'Código 1R-0750', image_url: 'https://dummy.com/img1.jpg' },
     { name: 'INYECTOR DIÉSEL', qty: 6, est_price: 200, currency: 'USD', note: 'Original Bosch', image_url: 'https://dummy.com/img2.jpg' },
   ],
-  observaciones: obsConFactura + '\n' + obsConDespacho,
+  observaciones: obsConFactura + '\n' + obsConDespacho + '\n[PROVEEDOR SUGERIDO: Nombre: Inversiones El Pinar | Tel: 0414-9988776 | Dirección: Unare II, Puerto Ordaz]',
 };
+
+// Prueba de extracción del proveedor sugerido
+const provSugeridoExt = extraerProveedorSugerido(reqDummy.observaciones);
+assert.ok(provSugeridoExt);
+assert.strictEqual(provSugeridoExt.nombre, 'Inversiones El Pinar');
+assert.strictEqual(provSugeridoExt.telefono, '0414-9988776');
+assert.strictEqual(provSugeridoExt.direccion, 'Unare II, Puerto Ordaz');
 
 const htmlExpediente = expedienteCompletoHtml({
   req: reqDummy,
@@ -176,6 +184,8 @@ const htmlExpediente = expedienteCompletoHtml({
 assert.ok(htmlExpediente.includes('EXPEDIENTE EJECUTIVO UNIFICADO DE COMPRA'));
 assert.ok(htmlExpediente.includes('1. DATOS DEL REQUERIMIENTO (REQ-0550)'));
 assert.ok(htmlExpediente.includes('EXCAVADORA CAT-320D · Placa AB123CD'), 'Debe incluir código y placa en el expediente');
+assert.ok(htmlExpediente.includes('Inversiones El Pinar'), 'Debe incluir el proveedor sugerido por el solicitante');
+assert.ok(htmlExpediente.includes('0414-9988776'), 'Debe incluir el teléfono del proveedor sugerido');
 assert.ok(htmlExpediente.includes('2. LISTA DE REPUESTOS Y ESPECIFICACIONES TÉCNICAS'));
 assert.ok(htmlExpediente.includes('FILTRO DE COMBUSTIBLE'));
 assert.ok(htmlExpediente.includes('3. DATOS DE LA COTIZACIÓN Y PROVEEDOR SELECCIONADO'));
@@ -189,5 +199,5 @@ assert.ok(htmlExpediente.includes('Golden Touch'));
 assert.ok(htmlExpediente.includes('6. CONTROL FÍSICO EN ALMACÉN Y TRAZABILIDAD DE RETIRO'));
 assert.ok(htmlExpediente.includes('Carlos Mecánico'));
 
-console.log('✅ Test 4 pasado: Expediente Completo PDF generado con las 6 secciones integradas.');
+console.log('✅ Test 4 pasado: Expediente Completo PDF generado con las 6 secciones integradas y proveedor sugerido verificado.');
 console.log('🎉 TODOS LOS TESTS DE EXPEDIENTE, FACTURA Y ALMACÉN PASARON AL 100%.');

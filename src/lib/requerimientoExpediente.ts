@@ -108,6 +108,28 @@ function dmyTimeOf(iso?: string | null): string {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+export interface ProveedorSugeridoData {
+  nombre: string;
+  telefono: string;
+  direccion: string;
+  contexto?: string | null;
+}
+
+/**
+ * Extrae los datos del proveedor sugerido por el solicitante en las notas/observaciones
+ */
+export function extraerProveedorSugerido(obs?: string | null): ProveedorSugeridoData | null {
+  if (!obs) return null;
+  const match = obs.match(/\[PROVEEDOR SUGERIDO(?:\s*\(([^)]*)\))?:\s*Nombre:\s*([^|]+)\|\s*Tel:\s*([^|]+)\|\s*Dirección:\s*([^\]]+)\]/i);
+  if (!match) return null;
+  const contexto = match[1]?.trim() || null;
+  const nombre = match[2].trim() === 'No indicado' ? '' : match[2].trim();
+  const telefono = match[3].trim() === 'No indicado' ? '' : match[3].trim();
+  const direccion = match[4].trim() === 'No indicada' ? '' : match[4].trim();
+  if (!nombre && !telefono && !direccion) return null;
+  return { nombre, telefono, direccion, contexto };
+}
+
 /**
  * Limpia el texto de observaciones para el usuario final eliminando etiquetas técnicas
  */
@@ -313,6 +335,7 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
 
   // 1. Sección Requerimiento y Destino
   const obsLimpias = limpiarObservacionesUsuario(r.observaciones);
+  const provSugerido = extraerProveedorSugerido(r.observaciones);
   const seccionRequerimiento = `
     <div class="exp-section">
       <div class="exp-header">
@@ -346,6 +369,15 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
           <div class="grid-item">
             <div class="k-label">📦 Almacenista Asignado:</div>
             <div class="k-val">${esc(r.responsable_nombre)}</div>
+          </div>` : ''}
+          ${provSugerido && (provSugerido.nombre || provSugerido.telefono) ? `
+          <div class="grid-item" style="flex: 1 1 95%; background:#FEF3C7; border:1px solid #F59E0B; border-radius:4px; padding:6px 8px; margin-top:2px;">
+            <div class="k-label" style="color:#92400E; font-weight:800;">🏬 Proveedor Recomendado por el Solicitante:</div>
+            <div class="k-val" style="color:#78350F; font-size:11px;">
+              <b>${esc(provSugerido.nombre || 'Sin nombre')}</b>
+              ${provSugerido.telefono ? ` · 📞 Tel: ${esc(provSugerido.telefono)}` : ''}
+              ${provSugerido.direccion ? ` · 📍 ${esc(provSugerido.direccion)}` : ''}
+            </div>
           </div>` : ''}
         </div>
         ${obsLimpias ? `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #CBD5E1;font-size:10px;color:#475569;"><b>Observaciones iniciales:</b> ${esc(obsLimpias)}</div>` : ''}
@@ -448,6 +480,13 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
           <div class="grid-item">
             <div class="k-label">📎 Cotización Formal Adjunta:</div>
             <div class="k-val">Documento ${r.attachment_type === 'pdf' ? 'PDF' : 'Digital'} cargado en expediente</div>
+          </div>` : ''}
+          ${provSugerido && (provSugerido.nombre || provSugerido.telefono) ? `
+          <div class="grid-item" style="flex: 1 1 95%; margin-top:2px; border-top:1px dashed #CBD5E1; padding-top:4px;">
+            <div class="k-label">💡 Recomendación original de tienda/proveedor del solicitante:</div>
+            <div class="k-val" style="font-size:10px; color:#475569;">
+              ${esc(provSugerido.nombre || 'No indicado')} ${provSugerido.telefono ? `· 📞 Tel: ${esc(provSugerido.telefono)}` : ''} ${provSugerido.direccion ? `· 📍 ${esc(provSugerido.direccion)}` : ''}
+            </div>
           </div>` : ''}
         </div>
       </div>
