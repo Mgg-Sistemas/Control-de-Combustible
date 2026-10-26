@@ -60,6 +60,12 @@ export default function HistoricoJornadasScreen() {
   const [rows, setRows] = useState<Row[]>([]);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [inspLogos, setInspLogos] = useState<{ bcv?: boolean; sos?: boolean; golden?: boolean; renace?: boolean }>({
+    bcv: true,
+    sos: true,
+    golden: false,
+    renace: false,
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -211,14 +217,15 @@ export default function HistoricoJornadasScreen() {
     const jn = list.filter((r) => !r.estado).length;
     const en = list.filter((r) => r.estado).length;
     const filas = list.map((r, i) => {
+      const plateSerial = [r.plate ? `Placa: ${r.plate}` : '', r.serial ? `Serial: ${r.serial}` : ''].filter(Boolean).join(' · ') || '—';
       if (r.estado) {
         const badge = r.estado === 'averia' ? '🔴 Averiada' : '🟡 Parada';
         const mot = r.motivo ? ` · ${esc(r.motivo)}` : '';
-        return `<tr><td>${i + 1}</td><td>${esc(dmy(r.round_date))}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.serial || r.plate || '—')}</td><td>${esc(r.company)}</td><td>${r.shift === 'night' ? '🌙 noche' : '☀️ día'}</td><td colspan="2">${badge}${mot}</td></tr>`;
+        return `<tr><td>${i + 1}</td><td>${esc(dmy(r.round_date))}</td><td><b>${esc(r.code)}</b></td><td>${esc(plateSerial)}</td><td>${esc(r.company)}</td><td>${r.shift === 'night' ? '🌙 noche' : '☀️ día'}</td><td colspan="2">${badge}${mot}</td></tr>`;
       }
-      return `<tr><td>${i + 1}</td><td>${esc(dmy(r.round_date))}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.serial || r.plate || '—')}</td><td>${esc(r.company)}</td><td>${r.shift === 'night' ? '🌙 noche' : '☀️ día'}</td><td class="r">${esc(r.horoIni ?? '—')} → ${esc(r.horoFin ?? '—')}</td><td class="r b">${r2(r.total)}</td></tr>`;
+      return `<tr><td>${i + 1}</td><td>${esc(dmy(r.round_date))}</td><td><b>${esc(r.code)}</b></td><td>${esc(plateSerial)}</td><td>${esc(r.company)}</td><td>${r.shift === 'night' ? '🌙 noche' : '☀️ día'}</td><td class="r">${esc(r.horoIni ?? '—')} → ${esc(r.horoFin ?? '—')}</td><td class="r b">${r2(r.total)}</td></tr>`;
     }).join('');
-    return `<h3>👷 ${esc(name)} · ${jn} jornada(s)${en ? ` · ${en} avería/parada` : ''} · ${tot} h</h3><table><thead><tr><th style="width:24px">Nº</th><th>Fecha</th><th>Máquina</th><th>Serial/Placa</th><th>Empresa</th><th>Turno</th><th class="r">Horómetro</th><th class="r">Horas</th></tr></thead><tbody>${filas}</tbody></table>`;
+    return `<h3>👷 ${esc(name)} · ${jn} jornada(s)${en ? ` · ${en} avería/parada` : ''} · ${tot} h</h3><table><thead><tr><th style="width:24px">Nº</th><th>Fecha</th><th>Máquina</th><th>Placa / Serial</th><th>Empresa</th><th>Turno</th><th class="r">Horómetro</th><th class="r">Horas</th></tr></thead><tbody>${filas}</tbody></table>`;
   };
   // Genera el PDF para un conjunto de inspectores (todos, o uno solo desde su tarjeta).
   const exportPdfEntries = async (entries: [string, Row[]][], soloInspector?: string) => {
@@ -234,6 +241,7 @@ export default function HistoricoJornadasScreen() {
       extraCss: `table{width:100%;border-collapse:collapse;margin:4px 0 14px;font-size:11px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
         td.r,th.r{text-align:right} td.b{font-weight:800} h3{margin:14px 0 3px;font-size:13px;color:#1E3A5F}`,
+      logos: inspLogos,
       body: entries.map(seccionHtml).join(''),
     });
     const quien = soloInspector ? soloInspector.replace(/[^\p{L}\p{N} ]/gu, '').trim() : 'jornadas';
@@ -266,6 +274,30 @@ export default function HistoricoJornadasScreen() {
           <TouchableOpacity onPress={exportarPDF} disabled={!rows.length} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: 5, opacity: rows.length ? 1 : 0.5 }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* 🏷️ Logos en el membrete del PDF */}
+        <View style={{ marginTop: spacing.sm, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4, fontWeight: '700' }}>Logos en el membrete del PDF:</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            {[
+              { key: 'sos' as const, label: 'SOS La Guaira' },
+              { key: 'bcv' as const, label: 'BCV' },
+              { key: 'golden' as const, label: 'Golden Touch' },
+              { key: 'renace' as const, label: 'Venezuela Renace' },
+            ].map((lg) => {
+              const on = inspLogos[lg.key] ?? false;
+              return (
+                <TouchableOpacity
+                  key={lg.key}
+                  onPress={() => setInspLogos((o) => ({ ...o, [lg.key]: !o[lg.key] }))}
+                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, paddingHorizontal: 10, paddingVertical: 4 }}
+                >
+                  <Text style={{ color: on ? '#fff' : colors.text, fontSize: 11, fontWeight: '700' }}>{on ? '☑' : '☐'} {lg.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginTop: spacing.sm }}>
           <Text style={{ fontSize: 14 }}>🔎</Text>

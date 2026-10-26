@@ -307,14 +307,19 @@ const PDF_CSS = `
 // nombre/código. Las categorías pedidas se detectan por palabras clave; el resto
 // queda por la primera palabra del código (p. ej. PAYLOADER, RETROEXCAVADORA…).
 function pdfShell(title: string, sub: string, body: string, logos?: ReporteLogos): string {
-  // ⚙️ LOGOS AL GUSTO (25-sep-2026): por ahora solo el reporte de horómetros los pasa.
-  //    SIN `logos` sale EXACTAMENTE como siempre (BCV a la izquierda, SOS a la derecha):
+  // ⚙️ LOGOS AL GUSTO: SIN `logos` sale EXACTAMENTE como siempre (BCV a la izquierda, SOS a la derecha):
   //    este membrete lo comparten ~20 reportes y no deben moverse.
   const L = { sos: logos?.sos ?? true, golden: logos?.golden ?? false, renace: logos?.renace ?? false, bcv: logos?.bcv ?? true };
   const caja = (src: string, cap: string) => `<div class="logo-box"><img src="${src}"/><div class="logo-cap">${cap}</div></div>`;
   const izquierda = (L.bcv ? caja(BCV_LOGO_DATA_URI, 'Banco Central de Venezuela') : '')
     + (L.golden ? caja(GOLDEN_TOUCH_LOGO_DATA_URI, 'Golden Touch') : '')
     + (L.renace ? caja(RENACE_LOGO_DATA_URI, 'Plan Venezuela Renace') : '');
+  const brandLine = logos?.sinMarcaTexto
+    ? ''
+    : `<div class="meta"><div class="company"><b>${REPORT_BRAND}</b><br/>Sistema de control interno</div></div>`;
+  const footLine = logos?.sinMarcaTexto
+    ? `<div class="foot">Documento generado por el sistema de control interno</div>`
+    : `<div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>${PDF_CSS}</style></head><body>
     <div class="top">
       <div class="brand">
@@ -327,11 +332,9 @@ function pdfShell(title: string, sub: string, body: string, logos?: ReporteLogos
       </div>
     </div>
     <div class="rule"></div>
-    <div class="meta">
-      <div class="company"><b>${REPORT_BRAND}</b><br/>Sistema de control interno</div>
-    </div>
+    ${brandLine}
     ${body}
-    <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
+    ${footLine}
   </body></html>`;
 }
 
@@ -342,10 +345,26 @@ function pdfShell(title: string, sub: string, body: string, logos?: ReporteLogos
 // va con la marca del Plan. Los dos logos salen de la plantilla oficial en PDF
 // (ver src/lib/logoRenaceData.ts).
 const RENACE_NAVY = '#1F3864';
-// Qué logos salen en el membrete del INVENTARIO/CONTEO. El usuario los prende y
-// apaga con un check por reporte. Por omisión = como salía siempre (Golden Touch
-// + Venezuela Renace), para no cambiar los otros reportes que usan este membrete.
-export type ReporteLogos = { sos?: boolean; golden?: boolean; renace?: boolean; bcv?: boolean };
+// Qué logos salen en el membrete del INVENTARIO/CONTEO/JORNADA.
+export type ReporteLogos = { sos?: boolean; golden?: boolean; renace?: boolean; bcv?: boolean; sinMarcaTexto?: boolean };
+
+// 🛠️ Opciones modificables del Informe por Jornada (qué se oculta en el PDF)
+export interface OpcionesJornadaReporte {
+  sinNoTrabajaron?: boolean;   // Ocultar bloque de averiadas / paradas / espera
+  sinHorometros?: boolean;     // Ocultar lecturas de horómetros
+  sinViajes?: boolean;         // Ocultar bloque de viajes / fletes
+  sinResumenGeneral?: boolean; // Ocultar tablas de clasificación y empresas
+  sinTarjetasTop?: boolean;    // Ocultar tarjetas superiores de totales
+}
+
+export const PASTILLAS_JORNADA: { key: keyof OpcionesJornadaReporte; chip: string; desc: string }[] = [
+  { key: 'sinNoTrabajaron', chip: 'Sin averiadas/paradas', desc: 'Muestra únicamente los equipos que trabajaron con horas' },
+  { key: 'sinHorometros', chip: 'Sin horómetros', desc: 'Oculta la línea de horómetro inicial/final bajo cada máquina' },
+  { key: 'sinViajes', chip: 'Sin viajes / fletes', desc: 'Oculta el bloque de viajes por fletes' },
+  { key: 'sinResumenGeneral', chip: 'Sin reporte general', desc: 'Oculta las tablas resumen por clasificación y empresa' },
+  { key: 'sinTarjetasTop', chip: 'Sin tarjetas de corte', desc: 'Oculta el recuadro superior de horas/dinero/abonos' },
+];
+
 // `sinFirmas` (20-oct-2026, a pedido): quita las dos rayas de «Empresa:» y
 // «Responsable:» del membrete — las que se llenan a mano. Es opcional y nace
 // apagada, así que todos los demás papeles que usan este membrete salen igual.
@@ -678,6 +697,18 @@ export default function ReportsScreen({ route }: any) {
   // 📷 Fotos de los tableros (26-sep-2026): NUNCA predefinido — arranca apagado
   // siempre, y solo si el usuario lo prende el PDF trae la galería.
   const [horoFotos, setHoroFotos] = useState(false);
+  // 🛠️ INFORME POR JORNADA: logos del membrete y personalizaciones modificables
+  const [roundsLogos, setRoundsLogos] = useState<ReporteLogos>({ sos: true, golden: false, renace: false, bcv: true, sinMarcaTexto: false });
+  const [opRounds, setOpRounds] = useState<OpcionesJornadaReporte>({
+    sinNoTrabajaron: false,
+    sinHorometros: false,
+    sinViajes: false,
+    sinResumenGeneral: false,
+    sinTarjetasTop: false,
+  });
+  const [roundsTitulo, setRoundsTitulo] = useState('');
+  const [roundsNota, setRoundsNota] = useState('');
+  const [roundsCustomAbierto, setRoundsCustomAbierto] = useState(false);
   const LOGOS_TAC: { key: keyof ReporteLogos; label: string }[] = [
     { key: 'sos', label: 'SOS La Guaira' },
     { key: 'golden', label: 'Golden Touch' },
@@ -1543,7 +1574,7 @@ export default function ReportsScreen({ route }: any) {
     const sub = `Total por equipo · ${et}${jornadaSoloHoras ? ' · SOLO HORAS (sin precios)' : ''}`;
     // El nombre del archivo lleva el alcance: dos PDF de cortes distintos no se
     // pueden llamar igual, o el último pisa al anterior en la carpeta de descargas.
-    await exportPdf(pdfShell('TOTAL POR EQUIPO · JORNADA', sub, body),
+    await exportPdf(pdfShell('TOTAL POR EQUIPO · JORNADA', sub, body, roundsLogos),
       `Total por equipo ${et}${jornadaSoloHoras ? ' - solo horas' : ''}`);
   };
 
@@ -1620,7 +1651,7 @@ export default function ReportsScreen({ route }: any) {
         .map(
           (a) =>
             `<tr style="color:${st.color}">` +
-            `<td>${esc(a.machine)}${[a.plate, a.serial].filter(Boolean).length ? `<br/><span style="color:${st.tenue}">${esc([a.plate, a.serial].filter(Boolean).join(' · '))}</span>` : ''}</td>` +
+            `<td>${esc(a.machine)}${[a.plate, a.serial].filter(Boolean).length ? `<br/><span style="color:${st.tenue}">${esc([a.plate ? `Placa: ${a.plate}` : '', a.serial ? `Serial: ${a.serial}` : ''].filter(Boolean).join(' · '))}</span>` : ''}</td>` +
             `<td>${esc(a.tipo)}</td>` +
             `<td>${st.emoji} ${esc(a.clasificacion)}${a.motivo ? ` · ${esc(a.motivo)}` : ''}${a.sinTurno ? `<br/><span style="font-size:8.5px">🕓 Sin hora de registro (no se pudo ubicar el turno)</span>` : ''}</td>` +
             `<td style="text-align:center">0</td>` +
@@ -1647,7 +1678,8 @@ export default function ReportsScreen({ route }: any) {
         const rows = g.machines
           .map(
             (m) =>
-              `<tr><td>${esc(m.machine)}${[m.plate, m.serial].filter(Boolean).length ? `<br/><span style="color:#888">${esc([m.plate, m.serial].filter(Boolean).join(' · '))}</span>` : ''}${m.cierreMotivo ? `<br/><span style="color:#B45309;font-size:9px">📝 ${esc(m.cierreMotivo)}</span>` : ''}${m.cierreFinBy ? `<br/><span style="color:#1D4ED8;font-size:9px">🏁 Finalizó: ${esc(m.cierreFinBy)}</span>` : ''}${(() => {
+              `<tr><td>${esc(m.machine)}${[m.plate, m.serial].filter(Boolean).length ? `<br/><span style="color:#888">${esc([m.plate ? `Placa: ${m.plate}` : '', m.serial ? `Serial: ${m.serial}` : ''].filter(Boolean).join(' · '))}</span>` : ''}${m.cierreMotivo ? `<br/><span style="color:#B45309;font-size:9px">📝 ${esc(m.cierreMotivo)}</span>` : ''}${m.cierreFinBy ? `<br/><span style="color:#1D4ED8;font-size:9px">🏁 Finalizó: ${esc(m.cierreFinBy)}</span>` : ''}${(() => {
+                if (opRounds.sinHorometros) return '';
                 // 🕒 El horómetro de trabajo del rango: inicio → fin = horas, y el ✎
                 //    si alguien lo corrigió a mano en Control, con su motivo.
                 const linea = lineaHorometroJornada(horoJornadaRef.current.get(m.id));
@@ -1669,12 +1701,16 @@ export default function ReportsScreen({ route }: any) {
           )
           .join('');
         // Bloque de VIAJES (extra al subtotal). Agrupa las máquinas por precio unitario.
-        const viajesBlock = renderViajes(g);
+        const viajesBlock = opRounds.sinViajes ? '' : renderViajes(g);
         // Renglones-título que separan de las que trabajaron: 🔴 averiadas, 🟡 paradas y
         // ⏳ esperando instrucciones (cada uno solo si hay). Las columnas ☀️/🌙 dicen qué
         // pasó en cada turno.
-        const bloquesNT = bloqueNT(g.averias, 'averia') + bloqueNT(g.paradas, 'parada') + bloqueNT(g.espera, 'espera');
-        const estadoTag = tagNT(g.averias.length, 'averia') + tagNT(g.paradas.length, 'parada') + tagNT(g.espera.length, 'espera');
+        const bloquesNT = opRounds.sinNoTrabajaron
+          ? ''
+          : (bloqueNT(g.averias, 'averia') + bloqueNT(g.paradas, 'parada') + bloqueNT(g.espera, 'espera'));
+        const estadoTag = opRounds.sinNoTrabajaron
+          ? ''
+          : (tagNT(g.averias.length, 'averia') + tagNT(g.paradas.length, 'parada') + tagNT(g.espera.length, 'espera'));
         // El RIF solo tiene sentido cuando el título ES una empresa. Agrupado por
         // encargado, `g.company` es el nombre de una PERSONA y ponerle un RIF al
         // lado sería un dato falso.
@@ -1682,14 +1718,14 @@ export default function ReportsScreen({ route }: any) {
           ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : '';
         return `<h2>${icoVista} ${esc(g.company)}${rifTag} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span>${estadoTag}</h2>
           <table><thead>${head}</thead><tbody>${rows}${bloquesNT}</tbody>
-          <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${money && g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
+          <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${money && g.viajes.length && !opRounds.sinViajes ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.totalH)}</td>
             ${money ? `<td></td><td style="text-align:right;font-weight:800">${usd(g.totalUSD)}</td>` : ''}</tr></tfoot></table>${viajesBlock}`;
       })
       .join('');
-    const grandViajes = roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
+    const grandViajes = opRounds.sinViajes ? 0 : roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
     const grandUSD = roundGroups.reduce((s, g) => s + g.totalUSD, 0) + grandViajes;
     const grandH = roundGroups.reduce((s, g) => s + g.totalH, 0);
     const grandMachines = roundGroups.reduce((s, g) => s + g.machines.length, 0);
@@ -1713,7 +1749,7 @@ export default function ReportsScreen({ route }: any) {
     );
     const genWorked = roundGroups.reduce((s, g) => s + g.totalH, 0);
     const genAmount = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
-    const genFletes = roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
+    const genFletes = opRounds.sinViajes ? 0 : roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
     const genEquipos = grandMachines;
     // % que representa cada clasificación en base 100: sobre el MONTO cuando hay precios,
     // o sobre las HORAS en modo "solo horas" (así el % tiene sentido en ambos casos).
@@ -1726,19 +1762,19 @@ export default function ReportsScreen({ route }: any) {
       .join('');
     // Por empresa: equipos + FLETES = total a pagar (los fletes del rango se suman aquí).
     const empRows = roundGroups
-      .map((g) => `<tr><td>${esc(g.company)}</td><td style="text-align:right;font-weight:700">${g.machines.length}</td><td style="text-align:right">${nH(g.totalH)}</td>${money ? `<td style="text-align:right">${usd(g.totalUSD)}</td><td style="text-align:right">${g.viajesUSD > 0 ? usd(g.viajesUSD) : '—'}</td><td style="text-align:right;font-weight:800">${usd(g.totalUSD + g.viajesUSD)}</td>` : ''}</tr>`)
+      .map((g) => `<tr><td>${esc(g.company)}</td><td style="text-align:right;font-weight:700">${g.machines.length}</td><td style="text-align:right">${nH(g.totalH)}</td>${money ? `<td style="text-align:right">${usd(g.totalUSD)}</td><td style="text-align:right">${!opRounds.sinViajes && g.viajesUSD > 0 ? usd(g.viajesUSD) : '—'}</td><td style="text-align:right;font-weight:800">${usd(g.totalUSD + (opRounds.sinViajes ? 0 : g.viajesUSD))}</td>` : ''}</tr>`)
       .join('');
-    const generalBlockJ = `
+    const generalBlockJ = opRounds.sinResumenGeneral ? '' : `
       <h2 style="margin-top:20px">Reporte general</h2>
       <h3 style="margin:12px 0 2px">Total por clasificación</h3>
       <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th>${money ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th>' : ''}<th style="text-align:right">%</th></tr></thead>
       <tbody>${clasRows || `<tr><td colspan="${money ? 6 : 4}" style="text-align:center">Sin datos</td></tr>`}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td>${money ? `<td style="text-align:right">${phStr(genAmount, genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td>` : ''}<td style="text-align:right">${pctBase > 0 ? '100%' : '—'}</td></tr></tfoot></table>
-      <h3 style="margin:12px 0 2px">Totales por empresa${money ? ' (equipos + fletes)' : ''}</h3>
+      <h3 style="margin:12px 0 2px">Totales por empresa${money && !opRounds.sinViajes ? ' (equipos + fletes)' : ''}</h3>
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th>${money ? '<th style="text-align:right">Equipos $</th><th style="text-align:right">Fletes $</th><th style="text-align:right">Total a pagar</th>' : ''}</tr></thead>
       <tbody>${empRows || `<tr><td colspan="${money ? 6 : 3}" style="text-align:center">Sin datos</td></tr>`}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td>${money ? `<td style="text-align:right">${usd(genAmount)}</td><td style="text-align:right">${genFletes > 0 ? usd(genFletes) : '—'}</td><td style="text-align:right;font-weight:800">${usd(genAmount + genFletes)}</td>` : ''}</tr></tfoot></table>
-      ${money ? '<p class="muted" style="margin-top:6px">El "Total a pagar" por empresa incluye los fletes/viajes del rango. La tabla por clasificación es solo equipos (un flete no pertenece a una clasificación).</p>' : ''}`;
+      ${money && !opRounds.sinViajes ? '<p class="muted" style="margin-top:6px">El "Total a pagar" por empresa incluye los fletes/viajes del rango. La tabla por clasificación es solo equipos (un flete no pertenece a una clasificación).</p>' : ''}`;
     // ── MODO "% POR CLASIFICACIÓN" (12-sep-2026) ──────────────────────────────
     // Reporte independiente: SOLO la distribución por clasificación en base 100%.
     // Únicamente clasificaciones CON horas; muestra horas, monto y % (del monto total).
@@ -1759,7 +1795,7 @@ export default function ReportsScreen({ route }: any) {
         <div style="font-size:19px;font-weight:800;color:${color};margin-top:3px">${value}</div>
       </td>`;
     // Solo horas: una sola tarjeta grande (equipos + horas). Completo: horas + dinero.
-    const resumenTop = money
+    const resumenTop = opRounds.sinTarjetasTop ? '' : (money
       ? `
       <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
         ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#F3F6FB')}
@@ -1771,8 +1807,11 @@ export default function ReportsScreen({ route }: any) {
       <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
         ${resumenCard('Total de equipos', `${grandMachines}`, '#1E3A5F', '#F3F6FB')}
         ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#EEF3FB')}
-      </tr></tbody></table>`;
+      </tr></tbody></table>`);
     const soloPct = jornadaModo === 'porcentaje';
+    const notaExtraHtml = roundsNota.trim()
+      ? `<div style="margin-top:14px;padding:10px 14px;background:#F8FAFC;border:1px solid #CBD5E1;border-radius:6px;font-size:11px;color:#1E293B;text-transform:none"><b>OBSERVACIONES:</b> ${esc(roundsNota.trim())}</div>`
+      : '';
     const content = soloPct
       ? `
       <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}${roundsFiltroEq ? ` · ${roundsFiltroEq}` : ''}</div>
@@ -1780,13 +1819,15 @@ export default function ReportsScreen({ route }: any) {
         ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#F3F6FB')}
         ${resumenCard('Total $', usd(grandUSD), '#1E3A5F', '#EEF3FB')}
       </tr></tbody></table>
-      ${porcentajeBlock}`
+      ${porcentajeBlock}
+      ${notaExtraHtml}`
       : `
       <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}${roundsFiltroEq ? ` · ${roundsFiltroEq}` : ''}</div>
       ${resumenTop}
       ${generalBlockJ}
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
-      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)}${money ? ` · ${usd(grandUSD)}` : ''}</div>`;
+      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)}${money ? ` · ${usd(grandUSD)}` : ''}</div>
+      ${notaExtraHtml}`;
     // Nombre del archivo: "Reporte EMPRESA del DD al DD". Si es de una sola empresa lleva su
     // nombre; siempre incluye el rango de fechas.
     const rng = dateRangeLabel(from, to);
@@ -1803,7 +1844,8 @@ export default function ReportsScreen({ route }: any) {
       ? '% por clasificación · base 100%'
       : (porEnc ? 'Por encargado y maquinaria' : 'Por empresa y maquinaria') + (money ? '' : ' · SOLO HORAS (sin precios)'))
       + (roundsFiltroEq ? ` · ${roundsFiltroEq}` : '');
-    await exportPdf(pdfShell('INFORME POR JORNADA', sub, content), jornadaFile);
+    const tituloDoc = roundsTitulo.trim() ? roundsTitulo.trim().toUpperCase() : 'INFORME POR JORNADA';
+    await exportPdf(pdfShell(tituloDoc, sub, content, roundsLogos), jornadaFile);
   };
 
   // ── 📍 HISTÓRICO DE UBICACIONES (22-sep-2026) ─────────────────────────────
@@ -3967,6 +4009,75 @@ export default function ReportsScreen({ route }: any) {
                 );
               })}
             </View>
+
+            {/* 🏷️ LOGOS DEL MEMBRETE */}
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>¿Qué logos lleva el membrete?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {LOGOS_TAC.map((lg) => {
+                const on = roundsLogos[lg.key] ?? false;
+                return (
+                  <TouchableOpacity
+                    key={lg.key}
+                    onPress={() => setRoundsLogos((o) => ({ ...o, [lg.key]: !(o[lg.key] ?? false) }))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{on ? '☑' : '☐'} {lg.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                onPress={() => setRoundsLogos((o) => ({ ...o, sinMarcaTexto: !o.sinMarcaTexto }))}
+                style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: roundsLogos.sinMarcaTexto ? colors.warning : colors.border, backgroundColor: roundsLogos.sinMarcaTexto ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+              >
+                <Text style={{ color: roundsLogos.sinMarcaTexto ? '#fff' : colors.text, fontSize: 12, fontWeight: '700' }}>{roundsLogos.sinMarcaTexto ? '☑ Sin texto institucional' : '☐ Ocultar texto institucional'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* 🛠️ QUÉ SE OCULTA EN EL PDF */}
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>¿Qué se oculta en el PDF?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {PASTILLAS_JORNADA.map((pz) => {
+                const on = opRounds[pz.key];
+                return (
+                  <TouchableOpacity
+                    key={pz.key}
+                    onPress={() => setOpRounds((o) => ({ ...o, [pz.key]: !o[pz.key] }))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  >
+                    <Text style={{ color: on ? '#fff' : colors.text, fontSize: 12, fontWeight: '700' }}>{pz.chip}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* ✏️ OPCIONES AVANZADAS: Título y Nota personalizada */}
+            <TouchableOpacity
+              onPress={() => setRoundsCustomAbierto((v) => !v)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm }}
+            >
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>{roundsCustomAbierto ? '▼ Menos opciones de diseño' : '▶ Más opciones (Título personalizado y Notas)'}</Text>
+            </TouchableOpacity>
+
+            {roundsCustomAbierto ? (
+              <View style={{ marginTop: spacing.xs, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, gap: spacing.xs }}>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>Título del documento (opcional):</Text>
+                <TextInput
+                  value={roundsTitulo}
+                  onChangeText={setRoundsTitulo}
+                  placeholder="INFORME POR JORNADA"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, { height: 38, fontSize: 12 }]}
+                />
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Observaciones o nota al pie (opcional):</Text>
+                <TextInput
+                  value={roundsNota}
+                  onChangeText={setRoundsNota}
+                  placeholder="Ej: Reporte revisado y aprobado por gerencia..."
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, { height: 38, fontSize: 12 }]}
+                />
+              </View>
+            ) : null}
           </View>
         ) : null}
         {/* 📍 Ubicaciones: cuál de los DOS papeles sale. */}
@@ -5120,6 +5231,77 @@ export default function ReportsScreen({ route }: any) {
                 </TouchableOpacity>
               );
             })}
+          </View>
+
+          {/* 🛠️ Personalización del membrete y qué se oculta en el PDF */}
+          <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginBottom: spacing.sm }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800' }}>🎨 Personalizar membrete y opciones del PDF</Text>
+              <TouchableOpacity onPress={() => setRoundsCustomAbierto((v) => !v)}>
+                <Text style={{ color: colors.brand, fontSize: 11, fontWeight: '700' }}>{roundsCustomAbierto ? 'Ocultar extras ▲' : 'Modificar más ▼'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Chips de logos interactivos */}
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Logos en el membrete:</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+              {LOGOS_TAC.map((lg) => {
+                const on = roundsLogos[lg.key] ?? false;
+                return (
+                  <TouchableOpacity
+                    key={lg.key}
+                    onPress={() => setRoundsLogos((o) => ({ ...o, [lg.key]: !(o[lg.key] ?? false) }))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: 10, paddingVertical: 4 }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{on ? '☑' : '☐'} {lg.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                onPress={() => setRoundsLogos((o) => ({ ...o, sinMarcaTexto: !o.sinMarcaTexto }))}
+                style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: roundsLogos.sinMarcaTexto ? colors.warning : colors.border, backgroundColor: roundsLogos.sinMarcaTexto ? colors.warning : colors.surface, paddingHorizontal: 10, paddingVertical: 4 }}
+              >
+                <Text style={{ color: roundsLogos.sinMarcaTexto ? '#fff' : colors.text, fontSize: 11, fontWeight: '700' }}>{roundsLogos.sinMarcaTexto ? '☑ Sin texto institucional' : '☐ Ocultar texto institucional'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {roundsCustomAbierto ? (
+              <View style={{ gap: 6, marginTop: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>Ocultar en PDF:</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {PASTILLAS_JORNADA.map((pz) => {
+                    const on = opRounds[pz.key];
+                    return (
+                      <TouchableOpacity
+                        key={pz.key}
+                        onPress={() => setOpRounds((o) => ({ ...o, [pz.key]: !o[pz.key] }))}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surface, paddingHorizontal: 10, paddingVertical: 4 }}
+                      >
+                        <Text style={{ color: on ? '#fff' : colors.text, fontSize: 11, fontWeight: '700' }}>{pz.chip}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Título personalizado (opcional):</Text>
+                <TextInput
+                  value={roundsTitulo}
+                  onChangeText={setRoundsTitulo}
+                  placeholder="INFORME POR JORNADA"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, { height: 36, fontSize: 12 }]}
+                />
+
+                <Text style={{ color: colors.muted, fontSize: 11 }}>Observaciones / Nota final (opcional):</Text>
+                <TextInput
+                  value={roundsNota}
+                  onChangeText={setRoundsNota}
+                  placeholder="Notas adicionales al final del reporte..."
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, { height: 36, fontSize: 12 }]}
+                />
+              </View>
+            ) : null}
           </View>
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginBottom: spacing.sm }]} onPress={downloadRoundsPdf}>
             <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF{jornadaModo === 'horas' ? ' (solo horas)' : jornadaModo === 'porcentaje' ? ' (% clasificación)' : ''}</Text>
