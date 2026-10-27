@@ -99,34 +99,53 @@ export function parseFleteNote(raw?: string | null): ParsedFleteNote {
     operacionTipo = tipoDesdeMeta(meta);
     // Un exento no tiene estado: aunque la nota trajera uno (lo tenía antes de
     // cambiarlo a exento), se queda en 'pendiente' fijo y no se muestra.
-    if (operacionTipo !== 'exento' && (meta.includes('ESTADO:completado') || meta.includes('ESTADO:pagado') || meta.includes('ESTADO:cobrado'))) {
+    const estado = (valorMeta(meta, 'ESTADO') ?? '').toLowerCase();
+    if (operacionTipo !== 'exento' && (estado === 'completado' || estado === 'pagado' || estado === 'cobrado')) {
       operacionEstado = 'completado';
     }
-    const modMatch = meta.match(/MOD:([^|]+)/);
-    if (modMatch) modalidad = modMatch[1].trim();
-
-    const origMatch = meta.match(/ORIGEN:([^|]+)/);
-    if (origMatch) origen = origMatch[1].trim();
-
-    const destMatch = meta.match(/DEST:([^|]+)/);
-    if (destMatch) destino = destMatch[1].trim();
-
-    const condMatch = meta.match(/CHOF:([^|]+)/);
-    if (condMatch) conductor = condMatch[1].trim();
-
-    const ciMatch = meta.match(/CI:([^|]+)/);
-    if (ciMatch) cedulaConductor = ciMatch[1].trim();
-
-    const cliMatch = meta.match(/CLIENTE:([^|]+)/);
-    if (cliMatch) cliente = cliMatch[1].trim();
-
-    const vIdsMatch = meta.match(/VIAJES_IDS:([^|]+)/);
-    if (vIdsMatch) viajeIds = vIdsMatch[1].split(',').map((x) => x.trim()).filter(Boolean);
-
-    const tksMatch = meta.match(/TICKETS:([^|]+)/);
-    if (tksMatch) tickets = tksMatch[1].split(',').map((x) => x.trim()).filter(Boolean);
+    const mod = valorMeta(meta, 'MOD');
+    if (mod) modalidad = mod;
+    origen = valorMeta(meta, 'ORIGEN') ?? '';
+    destino = valorMeta(meta, 'DEST') ?? '';
+    conductor = valorMeta(meta, 'CHOF') ?? '';
+    cedulaConductor = valorMeta(meta, 'CI') ?? '';
+    cliente = valorMeta(meta, 'CLIENTE') ?? '';
+    viajeIds = (valorMeta(meta, 'VIAJES_IDS') ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    tickets = (valorMeta(meta, 'TICKETS') ?? '').split(',').map((x) => x.trim()).filter(Boolean);
   }
   return { operacionTipo, operacionEstado, modalidad, origen, destino, conductor, cedulaConductor, cliente, detalle, viajeIds, tickets };
+}
+
+/**
+ * El valor de una clave del metadato (`MOD`, `ORIGEN`, `CI`…) o null si no está.
+ * Se lee TOKEN por token (lo que va entre «|»): la clave tiene que ABRIR el token,
+ * y el valor es lo que sigue a su primer «:» (puede traer otros «:»). Antes se buscaba
+ * la clave en todo el metadato y un origen escrito a mano como «Planta CI: 3» le
+ * robaba la cédula al chofer, o uno con «ESTADO:pagado» daba el flete por pagado
+ * (27/10/2026). Las notas que escribe `formatFleteNote` se leen igual que antes.
+ */
+function valorMeta(meta: string, clave: string): string | null {
+  for (const token of String(meta || '').split('|')) {
+    const i = token.indexOf(':');
+    if (i > 0 && token.slice(0, i).trim() === clave) return token.slice(i + 1).trim();
+  }
+  return null;
+}
+
+/**
+ * Lo escrito a mano que va DENTRO del metadato (origen, destino, cliente, chofer…)
+ * no puede romperlo: «[» y «]» lo cortan y «|» parte un campo en dos — se perderían
+ * los VIAJES_IDS y esos viajes se podrían volver a importar (27/10/2026).
+ */
+export function limpiarCampoNota(s?: string | null, max = 240): string {
+  return String(s ?? '')
+    .replace(/\[/g, '(')
+    .replace(/\]/g, ')')
+    .replace(/\|/g, '/')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max)
+    .trim();
 }
 
 export function formatFleteNote(opts: {
@@ -147,23 +166,17 @@ export function formatFleteNote(opts: {
   // El tipo va SIEMPRE de primer token: es lo que lee `tipoDesdeMeta`.
   const parts = [esExento ? 'EXENTO' : opts.operacionTipo === 'cobrar' ? 'POR_COBRAR' : 'POR_PAGAR'];
   if (!esExento) parts.push(`ESTADO:${opts.operacionEstado || 'pendiente'}`);
-  if (opts.modalidad && opts.modalidad.trim()) {
-    parts.push(`MOD:${opts.modalidad.trim()}`);
-  }
-  if (opts.origen && opts.origen.trim()) {
-    parts.push(`ORIGEN:${opts.origen.trim()}`);
-  }
-  if (opts.destino && opts.destino.trim()) {
-    parts.push(`DEST:${opts.destino.trim()}`);
-  }
-  if (opts.conductor && opts.conductor.trim()) {
-    parts.push(`CHOF:${opts.conductor.trim()}`);
-  }
-  if (opts.cedulaConductor && opts.cedulaConductor.trim()) {
-    parts.push(`CI:${opts.cedulaConductor.trim()}`);
-  }
-  if (opts.cliente && opts.cliente.trim()) {
-    parts.push(`CLIENTE:${opts.cliente.trim()}`);
+  const campos: [string, string | undefined][] = [
+    ['MOD', opts.modalidad],
+    ['ORIGEN', opts.origen],
+    ['DEST', opts.destino],
+    ['CHOF', opts.conductor],
+    ['CI', opts.cedulaConductor],
+    ['CLIENTE', opts.cliente],
+  ];
+  for (const [clave, valor] of campos) {
+    const limpio = limpiarCampoNota(valor);
+    if (limpio) parts.push(`${clave}:${limpio}`);
   }
   if (opts.viajeIds && opts.viajeIds.length > 0) {
     parts.push(`VIAJES_IDS:${opts.viajeIds.join(',')}`);
@@ -174,6 +187,38 @@ export function formatFleteNote(opts: {
   const meta = `[${parts.join('|')}]`;
   const text = (opts.detalle || '').trim();
   return text ? `${meta} ${text}` : meta;
+}
+
+/**
+ * Rehace la nota de un flete cambiando SOLO lo que viene en `cambios` y conservando
+ * todo lo demás del metadato: modalidad, origen, destino, chofer, cédula, cliente,
+ * viajes y tickets (27/10/2026). Antes, cambiar el estado o editar el flete rehacía la
+ * nota con unos pocos campos y borraba el resto sin aviso.
+ */
+export function rehacerNotaFlete(
+  raw: string | null | undefined,
+  cambios: Partial<Parameters<typeof formatFleteNote>[0]>,
+): string {
+  const p = parseFleteNote(raw);
+  const meta = String(raw || '').trim().match(/^\[([^\]]+)\]/)?.[1] ?? '';
+  const base: Parameters<typeof formatFleteNote>[0] = {
+    operacionTipo: p.operacionTipo,
+    operacionEstado: p.operacionEstado,
+    // La modalidad solo si la nota la traía: el parser pone «Día / Jornada» por defecto.
+    modalidad: valorMeta(meta, 'MOD') ?? undefined,
+    origen: p.origen,
+    destino: p.destino,
+    conductor: p.conductor,
+    cedulaConductor: p.cedulaConductor,
+    cliente: p.cliente,
+    detalle: p.detalle,
+    viajeIds: p.viajeIds,
+    tickets: p.tickets,
+  };
+  for (const [k, v] of Object.entries(cambios)) {
+    if (v !== undefined) (base as any)[k] = v;
+  }
+  return formatFleteNote(base);
 }
 
 export interface TotalesFletes {

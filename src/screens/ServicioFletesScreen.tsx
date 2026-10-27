@@ -23,11 +23,21 @@ import {
   exportarReporteConsolidadoFletes,
   parseFleteNote,
   formatFleteNote,
+  rehacerNotaFlete,
   totalesFletes,
   ParsedFleteNote,
   FleteOperacionTipo,
 } from '../lib/fletePdf';
 import { Machinery } from '../types/database';
+import {
+  TrasladoRuta,
+  clasificarTraslados,
+  buscarTraslados,
+  rutaDeTraslados,
+  paresDeRuta,
+  MAX_LUGAR_FLETE,
+} from '../lib/fleteRutaTraslado';
+import { cargarRutasDeTraslados } from '../lib/fleteRutaTrasladoDb';
 
 // 🚫 Exento (26/10/2026): se registra pero no se cobra ni se paga. Gris pizarra,
 // para que no se confunda con el azul de «por pagar» ni el verde de «por cobrar».
@@ -116,6 +126,19 @@ export default function ServicioFletesScreen({ navigation }: any) {
   const [importCliente, setImportCliente] = useState('');
   const [importNote, setImportNote] = useState('');
   const [importSaving, setImportSaving] = useState(false);
+
+  // 📍 Ruta del flete (27/10/2026): origen y destino editables, y traerlos de Traslados y salidas.
+  const [formOrigen, setFormOrigen] = useState('');
+  const [formDestino, setFormDestino] = useState('');
+  const [importOrigen, setImportOrigen] = useState('');
+  const [importDestino, setImportDestino] = useState('');
+  const [rutaPara, setRutaPara] = useState<null | 'form' | 'import'>(null);
+  const [rutaTraslados, setRutaTraslados] = useState<TrasladoRuta[]>([]);
+  const [rutaCargando, setRutaCargando] = useState(false);
+  const [rutaError, setRutaError] = useState('');
+  const [rutaQuery, setRutaQuery] = useState('');
+  // El aviso va DENTRO del selector: un toast quedaría tapado por los modales.
+  const [rutaAviso, setRutaAviso] = useState('');
 
   // Cargar datos
   const loadData = useCallback(async () => {
@@ -225,6 +248,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
     setImportOperacionTipo('pagar');
     setImportCliente('');
     setImportNote('');
+    setImportOrigen('');
+    setImportDestino('');
     setImportModalVisible(true);
     if (defMachine) {
       fetchCandidateViajes(defMachine, today);
@@ -279,6 +304,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
       operacionTipo: importOperacionTipo,
       operacionEstado: 'pendiente',
       cliente: importCliente,
+      origen: importOrigen,
+      destino: importDestino,
       detalle: importNote || `Flete importado desde ${selectedViajeIds.length} viaje(s) de camión`,
       viajeIds: selectedViajeIds,
       tickets,
@@ -347,7 +374,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
         const plate = norm(f.machinery?.plate || '');
         const cli = norm(parsed.cliente || '');
         const note = norm(parsed.detalle || '');
-        const match = coName.includes(q) || code.includes(q) || plate.includes(q) || cli.includes(q) || note.includes(q);
+        const ruta = norm(`${parsed.origen || ''} ${parsed.destino || ''}`);
+        const match = coName.includes(q) || code.includes(q) || plate.includes(q) || cli.includes(q) || note.includes(q) || ruta.includes(q);
         if (!match) return false;
       }
 
@@ -385,6 +413,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
     setFormViajes('');
     setFormPrecio('');
     setFormNote('');
+    setFormOrigen('');
+    setFormDestino('');
     setModalVisible(true);
   };
 
@@ -401,6 +431,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
     setFormViajes(f.viajes != null ? String(f.viajes) : '');
     setFormPrecio(f.precio != null ? String(f.precio) : '');
     setFormNote(parsed.detalle || '');
+    setFormOrigen(parsed.origen || '');
+    setFormDestino(parsed.destino || '');
     setModalVisible(true);
   };
 
@@ -409,14 +441,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
     const parsed = parseFleteNote(f.note);
     if (parsed.operacionTipo === 'exento') return; // un exento no tiene estado
     const nuevoEstado = parsed.operacionEstado === 'completado' ? 'pendiente' : 'completado';
-    const nuevaNota = formatFleteNote({
-      operacionTipo: parsed.operacionTipo,
-      operacionEstado: nuevoEstado,
-      cliente: parsed.cliente,
-      detalle: parsed.detalle,
-      viajeIds: parsed.viajeIds,
-      tickets: parsed.tickets,
-    });
+    // Solo cambia el estado: la ruta, el chofer, los viajes… se conservan (27/10/2026).
+    const nuevaNota = rehacerNotaFlete(f.note, { operacionEstado: nuevoEstado });
 
     try {
       const { data, error } = await supabase
@@ -454,16 +480,23 @@ export default function ServicioFletesScreen({ navigation }: any) {
     const code = selectedM ? selectedM.code : 'General';
 
     const origFlete = editingFleteId ? fletes.find((x) => x.id === editingFleteId) : null;
-    const origParsed = origFlete ? parseFleteNote(origFlete.note) : null;
+    // Sin el flete original no se puede conservar su nota (viajes vinculados, chofer…): no se guarda.
+    if (editingFleteId && !origFlete) {
+      toast.error('No se encontró el flete en la lista: recarga la pantalla e inténtalo de nuevo.');
+      return;
+    }
 
-    const fullNote = formatFleteNote({
+    // Lo del formulario; lo que el formulario no muestra (modalidad, chofer, cédula,
+    // viajes, tickets) se conserva de la nota que ya tenía (27/10/2026).
+    const delFormulario = {
       operacionTipo: formOperacionTipo,
       operacionEstado: formOperacionEstado,
       cliente: formCliente,
       detalle: formNote,
-      viajeIds: origParsed?.viajeIds,
-      tickets: origParsed?.tickets,
-    });
+      origen: formOrigen,
+      destino: formDestino,
+    };
+    const fullNote = origFlete ? rehacerNotaFlete(origFlete.note, delFormulario) : formatFleteNote(delFormulario);
 
     setFormSaving(true);
     try {
@@ -514,6 +547,129 @@ export default function ServicioFletesScreen({ navigation }: any) {
       setFormSaving(false);
     }
   };
+
+  // 📍 Traer la ruta de Traslados y salidas (solo lee; se lee de nuevo cada vez que se abre).
+  const abrirTraslados = async (para: 'form' | 'import') => {
+    setRutaPara(para);
+    setRutaQuery('');
+    setRutaError('');
+    setRutaAviso('');
+    setRutaCargando(true);
+    try {
+      setRutaTraslados(await cargarRutasDeTraslados());
+    } catch (err: any) {
+      setRutaTraslados([]);
+      setRutaError(err?.message || String(err));
+    } finally {
+      setRutaCargando(false);
+    }
+  };
+
+  // El chuto y la fecha del flete que se está llenando, para proponer sus traslados.
+  const rutaContexto = useMemo(() => {
+    const mId = rutaPara === 'import' ? importMachineId : formMachineId;
+    const m = machinery.find((x) => x.id === mId);
+    return { hayCamion: !!m, plate: m?.plate ?? null, code: m?.code ?? '', fecha: rutaPara === 'import' ? importDate : formDate };
+  }, [rutaPara, importMachineId, formMachineId, machinery, importDate, formDate]);
+
+  const rutaListas = useMemo(
+    () => clasificarTraslados(rutaTraslados, { plate: rutaContexto.plate, fecha: rutaContexto.fecha }),
+    [rutaTraslados, rutaContexto],
+  );
+  // Rutas DISTINTAS del chuto ese día (dos traslados con la misma ruta cuentan una).
+  const rutasDelDia = useMemo(() => paresDeRuta(rutaListas.sugeridos).length, [rutaListas]);
+
+  // Llena los campos y cierra; lo traído se ve en los campos y se revisa antes de guardar.
+  const usarRuta = (lista: TrasladoRuta[]) => {
+    const r = rutaDeTraslados(lista);
+    if (!r) {
+      setRutaAviso('Ese traslado no tiene origen ni destino escritos: elige otro o escríbelos a mano.');
+      return;
+    }
+    if (r.origen.length > MAX_LUGAR_FLETE || r.destino.length > MAX_LUGAR_FLETE) {
+      setRutaAviso('Son demasiadas rutas para un solo flete: toca la que corresponde o escribe un resumen a mano.');
+      return;
+    }
+    if (rutaPara === 'import') {
+      setImportOrigen(r.origen);
+      setImportDestino(r.destino);
+    } else {
+      setFormOrigen(r.origen);
+      setFormDestino(r.destino);
+    }
+    setRutaPara(null);
+  };
+
+  // Los campos de origen y destino con su botón (se LLAMA como función: no pierde el foco).
+  const camposRuta = (
+    para: 'form' | 'import',
+    origen: string,
+    setOrigen: (v: string) => void,
+    destino: string,
+    setDestino: (v: string) => void,
+  ) => {
+    const estiloCampo = {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      padding: spacing.sm,
+      color: colors.text,
+      fontSize: 13,
+      marginTop: 2,
+    };
+    return (
+      <View style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>📍 Ruta del flete (opcional)</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4, flexWrap: 'wrap' }}>
+          <View style={{ flex: 1, minWidth: 140 }}>
+            <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>Origen / carga</Text>
+            <TextInput
+              value={origen}
+              onChangeText={setOrigen}
+              placeholder="De dónde sale"
+              placeholderTextColor={colors.muted}
+              maxLength={240}
+              style={estiloCampo}
+            />
+          </View>
+          <View style={{ flex: 1, minWidth: 140 }}>
+            <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>Destino / bote</Text>
+            <TextInput
+              value={destino}
+              onChangeText={setDestino}
+              placeholder="A dónde llega"
+              placeholderTextColor={colors.muted}
+              maxLength={240}
+              style={estiloCampo}
+            />
+          </View>
+        </View>
+        <TouchableOpacity
+          onPress={() => abrirTraslados(para)}
+          style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand, alignItems: 'center' }}
+        >
+          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12.5 }}>🚚 Traer de Traslados y salidas</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // Una fila de traslado en el selector.
+  const filaTraslado = (t: TrasladoRuta) => (
+    <TouchableOpacity
+      key={t.id}
+      onPress={() => usarRuta([t])}
+      style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}
+    >
+      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+        {t.origen || '(sin origen)'} → {t.destino || '(sin destino)'}
+      </Text>
+      <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+        📅 {t.fechaTxt || t.fechaIso || '—'}{t.equipo ? ` · ${t.equipo}` : ''}{t.chutoTxt ? ` · Chuto: ${t.chutoTxt}` : ''}{t.numero ? ` · ${t.numero}` : ''}
+      </Text>
+    </TouchableOpacity>
+  );
 
   // Eliminar flete
   const deleteFlete = async (id: string) => {
@@ -1065,6 +1221,13 @@ export default function ServicioFletesScreen({ navigation }: any) {
                       </View>
                     </View>
 
+                    {/* 📍 Ruta si la tiene (27/10/2026) */}
+                    {parsed.origen || parsed.destino ? (
+                      <Text style={{ color: colors.text, fontSize: 12, fontWeight: '600' }}>
+                        📍 {parsed.origen || '(sin origen)'} → {parsed.destino || '(sin destino)'}
+                      </Text>
+                    ) : null}
+
                     {/* Nota si existe */}
                     {parsed.detalle ? (
                       <View style={{ backgroundColor: colors.surfaceAlt, padding: 6, borderRadius: radius.sm, marginTop: 2 }}>
@@ -1366,6 +1529,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   </Text>
                   <TextInput
                     value={formCliente}
+                    maxLength={240}
                     onChangeText={setFormCliente}
                     placeholder="Ej. Inversiones El Carmen, C.A."
                     placeholderTextColor={colors.muted}
@@ -1510,9 +1674,12 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 );
               })()}
 
-              {/* Nota / Ruta */}
+              {/* 📍 Ruta: origen y destino (27/10/2026) */}
+              {camposRuta('form', formOrigen, setFormOrigen, formDestino, setFormDestino)}
+
+              {/* Nota */}
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>
-                📝 Detalle / Ruta / Observaciones (opcional)
+                📝 Detalle / Observaciones (opcional)
               </Text>
               <TextInput
                 value={formNote}
@@ -1771,6 +1938,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                   </Text>
                   <TextInput
                     value={importCliente}
+                    maxLength={240}
                     onChangeText={setImportCliente}
                     placeholder="Ej. Constructora ABC / Cantera Norte..."
                     placeholderTextColor={colors.muted}
@@ -1958,9 +2126,12 @@ export default function ServicioFletesScreen({ navigation }: any) {
                 })()}
               </View>
 
+              {/* 📍 Ruta: origen y destino (27/10/2026) */}
+              {camposRuta('import', importOrigen, setImportOrigen, importDestino, setImportDestino)}
+
               {/* Observaciones opcionales */}
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>
-                📝 Observaciones / Ruta (opcional)
+                📝 Observaciones (opcional)
               </Text>
               <TextInput
                 value={importNote}
@@ -2058,6 +2229,94 @@ export default function ServicioFletesScreen({ navigation }: any) {
             </ScrollView>
             <TouchableOpacity
               onPress={() => setImportMachinePicker(false)}
+              style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center' }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 📍 Selector de Traslados y salidas para la ruta (27/10/2026). Va de ÚLTIMO: en la
+          web gana el último modal montado y este se abre encima del formulario. */}
+      <Modal visible={rutaPara !== null} transparent animationType="fade" onRequestClose={() => setRutaPara(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, maxHeight: '85%', borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🚚 Traer ruta de Traslados y salidas</Text>
+            <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
+              {rutaContexto.code ? `${rutaContexto.code}${rutaContexto.plate ? ` · Placa: ${rutaContexto.plate}` : ''}` : 'Sin camión elegido'} · 📅 {fmtDate(rutaContexto.fecha)}. Toca un traslado para usar su ruta; podrás cambiarla antes de guardar.
+            </Text>
+            {rutaAviso ? (
+              <Text style={{ color: '#B45309', fontWeight: '700', fontSize: 12, marginBottom: spacing.sm }}>⚠️ {rutaAviso}</Text>
+            ) : null}
+            <TextInput
+              placeholder="🔍 Buscar otro traslado: lugar, equipo, placa, fecha, número…"
+              placeholderTextColor={colors.muted}
+              value={rutaQuery}
+              onChangeText={setRutaQuery}
+              style={{
+                backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: radius.md,
+                padding: spacing.md,
+                color: colors.text,
+                fontSize: 14,
+                marginBottom: spacing.sm,
+              }}
+            />
+            <ScrollView>
+              {rutaCargando ? (
+                <ActivityIndicator color={colors.brand} style={{ marginVertical: spacing.lg }} />
+              ) : rutaError ? (
+                <Text style={{ color: '#B91C1C', fontWeight: '700', marginVertical: spacing.md }}>⚠️ {rutaError}</Text>
+              ) : rutaQuery.trim() ? (
+                (() => {
+                  const res = buscarTraslados(rutaTraslados, rutaQuery);
+                  return res.length > 0 ? res.map(filaTraslado) : (
+                    <Text style={{ color: colors.muted, marginVertical: spacing.md }}>Ningún traslado coincide con «{rutaQuery.trim()}».</Text>
+                  );
+                })()
+              ) : (
+                <View>
+                  {rutaContexto.hayCamion ? (
+                    <>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: 4 }}>
+                        Mismo chuto ese día ({rutaListas.sugeridos.length})
+                      </Text>
+                      {rutaListas.sugeridos.length === 0 ? (
+                        <Text style={{ color: colors.muted, fontSize: 12, marginVertical: 4 }}>
+                          No hay traslados de este chuto ese día. Revisa los demás del día o búscalo arriba (la placa pudo escribirse distinto).
+                        </Text>
+                      ) : null}
+                      {rutasDelDia > 1 ? (
+                        <TouchableOpacity
+                          onPress={() => usarRuta(rutaListas.sugeridos)}
+                          style={{ marginVertical: 4, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand, alignItems: 'center' }}
+                        >
+                          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12.5 }}>
+                            Usar las {rutasDelDia} rutas del día
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {rutaListas.sugeridos.map(filaTraslado)}
+                    </>
+                  ) : (
+                    <Text style={{ color: colors.muted, fontSize: 12, marginVertical: 4 }}>
+                      Este flete no tiene camión elegido: abajo están los traslados de ese día, o búscalo arriba.
+                    </Text>
+                  )}
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md }}>
+                    {rutaContexto.hayCamion ? 'Otros traslados ese día' : 'Traslados de ese día'} ({rutaListas.mismaFecha.length})
+                  </Text>
+                  {rutaListas.mismaFecha.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, marginVertical: 4 }}>Ninguno.</Text>
+                  ) : rutaListas.mismaFecha.map(filaTraslado)}
+                </View>
+              )}
+            </ScrollView>
+            <TouchableOpacity
+              onPress={() => setRutaPara(null)}
               style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center' }}
             >
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>

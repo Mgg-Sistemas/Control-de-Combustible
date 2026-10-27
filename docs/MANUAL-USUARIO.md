@@ -8155,6 +8155,38 @@ Viajes** (tres botones). Para ver uno solo, usa las pastillas de arriba: **🔄 
 
 > El tipo se guarda al principio de la nota del flete: no hubo que correr nada en Supabase.
 
+### 📍 Origen y destino del flete (27/10/2026)
+
+Antes, los fletes importados de viajes salían en el comprobante con «Punto de origen no
+especificado» y «Zona de disposición autorizada». Ahora cada flete puede llevar su **ruta**:
+
+- En **➕ Registrar Flete / ✏️ Editar** y en **📥 Importar desde Viajes** está el recuadro
+  **«📍 Ruta del flete (opcional)»** con dos campos: **Origen / carga** y **Destino / bote**.
+  Se escriben a mano y se pueden cambiar o borrar cuando quieras.
+- **🚚 Traer de Traslados y salidas:** abre la lista de traslados registrados en ese módulo.
+  - Arriba salen los del **mismo chuto ese día** (se compara la placa del camión del flete —si es
+    compuesta, «CHUTO/LOWBOY», cada parte— con la placa del chuto o del lowboy del traslado, y la
+    fecha del flete con la del traslado).
+  - Debajo, **los otros traslados de ese día** (por si la placa se escribió distinto).
+  - Con el **buscador** se encuentra cualquier otro por lugar, equipo, placa, fecha o número.
+  - **Toca uno** y su origen y destino pasan a los campos. Si ese día el chuto hizo varios, el
+    botón **«Usar las N rutas del día»** las pone todas, en el orden en que se registraron
+    («HOTEL / RESIDENCIA» → «RESIDENCIA / CALLE»).
+  - Lo traído **se revisa y se puede cambiar antes de guardar**. Traslados y salidas solo se
+    LEE: no se le cambia nada.
+- La ruta sale en la **tarjeta del flete** (📍 origen → destino), en el **📄 Comprobante (PDF)**
+  y entra en el **buscador** de la lista.
+
+> ⚠️ El traslado no guarda hora ni tique: si ese día hubo varios, el sistema **no adivina** cuál
+> viaje fue cuál; te los muestra y eliges tú. Si la placa del chuto se escribió mal en el
+> traslado, no aparece arriba: búscalo con el buscador.
+
+> 🔒 Arreglo de paso: antes, **cambiar el estado** (⏳ Pendiente ↔ ✅ Pagado) o **editar** un flete
+> rehacía su nota con pocos datos y borraba sin aviso la ruta, el chofer, la cédula y la
+> modalidad. Ahora se conserva todo lo que el flete ya tenía; solo cambia lo que tocaste. Lo
+> escrito a mano con «[», «]» o «|» se guarda como «(», «)» y «/» para no dañar los viajes
+> vinculados. Tampoco hubo que correr nada en Supabase.
+
 ---
 
 ## 5. Cosas que sirven en TODAS las secciones

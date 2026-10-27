@@ -1201,6 +1201,15 @@ const SECTIONS: Sec[] = [
         '📑 Reporte consolidado (PDF): los exentos salen en una tabla aparte («Fletes exentos · no se cobran ni se pagan») con su propio total y una tarjeta que dice cuántos son. NO se suman al total por pagar, al total por cobrar ni a la fila de totales. Si en lo filtrado no hay exentos, el reporte sale como siempre.',
       ] },
       { t: 'note', text: 'El tipo se guarda al principio de la nota del flete: no hubo que correr nada en Supabase.' },
+      { t: 'p', text: '📍 ORIGEN Y DESTINO DEL FLETE (27/10/2026). Antes, los fletes importados de viajes salían en el comprobante con «Punto de origen no especificado». Ahora cada flete puede llevar su ruta:' },
+      { t: 'bullets', items: [
+        'En ➕ Registrar Flete / ✏️ Editar y en 📥 Importar desde Viajes está el recuadro «📍 Ruta del flete (opcional)» con Origen / carga y Destino / bote. Se escriben a mano y se pueden cambiar o borrar cuando quieras.',
+        '🚚 Traer de Traslados y salidas: arriba salen los traslados del MISMO CHUTO ESE DÍA (se compara la placa del camión del flete —si es compuesta, cada parte— con la del chuto o del lowboy del traslado, y la fecha). Debajo, los otros traslados de ese día, y con el buscador cualquier otro por lugar, equipo, placa, fecha o número.',
+        'Toca uno y su origen y destino pasan a los campos. Si el chuto hizo varios ese día, «Usar las N rutas del día» las pone todas en el orden en que se registraron. Lo traído se revisa y se puede cambiar antes de guardar. Traslados y salidas solo se LEE: no se le cambia nada.',
+        'La ruta sale en la tarjeta del flete (📍 origen → destino), en el 📄 Comprobante (PDF) y entra en el buscador de la lista.',
+      ] },
+      { t: 'note', text: '⚠️ El traslado no guarda hora ni tique: si ese día hubo varios, el sistema no adivina cuál viaje fue cuál; te los muestra y eliges tú. Si la placa del chuto se escribió mal en el traslado, búscalo con el buscador.' },
+      { t: 'note', text: '🔒 Arreglo de paso: antes, cambiar el estado (⏳ Pendiente ↔ ✅ Pagado) o editar un flete rehacía su nota y borraba sin aviso la ruta, el chofer, la cédula y la modalidad. Ahora se conserva todo lo que el flete ya tenía. Lo escrito con «[», «]» o «|» se guarda como «(», «)» y «/» para no dañar los viajes vinculados. No hubo que correr nada en Supabase.' },
     ],
   },
   {
