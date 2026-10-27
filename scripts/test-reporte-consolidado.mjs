@@ -276,6 +276,19 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     && /solo 2 estados/.test(C.sufijoArchivoConsolidado({ ...OP, soloEstados: ['Operativa', 'En espera'] })));
   ok('⚙️ la tarjeta tiene la pastilla SOLO ESTOS ESTADOS',
     /SOLO ESTOS ESTADOS/.test(card) && /soloEstados/.test(card));
+  // ⏱️ 27-oct-2026: sinPagos y personalización de título
+  const F_HORAS = [
+    { id: 'h1', code: 'JUMBO 330', placa: 'PL1', empresa: 'A', montos: { jornadas: 1500, horometros: 0 }, cant: { jornadas: 25 } },
+  ];
+  const cuerpoSinPagos = C.cuerpoConsolidado({ filas: F_HORAS, desde: '2026-10-01', hasta: '2026-10-07' }, { ...OP, sinPagos: true });
+  ok('⏱️ sinPagos: cabecera dice TOTAL HORAS en vez de TOTAL a secas', cuerpoSinPagos.includes('TOTAL HORAS'));
+  ok('⏱️ sinPagos: no imprime signo $ en la celda de la máquina', !cuerpoSinPagos.includes('$1.500') && cuerpoSinPagos.includes('25 h'));
+  ok('⏱️ sufijoArchivoConsolidado nombra solo horas', /solo horas/.test(C.sufijoArchivoConsolidado({ ...OP, sinPagos: true })));
+  ok('⏱️ sufijoArchivoConsolidado nombra sin título', /sin título/.test(C.sufijoArchivoConsolidado({ ...OP, sinTitulo: true })));
+  ok('⏱️ nombreArchivoConsolidado adopta título personalizado',
+    /Reporte Especial de Horas/.test(C.nombreArchivoConsolidado('2026-10-01', '2026-10-07', { ...OP, tituloDoc: 'Reporte Especial de Horas' })));
+  ok('⏱️ la tarjeta tiene el toggle sinPagos y título personalizado',
+    /Quitar columna de pagos/.test(card) && /TÍTULO DEL DOCUMENTO/.test(card) && /tituloDoc/.test(card));
   ok('…con sus pastillas de agrupar y el filtro por categoría',
     /🏷️ Por categoría/.test(card) && /⛏️ Por frente/.test(card) && /soloCategorias/.test(card));
 

@@ -303,8 +303,11 @@ export function ReporteConsolidadoCard() {
       const filtrado = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0
         || (op.soloCategorias ?? []).length > 0 || (op.soloFrentes ?? []).length > 0
         || (op.soloEncargados ?? []).length > 0;
+      const tituloFinal = op.sinTitulo
+        ? ''
+        : (op.tituloDoc?.trim() || (op.sinPagos ? 'Reporte de horas trabajadas de maquinaria' : 'Reporte consolidado de pagos'));
       const html = pdfDocument({
-        title: 'Reporte consolidado de pagos',
+        title: tituloFinal,
         subtitle: subtituloConsolidado(rangoCalculado, op, filtrado),
         extraCss: CSS_CONSOLIDADO,
         body: cuerpoConsolidado({ filas, filasAnterior: filasAnt, desde: rangoCalculado.desde, hasta: rangoCalculado.hasta, viajesTon, dias: porDia }, opFull, edicion),
@@ -409,10 +412,19 @@ export function ReporteConsolidadoCard() {
       {/* Totales en vivo */}
       {t ? (
         <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
-          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>💰 {usd(t.total)}</Text>
+          {op.sinPagos ? (
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>
+              ⏱️ {((t.cantPorFuente.jornadas ?? 0) + (t.cantPorFuente.horometros ?? 0)).toLocaleString('es-VE', { maximumFractionDigits: 1 })} h trabajadas (maquinaria)
+            </Text>
+          ) : (
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>💰 {usd(t.total)}</Text>
+          )}
           <Text style={{ color: colors.muted, fontSize: 11.5 }}>
             {FUENTES_ORDEN.filter((k) => op.fuentes[k] !== 'oculta').map((k) => {
               const respaldo = cantTexto(k, t.cantPorFuente[k]);
+              if (op.sinPagos) {
+                return `${FUENTES_META[k].icon} ${respaldo || '—'}${op.fuentes[k] === 'muestra' ? ' (no suma)' : ''}`;
+              }
               return `${FUENTES_META[k].icon} ${usd(t.porFuente[k])}${respaldo ? ` (${respaldo})` : ''}${op.fuentes[k] === 'muestra' ? ' (no suma)' : ''}`;
             }).join(' · ')}
           </Text>
@@ -690,6 +702,25 @@ export function ReporteConsolidadoCard() {
       <Toggle on={!op.sinPlaca} label="🔢 Placa / serial" onPress={() => setOp((p) => ({ ...p, sinPlaca: !p.sinPlaca }))} />
       <Toggle on={!op.sinMarcaModelo} label="🏷️ Marca y modelo (nace apagada)" onPress={() => setOp((p) => ({ ...p, sinMarcaModelo: !p.sinMarcaModelo }))} />
       <Toggle on={!op.sinEmpresas} label="🏢 Nombres de empresa" ayuda="Apagado, no salen por ninguna parte (ni el cuadro por empresa)." onPress={() => setOp((p) => ({ ...p, sinEmpresas: !p.sinEmpresas }))} />
+      <Toggle on={op.sinPagos} label="⏱️ Quitar columna de pagos (solo imprimir información de horas)" ayuda="Oculta los montos en dinero y deja visible solo las horas trabajadas y cantidades." onPress={() => setOp((p) => ({ ...p, sinPagos: !p.sinPagos }))} />
+
+      {/* ✏️ Quitar o cambiar el título del documento */}
+      <View style={{ marginTop: spacing.xs, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+        <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>✏️ TÍTULO DEL DOCUMENTO</Text>
+        <Toggle on={op.sinTitulo} label="🚫 Ocultar título (sin título en el encabezado)" onPress={() => setOp((p) => ({ ...p, sinTitulo: !p.sinTitulo }))} />
+        {!op.sinTitulo ? (
+          <View style={{ marginTop: 4 }}>
+            <Text style={{ color: colors.muted, fontSize: 10.5 }}>Título personalizado (vacío = título por defecto):</Text>
+            <TextInput
+              value={op.tituloDoc ?? ''}
+              onChangeText={(txt) => setOp((p) => ({ ...p, tituloDoc: txt }))}
+              placeholder={op.sinPagos ? 'Reporte de horas trabajadas de maquinaria' : 'Reporte consolidado de pagos'}
+              placeholderTextColor={colors.muted}
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text, fontSize: 12, marginTop: 2 }}
+            />
+          </View>
+        ) : null}
+      </View>
 
       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.xs }}>🏷️ QUÉ LOGOS LLEVA EL MEMBRETE</Text>
       {LOGOS.map(([k, label]) => <Toggle key={`lg-${k}`} on={logos[k]} label={label} onPress={() => setLogos((p) => ({ ...p, [k]: !p[k] }))} />)}
