@@ -89,6 +89,8 @@ export type FilaConsolidada = {
   frente?: string | null;
   /** 👤 El responsable / encargado asignado a la máquina o vehículo (22-oct-2026, a pedido). */
   encargado?: string | null;
+  /** ⚙️ Estado de la máquina (Operativa, En espera, Inoperativa / Parada, Inactiva). */
+  estado?: string | null;
   montos: Partial<Record<FuenteKey, number>>;
   /** ⚖️ Lo que la selección automática descartó PORQUE EL PESO MANDA en el
    *  camión (21-oct-2026, tarde): montos de viajes/jornada/horómetro que no se
@@ -252,6 +254,8 @@ export type OpcionesConsolidado = {
    *  «poder agrupar o sacarlo por encargado»). «Sin encargado» también se
    *  puede marcar. Cambia el total: va FILTRADO. */
   soloEncargados?: string[];
+  /** ⚙️ ESTADOS marcados (Operativa, En espera, Inoperativa / Parada, Inactiva); vacío = todos. Cambia el total: va FILTRADO. */
+  soloEstados?: string[];
   /** ⚠️ AVISA LOS DÍAS SIN HORÓMETRO QUE LA JORNADA SÍ CUBRIRÍA (22-oct-2026,
    *  a pedido: «ese cambio tiene sentido y debería ser así, correcto?»). La
    *  selección automática decide por MÁQUINA en todo el rango: si una máquina
@@ -568,6 +572,7 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
   const empresas = new Set((op.soloEmpresas ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const categorias = new Set((op.soloCategorias ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const encargados = new Set((op.soloEncargados ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
+  const estados = new Set((op.soloEstados ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   // Los frentes vienen de DOS catálogos escritos a mano: el filtro no distingue
   // mayúsculas NI acentos («Túnel» marca también a «TUNEL»).
   const idxF = indiceFrentesConsolidado(filas, null, op);
@@ -579,6 +584,7 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
     .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
     .filter((f) => frentes.size === 0 || frentes.has(idxF.clave(frenteDe(f))))
     .filter((f) => encargados.size === 0 || encargados.has(encargadoDe(f).toLowerCase()))
+    .filter((f) => estados.size === 0 || estados.has(String(f.estado ?? 'Operativa').trim().toLowerCase()))
     .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0)
       // 🕐 El camión pasado a jornada SIN jornada en el rango queda en $0, pero
       //    NO desaparece: el papel dice que se eligió así y cuánto se descartó.
@@ -1490,6 +1496,9 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   const encs = (op.soloEncargados ?? []).map((e) => e.trim()).filter(Boolean);
   if (encs.length === 1) partes.push(`solo ${encs[0].toLowerCase()}`);
   else if (encs.length > 1) partes.push(`solo ${encs.length} encargados`);
+  const ests = (op.soloEstados ?? []).map((e) => e.trim()).filter(Boolean);
+  if (ests.length === 1) partes.push(`solo ${ests[0].toLowerCase()}`);
+  else if (ests.length > 1) partes.push(`solo ${ests.length} estados`);
   // 🕐 Camiones con peso pasados a jornada: cambia la PLATA, va al nombre.
   const nJor = (op.camionesPorJornada ?? []).length;
   if (op.seleccionAutomatica && nJor > 0) partes.push(`${nJor} camión(es) con peso por jornada`);

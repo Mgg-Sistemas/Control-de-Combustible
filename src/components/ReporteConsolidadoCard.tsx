@@ -133,8 +133,8 @@ export function ReporteConsolidadoCard() {
         cargarAjustesHorometro(antDesde, hasta),
         cargarCierresHorometro(),
         cargarCambiosHorometro(antDesde, hasta),
-        // 🏷️👤 La clasificación y encargado del catálogo (filtrar y agrupar).
-        selectAllRows('machinery', 'id, clasificacion, encargado').catch(() => [] as any[]),
+        // 🏷️👤⚙️ La clasificación, encargado y estado del catálogo (filtrar y agrupar).
+        selectAllRows('machinery', 'id, clasificacion, encargado, operational, en_espera, active, transferida').catch(() => [] as any[]),
         // ⛏️ El frente vigente a la fecha FINAL del rango (si falta el SQL de
         //    frentes, el papel sale todo en «Sin frente» y nada revienta).
         listAsignacionesHasta(hasta, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [], missing: true })),
@@ -155,9 +155,16 @@ export function ReporteConsolidadoCard() {
       if (pDatos.faltaSql) nuevosAvisos.push('⚖️ Peso: falta el SQL de tarifas por peso — esa columna sale en $0.');
       if (dias > 92) nuevosAvisos.push('⚙️ Horómetros solo cubre hasta 92 días por rango.');
 
-      // id → clasificación del catálogo, id → encargado, y id → frente vigente al final del rango.
+      // id → clasificación del catálogo, id → encargado, id → estado, y id → frente vigente al final del rango.
       const catPorId = new Map<string, string>((catalogo as any[]).map((m) => [String(m.id), String(m.clasificacion ?? '').trim()]));
       const encargadoPorId = new Map<string, string>((catalogo as any[]).map((m) => [String(m.id), String(m.encargado ?? '').trim()]));
+      const estadoDe = (m: any): string => {
+        if (m.active === false) return 'Inactiva';
+        if (m.en_espera === true) return 'En espera';
+        if (m.operational === false) return m.transferida === true ? 'Transferida' : 'Inoperativa / Parada';
+        return 'Operativa';
+      };
+      const estadoPorId = new Map<string, string>((catalogo as any[]).map((m) => [String(m.id), estadoDe(m)]));
       const frentePorId = new Map<string, string>(
         vigentesAlDia((asigsFrente as any).asignaciones ?? [], hasta).map((a: any) => [String(a.machineryId), String(a.frenteNombre ?? '').trim()]),
       );
@@ -228,13 +235,14 @@ export function ReporteConsolidadoCard() {
           // El respaldo son los KG pagados (el papel los pinta en toneladas)
           suma(fila(r.machineryId, r.code, r.placa ?? ficha?.placa ?? '', r.empresa || 'Sin empresa', ficha?.marca, ficha?.modelo), 'peso', r.monto, r.kg);
         }
-        // 🏷️⛏️👤 A cada fila se le pega su categoría, su frente y su encargado (vacío =
-        //    «Sin clasificación» / «Sin frente» / «Sin encargado», lo resuelve la lib).
+        // 🏷️⛏️👤⚙️ A cada fila se le pega su categoría, su frente, su encargado y su estado (vacío =
+        //    «Sin clasificación» / «Sin frente» / «Sin encargado» / «Operativa», lo resuelve la lib).
         return Array.from(porId.values()).map((f) => ({
           ...f,
           categoria: catPorId.get(f.id) || null,
           frente: frentePorId.get(f.id) || null,
           encargado: encargadoPorId.get(f.id) || fichasV?.get(f.id)?.encargado || fichasP?.get(f.id)?.encargado || null,
+          estado: estadoPorId.get(f.id) || 'Operativa',
         }));
       };
 
@@ -507,6 +515,27 @@ export function ReporteConsolidadoCard() {
         </View>
       ) : null}
 
+      {/* ⚙️ Solo uno (o varios) estados: Operativa, En espera, Inoperativa / Parada, Inactiva. Filtrar cambia el total → FILTRADO. */}
+      {filas?.length ? (
+        <View>
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⚙️ SOLO ESTOS ESTADOS (vacío = todos)</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
+            <Pastilla on={(op.soloEstados ?? []).length === 0} label="⬛ Todos" onPress={() => setOp((p) => ({ ...p, soloEstados: [] }))} />
+            {Array.from(new Set(filas.map((f) => String(f.estado ?? 'Operativa')))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })).map((est) => {
+              const on = (op.soloEstados ?? []).includes(est);
+              return (
+                <Pastilla key={`est-${est}`} on={on} label={`${on ? '☑️' : '⬜'} ${est}`} onPress={() =>
+                  setOp((p) => {
+                    const s = new Set(p.soloEstados ?? []);
+                    on ? s.delete(est) : s.add(est);
+                    return { ...p, soloEstados: Array.from(s) };
+                  })} />
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
       {/* Quitar máquinas */}
       {filas?.length ? (
         <View>
@@ -529,7 +558,7 @@ export function ReporteConsolidadoCard() {
                     <TouchableOpacity key={f.id} onPress={() => setOp((p) => { const s = new Set(p.soloMaquinas ?? []); on ? s.delete(f.id) : s.add(f.id); return { ...p, soloMaquinas: Array.from(s) }; })}
                       style={{ flexDirection: 'row', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                       <Text style={{ width: 24, fontSize: 13 }}>{on ? '☑️' : '⬜'}</Text>
-                      <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>{f.code}{f.placa ? ` · ${f.placa}` : ''} <Text style={{ color: colors.muted }}>· {f.empresa}</Text></Text>
+                      <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>{f.code}{f.placa ? ` · ${f.placa}` : ''} <Text style={{ color: colors.muted }}>· {f.empresa}{f.estado ? ` · ${f.estado}` : ''}</Text></Text>
                     </TouchableOpacity>
                   );
                 })}
