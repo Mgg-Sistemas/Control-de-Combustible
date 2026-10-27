@@ -9,6 +9,60 @@ import type { InventoryRequirement, RequirementLine, Supplier } from '../types/d
 
 export const LIMITE_MONTO_GERENTE_GENERAL_USD = 1000;
 
+export interface ReglaAprobacionMonto {
+  montoLimiteUSD: number;
+  empresaId: string | null; // null = Todas las empresas
+  empresaNombre?: string | null;
+  aprobadoresIds: string[]; // Lista de IDs de usuarios autorizados
+  aprobadoresNombres: string[]; // Lista de nombres de personas/cargos autorizados
+  activo?: boolean;
+}
+
+export const REGLA_APROBACION_DEFAULT: ReglaAprobacionMonto = {
+  montoLimiteUSD: 1000,
+  empresaId: null,
+  empresaNombre: 'Todas las empresas',
+  aprobadoresIds: [],
+  aprobadoresNombres: ['Gerencia General'],
+  activo: true,
+};
+
+const STORAGE_KEY_REGLA_APROBACION = 'compras_regla_aprobacion_monto_v1';
+
+let memoriaReglaAprobacion: ReglaAprobacionMonto = { ...REGLA_APROBACION_DEFAULT };
+
+export function obtenerConfigAprobacionMonto(): ReglaAprobacionMonto {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = window.localStorage.getItem(STORAGE_KEY_REGLA_APROBACION);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed.montoLimiteUSD === 'number' && parsed.montoLimiteUSD >= 0) {
+          memoriaReglaAprobacion = {
+            ...REGLA_APROBACION_DEFAULT,
+            ...parsed,
+          };
+          return memoriaReglaAprobacion;
+        }
+      }
+    }
+  } catch (e) {
+    // Silencioso, usa memoria
+  }
+  return memoriaReglaAprobacion;
+}
+
+export function guardarConfigAprobacionMonto(regla: ReglaAprobacionMonto): void {
+  memoriaReglaAprobacion = { ...regla };
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(STORAGE_KEY_REGLA_APROBACION, JSON.stringify(regla));
+    }
+  } catch (e) {
+    // Silencioso
+  }
+}
+
 export type CodigoEstadoDinamico =
   | 'esperando_proveedor'
   | 'esperando_cotizacion'
@@ -32,6 +86,10 @@ export interface InfoEstadoRequerimiento {
   tieneCotizacionCompleta: boolean;
   proveedoresNombres: string[];
   esMultiProveedor: boolean;
+  montoLimiteAplicado?: number;
+  empresaReglaAplicada?: string | null;
+  aprobadoresNombres?: string[];
+  aprobadoresIds?: string[];
 }
 
 /**
@@ -77,7 +135,8 @@ export function obtenerProveedorDeLinea(
 export function calcularEstadoRequerimiento(
   r: InventoryRequirement,
   rateBcv?: number | null,
-  proveedorGeneral?: Supplier | null
+  proveedorGeneral?: Supplier | null,
+  configOverride?: ReglaAprobacionMonto | null
 ): InfoEstadoRequerimiento {
   const totalUSD = calcularTotalReqUsd(r.items || [], rateBcv);
 
@@ -192,15 +251,25 @@ export function calcularEstadoRequerimiento(
   }
 
   // 5. Tiene Proveedor Y Cotización cargada:
-  // Aplicar Regla de Negocio de Seguridad por Monto (> $1,000 USD)
-  const superaLimiteGG = totalUSD > LIMITE_MONTO_GERENTE_GENERAL_USD;
+  // Aplicar Regla de Negocio Dinámica de Aprobación por Monto, Empresa y Personas
+  const cfg = configOverride || obtenerConfigAprobacionMonto();
+  const limiteUSD = Number(cfg?.montoLimiteUSD) > 0 ? Number(cfg.montoLimiteUSD) : LIMITE_MONTO_GERENTE_GENERAL_USD;
+  const aplicaEmpresa = !cfg?.empresaId || r.company_id === cfg.empresaId;
+  const reglaActiva = cfg?.activo !== false;
+  const superaLimiteGG = aplicaEmpresa && reglaActiva && totalUSD > limiteUSD;
   const yaAprobadoGG = Boolean(r.gerente_aprobado || (r.status === 'aprobado' && r.decided_by));
+
+  const textoMonto = limiteUSD.toLocaleString('en-US');
+  const sufijoEmpresa = cfg?.empresaId && cfg?.empresaNombre ? ` [${cfg.empresaNombre}]` : '';
+  const aprobadoresTxt = (cfg?.aprobadoresNombres && cfg.aprobadoresNombres.length > 0)
+    ? cfg.aprobadoresNombres.join(', ')
+    : 'Gerente General';
 
   if (superaLimiteGG && !yaAprobadoGG) {
     return {
       codigo: 'esperando_aprobacion_gg',
-      label: '👔 Esperando Aprobación del Gerente General (> $1,000 USD)',
-      short: 'Aprobación GG (> $1k)',
+      label: `👔 Esperando Aprobación de ${aprobadoresTxt} (> $${textoMonto} USD)${sufijoEmpresa}`,
+      short: `Aprobación (> $${textoMonto})${sufijoEmpresa}`,
       color: '#7C3AED',
       bg: '#F5F3FF',
       icon: '👔',
@@ -210,10 +279,14 @@ export function calcularEstadoRequerimiento(
       tieneCotizacionCompleta: true,
       proveedoresNombres,
       esMultiProveedor,
+      montoLimiteAplicado: limiteUSD,
+      empresaReglaAplicada: cfg?.empresaNombre || null,
+      aprobadoresNombres: cfg?.aprobadoresNombres || [],
+      aprobadoresIds: cfg?.aprobadoresIds || [],
     };
   }
 
-  // 6. Si ya fue autorizado o el monto es <= $1,000 USD: pasa a "esperando pago"
+  // 6. Si ya fue autorizado o el monto es <= límite: pasa a "esperando pago"
   if (r.status !== 'aprobado' && !r.decided_by) {
     return {
       codigo: 'esperando_pago',
@@ -228,13 +301,17 @@ export function calcularEstadoRequerimiento(
       tieneCotizacionCompleta: true,
       proveedoresNombres,
       esMultiProveedor,
+      montoLimiteAplicado: limiteUSD,
+      empresaReglaAplicada: cfg?.empresaNombre || null,
+      aprobadoresNombres: cfg?.aprobadoresNombres || [],
+      aprobadoresIds: cfg?.aprobadoresIds || [],
     };
   }
 
   // 7. Si está formalmente aprobado
   return {
     codigo: 'aprobado',
-    label: superaLimiteGG ? '✅ Aprobado por GG / En Gestión de Pago' : '✅ Aprobado / En Gestión de Pago',
+    label: superaLimiteGG ? `✅ Aprobado / En Gestión de Pago (> $${textoMonto})` : '✅ Aprobado / En Gestión de Pago',
     short: 'Aprobado',
     color: '#059669',
     bg: '#ECFDF5',
@@ -245,5 +322,9 @@ export function calcularEstadoRequerimiento(
     tieneCotizacionCompleta: true,
     proveedoresNombres,
     esMultiProveedor,
+    montoLimiteAplicado: limiteUSD,
+    empresaReglaAplicada: cfg?.empresaNombre || null,
+    aprobadoresNombres: cfg?.aprobadoresNombres || [],
+    aprobadoresIds: cfg?.aprobadoresIds || [],
   };
 }

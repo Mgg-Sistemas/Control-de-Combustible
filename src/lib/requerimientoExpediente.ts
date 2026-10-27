@@ -27,6 +27,20 @@ export interface FacturaData {
   monto?: number | null;
 }
 
+export interface ReciboPagoData {
+  url: string | null;
+  tipo: 'image' | 'pdf';
+  nombre?: string | null;
+  referencia?: string | null;
+  monto?: number | null;
+  fecha?: string | null;
+  metodo?: string | null;
+  banco?: string | null;
+  subidoPor?: string | null;
+  subidoAt?: string | null;
+  nota?: string | null;
+}
+
 export interface DespachoAlmacenData {
   estado: 'disponible' | 'retirado';
   retiradoPor?: string | null;
@@ -138,6 +152,7 @@ export function limpiarObservacionesUsuario(obs?: string | null): string {
   return obs
     .replace(/\[PROVEEDOR SUGERIDO(?:\s*\([^)]*\))?:[^\]]+\]/gi, '')
     .replace(/\[FACTURA PROVEEDOR:[^\]]+\]/gi, '')
+    .replace(/\[RECIBO PAGO:[^\]]+\]/gi, '')
     .replace(/\[DESPACHO ALMACEN:[^\]]+\]/gi, '')
     .replace(/\[RECEPCIÓN ALMACÉN:[^\]]+\]/gi, '')
     .trim();
@@ -211,6 +226,62 @@ export function inyectarFacturaEnObservaciones(
   if (!factura || !factura.numero.trim()) return base;
 
   const tag = `[FACTURA PROVEEDOR: Nro: ${factura.numero.trim()} | Empresa: ${factura.empresa} | Fecha: ${factura.fecha || ''} | Url: ${factura.url || ''} | Tipo: ${factura.tipo || 'image'} | Nombre: ${factura.nombre || ''} | SubidaPor: ${factura.subidaPor || ''} | SubidaAt: ${factura.subidaAt || ''}]`;
+  return base ? `${base}\n${tag}` : tag;
+}
+
+/**
+ * Extrae los datos del recibo o comprobante de pago cargado en el requerimiento
+ */
+export function extraerReciboPago(r: Partial<InventoryRequirement>): ReciboPagoData | null {
+  if (!r) return null;
+  const anyR = r as any;
+  if (anyR.recibo_pago_url || anyR.comprobante_pago_url) {
+    return {
+      url: anyR.recibo_pago_url || anyR.comprobante_pago_url,
+      tipo: anyR.recibo_pago_tipo === 'pdf' ? 'pdf' : 'image',
+      nombre: anyR.recibo_pago_nombre || 'Recibo de pago',
+      referencia: anyR.recibo_pago_ref || null,
+      monto: anyR.recibo_pago_monto ? Number(anyR.recibo_pago_monto) : null,
+      fecha: anyR.recibo_pago_fecha || null,
+      metodo: anyR.recibo_pago_metodo || null,
+      subidoPor: anyR.recibo_pago_subido_por || null,
+      subidoAt: anyR.recibo_pago_subido_at || null,
+    };
+  }
+
+  const obs = r.observaciones || '';
+  const match = obs.match(/\[RECIBO PAGO:\s*Url:\s*([^|]*)\|\s*Tipo:\s*([^|]*)\|\s*Nombre:\s*([^|]*)\|\s*Fecha:\s*([^|]*)\|\s*Ref:\s*([^|]*)\|\s*Monto:\s*([^|]*)\|\s*Metodo:\s*([^|]*)\|\s*SubidoPor:\s*([^|]*)\|\s*SubidoAt:\s*([^\]]*)\]/i);
+  if (match) {
+    const url = match[1].trim();
+    if (url) {
+      return {
+        url,
+        tipo: (match[2].trim() as any) === 'pdf' ? 'pdf' : 'image',
+        nombre: match[3].trim() || 'Recibo de pago',
+        fecha: match[4].trim() || null,
+        referencia: match[5].trim() || null,
+        monto: match[6].trim() ? Number(match[6].trim()) : null,
+        metodo: match[7].trim() || null,
+        subidoPor: match[8].trim() || null,
+        subidoAt: match[9].trim() || null,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Inyecta o actualiza la etiqueta de recibo de pago en las observaciones del requerimiento
+ */
+export function inyectarReciboPagoEnObservaciones(
+  obs: string | null | undefined,
+  recibo: ReciboPagoData | null
+): string {
+  let base = (obs || '').replace(/\[RECIBO PAGO:[^\]]+\]/gi, '').trim();
+  if (!recibo || !recibo.url) return base;
+
+  const tag = `[RECIBO PAGO: Url: ${recibo.url} | Tipo: ${recibo.tipo || 'image'} | Nombre: ${recibo.nombre || 'Recibo de pago'} | Fecha: ${recibo.fecha || ''} | Ref: ${recibo.referencia || ''} | Monto: ${recibo.monto ?? ''} | Metodo: ${recibo.metodo || ''} | SubidoPor: ${recibo.subidoPor || ''} | SubidoAt: ${recibo.subidoAt || new Date().toISOString()}]`;
   return base ? `${base}\n${tag}` : tag;
 }
 

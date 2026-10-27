@@ -35,6 +35,14 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { matchNorm, norm, cmpText } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
+import {
+  extraerReciboPagoCuenta,
+  inyectarReciboPagoEnNota,
+  extraerComprobanteAbono,
+  inyectarComprobanteEnAbonoNota,
+  limpiarNotaCuentasVisual,
+  type ReciboPagoInfo,
+} from '../lib/cuentasPago';
 
 // Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
 type Prioridad = 'alta' | 'media' | 'baja';
@@ -204,6 +212,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [orderId, setOrderId] = useState<string | null>(null);          // orden de compra atada (opcional)
   const [facturaUrl, setFacturaUrl] = useState<string | null>(null);    // archivo de la factura
   const [subiendoFactura, setSubiendoFactura] = useState(false);
+  const [reciboPagoUrl, setReciboPagoUrl] = useState<string | null>(null); // soporte/recibo de pago
+  const [subiendoReciboPago, setSubiendoReciboPago] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // Órdenes de compra ligables (con etiqueta legible). Solo las de esta contraparte
@@ -219,11 +229,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [abFecha, setAbFecha] = useState(hoy);
   const [abMetodo, setAbMetodo] = useState('');
   const [abRef, setAbRef] = useState('');
+  const [abComprobanteUrl, setAbComprobanteUrl] = useState<string | null>(null);
+  const [subiendoAbComprobante, setSubiendoAbComprobante] = useState(false);
 
   const abrirNueva = () => {
     setEdit(null); setContraparteId(null); setConcepto(''); setDocumento('');
     setMonto(''); setEmision(hoy); setVence(''); setNota('');
-    setPrioridad(null); setOrderId(null); setFacturaUrl(null);
+    setPrioridad(null); setOrderId(null); setFacturaUrl(null); setReciboPagoUrl(null);
     setOpen(true);
   };
   const abrirEdicion = (c: Cuenta) => {
@@ -234,10 +246,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     setMonto(String(Number(c.monto) || 0));
     setEmision(c.fecha_emision);
     setVence(c.fecha_vencimiento ?? '');
-    setNota(c.nota ?? '');
+    setNota(limpiarNotaCuentasVisual(c.nota));
     setPrioridad((c.prioridad as Prioridad) ?? null);
     setOrderId(c.order_id ?? null);
     setFacturaUrl(c.factura_url ?? null);
+    const rp = extraerReciboPagoCuenta(c);
+    setReciboPagoUrl(rp?.url ?? null);
     setOpen(true);
   };
 
@@ -251,6 +265,25 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     } finally { setSubiendoFactura(false); }
   };
 
+  // Sube el RECIBO DE PAGO (imagen/PDF) al bucket y guarda su URL en el estado del formulario.
+  const subirReciboPago = async () => {
+    setSubiendoReciboPago(true);
+    try {
+      const r = await pickAndUploadDocFile('recibos_pago', edit?.id ?? 'cuentas');
+      if (r.ok && r.url) { setReciboPagoUrl(r.url); toast.success('Recibo de pago adjuntado.'); }
+      else if (r.error) toast.error(r.error);
+    } finally { setSubiendoReciboPago(false); }
+  };
+
+  const subirComprobanteAbono = async () => {
+    setSubiendoAbComprobante(true);
+    try {
+      const r = await pickAndUploadDocFile('abonos_comprobantes', abonoDe?.id ?? 'abonos');
+      if (r.ok && r.url) { setAbComprobanteUrl(r.url); toast.success('Comprobante de abono adjuntado.'); }
+      else if (r.error) toast.error(r.error);
+    } finally { setSubiendoAbComprobante(false); }
+  };
+
   const guardar = async () => {
     // La contraparte es OBLIGATORIA y va por id: la base tiene un CHECK que
     // rechaza cualquier cuenta sin ella (o con las dos a la vez).
@@ -261,6 +294,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     if (!fechaValida(emision)) return toast.error('La fecha de emisión debe ser AAAA-MM-DD.');
     if (vence && !fechaValida(vence)) return toast.error('La fecha de vencimiento debe ser AAAA-MM-DD.');
     if (vence && vence < emision) return toast.error('El vencimiento no puede ser anterior a la emisión.');
+
+    const notaLimpia = limpiarNotaCuentasVisual(nota);
+    const notaFinal = inyectarReciboPagoEnNota(
+      notaLimpia,
+      reciboPagoUrl ? { url: reciboPagoUrl, tipo: 'image', nombre: 'Recibo de pago', subidoPor: session?.user?.email || 'Administración' } : null
+    );
 
     const fila = {
       tipo,
@@ -274,7 +313,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       monto: importe,
       fecha_emision: emision,
       fecha_vencimiento: vence || null,
-      nota: nota.trim() || null,
+      nota: notaFinal,
     };
 
     setBusy(true);
@@ -367,7 +406,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     }
   };
 
-  const abrirAbono = (c: CuentaCalc) => { setAbonoDe(c); setAbMonto(String(c.saldo || '')); setAbFecha(hoy); setAbMetodo(''); setAbRef(''); };
+  const abrirAbono = (c: CuentaCalc) => {
+    setAbonoDe(c); setAbMonto(String(c.saldo || '')); setAbFecha(hoy); setAbMetodo(''); setAbRef('');
+    setAbComprobanteUrl(null);
+  };
 
   const guardarAbono = async () => {
     if (!abonoDe) return;
@@ -376,9 +418,14 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     if (importe > abonoDe.saldo) return toast.error(`El abono no puede pasar del saldo (${usd(abonoDe.saldo)}).`);
     if (!fechaValida(abFecha)) return toast.error('La fecha del abono debe ser AAAA-MM-DD.');
     setBusy(true);
+    const notaAbonoFinal = inyectarComprobanteEnAbonoNota(
+      null,
+      abComprobanteUrl ? { url: abComprobanteUrl, tipo: 'image', nombre: 'Soporte abono' } : null
+    );
     const { error } = await supabase.from('cuenta_abonos').insert({
       cuenta_id: abonoDe.id, monto: importe, fecha: abFecha,
       metodo: abMetodo.trim() || null, referencia: abRef.trim() || null,
+      nota: notaAbonoFinal,
       created_by: session?.user?.id ?? null,
     });
     setBusy(false);
@@ -523,22 +570,49 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Saldo: {usd(c.saldo)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Emitida: {fmtFecha(c.fecha_emision)}</Text>
                 {c.order_id ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🧾 Atada a una orden de compra</Text> : null}
-                {c.nota ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {c.nota}</Text> : null}
-                {c.factura_url ? (
-                  <TouchableOpacity onPress={() => Linking.openURL(c.factura_url!)} style={{ alignSelf: 'flex-start', marginTop: spacing.xs, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>📎 Ver factura</Text>
-                  </TouchableOpacity>
+                {c.nota && limpiarNotaCuentasVisual(c.nota) ? (
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {limpiarNotaCuentasVisual(c.nota)}</Text>
                 ) : null}
+
+                {/* Soportes adjuntos: Factura y Recibo de Pago */}
+                {(() => {
+                  const rp = extraerReciboPagoCuenta(c);
+                  if (!c.factura_url && !rp?.url) return null;
+                  return (
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                      {c.factura_url ? (
+                        <TouchableOpacity onPress={() => Linking.openURL(c.factura_url!)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>📎 Ver factura</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {rp?.url ? (
+                        <TouchableOpacity onPress={() => Linking.openURL(rp.url!)} style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                          <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>💳 Ver recibo de pago</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  );
+                })()}
 
                 {/* Historial de abonos de esta cuenta */}
                 {abonos.filter((a) => a.cuenta_id === c.id).length > 0 ? (
                   <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                     <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>Abonos</Text>
-                    {abonos.filter((a) => a.cuenta_id === c.id).map((a) => (
-                      <Text key={a.id} style={{ color: colors.muted, fontSize: 12 }}>
-                        • {fmtFecha(a.fecha)} · {usd(Number(a.monto) || 0)}{a.metodo ? ` · ${a.metodo}` : ''}{a.referencia ? ` · ${a.referencia}` : ''}
-                      </Text>
-                    ))}
+                    {abonos.filter((a) => a.cuenta_id === c.id).map((a) => {
+                      const abComp = extraerComprobanteAbono(a);
+                      return (
+                        <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, marginTop: 3 }}>
+                          <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
+                            • {fmtFecha(a.fecha)} · {usd(Number(a.monto) || 0)}{a.metodo ? ` · ${a.metodo}` : ''}{a.referencia ? ` · ${a.referencia}` : ''}
+                          </Text>
+                          {abComp?.url ? (
+                            <TouchableOpacity onPress={() => Linking.openURL(abComp.url!)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>📎 Soporte</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      );
+                    })}
                   </View>
                 ) : null}
 
@@ -702,6 +776,28 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               )}
             </Card>
 
+            {/* Recibo / Comprobante de Pago (archivo imagen/PDF, opcional) */}
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>💳 Recibo o Comprobante de Pago (transferencia / banco / recibo, opcional)</Text>
+              {reciboPagoUrl ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+                  <TouchableOpacity onPress={() => Linking.openURL(reciboPagoUrl)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>💳 Ver recibo adjunto</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={subirReciboPago} disabled={subiendoReciboPago} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>{subiendoReciboPago ? 'Subiendo…' : 'Reemplazar'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setReciboPagoUrl(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
+                    <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>Quitar ✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity onPress={subirReciboPago} disabled={subiendoReciboPago} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoReciboPago ? 0.6 : 1 }}>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoReciboPago ? 'Subiendo…' : '💳 Adjuntar recibo de pago'}</Text>
+                </TouchableOpacity>
+              )}
+            </Card>
+
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
@@ -736,6 +832,26 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Referencia (opcional)</Text>
                   <TextInput value={abRef} onChangeText={setAbRef} autoCapitalize="none" placeholder="Nº de transferencia / hash / correo" placeholderTextColor={colors.muted} style={inputStyle} />
                 </Card>
+
+                {/* Comprobante del abono (opcional) */}
+                <Card>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>📎 Comprobante de transferencia / pago de este abono (opcional)</Text>
+                  {abComprobanteUrl ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+                      <TouchableOpacity onPress={() => Linking.openURL(abComprobanteUrl)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📎 Ver soporte adjunto</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setAbComprobanteUrl(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
+                        <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>Quitar ✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity onPress={subirComprobanteAbono} disabled={subiendoAbComprobante} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoAbComprobante ? 0.6 : 1 }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoAbComprobante ? 'Subiendo…' : '📎 Adjuntar soporte de abono'}</Text>
+                    </TouchableOpacity>
+                  )}
+                </Card>
+
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
                   Saldo después del abono: {usd(Math.max(0, abonoDe.saldo - parseNum(abMonto)))}
                 </Text>
