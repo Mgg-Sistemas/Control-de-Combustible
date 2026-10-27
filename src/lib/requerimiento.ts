@@ -19,6 +19,7 @@ export type ReqPdfItem = {
   price_usd?: number;
   price_bs?: number;
   cotizaciones_count?: number;
+  metodo_pago?: string | null;
 };
 export type ReqPdfData = {
   code?: string | null;
@@ -126,10 +127,7 @@ const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-
       .reqsum{margin-bottom:16px;page-break-inside:avoid}
       .reqsum + .reqsum{border-top:1px dashed #c9d2dc;padding-top:14px;margin-top:2px}`;
 
-/** Filas de la tabla + total en US$ de UN requerimiento (compartido entre
- *  el PDF con firma y el resumen sin firma). El precio unitario se muestra
- *  siempre en US$ (si el ítem se cargó en Bs, se convierte con la tasa del
- *  día solo para este cálculo; el documento no muestra Bs ni la tasa). */
+/** Filas de la tabla + total en US$ y Bs de UN requerimiento */
 function reqTableHtml(d: ReqPdfData): {
   rows: string;
   totalUsd: number;
@@ -137,26 +135,41 @@ function reqTableHtml(d: ReqPdfData): {
   baseImponibleUsd: number;
   exentoUsd: number;
   ivaUsd: number;
+  totalBs: number;
+  subtotalBs: number;
+  baseImponibleBs: number;
+  exentoBs: number;
+  ivaBs: number;
   alicuota: number;
   hasImg: boolean;
 } {
-  // La columna "Imagen" solo sale si ALGÚN producto trae imagen (así los
-  // requerimientos viejos sin fotos se ven igual que siempre).
   const hasImg = d.items.some((it) => !!it.image);
   let subtotalUsd = 0;
   let baseImponibleUsd = 0;
+  let subtotalBs = 0;
+  let baseImponibleBs = 0;
 
   const rows = d.items.map((it, i) => {
+    const qty = Number(it.qty) || 0;
     const uUsd = toUsd(Number(it.est_price) || 0, it.currency, d.rate);
-    const lineUsd = uUsd * (Number(it.qty) || 0);
+    const lineUsd = uUsd * qty;
+    const lineBs = (it.price_bs && Number(it.price_bs) > 0)
+      ? Number(it.price_bs) * qty
+      : (d.rate && d.rate > 0 ? lineUsd * d.rate : 0);
+
     subtotalUsd += lineUsd;
+    subtotalBs += lineBs;
     if (!it.exento) {
       baseImponibleUsd += lineUsd;
+      baseImponibleBs += lineBs;
     }
     const imgCell = hasImg ? `<td class="c">${it.image ? `<img class="pimg" src="${it.image}"/>` : ''}</td>` : '';
     const desc = it.note ? `<div class="pdesc">📐 ${esc(it.note)}</div>` : '';
     const provLine = it.supplier_name && it.supplier_name !== d.proveedor
       ? `<div class="pdesc" style="color:#2563EB;font-weight:700">🏢 Proveedor: ${esc(it.supplier_name)}</div>`
+      : '';
+    const metodoLine = it.metodo_pago
+      ? `<div class="pdesc" style="color:#0D9488;font-weight:700">💳 Método cotizado: ${esc(it.metodo_pago)}</div>`
       : '';
     const exentoBadge = it.exento
       ? `<span style="background:#E0F2FE;color:#0369A1;font-size:9px;padding:1px 5px;border-radius:4px;font-weight:800;margin-left:4px">🛡️ EXENTO DE IVA</span>`
@@ -164,13 +177,15 @@ function reqTableHtml(d: ReqPdfData): {
     const cotBadge = it.cotizaciones_count && it.cotizaciones_count > 0
       ? `<div class="pdesc" style="color:#7C3AED;font-weight:700">📋 ${it.cotizaciones_count} cotizaciones evaluadas</div>`
       : '';
-    const bsSubtext = d.rate && d.rate > 0
-      ? `<div style="font-size:9px;color:#6B7280;font-weight:normal">Bs ${money(lineUsd * d.rate)}</div>`
-      : '';
+    const bsSubtext = lineBs > 0
+      ? `<div style="font-size:9px;color:#0D9488;font-weight:700">Bs ${money(lineBs)}</div>`
+      : (d.rate && d.rate > 0
+        ? `<div style="font-size:9px;color:#6B7280;font-weight:normal">Bs ${money(lineUsd * d.rate)}</div>`
+        : '');
 
     return `<tr>
       <td class="c">${i + 1}</td>
-      <td>${esc(it.name)}${it.isNew ? ' <span class="new">NUEVO</span>' : ''}${exentoBadge}${desc}${provLine}${cotBadge}</td>
+      <td>${esc(it.name)}${it.isNew ? ' <span class="new">NUEVO</span>' : ''}${exentoBadge}${desc}${provLine}${metodoLine}${cotBadge}</td>
       ${imgCell}
       <td class="c">${money(it.qty)} ${esc(it.unit || '')}</td>
       <td class="r">$${money(uUsd)}</td>
@@ -179,13 +194,16 @@ function reqTableHtml(d: ReqPdfData): {
   }).join('');
 
   const exentoUsd = subtotalUsd - baseImponibleUsd;
+  const exentoBs = subtotalBs - baseImponibleBs;
   const alicuota = d.ivaAlicuota !== undefined && d.ivaAlicuota !== null
     ? Math.min(100, Math.max(0, Number(d.ivaAlicuota)))
     : 16;
   const ivaUsd = Math.round(baseImponibleUsd * (alicuota / 100) * 100) / 100;
+  const ivaBs = Math.round(baseImponibleBs * (alicuota / 100) * 100) / 100;
   const totalUsd = Math.round((subtotalUsd + ivaUsd) * 100) / 100;
+  const totalBs = Math.round((subtotalBs + ivaBs) * 100) / 100;
 
-  return { rows, totalUsd, subtotalUsd, baseImponibleUsd, exentoUsd, ivaUsd, alicuota, hasImg };
+  return { rows, totalUsd, subtotalUsd, baseImponibleUsd, exentoUsd, ivaUsd, totalBs, subtotalBs, baseImponibleBs, exentoBs, ivaBs, alicuota, hasImg };
 }
 
 /** Fichas con los datos DECLARADOS en el papel (20-oct-2026): el cliente pidió que
@@ -255,9 +273,9 @@ function reqTheadHtml(hasImg: boolean): string {
 }
 
 function reqTotalsBlockHtml(res: ReturnType<typeof reqTableHtml>, rate: number | null): string {
-  const { subtotalUsd, baseImponibleUsd, exentoUsd, ivaUsd, totalUsd, alicuota } = res;
+  const { subtotalUsd, baseImponibleUsd, exentoUsd, ivaUsd, totalUsd, totalBs, alicuota } = res;
   return `
-    <div style="margin-top:12px;border-top:1.5px solid #16324F;padding-top:6px;max-width:320px;margin-left:auto;font-size:11px">
+    <div style="margin-top:12px;border-top:1.5px solid #16324F;padding-top:6px;max-width:340px;margin-left:auto;font-size:11px">
       <div style="display:flex;justify-content:space-between;margin-bottom:2px">
         <span style="color:#555">Subtotal:</span>
         <b>$${money(subtotalUsd)}</b>
@@ -277,12 +295,18 @@ function reqTotalsBlockHtml(res: ReturnType<typeof reqTableHtml>, rate: number |
       </div>
       <div style="display:flex;justify-content:space-between;border-top:1px solid #c9d2dc;padding-top:4px;font-size:13px;color:#16324F;font-weight:900">
         <span>TOTAL ESTIMADO:</span>
-        <span>$${money(totalUsd)}</span>
+        <div style="text-align:right">
+          <div>$${money(totalUsd)}</div>
+          ${totalBs > 0 ? `<div style="font-size:11px;color:#0D9488;font-weight:800">Bs ${money(totalBs)}</div>` : ''}
+        </div>
       </div>
-      ${rate && rate > 0 ? `
+      ${totalBs > 0 && totalUsd > 0 && Math.abs((totalBs / totalUsd) - (rate || 0)) > 0.1 ? `
+      <div style="text-align:right;color:#666;font-size:9.5px;margin-top:2px">
+        Tasa efectiva: Bs ${money(totalBs / totalUsd)} por USD ${rate ? `(BCV: ${money(rate)})` : ''}
+      </div>` : (rate && rate > 0 ? `
       <div style="text-align:right;color:#666;font-size:10px;margin-top:2px">
         ≈ Bs ${money(totalUsd * rate)} (Tasa: ${money(rate)})
-      </div>` : ''}
+      </div>` : '')}
     </div>`;
 }
 

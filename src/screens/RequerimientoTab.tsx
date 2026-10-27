@@ -21,7 +21,8 @@ import { leerNumero } from '../lib/numeros';
 import { rawCaseField } from '../lib/fonts';
 import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee, Cuenta } from '../types/database';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
-import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile } from '../lib/photo';
+import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile, pickAndUploadRequirementFiles, pickAndUploadDocFiles } from '../lib/photo';
+import { FormatoAdjunto, empaquetarFormatosEnObservaciones, extraerFormatosAdjuntos, limpiarObservacionesFormatos } from '../lib/formatosAdjuntos';
 import * as ImagePicker from 'expo-image-picker';
 import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
 import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
@@ -91,10 +92,22 @@ function Pill({ label, color }: { label: string; color: string }) {
 export interface PresupuestoItem {
   id: string;
   proveedor: string;
+  metodo_pago?: string;
   precio_usd: string;
   precio_bs: string;
   nota?: string;
 }
+
+export const METODOS_PAGO_COTIZACION = [
+  { key: 'efectivo_usd', label: 'Efectivo USD', icon: '💵' },
+  { key: 'pago_movil', label: 'Pago Móvil / Transf. Bs', icon: '📱' },
+  { key: 'zelle', label: 'Zelle', icon: '⚡' },
+  { key: 'transferencia_usd', label: 'Banesco Panamá / Transf. $', icon: '🏦' },
+  { key: 'debito', label: 'Punto / Débito', icon: '💳' },
+  { key: 'binance', label: 'Binance USDT', icon: '🟡' },
+  { key: 'credito', label: 'Crédito', icon: '⏳' },
+  { key: 'otro', label: 'Otro', icon: '✏️' },
+];
 
 type ReqRow = {
   key: string;
@@ -109,6 +122,7 @@ type ReqRow = {
   image_url: string;
   supplier_id?: string | null;
   supplier_name?: string | null;
+  metodo_pago?: string | null;
   exento?: boolean;    // 🧾 Cuadrito Exento de IVA
   presupuestos?: PresupuestoItem[]; // 📋 Cotizaciones alternas
   presupuestosAbierto?: boolean;
@@ -350,7 +364,8 @@ function ItemSupplierPicker({
 }
 
 export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === 'dark';
   const { session, role, moduleLevel } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
@@ -578,8 +593,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [formErr, setFormErr] = useState<string | null>(null);                    // error visible DENTRO del Modal (el toast queda tapado)
   const [subiendoId, setSubiendoId] = useState<string | null>(null);              // formato subiendo
   const [previewReq, setPreviewReq] = useState<InventoryRequirement | null>(null); // vista previa del formato
-  // Formato (imagen/PDF) adjuntado AL CREAR/EDITAR el requerimiento (antes de guardar).
-  const [formato, setFormato] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
+  const [previewIndex, setPreviewIndex] = useState(0);                            // índice del formato activo en la vista previa
+  // Formatos (imágenes/PDFs) adjuntados AL CREAR/EDITAR el requerimiento (dos o más archivos).
+  const [formatos, setFormatos] = useState<FormatoAdjunto[]>([]);
   const [subiendoNuevo, setSubiendoNuevo] = useState(false);
   const [subiendoImgKey, setSubiendoImgKey] = useState<string | null>(null); // imagen de producto subiéndose
 
@@ -713,28 +729,30 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const upd = (key: string, field: keyof ReqRow, val: any) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
   const rm = (key: string) => setRows((r) => r.filter((x) => x.key !== key));
 
-  // Manejo de precio en dólares ($ USD): auto-calcula bolívares según tasa BCV,
-  // permitiendo que el usuario lo modifique manualmente en cualquier momento.
+  // Manejo de precio en dólares ($ USD): solo auto-calcula bolívares si Bs está vacío o en 0,
+  // permitiendo que el usuario ingrese ambos montos manualmente con total independencia.
   const handlePrecioUsdChange = (key: string, val: string) => {
     const clean = onlyDecimal(val);
     const numUsd = parseNum(clean);
     setRows((r) => r.map((x) => {
       if (x.key !== key) return x;
-      const nuevoBs = rate && rate > 0 && numUsd > 0
+      const bsVacio = !x.price_bs || x.price_bs === '' || x.price_bs === '0' || x.price_bs === '0.00';
+      const nuevoBs = bsVacio && rate && rate > 0 && numUsd > 0
         ? (Math.round(numUsd * rate * 100) / 100).toFixed(2).replace(/\.00$/, '')
-        : (clean === '' || clean === '0' ? '0' : x.price_bs);
+        : (clean === '' ? '' : x.price_bs);
       return { ...x, price: clean, price_bs: nuevoBs };
     }));
   };
 
-  // Manejo de precio en bolívares (Bs): lo que coloque manualmente el usuario se queda allí
+  // Manejo de precio en bolívares (Bs): lo que coloque manualmente el usuario se queda allí.
+  // Solo sugiere USD si USD estaba vacío o en 0.
   const handlePrecioBsChange = (key: string, val: string) => {
     const clean = onlyDecimal(val);
     const numBs = parseNum(clean);
     setRows((r) => r.map((x) => {
       if (x.key !== key) return x;
-      // Si el precio en dólares estaba en 0 o vacío, auto-calcula el USD correspondiente
-      const nuevoUsd = (x.price === '' || x.price === '0') && rate && rate > 0 && numBs > 0
+      const usdVacio = !x.price || x.price === '' || x.price === '0' || x.price === '0.00';
+      const nuevoUsd = usdVacio && rate && rate > 0 && numBs > 0
         ? (Math.round((numBs / rate) * 100) / 100).toFixed(2).replace(/\.00$/, '')
         : x.price;
       return { ...x, price_bs: clean, price: nuevoUsd };
@@ -766,6 +784,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const nuevo: PresupuestoItem = {
         id: `cot-${Date.now()}-${list.length}`,
         proveedor: '',
+        metodo_pago: 'efectivo_usd',
         precio_usd: '',
         precio_bs: '',
         nota: '',
@@ -780,10 +799,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const list = (x.presupuestos || []).map((c) => {
         if (c.id !== cotId) return c;
         const updated = { ...c, [campo]: val };
-        // Auto-conversión interactiva en la cotización
+        // Auto-conversión interactiva en la cotización solo si el otro campo está vacío
         if (campo === 'precio_usd' && rate && rate > 0) {
+          const bsVacio = !c.precio_bs || c.precio_bs === '0' || c.precio_bs === '0.00';
           const u = parseNum(onlyDecimal(val));
-          if (u > 0) updated.precio_bs = (Math.round(u * rate * 100) / 100).toFixed(2).replace(/\.00$/, '');
+          if (u > 0 && bsVacio) updated.precio_bs = (Math.round(u * rate * 100) / 100).toFixed(2).replace(/\.00$/, '');
         } else if (campo === 'precio_bs' && rate && rate > 0 && (!c.precio_usd || c.precio_usd === '0')) {
           const b = parseNum(onlyDecimal(val));
           if (b > 0) updated.precio_usd = (Math.round((b / rate) * 100) / 100).toFixed(2).replace(/\.00$/, '');
@@ -811,9 +831,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         price_bs: cot.precio_bs || x.price_bs,
         supplier_name: cot.proveedor || x.supplier_name,
         supplier_id: matchingSupplier ? matchingSupplier.id : x.supplier_id,
+        metodo_pago: cot.metodo_pago || x.metodo_pago,
       };
     }));
-    toast.success(`Cotización de "${cot.proveedor || 'Proveedor'}" aplicada al renglón.`);
+    const metObj = METODOS_PAGO_COTIZACION.find((m) => m.key === cot.metodo_pago);
+    toast.success(`Cotización de "${cot.proveedor || 'Proveedor'}" aplicada al ítem${metObj ? ` (${metObj.icon} ${metObj.label})` : ''}.`);
   };
 
   // Sube una IMAGEN de referencia de un producto (toma foto o elige de galería) y la
@@ -839,18 +861,52 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     return (data as any)?.full_name ?? null;
   };
 
-  // Adjunta el formato (imagen/PDF) AL CREAR/EDITAR: sube el archivo y lo deja en
-  // memoria (`formato`); se guarda junto con el requerimiento al enviar.
+  // Adjunta formatos (imagen/PDF) AL CREAR/EDITAR: sube uno o varios archivos y los
+  // acumula en la lista `formatos`; se guardan junto con el requerimiento al enviar.
   const adjuntarFormatoNuevo = async () => {
     setSubiendoNuevo(true);
     try {
       const folder = editId || `nuevo-${Date.now()}`;
-      const res = await pickAndUploadRequirementFile(folder);
+      const res = await pickAndUploadRequirementFiles(folder);
       if (!res.ok) { if (res.error) toast.error(res.error); return; }
-      setFormato({ url: res.url!, kind: res.kind!, name: res.name ?? 'formato' });
+      if (res.files && res.files.length > 0) {
+        const nuevos: FormatoAdjunto[] = res.files.map((f, idx) => ({
+          id: `fmt-${Date.now()}-${idx}`,
+          url: f.url,
+          kind: f.kind,
+          name: f.name,
+        }));
+        setFormatos((prev) => [...prev, ...nuevos]);
+        toast.success(`${nuevos.length} formato(s) cargado(s) correctamente.`);
+      }
     } finally {
       setSubiendoNuevo(false);
     }
+  };
+
+  const tomarFotoFormatoNuevo = async () => {
+    setSubiendoNuevo(true);
+    try {
+      const folder = editId || `nuevo-${Date.now()}`;
+      const res = await captureAndUploadPhoto('requerimientos', folder);
+      if (!res.ok) { if (res.error) toast.error(res.error); return; }
+      if (res.url) {
+        const nuevo: FormatoAdjunto = {
+          id: `fmt-cam-${Date.now()}`,
+          url: res.url,
+          kind: 'image',
+          name: `Foto_${new Date().toLocaleTimeString('es-VE').replace(/:/g, '-')}.jpg`,
+        };
+        setFormatos((prev) => [...prev, nuevo]);
+        toast.success('Foto adjuntada al requerimiento.');
+      }
+    } finally {
+      setSubiendoNuevo(false);
+    }
+  };
+
+  const quitarFormato = (id: string) => {
+    setFormatos((prev) => prev.filter((f) => f.id !== id));
   };
 
   /** Deja el formulario en blanco. En UNA función: con 12 campos, resetear a mano
@@ -859,7 +915,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null);
     setEmpresaPagadoraId(null); setEmpresaPagadoraNombre(null);
     setAlicuotaIva('16');
-    setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
+    setRows([]); setFormatos([]); setRespId(null); setRespNombre(null);
     setSolicitante(SIN_PERSONA); setAutorizado(SIN_PERSONA);
     setDestino(null); setArea(''); setAreaLibre(false); setObservaciones('');
   };
@@ -1494,20 +1550,34 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         cotizaciones: (x.presupuestos || []).filter((c) => c.proveedor.trim() || parseNum(c.precio_usd) > 0 || parseNum(c.precio_bs) > 0).map((c) => ({
           id: c.id,
           proveedor: c.proveedor.trim().toUpperCase(),
+          metodo_pago: c.metodo_pago || null,
           precio_usd: parseNum(c.precio_usd),
           precio_bs: parseNum(c.precio_bs),
           nota: (c.nota || '').trim() || null,
         })),
+        metodo_pago: x.metodo_pago || null,
       };
     });
     if (items.length === 0) { const m = 'Agrega al menos un producto (del inventario o nuevo) antes de guardar.'; setFormErr(m); return toast.error(m); }
     setBusy(true);
+
+    const primerFmt = formatos[0] || null;
+    const conFormatos = empaquetarFormatosEnObservaciones(observaciones, formatos);
+    const adj = primerFmt ? {
+      attachment_url: primerFmt.url,
+      attachment_type: primerFmt.kind,
+      attachment_name: primerFmt.name,
+    } : {
+      attachment_url: null,
+      attachment_type: null,
+      attachment_name: null,
+    };
+
     // EDITAR: actualiza el requerimiento existente (conserva su código y estado).
     // Columna nueva (17-oct-2026): si el SQL del responsable aún no se corrió, el
     // guardado NO se cae — se reintenta sin esos campos y se avisa.
     const faltaColResp = (msg: string) => /responsable/i.test(msg) && /column|does not exist|schema cache|no existe/i.test(msg);
     if (editId) {
-      const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
       const base = {
         title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId,
         empresa_pagadora_id: empresaPagadoraId, empresa_pagadora_nombre: empresaPagadoraNombre,
@@ -1516,7 +1586,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       };
       // 👤 Solicitante, autorizado, destino, área y observaciones (20-oct-2026).
       const conResp = { ...base, responsable_id: respId, responsable_nombre: respNombre };
-      const nuevos = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones });
+      const nuevos = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones: conFormatos });
       let respGuardado = true;
       let nuevosGuardados = true;
       let { error } = await supabase.from('inventory_requirements').update({ ...conResp, ...nuevos }).eq('id', editId);
@@ -1558,7 +1628,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     // único en `code` impide duplicados; si dos requerimientos chocan en el mismo
     // código, se reintenta con el siguiente número.
     const reqName = await perfilNombre();
-    const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
     let code = '';
     let saved = false;
     // Campos del responsable: si la columna aún no existe (falta el SQL), se quitan
@@ -1570,7 +1639,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     let empresaFaltaSql = false;
     // 👤 Lo pedido el 20-oct: quién solicitó, quién autorizó, para qué, a qué área
     //    y las observaciones. Mismo trato defensivo que el responsable.
-    let nuevosCampos: Record<string, any> = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones });
+    let nuevosCampos: Record<string, any> = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones: conFormatos });
     let nuevosFaltaSql = false;
     let ivaCampos: Record<string, any> = { iva_alicuota: alicNum };
     for (let intento = 0; intento < 6 && !saved; intento++) {
@@ -1640,9 +1709,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setDestino(r.destino_tipo ?? null);
     setArea(r.area ?? '');
     setAreaLibre(false);
-    setObservaciones(r.observaciones ?? '');
+    setObservaciones(limpiarObservacionesFormatos(r.observaciones ?? ''));
     setAlicuotaIva(r.iva_alicuota != null ? String(r.iva_alicuota) : '16');
-    setFormato(r.attachment_url ? { url: r.attachment_url, kind: (r.attachment_type as 'image' | 'pdf') || 'image', name: r.attachment_name || 'formato' } : null);
+    setFormatos(extraerFormatosAdjuntos(r));
     let s = 0;
     setRows(r.items.map((it) => {
       const pUsdNum = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
@@ -1660,10 +1729,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         image_url: it.image_url ?? '',
         supplier_id: it.supplier_id || null,
         supplier_name: it.supplier_name || null,
+        metodo_pago: (it as any).metodo_pago || null,
         exento: Boolean(it.exento),
         presupuestos: Array.isArray(it.cotizaciones) ? it.cotizaciones.map((c: any, ci: number) => ({
           id: c.id || `cot-${ci}-${Date.now()}`,
           proveedor: c.proveedor || c.supplier_name || '',
+          metodo_pago: c.metodo_pago || 'efectivo_usd',
           precio_usd: String(c.precio_usd ?? c.price ?? '0'),
           precio_bs: String(c.precio_bs ?? (rate && rate > 0 ? Math.round((Number(c.precio_usd ?? c.price ?? 0)) * rate * 100) / 100 : '0')),
           nota: c.nota || c.note || '',
@@ -1751,14 +1822,32 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     await decidir(r, 'rechazado');
   };
 
-  // Sube un FORMATO (imagen o PDF) al requerimiento y lo guarda en la fila.
+  // Sube uno o más FORMATOS (imágenes o PDFs) al requerimiento y los guarda en la fila.
   const subirFormato = async (r: InventoryRequirement) => {
     setSubiendoId(r.id);
     try {
-      const res = await pickAndUploadRequirementFile(r.id);
+      const res = await pickAndUploadRequirementFiles(r.id);
       if (!res.ok) { if (res.error) toast.error(res.error); return; }
+      if (!res.files || res.files.length === 0) return;
+
+      const actuales = extraerFormatosAdjuntos(r);
+      const nuevos: FormatoAdjunto[] = res.files.map((f, idx) => ({
+        id: `fmt-${Date.now()}-${idx}`,
+        url: f.url,
+        kind: f.kind,
+        name: f.name,
+      }));
+      const combinados = [...actuales, ...nuevos];
+      const conFormatos = empaquetarFormatosEnObservaciones(r.observaciones, combinados);
+      const primerFmt = combinados[0] || null;
+
       const { data, error } = await supabase.from('inventory_requirements')
-        .update({ attachment_url: res.url, attachment_type: res.kind, attachment_name: res.name ?? null })
+        .update({
+          attachment_url: primerFmt?.url ?? null,
+          attachment_type: primerFmt?.kind ?? null,
+          attachment_name: primerFmt?.name ?? null,
+          observaciones: conFormatos,
+        })
         .eq('id', r.id).select('id');
       if (error) {
         if (/attachment|column/i.test(error.message)) { toast.error('Corre "requerimientos_adjunto.sql" en Supabase para guardar el formato.'); return; }
@@ -1766,21 +1855,23 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       }
       if (!data || data.length === 0) { toast.error('No tienes permiso de escritura en inventario.'); return; }
       await refetch();
-      toast.success('El formato quedó guardado en el requerimiento.');
+      toast.success(`${nuevos.length} formato(s) guardado(s) en el requerimiento.`);
     } finally {
       setSubiendoId(null);
     }
   };
 
   // Descarga (o abre) el formato adjunto.
-  const descargarFormato = (r: InventoryRequirement) => {
-    if (!r.attachment_url) return;
+  const descargarFormato = (r: InventoryRequirement, formatoItem?: FormatoAdjunto | null) => {
+    const fmts = extraerFormatosAdjuntos(r);
+    const target = formatoItem || fmts[0] || (r.attachment_url ? { url: r.attachment_url, name: r.attachment_name } : null);
+    if (!target?.url) return;
     if (Platform.OS === 'web') {
       const a = document.createElement('a');
-      a.href = r.attachment_url; a.download = r.attachment_name || 'formato'; a.target = '_blank'; a.rel = 'noopener';
+      a.href = target.url; a.download = target.name || 'formato'; a.target = '_blank'; a.rel = 'noopener';
       a.click();
     } else {
-      Linking.openURL(r.attachment_url);
+      Linking.openURL(target.url);
     }
   };
 
@@ -1965,6 +2056,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     exento: Boolean(it.exento),
     price_usd: it.price_usd,
     price_bs: it.price_bs,
+    metodo_pago: (it as any).metodo_pago || null,
     cotizaciones_count: Array.isArray(it.cotizaciones) ? it.cotizaciones.length : 0,
     image: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
   })));
@@ -1987,7 +2079,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
       /* 👤 Lo declarado en el papel (20-oct-2026). Lo vacío no sale impreso. */
       solicitante: r.solicitante_nombre ?? null, autorizadoPor: r.autorizado_nombre ?? null,
-      destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: r.observaciones ?? null,
+      destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: limpiarObservacionesFormatos(r.observaciones) ?? null,
       aclaratoria: r.aclaratoria_motivo ? {
         motivo: r.aclaratoria_motivo,
         solicitadaPor: r.aclaratoria_solicitada_por ?? null,
@@ -2007,12 +2099,26 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
   };
 
+  const rowBs = (x: ReqRow) => {
+    const q = parseNum(x.qty);
+    const pBs = parseNum(x.price_bs);
+    if (pBs > 0) return pBs * q;
+    const pUsd = parseNum(x.price);
+    return rate && rate > 0 ? (pUsd * rate) * q : 0;
+  };
+
   const createSubtotalUsd = rows.reduce((s, x) => s + parseNum(x.price) * parseNum(x.qty), 0);
   const createBaseImponibleUsd = rows.reduce((s, x) => s + (x.exento ? 0 : parseNum(x.price) * parseNum(x.qty)), 0);
   const createExentoUsd = createSubtotalUsd - createBaseImponibleUsd;
   const createAlicuotaNum = Math.min(100, Math.max(0, parseNum(alicuotaIva) || 0));
   const createIvaUsd = Math.round(createBaseImponibleUsd * (createAlicuotaNum / 100) * 100) / 100;
   const createTotalUsd = Math.round((createSubtotalUsd + createIvaUsd) * 100) / 100;
+
+  const createSubtotalBs = rows.reduce((s, x) => s + rowBs(x), 0);
+  const createBaseImponibleBs = rows.reduce((s, x) => s + (x.exento ? 0 : rowBs(x)), 0);
+  const createExentoBs = createSubtotalBs - createBaseImponibleBs;
+  const createIvaBs = Math.round(createBaseImponibleBs * (createAlicuotaNum / 100) * 100) / 100;
+  const createTotalBs = Math.round((createSubtotalBs + createIvaBs) * 100) / 100;
 
   if (loading) return <Screen><SkeletonList /></Screen>;
 
@@ -2044,7 +2150,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             </TouchableOpacity>
           ) : null}
           {canWrite ? (
-            <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setEmpresaPagadoraId(null); setEmpresaPagadoraNombre(null); setSupOpen(false); setSupQ(''); setRows([]); setFormato(null); setFormErr(null); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <TouchableOpacity onPress={() => { limpiarForm(); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
               <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
             </TouchableOpacity>
           ) : null}
@@ -2371,8 +2477,15 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 })()}
                 {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
                 {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
-                {r.status === 'recibido' ? <Text style={{ color: colors.success, fontSize: 11, marginTop: 2 }}>Recibido en inventario{r.received_at ? ` · ${dmyOf(r.received_at)}` : ''}</Text> : null}
-                {r.attachment_url ? <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2, fontWeight: '700' }}>📎 Formato adjunto{r.attachment_type === 'pdf' ? ' (PDF)' : ' (imagen)'}</Text> : null}
+                {(() => {
+                  const fmts = extraerFormatosAdjuntos(r);
+                  if (fmts.length === 0) return null;
+                  return (
+                    <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2, fontWeight: '700' }}>
+                      📎 {fmts.length === 1 ? `Formato adjunto (${fmts[0].kind === 'pdf' ? 'PDF' : 'imagen'})` : `${fmts.length} formatos adjuntos`}
+                    </Text>
+                  );
+                })()}
 
                 {/* 🏬 Ficha de Proveedor Propuesto por el Solicitante (si existe) */}
                 {(() => {
@@ -2901,15 +3014,26 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   {/* Subir formato (imagen o PDF) al requerimiento. */}
                   {canWrite ? (
                     <TouchableOpacity onPress={() => subirFormato(r)} disabled={subiendoId === r.id} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: subiendoId === r.id ? 0.6 : 1 }}>
-                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>{subiendoId === r.id ? '⏳ Subiendo…' : r.attachment_url ? '📎 Cambiar formato' : '📎 Subir formato'}</Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                        {subiendoId === r.id ? '⏳ Subiendo…' : (() => {
+                          const fmts = extraerFormatosAdjuntos(r);
+                          return fmts.length > 0 ? `📎 Adjuntar otro (${fmts.length})` : '📎 Subir formato';
+                        })()}
+                      </Text>
                     </TouchableOpacity>
                   ) : null}
-                  {/* Ver formato adjunto (vista previa + descarga). */}
-                  {r.attachment_url ? (
-                    <TouchableOpacity onPress={() => setPreviewReq(r)} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>👁️ Ver formato</Text>
-                    </TouchableOpacity>
-                  ) : null}
+                  {/* Ver formatos adjuntos (vista previa + descarga). */}
+                  {(() => {
+                    const fmts = extraerFormatosAdjuntos(r);
+                    if (fmts.length === 0) return null;
+                    return (
+                      <TouchableOpacity onPress={() => { setPreviewReq(r); setPreviewIndex(0); }} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                          👁️ Ver formatos ({fmts.length})
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })()}
                   {/* Solicitar aclaratoria técnica si está pendiente */}
                   {canWrite && r.status === 'pendiente' ? (
                     <TouchableOpacity onPress={() => abrirSolicitarAclaratoria(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
@@ -3305,6 +3429,34 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     </View>
                   </View>
 
+                  {/* Indicador de Tasa Implícita del Renglón si se ingresó USD y Bs manualmente */}
+                  {(() => {
+                    const u = parseNum(x.price);
+                    const b = parseNum(x.price_bs);
+                    const tasaItem = u > 0 && b > 0 ? (b / u) : null;
+                    const esDistinto = tasaItem && rate && Math.abs(tasaItem - rate) > 0.05;
+                    const metObj = x.metodo_pago ? METODOS_PAGO_COTIZACION.find((m) => m.key === x.metodo_pago) : null;
+
+                    if (!tasaItem && !metObj) return null;
+
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, marginTop: 4, flexWrap: 'wrap', gap: 4 }}>
+                        {tasaItem ? (
+                          <Text style={{ fontSize: 10.5, color: '#0D9488', fontWeight: '800' }}>
+                            ⚡ Tasa propia del ítem: {tasaItem.toFixed(2)} Bs/$ {esDistinto ? `(BCV: ${rate?.toFixed(2)})` : ''}
+                          </Text>
+                        ) : <View />}
+                        {metObj ? (
+                          <View style={{ backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#86EFAC', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                            <Text style={{ fontSize: 10, color: '#15803D', fontWeight: '800' }}>
+                              {metObj.icon} Cotizado en: {metObj.label}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })()}
+
                   {/* 🧾 Fila de Acciones por Renglón: Exento de IVA y Presupuestos Comparativos */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, flexWrap: 'wrap', gap: 6 }}>
                     {/* Cuadro Exento de IVA (idéntico a Compra Directa) */}
@@ -3370,7 +3522,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                         </TouchableOpacity>
                       </View>
                       <Text style={{ fontSize: 11, color: colors.muted }}>
-                        Registra dos o más cotizaciones de diferentes proveedores para esta pieza. Toca "✓ Elegir esta cotización" para cargar automáticamente su precio y proveedor en el renglón.
+                        Registra dos o más cotizaciones de diferentes proveedores y métodos de pago para esta pieza. Toca "✓ Elegir esta cotización" para cargar automáticamente su precio y proveedor en el renglón.
                       </Text>
 
                       {(x.presupuestos || []).map((cot, ci) => (
@@ -3389,6 +3541,40 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                             placeholderTextColor={colors.muted}
                             style={[inp, { fontSize: 12, marginBottom: 4 }]}
                           />
+
+                          {/* 💳 Método de Pago de esta opción */}
+                          <View style={{ marginTop: 2, marginBottom: 6 }}>
+                            <Text style={{ fontSize: 10, color: colors.muted, marginBottom: 3, fontWeight: '700' }}>
+                              💳 Condición / Método de Pago:
+                            </Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                              {METODOS_PAGO_COTIZACION.map((m) => {
+                                const active = (cot.metodo_pago || 'efectivo_usd') === m.key;
+                                return (
+                                  <TouchableOpacity
+                                    key={m.key}
+                                    onPress={() => actualizarPresupuesto(x.key, cot.id, 'metodo_pago', m.key)}
+                                    style={{
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 3,
+                                      borderRadius: radius.pill,
+                                      borderWidth: 1,
+                                      borderColor: active ? colors.brand : colors.border,
+                                      backgroundColor: active ? (isDark ? '#1E293B' : '#EFF6FF') : colors.surfaceAlt,
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 11 }}>{m.icon}</Text>
+                                    <Text style={{ fontSize: 10.5, fontWeight: active ? '800' : '600', color: active ? colors.brandText : colors.text }}>
+                                      {m.label}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </ScrollView>
+                          </View>
 
                           <View style={{ flexDirection: 'row', gap: 6 }}>
                             <View style={{ flex: 1 }}>
@@ -3416,6 +3602,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               />
                             </View>
                           </View>
+
+                          {parseNum(cot.precio_usd) > 0 && parseNum(cot.precio_bs) > 0 ? (
+                            <Text style={{ fontSize: 9.5, color: '#0D9488', fontWeight: '700', marginTop: 3 }}>
+                              ⚡ Tasa implícita de esta opción: {(parseNum(cot.precio_bs) / parseNum(cot.precio_usd)).toFixed(2)} Bs/$
+                            </Text>
+                          ) : null}
 
                           <TextInput
                             value={cot.nota || ''}
@@ -3526,8 +3718,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   const ivaUsd = createIvaUsd;
                   const totalUsd = createTotalUsd;
 
-                  const fila = (label: string, usdVal: number, highlight?: boolean, esTotal?: boolean) => {
-                    const bsVal = rate && rate > 0 ? usdVal * rate : 0;
+                  const subBs = createSubtotalBs;
+                  const baseBs = createBaseImponibleBs;
+                  const exentoBs = createExentoBs;
+                  const ivaBs = createIvaBs;
+                  const totalBs = createTotalBs;
+
+                  const fila = (label: string, usdVal: number, bsVal: number, highlight?: boolean, esTotal?: boolean) => {
                     return (
                       <View
                         key={label}
@@ -3561,7 +3758,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                           >
                             {usd(usdVal)}
                           </Text>
-                          {rate && rate > 0 ? (
+                          {bsVal > 0 || (rate && rate > 0) ? (
                             <Text
                               style={{
                                 color: colors.muted,
@@ -3579,31 +3776,113 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
                   return (
                     <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
-                      {fila('Subtotal', subUsd)}
-                      {exentoUsd > 0 ? fila('Exento de IVA', exentoUsd, true) : null}
-                      {exentoUsd > 0 ? fila('Base imponible (gravada)', baseUsd) : null}
-                      {fila(`IVA (${alic}%)`, ivaUsd)}
-                      {fila('TOTAL ESTIMADO', totalUsd, false, true)}
+                      {fila('Subtotal', subUsd, subBs)}
+                      {exentoUsd > 0 || exentoBs > 0 ? fila('Exento de IVA', exentoUsd, exentoBs, true) : null}
+                      {exentoUsd > 0 || exentoBs > 0 ? fila('Base imponible (gravada)', baseUsd, baseBs) : null}
+                      {fila(`IVA (${alic}%)`, ivaUsd, ivaBs)}
+                      {fila('TOTAL ESTIMADO', totalUsd, totalBs, false, true)}
                     </View>
                   );
                 })()}
               </Card>
             ) : <EmptyState title="Sin productos" subtitle="Agrega productos del inventario o nuevos." />}
 
-            {/* Adjuntar FORMATO (imagen o PDF): cotización, foto del repuesto, planilla… */}
+            {/* Adjuntar FORMATOS (imágenes o PDFs múltiples): cotizaciones, fotos del repuesto, planillas… */}
             <Card>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>📎 Formato (opcional)</Text>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Adjunta una imagen o un PDF (cotización, foto del repuesto, planilla…). El jefe lo verá al aprobar.</Text>
-              {formato ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
-                  {formato.kind === 'image' ? <Image source={{ uri: formato.url }} style={{ width: 46, height: 46, borderRadius: radius.sm }} /> : <Text style={{ fontSize: 30 }}>📄</Text>}
-                  <Text style={{ color: colors.text, fontSize: 12, flex: 1 }} numberOfLines={1}>{formato.name}{formato.kind === 'pdf' ? ' (PDF)' : ''}</Text>
-                  <TouchableOpacity onPress={() => setFormato(null)}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📎 Formatos y Soportes (opcional)</Text>
+                {formatos.length > 0 ? (
+                  <View style={{ backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                    <Text style={{ color: '#1D4ED8', fontSize: 11, fontWeight: '800' }}>{formatos.length} archivo(s)</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+                Puedes subir dos o más archivos (cotizaciones en PDF, fotos del repuesto, presupuestos escaneados). El jefe podrá revisarlos y descargarlos.
+              </Text>
+
+              {formatos.length > 0 ? (
+                <View style={{ gap: spacing.xs, marginBottom: spacing.sm }}>
+                  {formatos.map((fmt, idx) => (
+                    <View
+                      key={fmt.id || idx}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: spacing.sm,
+                        backgroundColor: colors.surfaceAlt,
+                        borderRadius: radius.md,
+                        padding: spacing.xs,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                    >
+                      {fmt.kind === 'image' ? (
+                        <Image source={{ uri: fmt.url }} style={{ width: 44, height: 44, borderRadius: radius.sm, backgroundColor: colors.surface }} />
+                      ) : (
+                        <View style={{ width: 44, height: 44, borderRadius: radius.sm, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 24 }}>📄</Text>
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                          {fmt.name || `Formato ${idx + 1}`}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                          {fmt.kind === 'pdf' ? 'Documento PDF' : 'Imagen'} · Adjunto #{idx + 1}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => quitarFormato(fmt.id)}
+                        style={{ padding: spacing.xs }}
+                      >
+                        <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️ Quitar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
               ) : null}
-              <TouchableOpacity onPress={adjuntarFormatoNuevo} disabled={subiendoNuevo} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoNuevo ? 0.6 : 1 }}>
-                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>{subiendoNuevo ? '⏳ Subiendo…' : formato ? '📎 Cambiar formato' : '📎 Adjuntar imagen o PDF'}</Text>
-              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={adjuntarFormatoNuevo}
+                  disabled={subiendoNuevo}
+                  style={{
+                    flex: 1,
+                    minWidth: 140,
+                    borderWidth: 1,
+                    borderColor: colors.brand,
+                    borderRadius: radius.md,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                    backgroundColor: colors.surfaceAlt,
+                    opacity: subiendoNuevo ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                    {subiendoNuevo ? '⏳ Subiendo…' : '＋ Adjuntar archivo(s)'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={tomarFotoFormatoNuevo}
+                  disabled={subiendoNuevo}
+                  style={{
+                    flex: 1,
+                    minWidth: 110,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                    backgroundColor: colors.surfaceAlt,
+                    opacity: subiendoNuevo ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                    📷 Tomar foto
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </Card>
 
             {/* 📝 OBSERVACIONES — al final, como se pidió: «un espacio de
@@ -3635,32 +3914,130 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         </Screen>
       </Modal>
 
-      {/* ── Vista previa del FORMATO adjunto (imagen o PDF) + descarga ── */}
+      {/* ── Vista previa del FORMATO adjunto (imagen o PDF) + descarga (soporte de 1 o más formatos) ── */}
       <Modal visible={!!previewReq} animationType="fade" transparent onRequestClose={() => setPreviewReq(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.md }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%', overflow: 'hidden' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>📎 {previewReq?.attachment_name || 'Formato'}</Text>
-              <TouchableOpacity onPress={() => setPreviewReq(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
-                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={{ padding: spacing.md }}>
-              {previewReq?.attachment_url ? (
-                previewReq.attachment_type === 'pdf' ? (
-                  Platform.OS === 'web'
-                    ? React.createElement('iframe', { src: previewReq.attachment_url, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
-                    : <Text style={{ color: colors.muted, fontSize: 13 }}>Toca "⬇️ Descargar / Abrir" para ver el PDF.</Text>
-                ) : (
-                  <Image source={{ uri: previewReq.attachment_url }} style={{ width: '100%', height: 420, borderRadius: radius.md }} resizeMode="contain" />
-                )
-              ) : null}
-            </ScrollView>
-            <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
-              <TouchableOpacity onPress={() => previewReq && descargarFormato(previewReq)} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar / Abrir</Text>
-              </TouchableOpacity>
-            </View>
+            {(() => {
+              const reqFormatos = previewReq ? extraerFormatosAdjuntos(previewReq) : [];
+              const safeIndex = Math.min(Math.max(0, previewIndex), Math.max(0, reqFormatos.length - 1));
+              const currentFmt = reqFormatos[safeIndex] || (previewReq?.attachment_url ? {
+                id: 'legado',
+                url: previewReq.attachment_url,
+                kind: previewReq.attachment_type || 'image',
+                name: previewReq.attachment_name || 'Formato',
+              } : null);
+
+              return (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <View style={{ flex: 1, marginRight: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }} numberOfLines={1}>
+                        📎 {currentFmt?.name || previewReq?.attachment_name || 'Formato'}
+                      </Text>
+                      {reqFormatos.length > 1 ? (
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+                          Archivo {safeIndex + 1} de {reqFormatos.length}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <TouchableOpacity onPress={() => setPreviewReq(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Pestañas para alternar entre formatos si hay más de 1 */}
+                  {reqFormatos.length > 1 ? (
+                    <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.sm, paddingVertical: 6, gap: 6 }}>
+                        {reqFormatos.map((fmt, fIdx) => {
+                          const active = fIdx === safeIndex;
+                          return (
+                            <TouchableOpacity
+                              key={fmt.id || fIdx}
+                              onPress={() => setPreviewIndex(fIdx)}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                borderRadius: radius.pill,
+                                backgroundColor: active ? colors.brand : colors.surface,
+                                borderWidth: 1,
+                                borderColor: active ? colors.brand : colors.border,
+                              }}
+                            >
+                              <Text style={{ fontSize: 11 }}>{fmt.kind === 'pdf' ? '📄' : '🖼️'}</Text>
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: active ? '800' : '600',
+                                  color: active ? colors.brandContrast : colors.text,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {fmt.name ? (fmt.name.length > 20 ? fmt.name.slice(0, 18) + '…' : fmt.name) : `Adjunto ${fIdx + 1}`}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+
+                  <ScrollView style={{ padding: spacing.md }}>
+                    {currentFmt?.url ? (
+                      currentFmt.kind === 'pdf' ? (
+                        Platform.OS === 'web'
+                          ? React.createElement('iframe', { src: currentFmt.url, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
+                          : <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', paddingVertical: spacing.md }}>Toca "⬇️ Descargar / Abrir" para ver el PDF.</Text>
+                      ) : (
+                        <Image source={{ uri: currentFmt.url }} style={{ width: '100%', height: 420, borderRadius: radius.md }} resizeMode="contain" />
+                      )
+                    ) : (
+                      <Text style={{ color: colors.muted, textAlign: 'center', paddingVertical: spacing.lg }}>
+                        No hay archivo disponible para visualizar.
+                      </Text>
+                    )}
+                  </ScrollView>
+
+                  <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', gap: spacing.sm }}>
+                    {reqFormatos.length > 1 && safeIndex > 0 ? (
+                      <TouchableOpacity
+                        onPress={() => setPreviewIndex((i) => Math.max(0, i - 1))}
+                        style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>◀ Anterior</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (currentFmt) {
+                          descargarFormato({
+                            ...previewReq!,
+                            attachment_url: currentFmt.url,
+                            attachment_name: currentFmt.name,
+                            attachment_type: currentFmt.kind,
+                          });
+                        }
+                      }}
+                      style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                    >
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar / Abrir archivo</Text>
+                    </TouchableOpacity>
+                    {reqFormatos.length > 1 && safeIndex < reqFormatos.length - 1 ? (
+                      <TouchableOpacity
+                        onPress={() => setPreviewIndex((i) => Math.min(reqFormatos.length - 1, i + 1))}
+                        style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>Siguiente ▶</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </>
+              );
+            })()}
           </View>
         </View>
       </Modal>

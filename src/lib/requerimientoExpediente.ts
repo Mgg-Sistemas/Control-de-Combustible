@@ -155,6 +155,8 @@ export function limpiarObservacionesUsuario(obs?: string | null): string {
     .replace(/\[RECIBO PAGO:[^\]]+\]/gi, '')
     .replace(/\[DESPACHO ALMACEN:[^\]]+\]/gi, '')
     .replace(/\[RECEPCIÓN ALMACÉN:[^\]]+\]/gi, '')
+    .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
+    .replace(/\[\[COTIZACIONES_COMPLETAS:[\s\S]*?:FIN_COTIZACIONES\]\]/gi, '')
     .trim();
 }
 

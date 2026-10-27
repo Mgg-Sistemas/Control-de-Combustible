@@ -231,6 +231,22 @@ export async function pickAndUploadRequirementFile(
   return pickAndUploadDocFile('requerimientos', reqId);
 }
 
+export interface UploadedDocFile {
+  url: string;
+  kind: 'image' | 'pdf';
+  name: string;
+}
+
+/**
+ * Selecciona UNO O MÁS FORMATOS (imágenes o PDFs) y los sube en lote
+ * al bucket 'machinery' en la carpeta requerimientos/<reqId>/.
+ */
+export async function pickAndUploadRequirementFiles(
+  reqId: string
+): Promise<{ ok: boolean; files?: UploadedDocFile[]; error?: string }> {
+  return pickAndUploadDocFiles('requerimientos', reqId);
+}
+
 /**
  * Selecciona un FORMATO (imagen o PDF) y lo sube al bucket 'machinery' en la carpeta
  * `<folder>/<id>/`, devolviendo la URL pública, el tipo ('image'|'pdf') y el nombre.
@@ -283,6 +299,79 @@ export async function pickAndUploadDocFile(
   const path = `${folder}/${id}/${Date.now()}.jpg`;
   const r = await uploadToMachinery(path, body);
   return r.ok ? { ok: true, url: r.url, kind: 'image', name: 'formato.jpg' } : { ok: false, error: r.error };
+}
+
+/**
+ * Selecciona UNO O MÁS FORMATOS (imágenes o PDFs) y los sube al bucket 'machinery'
+ * en la carpeta `<folder>/<id>/`.
+ * - WEB: <input type=file multiple> (permite elegir 2 o más archivos a la vez).
+ * - NATIVO: ImagePicker con allowsMultipleSelection.
+ */
+export async function pickAndUploadDocFiles(
+  folder: string,
+  id: string
+): Promise<{ ok: boolean; files?: UploadedDocFile[]; error?: string }> {
+  if (Platform.OS === 'web') {
+    const selectedFiles = await new Promise<File[] | null>((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.accept = 'image/*,application/pdf';
+      let done = false;
+      const finish = (f: File[] | null) => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('focus', onFocus);
+        resolve(f);
+      };
+      const onFocus = () => setTimeout(() => finish(null), 1500);
+      input.onchange = () => {
+        const arr = input.files ? Array.from(input.files) : [];
+        finish(arr.length > 0 ? arr : null);
+      };
+      window.addEventListener('focus', onFocus);
+      input.click();
+    });
+
+    if (!selectedFiles || selectedFiles.length === 0) return { ok: false };
+
+    const results: UploadedDocFile[] = [];
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+      const ext = isPdf ? 'pdf' : ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg');
+      const path = `${folder}/${id}/${Date.now()}_${i}.${ext}`;
+      const up = await supabase.storage.from('machinery').upload(path, file, {
+        contentType: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
+        upsert: true,
+      });
+      if (!up.error) {
+        const { data } = supabase.storage.from('machinery').getPublicUrl(path);
+        results.push({ url: data.publicUrl, kind: isPdf ? 'pdf' : 'image', name: file.name });
+      }
+    }
+    return results.length > 0 ? { ok: true, files: results } : { ok: false, error: 'No se pudo subir ningún archivo.' };
+  }
+
+  // NATIVO: galería con selección múltiple
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) return { ok: false, error: 'Permiso de galería denegado.' };
+  const res = await pick(() => ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: true, allowsMultipleSelection: true }));
+  if (!res || res.canceled || !res.assets || res.assets.length === 0) return { ok: false };
+
+  const results: UploadedDocFile[] = [];
+  for (let i = 0; i < res.assets.length; i++) {
+    const asset = res.assets[i];
+    const body = await assetToBody(asset);
+    if (body) {
+      const path = `${folder}/${id}/${Date.now()}_${i}.jpg`;
+      const r = await uploadToMachinery(path, body);
+      if (r.ok && r.url) {
+        results.push({ url: r.url, kind: 'image', name: (asset as any).fileName || `formato_${i + 1}.jpg` });
+      }
+    }
+  }
+  return results.length > 0 ? { ok: true, files: results } : { ok: false, error: 'No se pudo subir la imagen.' };
 }
 
 /**
