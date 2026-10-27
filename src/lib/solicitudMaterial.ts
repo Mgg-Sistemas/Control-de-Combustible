@@ -32,6 +32,8 @@ export const ESTADO_COMPRA_CONFIG = {
   pendiente: { label: 'En revisión de Compras', color: '#2563EB', bg: '#DBEAFE', icon: '🛒' },
   aclaratoria_solicitada: { label: '⚠️ Requiere Aclaratoria Técnica', color: '#EA580C', bg: '#FFEDD5', icon: '⚠️' },
   aprobado: { label: 'Aprobado para Compra', color: '#059669', bg: '#D1FAE5', icon: '✅' },
+  esperando_recepcion: { label: 'Esperando Recepción en Almacén', color: '#0D9488', bg: '#F0FDFA', icon: '📦' },
+  pagado: { label: 'Esperando Recepción en Almacén', color: '#0D9488', bg: '#F0FDFA', icon: '📦' },
   recibido: { label: 'Recibido en Almacén', color: '#16A34A', bg: '#DCFCE7', icon: '📦' },
   rechazado: { label: 'Rechazado', color: '#DC2626', bg: '#FEE2E2', icon: '❌' },
 };

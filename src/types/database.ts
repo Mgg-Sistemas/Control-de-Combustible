@@ -872,9 +872,12 @@ export interface RequirementLine {
   supplier_id?: string | null;
   supplier_name?: string | null;
   cotizaciones?: any[] | null;      // ofertas comparativas para este renglón
+  exento?: boolean;                 // 🧾 Exento de IVA para este renglón (como en Compra Directa)
+  price_usd?: number;               // Precio unitario explícito en USD
+  price_bs?: number;                // Precio unitario explícito en Bolívares
 }
 
-export type RequirementStatus = 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'aclaratoria_solicitada';
+export type RequirementStatus = 'pendiente' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'aclaratoria_solicitada' | 'pagado';
 
 /** Requerimiento de compra: se pasa al jefe para aprobar/rechazar; si se compra, se recibe. */
 export interface InventoryRequirement {
@@ -949,6 +952,7 @@ export interface InventoryRequirement {
   despachado_at?: string | null;
   despacho_nota?: string | null;
   cotizaciones?: any[] | null;        // ofertas comparativas multi-moneda y multi-proveedor
+  iva_alicuota?: number | null;       // 🧾 Alícuota de IVA del requerimiento (nace en 16%, editable a 0%)
 }
 
 export interface MachineryLocation {

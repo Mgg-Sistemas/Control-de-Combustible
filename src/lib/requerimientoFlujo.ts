@@ -6,6 +6,7 @@
 //    - "esperando pago" si ya tiene cotización y proveedor para montos <= $1,000 USD.
 //    - "esperando aprobación del gerente general" si supera los $1,000 USD (filtro de seguridad).
 import type { InventoryRequirement, RequirementLine, Supplier } from '../types/database.ts';
+import { extraerReciboPago } from './requerimientoExpediente';
 
 export const LIMITE_MONTO_GERENTE_GENERAL_USD = 1000;
 
@@ -69,6 +70,7 @@ export type CodigoEstadoDinamico =
   | 'esperando_aprobacion_gg'
   | 'esperando_pago'
   | 'aprobado'
+  | 'esperando_recepcion'
   | 'recibido'
   | 'rechazado'
   | 'aclaratoria_solicitada';
@@ -93,17 +95,38 @@ export interface InfoEstadoRequerimiento {
 }
 
 /**
- * Calcula el monto total en USD de una lista de renglones de requerimiento
+ * Calcula el monto total en USD de una lista de renglones de requerimiento,
+ * considerando ítems exentos y alícuota de IVA si aplica.
  */
-export function calcularTotalReqUsd(items: RequirementLine[], rateBcv?: number | null): number {
+export function calcularTotalReqUsd(
+  items: RequirementLine[],
+  rateBcv?: number | null,
+  alicuotaIva?: number | null
+): number {
   if (!items || items.length === 0) return 0;
   const rate = Number(rateBcv) || 1;
-  return items.reduce((sum, it) => {
+  const subtotal = items.reduce((sum, it) => {
     const qty = Number(it.qty) || 0;
     const estPrice = Number(it.est_price) || 0;
     const priceUsd = it.currency === 'USD' ? estPrice : estPrice / rate;
     return sum + priceUsd * qty;
   }, 0);
+
+  if (alicuotaIva === undefined || alicuotaIva === null) {
+    return Math.round(subtotal * 100) / 100;
+  }
+
+  const baseImponible = items.reduce((sum, it) => {
+    if (it.exento) return sum;
+    const qty = Number(it.qty) || 0;
+    const estPrice = Number(it.est_price) || 0;
+    const priceUsd = it.currency === 'USD' ? estPrice : estPrice / rate;
+    return sum + priceUsd * qty;
+  }, 0);
+
+  const alic = Math.min(100, Math.max(0, Number(alicuotaIva) || 0));
+  const iva = Math.round(baseImponible * (alic / 100) * 100) / 100;
+  return Math.round((subtotal + iva) * 100) / 100;
 }
 
 /**
@@ -136,9 +159,10 @@ export function calcularEstadoRequerimiento(
   r: InventoryRequirement,
   rateBcv?: number | null,
   proveedorGeneral?: Supplier | null,
-  configOverride?: ReglaAprobacionMonto | null
+  configOverride?: ReglaAprobacionMonto | null,
+  estaPagadoOverride?: boolean | null
 ): InfoEstadoRequerimiento {
-  const totalUSD = calcularTotalReqUsd(r.items || [], rateBcv);
+  const totalUSD = calcularTotalReqUsd(r.items || [], rateBcv, r.iva_alicuota);
 
   // 1. Estados finales o de ciclo técnico que prevalecen
   if (r.status === 'recibido') {
@@ -192,7 +216,16 @@ export function calcularEstadoRequerimiento(
     };
   }
 
-  // 2. Analizar proveedores y cotizaciones de los renglones
+  // 2. Analizar si ya cuenta con recibo / comprobante de pago bancario o fue marcado como pagado en Cuentas por Pagar
+  const reciboPago = extraerReciboPago(r);
+  const tienePagoRegistrado =
+    Boolean(reciboPago && (reciboPago.url || reciboPago.referencia)) ||
+    estaPagadoOverride === true ||
+    (r as any).pagado === true ||
+    (r.status as string) === 'pagado' ||
+    (r.status as string) === 'esperando_recepcion';
+
+  // 3. Analizar proveedores y cotizaciones de los renglones
   const provNombresSet = new Set<string>();
   let faltanProveedores = false;
   let faltanPrecios = false;
@@ -214,7 +247,32 @@ export function calcularEstadoRequerimiento(
   const tieneProveedorCompleto = !faltanProveedores && (Boolean(r.supplier_id) || proveedoresNombres.length > 0);
   const tieneCotizacionCompleta = !faltanPrecios && (r.items || []).length > 0;
 
-  // 3. Si falta proveedor en el sistema
+  // 4. Si ya fue pagado (en Cuentas por Pagar o con comprobante bancario adjunto) pero no ha sido recibido físicamente
+  const cfg = configOverride || obtenerConfigAprobacionMonto();
+  const limiteUSD = Number(cfg?.montoLimiteUSD) > 0 ? Number(cfg.montoLimiteUSD) : LIMITE_MONTO_GERENTE_GENERAL_USD;
+
+  if (tienePagoRegistrado) {
+    return {
+      codigo: 'esperando_recepcion',
+      label: '📦 Esperando Recepción en Almacén',
+      short: 'Esperando Recepción',
+      color: '#0D9488',
+      bg: '#F0FDFA',
+      icon: '📦',
+      requiereAprobacionGG: false,
+      totalUSD,
+      tieneProveedorCompleto: true,
+      tieneCotizacionCompleta: true,
+      proveedoresNombres,
+      esMultiProveedor,
+      montoLimiteAplicado: limiteUSD,
+      empresaReglaAplicada: cfg?.empresaNombre || null,
+      aprobadoresNombres: cfg?.aprobadoresNombres || [],
+      aprobadoresIds: cfg?.aprobadoresIds || [],
+    };
+  }
+
+  // 5. Si falta proveedor en el sistema
   if (!tieneProveedorCompleto) {
     return {
       codigo: 'esperando_proveedor',
@@ -232,7 +290,7 @@ export function calcularEstadoRequerimiento(
     };
   }
 
-  // 4. Si tiene proveedor pero falta cotización/precio
+  // 6. Si tiene proveedor pero falta cotización/precio
   if (!tieneCotizacionCompleta) {
     return {
       codigo: 'esperando_cotizacion',
@@ -250,10 +308,8 @@ export function calcularEstadoRequerimiento(
     };
   }
 
-  // 5. Tiene Proveedor Y Cotización cargada:
+  // 7. Tiene Proveedor Y Cotización cargada:
   // Aplicar Regla de Negocio Dinámica de Aprobación por Monto, Empresa y Personas
-  const cfg = configOverride || obtenerConfigAprobacionMonto();
-  const limiteUSD = Number(cfg?.montoLimiteUSD) > 0 ? Number(cfg.montoLimiteUSD) : LIMITE_MONTO_GERENTE_GENERAL_USD;
   const aplicaEmpresa = !cfg?.empresaId || r.company_id === cfg.empresaId;
   const reglaActiva = cfg?.activo !== false;
   const superaLimiteGG = aplicaEmpresa && reglaActiva && totalUSD > limiteUSD;
@@ -286,7 +342,7 @@ export function calcularEstadoRequerimiento(
     };
   }
 
-  // 6. Si ya fue autorizado o el monto es <= límite: pasa a "esperando pago"
+  // 8. Si no está formalmente aprobado aún
   if (r.status !== 'aprobado' && !r.decided_by) {
     return {
       codigo: 'esperando_pago',
@@ -308,7 +364,7 @@ export function calcularEstadoRequerimiento(
     };
   }
 
-  // 7. Si está formalmente aprobado
+  // 9. Si está formalmente aprobado (pendiente por pago y recepción)
   return {
     codigo: 'aprobado',
     label: superaLimiteGG ? `✅ Aprobado / En Gestión de Pago (> $${textoMonto})` : '✅ Aprobado / En Gestión de Pago',

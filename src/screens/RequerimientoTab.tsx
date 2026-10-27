@@ -19,7 +19,7 @@ import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
 import { rawCaseField } from '../lib/fonts';
-import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee } from '../types/database';
+import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee, Cuenta } from '../types/database';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
 import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile } from '../lib/photo';
 import * as ImagePicker from 'expo-image-picker';
@@ -61,6 +61,7 @@ import {
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import {
   calcularEstadoRequerimiento,
+  calcularTotalReqUsd,
   LIMITE_MONTO_GERENTE_GENERAL_USD,
   obtenerProveedorDeLinea,
   obtenerConfigAprobacionMonto,
@@ -87,22 +88,36 @@ function Pill({ label, color }: { label: string; color: string }) {
   );
 }
 
+export interface PresupuestoItem {
+  id: string;
+  proveedor: string;
+  precio_usd: string;
+  precio_bs: string;
+  nota?: string;
+}
+
 type ReqRow = {
   key: string;
   product_id: string | null;
   name: string;
   unit: string;
   qty: string;
-  price: string;
+  price: string;       // Precio en $ USD
+  price_bs: string;    // Precio en Bs (independiente para edición manual)
   currency: 'USD' | 'VES';
   note: string;
   image_url: string;
   supplier_id?: string | null;
   supplier_name?: string | null;
+  exento?: boolean;    // 🧾 Cuadrito Exento de IVA
+  presupuestos?: PresupuestoItem[]; // 📋 Cotizaciones alternas
+  presupuestosAbierto?: boolean;
 };
 const REQ_STATUS: Record<string, { label: string; color: string; short: string }> = {
   pendiente: { label: '⏳ Pendiente', color: '#D97706', short: 'Pendiente' },
   aprobado: { label: '✅ Aprobado', color: '#2563EB', short: 'Aprobado' },
+  esperando_recepcion: { label: '📦 Esperando Recepción', color: '#0D9488', short: 'Esperando Recepción' },
+  pagado: { label: '📦 Esperando Recepción', color: '#0D9488', short: 'Esperando Recepción' },
   rechazado: { label: '❌ Rechazado', color: '#DC2626', short: 'Rechazado' },
   recibido: { label: '📦 Recibido', color: '#16A34A', short: 'Recibido' },
   aclaratoria_solicitada: { label: '⚠️ Aclaratoria Técnica Solicitada', color: '#EA580C', short: 'En Aclaratoria' },
@@ -348,7 +363,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { rate } = useBcvRate();
   const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
   // Filtro por estatus del requerimiento (+ "sin precio" para ubicar los que faltan cargar precio).
-  const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'sin_precio' | 'aclaratoria_solicitada'>('todos');
+  const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'sin_precio' | 'aclaratoria_solicitada'>('todos');
   const faltaPrecioDe = (r: InventoryRequirement) => r.items.some((it) => !(Number(it.est_price) > 0));
   // Búsqueda libre (código, título, nota, solicitante, empresa, nombre de los ítems) +
   // rango de fecha (por created_at, ISO AAAA-MM-DD) — se combinan con el filtro de estatus.
@@ -364,6 +379,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? null : null);
   // Proveedores del catálogo (para asignar al requerimiento — opcional).
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
+  // Cuentas por pagar sincronizadas (para detectar pagos realizados en Tesorería)
+  const { data: cuentasData } = useTable<Cuenta>('cuentas');
+  const cuentasPagadasSet = useMemo(() => {
+    const set = new Set<string>();
+    (cuentasData || []).forEach((c) => {
+      if ((c.estado === 'pagada' || (c as any).saldo <= 0) && c.order_id) {
+        set.add(c.order_id);
+      }
+    });
+    return set;
+  }, [cuentasData]);
 
   // Crear / editar requerimiento (editId != null → estamos editando ese requerimiento)
   const [createOpen, setCreateOpen] = useState(false);
@@ -462,6 +488,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [respuestaBusy, setRespuestaBusy] = useState(false);
 
   const [rows, setRows] = useState<ReqRow[]>([]);
+  const [alicuotaIva, setAlicuotaIva] = useState('16');
   const [q, setQ] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
   const [supQ, setSupQ] = useState('');       // búsqueda de proveedor
@@ -648,13 +675,146 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   let seq = 0;
   const newKey = () => `${Date.now()}-${seq++}-${rows.length}`;
-  const addBlank = () => setRows((r) => [...r, { key: newKey(), product_id: null, name: '', unit: '', qty: '1', price: '0', currency: 'USD', note: '', image_url: '' }]);
+  const addBlank = () => setRows((r) => [...r, {
+    key: newKey(),
+    product_id: null,
+    name: '',
+    unit: '',
+    qty: '1',
+    price: '0',
+    price_bs: '0',
+    currency: 'USD',
+    note: '',
+    image_url: '',
+    exento: false,
+    presupuestos: [],
+    presupuestosAbierto: false,
+  }]);
   const addFromProduct = (it: InventoryLevel) => {
-    setRows((r) => [...r, { key: newKey(), product_id: it.id, name: it.name, unit: it.unit || '', qty: '1', price: String(Number(it.avg_cost) || 0), currency: 'USD', note: '', image_url: '' }]);
+    const pUsd = Number(it.avg_cost) || 0;
+    const pBs = rate && rate > 0 ? (Math.round(pUsd * rate * 100) / 100).toFixed(2).replace(/\.00$/, '') : '0';
+    setRows((r) => [...r, {
+      key: newKey(),
+      product_id: it.id,
+      name: it.name,
+      unit: it.unit || '',
+      qty: '1',
+      price: String(pUsd),
+      price_bs: pBs,
+      currency: 'USD',
+      note: '',
+      image_url: '',
+      exento: false,
+      presupuestos: [],
+      presupuestosAbierto: false,
+    }]);
     setPickOpen(false); setQ('');
   };
   const upd = (key: string, field: keyof ReqRow, val: any) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
   const rm = (key: string) => setRows((r) => r.filter((x) => x.key !== key));
+
+  // Manejo de precio en dólares ($ USD): auto-calcula bolívares según tasa BCV,
+  // permitiendo que el usuario lo modifique manualmente en cualquier momento.
+  const handlePrecioUsdChange = (key: string, val: string) => {
+    const clean = onlyDecimal(val);
+    const numUsd = parseNum(clean);
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const nuevoBs = rate && rate > 0 && numUsd > 0
+        ? (Math.round(numUsd * rate * 100) / 100).toFixed(2).replace(/\.00$/, '')
+        : (clean === '' || clean === '0' ? '0' : x.price_bs);
+      return { ...x, price: clean, price_bs: nuevoBs };
+    }));
+  };
+
+  // Manejo de precio en bolívares (Bs): lo que coloque manualmente el usuario se queda allí
+  const handlePrecioBsChange = (key: string, val: string) => {
+    const clean = onlyDecimal(val);
+    const numBs = parseNum(clean);
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      // Si el precio en dólares estaba en 0 o vacío, auto-calcula el USD correspondiente
+      const nuevoUsd = (x.price === '' || x.price === '0') && rate && rate > 0 && numBs > 0
+        ? (Math.round((numBs / rate) * 100) / 100).toFixed(2).replace(/\.00$/, '')
+        : x.price;
+      return { ...x, price_bs: clean, price: nuevoUsd };
+    }));
+  };
+
+  // Recomputar manualmente con la tasa BCV (botón 🔄)
+  const recomputarDesdeBcv = (key: string, base: 'USD' | 'VES') => {
+    if (!rate || rate <= 0) return toast.info('No hay tasa BCV activa para convertir.');
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      if (base === 'USD') {
+        const u = parseNum(x.price);
+        const bs = (Math.round(u * rate * 100) / 100).toFixed(2).replace(/\.00$/, '');
+        return { ...x, price_bs: bs };
+      } else {
+        const b = parseNum(x.price_bs);
+        const u = (Math.round((b / rate) * 100) / 100).toFixed(2).replace(/\.00$/, '');
+        return { ...x, price: u };
+      }
+    }));
+  };
+
+  // 📋 Cotizaciones / Presupuestos alternativos por renglón
+  const agregarPresupuesto = (key: string) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const list = x.presupuestos || [];
+      const nuevo: PresupuestoItem = {
+        id: `cot-${Date.now()}-${list.length}`,
+        proveedor: '',
+        precio_usd: '',
+        precio_bs: '',
+        nota: '',
+      };
+      return { ...x, presupuestos: [...list, nuevo], presupuestosAbierto: true };
+    }));
+  };
+
+  const actualizarPresupuesto = (key: string, cotId: string, campo: keyof PresupuestoItem, val: string) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const list = (x.presupuestos || []).map((c) => {
+        if (c.id !== cotId) return c;
+        const updated = { ...c, [campo]: val };
+        // Auto-conversión interactiva en la cotización
+        if (campo === 'precio_usd' && rate && rate > 0) {
+          const u = parseNum(onlyDecimal(val));
+          if (u > 0) updated.precio_bs = (Math.round(u * rate * 100) / 100).toFixed(2).replace(/\.00$/, '');
+        } else if (campo === 'precio_bs' && rate && rate > 0 && (!c.precio_usd || c.precio_usd === '0')) {
+          const b = parseNum(onlyDecimal(val));
+          if (b > 0) updated.precio_usd = (Math.round((b / rate) * 100) / 100).toFixed(2).replace(/\.00$/, '');
+        }
+        return updated;
+      });
+      return { ...x, presupuestos: list };
+    }));
+  };
+
+  const eliminarPresupuesto = (key: string, cotId: string) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      return { ...x, presupuestos: (x.presupuestos || []).filter((c) => c.id !== cotId) };
+    }));
+  };
+
+  const aplicarPresupuestoAlItem = (key: string, cot: PresupuestoItem) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const matchingSupplier = suppliers.find((s) => s.name.trim().toLowerCase() === cot.proveedor.trim().toLowerCase());
+      return {
+        ...x,
+        price: cot.precio_usd || x.price,
+        price_bs: cot.precio_bs || x.price_bs,
+        supplier_name: cot.proveedor || x.supplier_name,
+        supplier_id: matchingSupplier ? matchingSupplier.id : x.supplier_id,
+      };
+    }));
+    toast.success(`Cotización de "${cot.proveedor || 'Proveedor'}" aplicada al renglón.`);
+  };
 
   // Sube una IMAGEN de referencia de un producto (toma foto o elige de galería) y la
   // deja en esa fila. Se guarda dentro del ítem (JSON) al enviar el requerimiento y
@@ -698,6 +858,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const limpiarForm = () => {
     setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null);
     setEmpresaPagadoraId(null); setEmpresaPagadoraNombre(null);
+    setAlicuotaIva('16');
     setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
     setSolicitante(SIN_PERSONA); setAutorizado(SIN_PERSONA);
     setDestino(null); setArea(''); setAreaLibre(false); setObservaciones('');
@@ -1311,14 +1472,32 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   const crear = async () => {
     setFormErr(null);
+    const alicNum = Math.min(100, Math.max(0, parseNum(alicuotaIva) || 0));
     const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => {
       const supObj = x.supplier_id ? suppliers.find((s) => s.id === x.supplier_id) : (supplierId ? suppliers.find((s) => s.id === supplierId) : null);
+      const pUsd = parseNum(x.price);
+      const pBs = parseNum(x.price_bs) || (rate && rate > 0 ? Math.round(pUsd * rate * 100) / 100 : 0);
       return {
-        product_id: x.product_id, name: x.name.trim().toUpperCase(), unit: x.unit.trim().toUpperCase() || null,
-        qty: parseNum(x.qty), est_price: parseNum(x.price), currency: x.currency, note: x.note.trim() || null,
+        product_id: x.product_id,
+        name: x.name.trim().toUpperCase(),
+        unit: x.unit.trim().toUpperCase() || null,
+        qty: parseNum(x.qty),
+        est_price: pUsd,
+        price_usd: pUsd,
+        price_bs: pBs,
+        currency: 'USD',
+        note: x.note.trim() || null,
         image_url: x.image_url || null,
         supplier_id: x.supplier_id || supplierId || null,
         supplier_name: x.supplier_name || supObj?.name || null,
+        exento: Boolean(x.exento),
+        cotizaciones: (x.presupuestos || []).filter((c) => c.proveedor.trim() || parseNum(c.precio_usd) > 0 || parseNum(c.precio_bs) > 0).map((c) => ({
+          id: c.id,
+          proveedor: c.proveedor.trim().toUpperCase(),
+          precio_usd: parseNum(c.precio_usd),
+          precio_bs: parseNum(c.precio_bs),
+          nota: (c.nota || '').trim() || null,
+        })),
       };
     });
     if (items.length === 0) { const m = 'Agrega al menos un producto (del inventario o nuevo) antes de guardar.'; setFormErr(m); return toast.error(m); }
@@ -1332,6 +1511,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const base = {
         title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId,
         empresa_pagadora_id: empresaPagadoraId, empresa_pagadora_nombre: empresaPagadoraNombre,
+        iva_alicuota: alicNum,
         items, ...adj
       };
       // 👤 Solicitante, autorizado, destino, área y observaciones (20-oct-2026).
@@ -1340,6 +1520,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       let respGuardado = true;
       let nuevosGuardados = true;
       let { error } = await supabase.from('inventory_requirements').update({ ...conResp, ...nuevos }).eq('id', editId);
+      // Si el SQL de iva_alicuota aún no se corrió, reintenta sin ella
+      if (error && /iva_alicuota/i.test(error.message)) {
+        delete (conResp as any).iva_alicuota;
+        delete (base as any).iva_alicuota;
+        ({ error } = await supabase.from('inventory_requirements').update({ ...conResp, ...nuevos }).eq('id', editId));
+      }
       // Si el SQL de empresa pagadora aún no se corrió, reintenta sin ella
       if (error && /empresa_pagadora/i.test(error.message)) {
         delete (conResp as any).empresa_pagadora_id;
@@ -1386,6 +1572,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     //    y las observaciones. Mismo trato defensivo que el responsable.
     let nuevosCampos: Record<string, any> = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones });
     let nuevosFaltaSql = false;
+    let ivaCampos: Record<string, any> = { iva_alicuota: alicNum };
     for (let intento = 0; intento < 6 && !saved; intento++) {
       const { data: codeRows, error: readErr } = await supabase.from('inventory_requirements').select('code');
       if (readErr || !codeRows) {
@@ -1398,9 +1585,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // leemos el código REAL que quedó para mostrarlo.
       const { data: inserted, error } = await supabase.from('inventory_requirements').insert({
         code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, status: 'pendiente', items,
-        requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos, ...nuevosCampos, ...empresaCampos,
+        requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos, ...nuevosCampos, ...empresaCampos, ...ivaCampos,
       }).select('id, code').single();
       if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; saved = true; break; }
+      // Falta la columna de iva_alicuota: se reintenta sin ella
+      if (Object.keys(ivaCampos).length && /iva_alicuota/i.test(error.message)) { ivaCampos = {}; intento--; continue; }
       // Falta la columna de empresa pagadora: se reintenta sin ella
       if (Object.keys(empresaCampos).length && /empresa_pagadora/i.test(error.message)) { empresaCampos = {}; empresaFaltaSql = true; intento--; continue; }
       // Falta la columna del responsable: se reintenta SIN ella (mismo número).
@@ -1452,15 +1641,36 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setArea(r.area ?? '');
     setAreaLibre(false);
     setObservaciones(r.observaciones ?? '');
+    setAlicuotaIva(r.iva_alicuota != null ? String(r.iva_alicuota) : '16');
     setFormato(r.attachment_url ? { url: r.attachment_url, kind: (r.attachment_type as 'image' | 'pdf') || 'image', name: r.attachment_name || 'formato' } : null);
     let s = 0;
-    setRows(r.items.map((it) => ({
-      key: `${Date.now()}-${s++}`, product_id: it.product_id, name: it.name, unit: it.unit ?? '',
-      qty: String(it.qty), price: String(it.est_price ?? 0), currency: (it.currency as 'USD' | 'VES') || 'USD', note: it.note ?? '',
-      image_url: it.image_url ?? '',
-      supplier_id: it.supplier_id || null,
-      supplier_name: it.supplier_name || null,
-    })));
+    setRows(r.items.map((it) => {
+      const pUsdNum = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
+      const pBsNum = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdNum * rate * 100) / 100 : 0));
+      return {
+        key: `${Date.now()}-${s++}`,
+        product_id: it.product_id,
+        name: it.name,
+        unit: it.unit ?? '',
+        qty: String(it.qty),
+        price: String(pUsdNum),
+        price_bs: String(pBsNum),
+        currency: 'USD',
+        note: it.note ?? '',
+        image_url: it.image_url ?? '',
+        supplier_id: it.supplier_id || null,
+        supplier_name: it.supplier_name || null,
+        exento: Boolean(it.exento),
+        presupuestos: Array.isArray(it.cotizaciones) ? it.cotizaciones.map((c: any, ci: number) => ({
+          id: c.id || `cot-${ci}-${Date.now()}`,
+          proveedor: c.proveedor || c.supplier_name || '',
+          precio_usd: String(c.precio_usd ?? c.price ?? '0'),
+          precio_bs: String(c.precio_bs ?? (rate && rate > 0 ? Math.round((Number(c.precio_usd ?? c.price ?? 0)) * rate * 100) / 100 : '0')),
+          nota: c.nota || c.note || '',
+        })) : [],
+        presupuestosAbierto: false,
+      };
+    }));
     setFormErr(null);
     setCreateOpen(true);
   };
@@ -1742,7 +1952,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
-  const totalUsdDe = (r: InventoryRequirement) => r.items.reduce((s, it) => s + (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0)) * (Number(it.qty) || 0), 0);
+  const totalUsdDe = (r: InventoryRequirement) => calcularTotalReqUsd(r.items || [], rate, r.iva_alicuota);
 
   // Convierte los ítems al formato del PDF, incrustando la imagen de cada producto
   // como data-URI (para que salga SÍ o SÍ en el PDF, sin depender de CORS ni de que
@@ -1752,6 +1962,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency,
     isNew: !it.product_id, note: it.note,
     supplier_name: it.supplier_name || null,
+    exento: Boolean(it.exento),
+    price_usd: it.price_usd,
+    price_bs: it.price_bs,
+    cotizaciones_count: Array.isArray(it.cotizaciones) ? it.cotizaciones.length : 0,
     image: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
   })));
 
@@ -1782,6 +1996,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         fechaRespuesta: r.aclaratoria_fecha_respuesta ? dmyOf(r.aclaratoria_fecha_respuesta) : null,
       } : null,
       approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
+      ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : 16,
       items: await itemsToPdf(r),
     };
   };
@@ -1792,7 +2007,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
   };
 
-  const createTotalUsd = rows.reduce((s, x) => s + (x.currency === 'USD' ? parseNum(x.price) : usdFromBs(parseNum(x.price), rate || 0)) * parseNum(x.qty), 0);
+  const createSubtotalUsd = rows.reduce((s, x) => s + parseNum(x.price) * parseNum(x.qty), 0);
+  const createBaseImponibleUsd = rows.reduce((s, x) => s + (x.exento ? 0 : parseNum(x.price) * parseNum(x.qty)), 0);
+  const createExentoUsd = createSubtotalUsd - createBaseImponibleUsd;
+  const createAlicuotaNum = Math.min(100, Math.max(0, parseNum(alicuotaIva) || 0));
+  const createIvaUsd = Math.round(createBaseImponibleUsd * (createAlicuotaNum / 100) * 100) / 100;
+  const createTotalUsd = Math.round((createSubtotalUsd + createIvaUsd) * 100) / 100;
 
   if (loading) return <Screen><SkeletonList /></Screen>;
 
@@ -1841,12 +2061,27 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           { k: 'pendiente', label: '⏳ Pendientes', color: '#D97706' },
           { k: 'aclaratoria_solicitada', label: '⚠️ En Aclaratoria', color: '#D97706' },
           { k: 'sin_precio', label: '❗ Sin precio', color: '#DC2626' },
-          { k: 'aprobado', label: '✅ Aprobados', color: '#2563EB' },
+          { k: 'aprobado', label: '✅ Aprobados (Por Pagar)', color: '#2563EB' },
+          { k: 'esperando_recepcion', label: '📦 Esperando Recepción', color: '#0D9488' },
           { k: 'rechazado', label: '❌ Rechazados', color: '#DC2626' },
           { k: 'recibido', label: '📦 Recibidos', color: '#16A34A' },
         ] as const).map((f) => {
           const on = filterStatus === f.k;
-          const n = f.k === 'todos' ? reqs.length : f.k === 'sin_precio' ? reqs.filter(faltaPrecioDe).length : reqs.filter((r) => r.status === f.k).length;
+          const n = f.k === 'todos'
+            ? reqs.length
+            : f.k === 'sin_precio'
+            ? reqs.filter(faltaPrecioDe).length
+            : f.k === 'esperando_recepcion'
+            ? reqs.filter((r) => {
+                const provG = suppliers.find((s) => s.id === r.supplier_id);
+                return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_recepcion';
+              }).length
+            : f.k === 'aprobado'
+            ? reqs.filter((r) => {
+                const provG = suppliers.find((s) => s.id === r.supplier_id);
+                return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'aprobado';
+              }).length
+            : reqs.filter((r) => r.status === f.k).length;
           return (
             <TouchableOpacity key={f.k} onPress={() => setFilterStatus(f.k)} style={{ borderWidth: 1.5, borderColor: f.color, backgroundColor: on ? f.color : 'transparent', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
               <Text style={{ color: on ? '#fff' : f.color, fontWeight: '800', fontSize: 12 }}>{f.label} ({n})</Text>
@@ -1882,7 +2117,15 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       {(() => {
         const nq = norm(listQuery);
         const filteredReqs = reqs
-          .filter((r) => filterStatus === 'todos' ? true : filterStatus === 'sin_precio' ? faltaPrecioDe(r) : r.status === filterStatus)
+          .filter((r) => {
+            if (filterStatus === 'todos') return true;
+            if (filterStatus === 'sin_precio') return faltaPrecioDe(r);
+            const provG = suppliers.find((s) => s.id === r.supplier_id);
+            const est = calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id));
+            if (filterStatus === 'esperando_recepcion') return est.codigo === 'esperando_recepcion';
+            if (filterStatus === 'aprobado') return est.codigo === 'aprobado';
+            return r.status === filterStatus;
+          })
           .filter((r) => !reqDateFrom || r.created_at.slice(0, 10) >= reqDateFrom)
           .filter((r) => !reqDateTo || r.created_at.slice(0, 10) <= reqDateTo)
           .filter((r) => {
@@ -1954,7 +2197,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               <View style={{ flex: 1 }}>
               {(() => {
         const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
-        const estDinamico = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
+        const estDinamico = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion, cuentasPagadasSet.has(r.id));
         const tUsd = estDinamico.totalUSD;
         const faltaPrecio = !estDinamico.tieneCotizacionCompleta;
         return (
@@ -1963,14 +2206,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             summary={
               <View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, minWidth: 150 }}>
                     <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}{r.responsable_nombre ? ` · 📦 Resp.: ${r.responsable_nombre}` : ''}</Text>
                     {r.empresa_pagadora_nombre ? (
                       <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>💳 Pagadora: {r.empresa_pagadora_nombre}</Text>
                     ) : null}
                   </View>
-                  <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 210 }}>
+                  <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 1, maxWidth: 260 }}>
                     {canReceive ? (
                       <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); setStatusPickerId((id) => (id === r.id ? null : r.id)); }}>
                         <Pill label={`${estDinamico.label} ${statusPickerId === r.id ? '▴' : '▾'}`} color={estDinamico.color} />
@@ -2049,7 +2292,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 {canReceive && statusPickerId === r.id ? (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: spacing.xs, justifyContent: 'flex-end' }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
-                    {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
+                    {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'esperando_recepcion', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
                       <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s]?.short || s}</Text>
                       </TouchableOpacity>
@@ -2060,24 +2303,72 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             }
             detail={
               <View>
-                {r.items.map((it, i) => (
-                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 4, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
-                    <View style={{ flex: 1 }}>
-                      {/* 🔢 Número de renglón */}
-                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}><Text style={{ color: colors.muted }}>{i + 1}. </Text>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}</Text>
-                      {it.note ? <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginTop: 1 }}>📐 {it.note}</Text> : null}
-                      {it.supplier_name ? (
-                        <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '700', marginTop: 1 }}>🏢 Proveedor del ítem: {it.supplier_name}</Text>
-                      ) : null}
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>{qtyFmt(it.qty)} {it.unit || ''} · {it.currency === 'USD' ? usd(it.est_price) : fmtBs(it.est_price)} c/u</Text>
+                {r.items.map((it, i) => {
+                  const pUsdVal = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
+                  const pBsVal = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdVal * rate * 100) / 100 : 0));
+                  const cots = Array.isArray(it.cotizaciones) ? it.cotizaciones : [];
+                  return (
+                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 4, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+                      <View style={{ flex: 1 }}>
+                        {/* 🔢 Número de renglón */}
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
+                          <Text style={{ color: colors.muted }}>{i + 1}. </Text>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}
+                          {it.exento ? <Text style={{ color: '#0284C7', fontSize: 11, fontWeight: '800' }}> · 🛡️ EXENTO DE IVA</Text> : null}
+                        </Text>
+                        {it.note ? <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginTop: 1 }}>📐 {it.note}</Text> : null}
+                        {it.supplier_name ? (
+                          <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '700', marginTop: 1 }}>🏢 Proveedor del ítem: {it.supplier_name}</Text>
+                        ) : null}
+                        {cots.length > 0 ? (
+                          <Text style={{ color: '#7E22CE', fontSize: 11, fontWeight: '700', marginTop: 1 }}>📋 {cots.length} cotización(es) alternativa(s) evaluada(s)</Text>
+                        ) : null}
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+                          {qtyFmt(it.qty)} {it.unit || ''} · {usd(pUsdVal)}{pBsVal > 0 ? ` / ${fmtBs(pBsVal)}` : ''} c/u
+                        </Text>
+                      </View>
+                      {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
                     </View>
-                    {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
-                  </View>
-                ))}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
-                  <Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text>
-                  <Text style={{ color: colors.brandText, fontWeight: '900' }}>{usd(tUsd)}{rate ? ` · ${fmtBs(bsFromUsd(tUsd, rate))}` : ''}</Text>
-                </View>
+                  );
+                })}
+                {(() => {
+                  const subUsd = r.items.reduce((s, it) => s + (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0)) * (Number(it.qty) || 0), 0);
+                  const baseUsd = r.items.reduce((s, it) => s + (it.exento ? 0 : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0)) * (Number(it.qty) || 0)), 0);
+                  const exentoUsd = subUsd - baseUsd;
+                  const alic = r.iva_alicuota != null ? Number(r.iva_alicuota) : 0;
+                  const ivaUsd = Math.round(baseUsd * (alic / 100) * 100) / 100;
+                  const totalConIvaUsd = alic > 0 ? Math.round((subUsd + ivaUsd) * 100) / 100 : tUsd;
+
+                  return (
+                    <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                      {alic > 0 || exentoUsd > 0 ? (
+                        <View style={{ marginBottom: 4, gap: 2 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>Subtotal:</Text>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{usd(subUsd)}</Text>
+                          </View>
+                          {exentoUsd > 0 ? (
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                              <Text style={{ color: '#0369A1', fontSize: 11 }}>Exento de IVA:</Text>
+                              <Text style={{ color: '#0369A1', fontSize: 11, fontWeight: '700' }}>{usd(exentoUsd)}</Text>
+                            </View>
+                          ) : null}
+                          {alic > 0 ? (
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>IVA ({alic}%):</Text>
+                              <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{usd(ivaUsd)}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      ) : null}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '900' }}>
+                          {usd(totalConIvaUsd)}{rate ? ` · ${fmtBs(bsFromUsd(totalConIvaUsd, rate))}` : ''}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })()}
                 {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
                 {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
                 {r.status === 'recibido' ? <Text style={{ color: colors.success, fontSize: 11, marginTop: 2 }}>Recibido en inventario{r.received_at ? ` · ${dmyOf(r.received_at)}` : ''}</Text> : null}
@@ -2657,14 +2948,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       </TouchableOpacity>
                     </>
                   ) : null}
-                  {canReceive && r.status === 'aprobado' ? (
+                  {canReceive && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
                     <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                       <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
                     </TouchableOpacity>
                   ) : null}
                   {/* Anular un requerimiento YA APROBADO: el mismo gerente lo rechaza y la
                       BD anula la orden de compra + cuenta por pagar generadas. */}
-                  {isAdmin && r.status === 'aprobado' ? (
+                  {isAdmin && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
                     <TouchableOpacity onPress={() => anularAprobado(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                       <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>⛔ Anular (rechazar)</Text>
                     </TouchableOpacity>
@@ -2948,36 +3239,223 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     placeholderTextColor={colors.muted}
                     style={[inp, { marginTop: 4, fontSize: 12 }]}
                   />
-                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
-                    <View style={{ width: 64 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text><TextInput value={x.qty} onChangeText={(t) => upd(x.key, 'qty', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'center' }]} /></View>
-                    <View style={{ width: 70 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Unidad</Text><TextInput value={x.unit} onChangeText={(t) => upd(x.key, 'unit', t.toUpperCase())} placeholder="UND" placeholderTextColor={colors.muted} style={inp} /></View>
-                    <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Precio est.</Text><TextInput value={x.price} onChangeText={(t) => upd(x.key, 'price', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'right' }]} /></View>
-                    {/* Selector Multi-Moneda: USD, VES, EUR, COP */}
-                    <View style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}>
-                      {['USD', 'VES', 'EUR', 'COP'].map((curr) => {
-                        const sel = x.currency === curr;
-                        return (
-                          <TouchableOpacity
-                            key={curr}
-                            onPress={() => upd(x.key, 'currency', curr)}
-                            style={{
-                              paddingHorizontal: 7,
-                              paddingVertical: 8,
-                              borderRadius: radius.sm,
-                              backgroundColor: sel ? colors.brand : colors.surfaceAlt,
-                              borderWidth: 1,
-                              borderColor: sel ? colors.brand : colors.border,
-                            }}
-                          >
-                            <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11 }}>
-                              {simboloMoneda(curr)}
-                            </Text>
+                  {/* 🔢 Cantidad, Unidad, Precio en $ USD y Precio en Bs (Responsive Teléfono / PC) */}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
+                    <View style={{ width: 62 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text>
+                      <TextInput
+                        value={x.qty}
+                        onChangeText={(t) => upd(x.key, 'qty', onlyDecimal(t))}
+                        keyboardType="numeric"
+                        inputMode="decimal"
+                        style={[inp, { textAlign: 'center' }]}
+                      />
+                    </View>
+                    <View style={{ width: 70 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Unidad</Text>
+                      <TextInput
+                        value={x.unit}
+                        onChangeText={(t) => upd(x.key, 'unit', t.toUpperCase())}
+                        placeholder="UND"
+                        placeholderTextColor={colors.muted}
+                        style={inp}
+                      />
+                    </View>
+
+                    {/* 💵 Barra Precio Dólares ($ USD) */}
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>💵 Precio ($ USD)</Text>
+                        {rate && rate > 0 ? (
+                          <TouchableOpacity onPress={() => recomputarDesdeBcv(x.key, 'VES')} style={{ paddingHorizontal: 2 }}>
+                            <Text style={{ color: colors.muted, fontSize: 10 }}>🔄 de Bs</Text>
                           </TouchableOpacity>
-                        );
-                      })}
+                        ) : null}
+                      </View>
+                      <TextInput
+                        value={x.price}
+                        onChangeText={(t) => handlePrecioUsdChange(x.key, t)}
+                        keyboardType="numeric"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        placeholderTextColor={colors.muted}
+                        style={[inp, { textAlign: 'right', fontWeight: '800' }]}
+                      />
+                    </View>
+
+                    {/* 🇻🇪 Barra Precio Bolívares (Bs) */}
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <Text style={{ color: '#0D9488', fontSize: 11, fontWeight: '800' }}>🇻🇪 Precio (Bs)</Text>
+                        {rate && rate > 0 ? (
+                          <TouchableOpacity onPress={() => recomputarDesdeBcv(x.key, 'USD')} style={{ paddingHorizontal: 2 }}>
+                            <Text style={{ color: colors.muted, fontSize: 10 }}>🔄 de $</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      <TextInput
+                        value={x.price_bs}
+                        onChangeText={(t) => handlePrecioBsChange(x.key, t)}
+                        keyboardType="numeric"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        placeholderTextColor={colors.muted}
+                        style={[inp, { textAlign: 'right', fontWeight: '800' }]}
+                      />
                     </View>
                   </View>
-                  {parseNum(x.price) > 0 && rate ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'right' }}>≈ {otra} c/u</Text> : null}
+
+                  {/* 🧾 Fila de Acciones por Renglón: Exento de IVA y Presupuestos Comparativos */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, flexWrap: 'wrap', gap: 6 }}>
+                    {/* Cuadro Exento de IVA (idéntico a Compra Directa) */}
+                    <TouchableOpacity
+                      onPress={() => upd(x.key, 'exento', !x.exento)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        borderRadius: radius.sm,
+                        backgroundColor: x.exento ? '#E0F2FE' : colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: x.exento ? '#0284C7' : colors.border,
+                        alignSelf: 'flex-start',
+                      }}
+                    >
+                      <Text style={{ color: x.exento ? '#0369A1' : colors.muted, fontSize: 13, fontWeight: '900' }}>
+                        {x.exento ? '☑' : '☐'}
+                      </Text>
+                      <Text style={{ color: x.exento ? '#0369A1' : colors.text, fontSize: 12, fontWeight: x.exento ? '800' : '600' }}>
+                        Exento de IVA
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Botón para desplegar / agregar cotizaciones múltiples para este renglón */}
+                    <TouchableOpacity
+                      onPress={() => upd(x.key, 'presupuestosAbierto', !x.presupuestosAbierto)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 5,
+                        paddingVertical: 4,
+                        paddingHorizontal: 10,
+                        borderRadius: radius.pill,
+                        backgroundColor: (x.presupuestos || []).length > 0 ? '#F3E8FF' : colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: (x.presupuestos || []).length > 0 ? '#A855F7' : colors.border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12 }}>📋</Text>
+                      <Text style={{ color: (x.presupuestos || []).length > 0 ? '#7E22CE' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                        {(x.presupuestos || []).length === 0
+                          ? '＋ Comparar cotizaciones'
+                          : `Cotizaciones alternativas (${(x.presupuestos || []).length}) ${x.presupuestosAbierto ? '▲' : '▼'}`}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* 📋 Bloque desplegable de Presupuestos / Cotizaciones múltiples para este producto */}
+                  {x.presupuestosAbierto ? (
+                    <View style={{ marginTop: 8, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: spacing.xs }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
+                          📋 Cotizaciones / Presupuestos comparativos
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => agregarPresupuesto(x.key)}
+                          style={{ backgroundColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4 }}
+                        >
+                          <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800' }}>＋ Agregar cotización</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={{ fontSize: 11, color: colors.muted }}>
+                        Registra dos o más cotizaciones de diferentes proveedores para esta pieza. Toca "✓ Elegir esta cotización" para cargar automáticamente su precio y proveedor en el renglón.
+                      </Text>
+
+                      {(x.presupuestos || []).map((cot, ci) => (
+                        <View key={cot.id} style={{ backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginTop: 4 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.brandText }}>Opción #{ci + 1}</Text>
+                            <TouchableOpacity onPress={() => eliminarPresupuesto(x.key, cot.id)}>
+                              <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑 Quitar</Text>
+                            </TouchableOpacity>
+                          </View>
+
+                          <TextInput
+                            value={cot.proveedor}
+                            onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'proveedor', t)}
+                            placeholder="Nombre del proveedor o tienda (ej. Repuestos El Sol)"
+                            placeholderTextColor={colors.muted}
+                            style={[inp, { fontSize: 12, marginBottom: 4 }]}
+                          />
+
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 10, color: colors.muted, marginBottom: 2 }}>Precio ($ USD)</Text>
+                              <TextInput
+                                value={cot.precio_usd}
+                                onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'precio_usd', t)}
+                                keyboardType="numeric"
+                                inputMode="decimal"
+                                placeholder="$ 0.00"
+                                placeholderTextColor={colors.muted}
+                                style={[inp, { textAlign: 'right', fontSize: 12, fontWeight: '700' }]}
+                              />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 10, color: colors.muted, marginBottom: 2 }}>Precio (Bs)</Text>
+                              <TextInput
+                                value={cot.precio_bs}
+                                onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'precio_bs', t)}
+                                keyboardType="numeric"
+                                inputMode="decimal"
+                                placeholder="Bs 0.00"
+                                placeholderTextColor={colors.muted}
+                                style={[inp, { textAlign: 'right', fontSize: 12, fontWeight: '700' }]}
+                              />
+                            </View>
+                          </View>
+
+                          <TextInput
+                            value={cot.nota || ''}
+                            onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'nota', t)}
+                            placeholder="Nota: entrega inmediata, garantía, marca…"
+                            placeholderTextColor={colors.muted}
+                            style={[inp, { fontSize: 11.5, marginTop: 4 }]}
+                          />
+
+                          <TouchableOpacity
+                            onPress={() => aplicarPresupuestoAlItem(x.key, cot)}
+                            style={{
+                              marginTop: 6,
+                              alignSelf: 'flex-start',
+                              backgroundColor: '#DCFCE7',
+                              borderWidth: 1,
+                              borderColor: '#16A34A',
+                              borderRadius: radius.pill,
+                              paddingHorizontal: 10,
+                              paddingVertical: 3,
+                            }}
+                          >
+                            <Text style={{ color: '#15803D', fontSize: 11, fontWeight: '800' }}>
+                              ✓ Elegir esta cotización para el ítem
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+
+                      {(x.presupuestos || []).length === 0 ? (
+                        <TouchableOpacity
+                          onPress={() => agregarPresupuesto(x.key)}
+                          style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, alignItems: 'center', marginTop: 4 }}
+                        >
+                          <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>＋ Toca para registrar la primera cotización</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
+
                   {/* Imagen de referencia del producto: sale en el PDF junto a su descripción. */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
                     {x.image_url ? (
@@ -3009,10 +3487,106 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               );
             })}
 
+            {/* 🧾 Desglose Financiero con IVA idéntico a Compra Directa */}
             {rows.length ? (
               <Card>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text><Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 16 }}>{usd(createTotalUsd)}</Text></View>
-                {rate ? <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'right' }}>{fmtBs(bsFromUsd(createTotalUsd, rate))}</Text> : null}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>IVA %</Text>
+                  <TextInput
+                    value={alicuotaIva}
+                    onChangeText={setAlicuotaIva}
+                    keyboardType="decimal-pad"
+                    inputMode="decimal"
+                    placeholder="16"
+                    placeholderTextColor={colors.muted}
+                    style={{
+                      width: 80,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 6,
+                      color: colors.text,
+                      fontSize: 13,
+                      textAlign: 'right',
+                      fontWeight: '800',
+                    }}
+                  />
+                  <Text style={{ color: colors.muted, fontSize: 11, flex: 1 }}>
+                    Nace en 16%. Colócalo en 0 si el requerimiento completo no lleva IVA.
+                  </Text>
+                </View>
+
+                {(() => {
+                  const subUsd = createSubtotalUsd;
+                  const baseUsd = createBaseImponibleUsd;
+                  const exentoUsd = createExentoUsd;
+                  const alic = createAlicuotaNum;
+                  const ivaUsd = createIvaUsd;
+                  const totalUsd = createTotalUsd;
+
+                  const fila = (label: string, usdVal: number, highlight?: boolean, esTotal?: boolean) => {
+                    const bsVal = rate && rate > 0 ? usdVal * rate : 0;
+                    return (
+                      <View
+                        key={label}
+                        style={{
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginTop: esTotal ? 8 : 3,
+                          paddingTop: esTotal ? 6 : 0,
+                          borderTopWidth: esTotal ? 1.5 : 0,
+                          borderTopColor: colors.border,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: esTotal ? colors.text : (highlight ? '#0369A1' : colors.muted),
+                            fontSize: esTotal ? 14 : 12,
+                            fontWeight: esTotal ? '900' : (highlight ? '700' : '600'),
+                          }}
+                        >
+                          {label}
+                        </Text>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text
+                            style={{
+                              color: esTotal ? colors.brandText : colors.text,
+                              fontSize: esTotal ? 16 : 13,
+                              fontWeight: esTotal ? '900' : '700',
+                              fontVariant: ['tabular-nums'],
+                            }}
+                          >
+                            {usd(usdVal)}
+                          </Text>
+                          {rate && rate > 0 ? (
+                            <Text
+                              style={{
+                                color: colors.muted,
+                                fontSize: esTotal ? 11.5 : 10.5,
+                                fontVariant: ['tabular-nums'],
+                              }}
+                            >
+                              {fmtBs(bsVal)}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  };
+
+                  return (
+                    <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                      {fila('Subtotal', subUsd)}
+                      {exentoUsd > 0 ? fila('Exento de IVA', exentoUsd, true) : null}
+                      {exentoUsd > 0 ? fila('Base imponible (gravada)', baseUsd) : null}
+                      {fila(`IVA (${alic}%)`, ivaUsd)}
+                      {fila('TOTAL ESTIMADO', totalUsd, false, true)}
+                    </View>
+                  );
+                })()}
               </Card>
             ) : <EmptyState title="Sin productos" subtitle="Agrega productos del inventario o nuevos." />}
 

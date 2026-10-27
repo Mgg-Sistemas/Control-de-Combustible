@@ -409,7 +409,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   );
   const countConvertidos = useMemo(
     () =>
-      solicitudesConEstado.filter(({ est }) => est.codigo === 'aprobado' || est.codigo === 'recibido').length,
+      solicitudesConEstado.filter(
+        ({ est }) => est.codigo === 'aprobado' || est.codigo === 'esperando_recepcion' || est.codigo === 'recibido'
+      ).length,
     [solicitudesConEstado]
   );
   const countRechazados = useMemo(
@@ -440,7 +442,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     }
     if (filterEstado === 'convertido') {
       return solicitudesConEstado
-        .filter(({ est }) => est.codigo === 'aprobado' || est.codigo === 'recibido')
+        .filter(
+          ({ est }) => est.codigo === 'aprobado' || est.codigo === 'esperando_recepcion' || est.codigo === 'recibido'
+        )
         .map((x) => x.req);
     }
     if (filterEstado === 'rechazado') {

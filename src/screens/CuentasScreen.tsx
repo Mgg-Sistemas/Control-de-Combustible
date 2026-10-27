@@ -43,6 +43,7 @@ import {
   limpiarNotaCuentasVisual,
   type ReciboPagoInfo,
 } from '../lib/cuentasPago';
+import { extraerReciboPago, inyectarReciboPagoEnObservaciones } from '../lib/requerimientoExpediente';
 
 // Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
 type Prioridad = 'alta' | 'media' | 'baja';
@@ -340,6 +341,43 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       .update({ estado: 'pagada', settled_by: session?.user?.id ?? null, settled_at: nowISO(), updated_at: nowISO() })
       .eq('id', c.id);
     if (error) return toast.error(error.message);
+
+    // Sincronización automática con el requerimiento de compras si nació de uno
+    if (c.order_id) {
+      try {
+        const { data: reqRows } = await supabase
+          .from('inventory_requirements')
+          .select('id, observaciones')
+          .eq('id', c.order_id)
+          .limit(1);
+        if (reqRows && reqRows[0]) {
+          const recExist = extraerReciboPago(reqRows[0]);
+          if (!recExist || (!recExist.url && !recExist.referencia)) {
+            const notaRecibo = inyectarReciboPagoEnObservaciones(
+              reqRows[0].observaciones,
+              {
+                url: c.factura_url || '',
+                tipo: 'image',
+                nombre: 'Comprobante de Pago Cuentas por Pagar',
+                fecha: nowISO().slice(0, 10),
+                referencia: c.documento || 'CXP-PAGADA',
+                monto: Number(c.monto) || null,
+                metodo: 'Cuentas por Pagar',
+                subidoPor: session?.user?.email || 'Tesorería',
+                subidoAt: nowISO(),
+              }
+            );
+            await supabase
+              .from('inventory_requirements')
+              .update({ observaciones: notaRecibo })
+              .eq('id', c.order_id);
+          }
+        }
+      } catch (eSync) {
+        console.warn('Sync cxp a req error:', eSync);
+      }
+    }
+
     refetch();
     toast.success('Cuenta marcada como pagada.');
   };
@@ -430,6 +468,40 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     });
     setBusy(false);
     if (error) return toast.error(error.message);
+
+    // Sincronización automática con requerimiento si el abono saldó la deuda
+    if (importe >= abonoDe.saldo && abonoDe.order_id) {
+      try {
+        const { data: reqRows } = await supabase
+          .from('inventory_requirements')
+          .select('id, observaciones')
+          .eq('id', abonoDe.order_id)
+          .limit(1);
+        if (reqRows && reqRows[0]) {
+          const notaRecibo = inyectarReciboPagoEnObservaciones(
+            reqRows[0].observaciones,
+            {
+              url: abComprobanteUrl || '',
+              tipo: 'image',
+              nombre: 'Comprobante de Pago Cuentas por Pagar',
+              fecha: abFecha,
+              referencia: abRef.trim() || 'Abono Total CXP',
+              monto: importe,
+              metodo: abMetodo.trim() || 'Abono Bancario',
+              subidoPor: session?.user?.email || 'Tesorería',
+              subidoAt: nowISO(),
+            }
+          );
+          await supabase
+            .from('inventory_requirements')
+            .update({ observaciones: notaRecibo })
+            .eq('id', abonoDe.order_id);
+        }
+      } catch (eSync) {
+        console.warn('Sync cxp abono a req error:', eSync);
+      }
+    }
+
     setAbonoDe(null);
     refetchAbonos(); refetch();
     toast.success(importe >= abonoDe.saldo ? 'Abono registrado. La cuenta quedó saldada.' : 'Abono registrado.');

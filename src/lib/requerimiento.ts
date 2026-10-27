@@ -5,7 +5,21 @@
 import { pdfDocument } from './pdf';
 import { FIRMA_DATA_URI, FIRMA2_DATA_URI } from './firmaData';
 
-export type ReqPdfItem = { name: string; unit?: string | null; qty: number; est_price: number; currency: 'USD' | 'VES' | string; isNew?: boolean; note?: string | null; image?: string | null; supplier_name?: string | null };
+export type ReqPdfItem = {
+  name: string;
+  unit?: string | null;
+  qty: number;
+  est_price: number;
+  currency: 'USD' | 'VES' | string;
+  isNew?: boolean;
+  note?: string | null;
+  image?: string | null;
+  supplier_name?: string | null;
+  exento?: boolean;
+  price_usd?: number;
+  price_bs?: number;
+  cotizaciones_count?: number;
+};
 export type ReqPdfData = {
   code?: string | null;
   fecha: string;              // ya formateada (dd/mm/aaaa)
@@ -58,6 +72,8 @@ export type ReqPdfData = {
     respuesta?: string | null;
     fechaRespuesta?: string | null;
   } | null;
+  /** 🧾 Alícuota de IVA del requerimiento (16% por defecto, editable a 0%) */
+  ivaAlicuota?: number | null;
 };
 
 // Firma según QUIÉN aprueba: cada aprobador tiene su cargo y su firma escaneada.
@@ -114,30 +130,62 @@ const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-
  *  el PDF con firma y el resumen sin firma). El precio unitario se muestra
  *  siempre en US$ (si el ítem se cargó en Bs, se convierte con la tasa del
  *  día solo para este cálculo; el documento no muestra Bs ni la tasa). */
-function reqTableHtml(d: ReqPdfData): { rows: string; totalUsd: number; hasImg: boolean } {
+function reqTableHtml(d: ReqPdfData): {
+  rows: string;
+  totalUsd: number;
+  subtotalUsd: number;
+  baseImponibleUsd: number;
+  exentoUsd: number;
+  ivaUsd: number;
+  alicuota: number;
+  hasImg: boolean;
+} {
   // La columna "Imagen" solo sale si ALGÚN producto trae imagen (así los
   // requerimientos viejos sin fotos se ven igual que siempre).
   const hasImg = d.items.some((it) => !!it.image);
-  let totalUsd = 0;
+  let subtotalUsd = 0;
+  let baseImponibleUsd = 0;
+
   const rows = d.items.map((it, i) => {
     const uUsd = toUsd(Number(it.est_price) || 0, it.currency, d.rate);
     const lineUsd = uUsd * (Number(it.qty) || 0);
-    totalUsd += lineUsd;
+    subtotalUsd += lineUsd;
+    if (!it.exento) {
+      baseImponibleUsd += lineUsd;
+    }
     const imgCell = hasImg ? `<td class="c">${it.image ? `<img class="pimg" src="${it.image}"/>` : ''}</td>` : '';
     const desc = it.note ? `<div class="pdesc">📐 ${esc(it.note)}</div>` : '';
     const provLine = it.supplier_name && it.supplier_name !== d.proveedor
       ? `<div class="pdesc" style="color:#2563EB;font-weight:700">🏢 Proveedor: ${esc(it.supplier_name)}</div>`
       : '';
+    const exentoBadge = it.exento
+      ? `<span style="background:#E0F2FE;color:#0369A1;font-size:9px;padding:1px 5px;border-radius:4px;font-weight:800;margin-left:4px">🛡️ EXENTO DE IVA</span>`
+      : '';
+    const cotBadge = it.cotizaciones_count && it.cotizaciones_count > 0
+      ? `<div class="pdesc" style="color:#7C3AED;font-weight:700">📋 ${it.cotizaciones_count} cotizaciones evaluadas</div>`
+      : '';
+    const bsSubtext = d.rate && d.rate > 0
+      ? `<div style="font-size:9px;color:#6B7280;font-weight:normal">Bs ${money(lineUsd * d.rate)}</div>`
+      : '';
+
     return `<tr>
       <td class="c">${i + 1}</td>
-      <td>${esc(it.name)}${it.isNew ? ' <span class="new">NUEVO</span>' : ''}${desc}${provLine}</td>
+      <td>${esc(it.name)}${it.isNew ? ' <span class="new">NUEVO</span>' : ''}${exentoBadge}${desc}${provLine}${cotBadge}</td>
       ${imgCell}
       <td class="c">${money(it.qty)} ${esc(it.unit || '')}</td>
       <td class="r">$${money(uUsd)}</td>
-      <td class="r b">$${money(lineUsd)}</td>
+      <td class="r b">$${money(lineUsd)}${bsSubtext}</td>
     </tr>`;
   }).join('');
-  return { rows, totalUsd, hasImg };
+
+  const exentoUsd = subtotalUsd - baseImponibleUsd;
+  const alicuota = d.ivaAlicuota !== undefined && d.ivaAlicuota !== null
+    ? Math.min(100, Math.max(0, Number(d.ivaAlicuota)))
+    : 16;
+  const ivaUsd = Math.round(baseImponibleUsd * (alicuota / 100) * 100) / 100;
+  const totalUsd = Math.round((subtotalUsd + ivaUsd) * 100) / 100;
+
+  return { rows, totalUsd, subtotalUsd, baseImponibleUsd, exentoUsd, ivaUsd, alicuota, hasImg };
 }
 
 /** Fichas con los datos DECLARADOS en el papel (20-oct-2026): el cliente pidió que
@@ -206,10 +254,43 @@ function reqTheadHtml(hasImg: boolean): string {
     `<th class="r">Precio est. (unit.)</th><th class="r">Subtotal (US$)</th></tr></thead>`;
 }
 
+function reqTotalsBlockHtml(res: ReturnType<typeof reqTableHtml>, rate: number | null): string {
+  const { subtotalUsd, baseImponibleUsd, exentoUsd, ivaUsd, totalUsd, alicuota } = res;
+  return `
+    <div style="margin-top:12px;border-top:1.5px solid #16324F;padding-top:6px;max-width:320px;margin-left:auto;font-size:11px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+        <span style="color:#555">Subtotal:</span>
+        <b>$${money(subtotalUsd)}</b>
+      </div>
+      ${exentoUsd > 0 ? `
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+        <span style="color:#0369A1">Exento de IVA:</span>
+        <span style="color:#0369A1;font-weight:700">$${money(exentoUsd)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+        <span style="color:#555">Base imponible (gravada):</span>
+        <span>$${money(baseImponibleUsd)}</span>
+      </div>` : ''}
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+        <span style="color:#555">IVA (${alicuota}%):</span>
+        <b>$${money(ivaUsd)}</b>
+      </div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid #c9d2dc;padding-top:4px;font-size:13px;color:#16324F;font-weight:900">
+        <span>TOTAL ESTIMADO:</span>
+        <span>$${money(totalUsd)}</span>
+      </div>
+      ${rate && rate > 0 ? `
+      <div style="text-align:right;color:#666;font-size:10px;margin-top:2px">
+        ≈ Bs ${money(totalUsd * rate)} (Tasa: ${money(rate)})
+      </div>` : ''}
+    </div>`;
+}
+
 /** El cuerpo (tabla + total + firma) de UN requerimiento, sin envolver en `pdfDocument`
  *  — así lo puede usar tanto el PDF individual como el de varios requerimientos juntos. */
 function reqBodyHtml(d: ReqPdfData, heading?: string): string {
-  const { rows, totalUsd, hasImg } = reqTableHtml(d);
+  const tableRes = reqTableHtml(d);
+  const { rows, hasImg } = tableRes;
 
   // Bloque de firma: si está APROBADO por un firmante conocido, va su firma escaneada
   // y su cargo. Si no, queda la línea "Aprobado por (jefe)" para firmar a mano.
@@ -229,7 +310,7 @@ function reqBodyHtml(d: ReqPdfData, heading?: string): string {
             ${reqTheadHtml(hasImg)}
             <tbody>${rows || `<tr><td colspan="${hasImg ? 6 : 5}" class="c">Sin ítems</td></tr>`}</tbody>
           </table>
-          <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}</div>
+          ${reqTotalsBlockHtml(tableRes, d.rate)}
           ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
           ${reqObsHtml(d)}
         </div>
@@ -273,7 +354,8 @@ export function requerimientosBulkHtml(list: ReqPdfData[]): string {
 /** Bloque de UN requerimiento para el RESUMEN: tabla + total, SIN firma y sin
  *  forzar salto de página — se apila debajo del anterior en el mismo documento. */
 function reqSummaryBlockHtml(d: ReqPdfData, heading: string): string {
-  const { rows, totalUsd, hasImg } = reqTableHtml(d);
+  const tableRes = reqTableHtml(d);
+  const { rows, hasImg } = tableRes;
   return `
       <div class="reqsum">
         <div class="reqhead">${heading}</div>
@@ -283,7 +365,7 @@ function reqSummaryBlockHtml(d: ReqPdfData, heading: string): string {
           ${reqTheadHtml(hasImg)}
           <tbody>${rows || `<tr><td colspan="${hasImg ? 6 : 5}" class="c">Sin ítems</td></tr>`}</tbody>
         </table>
-        <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}</div>
+        ${reqTotalsBlockHtml(tableRes, d.rate)}
         ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
         ${reqObsHtml(d)}
       </div>`;

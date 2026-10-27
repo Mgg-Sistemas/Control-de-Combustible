@@ -2458,6 +2458,7 @@ export default function SolicitudMaterialScreen() {
               const pasoActual = (() => {
                 if (r.status === 'rechazado') return 0;
                 if (r.status === 'recibido') return 4;
+                if (r.status === 'esperando_recepcion' || estadoDinamico.codigo === 'esperando_recepcion') return 4;
                 if (r.status === 'aprobado' || estadoDinamico.codigo === 'aprobado') return 3;
                 if (estadoDinamico.codigo === 'esperando_pago' || estadoDinamico.codigo === 'esperando_aprobacion_gg') return 3;
                 if (estadoDinamico.codigo === 'esperando_cotizacion' || estadoDinamico.codigo === 'esperando_proveedor' || r.supplier_id) return 2;
