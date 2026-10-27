@@ -8324,6 +8324,797 @@ especificado» y «Zona de disposición autorizada». Ahora cada flete puede lle
 > escrito a mano con «[», «]» o «|» se guarda como «(», «)» y «/» para no dañar los viajes
 > vinculados. Tampoco hubo que correr nada en Supabase.
 
+## 4.34. Centro de Operaciones 🏭
+
+*(23/10/2026, a pedido: «que ella lleve su registro sin que sume en los viajes del módulo de
+viajes» y «que ese módulo pueda recibir información pero no enviarla». Al día con el
+📅 Parte diario del 24/10/2026, con los arreglos de 📄 Reportes y del propio Parte diario del
+25/10/2026, con la revisión final del 26/10/2026 y con la maquinaria según inspección del
+26/10/2026.)*
+
+Un **mini sistema para operar un sitio** (el primero es un CDT, pero sirve para cualquier sitio):
+la persona encargada anota lo que **entra**, lo que se **mueve** dentro y lo que **sale**, con su
+propia flota, sus propias listas y sus propios papeles en PDF. Se entra por
+**Más → 🏭 Centro de Operaciones** (en la web, el enlace `centro-operaciones`), y se abre en el
+**📅 Parte diario**: la hoja de cada día.
+
+> ⭐ **La regla de oro: recibe, no envía.** Lo que se anota aquí **no suma en 🚛 Viajes de
+> camiones** ni en ningún otro módulo: no cambia viajes, ni jornadas, ni pagos, ni reportes del
+> sistema. Y al revés: **nada de otro módulo cambia, borra ni bloquea** un registro de aquí. El
+> módulo solo **lee** del sistema para **sugerir** (el catálogo de máquinas, los frentes y las
+> obras) y para **mostrar lo que dice inspección** de las máquinas del catálogo (🚜); si esa
+> lectura falla, se sigue escribiendo a mano. Lo que copia del sistema queda
+> **congelado como texto**: si mañana cambian una ficha en el Catálogo, lo anotado aquí no se mueve.
+> La **marca de estado** que el sitio le pone a una máquina (🚜) y los **km de los destinos**
+> también viven solo aquí: inspección y el resto del sistema **no se enteran** (ver 🚜 Maquinaria).
+>
+> Por eso los viajes de aquí y los de Viajes de camiones son **dos libretas distintas**: no se
+> cruzan ni se suman, aunque sea el mismo sitio y la misma fecha.
+
+**Quién lo ve y cómo se da el permiso (administrador)**
+
+El módulo **nace cerrado**: nadie lo ve hasta que un administrador le da el permiso
+**«Centro de Operaciones»** desde **Usuarios** (permisos por módulo). No hace falta crear un rol.
+El nivel decide qué se puede hacer:
+
+| Nivel | Qué puede hacer | Pestañas que ve |
+|---|---|---|
+| **Lectura** | Ver todo y sacar los reportes, **incluido el 📅 Parte diario** (sin botones de cambio) | 📅 Parte diario, 📋 Registros, 🚛 Flota y 📄 Reportes |
+| **Escritura** | Además, **cargar** (en el 📅 Parte diario y en ✍️ Carga libre) y **corregir** renglones (y vincularlos a una unidad) | + ✍️ Carga libre |
+| **Full control** | Además, **borrar**, **marcar el estado de las máquinas** (🚜 en el Parte diario) y administrar sitios, flota, listas y textos | + ⚙️ Ajustes, y cambia la 🚛 Flota |
+
+(Lectura y Escritura también pueden usar **📲 Avisar a inspección** en 🚜 Maquinaria: no escribe
+nada en el sistema.)
+
+Las pestañas van en este orden: **📅 Parte diario · 📋 Registros · 🚛 Flota · 📄 Reportes ·
+⚙️ Ajustes · ✍️ Carga libre** (cada quien ve las de su nivel; se abre la primera).
+
+- La encargada del sitio va con **Full control**: es su módulo y puede hacer todo en él.
+- El acceso es **por módulo, no por sitio**: quien tiene el permiso ve **todos** los sitios.
+- ⚠️ La tarjeta está en **Más**. Los roles fijos **supervisor**, **operador** y **coordinador de
+  inspectores** entran a pantallas sin «Más» y **no verían la tarjeta** aunque tengan el permiso:
+  la persona necesita un rol que llegue a «Más». Un rol de app con solo este módulo cae en «Más»
+  con una sola tarjeta.
+- Sin el permiso, la pantalla dice *«No tienes acceso a este módulo»*. Y la base lo exige
+  también: sin el nivel, **no guarda**, y la pantalla lo avisa en vez de fingir que guardó.
+
+**Arriba: el sitio.** Con **un solo sitio** activo, su nombre sale arriba (📍) y no se pregunta
+nada; con **varios**, salen como pastillas 📍 para elegir. Si todavía **no hay sitios**, quien
+tiene Full ve *«Crea el primer sitio»* con el botón **⚙️ Abrir Ajustes**; los demás ven
+*«Todavía no hay sitios»*. Si lo que falla es **la carga de los sitios** *(26/10/2026)*, no sale
+ninguno de esos dos avisos (invitarían a crear un sitio repetido): solo el error con el botón
+**🔄 Reintentar** (*«Para intentar de nuevo, toca Reintentar (o desliza hacia abajo en el
+teléfono)»*). El sitio elegido **se queda**: si aparece otro (lo crea alguien en
+⚙️ Ajustes), no cambia solo; y el 📅 Parte diario y ✍️ Carga libre dicen arriba en qué sitio se
+escribe (*«📅 Parte diario · 📍 …»*, *«✍️ Nuevo renglón · 📍 …»*). No hay tiempo real: **todas las
+pestañas** se **actualizan al entrar y al deslizar hacia abajo** (y con los botones
+**🔄 Actualizar**). Si una carga falla, la pestaña **lo dice** (*«⚠️ No se pudo cargar…»*) en vez
+de mostrar una lista vacía falsa, y junto al error va **🔄 Reintentar** (en la computadora,
+deslizar hacia abajo no hace nada).
+
+### 📅 Parte diario (la primera pestaña, la que se abre)
+
+*(24/10/2026.)* La **hoja diaria** de la encargada, con sus bloques **en el orden de su hoja**:
+**1 · 📊 Reporte General**, **2 · 🚪 Entrada por patio**, **3 · 🚚 Salidas de agregados**,
+**4 · 🔩 Acero**, **5 · ♻️ Aluminio y plástico**, **6 · 🚜 Maquinaria** y **7 · 🧱 Bloques**.
+
+**La jornada, arriba** (*«JORNADA (7AM A 7AM)»*). Como en todo el sistema, un día va de las 7 de
+la mañana a las 7 de la mañana siguiente. Se abre en la jornada de **hoy**; **◀** va al día
+anterior y **▶** al siguiente, **sin pasar de hoy** (en hoy, ▶ se apaga: una jornada que no ha
+empezado no tiene nada que anotar). También se elige en el calendario, que **no deja elegir un
+día futuro**, y **↩ Volver a hoy** regresa. Todo lo de abajo es de la jornada elegida. **La
+jornada se queda** *(25/10/2026)*: ir a ⚙️ Ajustes, a 🚛 Flota o a otro sitio y volver ya no la
+devuelve sola a hoy, y al volver los bloques se recargan (así se ven los km o el factor recién
+puestos). **Y si estaba en hoy, sigue a hoy** *(26/10/2026)*: si la pantalla queda abierta (o la
+app vuelve del segundo plano) pasadas las 7 de la mañana, el Parte diario **pasa solo a la nueva
+jornada** y lo avisa (*«Empezó la jornada del …: el 📅 Parte diario pasó a hoy.»*). Si se eligió
+otra fecha a propósito, se respeta; y si hay algo **sin guardar**, no se muda (lo escrito caería
+en otro día): se queda en su jornada y el aviso pide tocar **↩ Volver a hoy** al terminar. Con
+Lectura sale *«👁️ Solo lectura: tu permiso es de Lectura.»*
+
+**Plegar no borra.** Cada bloque se abre y se cierra tocando su título (▼ / ▲); el 1 y el 2 vienen
+abiertos y los demás cerrados. **Cerrar un bloque no borra lo escrito ni lo pegado sin
+guardar**: solo lo esconde. Cerrado, el encabezado dice lo importante *(25/10/2026)*:
+
+- el Reporte General, sus cifras (*«137 viajes · 2.468,35 t · corte 19:00 · ⚠️ 1 aviso(s)»*, o
+  *«Sin Reporte General de esta jornada»*);
+- cada bloque de salidas, cuántas hubo ese día (*«3 salidas ese día»*, *«Ninguna salida ese
+  día»*); el del acero agrega *«⚖️ 2 pendientes de pesaje»*, en amarillo;
+- la maquinaria, sus conteos (*«✅ 5 · 🔧 1»* y, solo si hay, *«· ⛔ 1 · ❔ 1 · ⚠️ 1 · 🔎 2 sin
+  verificar»*; en amarillo si alguna no coincide con inspección o no se pudo comparar);
+- **«✏️ sin guardar»**, en amarillo, cuando quedó algo escrito o pegado sin guardar *(los siete
+  bloques, desde el 26/10/2026)*: el texto pegado del Reporte General; los patios escritos (también
+  los de **otra jornada**, que no se ven: la tarjeta dice *«✏️ Hay patios escritos sin guardar en
+  la jornada del …: vuelve a ese día para guardarlos»*); una salida nueva o una corrección a medias;
+  las toneladas escritas en ⚖️ Pendientes de pesaje; el estado o la nota de una máquina elegidos y
+  sin guardar; y lo escrito en 🧱 Bloques. Escribir lo mismo que ya está guardado no cuenta.
+
+**Antes de salir, pregunta** *(26/10/2026)*. Si hay algo «✏️ sin guardar» y tocas otra pestaña u
+otro sitio, sale **«Quedó algo sin guardar»**: *«En el 📅 Parte diario quedó algo escrito sin
+guardar: 2 · 🚪 Entrada por patio, 4 · 🔩 Acero. Si sales ahora, se pierde. ¿Descartarlo?»*, con
+**Descartar** (sales y se pierde) o **Seguir aquí** (te quedas para guardarlo). Al volver, el Parte
+diario se monta de nuevo y recarga; la jornada elegida se queda. Salir de la pantalla entera (atrás,
+o a otro módulo) no pregunta.
+
+**Si algo no carga**, el bloque lo dice: *«⚠️ … — toca Reintentar (o desliza hacia abajo en el
+teléfono)»*, con el botón **🔄 Reintentar** al lado (en la web, deslizar no hace nada).
+
+> **Lo del Parte diario son renglones del módulo**, como los de ✍️ Carga libre: salen en
+> 📋 Registros, en el Excel y en los papeles de 📄 Reportes. Cada patio queda como una **entrada**
+> del día (y cuenta en los viajes recibidos); las salidas, como **salidas** con su material,
+> cifras, destino y vehículo; la producción y las ventas de bloques van en **piezas** y **no
+> suman** viajes, toneladas ni m³ (en ✍️ Carga libre y en 📋 Registros salen como *«🧱 Producción
+> · 120 bloques»*). El **Reporte General** pegado **no** se vuelve renglones: queda aparte, como la
+> referencia del día. Lo que ✍️ Carga libre anota hacia un patio se ve **aparte**, debajo de ese
+> patio (ver el bloque 2).
+
+#### 1 · 📊 Reporte General (pegado de WhatsApp)
+
+El Reporte General del día llega por WhatsApp: **se copia y se pega**, no se transcribe.
+
+1. En WhatsApp, copia el mensaje **completo**.
+2. Pégalo en el recuadro **«PEGA AQUÍ EL REPORTE GENERAL DE WHATSAPP»** (Escritura o Full).
+3. Toca **🔎 Leer**. Debajo sale **«LO QUE SE LEYÓ (TODAVÍA NO ESTÁ GUARDADO)»**: la jornada y el
+   corte, los viajes y las toneladas totales, si **✅ empresas y frentes suman el total** o
+   **⚠️ las sumas no cuadran**, y las dos tablas, **Por empresa** y **Por frente** (nombre,
+   viajes, t y la fila **Suma**).
+4. Revisa los **⚠️ Avisos** y las **📝 Líneas que no se leyeron** (abajo se explican).
+5. Toca **💾 Guardar en la jornada del …** (o **💾 Reemplazar el de la jornada del …**, si ese día
+   ya tiene uno). **Limpiar** quita lo pegado.
+
+**No se guarda** *(25/10/2026)*, y el botón se apaga con el motivo en rojo:
+
+- un texto del que solo se leyó la fecha: *«No se reconoció un Reporte General (no trae los
+  totales ni las tablas de empresas y frentes): revisa que copiaste el mensaje correcto.»*;
+- un reporte de una jornada **posterior a hoy** (una fecha mal escrita en el mensaje): *«La fecha
+  del reporte (jornada del …) es posterior a hoy: revisa el mensaje.»*; tampoco ofrece cambiar
+  arriba a ese día.
+
+**Qué lee:** la **fecha de corte** y su **hora** (*«7:00 PM»*, *«19:00»*, *«7 pm»*…), los **viajes
+totales**, el **total neto** en toneladas y las filas de las secciones **«Por Empresa»** y
+**«Por Frente»** (también *«Por Transportista»*, *«Por Obra»*…), escritas como
+*«TRANSPORTISTA UNO: 9 viajes | 210,40 TNS»* (o con las toneladas primero). Aguanta lo que hace
+WhatsApp: negritas, emojis, viñetas, rayas, espacios de más, y el *«[fecha, hora] Fulano:»* que
+se antepone al copiar varios mensajes (esa hora es la del mensaje, no la del corte). Las cifras
+se leen con punto o con coma (*«2.468,35»* y *«2,468.35»* son lo mismo); los viajes van en número
+entero.
+
+**Los avisos**, en palabras y con sus números. Por ejemplo:
+
+- *«Las empresas suman 135 viajes, pero el total dice 137: faltan 2 viajes.»* (y lo mismo con las
+  toneladas, y con los frentes);
+- que no se encontró la **fecha** o la **hora** de corte (sin hora, la jornada es la fecha escrita);
+- que el reporte **no trae** los viajes totales o el total de toneladas (entonces usa la suma de
+  las empresas, y lo dice);
+- que **falta** una de las dos secciones, o que viene **vacía**;
+- un **nombre repetido** en una sección (se suman sus viajes y sus toneladas);
+- una **sección desconocida** (*«Por Material:»*): sus líneas quedan sin leer y nunca se cuelan en
+  empresas ni frentes;
+- una fecha escrita como mes/día, que se voltea y se avisa.
+
+**Las líneas que no se leyeron** se muestran tal como venían, para revisarlas: **no entraron en
+las tablas**. Nada se pierde en silencio.
+
+> **La jornada del reporte manda.** Un corte **a las 07:00 o antes** cierra la jornada
+> **anterior**: un corte del 25/10 a las 7:00 es de la jornada del 24/10, y la pantalla lo explica
+> con 🕖. El reporte se guarda **en su jornada**, no en la elegida arriba: si no coinciden, lo
+> avisa con el botón **«Cambiar arriba a la jornada del …»**, pide confirmar al guardar y, ya
+> guardado, **cambia sola la fecha de arriba** para que se vea. Sin fecha de corte **no se puede
+> guardar** (*«Revisa que copiaste el mensaje completo»*).
+
+> **Uno por día.** Hay **un Reporte General por sitio y jornada**. Si ese día ya tiene uno (aunque
+> lo haya pegado otro equipo hace un momento), pregunta *«Ya hay un Reporte General de ese día:
+> ¿reemplazarlo?»* y muestra los dos, con su **hora de corte**: *«Guardado: corte 19:00 del
+> 24/10/2026 · 137 viajes · 2.468,35 t»* y *«Nuevo: corte …»*. Si el nuevo es de un corte
+> **anterior** al guardado, lo advierte (*«⚠️ El nuevo es de un corte ANTERIOR al guardado…»*),
+> para que un corte de la tarde no pise sin querer al que cierra el día. Si cambias el texto
+> después de leerlo, hay que tocar **🔎 Leer** otra vez antes de guardar. Si la base rechaza
+> (permiso o conexión), **lo pegado sigue ahí** para intentar de nuevo; solo se limpia al guardar
+> bien.
+
+**Debajo, «GUARDADO EN LA JORNADA DEL …»:** el reporte de esa jornada con sus tablas, los **avisos
+que traía al pegarlo** y quién lo pegó (*«🕓 Pegado por … el 24/10/2026 19:05 · reemplazado por …
+el …»*). **🗑️ Borrar**: solo Full y con confirmación (se puede volver a pegar). Pegar, reemplazar
+o borrar un Reporte General queda en **📜 Auditoría**, sección «Centro de Operaciones». Con
+Lectura se ve lo guardado, sin el recuadro de pegar.
+
+#### 2 · 🚪 Entrada por patio
+
+Cuántos viajes entraron **por cada patio** ese día, **de 7am a 7pm**: un campo por cada patio de
+la lista **⛰️ Patios** del sitio (se crean en ⚙️ Ajustes → 📚 Listas de apoyo; si no hay ninguno,
+la tarjeta lo dice).
+Escribe los viajes y toca **💾 Guardar patios (n)** (n = cuántos patios cambiaron).
+
+Debajo, la línea que compara tu conteo con el Reporte General de esa jornada:
+
+- *«Patios 140 · Reporte 137 · diferencia +3»* (la diferencia es patios − reporte, con su signo);
+- *«Patios 137 · Reporte 137 · sin diferencia»*;
+- *«Patios 140 · sin Reporte General de ese día»*;
+- *«Patios 140 · no se pudo cargar el Reporte General»*, con el botón **🔄 Reintentar el Reporte
+  General**.
+
+> **La diferencia es información, no un error.** Solo tú sabes por qué patio entró cada camión:
+> tu conteo no tiene por qué coincidir con el reporte, y nada se pinta en rojo. La línea cuenta
+> también lo escrito sin guardar (y lo dice).
+
+- Se guarda **solo lo que cambiaste** (un campo vacío vale 0): si otro equipo anotó otro patio
+  mientras tanto, no se lo pisa. No deja guardar hasta que cargue lo guardado de ese día.
+- **Lo escrito no se pierde:** se queda **por jornada** aunque refresques o vayas a otro día y
+  vuelvas; si la base rechaza, sigue escrito con el aviso.
+- **La fila del patio** *(25/10/2026)*: cada patio queda como **un renglón de entrada** del día
+  hacia ese patio **sin ningún otro dato** (sin transportista, origen, camión, placa, material,
+  toneladas, m³, hora, capacidad ni observación); se ve en 📋 Registros. **💾 Guardar patios solo
+  toca esa fila.**
+- **Lo de ✍️ Carga libre va aparte:** una entrada anotada en Carga libre hacia un patio (con su
+  camión, sus toneladas, su transportista, su hora o su nota) **no se pisa ni se borra**, y
+  **tampoco va en el campo ni en la suma**. Debajo del patio se lee *«+3 viajes de ✍️ Carga libre
+  hacia este patio (no van en este campo ni se suman)»*. Cada renglón cuenta una sola vez en los
+  papeles: **en el campo no vuelvas a escribir esos viajes**.
+- No corrijas la fila del patio desde ✍️ Carga libre: si le pones una hora o una nota, deja de ser
+  la del patio (pasa a verse como de Carga libre), y si después vuelves a escribir el número en el
+  campo, en los papeles contarían las dos. El número del patio se cambia aquí.
+- Si un patio tenía **dos filas** ese día, la primera queda con lo escrito y las demás en **0**: no
+  se borra nada y no hace falta Full.
+- Si un patio existe **🌐 para todos los sitios** y también **en el sitio** con el mismo nombre, se
+  ve **un solo campo** (el del sitio) *(26/10/2026)*, y «Guardar patios» ya no lo da por
+  «repetido». Si el del sitio está desactivado, queda el general.
+- **Guardado a medias:** si unos patios entran y otros no, el aviso dice cuántos y cuáles (*«Se
+  guardó 1 de 3 patios («Patio A»); «Patio B» y «Patio C» no: …»*) y agrega *«Se volvió a leer lo
+  guardado: lo que no entró sigue escrito.»*
+- Si ese día hay entradas sueltas, sin detalle, hacia un lugar que **no es** un patio de la lista,
+  se nombran debajo y **no se suman** (se corrigen en ✍️ Carga libre).
+- Si los patios no cargan: **🔄 Reintentar**.
+- Con Lectura se ven los números, sin campos.
+
+#### 3 · 🚚 Salidas de agregados (triturado, arrocillo, polvillo…)
+
+1. **Material:** de la lista de materiales del sitio (el acero, el aluminio, el plástico y el
+   material de los bloques —aunque no se llame «Bloques»— tienen su propio bloque). Debajo dice su
+   factor: *«Factor 1,2 t por m³ (de la lista)»* o, si el material no tiene, *«Sin factor en la
+   lista: se usa 1,2 t por m³»*.
+2. **Cantidad:** escribe **una sola cifra** y elige si es **m³, t o kg**; el sistema saca las otras
+   dos en vivo: *«= 8,00 m³ · 9,60 t · 9.600 kg»* (t = m³ × factor; kg = t × 1.000). Se guardan los
+   m³, las toneladas y en qué unidad se escribió. *(25/10/2026)* En **kg** va un número entero: si
+   la cifra trae decimales, avisa en vivo (*«⚠️ Se leyó 2,75 kg. Si son 2.750 kg, escríbelo sin
+   punto: 2750.»*, porque un solo punto es el decimal). Y una cantidad **mayor que 0 que al
+   convertirse da 0** no se guarda (*«la cantidad convertida da 0: revisa la cifra y la
+   unidad»*).
+3. **Destino:** de la lista **📥 Destinos** (o escrito). Debajo, sus km: *«📍 18,5 km desde el sitio
+   (quedan guardados en la salida)»*, o *«📍 Ese destino no tiene km en la lista: la salida queda
+   sin km. Los km se ponen en ⚙️ Ajustes.»*
+   **Los km se congelan en cada salida:** si mañana se corrigen los km del destino, las salidas ya
+   anotadas no cambian.
+4. **Vehículo:**
+   - **🚛 Nuestro:** toca la unidad de la flota (hasta 12 pastillas; con más, se busca por código,
+     placa o chofer) **o escribe su placa**: si es la de una unidad activa de la flota, **se
+     vincula sola y trae su chofer**, como tocar su pastilla (guiones, espacios y mayúsculas no
+     cuentan; si dos unidades tienen la misma placa, no adivina). Salen **solos su placa y su
+     chofer** (el de la 🚛 Flota), y se pueden corregir; corregir la placa de la unidad elegida la
+     suelta (lo escrito no se borra). Si no está en la flota, la placa queda escrita tal cual. Una
+     unidad averiada lleva 🔧, según el estado que **rige** en 🚜 Maquinaria (también una del
+     catálogo que inspección tiene averiada).
+   - **🏢 Externo:** solo el nombre de la **compañía** (de la lista de transportistas o escrito).
+5. **Viajes** (1 por defecto, de 1 en adelante) y **observación** (opcional).
+6. **💾 Anotar salida** (debajo dice en qué jornada se anota).
+
+#### 4 · 🔩 Acero
+
+El acero sale con su camión y sus **m³**; las **toneladas llegan días después**, con la nota de
+entrega.
+
+1. **Quién se lo lleva** *(25/10/2026)*: botones con las empresas de la lista **🚚 Transportistas**
+   del sitio (hasta 4; primero las que ya se llevaron acero entre las pendientes de pesaje y las
+   salidas del día) y **🚛 Nosotros**, u **otra empresa**
+   escrita. La empresa que se lleva el acero se agrega **una vez** en ⚙️ Ajustes → 📚 Listas de
+   apoyo → 🚚 Transportistas, y desde ahí sale como botón (si la lista está vacía, la pantalla lo
+   recuerda). No hay ningún botón fijo de una empresa.
+2. **El camión:** con **Nosotros** se elige **nuestra unidad** (placa y chofer salen solos, como en
+   los agregados); con otra empresa, se escribe el camión (placa o cómo se llama).
+3. **m³ al salir** (obligatorio), **viajes** y **observación**.
+4. **💾 Anotar salida.** Sale **«esperando pesaje»** y **sin toneladas**.
+
+**⚖️ Pendientes de pesaje:** debajo, el acero del sitio de **cualquier día** que sigue esperando
+la nota de entrega (el que más espera va primero). Escribe las toneladas de la nota y toca
+**✅ Completar toneladas**: la salida queda **confirmada**. Mientras espera, en los papeles **sí
+cuenta** sus viajes y sus m³, pero no sus toneladas. Al corregirla con ✏️ aparece también el campo
+**TONELADAS (NOTA DE ENTREGA)**: con toneladas queda confirmada; vacío, sigue pendiente.
+
+#### 5 · ♻️ Aluminio y plástico
+
+1. **Material:** pastillas **Aluminio** o **Plástico**, u otro de la lista.
+2. **Cantidad** en **t** o en **kg** (los kg se pasan a toneladas con 3 decimales, sin perder
+   kilos: 1.234 kg → *«= 1,234 t»*). No lleva m³. El aviso de los kg con decimales y el de la
+   cantidad que da 0 son los mismos de los agregados.
+3. **Empresa:** **🚛 Nosotros** u otra (la compradora o la que se lo lleva).
+4. **Destino** (opcional; con sus km congelados, si está en la lista), **viajes** y **observación**.
+5. **💾 Anotar salida.**
+
+**Lo que vale para las tres salidas:**
+
+- Debajo de cada bloque, **«📋 Salidas … del …»**: las de ese día, con **✏️** para corregir
+  (Escritura o Full; **Cancelar** para salir sin guardar) y **🗑️** para borrar (**solo Full**,
+  con confirmación). Cada salida sale en **un solo** bloque, según su material; las anotadas en
+  ✍️ Carga libre que no son acero, aluminio ni plástico salen en agregados, para que ninguna quede
+  sin verse.
+- **Las de ✍️ Carga libre** *(25/10/2026)* se ven con su empresa (y su camión y su placa, si los
+  traen) y con su estado si no están confirmadas (*«❓ Por confirmar (no suma)»*, *«⚖️ Esperando
+  pesaje»*), pero **sin ✏️**: dicen *«✍️ Anotada en Carga libre: se corrige en ✍️ Carga libre.»*
+- Con **Lectura** se ven las listas del día y los pendientes de pesaje, **sin formularios**.
+- **Sin las listas y la flota cargadas no se anota** (el factor, los km y las unidades saldrían
+  mal): *«No se pudieron cargar las listas y la flota (factor, km y unidades): toca 🔄 Actualizar
+  antes de anotar.»* Mientras tanto, las ayudas dicen *«no cargó»* en vez de un factor, unos km o
+  una flota vacía que no son ciertos.
+- **✏️ en otra salida pregunta** *(26/10/2026)* si en el formulario quedó algo sin guardar
+  (*«Hay algo escrito sin guardar»*, con **Descartar** o **Seguir escribiendo**). ✏️ en la que ya
+  se está corrigiendo no hace nada.
+- **Corregir una salida de agregados conserva sus cifras** *(26/10/2026)*: si solo cambias la
+  observación, el destino, el vehículo o los viajes, sus m³ y sus toneladas **se quedan como se
+  guardaron**, aunque el factor del material haya cambiado después en ⚙️ Ajustes. Solo si cambias
+  el **material**, la **cifra** o la **unidad** se calcula de nuevo, con el factor de hoy. La línea
+  del factor lo dice: *«Factor 1,25 t por m³ (el guardado en esta salida; si cambias el material, la
+  cifra o la unidad, se usa el de ahora).»*
+- Corregir una salida **no la cambia de día**: si mueves la jornada de arriba mientras corriges y
+  no habías cambiado nada, la corrección se cierra sola; si tenía cambios, pregunta **«Salida a
+  medio editar»** con **Descartar cambios** o **Seguir editando** (si sigues, se guarda en su
+  día).
+- Los avisos que mandan a ⚙️ Ajustes o a 🚛 Flota (*«Los km se ponen en ⚙️ Ajustes»*, *«Las
+  unidades se agregan en 🚛 Flota»*, *«Se agregan en ⚙️ Ajustes → 📚 Listas»*) agregan, a quien no
+  tiene Full, *«Pídeselo a quien administra el módulo.»*: con Escritura no se entra a esas
+  pantallas.
+- Si la base rechaza (permiso o conexión), **lo escrito queda en el formulario** y la lista se
+  actualiza por si sí entró. Mientras guarda, ✏️ y 🗑️ se apagan.
+
+#### 6 · 🚜 Maquinaria (según inspección)
+
+*(26/10/2026.)* Las unidades **activas** del sitio con el estado que **rige ahora**. Cada una dice
+de dónde viene: **📚 catálogo** (vinculada a una máquina del sistema) o **✍️ solo del sitio** (una
+propia, alquilada o externa).
+
+> ⚠️ **Lo más importante.** Lo que marques aquí **se queda en este módulo**: no le llega a
+> inspección, ni a Control de Maquinaria, ni al catálogo. **Si marcas averiada una máquina del
+> catálogo y nadie le avisa a inspección, el resto del sistema (el Catálogo, el Inicio, las
+> jornadas, las horas, el pago de los operadores y los reportes por inspector) la sigue contando
+> —y pagando— como operativa.** Para eso está **📲 Avisar a inspección**: arma el mensaje de
+> WhatsApp y lo mandas tú; el sistema no puede garantizar que inspección se entere. Y al revés: si
+> la marcas disponible y inspección la tiene averiada, el operador no podrá iniciar su jornada con
+> el QR hasta que inspección resuelva la avería.
+
+**Quién manda.**
+
+- En las máquinas **📚 del catálogo** manda **lo que registran los inspectores**, que siguen
+  inspeccionando igual desde su teléfono (no ven nada nuevo). Se lee como **«según inspección»**:
+  *«🔴 Averiada · según inspección, desde el 20/10 08:38 a. m. — falla hidráulica»*, *«✅ Disponible
+  · según inspección · 🟢 trabajando ahora»* (o *«· trabajó hoy»*), *«✅ Disponible · según
+  inspección · 🟡 parada desde hoy 07:10 a. m. — sin volqueta»*.
+- **Si tú la marcas** (solo Full), **manda tu marca** —*«🔧 Averiada · la marcó el sitio hoy
+  06:10 a. m.»*— **hasta el primer hecho nuevo de inspección** sobre esa máquina: una avería real
+  reportada o resuelta, una jornada iniciada por una persona, o que la oficina la devuelva a
+  servicio desde el Catálogo. Entonces vuelve a mandar inspección sola, y durante esa jornada la
+  fila lo explica: *«↪️ Tu marca 🔧 Averiada de hoy 06:05 a. m. quedó atrás: inspección registró una
+  jornada a las 07:25 a. m.»* (una parada o un cambio de turno no cuentan como hecho nuevo).
+- Mientras manda tu marca, debajo sale **«🔎 Inspección: …»** para comparar, y **«⚠️ no coincide
+  con inspección»** si no coinciden.
+- Si la oficina tiene la máquina **en espera, retirada o transferida**, manda la oficina: va a
+  **⛔ No disponibles (oficina)**, la fila lo dice (*«⏳ Esperando instrucciones — lo maneja la
+  oficina (Control de Maquinaria)»*), las pastillas se apagan y una marca tuya queda *«🏭 … en
+  pausa mientras la oficina la tenga así»*. Si
+  esa máquina sigue trabajando en el sitio, se da de baja y se agrega como propia en 🚛 Flota.
+- Las **✍️ solo del sitio** solo tienen **su estado** (el que les pongas, con su «desde»): no hay
+  inspección que comparar.
+
+**Los grupos**, con los conteos arriba (*«✅ 8 disponibles (🟡 1 parada) · 🔧 2 averiadas ·
+⛔ 1 no disponible (⏳ 1 en espera)»*): **🔧 Averiadas**, **✅ Disponibles** (una **parada** —no
+trabajó ese turno: sin volqueta, sin operador— cuenta como disponible, con su número a la vista),
+**⛔ No disponibles (oficina)** (en espera, retiradas, transferidas) y **❔ Sin dato**. En cada grupo
+van primero las que no coinciden.
+
+- **🔎 Leyendo inspección** *(26/10/2026)*: mientras se lee por primera vez, las del catálogo salen
+  en ese grupo (*«🔎 Leyendo inspección · 4»*, y en los conteos *«🔎 4 leyendo inspección»*) con sus
+  pastillas apagadas unos segundos. Si inspección no responde en **15 segundos**, sale el aviso con
+  **🔄 Reintentar** y ya se puede marcar («sin verificar»). Las del sitio se marcan siempre.
+
+- **❔ Sin dato:** si no se pudo leer inspección (sin señal, o no respondió en 15 segundos), una
+  máquina del catálogo sin tu marca
+  sale **«❔ Sin dato»** —**nunca «Disponible»**— y una con tu marca, **«sin verificar»**. Arriba
+  sale el aviso con **🔄 Reintentar**. Una máquina que ya no está en el catálogo del sistema lo dice
+  (*«⚠️ Ya no está en el catálogo del sistema»*) y solo cuenta tu marca.
+- Arriba se ve cuándo se leyó: *«🔎 Inspección leída a las 06:42 a. m.»*, con **↻ Actualizar**. Si
+  cambia el turno (7 a. m. / 7 p. m.) con la pantalla abierta: *«↻ Cambió el turno: toca aquí para
+  actualizar lo que dice inspección.»*
+- **«⚠️ 2 no coinciden con inspección»** filtra a esas; **Ver todas** vuelve (y el filtro se apaga
+  solo cuando no queda ninguna). **↻ Actualizar** y **🔄 Reintentar** siempre leen de nuevo; al
+  volver a la pantalla, una lectura de hace menos de 10 segundos se reutiliza.
+
+**Lo que se puede hacer** (marcar, cambiar la nota y soltar: **solo Full**, porque la base solo se
+lo permite a Full):
+
+- Tocar **✅ Disponible** o **🔧 Averiada** abre el editor. Si es la misma marca que ya manda, solo
+  cambia la **nota** (*«Solo cambia la nota: la marca sigue con su misma hora.»*). Si es otra, o la
+  misma después de que quedó atrás, es una **marca nueva**, que vale **desde ahora** (*«Vale desde
+  ahora y hasta que inspección registre algo nuevo de esta máquina.»*). Una pastilla se ve
+  encendida solo si esa marca es la que manda.
+- **Marcar una «❔ Sin dato»** avisa *(26/10/2026)*: *«No se pudo leer inspección: marcas sin saber
+  lo que dice. Vale desde ahora; cuando se lea, si no coincide, lo verás con ⚠️.»*
+- **Si lo que marcas no coincide con inspección**, el editor lo dice antes de guardar (*«Inspección
+  la tiene ✅ Operativa: esto no le llega; avísales con 📲.»*) y al guardar el aviso verde insiste
+  (*«UNI-03: 🔧 Averiada · no coincide con inspección: toca 📲 Avisar a inspección.»*). La línea gris
+  de arriba lo recuerda: tu marca no le llega a inspección, ni a Control de Maquinaria, ni al
+  catálogo, **ni a las horas ni al pago de los operadores**.
+- **📝 Agregar nota / Cambiar la nota** aparece también cuando tu marca está «sin verificar»:
+  edita **solo la nota**, sin volver a marcar. Si mientras escribes la marca deja de mandar
+  (inspección registró algo, o la oficina la tiene), el editor lo dice y no guarda.
+- Si inspección registró algo de esa máquina **mientras tenías la pantalla abierta**, la marca **no
+  se guarda**: lo dice, la pantalla se actualiza y la nota sigue escrita. También frena si el hecho
+  es posterior a tu marca anterior (*«…, después de tu marca anterior: tu marca no se guardó…»*) o
+  si llegó otro más después del que ya te mostró (*«…: otro hecho más, después del que ya viste;
+  …»*); el mismo hecho no te vuelve a frenar. Si esa revisión no responde en 8 segundos, la marca
+  se guarda igual: «Guardando…» nunca se queda colgado.
+- **↩️ Que mande inspección** (pregunta antes) quita tu marca y su nota: desde ese momento manda
+  inspección.
+- **🧹 Quitarla** *(26/10/2026)*: si tu marca ya quedó atrás, en vez de «↩️» la fila dice *«Tu marca
+  🔧 del 20/10 ya no cuenta · 🧹 Quitarla»*. Solo limpia la lista (inspección ya manda): el diálogo
+  *«🧹 Quitar la marca»* lo dice, nombra el hecho y no cambia el estado.
+- En una máquina que **ya no está en el catálogo**, quitar la marca avisa que quedará **«❔ Sin
+  dato»** hasta que la vuelvas a marcar (inspección no la ve).
+- **📲 Avisar a inspección** (en cada máquina que no coincide) y **📲 Enviar las N diferencias a
+  inspección** (arriba) abren WhatsApp con el mensaje armado —*«Lo que DICE EL SITIO y no coincide
+  con inspección: • UNI-03 (placa AAA-001): en el sitio 🔧 AVERIADA desde hoy 06:10 a. m. — caucho
+  espichado. Inspección: ✅ Operativa.»*— y tú eliges el chat. **No escribe nada en el sistema** ni
+  guarda un «avisado»: el ciclo lo cierra inspección cuando registra el hecho.
+- Con una nota escrita sin guardar, abrir otra máquina o **Cancelar** pregunta (*«Hay una nota
+  escrita sin guardar»*: **Descartar** o **Seguir escribiendo**).
+- **Lectura y Escritura** ven todo (los grupos, el «no coincide», el «quedó atrás») con las
+  pastillas apagadas (*«Solo quien tiene Full en el módulo cambia el estado (avisar a inspección sí
+  puedes).»*), y **sí pueden usar 📲 Avisar**.
+
+Es el estado **de ahora**: si miras otra jornada, la pantalla lo recuerda. Sin unidades: *«No hay
+unidades activas en este sitio. Las unidades se agregan en 🚛 Flota.»* Plegado, el encabezado dice
+*«✅ 8 · 🔧 2»* y, solo si hay, *«· ⛔ 1 · ❔ 1 · ⚠️ 1 · 🔎 3 sin verificar»*, en amarillo si alguna
+no coincide o no se pudo comparar.
+
+#### 7 · 🧱 Bloques (la cantera)
+
+Para el sitio que produce bloques. El material es el **«Bloques»** de la lista de materiales (o
+el que tenga **días hasta estar disponible**). Lo producido **se vende 7 días después**, o los
+días que diga el material (se cambian en ⚙️ Ajustes → Materiales).
+
+- **🧱 Producción del día:** cuántos bloques se produjeron (número entero) y una observación →
+  **💾 Anotar producción**. Dice desde cuándo se venden: *«Lo producido el 24/10/2026 se vende
+  desde el 31/10/2026.»*
+- **📤 Ventas y salidas del día:** cuántos bloques salieron, **a quién o a dónde** (opcional) y una
+  observación → **💾 Anotar venta**. Mientras revisa el inventario, el botón dice *«Revisando el
+  inventario…»* y un doble toque **no anota dos veces**. Si son **más de los disponibles** ese
+  día, pide confirmar (*«¿son bloques aún en curado o la fecha está mal?»*).
+- Anotan Escritura y Full. Cada renglón lleva **🗑️** (solo Full, con confirmación); no tienen ✏️.
+- **📦 Inventario de bloques al …:** **✅ Disponibles para la venta** (solo cuenta lo que ya
+  terminó el curado) y **⏳ En curado**; *«Producidos … · vendidos …»*, las **🗓️ próximas
+  liberaciones** (qué día se libera cuánto) y los **avisos** (una venta antes de terminar el
+  curado, un renglón **de ese día** sin cantidad…). Se calcula con las piezas de los días anteriores
+  más las del día elegido, sin bajar todo lo viejo. En un sitio que no trabaja bloques sale el
+  botón **📦 Calcular el inventario**.
+- Al cambiar de día, la lista dice *«Cargando…»* hasta tener lo de ese día (ya no se ven un
+  instante los renglones del anterior).
+- **Cada producción se libera en la fecha que se le puso al anotarla** *(25/10/2026)*, aunque
+  después cambien los días del material: los días nuevos valen para lo que se anote desde
+  entonces (si hay producciones con otros días, un aviso lo dice).
+- El material de los bloques no se ofrece en agregados ni en aluminio y plástico, aunque no se
+  llame «Bloques».
+
+### ✍️ Carga libre (Escritura o Full; la última pestaña)
+
+*(Hasta el 24/10/2026 se llamaba «✍️ Cargar» y era la primera pestaña. Funciona igual; solo
+cambió de nombre y de lugar.)* Un **renglón por anotación**, para lo que no va en el 📅 Parte diario (por
+ejemplo, las entradas camión por camión con su transportista, los movimientos internos o un
+«otro»). Paso a paso:
+
+1. **Tipo:** ⬇️ Entrada · 🔁 Interno · ⬆️ Salida · ✳️ Otro.
+2. **Fecha (jornada 7am a 7am):** por defecto, la jornada en curso. Como en todo el sistema, un día
+   va de las 7 de la mañana a las 7 de la mañana siguiente. Se aceptan fechas de los años **2000 a
+   2100**, pero **no una jornada futura** *(26/10/2026)*: el calendario no la deja elegir, y
+   guardarla da *«La jornada del … todavía no empieza: no se anota en una jornada futura (hoy es la
+   del …)»*.
+3. **Hora (opcional):** de **00:00 a 23:59** (por ejemplo 06:30 o 14:05). Una hora **antes de las
+   7:00** es la madrugada siguiente y sigue siendo de la jornada elegida; la pantalla lo recuerda
+   con 🌙.
+4. **Unidad y placa:** toca una unidad de la flota del sitio (salen hasta 12 pastillas 🚛; si hay
+   más, escribe el código o la placa para encontrarla) o **escríbela a mano** si no está dada de
+   alta. Si la **placa** que escribes es de una unidad **activa** de la flota, el renglón **se
+   vincula solo** y lo dice: *«🔗 Vinculada a …»*, con **Desvincular** al lado (guiones, espacios,
+   puntos y tildes de la placa no cuentan: *«A12-BC»* es *«A12BC»*). Elegir una unidad trae también
+   su capacidad. Si elegiste una unidad a mano (por ejemplo, una sin placa) o estás corrigiendo un
+   renglón de una unidad dada de baja, escribir en **PLACA** no le quita la unidad ni su capacidad.
+5. **Transportista, origen, destino y material:** se escriben o se eligen de las sugerencias (se ven
+   hasta 5; escribe para ver otras), que cambian según el tipo:
+   - **Entrada:** de un frente u obra (los del sistema y la lista de orígenes) → a un **patio**
+     (los **⛰️ Patios** de ⚙️ Ajustes).
+   - **Interno:** de patio → a patio.
+   - **Salida:** de patio → a un destino externo.
+   - **Otro:** cualquiera de los dos en cada lado.
+
+   Lo que se elige de la lista sale siempre escrito igual en los papeles; también se puede
+   escribir un nombre que no esté en ella. En el teléfono, una sugerencia se elige **con un
+   toque**: deslizar la página con el dedo por encima de ella ya no la elige.
+6. **Cifras** (con punto o con coma; debajo de cada campo se ve el número que se leyó):
+   - **Capacidad (m³):** la de la unidad; se puede cambiar.
+   - **Viajes:** **1 por defecto**. Sirve de las dos maneras: **un renglón por cada pesada**
+     (viajes = 1) o **el total del día en un solo renglón** (por ejemplo, viajes = 12). No hace
+     falta una pesada por renglón. Va en número entero y **solo se deja vacío si el renglón está
+     «Por confirmar»**.
+   - **Toneladas:** opcional.
+   - **m³:** opcional. **Vacío = viajes × capacidad** (se ve como «Calculado» y en la lista como
+     «(calc.)»).
+7. **Estado:**
+   - ✅ **Confirmado** (por defecto): suma en todo.
+   - ❓ **Por confirmar:** **no suma** a viajes, toneladas ni m³; se avisa aparte. Sin número de
+     viajes sale como **«(+N pendiente)»** (N = cuántos renglones); con número, como
+     **«(+V por confirmar)»** (V = esos viajes). Por ejemplo: *«8 (+1 pendiente)»*.
+   - ⚖️ **Esperando pesaje:** **sí cuenta sus viajes y sus m³**, pero no sus toneladas ni el
+     promedio t/viaje mientras no se confirme. Si escribes toneladas con este estado, la pantalla
+     lo advierte y ofrece **✅ Pasar a confirmado**.
+8. **Observación** (opcional).
+9. **💾 Guardar** o **➕ Guardar y otro**. *«Guardar y otro»* deja **todo puesto** (tipo, fecha,
+   hora, unidad, transportista, origen, destino, material, capacidad y estado) y solo limpia viajes
+   (vuelve a 1), toneladas, m³ y observación: así se carga una serie rápido.
+
+**Debajo, «📋 Lo cargado el …»:** todo lo anotado ese día, con su total. ✏️ abre el renglón en el
+formulario para corregirlo (Escritura o Full); 🗑️ lo borra (**solo Full**, pide confirmación y **no
+se puede deshacer**; lo borrado queda registrado en 📜 Auditoría, sección «Centro de Operaciones»).
+Mientras se está guardando, ✏️ y 🗑️ se apagan. Si 🗑️ no puede borrar (el renglón ya no existe o
+falta el permiso), avisa *«No se borró: …»* y la lista se actualiza. La lista va en el orden de la
+**jornada**: la madrugada (antes de las 7:00) después de las 23:00, y lo que no tiene hora al final.
+*«viajes por confirmar»* solo sale en lo que está «Por confirmar». Al cambiar la fecha, la lista
+dice *«Cargando…»* hasta tener ese día (ya no muestra el anterior); si falla, lo dice en la
+tarjeta: *«⚠️ No se pudo cargar lo del …: … Toca 🔄 Actualizar.»*
+
+**No se tira lo escrito sin preguntar** *(26/10/2026)*: con algo sin guardar en el formulario,
+tocar ✏️ en otro renglón o **Cancelar** pregunta **«Descartar lo escrito»** (*«Lo escrito en el
+formulario no se ha guardado. ¿Descartarlo?»*), con **Descartar** o **Seguir aquí**. En un renglón
+nuevo, cambiar solo la fecha no cuenta como escrito.
+
+> **Cada renglón se corrige donde nació** *(26/10/2026)*. Lo anotado en el 📅 Parte diario —las
+> salidas de agregados, de acero y de aluminio y plástico, y la producción y las ventas de
+> bloques— **no tiene ✏️** aquí ni en 📋 Registros: la fila dice dónde se corrige (*«🔩 Se anotó
+> en 📅 Parte diario → 🔩 Acero: se corrige allá, no aquí.»*, *«🧱 Se anotó en 📅 Parte diario →
+> 🧱 Bloques: se corrige allá, no aquí.»*; los bloques, allá, se borran con 🗑️ y se vuelven a
+> anotar). Y al revés: lo anotado aquí se ve en el Parte diario, pero se corrige aquí. 🗑️ sigue
+> disponible para Full. La producción sale *«🧱 Producción · … · 120 bloques»* y una venta de
+> bloques muestra sus bloques.
+
+> **Si se cae la conexión al guardar**, lo escrito **no se pierde**: queda como **borrador en ese
+> equipo** y la pantalla lo avisa (si el equipo no deja guardarlo —ventana privada, memoria llena—
+> lo dice y pide **no cerrar la pantalla**). «Lo cargado el …» se actualiza enseguida, por si el
+> guardado sí entró. Al volver a ✍️ Carga libre sale *«📝 Se recuperó lo que no se pudo guardar la
+> última vez. Revisa lo cargado ese día (abajo) antes de guardarlo: si aquel guardado sí entró,
+> quedaría doble.»* El borrador se borra solo después de guardar bien **ese** renglón (si en medio
+> corriges otro con ✏️, el borrador espera). No se envía solo: hay que tocar **Guardar** otra vez.
+> (No hay importador de Excel: se carga a mano.)
+
+### 📋 Registros
+
+Para **buscar, filtrar, corregir y exportar** lo anotado (lo del 📅 Parte diario y lo de
+✍️ Carga libre).
+
+- **Rango:** pastillas **Hoy · Esta semana** (desde el lunes) **· Este mes**, o **Desde / Hasta**
+  con el calendario. Son **fechas de jornada** (7am a 7am).
+- **🔎 Buscador:** unidad, placa, transportista, origen, destino, material u observación.
+- **🎛️ Filtros:** tipo (incluida **🧱 Producción**), estado, unidad, transportista, origen,
+  destino y material (salen los que tienen algo en el período); **✕ Quitar los filtros** los
+  limpia. El mismo nombre escrito con otras mayúsculas, tildes o espacios cuenta como uno solo.
+- **Totales** de lo filtrado: 🚛 Viajes (con sus «(+N pendiente)»), ⚖️ Toneladas, 📦 m³,
+  📊 t/viaje (solo **entradas confirmadas** con viajes y toneladas) y 🧾 Renglones; si hay varios
+  tipos, una línea por tipo. La producción de bloques (en piezas) no suma viajes, toneladas ni m³:
+  su línea dice *«🧱 Producción: 2 renglones · 120 bloques»*, y la de las salidas agrega
+  *«· 40 bloques»* si hubo ventas de bloques.
+- La lista va con **lo más reciente arriba**, en el orden de la **jornada** (la madrugada, antes de
+  las 7:00, queda encima de las 23:00 de su fecha; lo que no tiene hora, arriba de su día), de 100
+  en 100 (**«Mostrar 100 más»**). ✏️ corrige (Escritura o Full; **← Volver a los registros** para
+  salir sin guardar, y si cambiaste algo pregunta antes **«Descartar lo escrito»**: **Descartar** o
+  **Seguir aquí**) y 🗑️ borra (solo Full, con confirmación). Lo anotado en el 📅 Parte diario
+  (salidas y bloques) no tiene ✏️: se corrige allá.
+- **Mientras carga otro rango** *(26/10/2026)*, la lista dice *«Cargando…»* (o el error, con
+  *«Toca 🔄 Actualizar»*), los totales salen en «—», y el 📥 Excel y 🔗 Vincular esperan
+  (*«Espera a que carguen los registros del rango»*): nunca muestran ni exportan el rango anterior.
+- **📥 Excel** (desde la computadora, en la versión web): lo filtrado, un renglón por fila en el
+  orden de la jornada y la fila **TOTAL** al final, con una columna **«Bloques»** (después de m³,
+  sin total) para las piezas. Sigue la regla del listado *(26/10/2026)*: las toneladas de lo que
+  no está confirmado («esperando pesaje», «por confirmar») y los m³ de lo «por confirmar» van en
+  blanco, así que **sumar la columna da el TOTAL**. Los filtros no van dentro del archivo: su nombre
+  dice *(filtrado)*.
+- **🔗 Vincular a unidad** (Escritura o Full): toca **☑️ Seleccionar**, marca uno o varios renglones
+  (o **«Todo lo filtrado»**), toca **🔗 Vincular a unidad** y elige la unidad activa de la flota.
+  **Lo escrito en cada renglón no cambia**: solo queda amarrado a esa unidad. Sirve para lo que se
+  anotó a mano, con otro nombre o sin placa: así cuenta para esa unidad en el 📄 Corte por unidad.
+  Antes de confirmar **avisa** cuántos de los elegidos **ya estaban vinculados a otra unidad**
+  (pasarán a la elegida) y cuántos **no se ven con los filtros de ahora**. Si se vinculan muchos y
+  se corta a la mitad, dice cuántos quedaron. (Un renglón suelto que lleva la placa de una unidad
+  ya vinculada cuenta para ella solo; guiones, espacios y tildes de la placa no cuentan.)
+
+### 🚛 Flota (la ven todos; la cambia solo Full)
+
+Las **unidades** del sitio (camiones, máquinas). Hay dos maneras de agregarlas:
+
+- **➕ Del catálogo:** buscador sobre el **catálogo completo** del sistema por código, placa,
+  serial y empresa. Al elegir una máquina **se copian sus datos** (código, descripción, placa,
+  serial, marca, modelo y empresa) y quedan editables; se le agregan la capacidad en m³ (mayor que
+  cero), el chofer y una nota.
+  Desde ahí viven **congelados** aquí: el catálogo **no se toca nunca**. Si la ficha cambió en el
+  catálogo, **🔄 Actualizar desde el catálogo** muestra antes **qué cambia** y lo vuelve a copiar
+  (la capacidad, el chofer y la nota no se tocan; lo ya anotado conserva su texto).
+- **➕ Propia:** una unidad que **solo existe en este módulo** (una que no está en el catálogo).
+  **No aparece** en Control de Maquinaria, ni a los inspectores, ni en Viajes, ni en ningún reporte
+  del sistema.
+
+Cada unidad lleva su marca **📚 Catálogo** o **✍️ Propia**. El **código** es obligatorio; dos
+unidades activas del mismo sitio no pueden tener la misma placa (tampoco al **reactivar** una dada
+de baja), y una máquina del catálogo no entra dos veces al mismo sitio.
+
+- **👷 Chofer** *(24/10/2026)*: el de la unidad. **Se copia solo** en cada salida del 📅 Parte
+  diario con vehículo nuestro (y ahí se puede corregir para esa salida). En la lista se ve junto a
+  la capacidad y la nota.
+- El **estado** (disponible / averiada) **no va aquí**: se cambia en el 📅 Parte diario →
+  🚜 Maquinaria.
+- Si la flota no carga: *«⚠️ No se pudo cargar la flota: … — toca Reintentar (o desliza hacia abajo
+  en el teléfono)»*, con el botón **🔄 Reintentar** *(26/10/2026)*.
+
+> **Dar de baja no es borrar.** **⏸️ Dar de baja** hace que la unidad **deje de ofrecerse al
+> cargar**, pero **sus renglones se conservan** y siguen saliendo en los papeles con el texto con
+> que se anotaron. Vuelve con **↩️ Reactivar**; las dadas de baja se ven con **«Ver las dadas de
+> baja»**. Una unidad no se borra nunca. *(26/10/2026)* Al reactivar una **📚 del catálogo**, vuelve
+> a seguir a inspección (*«… reactivada: su estado vuelve a ser el de inspección.»*: una marca de
+> antes de la baja no revive); una **✍️ solo del sitio** conserva su último estado con su fecha, y se
+> avisa para revisarlo (*«… reactivada · su último estado: 🔧 Averiada desde el … — cámbialo en el
+> Parte diario si ya no es así.»*, que dura 8 segundos en pantalla).
+
+### ⚙️ Ajustes (solo Full)
+
+Si los ajustes no cargan: *«⚠️ No se pudieron cargar los ajustes: … — toca Reintentar (o desliza
+hacia abajo en el teléfono)»*, con el botón **🔄 Reintentar** *(26/10/2026)*.
+
+- **📍 Sitios:** **➕ Crear sitio** (nombre y nota), **✏️ Editar** y **⏸️ Desactivar /
+  ↩️ Reactivar**. En **✏️ Editar** se cambian el nombre, la nota y el **📡 GPS del sitio** (latitud
+  y longitud, por ejemplo 10,1234 y -66,5678: las dos o ninguna); sirve para sugerir los km hasta
+  cada destino. *(25/10/2026)* Se pueden **pegar las dos juntas**, como las copia Google Maps
+  (*«10.1234, -66.5678»*), en cualquiera de los dos campos: se reparten solas (también en el GPS de
+  los destinos). Un sitio **no se borra**: desactivado deja de salir en el selector, pero su flota,
+  sus listas, sus textos y sus registros siguen ahí. No puede haber dos sitios activos con el
+  mismo nombre.
+- **📚 Listas de apoyo**, por clase: 🚚 Transportistas, 📤 Orígenes, 📥 Destinos, 🪨 Materiales y
+  **⛰️ Patios** (antes «Terrazas»: es la misma lista; ✍️ Carga libre ya dice «Patio», y solo el
+  consolidado conserva «terraza a terraza»). Se agrega un nombre para **este sitio** o **🌐 para
+  todos los sitios**, se edita con ✏️ y se desactiva / reactiva. Si un nombre 🌐 de todos y uno
+  del sitio se llaman igual, **en ese sitio manda el del sitio** (sus km y su factor). Desactivar un nombre lo quita de las sugerencias; los
+  renglones que ya lo llevan lo conservan. Las contratistas viven en esta lista, **no** en las
+  Empresas del sistema. Los patios sirven de origen y de destino, y son los campos de la 🚪 Entrada
+  por patio. Dos clases llevan datos propios *(24/10/2026)*:
+  - **📥 Destinos → ✏️ Editar:** el **📡 GPS del destino** y los **🛣️ km por carretera desde el
+    sitio**. **📏 Sugerir km en línea recta** calcula la distancia del GPS del sitio al del destino
+    y la pone en el campo, avisando que es **en línea recta: por carretera es más**, así que hay
+    que confirmar los km de verdad (si falta un GPS, dice cuál). Cada salida guarda los km del
+    destino de ese momento. Un destino 🌐 de todos los sitios comparte sus km: si cada sitio queda a
+    otra distancia, desactívalo y crea el destino en cada sitio con sus km. En la lista se ve
+    *«📡 … · 🛣️ 18,5 km por carretera»* o *«🛣️ sin km»*.
+  - **🪨 Materiales → ✏️ Editar:** el **⚖️ factor (t/m³)**, que convierte m³ ↔ t en las salidas de
+    agregados (vacío: se usa 1,2, y la lista lo dice: *«⚖️ sin factor (en agregados se usa
+    1,2)»*; el aluminio y el plástico van en t o kg y no lo necesitan), y los **⏳ días hasta estar
+    disponible**, que son **solo para el material de los bloques**: el que se llama «Bloques» o,
+    si ninguno se llama así, el primero que tenga días (la lista lo marca *«🧱 material de los
+    bloques»*; los bloques curan 7). En los demás materiales, vacío. Un material 🌐 de todos
+    comparte su factor y sus días: si un sitio necesita otros, desactívalo y créalo en cada sitio.
+- **📝 Textos fijos de los papeles** (por sitio): título del consolidado, título del corte por
+  unidad, presentación, consideraciones y los **logos del membrete** (por defecto, solo Golden
+  Touch; valen para todos los papeles). 📄 Reportes los trae puestos; ahí se cambian para un papel en
+  particular **sin tocar** estos. Si un texto no se guarda, el aviso dice cuáles sí quedaron.
+
+### 📄 Reportes: los cuatro papeles
+
+La pestaña abre en el **📄 Reporte completo** *(25/10/2026)*, el primero de la lista.
+
+1. **Reporte completo** — todo el 📅 Parte diario del sitio en un período de **jornadas enteras**
+   (desde–hasta, de 7am a 7am), en siete secciones: **Reporte General desglosado** (por empresa y
+   por frente: viajes, toneladas y % sobre los viajes; en un rango, la suma de los días y qué
+   jornadas no tienen Reporte General); **entrada por patio** contra el total del Reporte General
+   de esas mismas jornadas, con la diferencia en tono neutro; **salidas de agregados** (por material
+   y destino: m³, t, viajes, km y si fue vehículo propio o externo); **acero** (m³, y t o
+   «pendiente de pesaje»); **aluminio y plástico**; **maquinaria** *(26/10/2026)*: el estado **al
+   momento de emitir**, con la hora junto al título (*«Estado al emitir: 26/10/2026, 06:45 a. m.»*),
+   y la nota de que no es el de cada jornada; tarjetas por grupo (Disponibles con sus paradas,
+   Averiadas, No disponibles (oficina), Sin dato si hay, y Total); y las columnas **Estado (sitio)**
+   (con «según inspección», «marcado en el sitio, dd/mm hh:mm» o, en una propia, «desde dd/mm») e
+   **Inspección** (lo que dice el sistema con motivo y desde, o **«— solo del sitio»**; esta columna
+   sale solo si el sitio tiene máquinas del catálogo), con un **«≠»** donde no coinciden y su
+   leyenda abajo. Una marca que quedó atrás o en pausa no sale como vigente. Si al emitir no se pudo
+   leer inspección, **el PDF sale igual**, con el aviso *«No se pudo leer el estado de inspección al
+   emitir: se imprime lo marcado en el sitio.»* y las del catálogo sin marca en «Sin dato»; la
+   pantalla también lo avisa *(26/10/2026)*: el botón dice **«🔎 Leyendo inspección…»** mientras
+   lee, y si no se pudo, queda un aviso fijo debajo (*«… El papel salió con lo marcado en el sitio;
+   vuelve a tocar 📄 PDF para intentarlo otra vez.»*). Con la sección 🚜 oculta, la vista previa no
+   lee ni avisa nada de inspección. Sin horas trabajadas ni nombres de inspectores; y **bloques**
+   (producción y ventas del período, disponibles al corte y en curado con su fecha de liberación).
+   Una sección sin datos dice *«Sin registros en el período»*. Con este papel no se ven la hora de
+   corte, los filtros, el buscador, el orden ni el resumen ejecutivo: se ocultan secciones y se
+   eligen los logos, el título, el subtítulo y la emisión.
+2. **Consolidado del sitio** — a una fecha de corte, que puede llevar **hora**: párrafo de
+   presentación; tarjetas de **viajes recibidos, toneladas netas y promedio t/viaje**; **recepción
+   por transportista** (viajes, % y toneladas); **movimientos internos** de terraza a terraza, en m³
+   por la capacidad del camión; **salidas / despacho** (material, destino, capacidad, viajes y
+   estado, incluido «esperando pesaje»); **desglose por frente u obra de origen** (viajes, % y
+   toneladas), y un **resumen de salidas** en texto con el total de m³ (viajes × capacidad). Las
+   **ventas de bloques** (en piezas, sin viajes) no entran aquí ni en los viajes por unidad: salen en
+   el Reporte completo.
+3. **Corte por unidad** — una o varias unidades, **una hoja cada una**, en un período: tipo de
+   unidad, placa, período y fecha de emisión; tarjetas de **internos**, **externos** (con su
+   «(+N pendiente)») y **total**; **detalle diario** (fecha, internos, una columna por destino de
+   salida o una sola «Salidas», y observaciones; un día puede salir **«Por confirmar»** sin
+   número); los totales con **«N días evaluados»**, y las **consideraciones** en texto libre. Los
+   días sin anotación pueden salir en 0 o esconderse.
+4. **Listado detallado** — los renglones con las **columnas que elijas**, agrupados **por día, por
+   unidad o por tipo**. Si algún renglón trae piezas (bloques), aparece la columna **«Cantidad»**.
+
+**🚛 Las unidades del corte** *(25/10/2026)*. Se eligen tocando sus pastillas (una hoja por cada
+una), o con los atajos **Las que trabajaron (n)** —las que tienen **viajes internos o salidas** en
+el período, con su hora de corte—, **Todas (n)** y **Ninguna**. Las demás (las que **solo trajeron
+material** o no trabajaron) **se siguen ofreciendo**, marcadas **«(sin viajes del corte)»**: si
+se eligen, salen con su nombre y en cero.
+
+**Las opciones** (checks y pastillas):
+
+- **Rango**, **fecha de corte con hora** (un renglón sin hora entra si su fecha está en el rango) y
+  los **filtros**. *(26/10/2026)* Una hora de corte **a las 07:00 en punto cierra la jornada** del
+  «hasta», igual que cualquier hora antes de las 7 y que el Reporte General: el papel dice *«corte
+  el <día siguiente> a las 07:00 a. m.»*, suma la jornada **entera** (también la madrugada y lo que
+  no tiene hora) y el nombre del archivo lleva ese día; la pantalla lo explica con 🕖. Con las
+  07:01 o más tarde, corta ese mismo día a esa hora. Así un minuto (06:59 contra 07:00) ya no mueve
+  el papel un día entero.
+- **Filtro de tipo** *(25/10/2026)*: en el **consolidado**, lo que el filtro deja fuera **no
+  sale** (sin rastro, como lo apagado): sin las **entradas** se van las tarjetas, la recepción por
+  transportista y el desglose por frente; sin los **internos**, los movimientos internos; sin las
+  **salidas**, las salidas y su resumen. Así el papel nunca dice *«Sin entradas en el período»* o
+  *«0 viajes recibidos»* de un sitio que sí recibió. El nombre del archivo sí lo dice (por
+  ejemplo, *«solo salidas»*). El filtro de transportista no esconde secciones.
+- **¿Qué se oculta?** — cada sección y cada columna.
+- **Logos** del membrete (Golden Touch por defecto). *(25/10/2026)* Son del sitio y **valen para
+  todos los papeles**: lo que se guarda desde uno pasa enseguida a los demás (salvo donde ya se
+  haya escrito otra cosa).
+- **Textos editables:** título, subtítulo, presentación, consideraciones y **fecha de emisión**.
+  Con Full, **💾 Guardar como texto fijo** guarda en los ajustes del sitio el título (y la
+  presentación o las consideraciones, según el papel) y los logos; el subtítulo y la emisión no
+  se guardan; el listado no tiene texto fijo, y en el Reporte completo solo se guardan los logos.
+- **Resumen ejecutivo editable:** esconder una tarjeta, renombrarla, ponerle el valor y una nota a
+  mano, y hasta **6 tarjetas propias**; lo que dejes vacío vuelve al cálculo automático. Al cambiar
+  el rango, los filtros, el buscador o las unidades del corte, **los valores a mano y las
+  tarjetas propias se limpian** (eran cifras de lo que se veía); lo escondido, los títulos y las
+  notas se quedan.
+- **Orden** (más viajes primero o A→Z) *(25/10/2026)*: sale **solo donde actúa**: en el
+  consolidado y en el listado agrupado por unidad. En el corte las hojas van en el orden en que se
+  eligieron, y en el listado por día o por tipo, en el orden de la jornada.
+- **Agrupación** del listado (por día, por unidad o por tipo).
+
+> **El corte de varias unidades** *(25/10/2026)*. Cada hoja, desde la segunda, abre con el **título
+> del papel** y **la misma fecha de emisión** del membrete (sin repetir el logo). En el resumen, con
+> varias unidades **no se ofrece el valor a mano** (saldría igual en todas las hojas): los
+> títulos, las notas y las tarjetas propias sí van en cada hoja. Las tarjetas que se ven en la
+> pantalla son las de la primera hoja.
+
+> **Las opciones no se anuncian en el papel.** Lo que ocultas **no deja rastro** (ni el título de
+> la sección), y los filtros y opciones **no se imprimen**: van al **nombre del archivo** (y a un
+> aviso en la pantalla, antes del PDF). La participación % va con un decimal y la fila de totales
+> dice 100 %. Un período sin nada sale con ceros y la leyenda **«Sin registros en el período»**.
+
+> **Qué recuerda el equipo** *(25/10/2026)*. Las opciones de cada papel (lo oculto, el orden, la
+> agrupación, los días sin anotación y las columnas por destino) se recuerdan **en ese equipo**.
+> Del resumen ejecutivo solo se recuerda **lo escondido y los títulos**, y solo en el **mismo
+> sitio**; **las notas ya no se recuerdan** (hablaban de las cifras de otro período), ni los
+> valores a mano, ni las tarjetas propias. Los textos fijos y los logos vienen de ⚙️ Ajustes.
+
+> **Las cuentas son las mismas en todos lados.** 📋 Registros, el Excel y los papeles usan la
+> misma regla para viajes, m³, pendientes y a qué unidad pertenece cada renglón: no pueden
+> contradecirse. Una unidad dada de baja o un renglón sin unidad vinculada **siguen saliendo** con
+> su texto.
+
+**Lo que viene después:** los pagos del sitio, los materiales con su costo y el enlace con el
+💰 Reporte consolidado de pagos son fases posteriores, que se construyen y publican por separado
+cuando se decidan. Hoy el módulo no paga ni calcula costos.
+
 ---
 
 ## 5. Cosas que sirven en TODAS las secciones

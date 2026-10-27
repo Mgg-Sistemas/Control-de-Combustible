@@ -54,7 +54,7 @@ new Function('exports', 'module', ts.transpileModule(
 
 const {
   MODULOS_AUDITORIA, MODULO_OTRO, SIN_RASTRO_SUFIJO, moduloDeFila, etiquetaModulo, etiquetaPastilla,
-  filaEnModulos, tablasConocidas, tablasDeModulo, accionesDeModulo,
+  filaEnModulos, tablasConocidas, tablasDeModulo, accionesDeModulo, AUDITADAS_FUERA_DEL_GIT,
 } = mod.exports;
 
 let pass = 0, fail = 0;
@@ -130,6 +130,7 @@ console.log('LOS MODULOS DE LA AUDITORIA\n');
     reportes: null,                       // solo lee
     mangueras: 'fabricacion',
     acarreo: 'acarreo',
+    centro_operaciones: 'centro_operaciones', // 🏭 mini sistema aislado (23-oct-2026), tablas cop_*
   };
   for (const it of items) {
     ok(`⭐ el menu "${it.label}" (${it.menu}) esta contemplado`, it.menu in MENU_A_MODULO);
@@ -211,6 +212,9 @@ console.log('LOS MODULOS DE LA AUDITORIA\n');
   eq('los permisos', keyDe('module_permissions', 'UPDATE'), 'usuarios');
   eq('la ficha del vehiculo es CATALOGO', keyDe('vehicles', 'UPDATE'), 'equipos');
   eq('los avisos', keyDe('notifications', 'INSERT'), 'avisos');
+  eq('🏭 un renglon del Centro de Operaciones', keyDe('cop_movimientos', 'INSERT'), 'centro_operaciones');
+  eq('⭐ * y el Reporte General pegado tambien (no "Otro")', keyDe('cop_reportes_generales', 'UPDATE'), 'centro_operaciones');
+  eq('* borrarlo tambien', keyDe('cop_reportes_generales', 'DELETE'), 'centro_operaciones');
 }
 
 // ── 4) LO QUE NO SE SABE NO SE INVENTA ─────────────────────────────────────
@@ -288,6 +292,15 @@ console.log('LOS MODULOS DE LA AUDITORIA\n');
   }
   auditadas.delete('audit_row'); // es el nombre de la funcion, no una tabla
 
+  // ⭐ Las tablas cuyo `trg_audit` se creo por MCP y NO esta en ningun .sql del
+  //    repositorio (desde el 26-sep-2026 no se sube SQL al git). Estan declaradas
+  //    en la libreria, verificadas en la base; sin esto su seccion saldria como
+  //    "sin rastro aun", que seria falso, y sus tablas caerian en "Otro" sin aviso.
+  ok('la libreria declara las tablas auditadas fuera del git', Array.isArray(AUDITADAS_FUERA_DEL_GIT) && AUDITADAS_FUERA_DEL_GIT.length > 0);
+  for (const t of AUDITADAS_FUERA_DEL_GIT ?? []) auditadas.add(t);
+  // El Reporte General del Parte diario (25-oct-2026): su trg_audit se verifico en la base.
+  ok('⭐ cop_reportes_generales esta declarada como auditada fuera del git', (AUDITADAS_FUERA_DEL_GIT ?? []).includes('cop_reportes_generales'));
+
   ok('se detectaron las tablas auditadas', auditadas.size > 20, `detectadas ${auditadas.size}`);
   const huerfanas = [...auditadas].filter((t) => !moduloDeFila({ table_name: t, action: 'UPDATE' })).sort();
   ok(`⭐ ninguna tabla auditada cae en "Otro" (${auditadas.size} auditadas)`, huerfanas.length === 0,
@@ -319,6 +332,10 @@ console.log('LOS MODULOS DE LA AUDITORIA\n');
     }
   };
   recoger('src'); recoger('supabase');
+  // Las auditadas fuera del git existen por definicion: se verificaron en la base
+  // (su create table tampoco esta en ningun .sql). Una errata en el mapa igual se
+  // ve, porque tendria que coincidir letra por letra con esta otra lista.
+  for (const t of AUDITADAS_FUERA_DEL_GIT ?? []) conocidas.add(t);
   const fantasma = tablasConocidas().filter((t) => !conocidas.has(t));
   ok('⭐ todas las tablas del mapa existen en el codigo o en un .sql (sin typos)', fantasma.length === 0, fantasma.join(', '));
 }

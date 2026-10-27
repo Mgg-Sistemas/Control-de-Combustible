@@ -2137,3 +2137,126 @@ export interface CajaCategoria {
   active: boolean;
   created_at: string;
 }
+
+// ── 🏭 CENTRO DE OPERACIONES (23-oct-2026) ───────────────────────────────────
+// Tablas propias del módulo, AISLADAS: solo las escribe y las lee el módulo
+// (src/lib/centroOperacionesDb.ts). Sin llaves foráneas hacia tablas ajenas: los
+// ids de afuera (machinery_id, ubicacion_id) son uuid sueltos y lo que se recibe
+// se congela como texto. El sello (created_*/updated_*) lo pone la base.
+
+/** Columnas de sello que pone la base en las tablas cop_*. */
+export interface CopSello {
+  created_by: string | null;
+  created_by_nombre: string | null;
+  created_at: string;
+  updated_by_nombre: string | null;
+  updated_at: string;
+}
+
+export interface CopSitioRow extends CopSello {
+  id: string;
+  nombre: string;
+  nota: string | null;
+  activo: boolean;
+  ubicacion_id: string | null;        // obra del sistema, uuid suelto (sin FK)
+  lat: number | null;                 // GPS del sitio (Parte diario, 24-oct-2026)
+  lng: number | null;
+}
+
+export interface CopUnidadRow extends CopSello {
+  id: string;
+  sitio_id: string;
+  origen: 'catalogo' | 'propia';
+  machinery_id: string | null;        // solo si origen = catalogo; uuid suelto (sin FK)
+  codigo: string;
+  descripcion: string | null;
+  placa: string | null;
+  serial: string | null;
+  marca: string | null;
+  modelo: string | null;
+  dueno: string | null;
+  capacidad_m3: number | null;
+  activo: boolean;                    // dar de baja = false; nunca se borra
+  nota: string | null;
+  // La MARCA del sitio, solo del módulo (26-oct-2026, mesa de maquinaria): sin defecto; NULL =
+  // «sin marca» (en una vinculada manda inspección). Una unidad sin vínculo (machinery_id NULL)
+  // nunca queda en NULL: check cop_unidades_estado_propia_chk.
+  estado: 'disponible' | 'averiada' | null;
+  estado_nota: string | null;
+  estado_at: string | null;           // lo sella un trigger en CADA escritura de `estado` (NULL sin marca): nunca se manda
+  chofer: string | null;
+}
+
+export interface CopListaRow extends CopSello {
+  id: string;
+  sitio_id: string | null;            // null = para todos los sitios
+  clase: 'transportista' | 'origen' | 'destino' | 'material' | 'terraza';
+  nombre: string;
+  activo: boolean;
+  lat: number | null;                 // GPS (destinos) — Parte diario, 24-oct-2026
+  lng: number | null;
+  km: number | null;                  // destinos: km por carretera desde el sitio (≥ 0)
+  factor_t_m3: number | null;         // materiales: t por m³ (> 0)
+  dias_disponible: number | null;     // materiales: días hasta disponible para la venta (≥ 0)
+}
+
+export interface CopMovimientoRow extends CopSello {
+  id: string;
+  sitio_id: string;
+  fecha: string;                      // AAAA-MM-DD, fecha de JORNADA (7am a 7am)
+  hora: string | null;                // HH:MM:SS; antes de las 07:00 = día calendario siguiente
+  tipo: 'entrada' | 'interno' | 'salida' | 'otro' | 'produccion';
+  unidad_id: string | null;
+  unidad_texto: string;               // congelado: manda en los papeles
+  placa: string | null;
+  transportista: string | null;
+  transportista_lista_id: string | null;
+  origen: string | null;
+  origen_lista_id: string | null;
+  destino: string | null;
+  destino_lista_id: string | null;
+  material: string | null;
+  material_lista_id: string | null;
+  capacidad_m3: number | null;
+  viajes: number | null;              // null solo si por_confirmar, produccion o con cantidad (check en la base)
+  toneladas: number | null;
+  m3: number | null;                  // null = viajes × capacidad_m3
+  estado: 'confirmado' | 'por_confirmar' | 'esperando_pesaje';
+  observacion: string | null;
+  // Parte diario (24-oct-2026):
+  chofer: string | null;
+  km: number | null;                  // km del destino congelados al anotar (≥ 0)
+  vehiculo: 'propio' | 'externo' | null;
+  cantidad: number | null;            // piezas (bloques) (≥ 0)
+  unidad_ingresada: 'm3' | 't' | 'kg' | 'u' | null;
+  disponible_desde: string | null;    // AAAA-MM-DD (producción: fecha + días hasta disponible)
+}
+
+/** Una fila del Reporte General pegado de WhatsApp (por empresa o por frente). */
+export interface CopFilaReporteGeneral {
+  nombre: string;
+  viajes: number;
+  toneladas: number;
+}
+
+/** El Reporte General de UNA jornada del sitio (Parte diario, 24-oct-2026). Pegarlo de
+ *  nuevo el mismo día lo REEMPLAZA: único (sitio_id, fecha). */
+export interface CopReporteGeneralRow extends CopSello {
+  id: string;
+  sitio_id: string;
+  fecha: string;                      // AAAA-MM-DD, fecha de JORNADA (la `jornada` del reporte)
+  hora_corte: string | null;          // HH:MM:SS
+  viajes_total: number | null;
+  toneladas_total: number | null;
+  empresas: CopFilaReporteGeneral[];  // jsonb, defecto []
+  frentes: CopFilaReporteGeneral[];   // jsonb, defecto []
+  avisos: string[];                   // jsonb, defecto []
+  texto_original: string;             // defecto ''
+}
+
+export interface CopAjusteRow extends CopSello {
+  id: string;
+  sitio_id: string | null;            // null = general
+  clave: string;
+  valor: unknown;                     // jsonb
+}

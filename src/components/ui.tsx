@@ -28,6 +28,7 @@ export function Screen({
   persistScrollKey,
   onRefresh,
   refreshing,
+  keyboardShouldPersistTaps,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
@@ -41,6 +42,11 @@ export function Screen({
   // y refreshing (el boolean de "está recargando" que ya tiene la pantalla).
   onRefresh?: () => void | Promise<void>;
   refreshing?: boolean;
+  // (Nativo) Qué pasa con un toque mientras el teclado está abierto. OPCIONAL y sin
+  // defecto: si no llega, el ScrollView se queda con el suyo ('never'), como siempre.
+  // 'handled' deja tocar una lista de sugerencias dentro de la pantalla sin que el
+  // primer toque solo cierre el teclado.
+  keyboardShouldPersistTaps?: 'always' | 'never' | 'handled';
 }) {
   const { colors } = useTheme();
   const background = bg ?? colors.background;
@@ -110,6 +116,7 @@ export function Screen({
           saveScroll(y);
         }}
         refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} /> : undefined}
+        {...(keyboardShouldPersistTaps ? { keyboardShouldPersistTaps } : null)}
       >
         {children}
       </ScrollView>
