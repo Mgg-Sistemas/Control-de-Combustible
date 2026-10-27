@@ -927,7 +927,7 @@ export interface InventoryRequirement {
   gerente_aprobado_por?: string | null;
   gerente_aprobado_at?: string | null;
 
-  // 🧾 Factura Fiscal / Comercial (Abraham - Ilusiones o Golden Touch):
+  // 🧾 Factura Fiscal / Comercial (Ilusiones o Golden Touch):
   factura_numero?: string | null;
   factura_url?: string | null;
   factura_tipo?: 'image' | 'pdf' | null;

@@ -363,7 +363,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'name' });
 
-  // 🧾 Factura Fiscal / Comercial (Abraham - Ilusiones / Golden Touch)
+  // 🧾 Factura Fiscal / Comercial (Ilusiones / Golden Touch)
   const [facturaModalOpen, setFacturaModalOpen] = useState(false);
   const [facturaTarget, setFacturaTarget] = useState<InventoryRequirement | null>(null);
   const [facturaNumero, setFacturaNumero] = useState('');
@@ -746,7 +746,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
-  // ── Factura Fiscal / Comercial (Abraham) ──────────────────────────────────
+  // ── Factura Fiscal / Comercial ──────────────────────────────────
   const abrirSubirFactura = (r: InventoryRequirement) => {
     setFacturaTarget(r);
     const fac = extraerFactura(r);
@@ -824,7 +824,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         url: facturaUrl || null,
         tipo: facturaTipo || 'image',
         nombre: facturaNombre || null,
-        subidaPor: userName || session?.user?.email || 'Abraham',
+        subidaPor: userName || session?.user?.email || 'Administración',
         subidaAt: nowISO(),
       };
 
@@ -1468,7 +1468,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const { error: uErr } = await supabase.from('inventory_requirements').update(reqPatch).eq('id', recvFor.id);
       if (uErr) throw uErr;
 
-      // 🧾 Sincronización automática con Cuentas por Pagar (Para que Abraham no tenga que subirla por separado)
+      // 🧾 Sincronización automática con Cuentas por Pagar
       if (recvFor.supplier_id) {
         try {
           const totalMontoRecv = recvRows.reduce((s, it) => {
@@ -1942,7 +1942,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   );
                 })() : null}
 
-                {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial (Abraham - Ilusiones / Golden) */}
+                {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial (Ilusiones / Golden) */}
                 {(() => {
                   const fac = extraerFactura(r);
                   const tieneFac = Boolean(fac && fac.numero);
@@ -1963,7 +1963,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <Text style={{ fontSize: 14 }}>🧾</Text>
                           <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
-                            Factura Fiscal / Comercial (Abraham)
+                            Factura Fiscal / Comercial
                           </Text>
                         </View>
                         {tieneFac ? (
@@ -2046,7 +2046,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       ) : (
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                           <Text style={{ fontSize: 11.5, color: colors.muted, fontStyle: 'italic', flex: 1 }}>
-                            Sin factura cargada todavía por Abraham.
+                            Sin factura cargada todavía.
                           </Text>
                           {canWrite ? (
                             <TouchableOpacity
@@ -2063,7 +2063,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                             >
                               <Text style={{ fontSize: 12 }}>➕</Text>
                               <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11.5 }}>
-                                Subir Factura (Abraham)
+                                Subir Factura
                               </Text>
                             </TouchableOpacity>
                           ) : null}
@@ -2702,7 +2702,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               );
             })}
 
-            {/* 🧾 Carga de Factura de Compra / Soporte Fiscal (Para Almacén y Abraham en Cuentas por Pagar) */}
+            {/* 🧾 Carga de Factura de Compra / Soporte Fiscal (Para Almacén y Cuentas por Pagar) */}
             <Card style={{ marginTop: spacing.sm, borderWidth: 1.5, borderColor: '#0284C7', backgroundColor: '#F0F9FF' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                 <Text style={{ fontSize: 16 }}>🧾</Text>
@@ -2711,7 +2711,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 </Text>
               </View>
               <Text style={{ color: '#075985', fontSize: 11.5, marginBottom: spacing.xs }}>
-                Ingresa los datos de la factura para que queden registrados en Almacén y Abraham (en Cuentas por Pagar) no tenga que volver a subirlos.
+                Ingresa los datos de la factura para que queden registrados en Almacén y en Cuentas por Pagar no tenga que volver a subirlos.
               </Text>
 
               <Text style={{ color: '#0C4A6E', fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
@@ -3024,11 +3024,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         </View>
       </Modal>
 
-      {/* ── Modal: Carga de Factura Fiscal / Comercial (Abraham - Falta 1) ── */}
+      {/* ── Modal: Carga de Factura Fiscal / Comercial ── */}
       <Modal visible={facturaModalOpen} animationType="slide" onRequestClose={() => setFacturaModalOpen(false)}>
         <Screen>
           <ScrollView keyboardShouldPersistTaps="handled">
-            <SectionTitle>🧾 Carga de Factura de Compra (Abraham)</SectionTitle>
+            <SectionTitle>🧾 Carga de Factura de Compra</SectionTitle>
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
               Requerimiento {facturaTarget?.code ?? ''}: Asigna la empresa fiscal/comercial emisora e ingresa los datos de control para trazabilidad en Cuentas por Pagar.
             </Text>

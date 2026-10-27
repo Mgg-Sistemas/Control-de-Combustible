@@ -2841,7 +2841,7 @@ export default function SolicitudMaterialScreen() {
                     </View>
                   )}
 
-                  {/* 🧾 Ficha Informativa: Factura Fiscal / Comercial (Abraham - Falta 1) */}
+                  {/* 🧾 Ficha Informativa: Factura Fiscal / Comercial */}
                   {fac && fac.numero ? (
                     <View
                       style={{

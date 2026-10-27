@@ -264,7 +264,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'name' });
 
-  // 🧾 Factura Fiscal / Comercial (Abraham - Ilusiones / Golden Touch)
+  // 🧾 Factura Fiscal / Comercial (Ilusiones / Golden Touch)
   const [facturaModalOpen, setFacturaModalOpen] = useState(false);
   const [facturaTarget, setFacturaTarget] = useState<InventoryRequirement | null>(null);
   const [facturaNumero, setFacturaNumero] = useState('');
@@ -736,7 +736,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
-  // ── Factura Abraham (Falta 1) ──
+  // ── Factura de Compra ──
   const abrirSubirFactura = (r: InventoryRequirement) => {
     setFacturaTarget(r);
     const fac = extraerFactura(r);
@@ -813,7 +813,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         url: facturaUrl || null,
         tipo: facturaTipo || 'image',
         nombre: facturaNombre || null,
-        subidaPor: fullName || session?.user?.email || 'Abraham',
+        subidaPor: fullName || session?.user?.email || 'Administración',
         subidaAt: nowISO(),
       };
 
@@ -1480,7 +1480,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               ) : null}
 
-              {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial (Abraham - Falta 1) */}
+              {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial */}
               {(() => {
                 const fac = extraerFactura(r);
                 const tieneFac = Boolean(fac && fac.numero);
@@ -1501,7 +1501,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Text style={{ fontSize: 14 }}>🧾</Text>
                         <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
-                          Factura Fiscal / Comercial (Abraham)
+                          Factura Fiscal / Comercial
                         </Text>
                       </View>
                       {tieneFac ? (
@@ -1584,7 +1584,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     ) : (
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                         <Text style={{ fontSize: 11.5, color: colors.muted, fontStyle: 'italic', flex: 1 }}>
-                          Sin factura cargada todavía por Abraham.
+                          Sin factura cargada todavía.
                         </Text>
                         {canWrite ? (
                           <TouchableOpacity
@@ -1601,7 +1601,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                           >
                             <Text style={{ fontSize: 12 }}>➕</Text>
                             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11.5 }}>
-                              Subir Factura (Abraham)
+                              Subir Factura
                             </Text>
                           </TouchableOpacity>
                         ) : null}
@@ -2828,11 +2828,11 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         </Screen>
       </Modal>
 
-      {/* ── Modal: Carga de Factura Fiscal / Comercial (Abraham - Falta 1) ── */}
+      {/* ── Modal: Carga de Factura Fiscal / Comercial ── */}
       <Modal visible={facturaModalOpen} animationType="slide" onRequestClose={() => setFacturaModalOpen(false)}>
         <Screen>
           <ScrollView keyboardShouldPersistTaps="handled">
-            <SectionTitle>🧾 Carga de Factura de Compra (Abraham)</SectionTitle>
+            <SectionTitle>🧾 Carga de Factura de Compra</SectionTitle>
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
               Requerimiento {facturaTarget?.code ?? ''}: Asigna la empresa fiscal/comercial emisora e ingresa los datos de control para trazabilidad en Cuentas por Pagar.
             </Text>

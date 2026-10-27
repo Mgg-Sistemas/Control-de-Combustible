@@ -1,10 +1,10 @@
-// 📑 Expediente Completo de Compra, Factura de Abraham y Trazabilidad de Almacén
+// 📑 Expediente Completo de Compra, Factura y Trazabilidad de Almacén
 // Permite compilar en un solo documento ejecutivo oficial:
 // 1. Datos del Requerimiento (Código, fecha, solicitante, departamento, máquina con código y PLACA).
 // 2. Galería de repuestos pedidos con fotos y notas técnicas.
 // 3. Datos de la cotización y proveedor asignado.
 // 4. Trazabilidad de aprobación y pagos de administración.
-// 5. Factura fiscal/comercial subida por Abraham (Ilusiones / Golden Touch).
+// 5. Factura fiscal/comercial (Ilusiones / Golden Touch).
 // 6. Estatus físico en Almacén (Disponible para entrega vs Retirado por chofer/mecánico).
 
 import { pdfDocument } from './pdf';
@@ -144,7 +144,7 @@ export function limpiarObservacionesUsuario(obs?: string | null): string {
 }
 
 /**
- * Extrae los datos de la factura fiscal cargada por Abraham desde columnas o etiqueta de observaciones
+ * Extrae los datos de la factura fiscal cargada desde columnas o etiqueta de observaciones
  */
 export function extraerFactura(r: Partial<InventoryRequirement>): FacturaData | null {
   if (!r) return null;
@@ -546,7 +546,7 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
     </div>
   `;
 
-  // 5. Sección Factura Fiscal / Comercial subida por Abraham
+  // 5. Sección Factura Fiscal / Comercial
   const seccionFactura = `
     <div class="exp-section">
       <div class="exp-header">
@@ -572,7 +572,7 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
             </div>
             <div class="grid-item">
               <div class="k-label">👤 Subida y Verificada por:</div>
-              <div class="k-val">${esc(factura.subidaPor || 'Abraham / Administración')}${factura.subidaAt ? ` (${dmyTimeOf(factura.subidaAt)})` : ''}</div>
+              <div class="k-val">${esc(factura.subidaPor || 'Administración')}${factura.subidaAt ? ` (${dmyTimeOf(factura.subidaAt)})` : ''}</div>
             </div>
           </div>
           ${factura.url && factura.tipo === 'image' ? `
@@ -587,7 +587,7 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
           ` : ''}
         ` : `
           <div style="padding:10px;text-align:center;color:#64748B;font-style:italic;">
-            🧾 La factura fiscal aún no ha sido cargada por Abraham/Administración para este requerimiento.
+            🧾 La factura fiscal aún no ha sido cargada para este requerimiento.
           </div>
         `}
       </div>
