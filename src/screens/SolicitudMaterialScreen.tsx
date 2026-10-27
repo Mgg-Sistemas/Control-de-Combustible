@@ -91,6 +91,13 @@ export interface SolicitudCartItem {
 const parseNum = leerNumero;
 const qtyFmt = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString();
 const nowISO = () => new Date().toISOString();
+const parseFriendlyError = (e: any, fallback: string) => {
+  const msg = String(e?.message || '');
+  if (/row-level security|policy/i.test(msg)) {
+    return 'Permiso RLS insuficiente en la base de datos para inventory_requirements. Aplica la política RLS para solicitudes_material en Supabase.';
+  }
+  return msg || fallback;
+};
 const dmyOf = (iso: string) => {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -624,7 +631,7 @@ export default function SolicitudMaterialScreen() {
       refetchReqs();
       setTab('mis_solicitudes');
     } catch (e: any) {
-      toast.error(e?.message ?? 'No se pudo crear la solicitud de compra.');
+      toast.error(parseFriendlyError(e, 'No se pudo crear la solicitud de compra.'));
     } finally {
       setCompraBusy(false);
     }
@@ -773,7 +780,7 @@ export default function SolicitudMaterialScreen() {
       refetchReqs();
       setTab('mis_solicitudes');
     } catch (e: any) {
-      toast.error(e?.message ?? 'No se pudo enviar la solicitud.');
+      toast.error(parseFriendlyError(e, 'No se pudo enviar la solicitud.'));
     } finally {
       setSubmittingCart(false);
     }
@@ -815,7 +822,7 @@ export default function SolicitudMaterialScreen() {
       setAclaratoriaTarget(null);
       refetchReqs();
     } catch (e: any) {
-      toast.error(e?.message ?? 'No se pudo enviar la respuesta.');
+      toast.error(parseFriendlyError(e, 'No se pudo enviar la respuesta.'));
     } finally {
       setAclaratoriaBusy(false);
     }
@@ -869,8 +876,9 @@ export default function SolicitudMaterialScreen() {
     if (esAdmin && verTodosAdmin) return soloTecnicas;
 
     return soloTecnicas.filter((r) => {
-      // Filtrar estrictamente por el usuario que creó la solicitud
+      // Filtrar estrictamente por el usuario que creó la solicitud o por nombre si coincide
       if (r.requested_by && r.requested_by === uid) return true;
+      if (fullName && r.solicitante_nombre && r.solicitante_nombre.trim().toLowerCase() === fullName.trim().toLowerCase()) return true;
       return false;
     });
   }, [requirements, esAdmin, verTodosAdmin, uid]);

@@ -116,7 +116,35 @@ function Pill({ label, bg, border, text }: { label: string; bg: string; border: 
 }
 
 // ── Editor de renglones (descripción · cantidad · unidad · precio) ───────────
-function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice, conExento }: { items: PurchaseLine[]; setItems: (l: PurchaseLine[]) => void; priceLabel: string; readOnly?: boolean; catalog?: InventoryLevel[]; noPrice?: boolean; conExento?: boolean }) {
+function LineEditor({
+  items,
+  setItems,
+  priceLabel,
+  readOnly,
+  catalog,
+  noPrice,
+  conExento,
+  allowPhoto,
+  subiendoIndex,
+  onTomarFoto,
+  onElegirFoto,
+  onQuitarFoto,
+  onVerFoto,
+}: {
+  items: PurchaseLine[];
+  setItems: (l: PurchaseLine[]) => void;
+  priceLabel: string;
+  readOnly?: boolean;
+  catalog?: InventoryLevel[];
+  noPrice?: boolean;
+  conExento?: boolean;
+  allowPhoto?: boolean;
+  subiendoIndex?: number | null;
+  onTomarFoto?: (index: number) => void;
+  onElegirFoto?: (index: number) => void;
+  onQuitarFoto?: (index: number) => void;
+  onVerFoto?: (url: string, title: string) => void;
+}) {
   const { colors } = useTheme();
   const [focus, setFocus] = useState<number | null>(null);
   // Texto crudo de cant./precio mientras se escribe: deja teclear "12," o "12." sin
@@ -167,6 +195,133 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice, c
             <TouchableOpacity disabled={readOnly} onPress={() => upd(i, { exento: !l.exento })} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={{ color: l.exento ? colors.brandText : colors.muted, fontSize: 12, fontWeight: '700' }}>{l.exento ? '☑' : '☐'} Exento de IVA</Text>
             </TouchableOpacity>
+          ) : null}
+
+          {/* 📷 Foto del producto en este renglón específico (opcional) */}
+          {allowPhoto ? (
+            <View style={{ marginTop: 2, paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+              {l.image_url ? (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: spacing.sm,
+                    backgroundColor: colors.surface,
+                    padding: 6,
+                    borderRadius: radius.sm,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <TouchableOpacity
+                    onPress={() => onVerFoto?.(l.image_url!, `Foto: ${l.description || `Renglón ${i + 1}`}`)}
+                    activeOpacity={0.8}
+                  >
+                    <Image
+                      source={{ uri: l.image_url }}
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: radius.xs,
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.brand,
+                      }}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+
+                  <View style={{ flex: 1, minWidth: 140 }}>
+                    <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '700' }} numberOfLines={1}>
+                      📷 Foto del producto adjunta
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => onVerFoto?.(l.image_url!, `Foto: ${l.description || `Renglón ${i + 1}`}`)}
+                        style={{
+                          backgroundColor: colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: colors.brand,
+                          borderRadius: radius.pill,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                        }}
+                      >
+                        <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '700' }}>👁️ Ver grande</Text>
+                      </TouchableOpacity>
+                      {!readOnly ? (
+                        <TouchableOpacity
+                          onPress={() => onQuitarFoto?.(i)}
+                          style={{
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.danger,
+                            borderRadius: radius.pill,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                          }}
+                        >
+                          <Text style={{ color: colors.danger, fontSize: 10.5, fontWeight: '700' }}>🗑️ Quitar</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                </View>
+              ) : !readOnly ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                  <TouchableOpacity
+                    onPress={() => onTomarFoto?.(i)}
+                    disabled={subiendoIndex === i}
+                    style={{
+                      flex: 1,
+                      minWidth: 110,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingVertical: 6,
+                      paddingHorizontal: 8,
+                      opacity: subiendoIndex === i ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12 }}>📷</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '700' }}>
+                      {subiendoIndex === i ? 'Subiendo…' : 'Tomar foto'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => onElegirFoto?.(i)}
+                    disabled={subiendoIndex === i}
+                    style={{
+                      flex: 1,
+                      minWidth: 110,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingVertical: 6,
+                      paddingHorizontal: 8,
+                      opacity: subiendoIndex === i ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12 }}>🖼️</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '700' }}>
+                      {subiendoIndex === i ? 'Subiendo…' : 'Galería / Archivo'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
           ) : null}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             {!noPrice ? <Text style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>Subtotal: {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{conExento && l.exento ? ' · EXENTO' : ''}</Text> : <View />}
@@ -829,10 +984,12 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const [subiendoFoto, setSubiendoFoto] = useState(false);
   const [previewFoto, setPreviewFoto] = useState<{ url: string; title: string } | null>(null);
 
+  const [subiendoItemIndex, setSubiendoItemIndex] = useState<number | null>(null);
+
   const resetForm = () => {
     setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setProvQ(''); setNuevoProv('');
     setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]);
-    setAlicuota(String(IVA_POR_DEFECTO)); setFactura(null); setFotoProducto(null);
+    setAlicuota(String(IVA_POR_DEFECTO)); setFactura(null); setFotoProducto(null); setSubiendoItemIndex(null);
   };
 
   // Crear un proveedor NUEVO sin salir de la compra (se guarda en `suppliers` y
@@ -853,7 +1010,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const abrirNueva = () => {
     setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote('');
     setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setAlicuota(String(IVA_POR_DEFECTO));
-    setFactura(null); setFotoProducto(null);
+    setFactura(null); setFotoProducto(null); setSubiendoItemIndex(null);
     setFormKey((k) => k + 1); setOpen(true);
   };
 
@@ -868,6 +1025,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     setAlicuota(String(c.alicuota_iva ?? 0));
     setFactura(c.factura_url ? { url: c.factura_url, kind: (c.factura_type as 'image' | 'pdf') ?? 'image', name: c.factura_name ?? 'factura' } : null);
     setFotoProducto(extraerFotoProducto(c));
+    setSubiendoItemIndex(null);
     setFormKey((k) => k + 1); setOpen(true);
   };
 
@@ -905,6 +1063,58 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     } finally { setSubiendoFoto(false); }
   };
 
+  const tomarFotoRenglon = async (index: number) => {
+    if (subiendoItemIndex !== null) return;
+    setSubiendoItemIndex(index);
+    try {
+      const res = await takePhotoAndUpload(draftId, 'compras-directas-productos');
+      if (!res.ok) {
+        if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
+          toast.error(res.error);
+        }
+        return;
+      }
+      if (res.url) {
+        setItems((prev) => prev.map((l, j) => (j === index ? { ...l, image_url: res.url } : l)));
+        if (!fotoProducto) {
+          setFotoProducto({ url: res.url, name: `Foto de la pieza (Renglón ${index + 1})` });
+        }
+        toast.success(`Foto agregada al renglón ${index + 1}.`);
+      }
+    } finally {
+      setSubiendoItemIndex(null);
+    }
+  };
+
+  const elegirFotoRenglon = async (index: number) => {
+    if (subiendoItemIndex !== null) return;
+    setSubiendoItemIndex(index);
+    try {
+      const res = Platform.OS === 'web'
+        ? await pickAndUploadDocFile('compras-directas-productos', draftId)
+        : await pickPhotoFromGalleryAndUpload(draftId, 'compras-directas-productos');
+      if (!res.ok) {
+        if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
+          toast.error(res.error);
+        }
+        return;
+      }
+      if (res.url) {
+        setItems((prev) => prev.map((l, j) => (j === index ? { ...l, image_url: res.url } : l)));
+        if (!fotoProducto) {
+          setFotoProducto({ url: res.url, name: (res as any).name || `Foto de la pieza (Renglón ${index + 1})` });
+        }
+        toast.success(`Foto agregada al renglón ${index + 1}.`);
+      }
+    } finally {
+      setSubiendoItemIndex(null);
+    }
+  };
+
+  const quitarFotoRenglon = (index: number) => {
+    setItems((prev) => prev.map((l, j) => (j === index ? { ...l, image_url: null } : l)));
+  };
+
   const quitarFotoProducto = () => {
     setFotoProducto(null);
   };
@@ -916,22 +1126,27 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     const clean = items.filter((l) => l.description.trim() && Number(l.qty) > 0);
     if (!clean.length) return toast.error('Agrega al menos un renglón con producto y cantidad.');
 
-    // Vincula la foto al primer renglón si existe
-    if (fotoProducto?.url) {
-      clean[0] = { ...clean[0], image_url: fotoProducto.url };
-    } else if (clean[0]) {
-      delete clean[0].image_url;
+    // Sincronización bidireccional defensiva con la primera foto
+    const primerFotoItem = clean.find((l) => l.image_url)?.image_url || null;
+    let fotoDefinitiva = fotoProducto;
+    if (!fotoDefinitiva?.url && primerFotoItem) {
+      fotoDefinitiva = { url: primerFotoItem, name: 'Foto del producto' };
+    }
+    if (fotoDefinitiva?.url && !clean[0]?.image_url) {
+      clean[0] = { ...clean[0], image_url: fotoDefinitiva.url };
     }
 
     setBusy(true);
     // 🧾 La alícuota se acota a [0, 100]; el total guardado YA incluye el IVA.
     const alic = Math.min(100, Math.max(0, parseNum(alicuota) || 0));
-    const notaGuardar = empaquetarNotaConFotoProducto(note.trim().toUpperCase(), fotoProducto);
+    const notaGuardar = empaquetarNotaConFotoProducto(note.trim().toUpperCase(), fotoDefinitiva);
     const payload = {
       company_id: company, supplier_id: supplier, category,
       items: clean, total: Math.round((linesTotal(clean) + ivaDe(clean, alic)) * 100) / 100,
       alicuota_iva: alic,
       factura_url: factura?.url ?? null, factura_type: factura?.kind ?? null, factura_name: factura?.name ?? null,
+      foto_producto_url: fotoDefinitiva?.url ?? null,
+      foto_producto_name: fotoDefinitiva?.name ?? null,
       note: notaGuardar,
     };
     const { error } = editingId
@@ -987,15 +1202,39 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
                       <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>🛒 {c.code}</Text>
                       <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800' }}>{usd(c.total)}</Text>
                     </View>
-                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                      {catInfo(c.category).icon} {catInfo(c.category).label} · {(c.items || []).length} renglón(es) · 🏭 {supplierName(c.supplier_id)}{fotoObj ? ' · 📷 Con foto' : ''}
-                    </Text>
+                    {(() => {
+                      const totalFotos = (c.items || []).filter((l) => Boolean(l.image_url)).length;
+                      return (
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                          {catInfo(c.category).icon} {catInfo(c.category).label} · {(c.items || []).length} renglón(es) · 🏭 {supplierName(c.supplier_id)}{totalFotos > 0 ? ` · 📷 ${totalFotos} con foto` : fotoObj ? ' · 📷 Con foto' : ''}
+                        </Text>
+                      );
+                    })()}
                   </View>
                 }
                 detail={
                   <>
                     {(c.items || []).map((l, i) => (
-                      <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>{i + 1}. {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{l.exento ? ' · EXENTO DE IVA' : ''}</Text>
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, marginVertical: 3 }}>
+                        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          {l.image_url ? (
+                            <TouchableOpacity onPress={() => setPreviewFoto({ url: l.image_url!, title: `${l.description} · ${c.code || 'Compra'}` })}>
+                              <Image source={{ uri: l.image_url }} style={{ width: 32, height: 32, borderRadius: radius.xs, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }} resizeMode="cover" />
+                            </TouchableOpacity>
+                          ) : null}
+                          <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
+                            {i + 1}. {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{l.exento ? ' · EXENTO DE IVA' : ''}
+                          </Text>
+                        </View>
+                        {l.image_url ? (
+                          <TouchableOpacity
+                            onPress={() => setPreviewFoto({ url: l.image_url!, title: `${l.description} · ${c.code || 'Compra'}` })}
+                            style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand }}
+                          >
+                            <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '700' }}>📷 Ver foto</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
                     ))}
                     {(Number(c.alicuota_iva) || 0) > 0 ? (
                       <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
@@ -1088,7 +1327,20 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Renglones (producto · cantidad · precio)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Cada renglón entra al inventario como ENTRADA con su precio. Al escribir, se sugieren productos ya registrados.</Text>
-              <LineEditor key={formKey} items={items} setItems={setItems} priceLabel="Precio unit." catalog={catalog} conExento />
+              <LineEditor
+                key={formKey}
+                items={items}
+                setItems={setItems}
+                priceLabel="Precio unit."
+                catalog={catalog}
+                conExento
+                allowPhoto
+                subiendoIndex={subiendoItemIndex}
+                onTomarFoto={tomarFotoRenglon}
+                onElegirFoto={elegirFotoRenglon}
+                onQuitarFoto={quitarFotoRenglon}
+                onVerFoto={(url, title) => setPreviewFoto({ url, title })}
+              />
               {/* 🧾 IVA como en LA CANTERA: alícuota editable (nace 16) y el resumen
                   Subtotal · Base imponible · IVA · Total. Los exentos no pagan IVA. */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>

@@ -24,6 +24,11 @@ import {
   type EmpresaFactura,
 } from '../lib/requerimientoExpediente';
 import { machineLabel, machineMatches } from '../lib/machineLabel';
+import {
+  calcularEstadoRequerimiento,
+  obtenerConfigAprobacionMonto,
+  type ReglaAprobacionMonto,
+} from '../lib/requerimientoFlujo';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -43,14 +48,6 @@ function fmtDate(iso?: string | null): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-
-const ESTADOS_SOLICITUD: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  pendiente: { label: 'Pendiente de Cotización', color: '#D97706', bg: '#FEF3C7', icon: '⏳' },
-  aclaratoria_solicitada: { label: 'En Aclaratoria Técnica', color: '#EA580C', bg: '#FFEDD5', icon: '⚠️' },
-  aprobado: { label: 'Convertido / Aprobado', color: '#16A34A', bg: '#DCFCE7', icon: '✅' },
-  rechazado: { label: 'Rechazado', color: '#DC2626', bg: '#FEE2E2', icon: '❌' },
-  recibido: { label: 'Recibido en Almacén', color: '#2563EB', bg: '#DBEAFE', icon: '📦' },
-};
 
 function ConvertItemSupplierPicker({
   itemIndex,
@@ -263,6 +260,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'name' });
+  const [configAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
 
   // 🧾 Factura Fiscal / Comercial (Ilusiones / Golden Touch)
   const [facturaModalOpen, setFacturaModalOpen] = useState(false);
@@ -299,7 +297,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
 
   // Buscador y filtros
   const [query, setQuery] = useState('');
-  const [filterEstado, setFilterEstado] = useState<'todos' | 'pendiente' | 'aclaratoria' | 'convertido' | 'rechazado'>('todos');
+  const [filterEstado, setFilterEstado] = useState<
+    'todos' | 'por_cotizar' | 'esperando_pago' | 'aclaratoria' | 'convertido' | 'rechazado' | 'pendiente'
+  >('todos');
 
   // Modales
   const [convertTarget, setConvertTarget] = useState<InventoryRequirement | null>(null);
@@ -378,41 +378,78 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     });
   }, [solicitudesBase, query]);
 
-  // 3. Contadores calculados de forma coherente sobre el mismo universo
-  const countTodos = solicitudesBuscadas.length;
-  const countPendientes = useMemo(
-    () => solicitudesBuscadas.filter((r) => r.status === 'pendiente').length,
-    [solicitudesBuscadas]
+  // 3. Evaluación dinámica de estados sincronizada con Requerimientos
+  const solicitudesConEstado = useMemo(() => {
+    return solicitudesBuscadas.map((r) => {
+      const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+      const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
+      return { req: r, est, provGeneral };
+    });
+  }, [solicitudesBuscadas, suppliers, rate, configAprobacion]);
+
+  // Contadores reactivos precisos
+  const countTodos = solicitudesConEstado.length;
+  const countPorCotizar = useMemo(
+    () =>
+      solicitudesConEstado.filter(
+        ({ est }) => est.codigo === 'esperando_proveedor' || est.codigo === 'esperando_cotizacion'
+      ).length,
+    [solicitudesConEstado]
+  );
+  const countEsperandoPago = useMemo(
+    () =>
+      solicitudesConEstado.filter(
+        ({ est }) => est.codigo === 'esperando_pago' || est.codigo === 'esperando_aprobacion_gg'
+      ).length,
+    [solicitudesConEstado]
   );
   const countAclaratorias = useMemo(
-    () => solicitudesBuscadas.filter((r) => r.status === 'aclaratoria_solicitada').length,
-    [solicitudesBuscadas]
+    () => solicitudesConEstado.filter(({ est }) => est.codigo === 'aclaratoria_solicitada').length,
+    [solicitudesConEstado]
   );
   const countConvertidos = useMemo(
-    () => solicitudesBuscadas.filter((r) => r.status === 'aprobado' || r.status === 'recibido').length,
-    [solicitudesBuscadas]
+    () =>
+      solicitudesConEstado.filter(({ est }) => est.codigo === 'aprobado' || est.codigo === 'recibido').length,
+    [solicitudesConEstado]
   );
   const countRechazados = useMemo(
-    () => solicitudesBuscadas.filter((r) => r.status === 'rechazado').length,
-    [solicitudesBuscadas]
+    () => solicitudesConEstado.filter(({ est }) => est.codigo === 'rechazado').length,
+    [solicitudesConEstado]
   );
 
   // 4. Lista final a mostrar según el chip de estado activo
   const solicitudes = useMemo(() => {
-    if (filterEstado === 'pendiente') {
-      return solicitudesBuscadas.filter((r) => r.status === 'pendiente');
+    if (filterEstado === 'por_cotizar' || filterEstado === 'pendiente') {
+      return solicitudesConEstado
+        .filter(
+          ({ est }) => est.codigo === 'esperando_proveedor' || est.codigo === 'esperando_cotizacion'
+        )
+        .map((x) => x.req);
+    }
+    if (filterEstado === 'esperando_pago') {
+      return solicitudesConEstado
+        .filter(
+          ({ est }) => est.codigo === 'esperando_pago' || est.codigo === 'esperando_aprobacion_gg'
+        )
+        .map((x) => x.req);
     }
     if (filterEstado === 'aclaratoria') {
-      return solicitudesBuscadas.filter((r) => r.status === 'aclaratoria_solicitada');
+      return solicitudesConEstado
+        .filter(({ est }) => est.codigo === 'aclaratoria_solicitada')
+        .map((x) => x.req);
     }
     if (filterEstado === 'convertido') {
-      return solicitudesBuscadas.filter((r) => r.status === 'aprobado' || r.status === 'recibido');
+      return solicitudesConEstado
+        .filter(({ est }) => est.codigo === 'aprobado' || est.codigo === 'recibido')
+        .map((x) => x.req);
     }
     if (filterEstado === 'rechazado') {
-      return solicitudesBuscadas.filter((r) => r.status === 'rechazado');
+      return solicitudesConEstado
+        .filter(({ est }) => est.codigo === 'rechazado')
+        .map((x) => x.req);
     }
-    return solicitudesBuscadas;
-  }, [solicitudesBuscadas, filterEstado]);
+    return solicitudesConEstado.map((x) => x.req);
+  }, [solicitudesConEstado, filterEstado]);
 
   // Estado para acordeón plegable/desplegable individual y masivo
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -1054,12 +1091,13 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: spacing.md }}>
         {[
           { key: 'todos', label: `Todos (${countTodos})` },
-          { key: 'pendiente', label: `⏳ Pendientes (${countPendientes})` },
+          { key: 'por_cotizar', label: `📋 Por Cotizar (${countPorCotizar})` },
+          { key: 'esperando_pago', label: `💳 Esperando Pago (${countEsperandoPago})` },
           { key: 'aclaratoria', label: `⚠️ En Aclaratoria (${countAclaratorias})` },
           { key: 'convertido', label: `✅ Convertidos (${countConvertidos})` },
           { key: 'rechazado', label: `❌ Rechazados (${countRechazados})` },
         ].map((f) => {
-          const sel = filterEstado === f.key;
+          const sel = filterEstado === f.key || (f.key === 'por_cotizar' && filterEstado === 'pendiente');
           return (
             <TouchableOpacity
               key={f.key}
@@ -1130,20 +1168,28 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         />
       ) : (
         solicitudes.map((r) => {
-          const est = ESTADOS_SOLICITUD[r.status] || ESTADOS_SOLICITUD.pendiente;
+          const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+          const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
           const primerItem = r.items[0];
           const tieneFoto = r.attachment_url || primerItem?.image_url;
           const isAbierto = expandedIds.has(r.id);
+          const empresaPagadora = r.empresa_pagadora_nombre || companies.find((c) => c.id === r.empresa_pagadora_id)?.name;
 
           return (
             <Card key={r.id} style={{ gap: 8, marginBottom: spacing.sm, borderWidth: 1, borderColor: isAbierto ? colors.brand : colors.border }}>
-              {/* Encabezado: Código, Título, Estado y Botón Plegar/Desplegar */}
+              {/* Encabezado Responsivo: Código, Título, Estado y Botón Plegar/Desplegar */}
               <TouchableOpacity
                 onPress={() => toggleExpand(r.id)}
                 activeOpacity={0.8}
-                style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                }}
               >
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 200 }}>
                   <Text style={{ fontWeight: '900', fontSize: 15, color: colors.text }}>
                     {r.code} · {r.items.length === 1 ? primerItem?.name : `Solicitud Multi-Ítem (${r.items.length} Renglones)`}
                   </Text>
@@ -1152,9 +1198,19 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   ) : null}
                 </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={{ backgroundColor: est.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill }}>
-                    <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <View
+                    style={{
+                      backgroundColor: est.bg,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: est.color + '40',
+                      maxWidth: 240,
+                    }}
+                  >
+                    <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }} numberOfLines={1}>
                       {est.icon} {est.label}
                     </Text>
                   </View>
@@ -1231,6 +1287,47 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     </Text>
                   ) : null}
                 </View>
+
+                {/* Sincronización comercial con Requerimientos: Proveedor asignado, Pagadora y Cotización */}
+                {(provGeneral?.name || est.proveedoresNombres.length > 0 || empresaPagadora || est.totalUSD > 0) ? (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                      marginTop: 2,
+                      paddingTop: 4,
+                      borderTopWidth: 1,
+                      borderTopColor: colors.border,
+                    }}
+                  >
+                    {provGeneral?.name || est.proveedoresNombres.length > 0 ? (
+                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                        🏢 <Text style={{ fontWeight: '700' }}>Proveedor:</Text>{' '}
+                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>
+                          {provGeneral?.name || est.proveedoresNombres.join(', ')}
+                        </Text>
+                      </Text>
+                    ) : null}
+
+                    {empresaPagadora ? (
+                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                        💳 <Text style={{ fontWeight: '700' }}>Pagadora:</Text>{' '}
+                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>{empresaPagadora}</Text>
+                      </Text>
+                    ) : null}
+
+                    {est.totalUSD > 0 ? (
+                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                        💵 <Text style={{ fontWeight: '700' }}>Cotizado:</Text>{' '}
+                        <Text style={{ color: '#059669', fontWeight: '800' }}>
+                          ${est.totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                          {rate ? ` (~ ${fmtBs(est.totalUSD * rate)})` : ''}
+                        </Text>
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
 
               {/* 🏬 Ficha de Proveedor Propuesto por el Solicitante (si existe) */}
