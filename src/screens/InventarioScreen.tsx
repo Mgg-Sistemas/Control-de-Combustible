@@ -13,6 +13,7 @@ import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Vehicle, Employee, InventoryRequirement, RequirementLine, InventoryTransfer, UniformDelivery, InventoryStockRequest } from '../types/database';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import * as ImagePicker from 'expo-image-picker';
+import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload, pickAndUploadDocFile } from '../lib/photo';
 import { notaEntregaHtml, NotaItem, LogosConfig, NotaFoto } from '../lib/notaEntrega';
 import { COMPANY_NAME } from '../lib/company';
 import { etiquetaVehiculo, textoBusquedaVehiculo, detalleVehiculoNota, ladoTrasladoEnPalabras, PASOS_SIN_MIGRACION, PASOS_SIN_MIGRACION_TRASLADO, quitarColumnas, quitarColumnasFila } from '../lib/salidaVehiculo';
@@ -354,6 +355,12 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [editStock0, setEditStock0] = useState(0); // stock actual al abrir edición (para el delta)
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // null = crear; id = editar
+  // 📸 Fotos de producto: visualización, cámara y subida
+  const [itemPhoto, setItemPhoto] = useState<string | null>(null);
+  const [subiendoItemPhoto, setSubiendoItemPhoto] = useState(false);
+  const [savingPhotoId, setSavingPhotoId] = useState<string | null>(null);
+  const [fotoVisor, setFotoVisor] = useState<{ url: string; title: string } | null>(null);
+  const [inferredPhotos, setInferredPhotos] = useState<Record<string, string>>({});
   // Carga por lote (Excel/CSV).
   const [loteOpen, setLoteOpen] = useState(false);
   const [loteText, setLoteText] = useState('');
@@ -364,6 +371,145 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const machineName = (id: string | null) => { if (!id) return 'Sin equipo'; const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : 'Equipo'; };
   const machineCompany = (id: string | null) => (id ? machines.find((x) => x.id === id)?.company_id ?? null : null);
   const nq = norm(q);
+
+  // 📸 Cargar fotos inferidas desde Compras Directas y Requerimientos con proceso
+  // Permite que materiales comprados directa o por requerimiento muestren su foto de inmediato en el inventario.
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const [dpRes, reqRes] = await Promise.all([
+          supabase
+            .from('direct_purchases')
+            .select('items, foto_producto_url')
+            .order('created_at', { ascending: false })
+            .limit(150),
+          supabase
+            .from('inventory_requirements')
+            .select('items, attachment_url')
+            .order('created_at', { ascending: false })
+            .limit(150),
+        ]);
+
+        const map: Record<string, string> = {};
+
+        // 1) Fotos de Compras Directas
+        (dpRes.data || []).forEach((row: any) => {
+          const generalFoto = row.foto_producto_url;
+          (row.items || []).forEach((it: any) => {
+            const n = norm(it.description || '');
+            const f = it.image_url || generalFoto;
+            if (n && f && !map[n]) map[n] = f;
+          });
+        });
+
+        // 2) Fotos de Requerimientos / Compras que pasaron por su proceso
+        (reqRes.data || []).forEach((row: any) => {
+          (row.items || []).forEach((it: any) => {
+            const n = norm(it.name || '');
+            const f = it.image_url || (row.attachment_url?.match(/\.(jpg|jpeg|png|webp)/i) ? row.attachment_url : null);
+            if (n && f && !map[n]) map[n] = f;
+          });
+        });
+
+        setInferredPhotos(map);
+      } catch (err) {
+        console.warn('Error cargando fotos de compras y requerimientos:', err);
+      }
+    })();
+  }, []);
+
+  const getProductPhoto = (it: InventoryLevel): string | null => {
+    if (it.image_url) return it.image_url;
+    if ((it as any).photo_url) return (it as any).photo_url;
+    if (inferredPhotos[norm(it.name)]) return inferredPhotos[norm(it.name)];
+    return null;
+  };
+
+  const tomarFotoItem = async (it: InventoryLevel) => {
+    setSavingPhotoId(it.id);
+    try {
+      const res = await takePhotoAndUpload(it.id, 'inventory-items');
+      if (res.ok && res.url) {
+        await supabase.from('inventory_items').update({ image_url: res.url }).eq('id', it.id);
+        setInferredPhotos((prev) => ({ ...prev, [norm(it.name)]: res.url! }));
+        refetch();
+        toast.success('Foto del producto actualizada.');
+      } else if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
+        toast.error(res.error);
+      }
+    } finally {
+      setSavingPhotoId(null);
+    }
+  };
+
+  const elegirFotoItem = async (it: InventoryLevel) => {
+    setSavingPhotoId(it.id);
+    try {
+      const res = Platform.OS === 'web'
+        ? await pickAndUploadDocFile('inventory-items', it.id)
+        : await pickPhotoFromGalleryAndUpload(it.id, 'inventory-items');
+      if (res.ok && res.url) {
+        await supabase.from('inventory_items').update({ image_url: res.url }).eq('id', it.id);
+        setInferredPhotos((prev) => ({ ...prev, [norm(it.name)]: res.url! }));
+        refetch();
+        toast.success('Foto del producto actualizada.');
+      } else if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
+        toast.error(res.error);
+      }
+    } finally {
+      setSavingPhotoId(null);
+    }
+  };
+
+  const quitarFotoItem = async (it: InventoryLevel) => {
+    setSavingPhotoId(it.id);
+    try {
+      await supabase.from('inventory_items').update({ image_url: null }).eq('id', it.id);
+      setInferredPhotos((prev) => {
+        const next = { ...prev };
+        delete next[norm(it.name)];
+        return next;
+      });
+      refetch();
+      toast.success('Foto del producto retirada.');
+    } finally {
+      setSavingPhotoId(null);
+    }
+  };
+
+  const tomarFotoForm = async () => {
+    setSubiendoItemPhoto(true);
+    try {
+      const draft = editingId || 'nuevo-material';
+      const res = await takePhotoAndUpload(draft, 'inventory-items');
+      if (res.ok && res.url) {
+        setItemPhoto(res.url);
+        toast.success('Foto capturada.');
+      } else if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
+        toast.error(res.error);
+      }
+    } finally {
+      setSubiendoItemPhoto(false);
+    }
+  };
+
+  const elegirFotoForm = async () => {
+    setSubiendoItemPhoto(true);
+    try {
+      const draft = editingId || 'nuevo-material';
+      const res = Platform.OS === 'web'
+        ? await pickAndUploadDocFile('inventory-items', draft)
+        : await pickPhotoFromGalleryAndUpload(draft, 'inventory-items');
+      if (res.ok && res.url) {
+        setItemPhoto(res.url);
+        toast.success('Foto adjuntada.');
+      } else if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
+        toast.error(res.error);
+      }
+    } finally {
+      setSubiendoItemPhoto(false);
+    }
+  };
   // Tipos de producto presentes (bombona, silla, mecate…), con su conteo, para el filtro.
   const tipoOptions = useMemo(() => {
     const m = new Map<string, number>();
@@ -423,6 +569,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     setInitCostCur('USD');
     setTipo((it as any).tipo || '');
     setCarga((it as any).carga || '');
+    setItemPhoto(getProductPhoto(it) || null);
     setOpen(true);
   };
 
@@ -507,7 +654,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     // ── EDICIÓN ──
     if (editingId) {
       setBusy(true);
-      const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, carga: carga || null };
+      const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, carga: carga || null, image_url: itemPhoto || null };
       // Costo unitario (PMP): si se indicó, se actualiza directo en el producto.
       if (initCost.trim() !== '') patch.avg_cost = costUsd;
       const { error } = await supabase.from('inventory_items').update(patch).eq('id', editingId);
@@ -523,7 +670,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         if (mErr) { setBusy(false); return toast.error(mErr.message); }
       }
       setBusy(false);
-      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost(''); setEstado(''); setTipo(''); setCarga(''); setEditQty('');
+      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost(''); setEstado(''); setTipo(''); setCarga(''); setEditQty(''); setItemPhoto(null);
       refetch();
       return;
     }
@@ -533,7 +680,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const autoSku = nextSkuFrom((skuRows ?? []).map((r: any) => r.sku));
     // Inventario GENERAL: no se vincula a empresa ni equipo al crear.
     const { data: ins, error } = await supabase.from('inventory_items')
-      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, carga: carga || null, machinery_id: null, company_id: null })
+      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, carga: carga || null, machinery_id: null, company_id: null, image_url: itemPhoto || null })
       .select('id').single();
     if (error) { setBusy(false); return toast.error(error.message); }
     // Stock inicial (opcional): registra una entrada que fija existencia y PMP de arranque.
@@ -764,11 +911,35 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       {filtered.length === 0 ? (
         <EmptyState title="Sin productos" subtitle="Agrega productos o recíbelos desde una orden de compra." />
       ) : filtered.map((it) => {
+            const img = getProductPhoto(it);
             return (
               <ExpandableCard
                 key={it.id}
                 summary={
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flex: 1 }}>
+                    {/* Miniatura visual de la foto del repuesto */}
+                    <TouchableOpacity
+                      activeOpacity={img ? 0.7 : 1}
+                      onPress={() => { if (img) setFotoVisor({ url: img, title: it.name }); }}
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: radius.md,
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: img ? colors.brand : colors.border,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                        marginRight: 6,
+                      }}
+                    >
+                      {img ? (
+                        <Image source={{ uri: img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                      ) : (
+                        <Text style={{ fontSize: 18 }}>{catInfo(it.category).icon}</Text>
+                      )}
+                    </TouchableOpacity>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{it.name}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>{catInfo(it.category).icon} {catInfo(it.category).label}{it.tipo ? ` · 🏷️ ${it.tipo}` : ''}</Text>
@@ -801,6 +972,54 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                         <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0))}</Text>
                         {rate ? <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>{fmtBs(bsFromUsd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0), rate))}</Text> : null}
                       </View>
+                    </View>
+
+                    {/* 📸 Fotografía del Repuesto / Material en Inventario */}
+                    <View style={{ marginTop: spacing.sm, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>📸 Fotografía del Material</Text>
+                        {img ? (
+                          <TouchableOpacity onPress={() => setFotoVisor({ url: img, title: it.name })}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.brandText }}>👁️ Ampliar foto</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      {img ? (
+                        <View style={{ alignItems: 'center', marginVertical: 6 }}>
+                          <TouchableOpacity onPress={() => setFotoVisor({ url: img, title: it.name })} style={{ borderRadius: radius.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.border }}>
+                            <Image source={{ uri: img }} style={{ width: 180, height: 120 }} resizeMode="cover" />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <Text style={{ fontSize: 11, color: colors.muted, fontStyle: 'italic', marginBottom: 4 }}>Sin foto registrada aún. Si subes una foto en compras directas o recepciones, se verá aquí.</Text>
+                      )}
+                      {canWrite ? (
+                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                          <TouchableOpacity
+                            disabled={savingPhotoId === it.id}
+                            onPress={() => tomarFotoItem(it)}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 5 }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>📷 {img ? 'Cambiar (Cámara)' : 'Tomar foto'}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            disabled={savingPhotoId === it.id}
+                            onPress={() => elegirFotoItem(it)}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 5 }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>🖼️ {img ? 'Cambiar (Galería)' : 'Subir foto'}</Text>
+                          </TouchableOpacity>
+                          {img ? (
+                            <TouchableOpacity
+                              disabled={savingPhotoId === it.id}
+                              onPress={() => quitarFotoItem(it)}
+                              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 5 }}
+                            >
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.danger }}>🗑️ Quitar</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ) : null}
                     </View>
                     {/* Estado (condición) rápido para TODOS los productos: cómo se encuentra. */}
                     <View style={{ marginTop: spacing.sm }}>
@@ -962,6 +1181,38 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               {parseNum(initStock) > 0 ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Valor inicial: {usd(parseNum(initStock) * (initCostCur === 'USD' ? parseNum(initCost) : usdFromBs(parseNum(initCost), rate || 0)))}</Text> : null}
             </Card>
             )}
+
+            {/* 📸 Foto del Repuesto / Material en el Formulario */}
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Foto del producto / repuesto (opcional)</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                Se verá en la lista de inventario. Si se hizo una compra con foto, se asocia aquí automáticamente.
+              </Text>
+              {itemPhoto ? (
+                <View style={{ alignItems: 'center', marginBottom: spacing.sm }}>
+                  <Image source={{ uri: itemPhoto }} style={{ width: 140, height: 100, borderRadius: radius.md }} resizeMode="cover" />
+                  <TouchableOpacity onPress={() => setItemPhoto(null)} style={{ marginTop: 4 }}>
+                    <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑️ Quitar foto</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <TouchableOpacity
+                  disabled={subiendoItemPhoto}
+                  onPress={tomarFotoForm}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>📷 Tomar foto</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={subiendoItemPhoto}
+                  onPress={elegirFotoForm}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🖼️ Galería / Archivo</Text>
+                </TouchableOpacity>
+              </View>
+            </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity onPress={() => { setOpen(false); setEditingId(null); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : (editingId ? 'Guardar cambios' : 'Guardar')}</Text></TouchableOpacity>
@@ -1058,6 +1309,31 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
           </ScrollView>
         </Screen>
       </Modal>
+      {/* ── MODAL VISOR DE FOTO DE PRODUCTO ── */}
+      {fotoVisor ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setFotoVisor(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+            <View style={{ width: '100%', maxWidth: 520, backgroundColor: colors.background, borderRadius: radius.lg, overflow: 'hidden' }}>
+              <View style={{ padding: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface }}>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: colors.text }} numberOfLines={1}>
+                  📸 {fotoVisor.title}
+                </Text>
+                <TouchableOpacity onPress={() => setFotoVisor(null)} style={{ padding: 4 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '900', color: colors.text }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ alignItems: 'center', justifyContent: 'center', padding: spacing.md, backgroundColor: '#000' }}>
+                <Image source={{ uri: fotoVisor.url }} style={{ width: '100%', height: 350 }} resizeMode="contain" />
+              </View>
+              <View style={{ padding: spacing.sm, alignItems: 'center', backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <TouchableOpacity onPress={() => setFotoVisor(null)} style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, backgroundColor: colors.brand, borderRadius: radius.md }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>Cerrar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </Screen>
   );
 }

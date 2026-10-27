@@ -25,6 +25,16 @@ import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFi
 import * as ImagePicker from 'expo-image-picker';
 import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
 import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
+import { CotizacionesModal } from '../components/CotizacionesModal';
+import {
+  CotizacionAlternativa,
+  MonedaCotizacion,
+  MONEDAS_COMUNES,
+  empaquetarCotizacionesEnTexto,
+  extraerCotizacionesDeTexto,
+  formatearMoneda,
+  simboloMoneda,
+} from '../lib/cotizaciones';
 import {
   extraerFactura,
   inyectarFacturaEnObservaciones,
@@ -548,7 +558,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   // Recibir en inventario
   const [recvFor, setRecvFor] = useState<InventoryRequirement | null>(null);
-  const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; unit: string | null; qty: string; price: string; currency: 'USD' | 'VES' }[]>([]);
+  const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; unit: string | null; qty: string; price: string; currency: string }[]>([]);
   const [recvBusy, setRecvBusy] = useState(false);
   // 🧾 Factura al recibir en Almacén (sincronizada con Cuentas por Pagar)
   const [recvFacturaNumero, setRecvFacturaNumero] = useState('');
@@ -556,6 +566,52 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [recvFacturaTipo, setRecvFacturaTipo] = useState<'image' | 'pdf' | null>(null);
   const [recvFacturaNombre, setRecvFacturaNombre] = useState<string | null>(null);
   const [recvSubiendoFactura, setRecvSubiendoFactura] = useState(false);
+
+  // 📋 Modal de Cotizaciones Múltiples y Multi-Moneda
+  const [cotizacionesTarget, setCotizacionesTarget] = useState<InventoryRequirement | null>(null);
+  const [cotizacionesModalOpen, setCotizacionesModalOpen] = useState(false);
+
+  const getReqCotizaciones = (r: InventoryRequirement): CotizacionAlternativa[] => {
+    if (Array.isArray(r.cotizaciones) && r.cotizaciones.length > 0) return r.cotizaciones;
+    return extraerCotizacionesDeTexto(r.observaciones);
+  };
+
+  const abrirCotizaciones = (r: InventoryRequirement) => {
+    setCotizacionesTarget(r);
+    setCotizacionesModalOpen(true);
+  };
+
+  const guardarCotizacionesReq = async (nuevas: CotizacionAlternativa[], ganadora?: CotizacionAlternativa | null) => {
+    if (!cotizacionesTarget) return;
+    const patch: any = {
+      cotizaciones: nuevas,
+      observaciones: empaquetarCotizacionesEnTexto(cotizacionesTarget.observaciones, nuevas),
+    };
+    if (ganadora) {
+      if (ganadora.supplier_id) patch.supplier_id = ganadora.supplier_id;
+      if (cotizacionesTarget.items && cotizacionesTarget.items.length === 1) {
+        const item0 = cotizacionesTarget.items[0];
+        patch.items = [{
+          ...item0,
+          est_price: ganadora.price,
+          currency: ganadora.currency,
+          exchange_rate: ganadora.exchange_rate,
+          supplier_id: ganadora.supplier_id || item0.supplier_id,
+          supplier_name: ganadora.supplier_name || item0.supplier_name,
+        }];
+      }
+    }
+    const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', cotizacionesTarget.id);
+    if (error) {
+      const { error: err2 } = await supabase.from('inventory_requirements').update({
+        observaciones: patch.observaciones,
+        ...(patch.supplier_id ? { supplier_id: patch.supplier_id } : {}),
+        ...(patch.items ? { items: patch.items } : {}),
+      }).eq('id', cotizacionesTarget.id);
+      if (err2) throw err2;
+    }
+    refetch();
+  };
 
   const subirFacturaRecibir = async (origen: 'camara' | 'archivo') => {
     setRecvSubiendoFactura(true);
@@ -979,11 +1035,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
       // Sincronización automática con Cuentas por Pagar si existe una cuenta ligada
       try {
-        if (facturaTarget.order_id || facturaTarget.supplier_id) {
+        if (facturaTarget.id || facturaTarget.supplier_id) {
           const { data: ctas } = await supabase
             .from('cuentas')
             .select('id, nota, factura_url')
-            .or(`order_id.eq.${facturaTarget.order_id || '00000000-0000-0000-0000-000000000000'},supplier_id.eq.${facturaTarget.supplier_id || '00000000-0000-0000-0000-000000000000'}`)
+            .or(`order_id.eq.${facturaTarget.id},supplier_id.eq.${facturaTarget.supplier_id || '00000000-0000-0000-0000-000000000000'}`)
             .limit(1);
           if (ctas && ctas.length > 0) {
             const targetCta = ctas[0];
@@ -1590,13 +1646,19 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     try {
       for (const it of recvRows) {
         let itemId = it.product_id;
+        const lineItem = recvFor.items.find((x) => x.product_id === it.product_id || norm(x.name) === norm(it.name));
+        const linePhoto = lineItem?.image_url || (it as any).image_url || null;
         if (!itemId) { // producto NUEVO: se crea a raíz del requerimiento
           maxN += 1;
           const { data: ins, error } = await supabase.from('inventory_items')
-            .insert({ name: it.name.toUpperCase(), unit: it.unit || null, sku: pad(maxN), category: 'otros', min_stock: 0, machinery_id: null, company_id: null })
+            .insert({ name: it.name.toUpperCase(), unit: it.unit || null, sku: pad(maxN), category: 'otros', min_stock: 0, machinery_id: null, company_id: null, ...(linePhoto ? { image_url: linePhoto } : {}) })
             .select('id').single();
           if (error) throw error;
           itemId = ins.id;
+        } else if (linePhoto) {
+          try {
+            await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
+          } catch {}
         }
         const priceUsd = it.currency === 'USD' ? parseNum(it.price) : usdFromBs(parseNum(it.price), rate || 0);
         const { error: mErr } = await supabase.from('inventory_movements').insert({
@@ -2509,6 +2571,24 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   <TouchableOpacity onPress={() => pdf(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
                   </TouchableOpacity>
+                  {/* Botón de Cotizaciones Múltiples y Multi-Moneda */}
+                  <TouchableOpacity
+                    onPress={() => abrirCotizaciones(r)}
+                    style={{
+                      backgroundColor: '#0EA5E9',
+                      borderRadius: radius.md,
+                      paddingHorizontal: spacing.md,
+                      paddingVertical: spacing.xs,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12 }}>📋</Text>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                      Cotizaciones ({getReqCotizaciones(r).length})
+                    </Text>
+                  </TouchableOpacity>
                   {/* Botón de Expediente Completo Oficial (PDF) */}
                   <TouchableOpacity
                     onPress={() => descargarExpediente(r)}
@@ -2872,9 +2952,30 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     <View style={{ width: 64 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text><TextInput value={x.qty} onChangeText={(t) => upd(x.key, 'qty', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'center' }]} /></View>
                     <View style={{ width: 70 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Unidad</Text><TextInput value={x.unit} onChangeText={(t) => upd(x.key, 'unit', t.toUpperCase())} placeholder="UND" placeholderTextColor={colors.muted} style={inp} /></View>
                     <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Precio est.</Text><TextInput value={x.price} onChangeText={(t) => upd(x.key, 'price', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'right' }]} /></View>
-                    <TouchableOpacity onPress={() => upd(x.key, 'currency', x.currency === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{x.currency === 'USD' ? '$' : 'Bs'}</Text>
-                    </TouchableOpacity>
+                    {/* Selector Multi-Moneda: USD, VES, EUR, COP */}
+                    <View style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}>
+                      {['USD', 'VES', 'EUR', 'COP'].map((curr) => {
+                        const sel = x.currency === curr;
+                        return (
+                          <TouchableOpacity
+                            key={curr}
+                            onPress={() => upd(x.key, 'currency', curr)}
+                            style={{
+                              paddingHorizontal: 7,
+                              paddingVertical: 8,
+                              borderRadius: radius.sm,
+                              backgroundColor: sel ? colors.brand : colors.surfaceAlt,
+                              borderWidth: 1,
+                              borderColor: sel ? colors.brand : colors.border,
+                            }}
+                          >
+                            <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11 }}>
+                              {simboloMoneda(curr)}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
                   </View>
                   {parseNum(x.price) > 0 && rate ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'right' }}>≈ {otra} c/u</Text> : null}
                   {/* Imagen de referencia del producto: sale en el PDF junto a su descripción. */}
@@ -3920,6 +4021,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           </ScrollView>
         </Screen>
       </Modal>
+
+      {/* ── Modal de Cotizaciones Múltiples y Multi-Moneda ── */}
+      <CotizacionesModal
+        visible={cotizacionesModalOpen}
+        onClose={() => { setCotizacionesModalOpen(false); setCotizacionesTarget(null); }}
+        requirementCode={cotizacionesTarget?.code}
+        cotizaciones={cotizacionesTarget ? getReqCotizaciones(cotizacionesTarget) : []}
+        suppliers={suppliers}
+        rateBcv={rate || 0}
+        canEdit={canWrite}
+        onSaveCotizaciones={guardarCotizacionesReq}
+      />
     </Screen>
   );
 }

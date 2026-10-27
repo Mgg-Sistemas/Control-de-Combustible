@@ -707,7 +707,7 @@ export function ReporteConsolidadoCard() {
       {/* ✏️ Quitar o cambiar el título del documento */}
       <View style={{ marginTop: spacing.xs, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
         <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>✏️ TÍTULO DEL DOCUMENTO</Text>
-        <Toggle on={op.sinTitulo} label="🚫 Ocultar título (sin título en el encabezado)" onPress={() => setOp((p) => ({ ...p, sinTitulo: !p.sinTitulo }))} />
+        <Toggle on={!!op.sinTitulo} label="🚫 Ocultar título (sin título en el encabezado)" onPress={() => setOp((p) => ({ ...p, sinTitulo: !p.sinTitulo }))} />
         {!op.sinTitulo ? (
           <View style={{ marginTop: 4 }}>
             <Text style={{ color: colors.muted, fontSize: 10.5 }}>Título personalizado (vacío = título por defecto):</Text>

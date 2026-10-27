@@ -742,6 +742,8 @@ export interface InventoryItem {
   // producto terminado del stock "general" ya existente. Columna aditiva
   // (supabase/fabricacion_maestros.sql), default 'general'.
   item_kind?: string;
+  image_url?: string | null;  // Foto del producto/repuesto (Storage)
+  photo_url?: string | null;
 }
 
 /** Vista de existencias: producto + stock derivado de los movimientos. */
@@ -861,13 +863,15 @@ export interface RequirementLine {
   unit: string | null;
   qty: number;
   est_price: number;                // precio estimado unitario (en la moneda indicada)
-  currency: 'USD' | 'VES';          // moneda del precio estimado
+  currency: 'USD' | 'VES' | 'EUR' | 'COP' | string; // moneda del precio estimado
+  exchange_rate?: number;           // tasa de conversión a USD si aplica
   note?: string | null;
   image_url?: string | null;        // foto/imagen de referencia del producto (Storage)
   received?: boolean;               // ya se recibió en inventario
   // 🏢 Proveedor asignado individualmente a este artículo (compra consolidada multi-proveedor)
   supplier_id?: string | null;
   supplier_name?: string | null;
+  cotizaciones?: any[] | null;      // ofertas comparativas para este renglón
 }
 
 export type RequirementStatus = 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'aclaratoria_solicitada';
@@ -944,6 +948,7 @@ export interface InventoryRequirement {
   despachado_por?: string | null;
   despachado_at?: string | null;
   despacho_nota?: string | null;
+  cotizaciones?: any[] | null;        // ofertas comparativas multi-moneda y multi-proveedor
 }
 
 export interface MachineryLocation {

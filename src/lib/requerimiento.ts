@@ -5,7 +5,7 @@
 import { pdfDocument } from './pdf';
 import { FIRMA_DATA_URI, FIRMA2_DATA_URI } from './firmaData';
 
-export type ReqPdfItem = { name: string; unit?: string | null; qty: number; est_price: number; currency: 'USD' | 'VES'; isNew?: boolean; note?: string | null; image?: string | null; supplier_name?: string | null };
+export type ReqPdfItem = { name: string; unit?: string | null; qty: number; est_price: number; currency: 'USD' | 'VES' | string; isNew?: boolean; note?: string | null; image?: string | null; supplier_name?: string | null };
 export type ReqPdfData = {
   code?: string | null;
   fecha: string;              // ya formateada (dd/mm/aaaa)
@@ -71,9 +71,9 @@ function firmante(decidedBy?: string | null): { label: string; img: string; flip
 
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const money = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-/** Lleva un precio a US$ usando la tasa (si viene en Bs). */
-const toUsd = (price: number, currency: 'USD' | 'VES', rate: number | null) =>
-  currency === 'USD' ? price : (rate && rate > 0 ? price / rate : 0);
+/** Lleva un precio a US$ usando la tasa (si viene en Bs u otra moneda). */
+const toUsd = (price: number, currency: string, rate: number | null) =>
+  currency === 'VES' || currency === 'BS' ? (rate && rate > 0 ? price / rate : 0) : price;
 
 const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
       th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}

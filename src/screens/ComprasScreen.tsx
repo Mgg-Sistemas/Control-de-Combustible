@@ -223,7 +223,7 @@ function LineEditor({
                       style={{
                         width: 44,
                         height: 44,
-                        borderRadius: radius.xs,
+                        borderRadius: radius.sm,
                         backgroundColor: colors.surfaceAlt,
                         borderWidth: 1,
                         borderColor: colors.brand,
@@ -1160,6 +1160,28 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       return toast.error(error.message);
     }
     const editado = !!editingId;
+
+    // 📸 Sincronización de foto al inventario (inventory_items):
+    // Si algún renglón o la compra trae foto, se actualiza el producto en el catálogo de inventario.
+    try {
+      for (const line of clean) {
+        const itemFoto = line.image_url || fotoDefinitiva?.url || null;
+        if (!itemFoto) continue;
+        const nombreItem = line.description.trim().toUpperCase();
+        const { data: foundItems } = await supabase
+          .from('inventory_items')
+          .select('id, image_url')
+          .ilike('name', nombreItem)
+          .limit(1);
+        if (foundItems && foundItems.length > 0) {
+          const itId = foundItems[0].id;
+          await supabase.from('inventory_items').update({ image_url: itemFoto }).eq('id', itId);
+        }
+      }
+    } catch (fotoErr) {
+      console.warn('[compras] Sincronización opcional de foto a inventory_items:', fotoErr);
+    }
+
     resetForm();
     refetch();
     toast.success(editado
@@ -1219,7 +1241,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
                         <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           {l.image_url ? (
                             <TouchableOpacity onPress={() => setPreviewFoto({ url: l.image_url!, title: `${l.description} · ${c.code || 'Compra'}` })}>
-                              <Image source={{ uri: l.image_url }} style={{ width: 32, height: 32, borderRadius: radius.xs, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }} resizeMode="cover" />
+                              <Image source={{ uri: l.image_url }} style={{ width: 32, height: 32, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }} resizeMode="cover" />
                             </TouchableOpacity>
                           ) : null}
                           <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
@@ -1541,12 +1563,17 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
         const name = (line.description || '').trim();
         if (!name || !(Number(line.qty) > 0)) continue;
         let itemId = line.item_id || findId(name) || createdCache[norm(name)];
+        const linePhoto = (line as any).image_url || null;
         if (!itemId) {
           const { data: ins, error } = await supabase.from('inventory_items')
-            .insert({ name: name.toUpperCase(), category: o.category ?? null, unit: line.unit ?? null, company_id: o.company_id ?? null })
+            .insert({ name: name.toUpperCase(), category: o.category ?? null, unit: line.unit ?? null, company_id: o.company_id ?? null, ...(linePhoto ? { image_url: linePhoto } : {}) })
             .select('id').single();
           if (error) throw error;
           itemId = ins.id; createdCache[norm(name)] = itemId;
+        } else if (linePhoto) {
+          try {
+            await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
+          } catch {}
         }
         const { error: mErr } = await supabase.from('inventory_movements').insert({
           item_id: itemId, kind: 'entrada', qty: Number(line.qty) || 0, unit_cost: Number(line.price) || 0,
