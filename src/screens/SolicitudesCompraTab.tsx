@@ -1211,7 +1211,8 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     }}
                   >
                     <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }} numberOfLines={1}>
-                      {est.icon} {est.label}
+                      {/* La etiqueta de `calcularEstadoRequerimiento` ya trae su icono: no se repite. */}
+                      {est.label.startsWith(est.icon) ? est.label : `${est.icon} ${est.label}`}
                     </Text>
                   </View>
 
