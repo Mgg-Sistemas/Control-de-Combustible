@@ -3825,7 +3825,7 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   una tabla nueva, aparte de la jornada, al iniciar y al cerrar. Si eso falla, la jornada se guarda
   igual: nunca bloquea ni retrasa el cierre.
 - La base marca cada lectura como válida o inválida (final menor que inicial, retroceso respecto a
-  la última válida, salto mayor a 23 horas). **Marca, no rechaza**: el inspector no ve ningún
+  la última válida, salto mayor a 24 horas). **Marca, no rechaza**: el inspector no ve ningún
   error nuevo.
 - **Control de Maquinaria** muestra, debajo de las horas de cada día, `⚙️ N h` con lo que dice el
   horómetro de trabajo, en rojo con ⚠️ si es inválida. Solo aparece cuando la semana tiene alguna
@@ -3834,7 +3834,7 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   horas de horómetro, diferencia y estado (cuadra, horómetro mayor, jornada mayor, sin lectura,
   inválida), con una lista de **máquinas listas para encender** (5 días seguidos cuadrando o con
   menos de 3 horas de diferencia). Desde el 27/09/2026 la columna Estado ya **no dice «Inválida»
-  a secas: dice la razón real** que anotó la base — «Salto mayor a 23 h», «Menor que la última
+  a secas: dice la razón real** que anotó la base — «Salto mayor a 24 h», «Menor que la última
   lectura válida», «Final menor que inicial» — y una lectura incompleta dice **qué le falta**
   («Incompleta: falta el final», el caso típico de un número borrado) en vez del genérico «Sin
   lectura». Mismos filtros de empresa, clasificación y máquina que Jornada.
@@ -4323,7 +4323,7 @@ máquinas que tienen alguna lectura (o ajuste) en el rango.
 - Un día **sin lectura** vale **0 h** y no es una alerta (no todas las máquinas trabajan todos los
   días). Acá **no** se cae a las horas de la jornada: para ver «hubo jornada pero no hay lectura»
   está el reporte ⚙️ Horómetro vs jornada.
-- Una lectura **inválida** (la base la marcó: salto mayor a 23 h, final menor que inicial…) deja
+- Una lectura **inválida** (la base la marcó: salto mayor a 24 h, final menor que inicial…) deja
   el **día en 0 h, con alerta**, hasta que se corrija.
 - Un turno **incompleto** (inicial sin final) vale 0 h con alerta; el otro turno, si está completo,
   sí cuenta.

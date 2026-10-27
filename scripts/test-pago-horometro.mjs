@@ -230,7 +230,7 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   ok('sin motivo se rechaza', /motivo/.test(P.validarAjusteHorometro({ inicial: 1, final: 2, motivo: ' ' })));
   ok('sin los dos números se rechaza', /inicial y el final/.test(P.validarAjusteHorometro({ inicial: '', final: 2, motivo: 'x' })));
   ok('final menor que inicial se rechaza', /no puede ser menor/.test(P.validarAjusteHorometro({ inicial: 10, final: 2, motivo: 'x' })));
-  ok('más de 23 h en un turno se rechaza', /23 horas/.test(P.validarAjusteHorometro({ inicial: 0, final: 30, motivo: 'x' })));
+  ok('más de 24 h en un turno se rechaza', /24 horas/.test(P.validarAjusteHorometro({ inicial: 0, final: 30, motivo: 'x' })));
   // El modal de los dos destinos, por su código.
   const modal = sinComentarios(leer('src/components/HorometroAjusteModal.tsx'));
   ok('⭐ el modal ofrece los DOS destinos', /Solo para Control de horómetros/.test(modal) && /Cambiar la lectura del inspector/.test(modal));

@@ -172,7 +172,7 @@ export function validarAjusteHorometro(a: { inicial: unknown; final: unknown; mo
   if (!Number.isFinite(i) || i < 0) return 'El horómetro inicial no es un número válido (0 o más).';
   if (!Number.isFinite(f) || f < 0) return 'El horómetro final no es un número válido (0 o más).';
   if (f < i) return `El final (${f}) no puede ser menor al inicial (${i}).`;
-  if (f - i > 23) return 'Ese ajuste da más de 23 horas en un turno: revisa los números.';
+  if (f - i > 24) return 'Ese ajuste da más de 24 horas en un turno: revisa los números.';
   return null;
 }
 
@@ -450,7 +450,7 @@ export function validarCambioHorometro(c: {
   }
   if (c.nuevaFinal != null) {
     if (num(c.nuevaFinal) < num(c.nuevaInicial)) return 'El final del aparato nuevo no puede ser menor que su inicial.';
-    if (num(c.nuevaFinal) - num(c.nuevaInicial) > 23) return 'Entre inicial y final del nuevo hay más de 23 h: la base lo marcaría inválido. Revisa los números.';
+    if (num(c.nuevaFinal) - num(c.nuevaInicial) > 24) return 'Entre inicial y final del nuevo hay más de 24 h: la base lo marcaría inválido. Revisa los números.';
   }
   if (!Number.isFinite(num(c.horasAjuste)) || Math.abs(num(c.horasAjuste)) > 24) {
     return 'Las horas a reconocer no pueden pasar de 24 (en más o en menos).';
