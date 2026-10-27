@@ -284,6 +284,8 @@ export type OpcionesConsolidado = {
   tituloDoc?: string;
   /** 🚫 Sin título en el encabezado del documento. Nace apagada. */
   sinTitulo?: boolean;
+  /** ⬛ INCLUIR MÁQUINAS RETIRADAS (desactivado por defecto). Permite incorporar al consolidado las máquinas retiradas con su información registrada aunque tengan montos en $0. */
+  incluirRetiradas?: boolean;
 };
 
 export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
@@ -322,6 +324,7 @@ export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
   rellenoAutomaticoDia: false,
   sinPagos: false,
   sinTitulo: false,
+  incluirRetiradas: false,
 };
 
 export const usd = (n: number) => `$${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -590,6 +593,7 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
   const idxF = indiceFrentesConsolidado(filas, null, op);
   const frentes = new Set((op.soloFrentes ?? []).map((e) => idxF.clave(e)).filter(Boolean));
   const visibles = fuentesVisibles(op);
+  const permitirRetiradas = Boolean(op.incluirRetiradas) || estados.has('retirada');
   return (filas ?? [])
     .filter((f) => marcadas.size === 0 || marcadas.has(f.id))
     .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
@@ -597,10 +601,14 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
     .filter((f) => frentes.size === 0 || frentes.has(idxF.clave(frenteDe(f))))
     .filter((f) => encargados.size === 0 || encargados.has(encargadoDe(f).toLowerCase()))
     .filter((f) => estados.size === 0 || estados.has(String(f.estado ?? 'Operativa').trim().toLowerCase()))
-    .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0)
-      // 🕐 El camión pasado a jornada SIN jornada en el rango queda en $0, pero
-      //    NO desaparece: el papel dice que se eligió así y cuánto se descartó.
-      || (f.descartadoPorJornada != null && Object.values(f.descartadoPorJornada).some((v) => (v ?? 0) !== 0)))
+    .filter((f) => {
+      const tieneMontos = visibles.some((k) => (f.montos[k] ?? 0) !== 0);
+      const descartado = f.descartadoPorJornada != null && Object.values(f.descartadoPorJornada).some((v) => (v ?? 0) !== 0);
+      if (tieneMontos || descartado) return true;
+      // ⬛ Si está permitido incluir máquinas retiradas y la fila es Retirada, se conserva aunque tenga $0:
+      if (permitirRetiradas && String(f.estado ?? '').toLowerCase() === 'retirada') return true;
+      return false;
+    })
     .slice()
     // ⭐ ORDEN ALFABÉTICO por máquina (20-oct-2026, a pedido): el listado va A→Z
     //    por código esté agrupado como esté; los bloques ordenan aparte.
@@ -1513,7 +1521,9 @@ export function cuerpoConsolidado(d: {
     const celdas = colsP.map((c) => `<td class="${clsCol(c)}">${celdaColumna(c, f.montos, f.cant, conCant, false, sinPagos)}</td>`).join('');
     const warn = solapeIds.has(f.id) && op.solapes && !sinPagos;
     const totVal = sinPagos ? cantTotalFila(f, op) : usd(totalFila(f, op));
-    return `<tr><td>${warn ? '⚠️ ' : ''}${esc(f.code)}</td>${op.sinPlaca ? '' : `<td>${esc(f.placa || '—')}</td>`}${op.sinMarcaModelo ? '' : `<td>${esc([f.marca, f.modelo].filter(Boolean).join(' ') || '—')}</td>`}${op.sinEmpresas || op.agruparPor === 'empresa' ? '' : `<td>${esc(f.empresa)}</td>`}${celdas}<td class="r b">${totVal}</td></tr>`;
+    const esRet = String(f.estado ?? '').toLowerCase() === 'retirada';
+    const tagRet = esRet ? ' <span style="color:#6B7280;font-size:9px;font-weight:700">(Retirada)</span>' : '';
+    return `<tr><td>${warn ? '⚠️ ' : ''}${esc(f.code)}${tagRet}</td>${op.sinPlaca ? '' : `<td>${esc(f.placa || '—')}</td>`}${op.sinMarcaModelo ? '' : `<td>${esc([f.marca, f.modelo].filter(Boolean).join(' ') || '—')}</td>`}${op.sinEmpresas || op.agruparPor === 'empresa' ? '' : `<td>${esc(f.empresa)}</td>`}${celdas}<td class="r b">${totVal}</td></tr>`;
   };
   const filaTotales = (lista: FilaConsolidada[], etiqueta: string, clase: string) => {
     const cols = 1 + (op.sinPlaca ? 0 : 1) + (op.sinMarcaModelo ? 0 : 1) + (op.sinEmpresas || op.agruparPor === 'empresa' ? 0 : 1);
@@ -1608,6 +1618,7 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   const ests = (op.soloEstados ?? []).map((e) => e.trim()).filter(Boolean);
   if (ests.length === 1) partes.push(`solo ${ests[0].toLowerCase()}`);
   else if (ests.length > 1) partes.push(`solo ${ests.length} estados`);
+  if (op.incluirRetiradas) partes.push('con retiradas');
   if (op.sinPagos) partes.push('solo horas');
   if (op.sinTitulo) partes.push('sin título');
   // 🕐 Camiones con peso pasados a jornada: cambia la PLATA, va al nombre.
