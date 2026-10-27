@@ -108,6 +108,15 @@ const dmyTimeOf = (iso: string) => {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${h}:${m} ${ampm}`;
 };
 
+/** Lo que distingue a una máquina en pantalla: «Placa: X · Serial: Y», o solo lo que tenga.
+ *  Muchas máquinas no tienen placa y sí serial (26-oct-2026: «si no tiene placa, tiene serial»). */
+function placaSerial(m: { plate?: string | null; serial?: string | null }): string {
+  const placa = String(m.plate ?? '').trim();
+  const serial = String(m.serial ?? '').trim();
+  const partes = [placa ? `Placa: ${placa}` : '', serial ? `Serial: ${serial}` : ''].filter(Boolean);
+  return partes.length ? partes.join(' · ') : 'Sin placa ni serial';
+}
+
 export default function SolicitudMaterialScreen() {
   const { colors } = useTheme();
   const { session, fullName, role, moduleLevel } = useAuth();
@@ -649,7 +658,7 @@ export default function SolicitudMaterialScreen() {
         const selMachs = machines.filter((m) => selectedMachineryIds.includes(m.id));
         targetPrimaryMachine = selMachs[0]?.id || null;
         targetLabel = selMachs
-          .map((m) => `${m.code}${m.plate ? ' · Placa: ' + m.plate : ' · Sin placa'}`)
+          .map((m) => `${m.code} · ${placaSerial(m)}`)
           .join(', ');
       } else if (destinoTipo === 'vehiculo') {
         const selVehs = vehicles.filter((v) => selectedVehicleIds.includes(v.id));
@@ -1096,7 +1105,7 @@ export default function SolicitudMaterialScreen() {
                             }}
                           >
                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11.5 }}>
-                              🚜 {m.code} · Placa: {m.plate || 'Sin placa'}
+                              🚜 {m.code} · {placaSerial(m)}
                             </Text>
                             <TouchableOpacity
                               onPress={() => toggleMachinery(m.id)}
@@ -1158,7 +1167,7 @@ export default function SolicitudMaterialScreen() {
                               fontSize: 12,
                             }}
                           >
-                            {sel ? '✓' : '＋'} 🚜 {m.code} · Placa: {m.plate || 'Sin placa'}
+                            {sel ? '✓' : '＋'} 🚜 {m.code} · {placaSerial(m)}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -1860,7 +1869,7 @@ export default function SolicitudMaterialScreen() {
                         ? selectedMachineryIds.length > 0
                           ? `${selectedMachineryIds.length} maquinaria(s): ${machines
                               .filter((m) => selectedMachineryIds.includes(m.id))
-                              .map((m) => `🚜 ${m.code} [Placa: ${m.plate || 'Sin placa'}]`)
+                              .map((m) => `🚜 ${m.code} [${placaSerial(m)}]`)
                               .join(', ')}`
                           : '⚠️ Ninguna seleccionada'
                         : destinoTipo === 'vehiculo'
@@ -2200,8 +2209,8 @@ export default function SolicitudMaterialScreen() {
                     {mach ? (
                       <Text style={{ color: colors.text, fontSize: 12 }}>
                         🚜 <Text style={{ fontWeight: '700' }}>Destino:</Text>{' '}
-                        <Text style={{ fontWeight: '800' }}>{mach.code}</Text> · Placa:{' '}
-                        <Text style={{ fontWeight: '800' }}>{mach.plate || 'Sin placa'}</Text>
+                        <Text style={{ fontWeight: '800' }}>{mach.code}</Text> ·{' '}
+                        <Text style={{ fontWeight: '800' }}>{placaSerial(mach)}</Text>
                         {mach.tipo ? ` (${mach.tipo})` : ''}
                       </Text>
                     ) : veh ? (

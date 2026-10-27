@@ -3168,6 +3168,11 @@ traslado, Gastos, Movimientos y Dotación**.
 > **El Requerimiento de compras se movió al módulo COMPRAS** (pestaña **"📝 Requerimiento"**). La
 > **recepción del material sigue cargándose al inventario** como siempre.
 
+> **Pedir material / repuesto: cada máquina con su placa y su serial** *(26/10/2026)*. Al elegir
+> la máquina, en la ficha del pedido y en el resumen, la máquina sale como **«CÓDIGO · Placa: … ·
+> Serial: …»**; si no tiene placa sale **el serial**, así se distinguen dos máquinas con el mismo
+> nombre. Solo si no tiene ninguno de los dos dice «Sin placa ni serial».
+
 > **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
 > **"✕ Limpiar"** quita los filtros.
