@@ -36,6 +36,26 @@ const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
 ];
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
 const todayISO = () => caracasParts(new Date()).iso;
+const getDaysAgoISO = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return caracasParts(d).iso;
+};
+const getStartOfMonthISO = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = `${d.getMonth() + 1}`.padStart(2, '0');
+  return `${y}-${m}-01`;
+};
+const getPrevMonthRange = () => {
+  const d = new Date();
+  const firstOfThis = new Date(d.getFullYear(), d.getMonth(), 1);
+  const lastOfPrev = new Date(firstOfThis.getTime() - 86400000);
+  const y = lastOfPrev.getFullYear();
+  const m = `${lastOfPrev.getMonth() + 1}`.padStart(2, '0');
+  const dEnd = `${lastOfPrev.getDate()}`.padStart(2, '0');
+  return { desde: `${y}-${m}-01`, hasta: `${y}-${m}-${dEnd}` };
+};
 const fmtDMY = (iso?: string | null) => { if (!iso) return '—'; const [y, m, d] = String(iso).split('T')[0].split('-'); return y && m && d ? `${d}/${m}/${y}` : String(iso); };
 function fmtDT(iso: string | null): string {
   if (!iso) return '';
@@ -53,7 +73,7 @@ const edificioText = (lat?: number | null, lng?: number | null, referencia?: str
 };
 
 type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; resolved_at: string | null; resolvedByName: string | null; code: string; tipo: string | null; company: string; photo_url: string | null; photos: string[] | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
-type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; machineTipo: string | null; company: string; createdByName: string | null; closedByName: string | null };
+type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; machineTipo: string | null; plate: string | null; serial: string | null; company: string; createdByName: string | null; closedByName: string | null };
 type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; latitude: number | null; longitude: number | null; operational: boolean; last_horometro: number | null; horometro_base: number | null; horometro_maint_pending: boolean };
 // Lectura de horómetro + foto que ingresa el inspector/operador al iniciar/finalizar la jornada
 // (machine_rounds). Se muestra en la pestaña Horómetros junto a las horas acumuladas.
@@ -269,6 +289,14 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   // mostrarlos en la tarjeta de Horómetros ("desde acá muéstrame los inspectores").
   const [asigByMachine, setAsigByMachine] = useState<Record<string, { day?: string; night?: string }>>({});
 
+  // ── Filtros y exportación PDF del HISTORIAL ──────────────────────────────────
+  const [histFechaDesde, setHistFechaDesde] = useState('');
+  const [histFechaHasta, setHistFechaHasta] = useState('');
+  const [histMachineId, setHistMachineId] = useState<string | null>(null);
+  const [histPickerOpen, setHistPickerOpen] = useState(false);
+  const [histPickerQ, setHistPickerQ] = useState('');
+  const [exportingHistPdf, setExportingHistPdf] = useState(false);
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const load = async () => {
@@ -297,7 +325,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     // expedientes de taller (`machinery_repairs`), no averías resueltas.
     const [mrRaw, rpRaw, { data: mac, error: eMac }, { data: profs, error: eProf }, { data: par, error: ePar }] = await Promise.all([
       selectAllRows('maintenance_requests', 'id, machinery_id, material, quantity, notes, status, created_at, resolved_at, resolved_by, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))', (q) => q.neq('material', 'MÁQUINA PARADA')),
-      selectAllRows('machinery_repairs', 'id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, created_by, closed_by, machinery:machinery_id(code, tipo, company:company_id(name))'),
+      selectAllRows('machinery_repairs', 'id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, created_by, closed_by, machinery:machinery_id(code, tipo, plate, serial, company:company_id(name))'),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, horometro_maint_pending, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
       // Solo el marcador MÁQUINA PARADA pendiente, para el banner de "paradas viejas
@@ -320,7 +348,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     const nameById = new Map<string, string>();
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
     setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null, resolved_at: r.resolved_at ?? null, resolvedByName: r.resolved_by ? (nameById.get(r.resolved_by) ?? null) : null })));
-    setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', machineTipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', createdByName: r.created_by ? (nameById.get(r.created_by) ?? null) : null, closedByName: r.closed_by ? (nameById.get(r.closed_by) ?? null) : null })));
+    setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', machineTipo: r.machinery?.tipo ?? null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', createdByName: r.created_by ? (nameById.get(r.created_by) ?? null) : null, closedByName: r.closed_by ? (nameById.get(r.closed_by) ?? null) : null })));
     setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null, horometro_maint_pending: m.horometro_maint_pending === true })));
     // 🧾 ¿cuáles de estas averías ya tienen hoja de servicio? Va DESPUÉS de pintar la
     // lista y solo con las PENDIENTES: son las únicas que muestran el aviso, y los ids
@@ -863,9 +891,45 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   // TODAS las reparaciones a propósito — una máquina que ya salió por una avería
   // correctiva no se puede mandar además a mantenimiento preventivo, o quedarían
   // dos expedientes abiertos para la misma salida.
+  const matchHistorialDates = (fechaA?: string | null, fechaB?: string | null) => {
+    const f1 = (fechaA || '').slice(0, 10);
+    const f2 = (fechaB || '').slice(0, 10);
+    const fStart = f1 && f2 ? (f1 < f2 ? f1 : f2) : (f1 || f2);
+    const fEnd = f1 && f2 ? (f1 > f2 ? f1 : f2) : (f2 || f1);
+    if (!fStart && !fEnd) return true;
+    if (histFechaDesde && fEnd && fEnd < histFechaDesde) return false;
+    if (histFechaHasta && fStart && fStart > histFechaHasta) return false;
+    return true;
+  };
+
+  const selectedHistMachine = useMemo(() => {
+    if (!histMachineId) return null;
+    return machById.get(histMachineId) ?? machines.find((m) => m.id === histMachineId) ?? null;
+  }, [histMachineId, machById, machines]);
+
+  const histPickerList = useMemo(() => {
+    const q = norm(histPickerQ.trim());
+    return machines.filter((m) => {
+      if (!q) return true;
+      return norm(m.code).includes(q) ||
+        norm(m.company).includes(q) ||
+        (m.plate && norm(m.plate).includes(q)) ||
+        (m.serial && norm(m.serial).includes(q)) ||
+        (m.tipo && norm(m.tipo).includes(q));
+    });
+  }, [machines, histPickerQ]);
+
   const repsSeccion = useMemo(() => repairs.filter((r) => esPreventiva(r) !== esServicio), [repairs, esServicio]);
   const enReparacion = useMemo(() => repsSeccion.filter((r) => r.status === 'en_reparacion' && matchesRep(r)), [repsSeccion, nq]);
-  const historial = useMemo(() => repsSeccion.filter((r) => r.status === 'operativa' && matchesRep(r)), [repsSeccion, nq]);
+  const historial = useMemo(
+    () => repsSeccion.filter((r) => {
+      if (r.status !== 'operativa') return false;
+      if (histMachineId && r.machinery_id !== histMachineId) return false;
+      if (!matchHistorialDates(r.out_at, r.back_at)) return false;
+      return matchesRep(r);
+    }),
+    [repsSeccion, nq, histMachineId, histFechaDesde, histFechaHasta],
+  );
   // AVERÍAS RESUELTAS — solo en Servicio (Mantenimiento no tiene pestaña de averías).
   // Sin esto, marcar una avería como REALIZADO la hacía desaparecer del módulo por
   // completo: salía de "Averías" (que solo lista pendientes) y el Historial únicamente
@@ -874,27 +938,229 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   // no me quedó ningún registro en el historial".
   const averiasResueltas = useMemo(
     () => (!esServicio ? [] : reqs
-      .filter((r) => r.status === 'realizado' && matchesQ(r.code, r.company, r.tipo, matLabel(r.material), r.notes, r.plate, r.serial, r.requestedByName, r.resolvedByName))
+      .filter((r) => {
+        if (r.status !== 'realizado') return false;
+        if (histMachineId && r.machinery_id !== histMachineId) return false;
+        if (!matchHistorialDates(r.created_at, r.resolved_at)) return false;
+        return matchesQ(r.code, r.company, r.tipo, matLabel(r.material), r.notes, r.plate, r.serial, r.requestedByName, r.resolvedByName);
+      })
       .sort((a, b) => String(b.resolved_at ?? b.created_at).localeCompare(String(a.resolved_at ?? a.created_at)))),
-    [reqs, nq, esServicio],
+    [reqs, nq, esServicio, histMachineId, histFechaDesde, histFechaHasta],
   );
 
-  const pendientes = reqs.filter((r) => r.status === 'pendiente').length;
-  const enRepCount = repsSeccion.filter((r) => r.status === 'en_reparacion').length;
+  const exportHistorialPdf = async () => {
+    const totalItems = averiasResueltas.length + historial.length;
+    if (totalItems === 0) {
+      toast.error('No hay registros en el historial para los filtros seleccionados.');
+      return;
+    }
+    setExportingHistPdf(true);
+    try {
+      const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // Título de la sección (encabezado, pantalla "Sin acceso" y menús).
-  const titulo = esServicio ? '🔧 Servicio de Maquinaria' : '🧰 Mantenimiento de Maquinaria';
+      const machSet = new Set<string>();
+      const compSet = new Set<string>();
 
-  // Cada sección tiene su propio módulo de permisos. 'servicio' hereda de
-  // 'mantenimiento' mientras un admin no le ponga nivel propio (MODULE_HEREDA_DE),
-  // así que quien entraba antes sigue entrando a las dos.
-  if (!canSee(esServicio ? 'servicio' : 'mantenimiento')) {
-    return (<Screen><SectionTitle>{titulo}</SectionTitle><EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo." /></Screen>);
-  }
+      averiasResueltas.forEach((r) => {
+        if (r.machinery_id) machSet.add(r.machinery_id);
+        if (r.company) compSet.add(r.company);
+      });
+      historial.forEach((r) => {
+        if (r.machinery_id) machSet.add(r.machinery_id);
+        if (r.company) compSet.add(r.company);
+      });
 
-  const TIPO_BADGE = (t: string) => (t === 'preventivo' ? { label: '🧰 Preventivo', tone: 'muted' as const } : { label: '🔧 Correctivo', tone: 'warning' as const });
+      let rangoLabel = 'Histórico completo';
+      if (histFechaDesde && histFechaHasta) {
+        rangoLabel = `${fmtDMY(histFechaDesde)} al ${fmtDMY(histFechaHasta)}`;
+      } else if (histFechaDesde) {
+        rangoLabel = `Desde el ${fmtDMY(histFechaDesde)}`;
+      } else if (histFechaHasta) {
+        rangoLabel = `Hasta el ${fmtDMY(histFechaHasta)}`;
+      }
 
-  const pickerList = machines.filter((m) => { const q = norm(pickerQ.trim()); return !q || norm(m.code).includes(q) || norm(m.company).includes(q); });
+      const docTitle = esServicio ? 'HISTORIAL DE SERVICIO Y AVERÍAS' : 'HISTORIAL DE MANTENIMIENTO';
+      const docSubtitle = selectedHistMachine
+        ? `Equipo: ${selectedHistMachine.code} · Placa: ${selectedHistMachine.plate || 'Sin placa'} · ${rangoLabel}`
+        : `${machSet.size} equipos · ${compSet.size} empresas · ${rangoLabel}`;
+
+      const rowsAverias = averiasResueltas.map((r, i) => {
+        const mat = matLabel(r.material);
+        const fRep = fmtDMY(r.created_at);
+        const fRes = fmtDMY(r.resolved_at);
+        return `<tr>
+          <td style="text-align:center;color:#6B7280">${i + 1}</td>
+          <td><b>${esc(r.code)}</b>${r.tipo ? `<br/><span style="color:#6B7280;font-size:9px">🏷️ ${esc(r.tipo)}</span>` : ''}</td>
+          <td><b style="color:#1E3A5F">🔖 ${esc(r.plate || 'Sin placa')}</b>${r.serial ? `<br/><span style="color:#6B7280;font-size:9px"># ${esc(r.serial)}</span>` : ''}</td>
+          <td>${esc(r.company)}</td>
+          <td><span class="tag tag-tipo">${MAT_ICON[r.material] || '🔧'} ${esc(mat)}</span>${r.quantity != null ? ` <span style="font-weight:700">(${r.quantity})</span>` : ''}</td>
+          <td>${esc(r.notes || '—')}</td>
+          <td>${fRep}</td>
+          <td><span class="tag tag-ok">✓ ${fRes}</span></td>
+          <td style="font-size:9.5px">${esc(r.requestedByName || '—')}</td>
+          <td style="font-size:9.5px;color:#03543F;font-weight:700">${esc(r.resolvedByName || '—')}</td>
+        </tr>`;
+      }).join('');
+
+      const rowsTaller = historial.map((r, i) => {
+        const mac = machById.get(r.machinery_id);
+        const plate = r.plate || mac?.plate || 'Sin placa';
+        const serial = r.serial || mac?.serial || null;
+        const fOut = fmtDMY(r.out_at);
+        const fBack = fmtDMY(r.back_at);
+        return `<tr>
+          <td style="text-align:center;color:#6B7280">${i + 1}</td>
+          <td><b>${esc(r.code)}</b>${r.machineTipo ? `<br/><span style="color:#6B7280;font-size:9px">🏷️ ${esc(r.machineTipo)}</span>` : ''}</td>
+          <td><b style="color:#1E3A5F">🔖 ${esc(plate)}</b>${serial ? `<br/><span style="color:#6B7280;font-size:9px"># ${esc(serial)}</span>` : ''}</td>
+          <td>${esc(r.company)}</td>
+          <td><span class="tag ${r.tipo === 'preventivo' ? 'tag-tipo' : 'tag-warn'}">${r.tipo === 'preventivo' ? '🧰 Preventivo' : '🔧 Correctivo'}</span></td>
+          <td>${esc(r.estimated_note || '—')}</td>
+          <td>${esc(r.work_done || '—')}</td>
+          <td>${fOut}</td>
+          <td><span class="tag tag-ok">✓ ${fBack}</span></td>
+          <td style="font-size:9.5px">${esc(r.closedByName || r.createdByName || '—')}</td>
+        </tr>`;
+      }).join('');
+
+      const filterBox = `
+        <div class="filter-summary">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div>
+              <b>Filtros aplicados:</b> ${selectedHistMachine
+                ? `Maquinaria puntual: <span style="color:#1E3A5F;font-weight:800">${esc(selectedHistMachine.code)}</span> (Placa: <span style="font-weight:800">${esc(selectedHistMachine.plate || 'Sin placa')}</span> · ${esc(selectedHistMachine.company)})`
+                : `Maquinaria: <span style="font-weight:700">Todas las maquinarias (${machSet.size} registradas)</span>`
+              } &nbsp;|&nbsp; <b>Período:</b> ${rangoLabel}
+            </div>
+            <div>
+              <b>Total eventos:</b> <span style="font-weight:800;color:#1E3A5F">${totalItems}</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const kpisHtml = `
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-title">Total Resueltos</div>
+            <div class="kpi-val">${totalItems}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Averías Resueltas</div>
+            <div class="kpi-val">${averiasResueltas.length}</div>
+          </div>
+          ${historial.length > 0 ? `
+          <div class="kpi-card">
+            <div class="kpi-title">Retorno Taller</div>
+            <div class="kpi-val">${historial.length}</div>
+          </div>` : ''}
+          <div class="kpi-card">
+            <div class="kpi-title">Equipos</div>
+            <div class="kpi-val">${machSet.size}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Empresas</div>
+            <div class="kpi-val">${compSet.size}</div>
+          </div>
+        </div>
+      `;
+
+      const tablaAveriasHtml = averiasResueltas.length > 0 ? `
+        <div class="sec-title">✅ Averías Resueltas (${averiasResueltas.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:24px;text-align:center">#</th>
+              <th>Equipo</th>
+              <th>Placa / Serial</th>
+              <th>Empresa</th>
+              <th>Material</th>
+              <th>Falla / Observación</th>
+              <th>F. Reporte</th>
+              <th>F. Resuelta</th>
+              <th>Reportó</th>
+              <th>Resolvió</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsAverias}
+          </tbody>
+        </table>
+      ` : '';
+
+      const tablaTallerHtml = historial.length > 0 ? `
+        <div class="sec-title">🧰 Expedientes de Taller Cerrados / Retorno Operativo (${historial.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:24px;text-align:center">#</th>
+              <th>Equipo</th>
+              <th>Placa / Serial</th>
+              <th>Empresa</th>
+              <th>Tipo</th>
+              <th>Diagnóstico / Motivo</th>
+              <th>Trabajo Realizado</th>
+              <th>F. Salida</th>
+              <th>F. Retorno</th>
+              <th>Reactivada Por</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsTaller}
+          </tbody>
+        </table>
+      ` : '';
+
+      const body = `
+        ${filterBox}
+        ${kpisHtml}
+        ${tablaAveriasHtml}
+        ${tablaTallerHtml}
+        <div style="margin-top:14px;font-size:10px;color:#6B7280;text-align:right">
+          Reporte generado automáticamente · ${totalItems} registro(s) resueltos en total
+        </div>
+      `;
+
+      const extraCss = `
+        table{width:100%;border-collapse:collapse;margin-top:6px;margin-bottom:12px;font-size:10px}
+        th,td{border:1px solid #D1D5DB;padding:4px 6px;text-align:left;vertical-align:top}
+        th{background:#1E3A5F;color:#FFFFFF;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:0.3px}
+        tr:nth-child(even) td{background:#F9FAFB}
+        .tag{display:inline-block;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:700}
+        .tag-ok{background:#DEF7EC;color:#03543F}
+        .tag-warn{background:#FEF08A;color:#713F12}
+        .tag-tipo{background:#E5E7EB;color:#374151}
+        .filter-summary{background:#F3F4F6;border:1px solid #E5E7EB;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#374151}
+        .filter-summary b{color:#1E3A5F}
+        .kpi-row{display:flex;gap:8px;margin-bottom:10px}
+        .kpi-card{flex:1;border:1px solid #E5E7EB;border-radius:6px;padding:6px 10px;background:#FAFAFA}
+        .kpi-title{font-size:9px;color:#6B7280;font-weight:700;text-transform:uppercase}
+        .kpi-val{font-size:16px;font-weight:900;color:#1E3A5F;margin-top:2px}
+        .sec-title{font-size:11px;font-weight:800;color:#1E3A5F;margin-top:12px;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.4px;border-bottom:2px solid #1E3A5F;padding-bottom:3px}
+      `;
+
+      const html = pdfDocument({
+        title: docTitle,
+        subtitle: docSubtitle,
+        body,
+        extraCss,
+      });
+
+      const fileSuffix = selectedHistMachine ? selectedHistMachine.code.replace(/[\\/]/g, '-') : 'Flota';
+      const fileRange = (histFechaDesde || histFechaHasta) ? `_${histFechaDesde || 'inicio'}_al_${histFechaHasta || 'hoy'}` : '';
+      const fileName = `Historial_${esServicio ? 'Servicio' : 'Mantenimiento'}_${fileSuffix}${fileRange}`;
+
+      await exportPdf(html, fileName);
+    } catch (err: any) {
+      toast.error(`Error al generar PDF: ${err?.message || err}`);
+    } finally {
+      setExportingHistPdf(false);
+    }
+  };
+
+  const pickerList = machines.filter((m) => {
+    const q = norm(pickerQ.trim());
+    return !q || norm(m.code).includes(q) || norm(m.company).includes(q) || (m.plate && norm(m.plate).includes(q)) || (m.serial && norm(m.serial).includes(q)) || (m.tipo && norm(m.tipo).includes(q));
+  });
 
   return (
     <Screen>
@@ -1183,56 +1449,271 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           ))
         )
       ) : tab === 'historial' ? (
-        historial.length === 0 && averiasResueltas.length === 0 ? (
-          <EmptyState title={esServicio ? 'Sin reparaciones cerradas' : 'Sin mantenimientos cerrados'} subtitle={esServicio ? 'Las reparaciones terminadas y las averías marcadas como realizadas aparecerán aquí.' : 'Los mantenimientos preventivos terminados aparecerán aquí.'} />
-        ) : (
-        <>
-          {/* AVERÍAS RESUELTAS (solo Servicio): las que se marcaron "realizado" sin pasar
-              por el taller. Antes no se veían en ninguna parte — ver `averiasResueltas`. */}
-          {averiasResueltas.length > 0 ? (
+        (() => {
+          const totalHistorial = averiasResueltas.length + historial.length;
+          const hasActiveFilters = !!(histMachineId || histFechaDesde || histFechaHasta);
+
+          return (
             <>
-              <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12, marginBottom: spacing.xs }}>
-                ✅ AVERÍAS RESUELTAS ({averiasResueltas.length})
-              </Text>
-              {averiasResueltas.map((r) => (
-                <Card key={`req-${r.id}`}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{r.code}</Text>
-                    <Badge label={`🔧 ${matLabel(r.material)}`} tone="muted" />
-                  </View>
-                  {r.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.tipo}</Text> : null}
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
-                  {r.notes ? <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>📝 {r.notes}</Text> : null}
-                  <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>
-                    📅 {fmtDMY(r.created_at)} → {fmtDMY(r.resolved_at)} <Text style={{ color: colors.success, fontWeight: '700' }}>· Resuelta</Text>
+              {/* ── BARRA DE FILTROS Y EXPORTACIÓN PDF DEL HISTORIAL ── */}
+              <Card style={{ marginBottom: spacing.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}>
+                <View style={{ marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>
+                    📄 Reporte PDF e Historial {esServicio ? 'de Averías Resueltas' : 'de Mantenimiento'}
                   </Text>
-                  {r.requestedByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Reportada por {r.requestedByName}</Text> : null}
-                  {r.resolvedByName ? <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '700' }}>✅ Resuelta por {r.resolvedByName}</Text> : null}
-                </Card>
-              ))}
+                  <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                    Filtra por maquinaria y rango de fechas para consultar en pantalla o exportar en PDF.
+                  </Text>
+                </View>
+
+                {/* Selector de Maquinaria */}
+                <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 4 }}>
+                  🚜 Maquinaria:
+                </Text>
+                <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={() => { setHistPickerQ(''); setHistPickerOpen(true); }}
+                    style={{
+                      flex: 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      backgroundColor: selectedHistMachine ? colors.surfaceAlt : colors.surface,
+                      borderWidth: 1,
+                      borderColor: selectedHistMachine ? colors.brand : colors.border,
+                      borderRadius: radius.md,
+                      paddingHorizontal: spacing.md,
+                      paddingVertical: spacing.sm,
+                    }}
+                  >
+                    <View style={{ flex: 1, marginRight: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={1}>
+                        {selectedHistMachine
+                          ? `🚜 ${selectedHistMachine.code} · 🔖 Placa: ${selectedHistMachine.plate || 'Sin placa'}`
+                          : '🚜 Todas las maquinarias (Flota completa)'}
+                      </Text>
+                      {selectedHistMachine ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
+                          {selectedHistMachine.tipo ? `🏷️ ${selectedHistMachine.tipo} · ` : ''}🏢 {selectedHistMachine.company}
+                        </Text>
+                      ) : (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          Toca para seleccionar una máquina en específico
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>▾</Text>
+                  </TouchableOpacity>
+                  {selectedHistMachine ? (
+                    <TouchableOpacity
+                      onPress={() => setHistMachineId(null)}
+                      style={{
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.md,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.sm,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕ Ver todas</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {/* Rango de Fechas */}
+                <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+                  📅 Rango de fechas:
+                </Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde:</Text>
+                    <DateField value={histFechaDesde} onChange={setHistFechaDesde} placeholder="Desde (inicio)" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta:</Text>
+                    <DateField value={histFechaHasta} onChange={setHistFechaHasta} placeholder="Hasta (hoy)" />
+                  </View>
+                </View>
+
+                {/* Accesos rápidos de rango */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: spacing.xs }} contentContainerStyle={{ flexDirection: 'row', gap: spacing.xs }}>
+                  <TouchableOpacity
+                    onPress={() => { setHistFechaDesde(''); setHistFechaHasta(''); }}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 10,
+                      borderRadius: radius.pill,
+                      backgroundColor: !histFechaDesde && !histFechaHasta ? colors.brand : colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: !histFechaDesde && !histFechaHasta ? colors.brand : colors.border,
+                    }}
+                  >
+                    <Text style={{ color: !histFechaDesde && !histFechaHasta ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
+                      Todo el histórico
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { const hoy = todayISO(); setHistFechaDesde(hoy); setHistFechaHasta(hoy); }}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 10,
+                      borderRadius: radius.pill,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>Hoy</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { setHistFechaDesde(getDaysAgoISO(7)); setHistFechaHasta(todayISO()); }}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 10,
+                      borderRadius: radius.pill,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>Últimos 7 días</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { setHistFechaDesde(getDaysAgoISO(30)); setHistFechaHasta(todayISO()); }}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 10,
+                      borderRadius: radius.pill,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>Últimos 30 días</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { setHistFechaDesde(getStartOfMonthISO()); setHistFechaHasta(todayISO()); }}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 10,
+                      borderRadius: radius.pill,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>Este mes</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { const p = getPrevMonthRange(); setHistFechaDesde(p.desde); setHistFechaHasta(p.hasta); }}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 10,
+                      borderRadius: radius.pill,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>Mes anterior</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+
+                {/* Botón de Exportar Reporte PDF */}
+                <TouchableOpacity
+                  onPress={exportHistorialPdf}
+                  disabled={exportingHistPdf || totalHistorial === 0}
+                  style={{
+                    backgroundColor: colors.brand,
+                    borderRadius: radius.md,
+                    paddingVertical: spacing.md,
+                    paddingHorizontal: spacing.lg,
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: spacing.sm,
+                    marginTop: spacing.sm,
+                    opacity: (exportingHistPdf || totalHistorial === 0) ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 14 }}>
+                    {exportingHistPdf ? '⏳ Generando documento PDF…' : `📄 DESCARGAR / IMPRIMIR REPORTE PDF (${totalHistorial})`}
+                  </Text>
+                </TouchableOpacity>
+              </Card>
+
+              {totalHistorial === 0 ? (
+                <EmptyState
+                  title={hasActiveFilters ? 'Sin registros para los filtros seleccionados' : (esServicio ? 'Sin reparaciones cerradas' : 'Sin mantenimientos cerrados')}
+                  subtitle={hasActiveFilters ? 'No se encontraron averías o reparaciones que coincidan con la máquina o fechas indicadas. Ajusta los filtros arriba o toca "Todo el histórico".' : (esServicio ? 'Las reparaciones terminadas y las averías marcadas como realizadas aparecerán aquí.' : 'Los mantenimientos preventivos terminados aparecerán aquí.')}
+                />
+              ) : (
+                <>
+                  {/* AVERÍAS RESUELTAS (solo Servicio): las que se marcaron "realizado" sin pasar
+                      por el taller. */}
+                  {averiasResueltas.length > 0 ? (
+                    <>
+                      <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12, marginBottom: spacing.xs }}>
+                        ✅ AVERÍAS RESUELTAS ({averiasResueltas.length})
+                      </Text>
+                      {averiasResueltas.map((r) => (
+                        <Card key={`req-${r.id}`}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{r.code}</Text>
+                            <Badge label={`🔧 ${matLabel(r.material)}`} tone="muted" />
+                          </View>
+                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                            🔖 Placa: <Text style={{ color: colors.text, fontWeight: '700' }}>{r.plate || 'Sin placa'}</Text>
+                            {r.serial ? ` · #️⃣ ${r.serial}` : ''}
+                          </Text>
+                          {r.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.tipo}</Text> : null}
+                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
+                          {r.notes ? <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>📝 {r.notes}</Text> : null}
+                          <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>
+                            📅 {fmtDMY(r.created_at)} → {fmtDMY(r.resolved_at)} <Text style={{ color: colors.success, fontWeight: '700' }}>· Resuelta</Text>
+                          </Text>
+                          {r.requestedByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Reportada por {r.requestedByName}</Text> : null}
+                          {r.resolvedByName ? <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '700' }}>✅ Resuelta por {r.resolvedByName}</Text> : null}
+                        </Card>
+                      ))}
+                    </>
+                  ) : null}
+                  {historial.length > 0 && averiasResueltas.length > 0 ? (
+                    <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12, marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                      🧰 PASARON POR EL TALLER ({historial.length})
+                    </Text>
+                  ) : null}
+                  {historial.map((r) => {
+                    const mac = machById.get(r.machinery_id);
+                    const plate = r.plate || mac?.plate || 'Sin placa';
+                    const serial = r.serial || mac?.serial || null;
+                    return (
+                      <Card key={r.id}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{r.code}</Text>
+                          <Badge {...TIPO_BADGE(r.tipo)} />
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                          🔖 Placa: <Text style={{ color: colors.text, fontWeight: '700' }}>{plate}</Text>
+                          {serial ? ` · #️⃣ ${serial}` : ''}
+                        </Text>
+                        {r.machineTipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.machineTipo}</Text> : null}
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
+                        <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>📅 {fmtDMY(r.out_at)} → {fmtDMY(r.back_at)} <Text style={{ color: colors.success, fontWeight: '700' }}>· Operativa</Text></Text>
+                        {r.createdByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Enviada por {r.createdByName}</Text> : null}
+                        {r.closedByName ? <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '700' }}>✅ Reactivada por {r.closedByName}</Text> : null}
+                        {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🔩 Se cambió: {r.work_done}</Text> : null}
+                      </Card>
+                    );
+                  })}
+                </>
+              )}
             </>
-          ) : null}
-          {historial.length > 0 && averiasResueltas.length > 0 ? (
-            <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12, marginTop: spacing.sm, marginBottom: spacing.xs }}>
-              🧰 PASARON POR EL TALLER ({historial.length})
-            </Text>
-          ) : null}
-          {historial.map((r) => (
-            <Card key={r.id}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{r.code}</Text>
-                <Badge {...TIPO_BADGE(r.tipo)} />
-              </View>
-              {r.machineTipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.machineTipo}</Text> : null}
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
-              <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>📅 {fmtDMY(r.out_at)} → {fmtDMY(r.back_at)} <Text style={{ color: colors.success, fontWeight: '700' }}>· Operativa</Text></Text>
-              {r.createdByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Enviada por {r.createdByName}</Text> : null}
-              {r.closedByName ? <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '700' }}>✅ Reactivada por {r.closedByName}</Text> : null}
-              {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🔩 Se cambió: {r.work_done}</Text> : null}
-            </Card>
-          ))}
-        </>
-        )
+          );
+        })()
       ) : tab === 'horometros' ? (
         // ── ⏱️ HORÓMETROS: horas acumuladas + lo que falta para el mantenimiento ──
         (() => {
@@ -1537,6 +2018,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                         estemos en Servicio (o al revés). Decir "en reparación" aquí sería
                         mentira la mitad de las veces. */}
                     <Text style={{ color: colors.text, fontWeight: '800' }}>{m.code}{inRep ? '  · ya está en el taller' : ''}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 Placa: <Text style={{ color: colors.text, fontWeight: '700' }}>{m.plate || 'Sin placa'}</Text>{m.serial ? ` · #️⃣ ${m.serial}` : ''}</Text>
                     {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {m.tipo}</Text> : null}
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{m.company}{m.operational ? '' : ' · No operativa'}</Text>
                   </TouchableOpacity>
@@ -1930,6 +2412,103 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           {horoPhotoView ? <Image source={{ uri: horoPhotoView }} style={{ width: '100%', height: '80%' }} resizeMode="contain" /> : null}
           <Text style={{ color: '#fff', textAlign: 'center', marginTop: spacing.md, fontWeight: '700' }}>Toca para cerrar</Text>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Modal: Selector de maquinaria para el filtro y reporte del Historial */}
+      <Modal visible={histPickerOpen} transparent animationType="slide" onRequestClose={() => setHistPickerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '85%' }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>
+              🚜 Seleccionar maquinaria
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Filtra el historial y el reporte PDF por un equipo específico
+            </Text>
+
+            <TextInput
+              value={histPickerQ}
+              onChangeText={setHistPickerQ}
+              placeholder="🔎 Buscar por código, placa, empresa, modelo…"
+              placeholderTextColor={colors.muted}
+              style={{ ...input, marginBottom: spacing.sm }}
+            />
+
+            <ScrollView>
+              {/* Opción: Todas las maquinarias */}
+              <TouchableOpacity
+                onPress={() => { setHistMachineId(null); setHistPickerOpen(false); }}
+                style={{
+                  padding: spacing.md,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: !histMachineId ? colors.brand : colors.border,
+                  marginBottom: spacing.xs,
+                  backgroundColor: !histMachineId ? colors.surfaceAlt : colors.surface,
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <View>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>
+                    🚜 Todas las maquinarias (Flota completa)
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    Consultar y exportar el historial de todos los equipos
+                  </Text>
+                </View>
+                {!histMachineId ? (
+                  <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 16 }}>✓</Text>
+                ) : null}
+              </TouchableOpacity>
+
+              {/* Lista de maquinarias */}
+              {histPickerList.map((m) => {
+                const isSelected = histMachineId === m.id;
+                return (
+                  <TouchableOpacity
+                    key={`hist-mach-${m.id}`}
+                    onPress={() => { setHistMachineId(m.id); setHistPickerOpen(false); }}
+                    style={{
+                      padding: spacing.md,
+                      borderRadius: radius.md,
+                      borderWidth: 1,
+                      borderColor: isSelected ? colors.brand : colors.border,
+                      marginBottom: spacing.xs,
+                      backgroundColor: isSelected ? colors.surfaceAlt : colors.surface,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <View style={{ flex: 1, marginRight: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>
+                        {m.code}
+                      </Text>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginTop: 1 }}>
+                        🔖 Placa: <Text style={{ color: colors.text, fontWeight: '700' }}>{m.plate || 'Sin placa'}</Text>
+                        {m.serial ? ` · #️⃣ ${m.serial}` : ''}
+                      </Text>
+                      {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {m.tipo}</Text> : null}
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {m.company}</Text>
+                    </View>
+                    {isSelected ? (
+                      <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 16 }}>✓</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+
+              {histPickerList.length === 0 ? (
+                <EmptyState title="Sin resultados" subtitle="No se encontró ninguna máquina con ese código, placa o empresa." />
+              ) : null}
+            </ScrollView>
+
+            <TouchableOpacity onPress={() => setHistPickerOpen(false)} style={{ marginTop: spacing.sm, padding: spacing.md, alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </Screen>
   );
