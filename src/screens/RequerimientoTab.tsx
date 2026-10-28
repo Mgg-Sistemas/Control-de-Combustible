@@ -609,14 +609,15 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   // Recibir en inventario
   const [recvFor, setRecvFor] = useState<InventoryRequirement | null>(null);
-  const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; unit: string | null; qty: string; price: string; currency: string }[]>([]);
+  const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; unit: string | null; qty: string; price: string; currency: string; note?: string }[]>([]);
   const [recvBusy, setRecvBusy] = useState(false);
-  // 🧾 Factura al recibir en Almacén (sincronizada con Cuentas por Pagar)
+  // 🧾 Factura y Nota al recibir en Almacén (sincronizada con Cuentas por Pagar)
   const [recvFacturaNumero, setRecvFacturaNumero] = useState('');
   const [recvFacturaUrl, setRecvFacturaUrl] = useState<string | null>(null);
   const [recvFacturaTipo, setRecvFacturaTipo] = useState<'image' | 'pdf' | null>(null);
   const [recvFacturaNombre, setRecvFacturaNombre] = useState<string | null>(null);
   const [recvSubiendoFactura, setRecvSubiendoFactura] = useState(false);
+  const [recvNota, setRecvNota] = useState('');
 
   // 📋 Modal de Cotizaciones Múltiples y Multi-Moneda
   const [cotizacionesTarget, setCotizacionesTarget] = useState<InventoryRequirement | null>(null);
@@ -2282,11 +2283,20 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   // Abrir "Recibir": precarga los ítems con su precio estimado (para editarlo al real).
   const abrirRecibir = (r: InventoryRequirement) => {
     setRecvFor(r);
-    setRecvRows(r.items.map((it) => ({ product_id: it.product_id, name: it.name, unit: it.unit, qty: String(it.qty), price: String(it.est_price || 0), currency: it.currency || 'USD' })));
+    setRecvRows(r.items.map((it) => ({
+      product_id: it.product_id,
+      name: it.name,
+      unit: it.unit,
+      qty: String(it.qty),
+      price: String(it.est_price || 0),
+      currency: it.currency || 'USD',
+      note: it.note ?? '',
+    })));
     setRecvFacturaNumero('');
     setRecvFacturaUrl(null);
     setRecvFacturaTipo(null);
     setRecvFacturaNombre(null);
+    setRecvNota('');
   };
 
   const recibir = async () => {
@@ -2298,6 +2308,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     let maxN = 0;
     (skuRows ?? []).forEach((r: any) => { const m = String(r.sku ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; } });
     const pad = (n: number) => 'INV-' + String(n).padStart(4, '0');
+    const notaGenTrim = recvNota.trim();
     try {
       for (const it of recvRows) {
         let itemId = it.product_id;
@@ -2316,17 +2327,28 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           } catch { }
         }
         const priceUsd = it.currency === 'USD' ? parseNum(it.price) : usdFromBs(parseNum(it.price), rate || 0);
+        const notaItemTrim = (it.note || '').trim();
+        const detalleRazon = [
+          `RECIBIDO DE REQUERIMIENTO ${recvFor.code ?? ''}`.trim(),
+          notaItemTrim ? `Nota ítem: ${notaItemTrim}` : '',
+          notaGenTrim ? `Nota recepción: ${notaGenTrim}` : '',
+        ].filter(Boolean).join(' · ');
         const { error: mErr } = await supabase.from('inventory_movements').insert({
           item_id: itemId, kind: 'entrada', qty: parseNum(it.qty), unit_cost: Math.round((priceUsd || 0) * 10000) / 10000,
-          reason: `RECIBIDO DE REQUERIMIENTO ${recvFor.code ?? ''}`.trim(), company_id: null, created_by: uid,
+          reason: detalleRazon, company_id: null, created_by: uid,
         });
         if (mErr) throw mErr;
       }
-      const items2 = recvFor.items.map((it) => ({ ...it, received: true }));
-      const facturaInfo = recvFacturaNumero.trim()
-        ? ` · Factura N° ${recvFacturaNumero.trim()}${recvFacturaUrl ? ' (con soporte adjunto)' : ''}`
-        : '';
-      const obsFinal = `${recvFor.observaciones || ''}${facturaInfo ? `\n[RECEPCIÓN ALMACÉN: ${facturaInfo}]` : ''}`.trim() || null;
+      const items2 = recvFor.items.map((it, idx) => {
+        const rowMatch = recvRows[idx];
+        const nextNote = rowMatch?.note != null && rowMatch.note.trim() ? rowMatch.note.trim() : it.note;
+        return { ...it, note: nextNote, received: true };
+      });
+      const partesRecepcion = [
+        recvFacturaNumero.trim() ? `Factura N° ${recvFacturaNumero.trim()}${recvFacturaUrl ? ' (con soporte adjunto)' : ''}` : '',
+        notaGenTrim ? `Nota: ${notaGenTrim}` : '',
+      ].filter(Boolean).join(' · ');
+      const obsFinal = `${recvFor.observaciones || ''}${partesRecepcion ? `\n[RECEPCIÓN ALMACÉN: ${partesRecepcion}]` : ''}`.trim() || null;
 
       const reqPatch: Record<string, any> = {
         status: 'recibido',
@@ -2353,17 +2375,22 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
           const { data: existCxp } = await supabase
             .from('cuentas')
-            .select('id')
+            .select('id, nota')
             .eq('order_id', recvFor.id)
             .limit(1);
 
           if (existCxp && existCxp.length > 0) {
+            const prevNota = (existCxp[0] as any).nota || '';
+            const nuevaNotaCxp = notaGenTrim
+              ? `${prevNota ? prevNota + ' · ' : ''}Nota recepción almacén: ${notaGenTrim}`
+              : undefined;
             await supabase
               .from('cuentas')
               .update({
                 documento: recvFacturaNumero.trim() || undefined,
                 factura_url: recvFacturaUrl || undefined,
                 monto: totalMontoRecv > 0 ? totalMontoRecv : undefined,
+                ...(nuevaNotaCxp ? { nota: nuevaNotaCxp } : {}),
                 updated_at: nowISO(),
               })
               .eq('id', existCxp[0].id);
@@ -2379,7 +2406,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               moneda: 'USD',
               fecha_emision: nowISO().slice(0, 10),
               estado: 'pendiente',
-              nota: `Factura cargada por Almacén al recibir requerimiento ${recvFor.code}.`,
+              nota: `Factura cargada por Almacén al recibir requerimiento ${recvFor.code}.${notaGenTrim ? ` Nota: ${notaGenTrim}` : ''}`,
               created_by: uid,
             });
           }
@@ -2388,7 +2415,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         }
       }
 
-      setRecvBusy(false); setRecvFor(null); setRecvRows([]);
+      setRecvBusy(false); setRecvFor(null); setRecvRows([]); setRecvNota('');
       refetch();
       toast.success('Recibido en el inventario. Las entradas y la factura quedaron registradas.');
     } catch (e: any) {
@@ -4644,11 +4671,21 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     </TouchableOpacity>
                   </View>
                   {parseNum(it.price) > 0 && rate ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'right' }}>≈ {otra} c/u</Text> : null}
+                  <View style={{ marginTop: 6 }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>📝 Nota del producto (opcional)</Text>
+                    <TextInput
+                      value={it.note || ''}
+                      onChangeText={(t) => setRecvRows((p) => p.map((r, i) => i === idx ? { ...r, note: t } : r))}
+                      placeholder="Ej: marca recibida, presentación, serial o detalle de este ítem…"
+                      placeholderTextColor={colors.muted}
+                      style={[inp, { fontSize: 12 }]}
+                    />
+                  </View>
                 </Card>
               );
             })}
 
-            {/* 🧾 Carga de Factura de Compra / Soporte Fiscal (Para Almacén y Cuentas por Pagar) */}
+            {/* 🧾 Carga de Factura de Compra / Soporte Fiscal y Nota de Recepción (Para Almacén y Cuentas por Pagar) */}
             <Card style={{ marginTop: spacing.sm, borderWidth: 1.5, borderColor: '#0284C7', backgroundColor: '#F0F9FF' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                 <Text style={{ fontSize: 16 }}>🧾</Text>
@@ -4704,6 +4741,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   </TouchableOpacity>
                 </View>
               )}
+
+              <Text style={{ color: '#0C4A6E', fontSize: 11, fontWeight: '700', marginTop: 4, marginBottom: 2 }}>
+                📝 Nota / Observación de Recepción (opcional):
+              </Text>
+              <TextInput
+                value={recvNota}
+                onChangeText={setRecvNota}
+                placeholder="Ej: Recibido conforme en almacén, entregado por chofer, observación de la factura o recepción…"
+                placeholderTextColor="#94A3B8"
+                multiline
+                style={[inp, { backgroundColor: '#fff', minHeight: 62, textAlignVertical: 'top' }]}
+              />
             </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
               <TouchableOpacity onPress={() => setRecvFor(null)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
