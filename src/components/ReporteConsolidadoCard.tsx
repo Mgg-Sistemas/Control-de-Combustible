@@ -133,8 +133,8 @@ export function ReporteConsolidadoCard() {
         cargarAjustesHorometro(antDesde, hasta),
         cargarCierresHorometro(),
         cargarCambiosHorometro(antDesde, hasta),
-        // 🏷️👤⚙️ La clasificación, encargado y estado del catálogo (filtrar y agrupar con ficha completa).
-        selectAllRows('machinery', 'id, code, plate, serial, marca, modelo, clasificacion, encargado, operational, en_espera, active, transferida, company:company_id(id, name)').catch(() => [] as any[]),
+        // 🏷️👤⚙️ La clasificación, encargado y estado del catálogo (filtrar y agrupar).
+        selectAllRows('machinery', 'id, clasificacion, encargado, operational, en_espera, active, transferida').catch(() => [] as any[]),
         // ⛏️ El frente vigente a la fecha FINAL del rango (si falta el SQL de
         //    frentes, el papel sale todo en «Sin frente» y nada revienta).
         listAsignacionesHasta(hasta, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [], missing: true })),
@@ -161,7 +161,7 @@ export function ReporteConsolidadoCard() {
       const estadoDe = (m: any): string => {
         if (m.active === false) return 'Inactiva';
         if (m.en_espera === true) return 'En espera';
-        if (m.operational === false) return m.transferida === true ? 'Transferida' : 'Retirada';
+        if (m.operational === false) return m.transferida === true ? 'Transferida' : 'Inoperativa / Parada';
         return 'Operativa';
       };
       const estadoPorId = new Map<string, string>((catalogo as any[]).map((m) => [String(m.id), estadoDe(m)]));
@@ -235,16 +235,6 @@ export function ReporteConsolidadoCard() {
           // El respaldo son los KG pagados (el papel los pinta en toneladas)
           suma(fila(r.machineryId, r.code, r.placa ?? ficha?.placa ?? '', r.empresa || 'Sin empresa', ficha?.marca, ficha?.modelo), 'peso', r.monto, r.kg);
         }
-        // ⬛ Si hay máquinas retiradas en el catálogo, se incorporan a porId para que
-        //    tengan su FilaConsolidada armada con su ficha técnica completa (código, placa, serial, empresa, marca, modelo, categoría, encargado).
-        //    filasElegidas se encarga de mostrarlas u ocultarlas según op.incluirRetiradas o el filtro de estados.
-        for (const m of (catalogo as any[]) || []) {
-          if (estadoDe(m) === 'Retirada') {
-            const compName = m.company?.name || 'Sin empresa';
-            const p = String(m.plate ?? '').trim() || String(m.serial ?? '').trim();
-            fila(String(m.id), String(m.code ?? '—'), p, compName, m.marca, m.modelo);
-          }
-        }
         // 🏷️⛏️👤⚙️ A cada fila se le pega su categoría, su frente, su encargado y su estado (vacío =
         //    «Sin clasificación» / «Sin frente» / «Sin encargado» / «Operativa», lo resuelve la lib).
         return Array.from(porId.values()).map((f) => ({
@@ -312,8 +302,7 @@ export function ReporteConsolidadoCard() {
     try {
       const filtrado = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0
         || (op.soloCategorias ?? []).length > 0 || (op.soloFrentes ?? []).length > 0
-        || (op.soloEncargados ?? []).length > 0 || (op.soloEstados ?? []).length > 0
-        || Boolean(op.incluirRetiradas);
+        || (op.soloEncargados ?? []).length > 0;
       const tituloFinal = op.sinTitulo
         ? ''
         : (op.tituloDoc?.trim() || (op.sinPagos ? 'Reporte de horas trabajadas de maquinaria' : 'Reporte consolidado de pagos'));
@@ -351,9 +340,8 @@ export function ReporteConsolidadoCard() {
     return Array.from(vistos.values()).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
   }, [filas, viajesTon, opFull]);
   const maquinasLista = useMemo(() => (filas ?? [])
-    .filter((f) => op.incluirRetiradas || String(f.estado ?? '').toLowerCase() !== 'retirada' || (f.montos && Object.values(f.montos).some((v) => (v ?? 0) !== 0)))
     .filter((f) => !q || `${f.code} ${f.placa} ${f.empresa}`.toLowerCase().includes(q))
-    .slice().sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true })), [filas, q, op.incluirRetiradas]);
+    .slice().sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true })), [filas, q]);
   // 🚛⚖️ Los camiones que facturan por peso: se puede pasar cada uno a jornada.
   const camionesPeso = useMemo(() => camionesConPeso(filas), [filas]);
   const porJornadaSel = new Set(op.camionesPorJornada ?? []);
@@ -539,37 +527,10 @@ export function ReporteConsolidadoCard() {
         </View>
       ) : null}
 
-      {/* ⚙️ Solo uno (o varios) estados: Operativa, Retirada, En espera, Transferida, Inactiva. Filtrar cambia el total → FILTRADO. */}
+      {/* ⚙️ Solo uno (o varios) estados: Operativa, En espera, Inoperativa / Parada, Inactiva. Filtrar cambia el total → FILTRADO. */}
       {filas?.length ? (
         <View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⚙️ SOLO ESTOS ESTADOS (vacío = todos)</Text>
-            {/* Toggle para traer máquinas retiradas (desactivado por defecto) */}
-            <TouchableOpacity
-              onPress={() => setOp((p) => ({ ...p, incluirRetiradas: !p.incluirRetiradas }))}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                paddingHorizontal: spacing.sm,
-                paddingVertical: 3,
-                borderRadius: radius.pill,
-                borderWidth: 1,
-                borderColor: op.incluirRetiradas ? colors.primary : colors.border,
-                backgroundColor: op.incluirRetiradas ? (colors.primary + '20') : 'transparent',
-              }}
-            >
-              <Text style={{ fontSize: 12 }}>{op.incluirRetiradas ? '☑️' : '⬜'}</Text>
-              <Text style={{ color: op.incluirRetiradas ? colors.primary : colors.text, fontWeight: '700', fontSize: 11 }}>
-                ⬛ Traer máquinas retiradas
-              </Text>
-            </TouchableOpacity>
-          </View>
-          {op.incluirRetiradas ? (
-            <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>
-              ✓ Se incluyen máquinas retiradas con su información registrada (código, placa, empresa y clasificación).
-            </Text>
-          ) : null}
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⚙️ SOLO ESTOS ESTADOS (vacío = todos)</Text>
           <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
             <Pastilla on={(op.soloEstados ?? []).length === 0} label="⬛ Todos" onPress={() => setOp((p) => ({ ...p, soloEstados: [] }))} />
             {Array.from(new Set(filas.map((f) => String(f.estado ?? 'Operativa')))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })).map((est) => {
