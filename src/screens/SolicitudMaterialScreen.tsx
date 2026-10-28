@@ -125,7 +125,7 @@ function placaSerial(m: { plate?: string | null; serial?: string | null }): stri
 }
 
 export default function SolicitudMaterialScreen() {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const { session, fullName, role, moduleLevel } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
@@ -2021,7 +2021,7 @@ export default function SolicitudMaterialScreen() {
                     <View
                       key={r.id}
                       style={{
-                        backgroundColor: '#fff',
+                        backgroundColor: colors.surface,
                         padding: spacing.md,
                         borderRadius: radius.md,
                         borderWidth: 1,
@@ -2283,7 +2283,7 @@ export default function SolicitudMaterialScreen() {
                             <View
                               key={s.id}
                               style={{
-                                backgroundColor: '#fff',
+                                backgroundColor: colors.surface,
                                 borderWidth: 1,
                                 borderColor: s.status === 'despachado' ? '#86EFAC' : s.status === 'rechazado' ? '#FCA5A5' : colors.border,
                                 borderRadius: radius.md,
@@ -2624,9 +2624,9 @@ export default function SolicitudMaterialScreen() {
                   {provSugerido && (provSugerido.nombre || provSugerido.telefono) ? (
                     <View
                       style={{
-                        backgroundColor: '#F8FAFC',
+                        backgroundColor: colors.surface,
                         borderWidth: 1,
-                        borderColor: '#CBD5E1',
+                        borderColor: colors.border,
                         borderRadius: radius.sm,
                         padding: spacing.xs,
                         paddingHorizontal: spacing.sm,
@@ -2638,7 +2638,7 @@ export default function SolicitudMaterialScreen() {
                       }}
                     >
                       <View style={{ flex: 1, minWidth: 160 }}>
-                        <Text style={{ color: '#0F172A', fontWeight: '800', fontSize: 11.5 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11.5 }}>
                           🏬 Proveedor propuesto por ti: <Text style={{ color: colors.brandText }}>{provSugerido.nombre || 'Sin nombre'}</Text>
                         </Text>
                         {provSugerido.telefono ? (
@@ -3222,7 +3222,8 @@ export default function SolicitudMaterialScreen() {
               {/* Medidas y especificaciones obligatorias */}
               <View
                 style={{
-                  backgroundColor: '#EFF6FF',
+                  // 🌙 En modo oscuro el azul claro fijo dejaba el texto (blanco) sin contraste.
+                  backgroundColor: scheme === 'dark' ? 'rgba(59,130,246,0.14)' : '#EFF6FF',
                   padding: spacing.sm,
                   borderRadius: radius.md,
                   borderWidth: 1,
@@ -3230,10 +3231,10 @@ export default function SolicitudMaterialScreen() {
                   marginBottom: spacing.sm,
                 }}
               >
-                <Text style={{ color: '#1E40AF', fontWeight: '800', fontSize: 12 }}>
+                <Text style={{ color: scheme === 'dark' ? '#93C5FD' : '#1E40AF', fontWeight: '800', fontSize: 12 }}>
                   📐 Medidas y Especificaciones Técnicas (OBLIGATORIO): *
                 </Text>
-                <Text style={{ color: '#1E3A8A', fontSize: 11, marginVertical: 2 }}>
+                <Text style={{ color: scheme === 'dark' ? '#BFDBFE' : '#1E3A8A', fontSize: 11, marginVertical: 2 }}>
                   Indica diámetro, rosca, paso, código de parte, marca y modelo de la máquina. Esto evita
                   que el proveedor detenga la cotización por falta de datos.
                 </Text>
@@ -3247,7 +3248,7 @@ export default function SolicitudMaterialScreen() {
                   style={[
                     inp,
                     {
-                      backgroundColor: '#fff',
+                      backgroundColor: colors.surface,
                       height: 75,
                       textAlignVertical: 'top',
                       borderColor: '#93C5FD',
@@ -3404,9 +3405,9 @@ export default function SolicitudMaterialScreen() {
               {/* 🏬 Proveedor Sugerido (Opcional - Audio Jefes de Dpto) */}
               <View
                 style={{
-                  backgroundColor: '#F8FAFC',
+                  backgroundColor: colors.surface,
                   borderWidth: 1.5,
-                  borderColor: '#CBD5E1',
+                  borderColor: colors.border,
                   borderRadius: radius.md,
                   padding: spacing.sm,
                   marginBottom: spacing.md,

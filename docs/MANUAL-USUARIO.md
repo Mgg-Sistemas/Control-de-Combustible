@@ -3190,6 +3190,12 @@ traslado, Gastos, Movimientos y Dotación**.
 > Serial: …»**; si no tiene placa sale **el serial**, así se distinguen dos máquinas con el mismo
 > nombre. Solo si no tiene ninguno de los dos dice «Sin placa ni serial».
 
+> **Pedir material / repuesto en modo oscuro** *(28/10/2026)*. En la **Solicitud técnica de compra**,
+> lo que se escribe en el recuadro azul de **📐 Medidas y especificaciones** ya se ve en modo oscuro
+> (antes el campo era blanco con letra blanca). Igual el recuadro **🏬 ¿Tienes un proveedor
+> sugerido?**, la ficha del proveedor propuesto y las tarjetas de aclaratorias y de solicitudes de
+> existencia: ahora toman los colores del tema.
+
 > **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
 > **"✕ Limpiar"** quita los filtros.
