@@ -3231,6 +3231,31 @@ traslado, Gastos, Movimientos y Dotación**.
 > tasa usada y cuánto equivale en Bs. Antes se sumaban los Bs como si fueran dólares (REQ-0169 salía
 > por $1.438.530 cuando eran Bs 1.438.530 = $1.619,75).
 >
+> **📄 Reporte de cuentas: las que marques, todas o agrupadas** *(28/10/2026)*. En **Compras → 💸 Por
+> pagar** y **💰 Por cobrar**:
+>
+> - **Marcar:** cada tarjeta tiene una casilla **☐** a la izquierda; tócala para marcar la cuenta
+>   (no abre la tarjeta). Arriba de la lista: **«☑ Marcar todas (de la lista)»** marca todo lo que
+>   ves, **«☐ Quitar marcas»** las borra y el contador dice cuántas llevas (y cuántas quedan fuera
+>   de la lista de ahora). La marca **no se pierde** al filtrar por empresa o buscar.
+> - **Sacar el reporte:** botón **«📄 Reporte»** junto a «+ Nueva» (también lo tiene quien solo
+>   puede ver). Eliges **qué cuentas**: «Las que marqué» o «Todas las de la lista» (la lista tal
+>   como la ves: empresa(s), búsqueda y pagadas/anuladas visibles).
+> - **Agrupar por:** sin agrupar · proveedor/cliente · empresa · estado · vencimiento (vencidas ·
+>   por vencer 7 días · al día · sin fecha · pagadas o anuladas) · mes de emisión. Cada grupo trae
+>   su **subtotal** y al final va el **total general**.
+> - **Columnas:** prende o apaga Proveedor/Cliente, Empresa, Concepto, Documento, Emisión, Vence,
+>   Estado, Monto, Abonado, Saldo y el **equivalente en Bs** del saldo. Lo que apagues **no sale en
+>   ninguna parte** del papel (ni en la tabla ni en el resumen).
+> - **Título propio y logos**, como en los demás reportes.
+>
+> Arriba del papel va el resumen: cantidad de cuentas y total de monto, abonado y saldo (con su
+> ≈ Bs si la columna de Bs está prendida). Los montos van en **US$**; el Bs se calcula con la
+> **tasa BCV de hoy** y el papel dice qué tasa usó (si hoy no hay tasa, sale sin Bs). Las
+> **anuladas** salen tachadas y **no suman**; una **pagada** ya no suma saldo. Lo elegido (alcance,
+> agrupación, columnas apagadas) va en el **nombre del archivo**, no en el papel; pero si el
+> reporte es solo una parte de la lista (marcadas o con filtros), el papel dice **«FILTRADO»**.
+>
 > **📱 Encabezado en teléfonos grandes** *(28/10/2026)*. En los iPhone grandes el título, los botones
 > y «Cerrar sesión» se montaban unos sobre otros. Ahora en todo teléfono el encabezado usa su modo
 > compacto (🚪 en vez de «Cerrar sesión», sin la línea de la fecha).

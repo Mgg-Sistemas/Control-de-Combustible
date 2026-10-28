@@ -54,6 +54,7 @@ import {
   type ReciboPagoInfo,
 } from '../lib/cuentasPago';
 import { extraerReciboPago, inyectarReciboPagoEnObservaciones } from '../lib/requerimientoExpediente';
+import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
 
 // Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
 type Prioridad = 'alta' | 'media' | 'baja';
@@ -187,6 +188,22 @@ function calcular(
   };
 }
 
+/** Orden de la lista (y del reporte): lo más urgente arriba (vencida → por
+ *  vencer → pendiente → pagada/anulada); dentro de cada situación la prioridad
+ *  marcada manda (alta antes que media/baja/sin) y luego el vencimiento más
+ *  cercano. */
+function ordenUrgencia(a: CuentaCalc, b: CuentaCalc) {
+  const rank: Record<Situacion, number> = { vencida: 0, por_vencer: 1, pendiente: 2, pagada: 3, anulada: 4 };
+  if (rank[a.situacion] !== rank[b.situacion]) return rank[a.situacion] - rank[b.situacion];
+  const pa = a.prioridad ? PRIORIDAD_RANK[a.prioridad as Prioridad] : 3;
+  const pb = b.prioridad ? PRIORIDAD_RANK[b.prioridad as Prioridad] : 3;
+  if (pa !== pb) return pa - pb;
+  const av = a.fecha_vencimiento ?? '9999-12-31';
+  const bv = b.fecha_vencimiento ?? '9999-12-31';
+  if (av !== bv) return av < bv ? -1 : 1;
+  return cmpText(a.contraparte, b.contraparte);
+}
+
 // ── Pestaña (el mismo componente para los dos tipos) ─────────────────────────
 export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boolean }) {
   const { colors } = useTheme();
@@ -237,6 +254,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const [q, setQ] = useState('');
   const [verPagadas, setVerPagadas] = useState(false);
+
+  // 📄 Reporte (28-oct-2026): cuentas MARCADAS por id. La marca sobrevive a
+  // filtrar y buscar; el reporte puede salir de ellas o de toda la lista.
+  const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
+  const [reporteOpen, setReporteOpen] = useState(false);
+  const alternarMarca = (id: string) => setMarcadas((prev) => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
 
   // ── Formulario (alta y edición comparten el mismo modal) ──────────────────
   const [open, setOpen] = useState(false);
@@ -606,7 +633,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   };
 
   // ── Lista + totales con filtro por empresa (una o varias) ────────────────
-  const { lista, tot, empresaCounts } = useMemo(() => {
+  const { lista, tot, empresaCounts, ordenadas, universo } = useMemo(() => {
     const porCuenta = new Map<string, CuentaAbono[]>();
     abonos.forEach((a) => {
       const arr = porCuenta.get(a.cuenta_id) ?? [];
@@ -649,27 +676,28 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     });
 
     const nq = norm(q);
+    const pasaVerPagadas = (c: CuentaCalc) => (verPagadas ? true : c.situacion !== 'pagada' && c.situacion !== 'anulada');
     const vis = porEmpresas
-      .filter((c) => (verPagadas ? true : c.situacion !== 'pagada' && c.situacion !== 'anulada'))
+      .filter(pasaVerPagadas)
       .filter((c) => matchNorm(nq, c.contraparte, c.concepto, c.documento, c.nota, c.empresaNombre))
-      // Orden: lo más urgente arriba (vencida → por vencer → pendiente →
-      // pagada/anulada) y, dentro de cada grupo, por vencimiento más cercano.
-      .sort((a, b) => {
-        const rank: Record<Situacion, number> = { vencida: 0, por_vencer: 1, pendiente: 2, pagada: 3, anulada: 4 };
-        if (rank[a.situacion] !== rank[b.situacion]) return rank[a.situacion] - rank[b.situacion];
-        // Dentro de la misma situación, la prioridad marcada por el usuario manda
-        // (alta antes que media/baja/sin), y luego el vencimiento más cercano.
-        const pa = a.prioridad ? PRIORIDAD_RANK[a.prioridad as Prioridad] : 3;
-        const pb = b.prioridad ? PRIORIDAD_RANK[b.prioridad as Prioridad] : 3;
-        if (pa !== pb) return pa - pb;
-        const av = a.fecha_vencimiento ?? '9999-12-31';
-        const bv = b.fecha_vencimiento ?? '9999-12-31';
-        if (av !== bv) return av < bv ? -1 : 1;
-        return cmpText(a.contraparte, b.contraparte);
-      });
+      // Orden: lo más urgente arriba (ver `ordenUrgencia`).
+      .sort(ordenUrgencia);
 
-    return { lista: vis, tot: t, empresaCounts: arrEmpresas };
+    // 📄 Para el reporte: TODAS las de la pestaña (las marcadas salen de aquí,
+    // aunque el filtro de ahora las esconda) y el «universo» = la lista sin
+    // filtro de empresa ni búsqueda (contra él se decide si el papel es FILTRADO).
+    const ord = calc.slice().sort(ordenUrgencia);
+    const uni = ord.filter(pasaVerPagadas);
+
+    return { lista: vis, tot: t, empresaCounts: arrEmpresas, ordenadas: ord, universo: uni };
   }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, companies, requirements, orders, empresaSel]);
+
+  // Contador de marcas: solo las que existen en esta pestaña; y cuántas no se ven ahora.
+  const nMarcadas = useMemo(() => ordenadas.filter((c) => marcadas.has(c.id)).length, [ordenadas, marcadas]);
+  const nMarcadasFuera = useMemo(() => {
+    const visibles = new Set(lista.map((c) => c.id));
+    return ordenadas.filter((c) => marcadas.has(c.id) && !visibles.has(c.id)).length;
+  }, [ordenadas, lista, marcadas]);
 
   const inputStyle = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -689,11 +717,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Cuentas {cfg.label.toLowerCase()}</SectionTitle>
-        {canWrite ? (
-          <TouchableOpacity onPress={abrirNueva} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-            <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nueva</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+          {/* 📄 Reporte: solo lectura, así que también lo tiene quien no escribe. */}
+          <TouchableOpacity onPress={() => setReporteOpen(true)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>📄 Reporte</Text>
           </TouchableOpacity>
-        ) : null}
+          {canWrite ? (
+            <TouchableOpacity onPress={abrirNueva} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+              <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nueva</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
       {/* Totales — ajustados a las empresas seleccionadas */}
@@ -851,6 +885,29 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         </Text>
       </TouchableOpacity>
 
+      {/* ☑ Marcas para el reporte: por id, sobreviven a filtrar y buscar. */}
+      {lista.length > 0 || nMarcadas > 0 ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+          <TouchableOpacity
+            onPress={() => setMarcadas((prev) => { const n = new Set(prev); lista.forEach((c) => n.add(c.id)); return n; })}
+            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>☑ Marcar todas (de la lista)</Text>
+          </TouchableOpacity>
+          {nMarcadas > 0 ? (
+            <TouchableOpacity
+              onPress={() => setMarcadas(new Set())}
+              style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>☐ Quitar marcas</Text>
+            </TouchableOpacity>
+          ) : null}
+          <Text style={{ color: nMarcadas > 0 ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 12 }}>
+            {nMarcadas} marcada{nMarcadas === 1 ? '' : 's'}{nMarcadasFuera > 0 ? ` (${nMarcadasFuera} fuera de la lista de ahora)` : ''}
+          </Text>
+        </View>
+      ) : null}
+
       {lista.length === 0 ? (
         <EmptyState
           title={q ? 'Sin resultados' : `Sin cuentas ${cfg.label.toLowerCase()}`}
@@ -870,6 +927,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             summary={
               <View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                  {/* ☐/☑ Marca para el reporte: el toque se queda en la casilla, no abre la tarjeta. */}
+                  <TouchableOpacity
+                    onPress={() => alternarMarca(c.id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: marcadas.has(c.id) }}
+                    accessibilityLabel={`Marcar la cuenta de ${c.contraparte} para el reporte`}
+                  >
+                    <Text style={{ fontSize: 18, color: marcadas.has(c.id) ? colors.brandText : colors.muted }}>{marcadas.has(c.id) ? '☑' : '☐'}</Text>
+                  </TouchableOpacity>
                   <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>{c.contraparte}</Text>
                   {c.prioridad ? <Pill label={PRIORIDAD_INFO[c.prioridad as Prioridad].label} {...toneSoft(colors, PRIORIDAD_INFO[c.prioridad as Prioridad].tone)} /> : null}
                   <Pill label={st.label} {...toneSoft(colors, st.tone)} />
@@ -1259,6 +1326,20 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           </ScrollView>
         </Screen>
       </Modal>
+
+      {/* ── 📄 Reporte: montado AL FINAL y solo mientras está abierto (en web gana el último Modal montado). */}
+      {reporteOpen ? (
+        <ReporteCuentasModal
+          tipo={tipo}
+          lista={lista}
+          todas={ordenadas}
+          universo={universo}
+          marcadas={marcadas}
+          tasaBcv={tasaBcv}
+          hoy={hoy}
+          onClose={() => setReporteOpen(false)}
+        />
+      ) : null}
     </Screen>
   );
 }
