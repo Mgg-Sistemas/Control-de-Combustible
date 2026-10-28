@@ -2806,6 +2806,50 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
   const revisadas = Object.keys(visits).length;
 
+  // ✏️ CORREGIR EL HORÓMETRO QUE YO CARGUÉ (02-oct-2026, a pedido). Solo esta máquina,
+  // solo hoy y ayer, con motivo obligatorio; queda en el reporte como «✎ corregido por el
+  // inspector». Lo que Control ya corrigió no se puede tocar (la base tampoco lo deja).
+  // ⚠️ 28-oct-2026 (pedido del cliente): antes vivía SOLO en la rama «iniciar jornada»,
+  // así que al FINALIZAR la jornada (`shiftClosed`) el panel desaparecía y el inspector
+  // ya no podía corregir inicial/final ni la foto, aunque estuviera dentro de hoy/ayer.
+  // Ahora se muestra también con la jornada finalizada. NO se muestra con la jornada
+  // ABIERTA: «Finalizar» guarda el inicial que tiene la pantalla y pisaría la corrección.
+  // El guardado es el de siempre (HorometroCorregirModal → guardarLecturaHorometro):
+  // REEMPLAZA la lectura del (día, turno), no agrega otra.
+  const panelCorregirHoro = ci && horoEditables.some((d) => d.lecturas.length > 0) ? (
+                    <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>⚙️ Horómetros que cargaste (hoy y ayer)</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si tecleaste mal un número o subiste una foto equivocada, corrígelo aquí con el motivo. Puedes actualizar números y subir/cambiar las fotos de inicio o fin.</Text>
+                      {horoEditables.filter((d) => d.lecturas.length > 0).map((d) => (
+                        <View key={d.roundDate} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{d.roundDate === today ? 'Hoy' : 'Ayer'} · {d.roundDate.split('-').reverse().join('/')}</Text>
+                            {d.lecturas.map((l) => (
+                              <Text key={l.shift} style={{ color: colors.muted, fontSize: 11 }}>
+                                {l.shift === 'night' ? '🌙' : '☀️'} inicial {l.inicial ?? '—'}{l.fotoInicialUrl ? ' 📷' : ''} · final {l.final ?? '—'}{l.fotoFinalUrl ? ' 📷' : ''}
+                                {l.corregidoPor ? ' · 🔒 corregida por Control' : l.motivoCorreccion ? ' · ✎ corregida' : ''}
+                              </Text>
+                            ))}
+                          </View>
+                          <TouchableOpacity onPress={() => setHoroEditFecha(d.roundDate)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✏️ Corregir</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                      {horoEditFecha ? (
+                        <HorometroCorregirModal
+                          modo="inspector"
+                          code={ci.code}
+                          machineryId={ci.id}
+                          roundDate={horoEditFecha}
+                          lecturas={horoEditables.find((d) => d.roundDate === horoEditFecha)?.lecturas ?? []}
+                          onClose={() => setHoroEditFecha(null)}
+                          onSaved={() => { setHoroEditRecarga((n) => n + 1); setNotice('✏️ Horómetro / foto corregido. Queda con tu nombre y tu motivo en el reporte.'); }}
+                        />
+                      ) : null}
+                    </View>
+  ) : null;
+
   return (
     <Screen onRefresh={load} refreshing={loading}>
       <ConfigBanner />
@@ -3959,9 +4003,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               ) : shiftClosed ? (
                 // El turno del inspector YA CERRÓ hoy (por hora): no puede iniciar/reiniciar
                 // hasta mañana. (Antes de cerrar SÍ puede reiniciar para acumular horas.)
-                <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13 }}>✅ La jornada de {shiftFromKey(myShift as any).label} de hoy ya cerró.</Text>
-                  <Text style={{ color: colors.infoSoftText, fontSize: 12, marginTop: 2 }}>Podrás iniciar otra jornada de {shiftFromKey(myShift as any).label} mañana.</Text>
+                <View>
+                  <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13 }}>✅ La jornada de {shiftFromKey(myShift as any).label} de hoy ya cerró.</Text>
+                    <Text style={{ color: colors.infoSoftText, fontSize: 12, marginTop: 2 }}>Podrás iniciar otra jornada de {shiftFromKey(myShift as any).label} mañana.</Text>
+                  </View>
+                  {/* ✏️ Jornada ya finalizada: igual puede corregir horómetro/foto de hoy y ayer. */}
+                  {panelCorregirHoro}
                 </View>
               ) : (
                 <View style={{ marginBottom: spacing.sm }}>
@@ -3986,43 +4034,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       </TouchableOpacity>
                     </View>
                   ) : null}
-                  {/* ✏️ CORREGIR EL HORÓMETRO QUE YO CARGUÉ (02-oct-2026, a pedido). Solo
-                      esta máquina, solo hoy y ayer, con motivo obligatorio; queda en el
-                      reporte como «✎ corregido por el inspector». Lo que Control ya
-                      corrigió no se puede tocar (la base tampoco lo deja). */}
-                  {ci && horoEditables.some((d) => d.lecturas.length > 0) ? (
-                    <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>⚙️ Horómetros que cargaste (hoy y ayer)</Text>
-                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si tecleaste mal un número o subiste una foto equivocada, corrígelo aquí con el motivo. Puedes actualizar números y subir/cambiar las fotos de inicio o fin.</Text>
-                      {horoEditables.filter((d) => d.lecturas.length > 0).map((d) => (
-                        <View key={d.roundDate} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{d.roundDate === today ? 'Hoy' : 'Ayer'} · {d.roundDate.split('-').reverse().join('/')}</Text>
-                            {d.lecturas.map((l) => (
-                              <Text key={l.shift} style={{ color: colors.muted, fontSize: 11 }}>
-                                {l.shift === 'night' ? '🌙' : '☀️'} inicial {l.inicial ?? '—'}{l.fotoInicialUrl ? ' 📷' : ''} · final {l.final ?? '—'}{l.fotoFinalUrl ? ' 📷' : ''}
-                                {l.corregidoPor ? ' · 🔒 corregida por Control' : l.motivoCorreccion ? ' · ✎ corregida' : ''}
-                              </Text>
-                            ))}
-                          </View>
-                          <TouchableOpacity onPress={() => setHoroEditFecha(d.roundDate)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
-                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✏️ Corregir</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                      {horoEditFecha ? (
-                        <HorometroCorregirModal
-                          modo="inspector"
-                          code={ci.code}
-                          machineryId={ci.id}
-                          roundDate={horoEditFecha}
-                          lecturas={horoEditables.find((d) => d.roundDate === horoEditFecha)?.lecturas ?? []}
-                          onClose={() => setHoroEditFecha(null)}
-                          onSaved={() => { setHoroEditRecarga((n) => n + 1); setNotice('✏️ Horómetro / foto corregido. Queda con tu nombre y tu motivo en el reporte.'); }}
-                        />
-                      ) : null}
-                    </View>
-                  ) : null}
+                  {/* ✏️ Corregir horómetro/foto (hoy y ayer): ver `panelCorregirHoro`. */}
+                  {panelCorregirHoro}
                   {/* Turno de la jornada. Si el inspector tiene turno ASIGNADO (día/noche),
                       se FIJA a su turno (no puede elegir el otro); si no está asignado, elige. */}
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Turno de la jornada</Text>
