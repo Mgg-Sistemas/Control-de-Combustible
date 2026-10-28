@@ -1162,6 +1162,21 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     return !q || norm(m.code).includes(q) || norm(m.company).includes(q) || (m.plate && norm(m.plate).includes(q)) || (m.serial && norm(m.serial).includes(q)) || (m.tipo && norm(m.tipo).includes(q));
   });
 
+  const pendientes = reqs.filter((r) => r.status === 'pendiente').length;
+  const enRepCount = repsSeccion.filter((r) => r.status === 'en_reparacion').length;
+
+  // Título de la sección (encabezado, pantalla "Sin acceso" y menús).
+  const titulo = esServicio ? '🔧 Servicio de Maquinaria' : '🧰 Mantenimiento de Maquinaria';
+
+  // Cada sección tiene su propio módulo de permisos. 'servicio' hereda de
+  // 'mantenimiento' mientras un admin no le ponga nivel propio (MODULE_HEREDA_DE),
+  // así que quien entraba antes sigue entrando a las dos.
+  if (!canSee(esServicio ? 'servicio' : 'mantenimiento')) {
+    return (<Screen><SectionTitle>{titulo}</SectionTitle><EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo." /></Screen>);
+  }
+
+  const TIPO_BADGE = (t: string) => (t === 'preventivo' ? { label: '🧰 Preventivo', tone: 'muted' as const } : { label: '🔧 Correctivo', tone: 'warning' as const });
+
   return (
     <Screen>
       <ConfigBanner />
