@@ -143,6 +143,28 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
     toast.success('Solo columnas esenciales activas.');
   };
 
+  const soloCombustibleSinTara = () => {
+    const n: OpcionesReporteTaras = {
+      ...op,
+      numeracion: true,
+      equipo: true,
+      placa: true,
+      marcaModelo: false,
+      clasificacion: false,
+      chofer: false,
+      empresa: false,
+      tara: false,
+      combustible: true,
+      estado: false,
+      cargadaPor: false,
+      firma: false,
+      alcance: 'todos',
+    };
+    setOpState(n);
+    guardar(n, logos);
+    toast.success('Tara oculta: reporte enfocado en combustible.');
+  };
+
   // Presets de logos
   const aplicarPresetLogos = (tipo: 'todos' | 'ninguno' | 'jhenzaen' | 'sos' | 'bcv' | 'bcv_sos') => {
     let n: LogosReporte;
@@ -171,7 +193,7 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
     : null;
 
   const generar = async () => {
-    if (op.alcance === 'conTara' && r.conTara === 0) {
+    if (op.tara !== false && op.alcance === 'conTara' && r.conTara === 0) {
       toast.error('Todavía no hay camiones con tara cargada. Usa «Toda la flota» para ver cuáles faltan.');
       return;
     }
@@ -189,8 +211,11 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
       const subComb = op.combustible !== false && rComb.totalLitros > 0
         ? ` · Combustible${fechaCombDmy ? ` (${fechaCombDmy})` : ''}: ${litrosTexto(rComb.totalLitros)}`
         : '';
+      const defaultTitle = op.tara === false
+        ? (op.combustible !== false ? 'Reporte de combustible y maquinaria' : 'Reporte de maquinaria')
+        : 'Reporte de taras';
       const html = pdfDocument({
-        title: (op.tituloPersonalizado ?? '').trim() || 'Reporte de taras',
+        title: (op.tituloPersonalizado ?? '').trim() || defaultTitle,
         subtitle: op.verSubtitulo !== false ? ((op.subtituloPersonalizado ?? '').trim() || `${subBase}${subComb}`) : '',
         body: cuerpoReporteTaras(camionesPdf, taras, { ...op, fechaCombustible }),
         extraCss: CSS_REPORTE_TARAS,
@@ -301,10 +326,11 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
                 📊 COLUMNAS DE LA TABLA ({numColsActivas} activas)
               </Text>
-              <View style={{ flexDirection: 'row', gap: 4 }}>
+              <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
                 <BotonAccion label="✓ Todas" onPress={activarTodasColumnas} />
                 <BotonAccion label="↺ Predeterminadas" onPress={columnasPredeterminadas} />
                 <BotonAccion label="⚡ Esenciales" onPress={soloColumnasBasicas} />
+                <BotonAccion label="⛽ Solo combustible (ocultar tara)" onPress={soloCombustibleSinTara} />
               </View>
             </View>
 
@@ -319,7 +345,12 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
                 ayuda="Apagada, el nombre de la empresa no aparece en ninguna parte del PDF."
                 onPress={() => setOp('empresa', op.empresa === false)}
               />
-              <Toggle on={op.tara !== false} label="⚖️ Tara (Kg/Ton)" onPress={() => setOp('tara', op.tara === false)} />
+              <Toggle
+                on={op.tara !== false}
+                label="⚖️ Columna Tara (ocultar / mostrar)"
+                ayuda="Al apagarla, la tara se oculta completamente de la tabla, de las tarjetas y del título del reporte."
+                onPress={() => setOp('tara', op.tara === false)}
+              />
               <Toggle
                 on={op.combustible !== false}
                 label="⛽ Combustible (L)"

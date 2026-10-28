@@ -326,7 +326,7 @@ export function cuerpoReporteTaras(
   };
 
   const verKpis = op.kpis !== false;
-  const verNota = op.notaPie !== false;
+  const verNota = op.notaPie !== false && verTara;
   /** 🏙 El nombre que se imprime: la empresa única (solo papel) o la de cada quien. */
   const empresaImpresa = (c: CamionParaTara) => (op.empresaUnica ?? '').trim() || c.companyName || 'Sin empresa';
 
@@ -419,6 +419,11 @@ export function cuerpoReporteTaras(
 export function subtituloReporteTaras(r: ResumenTaras, alcance: AlcanceTaras, op?: OpcionesReporteTaras): string {
   if (op?.verSubtitulo === false) return '';
   if ((op?.subtituloPersonalizado ?? '').trim()) return op!.subtituloPersonalizado!.trim();
+  if (op?.tara === false) {
+    return alcance === 'conTara'
+      ? `${r.flota} camión(es) en la flota`
+      : `Flota completa: ${r.flota} camión(es)`;
+  }
   return alcance === 'conTara'
     ? `${r.conTara} camión(es) con tara cargada de ${r.flota} en la flota`
     : `Flota completa: ${r.flota} camión(es)`;
@@ -452,5 +457,8 @@ export function sufijoArchivoTaras(op: OpcionesReporteTaras): string {
 /** Nombre del archivo: dice el alcance y lo cambiado; NUNCA lleva empresa. */
 export function nombreArchivoTaras(alcance: AlcanceTaras, hoyISO: string, op?: OpcionesReporteTaras): string {
   const [a, m, d] = hoyISO.split('-');
-  return `Reporte de taras${alcance === 'todos' ? ' (flota completa)' : ''} ${d}-${m}-${a}${op ? sufijoArchivoTaras(op) : ''}`;
+  const prefijo = op?.tara === false
+    ? (op?.combustible !== false ? 'Reporte de combustible y maquinarias' : 'Reporte de maquinarias')
+    : 'Reporte de taras';
+  return `${prefijo}${alcance === 'todos' ? ' (flota completa)' : ''} ${d}-${m}-${a}${op ? sufijoArchivoTaras(op) : ''}`;
 }

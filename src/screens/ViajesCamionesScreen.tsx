@@ -3353,6 +3353,9 @@ export default function ViajesCamionesScreen() {
     }));
   }, [camionesEnObra, taraCombDia]);
 
+  // Permitir ocultar o mostrar la columna de tara en la lista de esta pantalla
+  const [ocultarTaraEnPantalla, setOcultarTaraEnPantalla] = useState(false);
+
   const resumenCombDia = useMemo(() => {
     let equipos = 0;
     let totalLitros = 0;
@@ -6552,20 +6555,46 @@ export default function ViajesCamionesScreen() {
             {/* La unidad en que se TECLEA (27-sep-2026, a pedido). Se guarda
                 siempre en Kg; esto solo cambia cómo se escribe y cómo se ve
                 el campo. Mismas pastillas que el peso bruto del registro. */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
-              <Text style={{ color: colors.muted, fontSize: 11 }}>Escribo la tara en:</Text>
-              {UNIDADES_PESO.map((u) => (
-                <TouchableOpacity
-                  key={`tu-${u.k}`}
-                  // Cambiar la unidad bota lo tecleado sin guardar: un «32540»
-                  // escrito pensando en Kg no puede guardarse como toneladas.
-                  onPress={() => { setTaraUnidad(u.k); setTaraEdits({}); }}
-                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: taraUnidad === u.k ? colors.primary : colors.border, backgroundColor: taraUnidad === u.k ? colors.primary : 'transparent' }}
-                >
-                  <Text style={{ color: taraUnidad === u.k ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
-                </TouchableOpacity>
-              ))}
-              <Text style={{ color: colors.muted, fontSize: 10.5 }}>· se guarda en Kg</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+              {!ocultarTaraEnPantalla ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>Escribo la tara en:</Text>
+                  {UNIDADES_PESO.map((u) => (
+                    <TouchableOpacity
+                      key={`tu-${u.k}`}
+                      // Cambiar la unidad bota lo tecleado sin guardar: un «32540»
+                      // escrito pensando en Kg no puede guardarse como toneladas.
+                      onPress={() => { setTaraUnidad(u.k); setTaraEdits({}); }}
+                      style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: taraUnidad === u.k ? colors.primary : colors.border, backgroundColor: taraUnidad === u.k ? colors.primary : 'transparent' }}
+                    >
+                      <Text style={{ color: taraUnidad === u.k ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  <Text style={{ color: colors.muted, fontSize: 10.5 }}>· se guarda en Kg</Text>
+                </View>
+              ) : (
+                <Text style={{ color: colors.muted, fontSize: 11 }}>⚖️ Columna de tara oculta en pantalla</Text>
+              )}
+
+              {/* Botón para ocultar / mostrar la columna de tara en pantalla */}
+              <TouchableOpacity
+                onPress={() => setOcultarTaraEnPantalla((v) => !v)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 4,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: ocultarTaraEnPantalla ? colors.brand : colors.border,
+                  backgroundColor: ocultarTaraEnPantalla ? colors.brand : colors.surface,
+                }}
+              >
+                <Text style={{ color: ocultarTaraEnPantalla ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                  {ocultarTaraEnPantalla ? '👁️ Mostrar columna de tara' : '🙈 Ocultar columna de tara'}
+                </Text>
+              </TouchableOpacity>
             </View>
             {tarasMissing ? (
               <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>
@@ -6662,31 +6691,33 @@ export default function ViajesCamionesScreen() {
                             {exento ? ` · 🚫 no pasa por romana${tara?.exentoPorNombre ? ` (${tara.exentoPorNombre})` : ''}` : ''}
                           </Text>
                         </View>
-                        {/* ⚖️ Tara */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          <View style={{ alignItems: 'center' }}>
-                            <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginBottom: 1 }}>
-                              ⚖️ Tara ({taraUnidad === 'kg' ? 'Kg' : 'Ton'})
-                            </Text>
-                            <TextInput
-                              value={taraEdits[t.id] ?? (tara?.pesoTaraKg != null ? taraMostrada(tara.pesoTaraKg) : '')}
-                              onChangeText={(v) => setTaraEdits((prev) => ({ ...prev, [t.id]: v }))}
-                              onBlur={() => { if (taraEdits[t.id] !== undefined) saveTara(t.id); }}
-                              keyboardType="numeric"
-                              placeholder={taraUnidad === 'kg' ? 'Kg' : 'Ton'}
-                              placeholderTextColor={colors.muted}
-                              style={[styles.input, { width: 86, paddingVertical: 5, textAlign: 'center' }]}
-                            />
-                          </View>
-                          <TouchableOpacity onPress={() => saveTara(t.id)} style={{ marginTop: 12 }}>
-                            <Text style={{ fontSize: 15 }}>💾</Text>
-                          </TouchableOpacity>
-                          {tara?.pesoTaraKg != null ? (
-                            <TouchableOpacity onPress={() => borrarTara(t.id, t.code)} accessibilityLabel={`Quitar la tara de ${t.code}`} style={{ marginTop: 12 }}>
-                              <Text style={{ fontSize: 13, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                        {/* ⚖️ Tara (ocultable) */}
+                        {!ocultarTaraEnPantalla ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ alignItems: 'center' }}>
+                              <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginBottom: 1 }}>
+                                ⚖️ Tara ({taraUnidad === 'kg' ? 'Kg' : 'Ton'})
+                              </Text>
+                              <TextInput
+                                value={taraEdits[t.id] ?? (tara?.pesoTaraKg != null ? taraMostrada(tara.pesoTaraKg) : '')}
+                                onChangeText={(v) => setTaraEdits((prev) => ({ ...prev, [t.id]: v }))}
+                                onBlur={() => { if (taraEdits[t.id] !== undefined) saveTara(t.id); }}
+                                keyboardType="numeric"
+                                placeholder={taraUnidad === 'kg' ? 'Kg' : 'Ton'}
+                                placeholderTextColor={colors.muted}
+                                style={[styles.input, { width: 86, paddingVertical: 5, textAlign: 'center' }]}
+                              />
+                            </View>
+                            <TouchableOpacity onPress={() => saveTara(t.id)} style={{ marginTop: 12 }}>
+                              <Text style={{ fontSize: 15 }}>💾</Text>
                             </TouchableOpacity>
-                          ) : null}
-                        </View>
+                            {tara?.pesoTaraKg != null ? (
+                              <TouchableOpacity onPress={() => borrarTara(t.id, t.code)} accessibilityLabel={`Quitar la tara de ${t.code}`} style={{ marginTop: 12 }}>
+                                <Text style={{ fontSize: 13, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+                        ) : null}
                         {/* ⛽ Combustible del día */}
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                           <View style={{ alignItems: 'center' }}>
