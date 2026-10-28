@@ -658,10 +658,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             if (!presLinea) return item;
             const cant = Math.max(0.0001, Number(item.qty) || Number(presLinea.qty) || 1);
             const unitMoneda = presLinea.modo_precio === 'unidad'
-              ? Number(presLinea.precio_unitario) || 0
-              : (Number(presLinea.precio_total) || 0) / cant;
+              ? Number(presLinea.precio_unitario ?? presLinea.unit_price) || 0
+              : (Number(presLinea.precio_total ?? presLinea.total_price) || 0) / cant;
             const totMoneda = presLinea.modo_precio === 'total'
-              ? Number(presLinea.precio_total) || 0
+              ? Number(presLinea.precio_total ?? presLinea.total_price) || 0
               : unitMoneda * cant;
             const unitUsd = toUsd(unitMoneda);
             const totUsd = toUsd(totMoneda);
@@ -2253,7 +2253,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         target_role: 'admin', entity_type: 'inventory_requirement', entity_id: String(r.id),
         created_by: uid, meta: { code: r.code, status: 'pendiente' },
       });
-    } catch {}
+    } catch { }
     refetch();
   };
 
@@ -2313,7 +2313,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         } else if (linePhoto) {
           try {
             await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
-          } catch {}
+          } catch { }
         }
         const priceUsd = it.currency === 'USD' ? parseNum(it.price) : usdFromBs(parseNum(it.price), rate || 0);
         const { error: mErr } = await supabase.from('inventory_movements').insert({
@@ -2548,18 +2548,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           const n = f.k === 'todos'
             ? reqs.length
             : f.k === 'sin_precio'
-            ? reqs.filter(faltaPrecioDe).length
-            : f.k === 'esperando_recepcion'
-            ? reqs.filter((r) => {
-                const provG = suppliers.find((s) => s.id === r.supplier_id);
-                return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_recepcion';
-              }).length
-            : f.k === 'aprobado'
-            ? reqs.filter((r) => {
-                const provG = suppliers.find((s) => s.id === r.supplier_id);
-                return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'aprobado';
-              }).length
-            : reqs.filter((r) => r.status === f.k).length;
+              ? reqs.filter(faltaPrecioDe).length
+              : f.k === 'esperando_recepcion'
+                ? reqs.filter((r) => {
+                  const provG = suppliers.find((s) => s.id === r.supplier_id);
+                  return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_recepcion';
+                }).length
+                : f.k === 'aprobado'
+                  ? reqs.filter((r) => {
+                    const provG = suppliers.find((s) => s.id === r.supplier_id);
+                    return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'aprobado';
+                  }).length
+                  : reqs.filter((r) => r.status === f.k).length;
           return (
             <TouchableOpacity key={f.k} onPress={() => setFilterStatus(f.k)} style={{ borderWidth: 1.5, borderColor: f.color, backgroundColor: on ? f.color : 'transparent', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
               <Text style={{ color: on ? '#fff' : f.color, fontWeight: '800', fontSize: 12 }}>{f.label} ({n})</Text>
@@ -2630,875 +2630,875 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           } catch (e: any) { toast.error('No se pudo generar el resumen: ' + (e?.message ?? e)); }
         };
         return filteredReqs.length === 0 ? (
-        <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' && !listQuery && !reqDateFrom && !reqDateTo ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'Ningún requerimiento coincide con el filtro/búsqueda.'} />
-      ) : (
-        <>
-          {/* Selección para el PDF por lote: "Seleccionar todos" marca los VISIBLES (ya
+          <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' && !listQuery && !reqDateFrom && !reqDateTo ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'Ningún requerimiento coincide con el filtro/búsqueda.'} />
+        ) : (
+          <>
+            {/* Selección para el PDF por lote: "Seleccionar todos" marca los VISIBLES (ya
               filtrados/buscados); el botón exporta solo los marcados, o todos los
               filtrados si no hay ninguno marcado. */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm, flexWrap: 'wrap', gap: spacing.xs }}>
-            <TouchableOpacity onPress={() => setReqSelIds(allSel ? new Set() : new Set(filteredReqs.map((r) => r.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: allSel ? colors.brand : colors.border, backgroundColor: allSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                {allSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm, flexWrap: 'wrap', gap: spacing.xs }}>
+              <TouchableOpacity onPress={() => setReqSelIds(allSel ? new Set() : new Set(filteredReqs.map((r) => r.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: allSel ? colors.brand : colors.border, backgroundColor: allSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {allSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                </View>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todos ({filteredReqs.length})</Text>
+              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <TouchableOpacity onPress={pdfResumen} style={{ backgroundColor: colors.surfaceAlt ?? colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📄 Resumen{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={pdfMultiple} style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 PDF{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
+                </TouchableOpacity>
               </View>
-              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todos ({filteredReqs.length})</Text>
-            </TouchableOpacity>
-            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-              <TouchableOpacity onPress={pdfResumen} style={{ backgroundColor: colors.surfaceAlt ?? colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📄 Resumen{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={pdfMultiple} style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 PDF{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
-              </TouchableOpacity>
             </View>
-          </View>
-          {/* APROBACIÓN EN LOTE (solo admin): aparece cuando hay ≥1 requerimiento
+            {/* APROBACIÓN EN LOTE (solo admin): aparece cuando hay ≥1 requerimiento
               PENDIENTE marcado; aprueba todos los marcados de un solo click. */}
-          {isAdmin && (() => {
-            const nPend = filteredReqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').length;
-            if (!nPend) return null;
-            return (
-              <TouchableOpacity onPress={aprobarLote} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.brandContrast ?? '#fff', fontWeight: '900', fontSize: 14 }}>✅ Aprobar en lote ({nPend})</Text>
-              </TouchableOpacity>
-            );
-          })()}
-          {filteredReqs.map((r) => {
-            const rSel = reqSelIds.has(r.id);
-            return (
-            <View key={r.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs }}>
-              <TouchableOpacity onPress={() => toggleReqSel(r.id)} style={{ paddingTop: spacing.md }}>
-                <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: rSel ? colors.brand : colors.border, backgroundColor: rSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                  {rSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
-                </View>
-              </TouchableOpacity>
-              <View style={{ flex: 1 }}>
-              {(() => {
-        const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
-        const estDinamico = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion, cuentasPagadasSet.has(r.id));
-        const tUsd = estDinamico.totalUSD;
-        const faltaPrecio = !estDinamico.tieneCotizacionCompleta;
-        return (
-          <ExpandableCard
-            key={r.id}
-            summary={
-              <View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                  <View style={{ flex: 1, minWidth: 150 }}>
-                    <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}{r.responsable_nombre ? ` · 📦 Resp.: ${r.responsable_nombre}` : ''}</Text>
-                    {r.empresa_pagadora_nombre ? (
-                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>💳 Pagadora: {r.empresa_pagadora_nombre}</Text>
-                    ) : null}
-                  </View>
-                  <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 1, maxWidth: 260 }}>
-                    {canReceive ? (
-                      <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); setStatusPickerId((id) => (id === r.id ? null : r.id)); }}>
-                        <Pill label={`${estDinamico.label} ${statusPickerId === r.id ? '▴' : '▾'}`} color={estDinamico.color} />
-                      </TouchableOpacity>
-                    ) : (
-                      <Pill label={estDinamico.label} color={estDinamico.color} />
-                    )}
-                    {faltaPrecio ? <Pill label="❗ Pendiente por cargar precio" color={colors.danger} /> : null}
-                  </View>
-                </View>
+            {isAdmin && (() => {
+              const nPend = filteredReqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').length;
+              if (!nPend) return null;
+              return (
+                <TouchableOpacity onPress={aprobarLote} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.brandContrast ?? '#fff', fontWeight: '900', fontSize: 14 }}>✅ Aprobar en lote ({nPend})</Text>
+                </TouchableOpacity>
+              );
+            })()}
+            {filteredReqs.map((r) => {
+              const rSel = reqSelIds.has(r.id);
+              return (
+                <View key={r.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs }}>
+                  <TouchableOpacity onPress={() => toggleReqSel(r.id)} style={{ paddingTop: spacing.md }}>
+                    <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: rSel ? colors.brand : colors.border, backgroundColor: rSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {rSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                    </View>
+                  </TouchableOpacity>
+                  <View style={{ flex: 1 }}>
+                    {(() => {
+                      const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+                      const estDinamico = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion, cuentasPagadasSet.has(r.id));
+                      const tUsd = estDinamico.totalUSD;
+                      const faltaPrecio = !estDinamico.tieneCotizacionCompleta;
+                      return (
+                        <ExpandableCard
+                          key={r.id}
+                          summary={
+                            <View>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                                <View style={{ flex: 1, minWidth: 150 }}>
+                                  <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
+                                  <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}{r.responsable_nombre ? ` · 📦 Resp.: ${r.responsable_nombre}` : ''}</Text>
+                                  {r.empresa_pagadora_nombre ? (
+                                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>💳 Pagadora: {r.empresa_pagadora_nombre}</Text>
+                                  ) : null}
+                                </View>
+                                <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 1, maxWidth: 260 }}>
+                                  {canReceive ? (
+                                    <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); setStatusPickerId((id) => (id === r.id ? null : r.id)); }}>
+                                      <Pill label={`${estDinamico.label} ${statusPickerId === r.id ? '▴' : '▾'}`} color={estDinamico.color} />
+                                    </TouchableOpacity>
+                                  ) : (
+                                    <Pill label={estDinamico.label} color={estDinamico.color} />
+                                  )}
+                                  {faltaPrecio ? <Pill label="❗ Pendiente por cargar precio" color={colors.danger} /> : null}
+                                </View>
+                              </View>
 
-                {/* Badge de Compra Consolidada Multi-Proveedor */}
-                {estDinamico.esMultiProveedor ? (
-                  <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                    <Text style={{ color: '#1D4ED8', fontWeight: '800', fontSize: 11 }}>
-                      🏢 Compra Consolidada Multi-Proveedor ({estDinamico.proveedoresNombres.join(', ')})
-                    </Text>
-                  </View>
-                ) : null}
+                              {/* Badge de Compra Consolidada Multi-Proveedor */}
+                              {estDinamico.esMultiProveedor ? (
+                                <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                                  <Text style={{ color: '#1D4ED8', fontWeight: '800', fontSize: 11 }}>
+                                    🏢 Compra Consolidada Multi-Proveedor ({estDinamico.proveedoresNombres.join(', ')})
+                                  </Text>
+                                </View>
+                              ) : null}
 
-                {/* Filtro de Seguridad por Monto (configurable por monto, empresa y personas) */}
-                {estDinamico.requiereAprobacionGG ? (
-                  <View style={{ alignSelf: 'stretch', marginTop: 5, backgroundColor: '#FAF5FF', borderColor: '#8B5CF6', borderWidth: 1.5, borderRadius: radius.md, padding: spacing.sm, gap: 4 }}>
-                    <Text style={{ color: '#6D28D9', fontWeight: '900', fontSize: 12 }}>
-                      👔 Umbral &gt; ${(estDinamico.montoLimiteAplicado || 1000).toLocaleString()} USD ({estDinamico.empresaReglaAplicada || 'Todas'}): Esperando Aprobación de {estDinamico.aprobadoresNombres || 'Gerente General'}
-                    </Text>
-                    <Text style={{ color: '#7C3AED', fontSize: 11 }}>
-                      Monto total: {usd(tUsd)}. Exige revisión y aprobación obligatoria de {estDinamico.aprobadoresNombres || 'Gerente General'} antes de proceder al pago.
-                    </Text>
-                    {isAdmin && (
-                      <TouchableOpacity
-                        onPress={() => aprobarGerenteGeneral(r)}
-                        style={{
-                          marginTop: 3,
-                          backgroundColor: '#7C3AED',
-                          paddingVertical: 7,
-                          paddingHorizontal: 12,
-                          borderRadius: radius.md,
-                          alignSelf: 'flex-start',
-                        }}
-                      >
-                        <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 11.5 }}>
-                          ✓ Aprobar ({estDinamico.aprobadoresNombres || 'Gerente General'}) (&gt; ${(estDinamico.montoLimiteAplicado || 1000).toLocaleString()} USD)
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                ) : tUsd >= (estDinamico.montoLimiteAplicado || 1000) && r.gerente_aprobado ? (
-                  <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                    <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11 }}>✓ Aprobado por {r.gerente_aprobado_por || estDinamico.aprobadoresNombres || 'Gerente'}</Text>
-                  </View>
-                ) : null}
+                              {/* Filtro de Seguridad por Monto (configurable por monto, empresa y personas) */}
+                              {estDinamico.requiereAprobacionGG ? (
+                                <View style={{ alignSelf: 'stretch', marginTop: 5, backgroundColor: '#FAF5FF', borderColor: '#8B5CF6', borderWidth: 1.5, borderRadius: radius.md, padding: spacing.sm, gap: 4 }}>
+                                  <Text style={{ color: '#6D28D9', fontWeight: '900', fontSize: 12 }}>
+                                    👔 Umbral &gt; ${(estDinamico.montoLimiteAplicado || 1000).toLocaleString()} USD ({estDinamico.empresaReglaAplicada || 'Todas'}): Esperando Aprobación de {estDinamico.aprobadoresNombres || 'Gerente General'}
+                                  </Text>
+                                  <Text style={{ color: '#7C3AED', fontSize: 11 }}>
+                                    Monto total: {usd(tUsd)}. Exige revisión y aprobación obligatoria de {estDinamico.aprobadoresNombres || 'Gerente General'} antes de proceder al pago.
+                                  </Text>
+                                  {isAdmin && (
+                                    <TouchableOpacity
+                                      onPress={() => aprobarGerenteGeneral(r)}
+                                      style={{
+                                        marginTop: 3,
+                                        backgroundColor: '#7C3AED',
+                                        paddingVertical: 7,
+                                        paddingHorizontal: 12,
+                                        borderRadius: radius.md,
+                                        alignSelf: 'flex-start',
+                                      }}
+                                    >
+                                      <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 11.5 }}>
+                                        ✓ Aprobar ({estDinamico.aprobadoresNombres || 'Gerente General'}) (&gt; ${(estDinamico.montoLimiteAplicado || 1000).toLocaleString()} USD)
+                                      </Text>
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              ) : tUsd >= (estDinamico.montoLimiteAplicado || 1000) && r.gerente_aprobado ? (
+                                <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                                  <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11 }}>✓ Aprobado por {r.gerente_aprobado_por || estDinamico.aprobadoresNombres || 'Gerente'}</Text>
+                                </View>
+                              ) : null}
 
-                {r.status === 'aclaratoria_solicitada' && r.aclaratoria_motivo ? (
-                  <View style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
-                    <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 12 }}>⚠️ Aclaratoria Técnica Solicitada por Compras</Text>
-                    <Text style={{ color: '#B45309', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_motivo}</Text>
-                    {r.aclaratoria_solicitada_por ? (
-                      <Text style={{ color: '#92400E', fontSize: 10, marginTop: 2 }}>Solicitado por: {r.aclaratoria_solicitada_por}{r.aclaratoria_fecha_solicitud ? ` (${dmyOf(r.aclaratoria_fecha_solicitud)})` : ''}</Text>
-                    ) : null}
-                  </View>
-                ) : null}
+                              {r.status === 'aclaratoria_solicitada' && r.aclaratoria_motivo ? (
+                                <View style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
+                                  <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 12 }}>⚠️ Aclaratoria Técnica Solicitada por Compras</Text>
+                                  <Text style={{ color: '#B45309', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_motivo}</Text>
+                                  {r.aclaratoria_solicitada_por ? (
+                                    <Text style={{ color: '#92400E', fontSize: 10, marginTop: 2 }}>Solicitado por: {r.aclaratoria_solicitada_por}{r.aclaratoria_fecha_solicitud ? ` (${dmyOf(r.aclaratoria_fecha_solicitud)})` : ''}</Text>
+                                  ) : null}
+                                </View>
+                              ) : null}
 
-                {r.aclaratoria_respuesta ? (
-                  <View style={{ backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
-                    <Text style={{ color: '#065F46', fontWeight: '800', fontSize: 12 }}>💬 Respuesta Técnica Registrada</Text>
-                    <Text style={{ color: '#047857', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_respuesta}</Text>
-                    {r.aclaratoria_fecha_respuesta ? (
-                      <Text style={{ color: '#065F46', fontSize: 10, marginTop: 2 }}>Respondido: {dmyOf(r.aclaratoria_fecha_respuesta)}</Text>
-                    ) : null}
-                  </View>
-                ) : null}
+                              {r.aclaratoria_respuesta ? (
+                                <View style={{ backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
+                                  <Text style={{ color: '#065F46', fontWeight: '800', fontSize: 12 }}>💬 Respuesta Técnica Registrada</Text>
+                                  <Text style={{ color: '#047857', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_respuesta}</Text>
+                                  {r.aclaratoria_fecha_respuesta ? (
+                                    <Text style={{ color: '#065F46', fontSize: 10, marginTop: 2 }}>Respondido: {dmyOf(r.aclaratoria_fecha_respuesta)}</Text>
+                                  ) : null}
+                                </View>
+                              ) : null}
 
-                {/* Cambiar estado A MANO, tocando el badge de arriba — no crea ni revierte
+                              {/* Cambiar estado A MANO, tocando el badge de arriba — no crea ni revierte
                     stock, solo corrige la etiqueta. Aparte del pill "sin precio". */}
-                {canReceive && statusPickerId === r.id ? (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: spacing.xs, justifyContent: 'flex-end' }}>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
-                    {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'esperando_recepcion', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
-                      <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s]?.short || s}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            }
-            detail={
-              <View>
-                {r.items.map((it, i) => {
-                  const q = Number(it.qty) || 1;
-                  const pUsdVal = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
-                  const pBsVal = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdVal * rate * 100) / 100 : 0));
-                  const totUsdVal = it.modo_precio === 'total' && Number(it.total_usd) > 0 ? Number(it.total_usd) : pUsdVal * q;
-                  const totBsVal = it.modo_precio === 'total' && Number(it.total_bs) > 0 ? Number(it.total_bs) : pBsVal * q;
-                  const cots = Array.isArray(it.cotizaciones) ? it.cotizaciones : [];
-                  return (
-                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 4, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
-                      <View style={{ flex: 1 }}>
-                        {/* 🔢 Número de renglón */}
-                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
-                          <Text style={{ color: colors.muted }}>{i + 1}. </Text>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}
-                          {it.exento ? <Text style={{ color: '#0284C7', fontSize: 11, fontWeight: '800' }}> · 🛡️ EXENTO DE IVA</Text> : null}
-                        </Text>
-                        {it.note ? <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginTop: 1 }}>📐 {it.note}</Text> : null}
-                        {it.supplier_name ? (
-                          <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '700', marginTop: 1 }}>🏢 Proveedor del ítem: {it.supplier_name}</Text>
-                        ) : null}
-                        {cots.length > 0 ? (
-                          <Text style={{ color: '#7E22CE', fontSize: 11, fontWeight: '700', marginTop: 1 }}>📋 {cots.length} presupuesto(s) alternativo(s) evaluado(s)</Text>
-                        ) : null}
-                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
-                          {qtyFmt(it.qty)} {it.unit || ''} · {usd(pUsdVal)}{pBsVal > 0 ? ` / ${fmtBs(pBsVal)}` : ''} c/u
-                          {q !== 1 || it.modo_precio === 'total'
-                            ? `  ➜  Total: ${usd(totUsdVal)}${totBsVal > 0 ? ` / ${fmtBs(totBsVal)}` : ''}${it.modo_precio === 'total' ? ' (📦 Precio Total)' : ''}`
-                            : ''}
-                        </Text>
-                      </View>
-                      {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
-                    </View>
-                  );
-                })}
-                {(() => {
-                  const lineTotalUsd = (it: RequirementLine) => {
-                    if (it.modo_precio === 'total' && Number(it.total_usd) > 0) return Number(it.total_usd);
-                    const pU = it.price_usd != null ? Number(it.price_usd) : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
-                    return pU * (Number(it.qty) || 0);
-                  };
-                  const subUsd = r.items.reduce((s, it) => s + lineTotalUsd(it), 0);
-                  const baseUsd = r.items.reduce((s, it) => s + (it.exento ? 0 : lineTotalUsd(it)), 0);
-                  const exentoUsd = subUsd - baseUsd;
-                  const alic = r.iva_alicuota != null ? Number(r.iva_alicuota) : 0;
-                  const ivaUsd = Math.round(baseUsd * (alic / 100) * 100) / 100;
-                  const totalConIvaUsd = alic > 0 ? Math.round((subUsd + ivaUsd) * 100) / 100 : tUsd;
-
-                  return (
-                    <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
-                      {alic > 0 || exentoUsd > 0 ? (
-                        <View style={{ marginBottom: 4, gap: 2 }}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                            <Text style={{ color: colors.muted, fontSize: 11 }}>Subtotal:</Text>
-                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{usd(subUsd)}</Text>
-                          </View>
-                          {exentoUsd > 0 ? (
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                              <Text style={{ color: '#0369A1', fontSize: 11 }}>Exento de IVA:</Text>
-                              <Text style={{ color: '#0369A1', fontSize: 11, fontWeight: '700' }}>{usd(exentoUsd)}</Text>
+                              {canReceive && statusPickerId === r.id ? (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: spacing.xs, justifyContent: 'flex-end' }}>
+                                  <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
+                                  {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'esperando_recepcion', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
+                                    <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s]?.short || s}</Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                </View>
+                              ) : null}
                             </View>
-                          ) : null}
-                          {alic > 0 ? (
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                              <Text style={{ color: colors.muted, fontSize: 11 }}>IVA ({alic}%):</Text>
-                              <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{usd(ivaUsd)}</Text>
-                            </View>
-                          ) : null}
-                        </View>
-                      ) : null}
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text>
-                        <Text style={{ color: colors.brandText, fontWeight: '900' }}>
-                          {usd(totalConIvaUsd)}{rate ? ` · ${fmtBs(bsFromUsd(totalConIvaUsd, rate))}` : ''}
-                        </Text>
-                      </View>
-                    </View>
-                  );
-                })()}
-                {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
-                {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
-                {(() => {
-                  const fmts = extraerFormatosAdjuntos(r);
-                  if (fmts.length === 0) return null;
-                  return (
-                    <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2, fontWeight: '700' }}>
-                      📎 {fmts.length === 1 ? `Formato adjunto (${fmts[0].kind === 'pdf' ? 'PDF' : 'imagen'})` : `${fmts.length} formatos adjuntos`}
-                    </Text>
-                  );
-                })()}
+                          }
+                          detail={
+                            <View>
+                              {r.items.map((it, i) => {
+                                const q = Number(it.qty) || 1;
+                                const pUsdVal = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
+                                const pBsVal = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdVal * rate * 100) / 100 : 0));
+                                const totUsdVal = it.modo_precio === 'total' && Number(it.total_usd) > 0 ? Number(it.total_usd) : pUsdVal * q;
+                                const totBsVal = it.modo_precio === 'total' && Number(it.total_bs) > 0 ? Number(it.total_bs) : pBsVal * q;
+                                const cots = Array.isArray(it.cotizaciones) ? it.cotizaciones : [];
+                                return (
+                                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 4, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+                                    <View style={{ flex: 1 }}>
+                                      {/* 🔢 Número de renglón */}
+                                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
+                                        <Text style={{ color: colors.muted }}>{i + 1}. </Text>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}
+                                        {it.exento ? <Text style={{ color: '#0284C7', fontSize: 11, fontWeight: '800' }}> · 🛡️ EXENTO DE IVA</Text> : null}
+                                      </Text>
+                                      {it.note ? <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginTop: 1 }}>📐 {it.note}</Text> : null}
+                                      {it.supplier_name ? (
+                                        <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '700', marginTop: 1 }}>🏢 Proveedor del ítem: {it.supplier_name}</Text>
+                                      ) : null}
+                                      {cots.length > 0 ? (
+                                        <Text style={{ color: '#7E22CE', fontSize: 11, fontWeight: '700', marginTop: 1 }}>📋 {cots.length} presupuesto(s) alternativo(s) evaluado(s)</Text>
+                                      ) : null}
+                                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+                                        {qtyFmt(it.qty)} {it.unit || ''} · {usd(pUsdVal)}{pBsVal > 0 ? ` / ${fmtBs(pBsVal)}` : ''} c/u
+                                        {q !== 1 || it.modo_precio === 'total'
+                                          ? `  ➜  Total: ${usd(totUsdVal)}${totBsVal > 0 ? ` / ${fmtBs(totBsVal)}` : ''}${it.modo_precio === 'total' ? ' (📦 Precio Total)' : ''}`
+                                          : ''}
+                                      </Text>
+                                    </View>
+                                    {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
+                                  </View>
+                                );
+                              })}
+                              {(() => {
+                                const lineTotalUsd = (it: RequirementLine) => {
+                                  if (it.modo_precio === 'total' && Number(it.total_usd) > 0) return Number(it.total_usd);
+                                  const pU = it.price_usd != null ? Number(it.price_usd) : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
+                                  return pU * (Number(it.qty) || 0);
+                                };
+                                const subUsd = r.items.reduce((s, it) => s + lineTotalUsd(it), 0);
+                                const baseUsd = r.items.reduce((s, it) => s + (it.exento ? 0 : lineTotalUsd(it)), 0);
+                                const exentoUsd = subUsd - baseUsd;
+                                const alic = r.iva_alicuota != null ? Number(r.iva_alicuota) : 0;
+                                const ivaUsd = Math.round(baseUsd * (alic / 100) * 100) / 100;
+                                const totalConIvaUsd = alic > 0 ? Math.round((subUsd + ivaUsd) * 100) / 100 : tUsd;
 
-                {/* 🏬 Ficha de Proveedor Propuesto por el Solicitante (si existe) */}
-                {(() => {
-                  const provSug = extraerProveedorSugerido(r.observaciones);
-                  if (!provSug) return null;
-                  return (
-                    <View
-                      style={{
-                        marginTop: spacing.xs,
-                        backgroundColor: '#FEF3C7',
-                        borderWidth: 1.5,
-                        borderColor: '#F59E0B',
-                        borderRadius: radius.md,
-                        padding: spacing.sm,
-                        gap: 4,
-                      }}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontSize: 16 }}>🏬</Text>
-                          <Text style={{ color: '#92400E', fontWeight: '900', fontSize: 12.5 }}>
-                            PROVEEDOR PROPUESTO POR EL SOLICITANTE
-                          </Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', gap: 4 }}>
-                          {provSug.telefono ? (
-                            <>
-                              <TouchableOpacity
-                                onPress={() => Linking.openURL(`tel:${provSug.telefono.replace(/\s+/g, '')}`)}
-                                style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#D97706', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
-                              >
-                                <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '800' }}>📞 Llamar</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                onPress={() => {
-                                  const clean = provSug.telefono.replace(/\D/g, '');
-                                  const wa = clean.startsWith('58') ? clean : clean.startsWith('0') ? '58' + clean.slice(1) : clean;
-                                  Linking.openURL(`https://wa.me/${wa}`);
-                                }}
-                                style={{ backgroundColor: '#059669', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
-                              >
-                                <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>💬 WhatsApp</Text>
-                              </TouchableOpacity>
-                            </>
-                          ) : null}
-                        </View>
-                      </View>
+                                return (
+                                  <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                                    {alic > 0 || exentoUsd > 0 ? (
+                                      <View style={{ marginBottom: 4, gap: 2 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                          <Text style={{ color: colors.muted, fontSize: 11 }}>Subtotal:</Text>
+                                          <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{usd(subUsd)}</Text>
+                                        </View>
+                                        {exentoUsd > 0 ? (
+                                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                            <Text style={{ color: '#0369A1', fontSize: 11 }}>Exento de IVA:</Text>
+                                            <Text style={{ color: '#0369A1', fontSize: 11, fontWeight: '700' }}>{usd(exentoUsd)}</Text>
+                                          </View>
+                                        ) : null}
+                                        {alic > 0 ? (
+                                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                            <Text style={{ color: colors.muted, fontSize: 11 }}>IVA ({alic}%):</Text>
+                                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{usd(ivaUsd)}</Text>
+                                          </View>
+                                        ) : null}
+                                      </View>
+                                    ) : null}
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                      <Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text>
+                                      <Text style={{ color: colors.brandText, fontWeight: '900' }}>
+                                        {usd(totalConIvaUsd)}{rate ? ` · ${fmtBs(bsFromUsd(totalConIvaUsd, rate))}` : ''}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                );
+                              })()}
+                              {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
+                              {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
+                              {(() => {
+                                const fmts = extraerFormatosAdjuntos(r);
+                                if (fmts.length === 0) return null;
+                                return (
+                                  <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2, fontWeight: '700' }}>
+                                    📎 {fmts.length === 1 ? `Formato adjunto (${fmts[0].kind === 'pdf' ? 'PDF' : 'imagen'})` : `${fmts.length} formatos adjuntos`}
+                                  </Text>
+                                );
+                              })()}
 
-                      {provSug.nombre ? (
-                        <Text style={{ color: '#78350F', fontSize: 12.5 }}>
-                          🏢 <Text style={{ fontWeight: '800' }}>Nombre / Tienda:</Text> {provSug.nombre}
-                        </Text>
-                      ) : null}
-                      {provSug.telefono ? (
-                        <Text style={{ color: '#78350F', fontSize: 12 }}>
-                          📞 <Text style={{ fontWeight: '800' }}>Teléfono:</Text> {provSug.telefono}
-                        </Text>
-                      ) : null}
-                      {provSug.direccion ? (
-                        <Text style={{ color: '#78350F', fontSize: 12 }}>
-                          📍 <Text style={{ fontWeight: '800' }}>Dirección / Ubicación:</Text> {provSug.direccion}
-                        </Text>
-                      ) : null}
-                    </View>
-                  );
-                })()}
+                              {/* 🏬 Ficha de Proveedor Propuesto por el Solicitante (si existe) */}
+                              {(() => {
+                                const provSug = extraerProveedorSugerido(r.observaciones);
+                                if (!provSug) return null;
+                                return (
+                                  <View
+                                    style={{
+                                      marginTop: spacing.xs,
+                                      backgroundColor: '#FEF3C7',
+                                      borderWidth: 1.5,
+                                      borderColor: '#F59E0B',
+                                      borderRadius: radius.md,
+                                      padding: spacing.sm,
+                                      gap: 4,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Text style={{ fontSize: 16 }}>🏬</Text>
+                                        <Text style={{ color: '#92400E', fontWeight: '900', fontSize: 12.5 }}>
+                                          PROVEEDOR PROPUESTO POR EL SOLICITANTE
+                                        </Text>
+                                      </View>
+                                      <View style={{ flexDirection: 'row', gap: 4 }}>
+                                        {provSug.telefono ? (
+                                          <>
+                                            <TouchableOpacity
+                                              onPress={() => Linking.openURL(`tel:${provSug.telefono.replace(/\s+/g, '')}`)}
+                                              style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#D97706', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
+                                            >
+                                              <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '800' }}>📞 Llamar</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                              onPress={() => {
+                                                const clean = provSug.telefono.replace(/\D/g, '');
+                                                const wa = clean.startsWith('58') ? clean : clean.startsWith('0') ? '58' + clean.slice(1) : clean;
+                                                Linking.openURL(`https://wa.me/${wa}`);
+                                              }}
+                                              style={{ backgroundColor: '#059669', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
+                                            >
+                                              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>💬 WhatsApp</Text>
+                                            </TouchableOpacity>
+                                          </>
+                                        ) : null}
+                                      </View>
+                                    </View>
 
-                {r.supplier_id ? (() => {
-                  const s = suppliers.find((sup) => sup.id === r.supplier_id);
-                  if (!s) return null;
-                  const hasBank = !!(s.bank_name || s.account_number);
-                  const hasPm = !!s.pago_movil_phone;
-                  const hasBin = !!s.binance_id;
-                  return (
-                    <View style={{ marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
-                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>Proveedor General: {s.name}</Text>
-                      {hasBank || hasPm || hasBin || !!extraerCapturaPago(s) ? (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 2 }}>
-                          {hasBank ? <Text style={{ fontSize: 10, color: colors.muted }}>🏦 {s.bank_name} ({s.account_number?.slice(-4) || '—'})</Text> : null}
-                          {hasPm ? <Text style={{ fontSize: 10, color: colors.muted }}>📱 PM: {s.pago_movil_phone}</Text> : null}
-                          {hasBin ? <Text {...rawCaseField} style={{ fontSize: 10, color: colors.muted, textTransform: 'none' }}>🟡 Binance: {s.binance_id}</Text> : null}
-                          {(() => {
-                            const cap = extraerCapturaPago(s);
-                            if (!cap) return null;
-                            return (
-                              <TouchableOpacity
-                                onPress={() => setVisorCapturaProv(cap)}
-                                style={{ backgroundColor: '#581C87', borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2 }}
-                              >
-                                <Text style={{ color: '#E9D5FF', fontSize: 10, fontWeight: '800' }}>
-                                  📸 {cap.name || 'Captura TRX/Tron'} 👁️
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })()}
-                        </View>
-                      ) : (
-                        <Text style={{ fontSize: 10, color: '#D97706' }}>⚠️ Proveedor sin datos bancarios ni de pago móvil registrados</Text>
-                      )}
-                    </View>
-                  );
-                })() : null}
+                                    {provSug.nombre ? (
+                                      <Text style={{ color: '#78350F', fontSize: 12.5 }}>
+                                        🏢 <Text style={{ fontWeight: '800' }}>Nombre / Tienda:</Text> {provSug.nombre}
+                                      </Text>
+                                    ) : null}
+                                    {provSug.telefono ? (
+                                      <Text style={{ color: '#78350F', fontSize: 12 }}>
+                                        📞 <Text style={{ fontWeight: '800' }}>Teléfono:</Text> {provSug.telefono}
+                                      </Text>
+                                    ) : null}
+                                    {provSug.direccion ? (
+                                      <Text style={{ color: '#78350F', fontSize: 12 }}>
+                                        📍 <Text style={{ fontWeight: '800' }}>Dirección / Ubicación:</Text> {provSug.direccion}
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                );
+                              })()}
 
-                {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial (Ilusiones / Golden) */}
-                {(() => {
-                  const fac = extraerFactura(r);
-                  const tieneFac = Boolean(fac && fac.numero);
-                  const esGoldenFac = fac?.empresa?.toLowerCase().includes('golden');
-                  return (
-                    <View
-                      style={{
-                        marginTop: spacing.sm,
-                        backgroundColor: colors.surfaceAlt,
-                        borderRadius: radius.md,
-                        borderWidth: 1.5,
-                        borderColor: tieneFac ? (esGoldenFac ? '#F59E0B' : '#6366F1') : colors.border,
-                        padding: spacing.sm,
-                        gap: 6,
-                      }}
-                    >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontSize: 14 }}>🧾</Text>
-                          <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
-                            Factura Fiscal / Comercial
-                          </Text>
-                        </View>
-                        {tieneFac ? (
-                          <View
-                            style={{
-                              backgroundColor: esGoldenFac ? '#FEF3C7' : '#E0E7FF',
-                              borderColor: esGoldenFac ? '#F59E0B' : '#6366F1',
-                              borderWidth: 1,
-                              paddingHorizontal: 8,
-                              paddingVertical: 2,
-                              borderRadius: radius.pill,
-                            }}
-                          >
-                            <Text style={{ color: esGoldenFac ? '#92400E' : '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
-                              {fac?.empresa}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
+                              {r.supplier_id ? (() => {
+                                const s = suppliers.find((sup) => sup.id === r.supplier_id);
+                                if (!s) return null;
+                                const hasBank = !!(s.bank_name || s.account_number);
+                                const hasPm = !!s.pago_movil_phone;
+                                const hasBin = !!s.binance_id;
+                                return (
+                                  <View style={{ marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>Proveedor General: {s.name}</Text>
+                                    {hasBank || hasPm || hasBin || !!extraerCapturaPago(s) ? (
+                                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 2 }}>
+                                        {hasBank ? <Text style={{ fontSize: 10, color: colors.muted }}>🏦 {s.bank_name} ({s.account_number?.slice(-4) || '—'})</Text> : null}
+                                        {hasPm ? <Text style={{ fontSize: 10, color: colors.muted }}>📱 PM: {s.pago_movil_phone}</Text> : null}
+                                        {hasBin ? <Text {...rawCaseField} style={{ fontSize: 10, color: colors.muted, textTransform: 'none' }}>🟡 Binance: {s.binance_id}</Text> : null}
+                                        {(() => {
+                                          const cap = extraerCapturaPago(s);
+                                          if (!cap) return null;
+                                          return (
+                                            <TouchableOpacity
+                                              onPress={() => setVisorCapturaProv(cap)}
+                                              style={{ backgroundColor: '#581C87', borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2 }}
+                                            >
+                                              <Text style={{ color: '#E9D5FF', fontSize: 10, fontWeight: '800' }}>
+                                                📸 {cap.name || 'Captura TRX/Tron'} 👁️
+                                              </Text>
+                                            </TouchableOpacity>
+                                          );
+                                        })()}
+                                      </View>
+                                    ) : (
+                                      <Text style={{ fontSize: 10, color: '#D97706' }}>⚠️ Proveedor sin datos bancarios ni de pago móvil registrados</Text>
+                                    )}
+                                  </View>
+                                );
+                              })() : null}
 
-                      {tieneFac ? (
-                        <View style={{ gap: 4 }}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
-                            <Text style={{ fontSize: 12, color: colors.text }}>
-                              <Text style={{ fontWeight: '700' }}>N° Factura:</Text>{' '}
-                              <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero}</Text>
-                            </Text>
-                            {fac?.fecha ? (
-                              <Text style={{ fontSize: 11.5, color: colors.muted }}>
-                                📅 Fecha: {fac.fecha}
-                              </Text>
-                            ) : null}
-                          </View>
-                          {fac?.subidaPor ? (
-                            <Text style={{ fontSize: 11, color: colors.muted }}>
-                              👤 Subida por: {fac.subidaPor}
-                            </Text>
-                          ) : null}
-                          <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                            {fac?.url ? (
-                              <TouchableOpacity
-                                onPress={() => abrirVisorFactura(fac.url, fac.tipo, fac.nombre)}
-                                style={{
-                                  backgroundColor: colors.surface,
-                                  borderWidth: 1,
-                                  borderColor: colors.brand,
-                                  borderRadius: radius.sm,
-                                  paddingHorizontal: spacing.sm,
-                                  paddingVertical: 4,
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
-                              >
-                                <Text style={{ fontSize: 11 }}>👁️</Text>
-                                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>
-                                  Ver Factura Adjunta
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                            {canWrite ? (
-                              <TouchableOpacity
-                                onPress={() => abrirSubirFactura(r)}
-                                style={{
-                                  backgroundColor: colors.surface,
-                                  borderWidth: 1,
-                                  borderColor: colors.border,
-                                  borderRadius: radius.sm,
-                                  paddingHorizontal: spacing.sm,
-                                  paddingVertical: 4,
-                                }}
-                              >
-                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>
-                                  ✏️ Modificar Factura
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                          </View>
-                        </View>
-                      ) : (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                          <Text style={{ fontSize: 11.5, color: colors.muted, fontStyle: 'italic', flex: 1 }}>
-                            Sin factura cargada todavía.
-                          </Text>
-                          {canWrite ? (
-                            <TouchableOpacity
-                              onPress={() => abrirSubirFactura(r)}
-                              style={{
-                                backgroundColor: colors.brand,
-                                borderRadius: radius.sm,
-                                paddingHorizontal: spacing.sm,
-                                paddingVertical: 5,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              <Text style={{ fontSize: 12 }}>➕</Text>
-                              <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11.5 }}>
-                                Subir Factura
-                              </Text>
-                            </TouchableOpacity>
-                          ) : null}
-                        </View>
-                      )}
-                    </View>
-                  );
-                })()}
+                              {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial (Ilusiones / Golden) */}
+                              {(() => {
+                                const fac = extraerFactura(r);
+                                const tieneFac = Boolean(fac && fac.numero);
+                                const esGoldenFac = fac?.empresa?.toLowerCase().includes('golden');
+                                return (
+                                  <View
+                                    style={{
+                                      marginTop: spacing.sm,
+                                      backgroundColor: colors.surfaceAlt,
+                                      borderRadius: radius.md,
+                                      borderWidth: 1.5,
+                                      borderColor: tieneFac ? (esGoldenFac ? '#F59E0B' : '#6366F1') : colors.border,
+                                      padding: spacing.sm,
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Text style={{ fontSize: 14 }}>🧾</Text>
+                                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                                          Factura Fiscal / Comercial
+                                        </Text>
+                                      </View>
+                                      {tieneFac ? (
+                                        <View
+                                          style={{
+                                            backgroundColor: esGoldenFac ? '#FEF3C7' : '#E0E7FF',
+                                            borderColor: esGoldenFac ? '#F59E0B' : '#6366F1',
+                                            borderWidth: 1,
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 2,
+                                            borderRadius: radius.pill,
+                                          }}
+                                        >
+                                          <Text style={{ color: esGoldenFac ? '#92400E' : '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
+                                            {fac?.empresa}
+                                          </Text>
+                                        </View>
+                                      ) : null}
+                                    </View>
 
-                {/* 💳 Sección Dedicada: Recibo / Comprobante de Pago Bancario (Expediente Unificado) */}
-                {(() => {
-                  const rec = extraerReciboPago(r);
-                  const tieneRec = Boolean(rec && (rec.url || rec.referencia));
-                  return (
-                    <View
-                      style={{
-                        marginTop: spacing.xs,
-                        backgroundColor: colors.surfaceAlt,
-                        borderRadius: radius.md,
-                        borderWidth: 1.5,
-                        borderColor: tieneRec ? '#10B981' : colors.border,
-                        padding: spacing.sm,
-                        gap: 6,
-                      }}
-                    >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontSize: 14 }}>💳</Text>
-                          <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
-                            Recibo / Comprobante de Pago Bancario
-                          </Text>
-                        </View>
-                        {tieneRec && rec?.metodo ? (
-                          <View
-                            style={{
-                              backgroundColor: '#ECFDF5',
-                              borderColor: '#10B981',
-                              borderWidth: 1,
-                              paddingHorizontal: 8,
-                              paddingVertical: 2,
-                              borderRadius: radius.pill,
-                            }}
-                          >
-                            <Text style={{ color: '#065F46', fontSize: 10.5, fontWeight: '800' }}>
-                              {rec.metodo}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
+                                    {tieneFac ? (
+                                      <View style={{ gap: 4 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                                          <Text style={{ fontSize: 12, color: colors.text }}>
+                                            <Text style={{ fontWeight: '700' }}>N° Factura:</Text>{' '}
+                                            <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero}</Text>
+                                          </Text>
+                                          {fac?.fecha ? (
+                                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                              📅 Fecha: {fac.fecha}
+                                            </Text>
+                                          ) : null}
+                                        </View>
+                                        {fac?.subidaPor ? (
+                                          <Text style={{ fontSize: 11, color: colors.muted }}>
+                                            👤 Subida por: {fac.subidaPor}
+                                          </Text>
+                                        ) : null}
+                                        <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                                          {fac?.url ? (
+                                            <TouchableOpacity
+                                              onPress={() => abrirVisorFactura(fac.url, fac.tipo, fac.nombre)}
+                                              style={{
+                                                backgroundColor: colors.surface,
+                                                borderWidth: 1,
+                                                borderColor: colors.brand,
+                                                borderRadius: radius.sm,
+                                                paddingHorizontal: spacing.sm,
+                                                paddingVertical: 4,
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                              }}
+                                            >
+                                              <Text style={{ fontSize: 11 }}>👁️</Text>
+                                              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>
+                                                Ver Factura Adjunta
+                                              </Text>
+                                            </TouchableOpacity>
+                                          ) : null}
+                                          {canWrite ? (
+                                            <TouchableOpacity
+                                              onPress={() => abrirSubirFactura(r)}
+                                              style={{
+                                                backgroundColor: colors.surface,
+                                                borderWidth: 1,
+                                                borderColor: colors.border,
+                                                borderRadius: radius.sm,
+                                                paddingHorizontal: spacing.sm,
+                                                paddingVertical: 4,
+                                              }}
+                                            >
+                                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                                                ✏️ Modificar Factura
+                                              </Text>
+                                            </TouchableOpacity>
+                                          ) : null}
+                                        </View>
+                                      </View>
+                                    ) : (
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                        <Text style={{ fontSize: 11.5, color: colors.muted, fontStyle: 'italic', flex: 1 }}>
+                                          Sin factura cargada todavía.
+                                        </Text>
+                                        {canWrite ? (
+                                          <TouchableOpacity
+                                            onPress={() => abrirSubirFactura(r)}
+                                            style={{
+                                              backgroundColor: colors.brand,
+                                              borderRadius: radius.sm,
+                                              paddingHorizontal: spacing.sm,
+                                              paddingVertical: 5,
+                                              flexDirection: 'row',
+                                              alignItems: 'center',
+                                              gap: 4,
+                                            }}
+                                          >
+                                            <Text style={{ fontSize: 12 }}>➕</Text>
+                                            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11.5 }}>
+                                              Subir Factura
+                                            </Text>
+                                          </TouchableOpacity>
+                                        ) : null}
+                                      </View>
+                                    )}
+                                  </View>
+                                );
+                              })()}
 
-                      {tieneRec ? (
-                        <View style={{ gap: 4 }}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
-                            {rec?.referencia ? (
-                              <Text style={{ fontSize: 12, color: colors.text }}>
-                                <Text style={{ fontWeight: '700' }}>Ref / Comprobante:</Text>{' '}
-                                <Text style={{ fontWeight: '900', color: '#059669' }}>{rec.referencia}</Text>
-                              </Text>
-                            ) : null}
-                            {rec?.fecha ? (
-                              <Text style={{ fontSize: 11.5, color: colors.muted }}>
-                                📅 Fecha de Pago: {rec.fecha}
-                              </Text>
-                            ) : null}
-                          </View>
-                          {rec?.subidoPor ? (
-                            <Text style={{ fontSize: 11, color: colors.muted }}>
-                              👤 Adjuntado por: {rec.subidoPor}
-                            </Text>
-                          ) : null}
-                          <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                            {rec?.url ? (
-                              <TouchableOpacity
-                                onPress={() => abrirVisorFactura(rec.url!, rec.tipo, rec.nombre || 'Recibo de Pago')}
-                                style={{
-                                  backgroundColor: colors.surface,
-                                  borderWidth: 1,
-                                  borderColor: '#10B981',
-                                  borderRadius: radius.sm,
-                                  paddingHorizontal: spacing.sm,
-                                  paddingVertical: 4,
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
-                              >
-                                <Text style={{ fontSize: 11 }}>👁️</Text>
-                                <Text style={{ color: '#047857', fontWeight: '700', fontSize: 11.5 }}>
-                                  Ver Recibo Adjunto
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                            {canWrite ? (
-                              <TouchableOpacity
-                                onPress={() => abrirSubirFactura(r)}
-                                style={{
-                                  backgroundColor: colors.surface,
-                                  borderWidth: 1,
-                                  borderColor: colors.border,
-                                  borderRadius: radius.sm,
-                                  paddingHorizontal: spacing.sm,
-                                  paddingVertical: 4,
-                                }}
-                              >
-                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>
-                                  ✏️ Modificar Recibo
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                          </View>
-                        </View>
-                      ) : (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                          <Text style={{ fontSize: 11.5, color: colors.muted, fontStyle: 'italic', flex: 1 }}>
-                            Sin comprobante de pago cargado aún.
-                          </Text>
-                          {canWrite ? (
-                            <TouchableOpacity
-                              onPress={() => abrirSubirFactura(r)}
-                              style={{
-                                backgroundColor: '#10B981',
-                                borderRadius: radius.sm,
-                                paddingHorizontal: spacing.sm,
-                                paddingVertical: 5,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              <Text style={{ fontSize: 12 }}>💳</Text>
-                              <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 11.5 }}>
-                                Subir Recibo de Pago
-                              </Text>
-                            </TouchableOpacity>
-                          ) : null}
-                        </View>
-                      )}
-                    </View>
-                  );
-                })()}
+                              {/* 💳 Sección Dedicada: Recibo / Comprobante de Pago Bancario (Expediente Unificado) */}
+                              {(() => {
+                                const rec = extraerReciboPago(r);
+                                const tieneRec = Boolean(rec && (rec.url || rec.referencia));
+                                return (
+                                  <View
+                                    style={{
+                                      marginTop: spacing.xs,
+                                      backgroundColor: colors.surfaceAlt,
+                                      borderRadius: radius.md,
+                                      borderWidth: 1.5,
+                                      borderColor: tieneRec ? '#10B981' : colors.border,
+                                      padding: spacing.sm,
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Text style={{ fontSize: 14 }}>💳</Text>
+                                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                                          Recibo / Comprobante de Pago Bancario
+                                        </Text>
+                                      </View>
+                                      {tieneRec && rec?.metodo ? (
+                                        <View
+                                          style={{
+                                            backgroundColor: '#ECFDF5',
+                                            borderColor: '#10B981',
+                                            borderWidth: 1,
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 2,
+                                            borderRadius: radius.pill,
+                                          }}
+                                        >
+                                          <Text style={{ color: '#065F46', fontSize: 10.5, fontWeight: '800' }}>
+                                            {rec.metodo}
+                                          </Text>
+                                        </View>
+                                      ) : null}
+                                    </View>
 
-                {/* 📦 Sección Dedicada: Control Físico de Almacén (Disponible vs Retirado) */}
-                {r.status === 'recibido' && (() => {
-                  const desp = extraerDespacho(r);
-                  const esRetirado = desp.estado === 'retirado';
-                  return (
-                    <View
-                      style={{
-                        marginTop: spacing.sm,
-                        backgroundColor: esRetirado ? '#F8FAFC' : '#F0FDF4',
-                        borderRadius: radius.md,
-                        borderWidth: 1.5,
-                        borderColor: esRetirado ? '#3B82F6' : '#22C55E',
-                        padding: spacing.sm,
-                        gap: 6,
-                      }}
-                    >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontSize: 14 }}>{esRetirado ? '📦' : '🟢'}</Text>
-                          <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
-                            Control Físico en Almacén: {esRetirado ? 'Retirado / Despachado' : 'Disponible en Almacén'}
-                          </Text>
-                        </View>
-                        <View
-                          style={{
-                            backgroundColor: esRetirado ? '#DBEAFE' : '#DCFCE7',
-                            borderColor: esRetirado ? '#2563EB' : '#16A34A',
-                            borderWidth: 1,
-                            paddingHorizontal: 8,
-                            paddingVertical: 2,
-                            borderRadius: radius.pill,
-                          }}
-                        >
-                          <Text style={{ color: esRetirado ? '#1E40AF' : '#15803D', fontSize: 10.5, fontWeight: '800' }}>
-                            {esRetirado ? 'DESPACHADO' : 'LISTO PARA ENTREGA'}
-                          </Text>
-                        </View>
-                      </View>
+                                    {tieneRec ? (
+                                      <View style={{ gap: 4 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                                          {rec?.referencia ? (
+                                            <Text style={{ fontSize: 12, color: colors.text }}>
+                                              <Text style={{ fontWeight: '700' }}>Ref / Comprobante:</Text>{' '}
+                                              <Text style={{ fontWeight: '900', color: '#059669' }}>{rec.referencia}</Text>
+                                            </Text>
+                                          ) : null}
+                                          {rec?.fecha ? (
+                                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                              📅 Fecha de Pago: {rec.fecha}
+                                            </Text>
+                                          ) : null}
+                                        </View>
+                                        {rec?.subidoPor ? (
+                                          <Text style={{ fontSize: 11, color: colors.muted }}>
+                                            👤 Adjuntado por: {rec.subidoPor}
+                                          </Text>
+                                        ) : null}
+                                        <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                                          {rec?.url ? (
+                                            <TouchableOpacity
+                                              onPress={() => abrirVisorFactura(rec.url!, rec.tipo, rec.nombre || 'Recibo de Pago')}
+                                              style={{
+                                                backgroundColor: colors.surface,
+                                                borderWidth: 1,
+                                                borderColor: '#10B981',
+                                                borderRadius: radius.sm,
+                                                paddingHorizontal: spacing.sm,
+                                                paddingVertical: 4,
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                              }}
+                                            >
+                                              <Text style={{ fontSize: 11 }}>👁️</Text>
+                                              <Text style={{ color: '#047857', fontWeight: '700', fontSize: 11.5 }}>
+                                                Ver Recibo Adjunto
+                                              </Text>
+                                            </TouchableOpacity>
+                                          ) : null}
+                                          {canWrite ? (
+                                            <TouchableOpacity
+                                              onPress={() => abrirSubirFactura(r)}
+                                              style={{
+                                                backgroundColor: colors.surface,
+                                                borderWidth: 1,
+                                                borderColor: colors.border,
+                                                borderRadius: radius.sm,
+                                                paddingHorizontal: spacing.sm,
+                                                paddingVertical: 4,
+                                              }}
+                                            >
+                                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                                                ✏️ Modificar Recibo
+                                              </Text>
+                                            </TouchableOpacity>
+                                          ) : null}
+                                        </View>
+                                      </View>
+                                    ) : (
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                        <Text style={{ fontSize: 11.5, color: colors.muted, fontStyle: 'italic', flex: 1 }}>
+                                          Sin comprobante de pago cargado aún.
+                                        </Text>
+                                        {canWrite ? (
+                                          <TouchableOpacity
+                                            onPress={() => abrirSubirFactura(r)}
+                                            style={{
+                                              backgroundColor: '#10B981',
+                                              borderRadius: radius.sm,
+                                              paddingHorizontal: spacing.sm,
+                                              paddingVertical: 5,
+                                              flexDirection: 'row',
+                                              alignItems: 'center',
+                                              gap: 4,
+                                            }}
+                                          >
+                                            <Text style={{ fontSize: 12 }}>💳</Text>
+                                            <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 11.5 }}>
+                                              Subir Recibo de Pago
+                                            </Text>
+                                          </TouchableOpacity>
+                                        ) : null}
+                                      </View>
+                                    )}
+                                  </View>
+                                );
+                              })()}
 
-                      {esRetirado ? (
-                        <View style={{ gap: 4 }}>
-                          <Text style={{ fontSize: 12, color: colors.text }}>
-                            👤 <Text style={{ fontWeight: '700' }}>Retirado por:</Text>{' '}
-                            <Text style={{ fontWeight: '800', color: colors.brandText }}>{desp.retiradoPor}</Text>
-                            {desp.retiradoCedula ? ` (CI: ${desp.retiradoCedula})` : ''}
-                            {desp.retiradoCargo ? ` · ${desp.retiradoCargo}` : ''}
-                          </Text>
-                          <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-                            {desp.fecha ? (
-                              <Text style={{ fontSize: 11.5, color: colors.muted }}>
-                                🕒 Fecha: {dmyOf(desp.fecha)}
-                              </Text>
-                            ) : null}
-                            {desp.despachadoPor ? (
-                              <Text style={{ fontSize: 11.5, color: colors.muted }}>
-                                📦 Entregó: {desp.despachadoPor}
-                              </Text>
-                            ) : null}
-                          </View>
-                          {desp.maquinariaCodigo || desp.maquinariaPlaca ? (
-                            <Text style={{ fontSize: 11.5, color: '#1E3A5F', fontWeight: '700' }}>
-                              🚜 Destino: {desp.maquinariaCodigo || ''} · Placa: {desp.maquinariaPlaca || 'Sin placa'}
-                            </Text>
-                          ) : null}
-                          {desp.nota ? (
-                            <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic', backgroundColor: colors.surface, padding: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
-                              "{desp.nota}"
-                            </Text>
-                          ) : null}
-                          {canReceive ? (
-                            <TouchableOpacity
-                              onPress={() => abrirDespachoModal(r)}
-                              style={{
-                                alignSelf: 'flex-start',
-                                backgroundColor: colors.surface,
-                                borderWidth: 1,
-                                borderColor: colors.border,
-                                borderRadius: radius.sm,
-                                paddingHorizontal: spacing.sm,
-                                paddingVertical: 4,
-                                marginTop: 2,
-                              }}
-                            >
-                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
-                                ✏️ Editar Registro de Retiro
-                              </Text>
-                            </TouchableOpacity>
-                          ) : null}
-                        </View>
-                      ) : (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                          <Text style={{ fontSize: 11.5, color: '#166534', fontWeight: '600', flex: 1 }}>
-                            El repuesto ya está físicamente en el estante de almacén listo para ser retirado.
-                          </Text>
-                          {canReceive ? (
-                            <TouchableOpacity
-                              onPress={() => abrirDespachoModal(r)}
-                              style={{
-                                backgroundColor: '#16A34A',
-                                borderRadius: radius.sm,
-                                paddingHorizontal: spacing.sm,
-                                paddingVertical: 6,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              <Text style={{ fontSize: 12 }}>📦</Text>
-                              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11.5 }}>
-                                Registrar Retiro / Despacho
-                              </Text>
-                            </TouchableOpacity>
-                          ) : null}
-                        </View>
-                      )}
-                    </View>
-                  );
-                })()}
+                              {/* 📦 Sección Dedicada: Control Físico de Almacén (Disponible vs Retirado) */}
+                              {r.status === 'recibido' && (() => {
+                                const desp = extraerDespacho(r);
+                                const esRetirado = desp.estado === 'retirado';
+                                return (
+                                  <View
+                                    style={{
+                                      marginTop: spacing.sm,
+                                      backgroundColor: esRetirado ? '#F8FAFC' : '#F0FDF4',
+                                      borderRadius: radius.md,
+                                      borderWidth: 1.5,
+                                      borderColor: esRetirado ? '#3B82F6' : '#22C55E',
+                                      padding: spacing.sm,
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Text style={{ fontSize: 14 }}>{esRetirado ? '📦' : '🟢'}</Text>
+                                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                                          Control Físico en Almacén: {esRetirado ? 'Retirado / Despachado' : 'Disponible en Almacén'}
+                                        </Text>
+                                      </View>
+                                      <View
+                                        style={{
+                                          backgroundColor: esRetirado ? '#DBEAFE' : '#DCFCE7',
+                                          borderColor: esRetirado ? '#2563EB' : '#16A34A',
+                                          borderWidth: 1,
+                                          paddingHorizontal: 8,
+                                          paddingVertical: 2,
+                                          borderRadius: radius.pill,
+                                        }}
+                                      >
+                                        <Text style={{ color: esRetirado ? '#1E40AF' : '#15803D', fontSize: 10.5, fontWeight: '800' }}>
+                                          {esRetirado ? 'DESPACHADO' : 'LISTO PARA ENTREGA'}
+                                        </Text>
+                                      </View>
+                                    </View>
 
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-                  <TouchableOpacity onPress={() => pdf(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
-                  </TouchableOpacity>
-                  {/* Botón de Cotizaciones Múltiples y Multi-Moneda */}
-                  <TouchableOpacity
-                    onPress={() => abrirCotizaciones(r)}
-                    style={{
-                      backgroundColor: '#0EA5E9',
-                      borderRadius: radius.md,
-                      paddingHorizontal: spacing.md,
-                      paddingVertical: spacing.xs,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                  >
-                    <Text style={{ fontSize: 12 }}>📋</Text>
-                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
-                      Cotizaciones ({getReqCotizaciones(r).length})
-                    </Text>
-                  </TouchableOpacity>
-                  {/* Botón de Expediente Completo Oficial (PDF) */}
-                  <TouchableOpacity
-                    onPress={() => descargarExpediente(r)}
-                    style={{
-                      backgroundColor: '#1E3A5F',
-                      borderRadius: radius.md,
-                      paddingHorizontal: spacing.md,
-                      paddingVertical: spacing.xs,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 5,
-                    }}
-                  >
-                    <Text style={{ fontSize: 12 }}>📑</Text>
-                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
-                      Expediente Completo (PDF)
-                    </Text>
-                  </TouchableOpacity>
-                  {/* Subir formato (imagen o PDF) al requerimiento. */}
-                  {canWrite ? (
-                    <TouchableOpacity onPress={() => subirFormato(r)} disabled={subiendoId === r.id} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: subiendoId === r.id ? 0.6 : 1 }}>
-                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
-                        {subiendoId === r.id ? '⏳ Subiendo…' : (() => {
-                          const fmts = extraerFormatosAdjuntos(r);
-                          return fmts.length > 0 ? `📎 Adjuntar otro (${fmts.length})` : '📎 Subir formato';
-                        })()}
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Ver formatos adjuntos (vista previa + descarga). */}
-                  {(() => {
-                    const fmts = extraerFormatosAdjuntos(r);
-                    if (fmts.length === 0) return null;
-                    return (
-                      <TouchableOpacity onPress={() => { setPreviewReq(r); setPreviewIndex(0); }} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
-                          👁️ Ver formatos ({fmts.length})
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })()}
-                  {/* Solicitar aclaratoria técnica si está pendiente */}
-                  {canWrite && r.status === 'pendiente' ? (
-                    <TouchableOpacity onPress={() => abrirSolicitarAclaratoria(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: '#D97706', fontWeight: '800', fontSize: 12 }}>🔄 Solicitar Aclaratoria</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Responder aclaratoria técnica si está en aclaratoria */}
-                  {r.status === 'aclaratoria_solicitada' ? (
-                    <TouchableOpacity onPress={() => abrirResponderAclaratoria(r)} style={{ backgroundColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>📝 Responder Aclaratoria</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Editar datos de pago del proveedor si tiene proveedor asignado */}
-                  {r.supplier_id && canWrite ? (() => {
-                    const s = suppliers.find((sup) => sup.id === r.supplier_id);
-                    if (!s) return null;
-                    return (
-                      <TouchableOpacity onPress={() => abrirEditarPagoProv(s)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>💳 Datos de Pago Prov.</Text>
-                      </TouchableOpacity>
-                    );
-                  })() : null}
-                  {/* Botón de aprobación Gerente General si supera los $1,000 USD */}
-                  {isAdmin && estDinamico.requiereAprobacionGG ? (
-                    <TouchableOpacity onPress={() => aprobarGerenteGeneral(r)} style={{ backgroundColor: '#7C3AED', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>👔 Aprobar GG (&gt; $1k)</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {isAdmin && r.status === 'pendiente' ? (
-                    <>
-                      <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => decidir(r, 'rechazado')} style={{ backgroundColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>❌ Rechazar</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : null}
-                  {canReceive && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
-                    <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Anular un requerimiento YA APROBADO: el mismo gerente lo rechaza y la
+                                    {esRetirado ? (
+                                      <View style={{ gap: 4 }}>
+                                        <Text style={{ fontSize: 12, color: colors.text }}>
+                                          👤 <Text style={{ fontWeight: '700' }}>Retirado por:</Text>{' '}
+                                          <Text style={{ fontWeight: '800', color: colors.brandText }}>{desp.retiradoPor}</Text>
+                                          {desp.retiradoCedula ? ` (CI: ${desp.retiradoCedula})` : ''}
+                                          {desp.retiradoCargo ? ` · ${desp.retiradoCargo}` : ''}
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                                          {desp.fecha ? (
+                                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                              🕒 Fecha: {dmyOf(desp.fecha)}
+                                            </Text>
+                                          ) : null}
+                                          {desp.despachadoPor ? (
+                                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                              📦 Entregó: {desp.despachadoPor}
+                                            </Text>
+                                          ) : null}
+                                        </View>
+                                        {desp.maquinariaCodigo || desp.maquinariaPlaca ? (
+                                          <Text style={{ fontSize: 11.5, color: '#1E3A5F', fontWeight: '700' }}>
+                                            🚜 Destino: {desp.maquinariaCodigo || ''} · Placa: {desp.maquinariaPlaca || 'Sin placa'}
+                                          </Text>
+                                        ) : null}
+                                        {desp.nota ? (
+                                          <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic', backgroundColor: colors.surface, padding: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                                            "{desp.nota}"
+                                          </Text>
+                                        ) : null}
+                                        {canReceive ? (
+                                          <TouchableOpacity
+                                            onPress={() => abrirDespachoModal(r)}
+                                            style={{
+                                              alignSelf: 'flex-start',
+                                              backgroundColor: colors.surface,
+                                              borderWidth: 1,
+                                              borderColor: colors.border,
+                                              borderRadius: radius.sm,
+                                              paddingHorizontal: spacing.sm,
+                                              paddingVertical: 4,
+                                              marginTop: 2,
+                                            }}
+                                          >
+                                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
+                                              ✏️ Editar Registro de Retiro
+                                            </Text>
+                                          </TouchableOpacity>
+                                        ) : null}
+                                      </View>
+                                    ) : (
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                        <Text style={{ fontSize: 11.5, color: '#166534', fontWeight: '600', flex: 1 }}>
+                                          El repuesto ya está físicamente en el estante de almacén listo para ser retirado.
+                                        </Text>
+                                        {canReceive ? (
+                                          <TouchableOpacity
+                                            onPress={() => abrirDespachoModal(r)}
+                                            style={{
+                                              backgroundColor: '#16A34A',
+                                              borderRadius: radius.sm,
+                                              paddingHorizontal: spacing.sm,
+                                              paddingVertical: 6,
+                                              flexDirection: 'row',
+                                              alignItems: 'center',
+                                              gap: 4,
+                                            }}
+                                          >
+                                            <Text style={{ fontSize: 12 }}>📦</Text>
+                                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11.5 }}>
+                                              Registrar Retiro / Despacho
+                                            </Text>
+                                          </TouchableOpacity>
+                                        ) : null}
+                                      </View>
+                                    )}
+                                  </View>
+                                );
+                              })()}
+
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+                                <TouchableOpacity onPress={() => pdf(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
+                                </TouchableOpacity>
+                                {/* Botón de Cotizaciones Múltiples y Multi-Moneda */}
+                                <TouchableOpacity
+                                  onPress={() => abrirCotizaciones(r)}
+                                  style={{
+                                    backgroundColor: '#0EA5E9',
+                                    borderRadius: radius.md,
+                                    paddingHorizontal: spacing.md,
+                                    paddingVertical: spacing.xs,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 12 }}>📋</Text>
+                                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                                    Cotizaciones ({getReqCotizaciones(r).length})
+                                  </Text>
+                                </TouchableOpacity>
+                                {/* Botón de Expediente Completo Oficial (PDF) */}
+                                <TouchableOpacity
+                                  onPress={() => descargarExpediente(r)}
+                                  style={{
+                                    backgroundColor: '#1E3A5F',
+                                    borderRadius: radius.md,
+                                    paddingHorizontal: spacing.md,
+                                    paddingVertical: spacing.xs,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 12 }}>📑</Text>
+                                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                                    Expediente Completo (PDF)
+                                  </Text>
+                                </TouchableOpacity>
+                                {/* Subir formato (imagen o PDF) al requerimiento. */}
+                                {canWrite ? (
+                                  <TouchableOpacity onPress={() => subirFormato(r)} disabled={subiendoId === r.id} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: subiendoId === r.id ? 0.6 : 1 }}>
+                                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                                      {subiendoId === r.id ? '⏳ Subiendo…' : (() => {
+                                        const fmts = extraerFormatosAdjuntos(r);
+                                        return fmts.length > 0 ? `📎 Adjuntar otro (${fmts.length})` : '📎 Subir formato';
+                                      })()}
+                                    </Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Ver formatos adjuntos (vista previa + descarga). */}
+                                {(() => {
+                                  const fmts = extraerFormatosAdjuntos(r);
+                                  if (fmts.length === 0) return null;
+                                  return (
+                                    <TouchableOpacity onPress={() => { setPreviewReq(r); setPreviewIndex(0); }} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                                        👁️ Ver formatos ({fmts.length})
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                })()}
+                                {/* Solicitar aclaratoria técnica si está pendiente */}
+                                {canWrite && r.status === 'pendiente' ? (
+                                  <TouchableOpacity onPress={() => abrirSolicitarAclaratoria(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: '#D97706', fontWeight: '800', fontSize: 12 }}>🔄 Solicitar Aclaratoria</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Responder aclaratoria técnica si está en aclaratoria */}
+                                {r.status === 'aclaratoria_solicitada' ? (
+                                  <TouchableOpacity onPress={() => abrirResponderAclaratoria(r)} style={{ backgroundColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>📝 Responder Aclaratoria</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Editar datos de pago del proveedor si tiene proveedor asignado */}
+                                {r.supplier_id && canWrite ? (() => {
+                                  const s = suppliers.find((sup) => sup.id === r.supplier_id);
+                                  if (!s) return null;
+                                  return (
+                                    <TouchableOpacity onPress={() => abrirEditarPagoProv(s)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>💳 Datos de Pago Prov.</Text>
+                                    </TouchableOpacity>
+                                  );
+                                })() : null}
+                                {/* Botón de aprobación Gerente General si supera los $1,000 USD */}
+                                {isAdmin && estDinamico.requiereAprobacionGG ? (
+                                  <TouchableOpacity onPress={() => aprobarGerenteGeneral(r)} style={{ backgroundColor: '#7C3AED', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>👔 Aprobar GG (&gt; $1k)</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {isAdmin && r.status === 'pendiente' ? (
+                                  <>
+                                    <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => decidir(r, 'rechazado')} style={{ backgroundColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>❌ Rechazar</Text>
+                                    </TouchableOpacity>
+                                  </>
+                                ) : null}
+                                {canReceive && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
+                                  <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Anular un requerimiento YA APROBADO: el mismo gerente lo rechaza y la
                       BD anula la orden de compra + cuenta por pagar generadas. */}
-                  {isAdmin && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
-                    <TouchableOpacity onPress={() => anularAprobado(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>⛔ Anular (rechazar)</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Revertir un rechazo (error de dedo) → vuelve a PENDIENTE y notifica. */}
-                  {isAdmin && r.status === 'rechazado' ? (
-                    <TouchableOpacity onPress={() => revertirRechazo(r)} style={{ backgroundColor: colors.warning, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>↩ Volver a pendiente</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Editar todo el requerimiento (no si ya se recibió en inventario). */}
-                  {canWrite && r.status !== 'recibido' ? (
-                    <TouchableOpacity onPress={() => abrirEditar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Eliminar todo el requerimiento. */}
-                  {canWrite ? (
-                    <TouchableOpacity onPress={() => eliminar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {!isAdmin && r.status === 'pendiente' ? <Text style={{ color: colors.muted, fontSize: 11, alignSelf: 'center' }}>Esperando aprobación del jefe…</Text> : null}
-                  {r.status === 'aclaratoria_solicitada' ? <Text style={{ color: '#B45309', fontSize: 11, alignSelf: 'center', fontWeight: '700' }}>⚠️ Esperando respuesta técnica para reanudar aprobación</Text> : null}
+                                {isAdmin && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
+                                  <TouchableOpacity onPress={() => anularAprobado(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>⛔ Anular (rechazar)</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Revertir un rechazo (error de dedo) → vuelve a PENDIENTE y notifica. */}
+                                {isAdmin && r.status === 'rechazado' ? (
+                                  <TouchableOpacity onPress={() => revertirRechazo(r)} style={{ backgroundColor: colors.warning, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>↩ Volver a pendiente</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Editar todo el requerimiento (no si ya se recibió en inventario). */}
+                                {canWrite && r.status !== 'recibido' ? (
+                                  <TouchableOpacity onPress={() => abrirEditar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Eliminar todo el requerimiento. */}
+                                {canWrite ? (
+                                  <TouchableOpacity onPress={() => eliminar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {!isAdmin && r.status === 'pendiente' ? <Text style={{ color: colors.muted, fontSize: 11, alignSelf: 'center' }}>Esperando aprobación del jefe…</Text> : null}
+                                {r.status === 'aclaratoria_solicitada' ? <Text style={{ color: '#B45309', fontSize: 11, alignSelf: 'center', fontWeight: '700' }}>⚠️ Esperando respuesta técnica para reanudar aprobación</Text> : null}
+                              </View>
+                            </View>
+                          }
+                        />
+                      );
+                    })()}
+                  </View>
                 </View>
-              </View>
-            }
-          />
+              );
+            })}
+          </>
         );
-      })()}
-              </View>
-            </View>
-            );
-          })}
-        </>
-      );
       })()}
 
       {/* ── Crear requerimiento ── */}

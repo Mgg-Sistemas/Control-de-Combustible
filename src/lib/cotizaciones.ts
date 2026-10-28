@@ -35,6 +35,8 @@ export interface PresupuestoLineaCotizacion {
   modo_precio: 'unidad' | 'total'; // Si el precio se colocó por unidad o total
   precio_unitario: number;    // Precio por 1 unidad en la moneda de la cotización
   precio_total: number;       // Precio total por las `qty` unidades
+  unit_price?: number;        // Alias de compatibilidad para precio unitario
+  total_price?: number;       // Alias de compatibilidad para precio total
   precio_bs_unitario?: number;// Equivalente/monto en Bs por unidad
   precio_bs_total?: number;   // Equivalente/monto en Bs total
   proveedor_sub?: string | null; // Proveedor o referencia del presupuesto específico
