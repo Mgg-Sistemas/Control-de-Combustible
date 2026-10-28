@@ -18,6 +18,8 @@
 //    turno se ajusta solo por la DIFERENCIA (nuevas − viejas horas), con tope 0..12.
 //  · MOTIVO OBLIGATORIO, como el del horómetro.
 import { parseHHMM } from './horaFinJornada';
+import { calcularInicioJornada } from './jornada';
+import { businessRoundDateOf } from './caracasDay';
 
 export type Turno = 'day' | 'night';
 
@@ -184,4 +186,134 @@ export function trazaCorreccion(opts: { nowMs: number; tramo: TramoTurno; motivo
 export function notasConTraza(previas: string | null | undefined, traza: string): string {
   const p = String(previas ?? '').trim();
   return p ? `${p}\n${traza}` : traza;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🕐 CORREGIR LA HORA DE INICIO DE UNA JORNADA QUE SIGUE ABIERTA (28-oct-2026).
+//
+// El inspector se equivocó al tocar «Iniciar» (puso 9:00 y era 7:30, o al revés)
+// y la jornada todavía está EN CURSO. Solo se mueve `machine_rounds.jornada_start_at`
+// (el inicio declarado, del que salen las horas en vivo y el FINALIZAR); no se
+// inventan horas ni se crean tramos. Lo que fija:
+//  · SU máquina en ESE turno (o coordina), jornada de hoy o de ayer (la noche que
+//    cruza la medianoche), y la jornada tiene que seguir ABIERTA.
+//  · El inicio nuevo cae DENTRO del turno de la jornada (día 7:00→19:00; noche
+//    19:00→7:00 del día siguiente), nunca en el futuro y distinto del actual.
+//  · Mismo ANCLAJE que el inicio normal: pasa por `calcularInicioJornada` (hoy no
+//    ancla —se respeta la hora declarada— desde el 02-oct; si un día vuelve a
+//    anclar, esta corrección anclará igual, sin tocar nada acá).
+//  · NO PISA NADA: no puede quedar antes del FIN de otro tramo del mismo turno
+//    (la jornada anterior, el tramo trabajado antes de una parada), y no puede
+//    cruzar una avería/parada marcada ENTRE el inicio viejo y el nuevo — ver
+//    `validarCorreccionInicioAbierta`.
+//  · `jornada_marked_at` NO se mueve: es la hora REAL en que se tocó «Iniciar», y la
+//    reactivación (machineLiveStatus / SupervisorScreen) la compara contra la hora de
+//    la parada. Moverla haría «reactivada» una parada que no lo está (o al revés).
+//  · MOTIVO OBLIGATORIO.
+
+/** Una avería/parada marcada (`maintenance_requests`) de la máquina. */
+export type MarcaAveria = { id?: string; material?: string | null; status?: string | null; created_at: string };
+
+/** Marcas de un instante (no ocupan tiempo): Control las graba al ajustar o anular. */
+const MARCAS_DE_UN_INSTANTE = ['ajuste_manual', 'no_trabajo_correction'];
+
+/** ¿Puede corregir el inicio de ESTA jornada abierta? */
+export function puedeCorregirInicioAbierta(opts: {
+  /** La ronda sigue con `jornada_start_at` (jornada en curso). */
+  abierta: boolean;
+  /** round_date de la jornada (fecha de NEGOCIO del inicio). */
+  roundDate: string;
+  today: string;
+  yesterday: string;
+  /** ¿La máquina es suya en ese turno (o coordina)? Misma regla que `asignadoEnTurnoDe`. */
+  asignadoEnTurno: boolean;
+}): Permiso {
+  if (!opts.abierta) return { ok: false, error: 'La jornada ya no está abierta (la finalizaron o marcaron parada). Recarga la pantalla.' };
+  if (opts.roundDate !== opts.today && opts.roundDate !== opts.yesterday) return { ok: false, error: 'Esta jornada es de hace días: pídeselo a Control.' };
+  if (!opts.asignadoEnTurno) return { ok: false, error: 'Esta máquina no es tuya en ese turno.' };
+  return { ok: true };
+}
+
+export type CorreccionInicio =
+  | { ok: true; startMs: number; anteriorMs: number; diferenciaMin: number }
+  | { ok: false; error: string };
+
+/**
+ * Valida la hora de inicio nueva de una jornada ABIERTA. No mira permisos (eso es
+ * `puedeCorregirInicioAbierta`). `tramosDelTurno` = los tramos YA cerrados de esa
+ * máquina/fecha (se filtran acá por turno); `marcas` = averías/paradas de la máquina
+ * alrededor del turno (se filtran acá por el intervalo entre los dos inicios).
+ */
+export function validarCorreccionInicioAbierta(opts: {
+  roundDate: string;
+  shift: Turno;
+  /** `jornada_start_at` actual (el que se va a corregir). */
+  inicioActualIso: string;
+  inicioTexto: string;
+  motivo: string;
+  tramosDelTurno: readonly TramoTurno[];
+  marcas: readonly MarcaAveria[];
+  nowMs?: number;
+}): CorreccionInicio {
+  const now = opts.nowMs ?? Date.now();
+  const txt = String(opts.inicioTexto ?? '').trim();
+  const tecleado = horaDelTurnoMs(opts.roundDate, opts.shift, txt);
+  if (tecleado == null) return { ok: false, error: `«${txt}» no es una hora válida. Escríbela como HH:MM (ej. 07:30).` };
+  // El MISMO anclaje que el inicio normal (iniciarJornada / startJornada).
+  const ini = calcularInicioJornada({ declaredIso: new Date(tecleado).toISOString(), shift: opts.shift, now: new Date(now) });
+  const startMs = new Date(ini.startIso).getTime();
+  const v = ventanaTurno(opts.roundDate, opts.shift);
+  const rango = opts.shift === 'night' ? '19:00 a 07:00 del día siguiente' : '07:00 a 19:00';
+  // Fin del turno EXCLUIDO: arrancar a las 19:00 (día) o 07:00 (noche) es 0 h, y ese
+  // instante ya pertenece al turno siguiente.
+  if (startMs < v.inicioMs || startMs >= v.finMs) return { ok: false, error: `La hora de inicio (${txt}) está fuera del turno de esta jornada (${rango}).` };
+  // Guardia: el FINALIZAR busca la ronda por la fecha de negocio del inicio; si no
+  // cayera en la MISMA ronda, la jornada quedaría abierta en una y cerrada en otra.
+  if (businessRoundDateOf(new Date(startMs), opts.shift) !== opts.roundDate || ini.roundDate !== opts.roundDate) {
+    return { ok: false, error: `La hora de inicio (${txt}) no pertenece a la jornada del ${opts.roundDate.split('-').reverse().join('/')}.` };
+  }
+  if (startMs > now + GRACIA_FUTURO_MS) return { ok: false, error: `La hora de inicio (${txt}) está en el futuro. Pon la hora real en que arrancó la máquina.` };
+  const anteriorMs = new Date(opts.inicioActualIso).getTime();
+  if (!isFinite(anteriorMs)) return { ok: false, error: 'No se pudo leer la hora de inicio actual. Recarga la pantalla.' };
+  // Mismo MINUTO = sin cambio (el inicio del QR guarda segundos; el texto no).
+  if (Math.floor(startMs / 60000) === Math.floor(anteriorMs / 60000)) return { ok: false, error: `La jornada ya empieza a las ${hhmmCaracas(anteriorMs)}: no cambiaste la hora.` };
+  if (!String(opts.motivo ?? '').trim()) return { ok: false, error: 'Escribe el MOTIVO de la corrección (es obligatorio).' };
+  // 1) Sin pisar tramos ya cerrados del turno: el inicio no puede quedar antes de su FIN.
+  const pisa = opts.tramosDelTurno
+    .filter((t) => t.shift === opts.shift && !MARCAS_DE_UN_INSTANTE.includes(t.source))
+    .map((t) => ({ a: new Date(t.started_at).getTime(), b: new Date(t.ended_at).getTime() }))
+    .filter((x) => isFinite(x.b) && startMs < x.b)
+    .sort((x, y) => y.b - x.b)[0];
+  if (pisa) {
+    // «Antes de las…» al minuto SIGUIENTE si el tramo cerró con segundos (10:00:30 → 10:01).
+    const desde = Math.ceil(pisa.b / 60000) * 60000;
+    return { ok: false, error: `La jornada no puede empezar antes de las ${hhmmCaracas(desde)}: ahí terminó otro tramo de este turno (${hhmmCaracas(pisa.a)}–${hhmmCaracas(pisa.b)}).` };
+  }
+  // 2) Sin cruzar una avería/parada marcada ENTRE el inicio viejo y el nuevo
+  //    [menor, mayor):
+  //    · HACIA ATRÁS, ninguna (pendiente o ya resuelta): la jornada «trabajaría»
+  //      encima de la parada, y el FINALIZAR —que resuelve las paradas creadas desde
+  //      el inicio— resolvería una que se marcó ANTES de que arrancara.
+  //    · HACIA ADELANTE, ninguna PENDIENTE: el FINALIZAR dejaría de resolver una que
+  //      hoy sí resuelve. Una ya resuelta no cambia nada (correr el inicio solo quita
+  //      horas que no se trabajaron), p. ej. la parada que cerró la jornada anterior.
+  const atras = startMs < anteriorMs;
+  const lo = Math.min(startMs, anteriorMs);
+  const hi = Math.max(startMs, anteriorMs);
+  const pendiente = (m: MarcaAveria) => m.status == null || m.status === 'pendiente';
+  const cruza = opts.marcas
+    .filter((m) => atras || pendiente(m))
+    .map((m) => ({ m, t: new Date(m.created_at).getTime() }))
+    .filter((x) => isFinite(x.t) && x.t >= lo && x.t < hi)
+    .sort((x, y) => x.t - y.t)[0];
+  if (cruza) {
+    const que = cruza.m.material === 'MÁQUINA PARADA' ? 'una parada' : 'una avería';
+    return { ok: false, error: `A las ${hhmmCaracas(cruza.t)} se marcó ${que} en esta máquina, entre la hora actual (${hhmmCaracas(anteriorMs)}) y la nueva (${hhmmCaracas(startMs)}). No se puede mover el inicio por encima de ella: pídeselo a Control.` };
+  }
+  return { ok: true, startMs, anteriorMs, diferenciaMin: Math.round((startMs - anteriorMs) / 60000) };
+}
+
+/** Traza en las notas de la ronda: «Inicio de jornada corregido por inspector el DD/MM HH:MM: HH:MM → HH:MM · motivo: …». */
+export function trazaInicioAbierta(opts: { nowMs: number; anteriorMs: number; nuevoMs: number; motivo: string }): string {
+  return `Inicio de jornada corregido por inspector el ${ddmmCaracas(opts.nowMs)} ${hhmmCaracas(opts.nowMs)}: ${hhmmCaracas(opts.anteriorMs)} → ${hhmmCaracas(opts.nuevoMs)} · motivo: ${String(opts.motivo).trim()}`;
 }

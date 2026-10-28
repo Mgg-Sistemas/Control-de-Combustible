@@ -3941,7 +3941,33 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   >   ajustar, la corrección se deshace y se avisa en pantalla.
   > - **Lo que Control ya corrigió no se toca**: si Control ajustó ese turno (o lo anuló por «NO
   >   TRABAJÓ»), en lugar del botón sale **«🔒 Corregido por Control: pídeselo a Control»**.
-  > - Con la jornada **abierta** en ese turno no deja corregir: primero hay que finalizarla.
+  > - Con la jornada **abierta** en ese turno no deja corregir el tramo ya finalizado: primero hay
+  >   que finalizarla. (La hora de **inicio** de la jornada abierta sí se corrige: ver abajo.)
+
+  > **🕐 Corregir la hora de inicio con la jornada todavía ABIERTA (28/10/2026).** Si el inspector
+  > se equivocó al tocar **▶️ Iniciar** (puso 9:00 y la máquina arrancó a las 7:30, o al revés), no
+  > tiene que finalizar ni esperar: en la tarjeta verde **«🟢 Jornada en curso · desde HH:MM»** sale
+  > el botón **«🕐 Corregir hora de inicio»**. Abre una ventana con la hora real de inicio (HH:MM,
+  > 24 h, hora de Caracas), el **motivo obligatorio** y **Guardar**.
+  > - Solo en **sus máquinas** en ese turno (la misma regla de la corrección de la jornada
+  >   finalizada; el coordinador también), con la jornada **abierta**, de **hoy** o la noche de
+  >   **ayer** que sigue en curso.
+  > - La hora va **dentro del turno de esa jornada** (día 7:00 → 19:00; noche 19:00 → 7:00 del día
+  >   siguiente), **nunca en el futuro** y **distinta** de la que ya tiene. Se guarda la hora tal
+  >   cual se escribe, **igual que al iniciar** (desde el 02/10 el inicio no se ancla a las 7:00/7:00pm).
+  > - **No pisa nada**: no puede quedar antes del fin de otro tramo del mismo turno (la jornada
+  >   anterior, o lo trabajado antes de una parada), y no puede **cruzar una parada o avería**
+  >   marcada entre la hora vieja y la nueva (hacia atrás, ninguna; hacia adelante, ninguna
+  >   pendiente). En esos casos lo dice en pantalla y hay que pedírselo a Control.
+  > - Al guardar **solo cambia la hora de inicio** de la jornada abierta: no se tocan las horas ya
+  >   cerradas del turno, ni los tramos, ni las paradas, ni la hora en que se tocó «Iniciar» (la que
+  >   sale como «marcó HH:MM» y decide si una parada quedó reactivada). Antes de guardar vuelve a
+  >   leer la jornada: si mientras tanto la finalizaron, marcaron parada o alguien cambió el inicio,
+  >   **no guarda** y avisa. En la jornada queda la traza «Inicio de jornada corregido por inspector
+  >   el DD/MM HH:MM: HH:MM → HH:MM · motivo: …» (se agrega a sus notas, no las borra) y el evento
+  >   queda en Auditoría.
+  > - Desde ese momento el **tiempo en curso**, el **acumulado del turno** y el **🏁 FINALIZAR**
+  >   cuentan desde la hora corregida.
 
 #### ⛏️ Frentes de trabajo de la maquinaria — pestaña de Reportes (02/10/2026)
 

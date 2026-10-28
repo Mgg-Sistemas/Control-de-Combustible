@@ -40,6 +40,7 @@ import { cargarLecturasDeMaquinaDia, guardarLecturaHorometro } from '../lib/horo
 import { HorometroCorregirModal } from '../components/HorometroCorregirModal';
 // 🕐 Corregir hora de inicio / fin de una jornada YA finalizada (28-oct-2026).
 import { CorregirHorasJornadaModal } from '../components/CorregirHorasJornadaModal';
+import { CorregirInicioJornadaAbiertaModal } from '../components/CorregirInicioJornadaAbiertaModal';
 import { TramoTurno, esCierreManual, puedeCorregirHoras, hhmmCaracas } from '../lib/corregirHorasJornada';
 import { LecturaTrabajo, lecturaParaCompletarFinal, horometroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 import { notifyAdmins } from '../lib/notify';
@@ -478,6 +479,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [horasTramos, setHorasTramos] = useState<(TramoTurno & { round_date: string })[]>([]);
   const [horasEditTramo, setHorasEditTramo] = useState<(TramoTurno & { round_date: string }) | null>(null);
   const [horasEditRecarga, setHorasEditRecarga] = useState(0);
+  // 🕐 CORREGIR LA HORA DE INICIO con la jornada todavía ABIERTA (28-oct-2026): abre el
+  //    modal (montado al FINAL del árbol). Reglas: lib/corregirHorasJornada.ts.
+  const [inicioAbiertaEdit, setInicioAbiertaEdit] = useState(false);
   const [finTardiaBusy, setFinTardiaBusy] = useState(false);
   // ⚙️ CIERRE CONSCIENTE (24-sep-2026): si la máquina marcó horómetro INICIAL hoy y el
   //    final viene vacío, el primer «Sí, finalizar» NO cierra: avisa, y hay que escribirlo
@@ -602,6 +606,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   }, [ci?.id]);
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
+    setInicioAbiertaEdit(false);
     if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); setMotivoCierre(''); return; }
     setParadaOpen(false); setFinConfirm(false); setHoroFin(''); setMotivoCierre(''); setCerrarSinFinal(false); setIniciarSinHoro(false); setFinTime('');
     // Limpia el formulario de PARADA (ambos caminos) al cambiar de máquina.
@@ -3943,6 +3948,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         Σ Acumulado del turno: {horasVivasTurno({ bancado: curRoundHours[jornadaShift], startMs: new Date(jornadaStart).getTime(), shift: jornadaShift, nowMs: nowTick }).toFixed(2)} h (incluye lo trabajado antes de la parada)
                       </Text>
                     ) : null}
+                    {/* 🕐 ¿Se equivocó al iniciar? Corrige SOLO la hora de inicio; la jornada
+                        sigue abierta. Su máquina en ese turno (o coordina). El modal va al
+                        FINAL del árbol; las reglas, en lib/corregirHorasJornada.ts. */}
+                    {asignadoEnTurnoDe(jornadaShift) ? (
+                      <TouchableOpacity onPress={() => setInicioAbiertaEdit(true)} disabled={jornadaBusy} style={{ alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.successSoftBorder, backgroundColor: colors.surface, opacity: jornadaBusy ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🕐 Corregir hora de inicio</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                   {finConfirm ? (
                     <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
@@ -4553,6 +4566,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           asignadoEnTurno={asignadoEnTurnoDe(String(horasEditTramo.shift))}
           onClose={() => setHorasEditTramo(null)}
           onSaved={(aviso) => { setHorasEditRecarga((n) => n + 1); setNotice(aviso); reloadEstados(); }}
+        />
+      ) : null}
+      {/* 🕐 Corregir la hora de inicio de la jornada ABIERTA: también al FINAL del árbol.
+          Al guardar, el inicio nuevo pasa al estado de la pantalla: de ahí salen las horas
+          en vivo, la parada (bancado) y el FINALIZAR. */}
+      {ci && jornadaStart && inicioAbiertaEdit ? (
+        <CorregirInicioJornadaAbiertaModal
+          code={ci.code}
+          machineryId={ci.id}
+          shift={jornadaShift}
+          inicioActual={jornadaStart}
+          today={today}
+          yesterday={yesterday}
+          asignadoEnTurno={asignadoEnTurnoDe(jornadaShift)}
+          onClose={() => setInicioAbiertaEdit(false)}
+          onSaved={(nuevoInicio, aviso) => { setJornadaStart(nuevoInicio); setFinConfirm(false); setNotice(aviso); reloadEstados(); }}
         />
       ) : null}
     </Screen>
