@@ -69,7 +69,7 @@ import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
 import QrScanner from '../components/QrScanner';
 import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
 import { CONFIG_POR_DEFECTO, PAPELES, crearFormatoDefecto, resolverFormatoDeViaje, FORMATO_DEFECTO_ID, type TiqueConfig, type FormatoTique } from '../lib/tiqueConfig';
-import { leerConfigTique, registrarFoliosFormatosEnBase } from '../lib/tiqueConfigDatos';
+import { leerConfigTique, registrarFoliosFormatosEnBase, leerCombustibleTarasDia, guardarCombustibleTaraCamion, type CombustibleTaraEntry } from '../lib/tiqueConfigDatos';
 import { avisoDeCapacidad, documentoDeTiques, hojasQueSalen, medioDeImpresion, nombreArchivoTiques, type DatosTique, type TiqueParaImprimir } from '../lib/tiqueDocumento';
 import { contarEmisionesPendientes, contarEmisionesPorFolio, flushEmisionesPendientes, nuevoUuid, registrarEmisiones, type EmisionNueva } from '../lib/tiqueEmisiones';
 import { LOGO_DATA_URI } from '../lib/logoData';
@@ -3285,6 +3285,87 @@ export default function ViajesCamionesScreen() {
     toast.success(yaExento ? `${code} vuelve a pasar por romana: sus próximos viajes exigen peso y foto.` : `${code} marcado: no pasa por romana.`);
   };
 
+  // ⛽ Combustible diario por maquinaria en el apartado de Tara de romana y Reporte de taras
+  const [taraCombFecha, setTaraCombFecha] = useState<string>(() => caracasBusinessToday());
+  const [taraCombDia, setTaraCombDia] = useState<Record<string, CombustibleTaraEntry>>({});
+  const [taraCombEdits, setTaraCombEdits] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let vivo = true;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(taraCombFecha)) return;
+    leerCombustibleTarasDia(taraCombFecha).then((mapa) => {
+      if (!vivo) return;
+      setTaraCombDia(mapa);
+    });
+    return () => { vivo = false; };
+  }, [taraCombFecha, tarasRecarga]);
+
+  const cambiarDiaCombustibleTara = (deltaDias: number) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(taraCombFecha)) return;
+    const [y, m, d] = taraCombFecha.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + deltaDias));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    setTaraCombFecha(`${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`);
+    setTaraCombEdits({});
+  };
+
+  const saveCombustibleTara = async (truckId: string) => {
+    const raw = (taraCombEdits[truckId] ?? '').trim();
+    if (raw === '') return;
+    const litros = leerNumero(raw);
+    if (!Number.isFinite(litros) || litros <= 0) {
+      toast.error('La cantidad de combustible tiene que ser mayor que 0 litros.');
+      return;
+    }
+    const { error } = await guardarCombustibleTaraCamion(taraCombFecha, truckId, litros, uid || null, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTaraCombDia((prev) => ({
+      ...prev,
+      [truckId]: { litros: Math.round(litros * 10) / 10, updatedByNombre: listeroName || null, updatedAt: new Date().toISOString() },
+    }));
+    setTaraCombEdits((prev) => { const p = { ...prev }; delete p[truckId]; return p; });
+    toast.success(`Combustible guardado para el ${dmy(taraCombFecha)}: ${Math.round(litros * 10) / 10} L.`);
+  };
+
+  const borrarCombustibleTara = async (truckId: string, code: string) => {
+    const { error } = await guardarCombustibleTaraCamion(taraCombFecha, truckId, null, uid || null, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTaraCombDia((prev) => {
+      const n = { ...prev };
+      delete n[truckId];
+      return n;
+    });
+    setTaraCombEdits((prev) => { const p = { ...prev }; delete p[truckId]; return p; });
+    toast.success(`Combustible del ${dmy(taraCombFecha)} quitado de ${code}.`);
+  };
+
+  const tarasConCombustible = useMemo(() => {
+    const m = new Map<string, TaraCamion & { combustibleLitros?: number | null }>();
+    taras.forEach((v, k) => {
+      m.set(k, { ...v, combustibleLitros: taraCombDia[k]?.litros ?? null });
+    });
+    return m;
+  }, [taras, taraCombDia]);
+
+  const camionesEnObraConCombustible = useMemo(() => {
+    return camionesEnObra.map((c) => ({
+      ...c,
+      combustibleLitros: taraCombDia[c.id]?.litros ?? null,
+    }));
+  }, [camionesEnObra, taraCombDia]);
+
+  const resumenCombDia = useMemo(() => {
+    let equipos = 0;
+    let totalLitros = 0;
+    for (const c of camionesEnObra) {
+      const l = taraCombDia[c.id]?.litros;
+      if (l != null && l > 0) {
+        equipos += 1;
+        totalLitros += l;
+      }
+    }
+    return { equipos, totalLitros: Math.round(totalLitros * 10) / 10 };
+  }, [camionesEnObra, taraCombDia]);
+
   // 🧾 Administración de TIPOS DE VIAJE (solo full; el RLS lo exige igual).
   const [nuevoTipoNombre, setNuevoTipoNombre] = useState('');
   const [nuevoTipoTarifa, setNuevoTipoTarifa] = useState('');
@@ -6496,7 +6577,51 @@ export default function ViajesCamionesScreen() {
               <>
               {/* 📄 Reporte de taras (06-oct-2026, pedido del cliente): cuántos
                   camiones ya tienen tara, con opción de sacarlo sin empresas. */}
-              <ReporteTarasBox camiones={camionesEnObra} taras={taras} />
+              <ReporteTarasBox
+                camiones={camionesEnObraConCombustible}
+                taras={tarasConCombustible}
+                fechaCombustible={taraCombFecha}
+              />
+              {/* ⛽ Selector de fecha para colocar la cantidad de combustible del día en cada maquinaria */}
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs,
+                padding: spacing.xs, marginBottom: spacing.xs, borderRadius: radius.md,
+                borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface,
+              }}>
+                <Text style={{ color: colors.text, fontSize: 11, fontWeight: '800' }}>⛽ Combustible del día:</Text>
+                <TouchableOpacity
+                  onPress={() => cambiarDiaCombustibleTara(-1)}
+                  style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11 }}>◀</Text>
+                </TouchableOpacity>
+                <TextInput
+                  value={taraCombFecha}
+                  onChangeText={(v) => { setTaraCombFecha(v.trim()); setTaraCombEdits({}); }}
+                  placeholder="AAAA-MM-DD"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, { width: 110, paddingVertical: 4, textAlign: 'center', fontSize: 12, fontWeight: '700' }]}
+                />
+                <TouchableOpacity
+                  onPress={() => cambiarDiaCombustibleTara(1)}
+                  style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11 }}>▶</Text>
+                </TouchableOpacity>
+                {taraCombFecha !== caracasBusinessToday() ? (
+                  <TouchableOpacity
+                    onPress={() => { setTaraCombFecha(caracasBusinessToday()); setTaraCombEdits({}); }}
+                    style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.primary }}
+                  >
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 10.5 }}>Hoy</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <Text style={{ color: colors.muted, fontSize: 11, flex: 1 }}>
+                  {resumenCombDia.equipos > 0
+                    ? `${dmy(taraCombFecha)} · ${resumenCombDia.equipos} equipo(s) · ${resumenCombDia.totalLitros} L en total`
+                    : `${dmy(taraCombFecha)} · escribe los litros (L) al lado de la tara de cada maquinaria`}
+                </Text>
+              </View>
               {/* 🔎 Buscar el camión al que se le va a cargar la tara: por
                   código, placa, serial, marca, modelo o empresa. */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
@@ -6520,38 +6645,73 @@ export default function ViajesCamionesScreen() {
                     : `${tarasFiltradas.length} de ${camionesEnObra.length} camión(es).`}
                 </Text>
               ) : null}
-              <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+              <ScrollView style={{ maxHeight: 360 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                 {tarasFiltradas.map((t) => {
                   const tara = taras.get(t.id);
                   const exento = tara?.exentoRomana === true;
+                  const combGuardado = taraCombDia[t.id];
                   return (
-                    <View key={`tara-${t.id}`} style={{ paddingVertical: 4 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                        <View style={{ flex: 1 }}>
+                    <View key={`tara-${t.id}`} style={{ paddingVertical: 5, borderBottomWidth: 0.5, borderBottomColor: colors.border }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+                        <View style={{ flex: 1, minWidth: 180 }}>
                           <Text style={{ color: colors.text }}>🚜 {t.code}</Text>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>
                             {[t.plate ? `Placa ${t.plate}` : null, t.serial ? `Serial ${t.serial}` : null].filter(Boolean).join(' · ') || 'Sin placa ni serial'}
                             {tara?.pesoTaraKg != null && tara.updatedByNombre ? ` · la cargó ${tara.updatedByNombre}` : ''}
+                            {combGuardado?.litros != null ? ` · ⛽ ${combGuardado.litros} L (${dmy(taraCombFecha)})` : ''}
                             {exento ? ` · 🚫 no pasa por romana${tara?.exentoPorNombre ? ` (${tara.exentoPorNombre})` : ''}` : ''}
                           </Text>
                         </View>
-                        <TextInput
-                          value={taraEdits[t.id] ?? (tara?.pesoTaraKg != null ? taraMostrada(tara.pesoTaraKg) : '')}
-                          onChangeText={(v) => setTaraEdits((prev) => ({ ...prev, [t.id]: v }))}
-                          onBlur={() => { if (taraEdits[t.id] !== undefined) saveTara(t.id); }}
-                          keyboardType="numeric"
-                          placeholder={taraUnidad === 'kg' ? 'Kg' : 'Ton'}
-                          placeholderTextColor={colors.muted}
-                          style={[styles.input, { width: 90, paddingVertical: 6, textAlign: 'center' }]}
-                        />
-                        <TouchableOpacity onPress={() => saveTara(t.id)}>
-                          <Text style={{ fontSize: 16 }}>💾</Text>
-                        </TouchableOpacity>
-                        {tara?.pesoTaraKg != null ? (
-                          <TouchableOpacity onPress={() => borrarTara(t.id, t.code)} accessibilityLabel={`Quitar la tara de ${t.code}`}>
-                            <Text style={{ fontSize: 14, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                        {/* ⚖️ Tara */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginBottom: 1 }}>
+                              ⚖️ Tara ({taraUnidad === 'kg' ? 'Kg' : 'Ton'})
+                            </Text>
+                            <TextInput
+                              value={taraEdits[t.id] ?? (tara?.pesoTaraKg != null ? taraMostrada(tara.pesoTaraKg) : '')}
+                              onChangeText={(v) => setTaraEdits((prev) => ({ ...prev, [t.id]: v }))}
+                              onBlur={() => { if (taraEdits[t.id] !== undefined) saveTara(t.id); }}
+                              keyboardType="numeric"
+                              placeholder={taraUnidad === 'kg' ? 'Kg' : 'Ton'}
+                              placeholderTextColor={colors.muted}
+                              style={[styles.input, { width: 86, paddingVertical: 5, textAlign: 'center' }]}
+                            />
+                          </View>
+                          <TouchableOpacity onPress={() => saveTara(t.id)} style={{ marginTop: 12 }}>
+                            <Text style={{ fontSize: 15 }}>💾</Text>
                           </TouchableOpacity>
-                        ) : null}
+                          {tara?.pesoTaraKg != null ? (
+                            <TouchableOpacity onPress={() => borrarTara(t.id, t.code)} accessibilityLabel={`Quitar la tara de ${t.code}`} style={{ marginTop: 12 }}>
+                              <Text style={{ fontSize: 13, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                        {/* ⛽ Combustible del día */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginBottom: 1 }}>
+                              ⛽ Combustible (L)
+                            </Text>
+                            <TextInput
+                              value={taraCombEdits[t.id] ?? (combGuardado?.litros != null ? String(combGuardado.litros).replace('.', ',') : '')}
+                              onChangeText={(v) => setTaraCombEdits((prev) => ({ ...prev, [t.id]: v }))}
+                              onBlur={() => { if (taraCombEdits[t.id] !== undefined) saveCombustibleTara(t.id); }}
+                              keyboardType="numeric"
+                              placeholder="Litros (L)"
+                              placeholderTextColor={colors.muted}
+                              style={[styles.input, { width: 86, paddingVertical: 5, textAlign: 'center' }]}
+                            />
+                          </View>
+                          <TouchableOpacity onPress={() => saveCombustibleTara(t.id)} style={{ marginTop: 12 }}>
+                            <Text style={{ fontSize: 15 }}>💾</Text>
+                          </TouchableOpacity>
+                          {combGuardado?.litros != null ? (
+                            <TouchableOpacity onPress={() => borrarCombustibleTara(t.id, t.code)} accessibilityLabel={`Quitar el combustible de ${t.code}`} style={{ marginTop: 12 }}>
+                              <Text style={{ fontSize: 13, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
                       </View>
                       {/* 🚫 El interruptor de la romana, debajo de cada camión:
                           quién no pasa se decide acá, no en el teléfono. */}

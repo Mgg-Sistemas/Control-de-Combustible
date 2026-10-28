@@ -19,8 +19,8 @@ import { UNIDADES_PESO } from '../lib/viajesPeso';
 import { caracasBusinessToday } from '../lib/caracasDay';
 import { listOperatorAssignments } from '../lib/machineOperators';
 import {
-  OPCIONES_TARAS_POR_DEFECTO, cuerpoReporteTaras, resumenTaras, subtituloReporteTaras,
-  nombreArchivoTaras, CSS_REPORTE_TARAS,
+  OPCIONES_TARAS_POR_DEFECTO, cuerpoReporteTaras, resumenTaras, resumenCombustibleTaras, subtituloReporteTaras,
+  nombreArchivoTaras, CSS_REPORTE_TARAS, litrosTexto,
   type CamionParaTara, type TaraParaReporte, type OpcionesReporteTaras,
 } from '../lib/reporteTaras';
 
@@ -34,9 +34,10 @@ const LOGOS: [keyof LogosReporte, string][] = [
   ['jhenzaen', 'Jhenzaen 2.012 C.A'],
 ];
 
-export function ReporteTarasBox({ camiones, taras }: {
+export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
   camiones: CamionParaTara[];
   taras: Map<string, TaraParaReporte>;
+  fechaCombustible?: string;
 }) {
   const { colors } = useTheme();
   const toast = useToast();
@@ -67,6 +68,10 @@ export function ReporteTarasBox({ camiones, taras }: {
   };
 
   const r = resumenTaras(camiones, taras);
+  const rComb = resumenCombustibleTaras(camiones, taras, op.alcance);
+  const fechaCombDmy = fechaCombustible && /^\d{4}-\d{2}-\d{2}$/.test(fechaCombustible)
+    ? `${fechaCombustible.slice(8, 10)}/${fechaCombustible.slice(5, 7)}/${fechaCombustible.slice(0, 4)}`
+    : null;
 
   const generar = async () => {
     if (op.alcance === 'conTara' && r.conTara === 0) {
@@ -86,10 +91,14 @@ export function ReporteTarasBox({ camiones, taras }: {
         rows.forEach((a) => (a.shift === 'night' ? noche : dia).set(a.machinery_id, a.operator_name));
         camionesPdf = camiones.map((c) => ({ ...c, choferDia: dia.get(c.id) ?? null, choferNoche: noche.get(c.id) ?? null }));
       }
+      const subBase = subtituloReporteTaras(r, op.alcance);
+      const subComb = op.combustible !== false && rComb.totalLitros > 0
+        ? ` · Combustible${fechaCombDmy ? ` (${fechaCombDmy})` : ''}: ${litrosTexto(rComb.totalLitros)}`
+        : '';
       const html = pdfDocument({
         title: 'Reporte de taras',
-        subtitle: subtituloReporteTaras(r, op.alcance),
-        body: cuerpoReporteTaras(camionesPdf, taras, op),
+        subtitle: `${subBase}${subComb}`,
+        body: cuerpoReporteTaras(camionesPdf, taras, { ...op, fechaCombustible }),
         extraCss: CSS_REPORTE_TARAS,
         logos,
         // Sin la línea «Banco Central de Venezuela / SOS La Guaira»: el
@@ -120,6 +129,7 @@ export function ReporteTarasBox({ camiones, taras }: {
           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📄 Reporte de taras</Text>
           <Text style={{ color: colors.muted, fontSize: 11 }}>
             {r.conTara} de {r.flota} camión(es) con tara cargada{r.exentos > 0 ? ` · ${r.exentos} no pasan por romana` : ''}
+            {rComb.totalLitros > 0 ? ` · ⛽ ${rComb.conCombustible} con combustible (${litrosTexto(rComb.totalLitros)})` : ''}
           </Text>
         </View>
         <TouchableOpacity
@@ -156,6 +166,12 @@ export function ReporteTarasBox({ camiones, taras }: {
           <Toggle on={op.numeracion !== false} label="1️⃣ Numeración (N°)" onPress={() => setOp('numeracion', op.numeracion === false)} />
           <Toggle on={op.placa !== false} label="🔢 Placa / serial" onPress={() => setOp('placa', op.placa === false)} />
           <Toggle on={op.marcaModelo} label="🏷️ Marca y modelo" onPress={() => setOp('marcaModelo', !op.marcaModelo)} />
+          <Toggle
+            on={op.combustible !== false}
+            label="⛽ Combustible (L)"
+            ayuda="Muestra la columna de litros de combustible asignados a cada maquinaria para el día seleccionado y su total."
+            onPress={() => setOp('combustible', op.combustible === false)}
+          />
           <Toggle
             on={op.clasificacion === true}
             label="◆ Clasificación por capacidad"

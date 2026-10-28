@@ -34,6 +34,8 @@ export type CamionParaTara = {
   choferDia?: string | null;
   /** 👤 Chofer asignado al turno de NOCHE. */
   choferNoche?: string | null;
+  /** ⛽ Cantidad de combustible (litros) asignada para el día del reporte. */
+  combustibleLitros?: number | null;
 };
 
 export type TaraParaReporte = {
@@ -41,6 +43,8 @@ export type TaraParaReporte = {
   updatedAt: string;
   updatedByNombre: string | null;
   exentoRomana: boolean;
+  /** ⛽ Cantidad de combustible (litros) asignada a esta maquinaria para ese día. */
+  combustibleLitros?: number | null;
 };
 
 /** Qué camiones salen: solo los que ya tienen tara (el «van 40») o toda la flota. */
@@ -71,6 +75,10 @@ export type OpcionesReporteTaras = {
    * mismo, el nombre solo. Nace apagada.
    */
   chofer?: boolean;
+  /** ⛽ Columna «Combustible (L)» para cada maquinaria en el día seleccionado. */
+  combustible?: boolean;
+  /** 📅 Fecha (AAAA-MM-DD) del combustible mostrado en el reporte. */
+  fechaCombustible?: string;
   /** ⚙️ Columna «Estado» (solo tiene sentido con «Toda la flota»). */
   estado?: boolean;
   /** 📊 Las cuatro tarjetas de arriba (total y taras). */
@@ -91,6 +99,7 @@ export const OPCIONES_TARAS_POR_DEFECTO: OpcionesReporteTaras = {
   placa: true,
   clasificacion: false,
   chofer: false,
+  combustible: true,
   estado: true,
   kpis: true,
   notaPie: true,
@@ -105,6 +114,7 @@ export type FilaTara = {
   taraKg: number | null;
   cargadaPor: string | null;
   cargadaEl: string | null;
+  combustibleLitros?: number | null;
 };
 
 export type ResumenTaras = {
@@ -132,6 +142,8 @@ export function filasDeTaras(
     const t = taras.get(c.id);
     const exento = t?.exentoRomana === true;
     const kg = t?.pesoTaraKg != null && isFinite(t.pesoTaraKg) && t.pesoTaraKg > 0 ? t.pesoTaraKg : null;
+    const rawComb = t?.combustibleLitros ?? c.combustibleLitros;
+    const comb = rawComb != null && isFinite(Number(rawComb)) && Number(rawComb) > 0 ? Number(rawComb) : null;
     const estado: EstadoTara = exento ? 'exento' : kg != null ? 'conTara' : 'sinTara';
     return {
       camion: c,
@@ -139,6 +151,7 @@ export function filasDeTaras(
       taraKg: kg,
       cargadaPor: kg != null ? (t?.updatedByNombre ?? null) : null,
       cargadaEl: kg != null ? (t?.updatedAt || null) : null,
+      combustibleLitros: comb,
     };
   });
   const elegidas = alcance === 'conTara' ? filas.filter((f) => f.estado === 'conTara') : filas;
@@ -166,6 +179,24 @@ export function resumenTaras(camiones: CamionParaTara[], taras: Map<string, Tara
   };
 }
 
+/** Resumen de combustible sobre las filas seleccionadas (o toda la flota). */
+export function resumenCombustibleTaras(
+  camiones: CamionParaTara[],
+  taras: Map<string, TaraParaReporte>,
+  alcance: AlcanceTaras = 'conTara',
+): { conCombustible: number; totalLitros: number } {
+  const filas = filasDeTaras(camiones, taras, alcance);
+  let conCombustible = 0;
+  let totalLitros = 0;
+  for (const f of filas) {
+    if (f.combustibleLitros != null && f.combustibleLitros > 0) {
+      conCombustible += 1;
+      totalLitros += f.combustibleLitros;
+    }
+  }
+  return { conCombustible, totalLitros: Math.round(totalLitros * 10) / 10 };
+}
+
 export function esc(t: unknown): string {
   return String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
@@ -180,6 +211,16 @@ export function pesoTexto(kg: number | null, unidad: UnidadPeso): string {
   //    ejemplo», con el papel de otro sistema de patrón). Antes eran dos; se
   //    probó con cero el mismo día y el cliente lo devolvió.
   return unidad === 't' ? tonTexto(kg, 1) : kgTexto(kg, 1);
+}
+
+/** Cantidad de combustible en litros formateada para el papel (ej. «120 L» o «120,5 L»). */
+export function litrosTexto(litros: number | null | undefined): string {
+  if (litros == null || !isFinite(litros) || litros <= 0) return '—';
+  const redondeado = Math.round(litros * 10) / 10;
+  const esEntero = Math.abs(redondeado - Math.round(redondeado)) < 1e-6;
+  const [ent, dec] = redondeado.toFixed(esEntero ? 0 : 1).split('.');
+  const miles = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${dec ? `${miles},${dec}` : miles} L`;
 }
 
 /** «06/10/2026» en hora de Caracas (UTC−4 fijo, sin horario de verano). */
@@ -207,6 +248,7 @@ export const CSS_REPORTE_TARAS = `
   table.taras th{background:#1E3A5F;color:#fff;text-align:left;padding:6px 7px;font-size:8.5px;letter-spacing:.3px}
   table.taras td{padding:5px 7px;border:1px solid #DDE4EC}
   table.taras tbody tr:nth-child(even) td{background:#F5F8FC}
+  table.taras tfoot td{background:#EDF2F7;font-weight:800;color:#1E3A5F;border-top:2px solid #1E3A5F}
   table.taras td.n,table.taras th.n{text-align:center}
   table.taras td.r,table.taras th.r{text-align:right}
   table.taras td.sin{color:#9A3412;font-weight:700}
@@ -221,12 +263,14 @@ export function cuerpoReporteTaras(
 ): string {
   const r = resumenTaras(camiones, taras);
   const filas = filasDeTaras(camiones, taras, op.alcance);
+  const rComb = resumenCombustibleTaras(camiones, taras, op.alcance);
   // Los `!== false` son por las opciones guardadas de antes del 19-oct-2026
   // (no traen las claves nuevas): sin la clave, la columna de siempre SALE.
   const verNum = op.numeracion !== false;
   const verPlaca = op.placa !== false;
   const verClasif = op.clasificacion === true;
   const verChofer = op.chofer === true;
+  const verCombustible = op.combustible !== false;
   /** ☀️/🌙 solo cuando hace falta distinguir: un mismo chofer en los dos turnos va limpio. */
   const choferTexto = (c: CamionParaTara): string => {
     const d = String(c.choferDia ?? '').trim();
@@ -256,6 +300,7 @@ export function cuerpoReporteTaras(
     [pesoTexto(r.promedioKg, op.unidad), 'TARA PROMEDIO'],
     [pesoTexto(r.mayorKg, op.unidad), 'TARA MAYOR'],
     [pesoTexto(r.menorKg, op.unidad), 'TARA MENOR'],
+    ...(verCombustible && rComb.totalLitros > 0 ? [[litrosTexto(rComb.totalLitros), 'TOTAL COMBUSTIBLE'] as [string, string]] : []),
   ];
 
   const cab = [
@@ -267,10 +312,11 @@ export function cuerpoReporteTaras(
     verChofer ? '<th>Chofer</th>' : '',
     op.empresa ? '<th>Empresa</th>' : '',
     `<th class="r">Tara (${op.unidad === 't' ? 'Ton' : 'Kg'})</th>`,
+    verCombustible ? '<th class="r">Combustible (L)</th>' : '',
     verEstado ? '<th>Estado</th>' : '',
     op.cargadaPor ? '<th>Cargada por</th>' : '',
   ].join('');
-  const nCols = [verNum, true, verPlaca, op.marcaModelo, verClasif, verChofer, op.empresa, true, verEstado, op.cargadaPor].filter(Boolean).length;
+  const nCols = [verNum, true, verPlaca, op.marcaModelo, verClasif, verChofer, op.empresa, true, verCombustible, verEstado, op.cargadaPor].filter(Boolean).length;
 
   const cuerpo = filas.map((f, i) => {
     const c = f.camion;
@@ -288,10 +334,21 @@ export function cuerpoReporteTaras(
       ${verChofer ? `<td>${esc(choferTexto(c))}</td>` : ''}
       ${op.empresa ? `<td>${esc(empresaImpresa(c))}</td>` : ''}
       <td class="r${f.taraKg == null ? ' sin' : ''}">${esc(f.taraKg == null ? '—' : pesoTexto(f.taraKg, op.unidad))}</td>
+      ${verCombustible ? `<td class="r${f.combustibleLitros == null ? ' sin' : ''}">${esc(litrosTexto(f.combustibleLitros))}</td>` : ''}
       ${verEstado ? `<td${f.estado === 'conTara' ? '' : ' class="sin"'}>${ESTADO_TEXTO[f.estado]}</td>` : ''}
       ${op.cargadaPor ? `<td>${esc(quien)}</td>` : ''}
     </tr>`;
   }).join('');
+
+  const colsAntesDeCombustible = [verNum, true, verPlaca, op.marcaModelo, verClasif, verChofer, op.empresa, true].filter(Boolean).length;
+  const colsDespuesDeCombustible = [verEstado, op.cargadaPor].filter(Boolean).length;
+  const pieCombustible = verCombustible && rComb.totalLitros > 0 && filas.length > 0
+    ? `<tfoot><tr>
+        <td colspan="${colsAntesDeCombustible}" class="r">Total combustible (${rComb.conCombustible} eq.):</td>
+        <td class="r">${esc(litrosTexto(rComb.totalLitros))}</td>
+        ${colsDespuesDeCombustible > 0 ? `<td colspan="${colsDespuesDeCombustible}"></td>` : ''}
+      </tr></tfoot>`
+    : '';
 
   const vacio = filas.length === 0
     ? `<tr><td colspan="${nCols}" class="n">Todavía no hay camiones con tara cargada.</td></tr>`
@@ -299,7 +356,7 @@ export function cuerpoReporteTaras(
 
   return `
     ${verKpis ? `<div class="kpis">${kpis.map(([v, t]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="t">${esc(t)}</div></div>`).join('')}</div>` : ''}
-    <table class="taras"><thead><tr>${cab}</tr></thead><tbody>${cuerpo}${vacio}</tbody></table>
+    <table class="taras"><thead><tr>${cab}</tr></thead><tbody>${cuerpo}${vacio}</tbody>${pieCombustible}</table>
     ${verNota ? `<div class="nota-t">La tara es el peso del camión vacío medido en romana. Cada viaje registrado conserva la tara que tenía ese día.</div>` : ''}
   `;
 }
@@ -324,6 +381,7 @@ export function sufijoArchivoTaras(op: OpcionesReporteTaras): string {
   if (op.chofer === true) partes.push('con chofer');
   if (!op.empresa) partes.push('sin empresas');
   else if ((op.empresaUnica ?? '').trim()) partes.push('a nombre de una empresa');
+  if (op.combustible === false) partes.push('sin combustible');
   if (op.alcance === 'todos' && op.estado === false) partes.push('sin estado');
   if (!op.cargadaPor) partes.push('sin cargada-por');
   if (op.kpis === false) partes.push('sin resumen');
