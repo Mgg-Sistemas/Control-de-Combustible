@@ -1076,7 +1076,8 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       }
       if (res.url) {
         setItems((prev) => prev.map((l, j) => (j === index ? { ...l, image_url: res.url } : l)));
-        if (!fotoProducto) {
+        // La foto del renglón es de ESE renglón; solo con UN renglón es también la general.
+        if (!fotoProducto && items.length === 1) {
           setFotoProducto({ url: res.url, name: `Foto de la pieza (Renglón ${index + 1})` });
         }
         toast.success(`Foto agregada al renglón ${index + 1}.`);
@@ -1101,7 +1102,8 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       }
       if (res.url) {
         setItems((prev) => prev.map((l, j) => (j === index ? { ...l, image_url: res.url } : l)));
-        if (!fotoProducto) {
+        // La foto del renglón es de ESE renglón; solo con UN renglón es también la general.
+        if (!fotoProducto && items.length === 1) {
           setFotoProducto({ url: res.url, name: (res as any).name || `Foto de la pieza (Renglón ${index + 1})` });
         }
         toast.success(`Foto agregada al renglón ${index + 1}.`);
@@ -1126,13 +1128,15 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     const clean = items.filter((l) => l.description.trim() && Number(l.qty) > 0);
     if (!clean.length) return toast.error('Agrega al menos un renglón con producto y cantidad.');
 
-    // Sincronización bidireccional defensiva con la primera foto
-    const primerFotoItem = clean.find((l) => l.image_url)?.image_url || null;
+    // 📷 La foto es OPCIONAL. Cada renglón guarda la SUYA (items[].image_url). La foto
+    //    general y la del renglón solo se igualan si la compra tiene UN renglón: con varios no
+    //    se sabe de cuál producto es (28-oct-2026: «cada foto para su objeto»).
+    const unRenglon = clean.length === 1;
     let fotoDefinitiva = fotoProducto;
-    if (!fotoDefinitiva?.url && primerFotoItem) {
-      fotoDefinitiva = { url: primerFotoItem, name: 'Foto del producto' };
+    if (unRenglon && !fotoDefinitiva?.url && clean[0]?.image_url) {
+      fotoDefinitiva = { url: clean[0].image_url, name: 'Foto del producto' };
     }
-    if (fotoDefinitiva?.url && !clean[0]?.image_url) {
+    if (unRenglon && fotoDefinitiva?.url && !clean[0]?.image_url) {
       clean[0] = { ...clean[0], image_url: fotoDefinitiva.url };
     }
 
@@ -1145,8 +1149,9 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       items: clean, total: Math.round((linesTotal(clean) + ivaDe(clean, alic)) * 100) / 100,
       alicuota_iva: alic,
       factura_url: factura?.url ?? null, factura_type: factura?.kind ?? null, factura_name: factura?.name ?? null,
-      foto_producto_url: fotoDefinitiva?.url ?? null,
-      foto_producto_name: fotoDefinitiva?.name ?? null,
+      // Sin foto_producto_url / foto_producto_name: direct_purchases NO tiene esas columnas y
+      // mandarlas hacía fallar TODA compra directa desde el 27-oct (con o sin foto). La foto
+      // general viaja en la nota (empaquetarNotaConFotoProducto) y la lee extraerFotoProducto.
       note: notaGuardar,
     };
     const { error } = editingId

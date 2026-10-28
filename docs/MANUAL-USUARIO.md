@@ -3218,6 +3218,12 @@ traslado, Gastos, Movimientos y Dotación**.
 > renglón**, su foto sigue siendo también la de la solicitud. Las solicitudes viejas que ya tenían la
 > foto copiada se ven bien: la tarjeta ya no la muestra como si fuera de todos.
 
+> **🛒 Compras directas se guardan otra vez, con o sin foto** *(28/10/2026)*. Desde el 27/10 no se
+> podía registrar ni editar ninguna compra directa (parecía que pedía una imagen): la pantalla mandaba
+> dos datos de foto que la base no tiene y rechazaba todo. Ya guarda; la foto sigue siendo **opcional**
+> y, si la pones, queda guardada igual. En una compra de **varios** renglones, la foto de un renglón
+> es solo de ese renglón (ya no pasa a ser la foto de toda la compra ni se copia al primero).
+
 > **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
 > **"✕ Limpiar"** quita los filtros.
