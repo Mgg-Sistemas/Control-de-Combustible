@@ -26,8 +26,17 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
-import { Cuenta, CuentaAbono, CuentaTipo, Supplier, Company, PurchaseOrder } from '../types/database';
+import { Cuenta, CuentaAbono, CuentaTipo, Supplier, Company, PurchaseOrder, InventoryRequirement } from '../types/database';
 import { generalCompanies } from '../lib/companies';
+import {
+  ID_SIN_EMPRESA,
+  NOMBRE_SIN_EMPRESA,
+  InfoEmpresaCuenta,
+  resolverEmpresaDeCuenta,
+  inyectarEmpresaEnNota,
+  extraerEmpresaDeNota,
+  pasaFiltroEmpresas,
+} from '../lib/cuentasEmpresa';
 import { pickAndUploadDocFile } from '../lib/photo';
 import { exportPdf } from '../lib/pdf';
 import { reciboCuentaHtml } from '../lib/reciboCuenta';
@@ -137,13 +146,26 @@ const DIAS_POR_VENCER = 7;
 
 /** `contraparte` NO viene de la base: se resuelve contra el maestro
  *  (`suppliers` / `companies`) al momento de pintar. */
-type CuentaCalc = Cuenta & { contraparte: string; abonado: number; saldo: number; situacion: Situacion };
+type CuentaCalc = Cuenta & {
+  contraparte: string;
+  abonado: number;
+  saldo: number;
+  situacion: Situacion;
+  empresaId: string;
+  empresaNombre: string;
+};
 
 /** Calcula saldo y situación de una cuenta a partir de sus abonos.
  *  Regla: una cuenta 'pendiente' cuyo saldo llegó a 0 con abonos ya se
  *  considera PAGADA aunque nadie haya tocado el botón — si no, seguiría
  *  sumando a "lo que debo" habiendo cobrado todo. */
-function calcular(c: Cuenta, abonos: CuentaAbono[], hoy: string, contraparte: string): CuentaCalc {
+function calcular(
+  c: Cuenta,
+  abonos: CuentaAbono[],
+  hoy: string,
+  contraparte: string,
+  empresaInfo: InfoEmpresaCuenta
+): CuentaCalc {
   const abonado = abonos.reduce((s, a) => s + (Number(a.monto) || 0), 0);
   const monto = Number(c.monto) || 0;
   const saldo = Math.max(0, Math.round((monto - abonado) * 100) / 100);
@@ -153,7 +175,15 @@ function calcular(c: Cuenta, abonos: CuentaAbono[], hoy: string, contraparte: st
   else if (c.fecha_vencimiento && c.fecha_vencimiento < hoy) situacion = 'vencida';
   else if (c.fecha_vencimiento && diasEntre(hoy, c.fecha_vencimiento) <= DIAS_POR_VENCER) situacion = 'por_vencer';
   else situacion = 'pendiente';
-  return { ...c, contraparte, abonado, saldo, situacion };
+  return {
+    ...c,
+    contraparte,
+    abonado,
+    saldo,
+    situacion,
+    empresaId: empresaInfo.id,
+    empresaNombre: empresaInfo.name,
+  };
 }
 
 // ── Pestaña (el mismo componente para los dos tipos) ─────────────────────────
@@ -170,6 +200,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: orders } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
+  const { data: requirements } = useTable<InventoryRequirement>('inventory_requirements');
+
+  // Filtro por empresa (una o varias)
+  const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set());
+  const [empresasOpen, setEmpresasOpen] = useState(false);
+  const [empresaQ, setEmpresaQ] = useState('');
 
   // Maestro de contrapartes: proveedores para pagar, empresas para cobrar.
   const maestro = useMemo(
@@ -215,6 +251,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [subiendoFactura, setSubiendoFactura] = useState(false);
   const [reciboPagoUrl, setReciboPagoUrl] = useState<string | null>(null); // soporte/recibo de pago
   const [subiendoReciboPago, setSubiendoReciboPago] = useState(false);
+  const [empresaFormId, setEmpresaFormId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Órdenes de compra ligables (con etiqueta legible). Solo las de esta contraparte
@@ -237,6 +274,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     setEdit(null); setContraparteId(null); setConcepto(''); setDocumento('');
     setMonto(''); setEmision(hoy); setVence(''); setNota('');
     setPrioridad(null); setOrderId(null); setFacturaUrl(null); setReciboPagoUrl(null);
+    setEmpresaFormId(null);
     setOpen(true);
   };
   const abrirEdicion = (c: Cuenta) => {
@@ -253,6 +291,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     setFacturaUrl(c.factura_url ?? null);
     const rp = extraerReciboPagoCuenta(c);
     setReciboPagoUrl(rp?.url ?? null);
+    const empExtraida = (c as any).empresaId || extraerEmpresaDeNota(c.nota)?.id || c.company_id;
+    setEmpresaFormId(empExtraida && empExtraida !== ID_SIN_EMPRESA ? empExtraida : null);
     setOpen(true);
   };
 
@@ -297,10 +337,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     if (vence && vence < emision) return toast.error('El vencimiento no puede ser anterior a la emisión.');
 
     const notaLimpia = limpiarNotaCuentasVisual(nota);
-    const notaFinal = inyectarReciboPagoEnNota(
+    let notaFinal = inyectarReciboPagoEnNota(
       notaLimpia,
       reciboPagoUrl ? { url: reciboPagoUrl, tipo: 'image', nombre: 'Recibo de pago', subidoPor: session?.user?.email || 'Administración' } : null
     );
+    if (empresaFormId) {
+      const comp = companies.find((co) => co.id === empresaFormId);
+      notaFinal = inyectarEmpresaEnNota(notaFinal, empresaFormId, comp?.name) || '';
+    } else {
+      notaFinal = inyectarEmpresaEnNota(notaFinal, null, null) || '';
+    }
 
     const fila = {
       tipo,
@@ -556,8 +602,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     toast.success(importe >= abonoDe.saldo ? 'Abono registrado. La cuenta quedó saldada.' : 'Abono registrado.');
   };
 
-  // ── Lista + totales ───────────────────────────────────────────────────────
-  const { lista, tot } = useMemo(() => {
+  // ── Lista + totales con filtro por empresa (una o varias) ────────────────
+  const { lista, tot, empresaCounts } = useMemo(() => {
     const porCuenta = new Map<string, CuentaAbono[]>();
     abonos.forEach((a) => {
       const arr = porCuenta.get(a.cuenta_id) ?? [];
@@ -567,13 +613,32 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
     const calc = todas
       .filter((c) => c.tipo === tipo)
-      .map((c) => calcular(c, porCuenta.get(c.id) ?? [], hoy, nombreDe(c)));
+      .map((c) => {
+        const empInfo = resolverEmpresaDeCuenta(c, {
+          companies,
+          requirements,
+          orders,
+        });
+        return calcular(c, porCuenta.get(c.id) ?? [], hoy, nombreDe(c), empInfo);
+      });
 
-    // Los totales se calculan sobre TODAS las cuentas del tipo (no sobre lo
-    // filtrado por el buscador): son la posición real, no la de la búsqueda.
-    // Las anuladas y las pagadas no suman.
-    const t = { pendiente: 0, vencido: 0, porVencer: 0, nVencidas: 0 };
+    // Conteo y saldo por empresa (para las fichas / chips del filtro)
+    const mEmp = new Map<string, { id: string; name: string; count: number; saldo: number }>();
     calc.forEach((c) => {
+      if (c.situacion === 'pagada' || c.situacion === 'anulada') return;
+      const exist = mEmp.get(c.empresaId) ?? { id: c.empresaId, name: c.empresaNombre, count: 0, saldo: 0 };
+      exist.count += 1;
+      exist.saldo += c.saldo;
+      mEmp.set(c.empresaId, exist);
+    });
+    const arrEmpresas = Array.from(mEmp.values()).sort((a, b) => b.count - a.count || cmpText(a.name, b.name));
+
+    // Filtrar por empresas seleccionadas si aplica
+    const porEmpresas = calc.filter((c) => pasaFiltroEmpresas(c.empresaId, empresaSel));
+
+    // Los totales se calculan sobre las cuentas del filtro de empresa (la posición real de esa selección)
+    const t = { pendiente: 0, vencido: 0, porVencer: 0, nVencidas: 0 };
+    porEmpresas.forEach((c) => {
       if (c.situacion === 'anulada' || c.situacion === 'pagada') return;
       t.pendiente += c.saldo;
       if (c.situacion === 'vencida') { t.vencido += c.saldo; t.nVencidas += 1; }
@@ -581,9 +646,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     });
 
     const nq = norm(q);
-    const vis = calc
+    const vis = porEmpresas
       .filter((c) => (verPagadas ? true : c.situacion !== 'pagada' && c.situacion !== 'anulada'))
-      .filter((c) => matchNorm(nq, c.contraparte, c.concepto, c.documento, c.nota))
+      .filter((c) => matchNorm(nq, c.contraparte, c.concepto, c.documento, c.nota, c.empresaNombre))
       // Orden: lo más urgente arriba (vencida → por vencer → pendiente →
       // pagada/anulada) y, dentro de cada grupo, por vencimiento más cercano.
       .sort((a, b) => {
@@ -600,8 +665,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         return cmpText(a.contraparte, b.contraparte);
       });
 
-    return { lista: vis, tot: t };
-  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe]);
+    return { lista: vis, tot: t, empresaCounts: arrEmpresas };
+  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, companies, requirements, orders, empresaSel]);
 
   const inputStyle = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -628,11 +693,145 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         ) : null}
       </View>
 
-      {/* Totales — la posición real del tipo, no la de la búsqueda. */}
+      {/* Totales — ajustados a las empresas seleccionadas */}
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
         <Quick label="TOTAL PENDIENTE" value={tot.pendiente} color={colors.brandText} />
         <Quick label="VENCIDO" value={tot.vencido} color={colors.dangerSoftText} sub={tot.nVencidas ? `${tot.nVencidas} cuenta(s)` : undefined} />
         <Quick label={`POR VENCER (${DIAS_POR_VENCER} DÍAS)`} value={tot.porVencer} color={colors.warningSoftText} />
+      </View>
+
+      {/* 🏢 Filtro por Empresa (una o varias) */}
+      <View style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xs, paddingVertical: 4 }}>
+          <TouchableOpacity
+            onPress={() => setEmpresasOpen((o) => !o)}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}
+          >
+            <Text style={{ fontSize: 14 }}>🏢</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+              {empresaSel.size === 0
+                ? 'EMPRESA: TODAS'
+                : `EMPRESAS (${empresaSel.size} seleccionada${empresaSel.size > 1 ? 's' : ''})`}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>
+              {empresasOpen ? '▲ Ocultar lista' : '▼ Filtrar por una o varias'}
+            </Text>
+          </TouchableOpacity>
+
+          {empresaSel.size > 0 ? (
+            <TouchableOpacity
+              onPress={() => setEmpresaSel(new Set())}
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3 }}
+            >
+              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>✕ Quitar filtros</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {/* Fichas rápidas horizontales siempre accesibles */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 4, paddingHorizontal: 2 }}>
+          <TouchableOpacity
+            onPress={() => setEmpresaSel(new Set())}
+            style={{
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: empresaSel.size === 0 ? colors.brand : colors.border,
+              backgroundColor: empresaSel.size === 0 ? colors.brand : colors.surface,
+              paddingHorizontal: spacing.sm,
+              paddingVertical: 4,
+            }}
+          >
+            <Text style={{ color: empresaSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+              Todas ({empresaCounts.reduce((s, e) => s + e.count, 0)})
+            </Text>
+          </TouchableOpacity>
+
+          {empresaCounts.map((e) => {
+            const on = empresaSel.has(e.id);
+            return (
+              <TouchableOpacity
+                key={e.id}
+                onPress={() => {
+                  setEmpresaSel((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(e.id)) next.delete(e.id);
+                    else next.add(e.id);
+                    return next;
+                  });
+                }}
+                style={{
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: on ? colors.brand : colors.border,
+                  backgroundColor: on ? colors.brand : colors.surface,
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 4,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                  {on ? '✓ ' : ''}{e.name}
+                </Text>
+                <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 10, fontWeight: '600' }}>
+                  · {e.count}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* Panel desplegable con buscador de empresas */}
+        {empresasOpen ? (
+          <View style={{ borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.xs, paddingTop: spacing.xs }}>
+            <TextInput
+              value={empresaQ}
+              onChangeText={setEmpresaQ}
+              placeholder="Buscar empresa por nombre…"
+              placeholderTextColor={colors.muted}
+              style={[inputStyle, { marginBottom: spacing.xs, paddingVertical: 4, fontSize: 12 }]}
+            />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, maxHeight: 180 }}>
+              {empresaCounts
+                .filter((e) => !empresaQ || matchNorm(norm(empresaQ), e.name))
+                .map((e) => {
+                  const on = empresaSel.has(e.id);
+                  return (
+                    <TouchableOpacity
+                      key={e.id}
+                      onPress={() => {
+                        setEmpresaSel((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(e.id)) next.delete(e.id);
+                          else next.add(e.id);
+                          return next;
+                        });
+                      }}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: on ? colors.brand : colors.border,
+                        backgroundColor: on ? colors.brand : colors.surface,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 4,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                        {on ? '☑ ' : '☐ '}{e.name}
+                      </Text>
+                      <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 10 }}>
+                        ({e.count} · {usd(e.saldo)})
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {/* Buscador */}
@@ -672,9 +871,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   {c.prioridad ? <Pill label={PRIORIDAD_INFO[c.prioridad as Prioridad].label} {...toneSoft(colors, PRIORIDAD_INFO[c.prioridad as Prioridad].tone)} /> : null}
                   <Pill label={st.label} {...toneSoft(colors, st.tone)} />
                 </View>
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
-                  {c.concepto}{c.documento ? ` · ${c.documento}` : ''}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                  <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 1 }}>
+                    <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>
+                      🏢 {c.empresaNombre}
+                    </Text>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>
+                    {c.concepto}{c.documento ? ` · ${c.documento}` : ''}
+                  </Text>
+                </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
                   <Text style={{ color: vencida ? colors.dangerSoftText : colors.text, fontSize: 12, fontWeight: '700' }}>
                     Vence: {fmtFecha(c.fecha_vencimiento)}
@@ -802,6 +1008,56 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     {tipo === 'por_pagar' ? 'No hay proveedores registrados. Créalos en Compras → Proveedores.' : 'No hay empresas registradas.'}
                   </Text>
                 ) : null}
+              </View>
+            </Card>
+
+            {/* Empresa asociada a la cuenta (para compras: qué empresa gasta / para cobros: empresa receptora) */}
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                {tipo === 'por_pagar' ? '🏢 Empresa solicitante / destino de la compra (opcional)' : '🏢 Empresa receptora del cobro'}
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                {tipo === 'por_pagar'
+                  ? 'Permite filtrar las deudas por empresa (ej. Golden Touch, Liccione, SOS La Guaira, etc.). Si proviene de un requerimiento se detecta automáticamente.'
+                  : 'Empresa receptora asociada a la cuenta.'}
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => setEmpresaFormId(null)}
+                  style={{
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: !empresaFormId ? colors.brand : colors.border,
+                    backgroundColor: !empresaFormId ? colors.brand : colors.surfaceAlt,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: spacing.xs,
+                  }}
+                >
+                  <Text style={{ color: !empresaFormId ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                    Sin asignar / Detección automática
+                  </Text>
+                </TouchableOpacity>
+                {companies.map((co) => {
+                  const on = empresaFormId === co.id;
+                  return (
+                    <TouchableOpacity
+                      key={co.id}
+                      onPress={() => setEmpresaFormId(co.id)}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: on ? colors.brand : colors.border,
+                        backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.xs,
+                      }}
+                    >
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                        {co.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </Card>
 

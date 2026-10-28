@@ -123,5 +123,6 @@ export function limpiarNotaCuentasVisual(nota?: string | null): string {
   return nota
     .replace(/\[RECIBO_PAGO:[^\]]+\]/gi, '')
     .replace(/\[COMPROBANTE_ABONO:[^\]]+\]/gi, '')
+    .replace(/\[EMPRESA:[^\]]+\]/gi, '')
     .trim();
 }
