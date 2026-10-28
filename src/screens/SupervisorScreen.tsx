@@ -38,6 +38,9 @@ import { listInspectorAssignments, assignInspector, unassignInspector, Shift, sh
 import { logAudit } from '../lib/audit';
 import { cargarLecturasDeMaquinaDia, guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
 import { HorometroCorregirModal } from '../components/HorometroCorregirModal';
+// 🕐 Corregir hora de inicio / fin de una jornada YA finalizada (28-oct-2026).
+import { CorregirHorasJornadaModal } from '../components/CorregirHorasJornadaModal';
+import { TramoTurno, esCierreManual, puedeCorregirHoras, hhmmCaracas } from '../lib/corregirHorasJornada';
 import { LecturaTrabajo, lecturaParaCompletarFinal, horometroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
@@ -469,6 +472,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [horoEditables, setHoroEditables] = useState<{ roundDate: string; lecturas: LecturaTrabajo[] }[]>([]);
   const [horoEditFecha, setHoroEditFecha] = useState<string | null>(null);
   const [horoEditRecarga, setHoroEditRecarga] = useState(0);
+  // 🕐 CORREGIR HORA DE INICIO / FIN de la jornada que YO finalicé (28-oct-2026). Misma
+  //    ventana que el horómetro (hoy y ayer). Los tramos de la máquina de esas fechas
+  //    (todos: hacen falta para saber si Control ya ajustó o si hay solapes).
+  const [horasTramos, setHorasTramos] = useState<(TramoTurno & { round_date: string })[]>([]);
+  const [horasEditTramo, setHorasEditTramo] = useState<(TramoTurno & { round_date: string }) | null>(null);
+  const [horasEditRecarga, setHorasEditRecarga] = useState(0);
   const [finTardiaBusy, setFinTardiaBusy] = useState(false);
   // ⚙️ CIERRE CONSCIENTE (24-sep-2026): si la máquina marcó horómetro INICIAL hoy y el
   //    final viene vacío, el primer «Sí, finalizar» NO cierra: avisa, y hay que escribirlo
@@ -1132,6 +1141,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (openMine(ci.id)) return false;
     return hoursMine(ci.id);
   }, [ci, roundsById, assignMap, uid, nowShift]);
+  // 🕐 Tramos de HOY y AYER de la máquina elegida (para «Corregir hora de inicio / fin»).
+  //    Se recargan al finalizar (cambian jornadaStart/shiftClosed) y tras guardar.
+  useEffect(() => {
+    let vivo = true;
+    if (!ci) { setHorasTramos([]); return; }
+    supabase.from('machine_work_segments')
+      .select('id, round_date, shift, source, started_at, ended_at, hours, recorded_by, notes, close_reason')
+      .eq('machinery_id', ci.id).in('round_date', [today, yesterday]).order('started_at')
+      .then(({ data, error }) => { if (vivo) setHorasTramos(error ? [] : ((data ?? []) as any)); }, () => { if (vivo) setHorasTramos([]); });
+    return () => { vivo = false; };
+  }, [ci?.id, today, yesterday, horasEditRecarga, jornadaStart, shiftClosed]); // eslint-disable-line react-hooks/exhaustive-deps
   // GRACIA DE NOCHE (7am–9am): una jornada de NOCHE (7pm–7am) ya finalizada sigue
   // viéndose CERRADA/finalizada hasta las 9am (regla cliente). A las 9am pasa a
   // pendiente por iniciar. Solo aplica a la noche; no toca el flujo del día.
@@ -2850,6 +2870,42 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     </View>
   ) : null;
 
+  // 🕐 CORREGIR HORA DE INICIO / FIN (28-oct-2026, pedido del cliente). Solo las jornadas
+  // que ESTE inspector finalizó (tramo manual_finish/_early con su usuario), de hoy y
+  // ayer (la misma ventana del horómetro), de su máquina en ese turno. Lo que Control ya
+  // ajustó no se toca. Mismo lugar que el panel del horómetro (jornada no abierta); el
+  // modal se monta al FINAL del árbol. Reglas: lib/corregirHorasJornada.ts.
+  const asignadoEnTurnoDe = (shift: string): boolean => {
+    if (!ci) return false;
+    if (puedeCoordinar) return true;
+    const s = assignMap[ci.id] || {};
+    return (shift === 'night' ? s.night?.id : s.day?.id) === uid;
+  };
+  const tramosMios = horasTramos.filter((t) => esCierreManual(t.source) && !!uid && t.recorded_by === uid);
+  const panelCorregirHoras = ci && tramosMios.length > 0 ? (
+                    <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>🕐 Jornadas que finalizaste (hoy y ayer)</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si marcaste mal la hora de inicio o de fin, corrígela aquí con el motivo. Lo que Control ya corrigió no se toca.</Text>
+                      {tramosMios.map((t) => {
+                        const perm = puedeCorregirHoras({ tramo: t, uid, roundDate: t.round_date, today, yesterday, asignadoEnTurno: asignadoEnTurnoDe(String(t.shift)), tramosDelTurno: horasTramos.filter((x) => x.round_date === t.round_date) });
+                        return (
+                          <View key={t.id} style={{ paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                              {t.round_date === today ? 'Hoy' : 'Ayer'} · {t.round_date.split('-').reverse().join('/')} · {t.shift === 'night' ? '🌙' : '☀️'} {hhmmCaracas(new Date(t.started_at).getTime())}–{hhmmCaracas(new Date(t.ended_at).getTime())} ({Number(t.hours).toFixed(2)} h){/Corregido por inspector/.test(String(t.notes ?? '')) ? ' · ✎ corregida' : ''}
+                            </Text>
+                            {perm.ok ? (
+                              <TouchableOpacity onPress={() => setHorasEditTramo(t)} style={{ alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🕐 Corregir hora de inicio / fin</Text>
+                              </TouchableOpacity>
+                            ) : (
+                              <Text style={{ color: perm.porControl ? colors.danger : colors.muted, fontSize: 11, marginTop: 2 }}>🔒 {perm.error}</Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+  ) : null;
+
   return (
     <Screen onRefresh={load} refreshing={loading}>
       <ConfigBanner />
@@ -4010,6 +4066,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   </View>
                   {/* ✏️ Jornada ya finalizada: igual puede corregir horómetro/foto de hoy y ayer. */}
                   {panelCorregirHoro}
+                  {/* 🕐 …y la hora de inicio / fin de la jornada que finalizó (hoy y ayer). */}
+                  {panelCorregirHoras}
                 </View>
               ) : (
                 <View style={{ marginBottom: spacing.sm }}>
@@ -4036,6 +4094,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   ) : null}
                   {/* ✏️ Corregir horómetro/foto (hoy y ayer): ver `panelCorregirHoro`. */}
                   {panelCorregirHoro}
+                  {/* 🕐 Corregir hora de inicio / fin (hoy y ayer): ver `panelCorregirHoras`. */}
+                  {panelCorregirHoras}
                   {/* Turno de la jornada. Si el inspector tiene turno ASIGNADO (día/noche),
                       se FIJA a su turno (no puede elegir el otro); si no está asignado, elige. */}
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Turno de la jornada</Text>
@@ -4479,6 +4539,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           </View>
         </View>
       </Modal>
+      {/* 🕐 Corregir hora de inicio / fin: montado al FINAL del árbol (en web gana el
+          último modal montado). */}
+      {ci && horasEditTramo ? (
+        <CorregirHorasJornadaModal
+          code={ci.code}
+          machineryId={ci.id}
+          roundDate={horasEditTramo.round_date}
+          tramo={horasEditTramo}
+          uid={uid}
+          today={today}
+          yesterday={yesterday}
+          asignadoEnTurno={asignadoEnTurnoDe(String(horasEditTramo.shift))}
+          onClose={() => setHorasEditTramo(null)}
+          onSaved={(aviso) => { setHorasEditRecarga((n) => n + 1); setNotice(aviso); reloadEstados(); }}
+        />
+      ) : null}
     </Screen>
   );
 }

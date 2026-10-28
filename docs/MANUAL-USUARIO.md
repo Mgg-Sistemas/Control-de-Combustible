@@ -3905,6 +3905,30 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   >   lo impide («lo manual manda»).
   > - En el reporte ⚙️ Horómetro la lectura sale marcada **«✎ corregido por el inspector»** con su
   >   motivo, distinto de **«✎ corregido desde Control»**. Todo queda en Auditoría.
+  > - **También con la jornada ya finalizada (28/10/2026).** Antes el bloque desaparecía al
+  >   finalizar la jornada; ahora sigue saliendo en la tarjeta de la jornada **finalizada** (y
+  >   antes de iniciar la siguiente), con el mismo plazo de **hoy y ayer**. No sale con la jornada
+  >   **abierta** (al finalizar se guarda el inicial de la pantalla y pisaría la corrección).
+
+  > **🕐 El inspector puede corregir la hora de inicio y de fin de una jornada ya finalizada
+  > (28/10/2026).** En la misma zona, con la jornada finalizada, sale el bloque **«🕐 Jornadas que
+  > finalizaste (hoy y ayer)»**: cada jornada con su turno (☀️/🌙), su hora de inicio–fin y sus horas,
+  > y el botón **«🕐 Corregir hora de inicio / fin»**. Abre una ventana con las dos horas (HH:MM,
+  > 24 h, hora de Caracas, como la hora de fin declarada), el **motivo obligatorio** y **Guardar**.
+  > - Solo las jornadas que **él mismo finalizó**, de **sus máquinas** en ese turno, de **hoy y
+  >   ayer** (el mismo plazo del horómetro).
+  > - Las horas van **dentro del turno** (día 7:00 → 19:00; noche 19:00 → 7:00 del día siguiente),
+  >   el inicio antes del fin, **nunca en el futuro**, **máximo 12 h** y **sin pisar** otros tramos
+  >   del turno (paradas, otro cierre). La ventana muestra antes de guardar cuántas horas quedan y
+  >   cuánto cambia el turno.
+  > - Al guardar se **corrige el mismo tramo** (no se crea otro ni se borra nada) y las horas del
+  >   turno en Control se mueven **solo por la diferencia** (nunca por debajo de 0 ni por encima de
+  >   12). En el tramo queda la traza «Corregido por inspector el DD/MM HH:MM: antes HH:MM–HH:MM
+  >   (X h) · motivo: …», y el evento queda en Auditoría. Si las horas de Control no se pudieran
+  >   ajustar, la corrección se deshace y se avisa en pantalla.
+  > - **Lo que Control ya corrigió no se toca**: si Control ajustó ese turno (o lo anuló por «NO
+  >   TRABAJÓ»), en lugar del botón sale **«🔒 Corregido por Control: pídeselo a Control»**.
+  > - Con la jornada **abierta** en ese turno no deja corregir: primero hay que finalizarla.
 
 #### ⛏️ Frentes de trabajo de la maquinaria — pestaña de Reportes (02/10/2026)
 
