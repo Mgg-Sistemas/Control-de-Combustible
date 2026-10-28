@@ -3196,6 +3196,15 @@ traslado, Gastos, Movimientos y Dotación**.
 > sugerido?**, la ficha del proveedor propuesto y las tarjetas de aclaratorias y de solicitudes de
 > existencia: ahora toman los colores del tema.
 
+> **📸 Fotos de los materiales: cada uno con la suya** *(28/10/2026)*. En **Existencias**, la foto
+> de un material es **la que se le subió a él** (📷 Tomar foto / 🖼️ Subir foto en su ficha). Si no
+> tiene, se usa la foto que traía **ese mismo renglón** en una compra directa o en un requerimiento.
+> La foto **general** de un requerimiento solo se usa si el requerimiento tiene **un solo
+> renglón**: antes, la foto de una mascarilla subida a un requerimiento de 16 renglones salía en el
+> cloro, el desinfectante y los demás productos de ese pedido. Si la base no deja guardar o quitar
+> una foto, ahora lo avisa (antes decía «actualizada» aunque no se guardara). Al editar un material
+> solo se carga su foto propia: una foto «tomada prestada» de una compra no se le queda guardada.
+
 > **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
 > **"✕ Limpiar"** quita los filtros.

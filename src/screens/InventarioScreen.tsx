@@ -360,6 +360,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [subiendoItemPhoto, setSubiendoItemPhoto] = useState(false);
   const [savingPhotoId, setSavingPhotoId] = useState<string | null>(null);
   const [fotoVisor, setFotoVisor] = useState<{ url: string; title: string } | null>(null);
+  // 📸 La foto PROPIA de cada producto (inventory_items.image_url), por id (28-oct-2026). La
+  //    vista inventory_levels no la trae: se lee aparte. Va por ID, nunca por nombre.
+  const [fotosPropias, setFotosPropias] = useState<Record<string, string>>({});
   const [inferredPhotos, setInferredPhotos] = useState<Record<string, string>>({});
   // Carga por lote (Excel/CSV).
   const [loteOpen, setLoteOpen] = useState(false);
@@ -377,10 +380,12 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   React.useEffect(() => {
     (async () => {
       try {
-        const [dpRes, reqRes] = await Promise.all([
+        const [dpRes, reqRes, propRes] = await Promise.all([
+          // Solo `items`: la columna de foto general de la compra no existe en la base y pedirla
+          // hacía fallar la consulta entera (28-oct-2026).
           supabase
             .from('direct_purchases')
-            .select('items, foto_producto_url')
+            .select('items')
             .order('created_at', { ascending: false })
             .limit(150),
           supabase
@@ -388,25 +393,36 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
             .select('items, attachment_url')
             .order('created_at', { ascending: false })
             .limit(150),
+          supabase
+            .from('inventory_items')
+            .select('id, image_url')
+            .not('image_url', 'is', null),
         ]);
+
+        const propias: Record<string, string> = {};
+        (propRes.data || []).forEach((r: any) => { if (r.id && r.image_url) propias[String(r.id)] = r.image_url; });
+        setFotosPropias(propias);
 
         const map: Record<string, string> = {};
 
-        // 1) Fotos de Compras Directas
+        // 1) Fotos de Compras Directas: solo la foto de CADA renglón.
         (dpRes.data || []).forEach((row: any) => {
-          const generalFoto = row.foto_producto_url;
           (row.items || []).forEach((it: any) => {
             const n = norm(it.description || '');
-            const f = it.image_url || generalFoto;
+            const f = it.image_url;
             if (n && f && !map[n]) map[n] = f;
           });
         });
 
         // 2) Fotos de Requerimientos / Compras que pasaron por su proceso
+        // ⚠️ La foto GENERAL del requerimiento solo vale si tiene UN renglón: con varios no se
+        //    sabe de cuál producto es (28-oct-2026: la de una mascarilla salía en el cloro, el
+        //    desinfectante y otros 13 productos del mismo requerimiento).
         (reqRes.data || []).forEach((row: any) => {
+          const unico = (row.items || []).length === 1;
           (row.items || []).forEach((it: any) => {
             const n = norm(it.name || '');
-            const f = it.image_url || (row.attachment_url?.match(/\.(jpg|jpeg|png|webp)/i) ? row.attachment_url : null);
+            const f = it.image_url || (unico && row.attachment_url?.match(/\.(jpg|jpeg|png|webp)/i) ? row.attachment_url : null);
             if (n && f && !map[n]) map[n] = f;
           });
         });
@@ -419,6 +435,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   }, []);
 
   const getProductPhoto = (it: InventoryLevel): string | null => {
+    if (fotosPropias[it.id]) return fotosPropias[it.id];
     if (it.image_url) return it.image_url;
     if ((it as any).photo_url) return (it as any).photo_url;
     if (inferredPhotos[norm(it.name)]) return inferredPhotos[norm(it.name)];
@@ -430,8 +447,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     try {
       const res = await takePhotoAndUpload(it.id, 'inventory-items');
       if (res.ok && res.url) {
-        await supabase.from('inventory_items').update({ image_url: res.url }).eq('id', it.id);
-        setInferredPhotos((prev) => ({ ...prev, [norm(it.name)]: res.url! }));
+        const { error: upErr } = await supabase.from('inventory_items').update({ image_url: res.url }).eq('id', it.id);
+        if (upErr) { toast.error('No se pudo guardar la foto: ' + upErr.message); return; }
+        setFotosPropias((prev) => ({ ...prev, [it.id]: res.url! }));
         refetch();
         toast.success('Foto del producto actualizada.');
       } else if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
@@ -449,8 +467,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         ? await pickAndUploadDocFile('inventory-items', it.id)
         : await pickPhotoFromGalleryAndUpload(it.id, 'inventory-items');
       if (res.ok && res.url) {
-        await supabase.from('inventory_items').update({ image_url: res.url }).eq('id', it.id);
-        setInferredPhotos((prev) => ({ ...prev, [norm(it.name)]: res.url! }));
+        const { error: upErr } = await supabase.from('inventory_items').update({ image_url: res.url }).eq('id', it.id);
+        if (upErr) { toast.error('No se pudo guardar la foto: ' + upErr.message); return; }
+        setFotosPropias((prev) => ({ ...prev, [it.id]: res.url! }));
         refetch();
         toast.success('Foto del producto actualizada.');
       } else if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
@@ -464,10 +483,11 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const quitarFotoItem = async (it: InventoryLevel) => {
     setSavingPhotoId(it.id);
     try {
-      await supabase.from('inventory_items').update({ image_url: null }).eq('id', it.id);
-      setInferredPhotos((prev) => {
+      const { error: upErr } = await supabase.from('inventory_items').update({ image_url: null }).eq('id', it.id);
+      if (upErr) { toast.error('No se pudo quitar la foto: ' + upErr.message); return; }
+      setFotosPropias((prev) => {
         const next = { ...prev };
-        delete next[norm(it.name)];
+        delete next[it.id];
         return next;
       });
       refetch();
@@ -569,7 +589,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     setInitCostCur('USD');
     setTipo((it as any).tipo || '');
     setCarga((it as any).carga || '');
-    setItemPhoto(getProductPhoto(it) || null);
+    setItemPhoto(fotosPropias[it.id] || it.image_url || null);
     setOpen(true);
   };
 
@@ -669,6 +689,11 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         });
         if (mErr) { setBusy(false); return toast.error(mErr.message); }
       }
+      setFotosPropias((prev) => {
+        const next = { ...prev };
+        if (itemPhoto) next[editingId] = itemPhoto; else delete next[editingId];
+        return next;
+      });
       setBusy(false);
       setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost(''); setEstado(''); setTipo(''); setCarga(''); setEditQty(''); setItemPhoto(null);
       refetch();
@@ -692,8 +717,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       });
       if (mErr) { setBusy(false); return toast.error(mErr.message); }
     }
+    if (itemPhoto && ins?.id) setFotosPropias((prev) => ({ ...prev, [String(ins.id)]: itemPhoto }));
     setBusy(false);
-    setOpen(false); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setMachineryId(''); setMachineQuery(''); setInitStock(''); setInitCost(''); setTipo('');
+    setOpen(false); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setMachineryId(''); setMachineQuery(''); setInitStock(''); setInitCost(''); setTipo(''); setItemPhoto(null);
     refetch();
   };
 
