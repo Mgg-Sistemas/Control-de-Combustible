@@ -62,8 +62,12 @@ ok('...y el aviso dice qué va a pasar con las horas', /dejan de iniciar jornada
 ok('encender es de un toque', !/confirmarEncender/.test(card));
 ok('tocar el aviso cancela la confirmación', /setAviso\(null\); setConfirmarApagar\(false\);/.test(card));
 
-// ── 5) LA OPCIÓN (a): LA REGLA DE PANTALLA NO SE TOCA ────────────────────────
-ok('⭐ «siempre trabajando» sigue igual: no mira el interruptor', /INSPECTORES_SIEMPRE_ACTIVOS = \['inspector sos la guaira'\]/.test(regla) && !/sosAutomatizacion|sos_automatizacion/.test(regla));
+// ── 5) LA REGLA DE PANTALLA «SIEMPRE TRABAJANDO» QUEDÓ APAGADA (28-oct-2026) ────
+//    Pedido: «el inspector SOS no debe activar máquinas ni nada». Sus máquinas se
+//    clasifican como cualquier otra; el interruptor de la automatización no la toca.
+ok('⭐ «siempre trabajando» APAGADA: SOS_SIEMPRE_ACTIVO = false', /export const SOS_SIEMPRE_ACTIVO = false;/.test(regla) && !/sosAutomatizacion|sos_automatizacion/.test(regla));
+ok('...y apagada no deja nombres en la lista', /INSPECTORES_SIEMPRE_ACTIVOS: string\[\] = SOS_SIEMPRE_ACTIVO \? NOMBRES_INSPECTOR_SOS : \[\];/.test(regla));
+ok('...pero el SOS se sigue IDENTIFICANDO (solo un admin le asigna máquinas)', /esInspectorSos\(p\.full_name\)/.test(regla));
 ok('la tarjeta le dice al admin qué NO cambia', /No cambia que salgan como «trabajando»/.test(card));
 
 // ── 6) MANUALES ──────────────────────────────────────────────────────────────

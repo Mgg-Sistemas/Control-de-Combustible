@@ -645,7 +645,15 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > encendía sola**; ahora sin configuración queda **apagada**.
 > - Quien no es administrador **no puede verlo ni cambiarlo**: lo impide la base, no solo la pantalla.
 
-**🟢 Inspector "SOS LA GUAIRA" — máquinas siempre trabajando:**
+> **🛑 RETIRADO el 28-oct-2026** (pedido: «el inspector SOS no debe activar máquinas ni nada»):
+> las máquinas del inspector SOS **ya no salen siempre trabajando**. Se ven como cualquier otra:
+> si las marcan **paradas o averiadas, así salen**, y sus horas paradas **no** se cuentan como
+> trabajadas, en el catálogo, Inspecciones, el teléfono, Control y todos los reportes. Lo que
+> sigue igual: solo un administrador le asigna máquinas nuevas al SOS. Además, en la base se
+> dejaron **sin efecto** todas las funciones del SOS que abrían jornadas, ponían horas o se
+> asignaban solas, y nadie las puede ejecutar. Lo de abajo queda como historia.
+
+**🟢 Inspector "SOS LA GUAIRA" — máquinas siempre trabajando (RETIRADO el 28-oct-2026):**
 - Las máquinas asignadas al inspector **SOS LA GUAIRA** **nunca se muestran como parada ni averiada**:
   siempre cuentan como **trabajando** y sus horas paradas se cuentan como **trabajadas** — en el
   catálogo, el panel de Inspecciones (contadores), el teléfono y todos los reportes (por inspector,
@@ -2408,7 +2416,16 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > entra al turno siguiente (la del 7:30pm cuenta para la **NOCHE**). Aplica igual en el **tablero**,
 > el **reporte de eficiencia** y los **conteos** (misma regla en todos).
 >
-> **🟡 Parada "NO TRABAJÓ" = solo por su turno (13-ago-2026):** a diferencia de la avería, una
+> **🟡 CAMBIO 28-oct-2026 — «si la marcaron parada, que siga parada»:** la marca **📍 Parada / No
+> trabajó** **ya no se resuelve sola** al cerrar el turno. La máquina **sigue parada** (en el
+> catálogo, el teléfono y los reportes) hasta que una persona le da **🟢 Volver a OPERATIVA** o le
+> **inicia jornada**. Cuando alguien le inicia jornada, la marca se cierra a nombre de esa persona.
+> Antes el sistema la vencía a las 7am/7pm y la máquina amanecía «disponible» aunque nadie la
+> hubiera puesto a trabajar (por eso había que marcarla parada todos los días). Las máquinas que
+> amanecieron disponibles solo por ese vencimiento, sin que nadie las pusiera a trabajar, volvieron
+> a quedar **paradas**. El párrafo de abajo queda como historia.
+>
+> **🟡 Parada "NO TRABAJÓ" = solo por su turno (13-ago-2026, REEMPLAZADO el 28-oct-2026):** a diferencia de la avería, una
 > parada marcada por el camino **"📍 Parada / No trabajó"** vale **solo para el turno en que se
 > marcó**. Al **cerrar el turno** (día 7pm / noche 7am) esa parada **se resuelve sola** y la
 > máquina vuelve a salir **⏳ pendiente por iniciar** al día siguiente — **ya no se arrastra**.
