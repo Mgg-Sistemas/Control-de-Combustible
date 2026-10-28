@@ -17,6 +17,8 @@ import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { DateField } from './DateField';
 import { ContactoEmergencia, MAX_CONTACTOS, contactosParaGuardar, leerContactos, normalizarContacto, tituloContacto, PASOS_SIN_MIGRACION, quitarColumnas } from '../lib/contactosEmergencia';
+import { MAX_HABILIDADES, leerHabilidadesEmpleado, limpiarHabilidades } from '../lib/empleadosHabilidades';
+import { guardarHabilidadesEmpleado } from '../lib/empleadosHabilidadesStorage';
 
 /** Predicado opcional: el campo solo se muestra si devuelve true. */
 type ShowIf = (values: Record<string, string>) => boolean;
@@ -27,6 +29,8 @@ export type Field =
    *  `values[key]` como JSON, y al guardar se reparte en la columna `emergency_contacts`
    *  más las tres columnas viejas con el contacto nº 1. Ver src/lib/contactosEmergencia.ts. */
   | { key: string; label: string; type: 'contactos'; required?: boolean; showIf?: ShowIf }
+  /** Lista REPETIBLE de habilidades / destrezas cargadas manualmente (1 o más). */
+  | { key: string; label: string; type: 'habilidades'; required?: boolean; placeholder?: string; showIf?: ShowIf }
   | { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf; defaultValue?: string } // 'textarea' = texto multilínea
   | { key: string; label: string; type: 'switch'; required?: boolean; showIf?: ShowIf; defaultValue?: boolean } // check Sí/No (booleano)
   | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf; dropdown?: boolean; placeholder?: string }
@@ -147,6 +151,7 @@ export function RecordForm({
     fields.forEach((f) => {
       if (f.type === 'date') o[f.key] = todayISO();
       else if (f.type === 'contactos') o[f.key] = '[]';
+      else if (f.type === 'habilidades') o[f.key] = '[]';
       else if (f.type === 'switch') o[f.key] = f.defaultValue ? 'true' : 'false';
       else if ('defaultValue' in f && f.defaultValue) o[f.key] = f.defaultValue as string;
     });
@@ -173,6 +178,7 @@ export function RecordForm({
         // Los contactos NO son texto: se leen con su propia regla (que ademas
         // reconstruye el contacto nº 1 de los empleados viejos) y viajan como JSON.
         if (f.type === 'contactos') { pre[f.key] = JSON.stringify(leerContactos(record as any)); return; }
+        if (f.type === 'habilidades') { pre[f.key] = JSON.stringify(leerHabilidadesEmpleado(record as any)); return; }
         const v = record[f.key];
         if (v !== null && v !== undefined) pre[f.key] = String(v);
       });
@@ -261,6 +267,13 @@ export function RecordForm({
         }
         continue;
       }
+      if (f.type === 'habilidades') {
+        if (f.required && !limpiarHabilidades(values[f.key] || '[]').length) {
+          setError('Agrega al menos una habilidad.');
+          return;
+        }
+        continue;
+      }
       if (f.required && !values[f.key]) {
         setError(`El campo "${f.label}" es obligatorio.`);
         return;
@@ -279,6 +292,10 @@ export function RecordForm({
         let lista: any = [];
         try { lista = JSON.parse(raw || '[]'); } catch { lista = []; }
         Object.assign(payload, contactosParaGuardar(lista));
+        return;
+      }
+      if (f.type === 'habilidades') {
+        // Las habilidades se guardan tras confirmar el id en guardarHabilidadesEmpleado()
         return;
       }
       if (raw === '') {
@@ -352,6 +369,14 @@ export function RecordForm({
       if (!error || !paso.columnas.some((c) => c in fila) || !paso.detecta.test(error.message)) break;
       fila = quitarColumnas(fila, paso.columnas);
       error = await guardar();
+    }
+    if (!error && savedId) {
+      for (const f of visibleFields) {
+        if (f.type === 'habilidades') {
+          const habs = limpiarHabilidades(values[f.key] || '[]');
+          await guardarHabilidadesEmpleado(savedId, habs);
+        }
+      }
     }
     setSaving(false);
     if (error) {
@@ -477,6 +502,14 @@ export function RecordForm({
                     onChange={(v) => set(f.key, v)}
                     colors={colors}
                     typography={typography}
+                    styles={styles}
+                  />
+                ) : f.type === 'habilidades' ? (
+                  <HabilidadesField
+                    value={values[f.key] ?? '[]'}
+                    onChange={(v) => set(f.key, v)}
+                    placeholder={f.placeholder}
+                    colors={colors}
                     styles={styles}
                   />
                 ) : f.type === 'switch' ? (
@@ -1145,6 +1178,113 @@ function ContactosField({ value, onChange, colors, typography, styles }: {
         </TouchableOpacity>
       ) : (
         <Text style={{ color: colors.muted, fontSize: 11 }}>Máximo {MAX_CONTACTOS} contactos por persona.</Text>
+      )}
+    </View>
+  );
+}
+
+/** Lista REPETIBLE de habilidades / destrezas manuales: permite escribir 1 o varias
+ *  habilidades en campos individuales, agregar nuevas casillas o quitar cualquiera. */
+function HabilidadesField({ value, onChange, placeholder, colors, styles }: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  colors: AppColors;
+  styles: any;
+}) {
+  let lista: string[] = [];
+  try {
+    const p = JSON.parse(value || '[]');
+    if (Array.isArray(p)) lista = p.map((s) => String(s ?? ''));
+  } catch {
+    lista = [];
+  }
+  // Siempre hay al menos 1 campo visible en pantalla para escribir directamente;
+  // si queda vacío, limpiarHabilidades() lo descarta al guardar.
+  const vista = lista.length > 0 ? lista : [''];
+  const emitir = (l: string[]) => onChange(JSON.stringify(l));
+  const setItem = (idx: number, txt: string) =>
+    emitir(vista.map((s, j) => (j === idx ? txt : s)));
+
+  return (
+    <View style={{ gap: spacing.xs }}>
+      {vista.map((hab, i) => (
+        <View
+          key={i}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.xs,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: radius.md,
+            padding: spacing.xs,
+            backgroundColor: colors.surfaceAlt,
+          }}
+        >
+          <View
+            style={{
+              minWidth: 30,
+              paddingVertical: 6,
+              paddingHorizontal: 8,
+              borderRadius: radius.sm,
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 11 }}>#{i + 1}</Text>
+          </View>
+          <TextInput
+            style={[styles.input, { flex: 1, paddingVertical: 8 }]}
+            value={hab}
+            onChangeText={(t) => setItem(i, t.toUpperCase())}
+            autoCapitalize="characters"
+            placeholder={placeholder || `HABILIDAD #${i + 1} (EJ. SOLDADOR, MECÁNICO, ELECTRICISTA…)`}
+            placeholderTextColor={colors.muted}
+          />
+          {vista.length > 1 || hab.trim().length > 0 ? (
+            <TouchableOpacity
+              onPress={() => {
+                if (vista.length > 1) {
+                  emitir(vista.filter((_, j) => j !== i));
+                } else {
+                  emitir(['']);
+                }
+              }}
+              style={{
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 7,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: colors.danger,
+                backgroundColor: 'rgba(220,38,38,0.08)',
+              }}
+            >
+              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑 Quitar</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ))}
+      {vista.length < MAX_HABILIDADES ? (
+        <TouchableOpacity
+          onPress={() => emitir([...vista, ''])}
+          style={{
+            alignSelf: 'flex-start',
+            borderWidth: 1,
+            borderColor: colors.primary,
+            borderStyle: 'dashed',
+            borderRadius: radius.md,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.xs,
+            marginTop: 2,
+          }}
+        >
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>＋ Agregar otra habilidad</Text>
+        </TouchableOpacity>
+      ) : (
+        <Text style={{ color: colors.muted, fontSize: 11 }}>Máximo {MAX_HABILIDADES} habilidades por persona.</Text>
       )}
     </View>
   );

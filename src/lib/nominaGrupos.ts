@@ -103,10 +103,65 @@ export type FiltroEstado = 'todos' | 'activo' | 'inactivo' | 'otro' | GrupoApart
  * - «Inactivos» sigue siendo "ni activo ni otro" (inactivo/suspendido), igual
  *   que antes.
  */
-export function pasaFiltroEstado(filtro: string, grupo: string | null, estado?: string | null): boolean {
+export function pasaFiltroEstado(
+  filtro: string | Iterable<string>,
+  grupo: string | null,
+  estado?: string | null
+): boolean {
+  if (typeof filtro !== 'string') {
+    const lista = Array.from(filtro || []).filter(Boolean);
+    if (lista.length === 0) return !grupo;
+    return lista.some((f) => pasaFiltroEstado(f, grupo, estado));
+  }
   if (filtro === 'todos') return !grupo;
   if (filtro === 'activo') return !grupo && String(estado ?? '').toLowerCase() === 'activo';
   if (filtro === 'otro') return !grupo && String(estado ?? '').toLowerCase() === 'otro';
   if (filtro === 'inactivo') return !grupo && String(estado ?? '').toLowerCase() !== 'activo' && String(estado ?? '').toLowerCase() !== 'otro';
   return grupo === filtro;
+}
+
+/**
+ * Alterna un chip en la selección múltiple de `Estado / Aparte`:
+ * - Tocar `'todos'` restablece la selección a `Set(['todos'])`.
+ * - Tocar cualquier otro chip (`'activo'`, `'inactivo'`, `'otro'` o un grupo aparte)
+ *   quita `'todos'` y activa/desactiva ese chip en el conjunto.
+ * - Si se desmarcan todos los chips, vuelve automáticamente a `Set(['todos'])`.
+ */
+export function toggleFiltroEstado(actual: Iterable<string>, key: string): Set<string> {
+  if (key === 'todos') {
+    return new Set(['todos']);
+  }
+  const next = new Set(Array.from(actual || []).filter((k) => k && k !== 'todos'));
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  if (next.size === 0) {
+    return new Set(['todos']);
+  }
+  return next;
+}
+
+/**
+ * Convierte el conjunto de filtros seleccionados en una etiqueta legible
+ * para encabezados y reportes PDF (ej. `"Activos, Carbozulia, CDT"`).
+ */
+export function etiquetaFiltrosEstado(
+  filtros: Iterable<string> | string,
+  gruposConfig: readonly GrupoApartadoConfig[] = DEFAULT_GRUPOS_APARTADOS
+): string {
+  const lista = typeof filtros === 'string' ? [filtros] : Array.from(filtros || []).filter(Boolean);
+  if (lista.length === 0 || (lista.length === 1 && lista[0] === 'todos')) {
+    return 'Todos';
+  }
+  return lista
+    .map((f) => {
+      if (f === 'todos') return 'Todos';
+      if (f === 'activo') return 'Activos';
+      if (f === 'inactivo') return 'Inactivos';
+      if (f === 'otro') return 'Otro';
+      return gruposConfig.find((g) => g.id === f)?.label ?? f;
+    })
+    .join(', ');
 }

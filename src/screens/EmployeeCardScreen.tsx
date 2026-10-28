@@ -14,6 +14,8 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import QrInactive from '../components/QrInactive';
 import { leerContactos, tituloContacto } from '../lib/contactosEmergencia';
+import { leerHabilidadesEmpleado } from '../lib/empleadosHabilidades';
+import { leerMapaHabilidades } from '../lib/empleadosHabilidadesStorage';
 
 const LOGO = require('../../assets/logo.png');
 const FICHA_BG = require('../../assets/ficha-bg.jpg');
@@ -66,7 +68,15 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
       ? await supabase.rpc('employee_public_lookup', { p_id: employeeId }).then((r) => ({ data: (r.data as any)?.[0] ?? null }))
       : await supabase.from('employees').select('*, company:company_id(name)').eq('id', employeeId).maybeSingle();
     const companyName = anon ? (data as any)?.company_name : (data as any)?.company?.name;
-    const e = data ? ({ ...(data as any), companyName: companyName ?? 'Sin empresa' }) : null;
+    let mapaHabs = {};
+    try { mapaHabs = await leerMapaHabilidades(); } catch {}
+    const e = data
+      ? ({
+          ...(data as any),
+          companyName: companyName ?? 'Sin empresa',
+          habilidades: leerHabilidadesEmpleado(data as any, mapaHabs),
+        })
+      : null;
     setEmp(e);
 
     // Bitácora: registrar el ESCANEO del carnet (solo cuando se abrió por QR, no
@@ -301,6 +311,28 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         <Row k="Grupo / zona" v={emp.grupo} />
         <Row k="Fecha de ingreso" v={emp.hire_date} />
       </Section>
+
+      {emp.habilidades && emp.habilidades.length > 0 ? (
+        <Section title="🛠️ Habilidades">
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {emp.habilidades.map((hab, idx) => (
+              <View
+                key={`${hab}-${idx}`}
+                style={{
+                  backgroundColor: '#EEF2F7',
+                  borderWidth: 1,
+                  borderColor: FICHA.border,
+                  borderRadius: radius.pill,
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 4,
+                }}
+              >
+                <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 12 }}>🛠️ {hab}</Text>
+              </View>
+            ))}
+          </View>
+        </Section>
+      ) : null}
 
       {emp.notes ? (
         <Section title="📝 Notas">

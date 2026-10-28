@@ -339,6 +339,8 @@ export interface Employee {
   precio_quincena: number | null;// pago a personal: precio por quincena
   precio_mes: number | null;     // pago a personal: precio por mes
   notes: string | null;
+  /** 🛠️ Habilidades / destrezas del trabajador (1 o varias cargadas manualmente). */
+  habilidades?: string[] | null;
   created_by: string | null;
   created_at: string;
 }
@@ -391,6 +393,8 @@ export interface Aliado {
   state: string | null;
   status: 'activo' | 'inactivo' | 'suspendido';
   notes: string | null;
+  /** 🛠️ Habilidades / destrezas del trabajador (1 o varias cargadas manualmente). */
+  habilidades?: string[] | null;
   created_by: string | null;
   created_at: string;
 }
@@ -1299,6 +1303,8 @@ export interface MachineryServiceOrder {
   work_done: string | null;         // «Acciones realizadas»
   photos: string[];
   notes: string | null;
+  /** 🛠️ Habilidades / destrezas del trabajador (1 o varias cargadas manualmente). */
+  habilidades?: string[] | null;
   created_by: string | null;
   created_at: string;
 }
@@ -1393,6 +1399,8 @@ export interface Transfer {
   to_tank_id: string;
   liters: number;
   notes: string | null;
+  /** 🛠️ Habilidades / destrezas del trabajador (1 o varias cargadas manualmente). */
+  habilidades?: string[] | null;
   created_by: string | null;
   created_at: string;
 }

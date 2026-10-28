@@ -31,7 +31,19 @@ const {
   coincideGrupo,
   grupoApartado,
   pasaFiltroEstado,
+  toggleFiltroEstado,
+  etiquetaFiltrosEstado,
 } = loadTs(path.join(ROOT, 'src/lib/nominaGrupos.ts'));
+
+const {
+  limpiarHabilidades,
+  leerHabilidadesEmpleado,
+  extraerMapaHabilidadesDeEmpresas,
+} = loadTs(path.join(ROOT, 'src/lib/empleadosHabilidades.ts'));
+
+const {
+  cuerpoReporteEmpleados,
+} = loadTs(path.join(ROOT, 'src/lib/empleadosReporte.ts'));
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -77,6 +89,87 @@ eq('taller FUERA de activos', pasaFiltroEstado('activo', 'taller', 'activo'), fa
 eq('normal en todos', pasaFiltroEstado('todos', null, 'activo'), true);
 eq('normal en activos', pasaFiltroEstado('activo', null, 'activo'), true);
 eq('normal NO en taller', pasaFiltroEstado('taller', null, 'activo'), false);
+
+// 5. Selección MÚLTIPLE en Estado / Aparte
+const selMulti = new Set(['activo', 'carbozulia', 'taller']);
+eq('multi-select incluye activo general', pasaFiltroEstado(selMulti, null, 'activo'), true);
+eq('multi-select excluye inactivo general', pasaFiltroEstado(selMulti, null, 'inactivo'), false);
+eq('multi-select incluye carbozulia', pasaFiltroEstado(selMulti, 'carbozulia', 'inactivo'), true);
+eq('multi-select incluye taller', pasaFiltroEstado(selMulti, 'taller', 'activo'), true);
+eq('multi-select excluye seguridad', pasaFiltroEstado(selMulti, 'seguridad', 'activo'), false);
+
+let st = new Set(['todos']);
+st = toggleFiltroEstado(st, 'carbozulia');
+eq('toggle desde todos a carbozulia', Array.from(st), ['carbozulia']);
+st = toggleFiltroEstado(st, 'taller');
+eq('toggle agrega taller', Array.from(st), ['carbozulia', 'taller']);
+eq('etiqueta de multi-selección', etiquetaFiltrosEstado(st, listaGrupos), 'Carbozulia, Taller');
+st = toggleFiltroEstado(st, 'carbozulia');
+st = toggleFiltroEstado(st, 'taller');
+eq('desmarcar todo vuelve a todos', Array.from(st), ['todos']);
+
+// 6. Habilidades por empleado
+eq(
+  'limpia, mayúsculas y deduplica habilidades',
+  limpiarHabilidades(['soldador', '  Operador de retro  ', 'SOLDADOR', '', 'mecánico diesel']),
+  ['SOLDADOR', 'OPERADOR DE RETRO', 'MECÁNICO DIESEL']
+);
+const mapaRemoto = extraerMapaHabilidadesDeEmpresas([
+  { id: '1', name: 'SOS LA GUAIRA' },
+  { id: '2', name: '__nomina_habilidades__:{"emp-1":["soldador","electricista"]}' },
+]);
+eq(
+  'lee habilidades desde mapa sincronizado',
+  leerHabilidadesEmpleado({ id: 'emp-1' }, mapaRemoto),
+  ['SOLDADOR', 'ELECTRICISTA']
+);
+
+// 7. Reporte modificable de empleados con habilidades
+const repConHab = cuerpoReporteEmpleados({
+  empleados: [
+    {
+      id: 'emp-1',
+      first_name: 'ABRAHAM',
+      last_name: 'ALONZO',
+      cedula: '27904754',
+      ficha_number: '0207',
+      cargo: 'AUXILIAR',
+      empresaNomina: 'SOS LA GUAIRA',
+      status: 'activo',
+      phone: '04143103426',
+      habilidades: ['SOLDADOR', 'ELECTRICISTA'],
+    },
+  ],
+  estadoTxt: 'Activos, Carbozulia',
+  empresaTxt: 'Todas',
+  cargoTxt: 'Todos los cargos',
+});
+eq('reporte por defecto incluye columna Habilidades', repConHab.body.includes('<th>Habilidades</th>'), true);
+eq('reporte refleja las habilidades cargadas', repConHab.body.includes('SOLDADOR') && repConHab.body.includes('ELECTRICISTA'), true);
+
+const repSinHabNiEmpresa = cuerpoReporteEmpleados({
+  empleados: [
+    {
+      id: 'emp-1',
+      first_name: 'ABRAHAM',
+      last_name: 'ALONZO',
+      cedula: '27904754',
+      ficha_number: '0207',
+      cargo: 'AUXILIAR',
+      empresaNomina: 'SOS LA GUAIRA',
+      status: 'activo',
+      phone: '04143103426',
+      habilidades: ['SOLDADOR'],
+    },
+  ],
+  estadoTxt: 'Activos',
+  empresaTxt: 'SOS LA GUAIRA',
+  cargoTxt: 'Todos los cargos',
+  opciones: { habilidades: false, empresa: false, resumenCargo: false },
+});
+eq('al apagar habilidades no sale en el reporte', repSinHabNiEmpresa.body.includes('SOLDADOR'), false);
+eq('al apagar empresa no sale SOS LA GUAIRA', repSinHabNiEmpresa.body.includes('SOS LA GUAIRA'), false);
+eq('al apagar resumenCargo no sale Resumen por cargo', repSinHabNiEmpresa.body.includes('Resumen por cargo'), false);
 
 console.log('\n🏢  Grupos apartados dinámicos (Configurables por Empresa, Cargo y Departamento)');
 console.log(`   ${pass} OK · ${fail} fallo(s)`);

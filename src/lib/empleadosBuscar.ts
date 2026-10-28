@@ -37,6 +37,7 @@ export type EmpleadoBuscable = {
   email?: string | null;
   bank_holder?: string | null;
   bank_account?: string | null;
+  habilidades?: readonly string[] | string | null;
 };
 
 /**
@@ -49,12 +50,14 @@ export type EmpleadoBuscable = {
  * la empresa real y la de filtro de nómina.
  */
 export function textoBuscableEmpleado(e: EmpleadoBuscable, empresas: (string | null | undefined)[] = []): string {
+  const habs = Array.isArray(e.habilidades) ? e.habilidades : e.habilidades ? [e.habilidades] : [];
   const partes = [
     e.first_name, e.last_name,
     e.cedula, e.ficha_number,
     e.cargo, e.department, e.grupo,
     e.phone, e.email,
     e.bank_holder, e.bank_account,
+    ...habs,
     ...empresas,
   ];
   return norm(partes.filter(Boolean).join(' '));
