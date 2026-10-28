@@ -403,7 +403,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   // Proveedores del catálogo (para asignar al requerimiento — opcional).
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   // Cuentas por pagar sincronizadas (para detectar pagos realizados en Tesorería)
-  const { data: cuentasData } = useTable<Cuenta>('cuentas');
+  const { data: cuentasData, refetch: refetchCuentas } = useTable<Cuenta>('cuentas');
   const cuentasPagadasSet = useMemo(() => {
     const set = new Set<string>();
     (cuentasData || []).forEach((c) => {
@@ -1594,11 +1594,62 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       setFacturaModalOpen(false);
       setFacturaTarget(null);
       refetch();
+      refetchCuentas();
       toast.success('Expediente de Factura y Pago guardado con éxito.');
     } catch (e: any) {
       toast.error('Error al guardar expediente: ' + (e?.message ?? e));
     } finally {
       setGuardandoFactura(false);
+    }
+  };
+
+  // ↩ Revertir Pago por error (en Requerimiento y en Cuentas por Pagar)
+  const revertirPagoRequerimiento = async (r: InventoryRequirement) => {
+    const ok = await confirm({
+      title: 'Revertir pago por error',
+      message: `¿Revertir el pago registrado en ${r.code ?? 'este requerimiento'}?\n\n• Se quitará el comprobante de pago del requerimiento.\n• El requerimiento volverá a estado "Aprobado (Por Pagar)".\n• La Cuenta por Pagar asociada volverá a estado "Pendiente".`,
+      confirmText: 'Revertir pago',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const obsSinRecibo = inyectarReciboPagoEnObservaciones(r.observaciones, null);
+      const nextStatus = (r.status === 'esperando_recepcion' || (r.status as string) === 'pagado') ? 'aprobado' : r.status;
+      const { error } = await supabase
+        .from('inventory_requirements')
+        .update({ observaciones: obsSinRecibo, status: nextStatus })
+        .eq('id', r.id);
+      if (error) throw error;
+
+      // También revertir en Cuentas por Pagar si tiene cuenta asociada
+      try {
+        const { data: ctas } = await supabase
+          .from('cuentas')
+          .select('id, nota')
+          .eq('order_id', r.id);
+        if (ctas && ctas.length > 0) {
+          for (const cta of ctas) {
+            await supabase.from('cuenta_abonos').delete().eq('cuenta_id', cta.id);
+            const notaSinRec = inyectarReciboPagoEnNota(cta.nota, null);
+            await supabase.from('cuentas').update({
+              estado: 'pendiente',
+              settled_by: null,
+              settled_at: null,
+              nota: notaSinRec,
+              updated_at: nowISO(),
+            }).eq('id', cta.id);
+          }
+        }
+      } catch (eCxp) {
+        console.warn('Error revirtiendo cuenta ligada:', eCxp);
+      }
+
+      refetch();
+      refetchCuentas();
+      toast.success(`Pago revertido en ${r.code}. Volvió a Pendiente por Pagar en Requerimientos y en Cuentas por Pagar.`);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo revertir el pago.');
     }
   };
 
@@ -3134,6 +3185,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               {(() => {
                                 const rec = extraerReciboPago(r);
                                 const tieneRec = Boolean(rec && (rec.url || rec.referencia));
+                                const marcadoPagado = tieneRec || cuentasPagadasSet.has(r.id) || r.status === 'esperando_recepcion' || (r.status as string) === 'pagado';
                                 return (
                                   <View
                                     style={{
@@ -3141,7 +3193,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                       backgroundColor: colors.surfaceAlt,
                                       borderRadius: radius.md,
                                       borderWidth: 1.5,
-                                      borderColor: tieneRec ? '#10B981' : colors.border,
+                                      borderColor: marcadoPagado ? '#10B981' : colors.border,
                                       padding: spacing.sm,
                                       gap: 6,
                                     }}
@@ -3171,27 +3223,35 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                       ) : null}
                                     </View>
 
-                                    {tieneRec ? (
+                                    {marcadoPagado ? (
                                       <View style={{ gap: 4 }}>
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
-                                          {rec?.referencia ? (
-                                            <Text style={{ fontSize: 12, color: colors.text }}>
-                                              <Text style={{ fontWeight: '700' }}>Ref / Comprobante:</Text>{' '}
-                                              <Text style={{ fontWeight: '900', color: '#059669' }}>{rec.referencia}</Text>
-                                            </Text>
-                                          ) : null}
-                                          {rec?.fecha ? (
-                                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
-                                              📅 Fecha de Pago: {rec.fecha}
-                                            </Text>
-                                          ) : null}
-                                        </View>
-                                        {rec?.subidoPor ? (
-                                          <Text style={{ fontSize: 11, color: colors.muted }}>
-                                            👤 Adjuntado por: {rec.subidoPor}
+                                        {tieneRec ? (
+                                          <>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                                              {rec?.referencia ? (
+                                                <Text style={{ fontSize: 12, color: colors.text }}>
+                                                  <Text style={{ fontWeight: '700' }}>Ref / Comprobante:</Text>{' '}
+                                                  <Text style={{ fontWeight: '900', color: '#059669' }}>{rec.referencia}</Text>
+                                                </Text>
+                                              ) : null}
+                                              {rec?.fecha ? (
+                                                <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                                  📅 Fecha de Pago: {rec.fecha}
+                                                </Text>
+                                              ) : null}
+                                            </View>
+                                            {rec?.subidoPor ? (
+                                              <Text style={{ fontSize: 11, color: colors.muted }}>
+                                                👤 Adjuntado por: {rec.subidoPor}
+                                              </Text>
+                                            ) : null}
+                                          </>
+                                        ) : (
+                                          <Text style={{ fontSize: 11.5, color: '#047857', fontWeight: '700' }}>
+                                            ✅ Marcado como pagado (sincronizado con Cuentas por Pagar).
                                           </Text>
-                                        ) : null}
-                                        <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                                        )}
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
                                           {rec?.url ? (
                                             <TouchableOpacity
                                               onPress={() => abrirVisorFactura(rec.url!, rec.tipo, rec.nombre || 'Recibo de Pago')}
@@ -3227,6 +3287,23 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                             >
                                               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>
                                                 ✏️ Modificar Recibo
+                                              </Text>
+                                            </TouchableOpacity>
+                                          ) : null}
+                                          {canWrite ? (
+                                            <TouchableOpacity
+                                              onPress={() => revertirPagoRequerimiento(r)}
+                                              style={{
+                                                backgroundColor: colors.surface,
+                                                borderWidth: 1,
+                                                borderColor: colors.danger,
+                                                borderRadius: radius.sm,
+                                                paddingHorizontal: spacing.sm,
+                                                paddingVertical: 4,
+                                              }}
+                                            >
+                                              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11.5 }}>
+                                                ↩ Revertir Pago (Volver a Por Pagar)
                                               </Text>
                                             </TouchableOpacity>
                                           ) : null}

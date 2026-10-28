@@ -397,18 +397,67 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   };
 
   const reabrir = async (c: CuentaCalc) => {
+    const tieneAbonos = c.abonado > 0;
     const ok = await confirm({
-      title: 'Volver a pendiente',
-      message: `¿Devolver a PENDIENTE la cuenta de ${c.contraparte} (${c.concepto})? Volverá a sumar en los totales.`,
+      title: 'Revertir pago / Volver a pendiente',
+      message: `¿Devolver a PENDIENTE la cuenta de ${c.contraparte} (${c.concepto})?` +
+        (tieneAbonos ? `\n\nSe eliminarán también los abonos registrados (${usd(c.abonado)}) para restaurar el saldo completo.` : '') +
+        (c.order_id ? '\n\nTambién se revertirá el estado de pago en el Requerimiento de Compra asociado.' : ''),
       confirmText: 'Volver a pendiente',
     });
     if (!ok) return;
+    if (tieneAbonos) {
+      await supabase.from('cuenta_abonos').delete().eq('cuenta_id', c.id);
+    }
+    const notaSinRecibo = inyectarReciboPagoEnNota(limpiarNotaCuentasVisual(c.nota), null);
     const { error } = await supabase.from('cuentas')
-      .update({ estado: 'pendiente', settled_by: null, settled_at: null, updated_at: nowISO() })
+      .update({ estado: 'pendiente', settled_by: null, settled_at: null, nota: notaSinRecibo, updated_at: nowISO() })
       .eq('id', c.id);
     if (error) return toast.error(error.message);
+
+    // Sincronizar con el requerimiento si está ligado (quitar recibo de pago y devolver a aprobado si estaba en esperando_recepcion/pagado)
+    if (c.order_id) {
+      try {
+        const { data: reqRows } = await supabase
+          .from('inventory_requirements')
+          .select('id, status, observaciones')
+          .eq('id', c.order_id)
+          .limit(1);
+        if (reqRows && reqRows[0]) {
+          const rRow = reqRows[0] as any;
+          const obsSinRecibo = inyectarReciboPagoEnObservaciones(rRow.observaciones, null);
+          const nextStatus = rRow.status === 'esperando_recepcion' || rRow.status === 'pagado' ? 'aprobado' : rRow.status;
+          await supabase
+            .from('inventory_requirements')
+            .update({ observaciones: obsSinRecibo, status: nextStatus })
+            .eq('id', c.order_id);
+        }
+      } catch (eSync) {
+        console.warn('Sync reabrir cxp a req error:', eSync);
+      }
+    }
+
+    refetchAbonos();
     refetch();
-    toast.success('La cuenta volvió a pendiente.');
+    toast.success('Pago revertido. La cuenta y el requerimiento volvieron a pendiente por pagar.');
+  };
+
+  const eliminarAbono = async (a: CuentaAbono, c: CuentaCalc) => {
+    const ok = await confirm({
+      title: 'Eliminar abono',
+      message: `¿Eliminar este abono de ${usd(Number(a.monto) || 0)} del ${fmtFecha(a.fecha)}? El saldo pendiente aumentará por ese monto.`,
+      confirmText: 'Eliminar abono',
+      danger: true,
+    });
+    if (!ok) return;
+    const { error } = await supabase.from('cuenta_abonos').delete().eq('id', a.id);
+    if (error) return toast.error(error.message);
+    if (c.estado === 'pagada') {
+      await supabase.from('cuentas').update({ estado: 'pendiente', settled_by: null, settled_at: null, updated_at: nowISO() }).eq('id', c.id);
+    }
+    refetchAbonos();
+    refetch();
+    toast.success('Abono eliminado.');
   };
 
   // Genera el RECIBO (PDF) de la cuenta: por_cobrar → "Recibo de cobro", por_pagar →
@@ -680,6 +729,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           {abComp?.url ? (
                             <TouchableOpacity onPress={() => Linking.openURL(abComp.url!)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
                               <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>📎 Soporte</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          {canWrite ? (
+                            <TouchableOpacity onPress={() => eliminarAbono(a, c)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>🗑️ Quitar</Text>
                             </TouchableOpacity>
                           ) : null}
                         </View>
