@@ -753,19 +753,23 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         observaciones: editDestinoTexto.trim() ? editDestinoTexto.trim() : null,
         note: editNote.trim() || null,
         items: finalItems,
-        updated_at: nowISO(),
+        // Sin `updated_at`: inventory_requirements NO tiene esa columna y mandarla hacía
+        // fallar el guardado entero («Could not find the 'updated_at' column…», 28-oct-2026).
       };
       if (firstPhoto) {
         payload.attachment_url = firstPhoto;
         payload.attachment_type = 'image';
       }
 
-      const { error } = await supabase
+      const { data: upd, error } = await supabase
         .from('inventory_requirements')
         .update(payload)
-        .eq('id', editTarget.id);
+        .eq('id', editTarget.id)
+        .select('id');
 
       if (error) throw error;
+      // 0 filas = la base no dejó guardar (permiso): se dice, no se finge el éxito.
+      if (!upd || upd.length === 0) throw new Error('No se guardó: no tienes permiso para editar esta solicitud.');
 
       toast.success(`Solicitud ${editTarget.code} actualizada correctamente.`);
       setEditTarget(null);

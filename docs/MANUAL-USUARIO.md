@@ -3205,6 +3205,11 @@ traslado, Gastos, Movimientos y Dotación**.
 > una foto, ahora lo avisa (antes decía «actualizada» aunque no se guardara). Al editar un material
 > solo se carga su foto propia: una foto «tomada prestada» de una compra no se le queda guardada.
 
+> **Compras → 📥 Solicitudes: ✏️ Editar ya guarda** *(28/10/2026)*. Al editar una solicitud (por
+> ejemplo, **quitarle un renglón**) salía «Could not find the 'updated_at' column…» y no se guardaba
+> nada: la pantalla mandaba un dato que esa tabla no tiene. Ya guarda; y si la base no te deja
+> guardar (permiso), ahora lo dice en vez de mostrar «actualizada».
+
 > **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
 > **"✕ Limpiar"** quita los filtros.
