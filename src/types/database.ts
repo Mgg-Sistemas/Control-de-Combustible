@@ -875,6 +875,9 @@ export interface RequirementLine {
   exento?: boolean;                 // 🧾 Exento de IVA para este renglón (como en Compra Directa)
   price_usd?: number;               // Precio unitario explícito en USD
   price_bs?: number;                // Precio unitario explícito en Bolívares
+  modo_precio?: 'unidad' | 'total'; // 🎯 Modo de captura del precio: por unidad (c/u) o total por los objetos
+  total_usd?: number;               // Precio total explícito en USD para todos los objetos del renglón
+  total_bs?: number;                // Precio total explícito en Bolívares para todos los objetos del renglón
 }
 
 export type RequirementStatus = 'pendiente' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'aclaratoria_solicitada' | 'pagado';

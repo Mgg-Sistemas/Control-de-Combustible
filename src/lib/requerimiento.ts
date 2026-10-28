@@ -18,6 +18,9 @@ export type ReqPdfItem = {
   exento?: boolean;
   price_usd?: number;
   price_bs?: number;
+  modo_precio?: 'unidad' | 'total';
+  total_usd?: number;
+  total_bs?: number;
   cotizaciones_count?: number;
   metodo_pago?: string | null;
 };
@@ -151,9 +154,13 @@ function reqTableHtml(d: ReqPdfData): {
 
   const rows = d.items.map((it, i) => {
     const qty = Number(it.qty) || 0;
-    const uUsd = toUsd(Number(it.est_price) || 0, it.currency, d.rate);
-    const lineUsd = uUsd * qty;
-    const lineBs = (it.price_bs && Number(it.price_bs) > 0)
+    const rawUnitUsd = toUsd(Number(it.est_price) || 0, it.currency, d.rate);
+    const esModoTotal = it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0;
+    const lineUsd = esModoTotal ? Number(it.total_usd) : rawUnitUsd * qty;
+    const uUsd = esModoTotal ? (qty > 0 ? lineUsd / qty : lineUsd) : rawUnitUsd;
+    const lineBs = (it.modo_precio === 'total' && it.total_bs && Number(it.total_bs) > 0)
+      ? Number(it.total_bs)
+      : (it.price_bs && Number(it.price_bs) > 0)
       ? Number(it.price_bs) * qty
       : (d.rate && d.rate > 0 ? lineUsd * d.rate : 0);
 

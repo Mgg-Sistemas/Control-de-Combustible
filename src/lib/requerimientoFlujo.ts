@@ -105,12 +105,16 @@ export function calcularTotalReqUsd(
 ): number {
   if (!items || items.length === 0) return 0;
   const rate = Number(rateBcv) || 1;
-  const subtotal = items.reduce((sum, it) => {
+  const lineTotalUsd = (it: RequirementLine) => {
+    if (it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0) {
+      return Number(it.total_usd);
+    }
     const qty = Number(it.qty) || 0;
     const estPrice = Number(it.est_price) || 0;
     const priceUsd = it.currency === 'USD' ? estPrice : estPrice / rate;
-    return sum + priceUsd * qty;
-  }, 0);
+    return priceUsd * qty;
+  };
+  const subtotal = items.reduce((sum, it) => sum + lineTotalUsd(it), 0);
 
   if (alicuotaIva === undefined || alicuotaIva === null) {
     return Math.round(subtotal * 100) / 100;
@@ -118,10 +122,7 @@ export function calcularTotalReqUsd(
 
   const baseImponible = items.reduce((sum, it) => {
     if (it.exento) return sum;
-    const qty = Number(it.qty) || 0;
-    const estPrice = Number(it.est_price) || 0;
-    const priceUsd = it.currency === 'USD' ? estPrice : estPrice / rate;
-    return sum + priceUsd * qty;
+    return sum + lineTotalUsd(it);
   }, 0);
 
   const alic = Math.min(100, Math.max(0, Number(alicuotaIva) || 0));

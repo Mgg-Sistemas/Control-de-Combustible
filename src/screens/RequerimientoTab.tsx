@@ -92,9 +92,14 @@ function Pill({ label, color }: { label: string; color: string }) {
 export interface PresupuestoItem {
   id: string;
   proveedor: string;
+  concepto?: string;
   metodo_pago?: string;
-  precio_usd: string;
-  precio_bs: string;
+  modo_precio?: 'unidad' | 'total';
+  precio_usd: string;       // Precio unitario c/u en $ USD
+  precio_bs: string;        // Precio unitario c/u en Bs
+  total_usd?: string;       // Precio total por la cantidad del ítem en $ USD
+  total_bs?: string;        // Precio total por la cantidad del ítem en Bs
+  archivos?: FormatoAdjunto[]; // Uno o varios archivos/fotos de presupuesto adjuntos
   nota?: string;
 }
 
@@ -115,8 +120,11 @@ type ReqRow = {
   name: string;
   unit: string;
   qty: string;
-  price: string;       // Precio en $ USD
-  price_bs: string;    // Precio en Bs (independiente para edición manual)
+  modo_precio?: 'unidad' | 'total'; // 🎯 Por Unidad (c/u) o 📦 Precio Total por la cantidad
+  price: string;       // Precio unitario en $ USD
+  price_bs: string;    // Precio unitario en Bs (independiente para edición manual)
+  total_usd?: string;  // Precio total en $ USD (cuando se coloca el total por los objetos)
+  total_bs?: string;   // Precio total en Bs (cuando se coloca el total por los objetos)
   currency: 'USD' | 'VES';
   note: string;
   image_url: string;
@@ -124,7 +132,7 @@ type ReqRow = {
   supplier_name?: string | null;
   metodo_pago?: string | null;
   exento?: boolean;    // 🧾 Cuadrito Exento de IVA
-  presupuestos?: PresupuestoItem[]; // 📋 Cotizaciones alternas
+  presupuestos?: PresupuestoItem[]; // 📋 Cotizaciones / Presupuestos alternos (uno o varios)
   presupuestosAbierto?: boolean;
 };
 const REQ_STATUS: Record<string, { label: string; color: string; short: string }> = {
@@ -632,16 +640,73 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     };
     if (ganadora) {
       if (ganadora.supplier_id) patch.supplier_id = ganadora.supplier_id;
-      if (cotizacionesTarget.items && cotizacionesTarget.items.length === 1) {
-        const item0 = cotizacionesTarget.items[0];
-        patch.items = [{
-          ...item0,
-          est_price: ganadora.price,
-          currency: ganadora.currency,
-          exchange_rate: ganadora.exchange_rate,
-          supplier_id: ganadora.supplier_id || item0.supplier_id,
-          supplier_name: ganadora.supplier_name || item0.supplier_name,
-        }];
+      const tasaGan = ganadora.exchange_rate || rate || 0;
+      const toUsd = (monto: number) => {
+        if (ganadora.currency === 'USD' || ganadora.currency === 'USDT') return monto;
+        return tasaGan > 0 ? Math.round((monto / tasaGan) * 100) / 100 : monto;
+      };
+      const toBs = (monto: number) => {
+        if (ganadora.currency === 'VES') return monto;
+        return tasaGan > 0 ? Math.round(monto * tasaGan * 100) / 100 : 0;
+      };
+
+      if (cotizacionesTarget.items && cotizacionesTarget.items.length > 0) {
+        if (Array.isArray(ganadora.presupuestos) && ganadora.presupuestos.length > 0) {
+          patch.items = cotizacionesTarget.items.map((item, idx) => {
+            const presLinea = ganadora.presupuestos!.find((p) => p.item_index === idx) ||
+              (cotizacionesTarget.items.length === 1 ? ganadora.presupuestos![0] : null);
+            if (!presLinea) return item;
+            const cant = Math.max(0.0001, Number(item.qty) || Number(presLinea.qty) || 1);
+            const unitMoneda = presLinea.modo_precio === 'unidad'
+              ? Number(presLinea.precio_unitario) || 0
+              : (Number(presLinea.precio_total) || 0) / cant;
+            const totMoneda = presLinea.modo_precio === 'total'
+              ? Number(presLinea.precio_total) || 0
+              : unitMoneda * cant;
+            const unitUsd = toUsd(unitMoneda);
+            const totUsd = toUsd(totMoneda);
+            const unitBs = toBs(unitMoneda);
+            const totBs = toBs(totMoneda);
+            return {
+              ...item,
+              modo_precio: presLinea.modo_precio || 'unidad',
+              est_price: unitUsd,
+              price_usd: unitUsd,
+              price_bs: unitBs,
+              total_usd: totUsd,
+              total_bs: totBs,
+              currency: 'USD',
+              exchange_rate: ganadora.exchange_rate,
+              supplier_id: ganadora.supplier_id || item.supplier_id,
+              supplier_name: ganadora.supplier_name || item.supplier_name,
+            };
+          });
+        } else if (cotizacionesTarget.items.length === 1) {
+          const item0 = cotizacionesTarget.items[0];
+          const cant = Math.max(0.0001, Number(item0.qty) || 1);
+          const modoGan = ganadora.modo_precio || 'total';
+          const totMoneda = Number(ganadora.price) || 0;
+          const unitMoneda = modoGan === 'unidad' && ganadora.unit_price
+            ? Number(ganadora.unit_price)
+            : totMoneda / cant;
+          const unitUsd = toUsd(unitMoneda);
+          const totUsd = toUsd(totMoneda);
+          const unitBs = toBs(unitMoneda);
+          const totBs = toBs(totMoneda);
+          patch.items = [{
+            ...item0,
+            modo_precio: modoGan,
+            est_price: unitUsd,
+            price_usd: unitUsd,
+            price_bs: unitBs,
+            total_usd: totUsd,
+            total_bs: totBs,
+            currency: 'USD',
+            exchange_rate: ganadora.exchange_rate,
+            supplier_id: ganadora.supplier_id || item0.supplier_id,
+            supplier_name: ganadora.supplier_name || item0.supplier_name,
+          }];
+        }
       }
     }
     const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', cotizacionesTarget.id);
@@ -691,14 +756,19 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   let seq = 0;
   const newKey = () => `${Date.now()}-${seq++}-${rows.length}`;
+  const fmtClean = (n: number) => (n > 0 ? (Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, '') : '0');
+
   const addBlank = () => setRows((r) => [...r, {
     key: newKey(),
     product_id: null,
     name: '',
     unit: '',
     qty: '1',
+    modo_precio: 'unidad',
     price: '0',
     price_bs: '0',
+    total_usd: '0',
+    total_bs: '0',
     currency: 'USD',
     note: '',
     image_url: '',
@@ -708,15 +778,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   }]);
   const addFromProduct = (it: InventoryLevel) => {
     const pUsd = Number(it.avg_cost) || 0;
-    const pBs = rate && rate > 0 ? (Math.round(pUsd * rate * 100) / 100).toFixed(2).replace(/\.00$/, '') : '0';
+    const pBs = rate && rate > 0 ? fmtClean(pUsd * rate) : '0';
     setRows((r) => [...r, {
       key: newKey(),
       product_id: it.id,
       name: it.name,
       unit: it.unit || '',
       qty: '1',
+      modo_precio: 'unidad',
       price: String(pUsd),
       price_bs: pBs,
+      total_usd: String(pUsd),
+      total_bs: pBs,
       currency: 'USD',
       note: '',
       image_url: '',
@@ -729,33 +802,136 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const upd = (key: string, field: keyof ReqRow, val: any) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
   const rm = (key: string) => setRows((r) => r.filter((x) => x.key !== key));
 
-  // Manejo de precio en dólares ($ USD): solo auto-calcula bolívares si Bs está vacío o en 0,
-  // permitiendo que el usuario ingrese ambos montos manualmente con total independencia.
+  // Cambio de cantidad: recalcula total (si está en modo 'unidad') o unitario (si está en modo 'total')
+  const handleQtyChange = (key: string, val: string) => {
+    const clean = onlyDecimal(val);
+    const q = Math.max(0.0001, parseNum(clean) || 1);
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const modo = x.modo_precio || 'unidad';
+      const nextPresupuestos = (x.presupuestos || []).map((c) => {
+        const mCot = c.modo_precio || 'unidad';
+        if (mCot === 'total') {
+          const tU = parseNum(c.total_usd || '0');
+          const tB = parseNum(c.total_bs || '0');
+          return {
+            ...c,
+            precio_usd: tU > 0 ? fmtClean(tU / q) : c.precio_usd,
+            precio_bs: tB > 0 ? fmtClean(tB / q) : c.precio_bs,
+          };
+        } else {
+          const uU = parseNum(c.precio_usd || '0');
+          const uB = parseNum(c.precio_bs || '0');
+          return {
+            ...c,
+            total_usd: uU > 0 ? fmtClean(uU * q) : c.total_usd,
+            total_bs: uB > 0 ? fmtClean(uB * q) : c.total_bs,
+          };
+        }
+      });
+      if (modo === 'total') {
+        const tUsd = parseNum(x.total_usd || '0');
+        const tBs = parseNum(x.total_bs || '0');
+        return {
+          ...x,
+          qty: clean,
+          price: tUsd > 0 ? fmtClean(tUsd / q) : '0',
+          price_bs: tBs > 0 ? fmtClean(tBs / q) : '0',
+          presupuestos: nextPresupuestos,
+        };
+      } else {
+        const uUsd = parseNum(x.price);
+        const uBs = parseNum(x.price_bs);
+        return {
+          ...x,
+          qty: clean,
+          total_usd: uUsd > 0 ? fmtClean(uUsd * q) : '0',
+          total_bs: uBs > 0 ? fmtClean(uBs * q) : '0',
+          presupuestos: nextPresupuestos,
+        };
+      }
+    }));
+  };
+
+  // Alternar entre 🎯 Precio por Unidad (c/u) y 📦 Precio Total (por todos los objetos del renglón)
+  const cambiarModoPrecioRow = (key: string, nuevoModo: 'unidad' | 'total') => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const uUsd = parseNum(x.price);
+      const uBs = parseNum(x.price_bs);
+      const tUsd = parseNum(x.total_usd || '0') || (uUsd * q);
+      const tBs = parseNum(x.total_bs || '0') || (uBs * q);
+      return {
+        ...x,
+        modo_precio: nuevoModo,
+        total_usd: tUsd > 0 ? fmtClean(tUsd) : x.price,
+        total_bs: tBs > 0 ? fmtClean(tBs) : x.price_bs,
+        price: tUsd > 0 ? fmtClean(tUsd / q) : x.price,
+        price_bs: tBs > 0 ? fmtClean(tBs / q) : x.price_bs,
+      };
+    }));
+  };
+
+  // Manejo de precio en dólares ($ USD): respeta si el usuario está ingresando por unidad o el total
   const handlePrecioUsdChange = (key: string, val: string) => {
     const clean = onlyDecimal(val);
     const numUsd = parseNum(clean);
     setRows((r) => r.map((x) => {
       if (x.key !== key) return x;
-      const bsVacio = !x.price_bs || x.price_bs === '' || x.price_bs === '0' || x.price_bs === '0.00';
-      const nuevoBs = bsVacio && rate && rate > 0 && numUsd > 0
-        ? (Math.round(numUsd * rate * 100) / 100).toFixed(2).replace(/\.00$/, '')
-        : (clean === '' ? '' : x.price_bs);
-      return { ...x, price: clean, price_bs: nuevoBs };
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
+      if (modo === 'total') {
+        const totBsActual = x.total_bs || '';
+        const bsVacio = !totBsActual || totBsActual === '0' || totBsActual === '0.00';
+        const nuevoTotBs = bsVacio && rate && rate > 0 && numUsd > 0
+          ? fmtClean(numUsd * rate)
+          : (clean === '' ? '' : totBsActual);
+        const unitUsd = numUsd > 0 ? fmtClean(numUsd / q) : (clean === '' ? '' : '0');
+        const numTotBs = parseNum(nuevoTotBs);
+        const unitBs = numTotBs > 0 ? fmtClean(numTotBs / q) : (nuevoTotBs === '' ? '' : '0');
+        return { ...x, total_usd: clean, total_bs: nuevoTotBs, price: unitUsd, price_bs: unitBs };
+      } else {
+        const bsVacio = !x.price_bs || x.price_bs === '' || x.price_bs === '0' || x.price_bs === '0.00';
+        const nuevoBs = bsVacio && rate && rate > 0 && numUsd > 0
+          ? fmtClean(numUsd * rate)
+          : (clean === '' ? '' : x.price_bs);
+        const totUsd = numUsd > 0 ? fmtClean(numUsd * q) : '0';
+        const numBs = parseNum(nuevoBs);
+        const totBs = numBs > 0 ? fmtClean(numBs * q) : '0';
+        return { ...x, price: clean, price_bs: nuevoBs, total_usd: totUsd, total_bs: totBs };
+      }
     }));
   };
 
-  // Manejo de precio en bolívares (Bs): lo que coloque manualmente el usuario se queda allí.
-  // Solo sugiere USD si USD estaba vacío o en 0.
+  // Manejo de precio en bolívares (Bs): respeta si el usuario está ingresando por unidad o el total
   const handlePrecioBsChange = (key: string, val: string) => {
     const clean = onlyDecimal(val);
     const numBs = parseNum(clean);
     setRows((r) => r.map((x) => {
       if (x.key !== key) return x;
-      const usdVacio = !x.price || x.price === '' || x.price === '0' || x.price === '0.00';
-      const nuevoUsd = usdVacio && rate && rate > 0 && numBs > 0
-        ? (Math.round((numBs / rate) * 100) / 100).toFixed(2).replace(/\.00$/, '')
-        : x.price;
-      return { ...x, price_bs: clean, price: nuevoUsd };
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
+      if (modo === 'total') {
+        const totUsdActual = x.total_usd || '';
+        const usdVacio = !totUsdActual || totUsdActual === '0' || totUsdActual === '0.00';
+        const nuevoTotUsd = usdVacio && rate && rate > 0 && numBs > 0
+          ? fmtClean(numBs / rate)
+          : totUsdActual;
+        const unitBs = numBs > 0 ? fmtClean(numBs / q) : (clean === '' ? '' : '0');
+        const numTotUsd = parseNum(nuevoTotUsd);
+        const unitUsd = numTotUsd > 0 ? fmtClean(numTotUsd / q) : x.price;
+        return { ...x, total_bs: clean, total_usd: nuevoTotUsd, price_bs: unitBs, price: unitUsd };
+      } else {
+        const usdVacio = !x.price || x.price === '' || x.price === '0' || x.price === '0.00';
+        const nuevoUsd = usdVacio && rate && rate > 0 && numBs > 0
+          ? fmtClean(numBs / rate)
+          : x.price;
+        const totBs = numBs > 0 ? fmtClean(numBs * q) : '0';
+        const numUsd = parseNum(nuevoUsd);
+        const totUsd = numUsd > 0 ? fmtClean(numUsd * q) : '0';
+        return { ...x, price_bs: clean, price: nuevoUsd, total_bs: totBs, total_usd: totUsd };
+      }
     }));
   };
 
@@ -764,19 +940,31 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (!rate || rate <= 0) return toast.info('No hay tasa BCV activa para convertir.');
     setRows((r) => r.map((x) => {
       if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
       if (base === 'USD') {
+        if (modo === 'total') {
+          const tU = parseNum(x.total_usd || '0') || (parseNum(x.price) * q);
+          const tB = fmtClean(tU * rate);
+          return { ...x, total_bs: tB, price_bs: fmtClean((tU * rate) / q) };
+        }
         const u = parseNum(x.price);
-        const bs = (Math.round(u * rate * 100) / 100).toFixed(2).replace(/\.00$/, '');
-        return { ...x, price_bs: bs };
+        const bs = fmtClean(u * rate);
+        return { ...x, price_bs: bs, total_bs: fmtClean(u * rate * q) };
       } else {
+        if (modo === 'total') {
+          const tB = parseNum(x.total_bs || '0') || (parseNum(x.price_bs) * q);
+          const tU = fmtClean(tB / rate);
+          return { ...x, total_usd: tU, price: fmtClean((tB / rate) / q) };
+        }
         const b = parseNum(x.price_bs);
-        const u = (Math.round((b / rate) * 100) / 100).toFixed(2).replace(/\.00$/, '');
-        return { ...x, price: u };
+        const u = fmtClean(b / rate);
+        return { ...x, price: u, total_usd: fmtClean((b / rate) * q) };
       }
     }));
   };
 
-  // 📋 Cotizaciones / Presupuestos alternativos por renglón
+  // 📋 Cotizaciones / Presupuestos alternativos por renglón (uno o varios presupuestos por ítem)
   const agregarPresupuesto = (key: string) => {
     setRows((r) => r.map((x) => {
       if (x.key !== key) return x;
@@ -784,33 +972,151 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const nuevo: PresupuestoItem = {
         id: `cot-${Date.now()}-${list.length}`,
         proveedor: '',
+        concepto: x.name || '',
         metodo_pago: 'efectivo_usd',
+        modo_precio: x.modo_precio || 'unidad',
         precio_usd: '',
         precio_bs: '',
+        total_usd: '',
+        total_bs: '',
+        archivos: [],
         nota: '',
       };
       return { ...x, presupuestos: [...list, nuevo], presupuestosAbierto: true };
     }));
   };
 
+  const cambiarModoPrecioPresupuesto = (key: string, cotId: string, nuevoModo: 'unidad' | 'total') => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const list = (x.presupuestos || []).map((c) => {
+        if (c.id !== cotId) return c;
+        const uU = parseNum(c.precio_usd);
+        const uB = parseNum(c.precio_bs);
+        const tU = parseNum(c.total_usd || '0') || (uU * q);
+        const tB = parseNum(c.total_bs || '0') || (uB * q);
+        return {
+          ...c,
+          modo_precio: nuevoModo,
+          total_usd: tU > 0 ? fmtClean(tU) : c.precio_usd,
+          total_bs: tB > 0 ? fmtClean(tB) : c.precio_bs,
+          precio_usd: tU > 0 ? fmtClean(tU / q) : c.precio_usd,
+          precio_bs: tB > 0 ? fmtClean(tB / q) : c.precio_bs,
+        };
+      });
+      return { ...x, presupuestos: list };
+    }));
+  };
+
   const actualizarPresupuesto = (key: string, cotId: string, campo: keyof PresupuestoItem, val: string) => {
     setRows((r) => r.map((x) => {
       if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
       const list = (x.presupuestos || []).map((c) => {
         if (c.id !== cotId) return c;
-        const updated = { ...c, [campo]: val };
-        // Auto-conversión interactiva en la cotización solo si el otro campo está vacío
-        if (campo === 'precio_usd' && rate && rate > 0) {
-          const bsVacio = !c.precio_bs || c.precio_bs === '0' || c.precio_bs === '0.00';
-          const u = parseNum(onlyDecimal(val));
-          if (u > 0 && bsVacio) updated.precio_bs = (Math.round(u * rate * 100) / 100).toFixed(2).replace(/\.00$/, '');
-        } else if (campo === 'precio_bs' && rate && rate > 0 && (!c.precio_usd || c.precio_usd === '0')) {
-          const b = parseNum(onlyDecimal(val));
-          if (b > 0) updated.precio_usd = (Math.round((b / rate) * 100) / 100).toFixed(2).replace(/\.00$/, '');
+        const modo = c.modo_precio || 'unidad';
+        if (campo === 'precio_usd' || campo === 'total_usd') {
+          const clean = onlyDecimal(val);
+          const numU = parseNum(clean);
+          if (modo === 'total') {
+            const bsVacio = !c.total_bs || c.total_bs === '0' || c.total_bs === '0.00';
+            const nuevoTotBs = bsVacio && rate && rate > 0 && numU > 0 ? fmtClean(numU * rate) : (clean === '' ? '' : (c.total_bs || ''));
+            const unitUsd = numU > 0 ? fmtClean(numU / q) : '';
+            const numTotBs = parseNum(nuevoTotBs);
+            const unitBs = numTotBs > 0 ? fmtClean(numTotBs / q) : c.precio_bs;
+            return { ...c, total_usd: clean, total_bs: nuevoTotBs, precio_usd: unitUsd, precio_bs: unitBs };
+          } else {
+            const bsVacio = !c.precio_bs || c.precio_bs === '0' || c.precio_bs === '0.00';
+            const nuevoBs = bsVacio && rate && rate > 0 && numU > 0 ? fmtClean(numU * rate) : (clean === '' ? '' : c.precio_bs);
+            const totUsd = numU > 0 ? fmtClean(numU * q) : '';
+            const numBs = parseNum(nuevoBs);
+            const totBs = numBs > 0 ? fmtClean(numBs * q) : (c.total_bs || '');
+            return { ...c, precio_usd: clean, precio_bs: nuevoBs, total_usd: totUsd, total_bs: totBs };
+          }
         }
-        return updated;
+        if (campo === 'precio_bs' || campo === 'total_bs') {
+          const clean = onlyDecimal(val);
+          const numB = parseNum(clean);
+          if (modo === 'total') {
+            const usdVacio = !c.total_usd || c.total_usd === '0' || c.total_usd === '0.00';
+            const nuevoTotUsd = usdVacio && rate && rate > 0 && numB > 0 ? fmtClean(numB / rate) : (c.total_usd || '');
+            const unitBs = numB > 0 ? fmtClean(numB / q) : '';
+            const numTotUsd = parseNum(nuevoTotUsd);
+            const unitUsd = numTotUsd > 0 ? fmtClean(numTotUsd / q) : c.precio_usd;
+            return { ...c, total_bs: clean, total_usd: nuevoTotUsd, precio_bs: unitBs, precio_usd: unitUsd };
+          } else {
+            const usdVacio = !c.precio_usd || c.precio_usd === '0' || c.precio_usd === '0.00';
+            const nuevoUsd = usdVacio && rate && rate > 0 && numB > 0 ? fmtClean(numB / rate) : c.precio_usd;
+            const totBs = numB > 0 ? fmtClean(numB * q) : '';
+            const numUsd = parseNum(nuevoUsd);
+            const totUsd = numUsd > 0 ? fmtClean(numUsd * q) : (c.total_usd || '');
+            return { ...c, precio_bs: clean, precio_usd: nuevoUsd, total_bs: totBs, total_usd: totUsd };
+          }
+        }
+        return { ...c, [campo]: val };
       });
       return { ...x, presupuestos: list };
+    }));
+  };
+
+  // Subir uno o varios soportes (PDF o foto) dentro de un presupuesto comparativo de un renglón
+  const [subiendoPresupuestoId, setSubiendoPresupuestoId] = useState<string | null>(null);
+  const subirArchivoPresupuestoItem = async (rowKey: string, cotId: string, origen: 'camara' | 'archivo') => {
+    setSubiendoPresupuestoId(cotId);
+    try {
+      const nuevos: FormatoAdjunto[] = [];
+      if (origen === 'camara') {
+        const res = await captureAndUploadPhoto('requerimientos', `presupuesto-${cotId}`);
+        if (!res.ok) { if (res.error) toast.error(res.error); return; }
+        if (res.url) {
+          nuevos.push({
+            id: `pfile-${Date.now()}`,
+            url: res.url,
+            kind: 'image',
+            name: `Foto Presupuesto.jpg`,
+          });
+        }
+      } else {
+        const res = await pickAndUploadRequirementFiles(`presupuesto-${cotId}`);
+        if (!res.ok) { if (res.error) toast.error(res.error); return; }
+        if (res.files && res.files.length > 0) {
+          res.files.forEach((f, idx) => {
+            nuevos.push({
+              id: `pfile-${Date.now()}-${idx}`,
+              url: f.url,
+              kind: f.kind,
+              name: f.name || `Presupuesto ${idx + 1}`,
+            });
+          });
+        }
+      }
+      if (nuevos.length > 0) {
+        setRows((r) => r.map((x) => {
+          if (x.key !== rowKey) return x;
+          return {
+            ...x,
+            presupuestos: (x.presupuestos || []).map((c) =>
+              c.id === cotId ? { ...c, archivos: [...(c.archivos || []), ...nuevos] } : c
+            ),
+          };
+        }));
+        toast.success(`${nuevos.length} presupuesto(s) adjuntado(s).`);
+      }
+    } finally {
+      setSubiendoPresupuestoId(null);
+    }
+  };
+
+  const quitarArchivoPresupuestoItem = (rowKey: string, cotId: string, fileId: string) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== rowKey) return x;
+      return {
+        ...x,
+        presupuestos: (x.presupuestos || []).map((c) =>
+          c.id === cotId ? { ...c, archivos: (c.archivos || []).filter((a) => a.id !== fileId) } : c
+        ),
+      };
     }));
   };
 
@@ -824,18 +1130,27 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const aplicarPresupuestoAlItem = (key: string, cot: PresupuestoItem) => {
     setRows((r) => r.map((x) => {
       if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = cot.modo_precio || 'unidad';
+      const uUsd = parseNum(cot.precio_usd);
+      const uBs = parseNum(cot.precio_bs);
+      const tUsd = parseNum(cot.total_usd || '0') || (uUsd * q);
+      const tBs = parseNum(cot.total_bs || '0') || (uBs * q);
       const matchingSupplier = suppliers.find((s) => s.name.trim().toLowerCase() === cot.proveedor.trim().toLowerCase());
       return {
         ...x,
-        price: cot.precio_usd || x.price,
-        price_bs: cot.precio_bs || x.price_bs,
+        modo_precio: modo,
+        price: uUsd > 0 ? fmtClean(uUsd) : (tUsd > 0 ? fmtClean(tUsd / q) : x.price),
+        price_bs: uBs > 0 ? fmtClean(uBs) : (tBs > 0 ? fmtClean(tBs / q) : x.price_bs),
+        total_usd: tUsd > 0 ? fmtClean(tUsd) : (uUsd > 0 ? fmtClean(uUsd * q) : x.total_usd),
+        total_bs: tBs > 0 ? fmtClean(tBs) : (uBs > 0 ? fmtClean(uBs * q) : x.total_bs),
         supplier_name: cot.proveedor || x.supplier_name,
         supplier_id: matchingSupplier ? matchingSupplier.id : x.supplier_id,
         metodo_pago: cot.metodo_pago || x.metodo_pago,
       };
     }));
     const metObj = METODOS_PAGO_COTIZACION.find((m) => m.key === cot.metodo_pago);
-    toast.success(`Cotización de "${cot.proveedor || 'Proveedor'}" aplicada al ítem${metObj ? ` (${metObj.icon} ${metObj.label})` : ''}.`);
+    toast.success(`Presupuesto de "${cot.proveedor || 'Proveedor'}" aplicado al ítem${metObj ? ` (${metObj.icon} ${metObj.label})` : ''}.`);
   };
 
   // Sube una IMAGEN de referencia de un producto (toma foto o elige de galería) y la
@@ -1531,28 +1846,50 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const alicNum = Math.min(100, Math.max(0, parseNum(alicuotaIva) || 0));
     const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => {
       const supObj = x.supplier_id ? suppliers.find((s) => s.id === x.supplier_id) : (supplierId ? suppliers.find((s) => s.id === supplierId) : null);
-      const pUsd = parseNum(x.price);
-      const pBs = parseNum(x.price_bs) || (rate && rate > 0 ? Math.round(pUsd * rate * 100) / 100 : 0);
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
+      const rawTotalUsd = parseNum(x.total_usd || '0');
+      const rawUnitUsd = parseNum(x.price);
+      const pUsd = modo === 'total' && rawTotalUsd > 0 ? Math.round((rawTotalUsd / q) * 10000) / 10000 : rawUnitUsd;
+      const totUsd = modo === 'total' && rawTotalUsd > 0 ? rawTotalUsd : Math.round(pUsd * q * 100) / 100;
+
+      const rawTotalBs = parseNum(x.total_bs || '0');
+      const rawUnitBs = parseNum(x.price_bs);
+      const pBs = modo === 'total' && rawTotalBs > 0
+        ? Math.round((rawTotalBs / q) * 100) / 100
+        : (rawUnitBs || (rate && rate > 0 ? Math.round(pUsd * rate * 100) / 100 : 0));
+      const totBs = modo === 'total' && rawTotalBs > 0
+        ? rawTotalBs
+        : (pBs > 0 ? Math.round(pBs * q * 100) / 100 : (rate && rate > 0 ? Math.round(totUsd * rate * 100) / 100 : 0));
+
       return {
         product_id: x.product_id,
         name: x.name.trim().toUpperCase(),
         unit: x.unit.trim().toUpperCase() || null,
         qty: parseNum(x.qty),
+        modo_precio: modo,
         est_price: pUsd,
         price_usd: pUsd,
         price_bs: pBs,
+        total_usd: totUsd,
+        total_bs: totBs,
         currency: 'USD',
         note: x.note.trim() || null,
         image_url: x.image_url || null,
         supplier_id: x.supplier_id || supplierId || null,
         supplier_name: x.supplier_name || supObj?.name || null,
         exento: Boolean(x.exento),
-        cotizaciones: (x.presupuestos || []).filter((c) => c.proveedor.trim() || parseNum(c.precio_usd) > 0 || parseNum(c.precio_bs) > 0).map((c) => ({
+        cotizaciones: (x.presupuestos || []).filter((c) => c.proveedor.trim() || parseNum(c.precio_usd) > 0 || parseNum(c.precio_bs) > 0 || parseNum(c.total_usd || '0') > 0 || parseNum(c.total_bs || '0') > 0 || (c.archivos && c.archivos.length > 0)).map((c) => ({
           id: c.id,
           proveedor: c.proveedor.trim().toUpperCase(),
+          concepto: (c.concepto || x.name || '').trim().toUpperCase() || null,
           metodo_pago: c.metodo_pago || null,
+          modo_precio: c.modo_precio || 'unidad',
           precio_usd: parseNum(c.precio_usd),
           precio_bs: parseNum(c.precio_bs),
+          total_usd: parseNum(c.total_usd || '0') || (parseNum(c.precio_usd) * q),
+          total_bs: parseNum(c.total_bs || '0') || (parseNum(c.precio_bs) * q),
+          archivos: c.archivos || [],
           nota: (c.nota || '').trim() || null,
         })),
         metodo_pago: x.metodo_pago || null,
@@ -1714,16 +2051,22 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setFormatos(extraerFormatosAdjuntos(r));
     let s = 0;
     setRows(r.items.map((it) => {
+      const q = Math.max(0.0001, Number(it.qty) || 1);
       const pUsdNum = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
       const pBsNum = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdNum * rate * 100) / 100 : 0));
+      const totUsdNum = it.total_usd != null && Number(it.total_usd) > 0 ? Number(it.total_usd) : Math.round(pUsdNum * q * 100) / 100;
+      const totBsNum = it.total_bs != null && Number(it.total_bs) > 0 ? Number(it.total_bs) : Math.round(pBsNum * q * 100) / 100;
       return {
         key: `${Date.now()}-${s++}`,
         product_id: it.product_id,
         name: it.name,
         unit: it.unit ?? '',
         qty: String(it.qty),
+        modo_precio: it.modo_precio || 'unidad',
         price: String(pUsdNum),
         price_bs: String(pBsNum),
+        total_usd: String(totUsdNum),
+        total_bs: String(totBsNum),
         currency: 'USD',
         note: it.note ?? '',
         image_url: it.image_url ?? '',
@@ -1731,14 +2074,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         supplier_name: it.supplier_name || null,
         metodo_pago: (it as any).metodo_pago || null,
         exento: Boolean(it.exento),
-        presupuestos: Array.isArray(it.cotizaciones) ? it.cotizaciones.map((c: any, ci: number) => ({
-          id: c.id || `cot-${ci}-${Date.now()}`,
-          proveedor: c.proveedor || c.supplier_name || '',
-          metodo_pago: c.metodo_pago || 'efectivo_usd',
-          precio_usd: String(c.precio_usd ?? c.price ?? '0'),
-          precio_bs: String(c.precio_bs ?? (rate && rate > 0 ? Math.round((Number(c.precio_usd ?? c.price ?? 0)) * rate * 100) / 100 : '0')),
-          nota: c.nota || c.note || '',
-        })) : [],
+        presupuestos: Array.isArray(it.cotizaciones) ? it.cotizaciones.map((c: any, ci: number) => {
+          const cUnitUsd = Number(c.precio_usd ?? c.price ?? 0);
+          const cUnitBs = Number(c.precio_bs ?? (rate && rate > 0 ? Math.round(cUnitUsd * rate * 100) / 100 : 0));
+          const cTotUsd = c.total_usd != null && Number(c.total_usd) > 0 ? Number(c.total_usd) : Math.round(cUnitUsd * q * 100) / 100;
+          const cTotBs = c.total_bs != null && Number(c.total_bs) > 0 ? Number(c.total_bs) : Math.round(cUnitBs * q * 100) / 100;
+          return {
+            id: c.id || `cot-${ci}-${Date.now()}`,
+            proveedor: c.proveedor || c.supplier_name || '',
+            concepto: c.concepto || it.name || '',
+            metodo_pago: c.metodo_pago || 'efectivo_usd',
+            modo_precio: c.modo_precio || 'unidad',
+            precio_usd: String(cUnitUsd),
+            precio_bs: String(cUnitBs),
+            total_usd: String(cTotUsd),
+            total_bs: String(cTotBs),
+            archivos: Array.isArray(c.archivos) ? c.archivos : [],
+            nota: c.nota || c.note || '',
+          };
+        }) : [],
         presupuestosAbierto: false,
       };
     }));
@@ -2054,8 +2408,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     isNew: !it.product_id, note: it.note,
     supplier_name: it.supplier_name || null,
     exento: Boolean(it.exento),
+    modo_precio: it.modo_precio || 'unidad',
     price_usd: it.price_usd,
     price_bs: it.price_bs,
+    total_usd: it.total_usd,
+    total_bs: it.total_bs,
     metodo_pago: (it as any).metodo_pago || null,
     cotizaciones_count: Array.isArray(it.cotizaciones) ? it.cotizaciones.length : 0,
     image: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
@@ -2099,16 +2456,31 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
   };
 
+  const rowUsd = (x: ReqRow) => {
+    const q = parseNum(x.qty);
+    if ((x.modo_precio || 'unidad') === 'total') {
+      const tUsd = parseNum(x.total_usd || '0');
+      if (tUsd > 0) return tUsd;
+    }
+    return parseNum(x.price) * q;
+  };
+
   const rowBs = (x: ReqRow) => {
     const q = parseNum(x.qty);
+    if ((x.modo_precio || 'unidad') === 'total') {
+      const tBs = parseNum(x.total_bs || '0');
+      if (tBs > 0) return tBs;
+      const tUsd = parseNum(x.total_usd || '0');
+      if (tUsd > 0 && rate && rate > 0) return tUsd * rate;
+    }
     const pBs = parseNum(x.price_bs);
     if (pBs > 0) return pBs * q;
     const pUsd = parseNum(x.price);
     return rate && rate > 0 ? (pUsd * rate) * q : 0;
   };
 
-  const createSubtotalUsd = rows.reduce((s, x) => s + parseNum(x.price) * parseNum(x.qty), 0);
-  const createBaseImponibleUsd = rows.reduce((s, x) => s + (x.exento ? 0 : parseNum(x.price) * parseNum(x.qty)), 0);
+  const createSubtotalUsd = rows.reduce((s, x) => s + rowUsd(x), 0);
+  const createBaseImponibleUsd = rows.reduce((s, x) => s + (x.exento ? 0 : rowUsd(x)), 0);
   const createExentoUsd = createSubtotalUsd - createBaseImponibleUsd;
   const createAlicuotaNum = Math.min(100, Math.max(0, parseNum(alicuotaIva) || 0));
   const createIvaUsd = Math.round(createBaseImponibleUsd * (createAlicuotaNum / 100) * 100) / 100;
@@ -2410,8 +2782,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             detail={
               <View>
                 {r.items.map((it, i) => {
+                  const q = Number(it.qty) || 1;
                   const pUsdVal = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
                   const pBsVal = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdVal * rate * 100) / 100 : 0));
+                  const totUsdVal = it.modo_precio === 'total' && Number(it.total_usd) > 0 ? Number(it.total_usd) : pUsdVal * q;
+                  const totBsVal = it.modo_precio === 'total' && Number(it.total_bs) > 0 ? Number(it.total_bs) : pBsVal * q;
                   const cots = Array.isArray(it.cotizaciones) ? it.cotizaciones : [];
                   return (
                     <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 4, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
@@ -2426,10 +2801,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                           <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '700', marginTop: 1 }}>🏢 Proveedor del ítem: {it.supplier_name}</Text>
                         ) : null}
                         {cots.length > 0 ? (
-                          <Text style={{ color: '#7E22CE', fontSize: 11, fontWeight: '700', marginTop: 1 }}>📋 {cots.length} cotización(es) alternativa(s) evaluada(s)</Text>
+                          <Text style={{ color: '#7E22CE', fontSize: 11, fontWeight: '700', marginTop: 1 }}>📋 {cots.length} presupuesto(s) alternativo(s) evaluado(s)</Text>
                         ) : null}
                         <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
                           {qtyFmt(it.qty)} {it.unit || ''} · {usd(pUsdVal)}{pBsVal > 0 ? ` / ${fmtBs(pBsVal)}` : ''} c/u
+                          {q !== 1 || it.modo_precio === 'total'
+                            ? `  ➜  Total: ${usd(totUsdVal)}${totBsVal > 0 ? ` / ${fmtBs(totBsVal)}` : ''}${it.modo_precio === 'total' ? ' (📦 Precio Total)' : ''}`
+                            : ''}
                         </Text>
                       </View>
                       {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
@@ -2437,8 +2815,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   );
                 })}
                 {(() => {
-                  const subUsd = r.items.reduce((s, it) => s + (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0)) * (Number(it.qty) || 0), 0);
-                  const baseUsd = r.items.reduce((s, it) => s + (it.exento ? 0 : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0)) * (Number(it.qty) || 0)), 0);
+                  const lineTotalUsd = (it: RequirementLine) => {
+                    if (it.modo_precio === 'total' && Number(it.total_usd) > 0) return Number(it.total_usd);
+                    const pU = it.price_usd != null ? Number(it.price_usd) : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
+                    return pU * (Number(it.qty) || 0);
+                  };
+                  const subUsd = r.items.reduce((s, it) => s + lineTotalUsd(it), 0);
+                  const baseUsd = r.items.reduce((s, it) => s + (it.exento ? 0 : lineTotalUsd(it)), 0);
                   const exentoUsd = subUsd - baseUsd;
                   const alic = r.iva_alicuota != null ? Number(r.iva_alicuota) : 0;
                   const ivaUsd = Math.round(baseUsd * (alic / 100) * 100) / 100;
@@ -3363,13 +3746,58 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     placeholderTextColor={colors.muted}
                     style={[inp, { marginTop: 4, fontSize: 12 }]}
                   />
+                  {/* 🎯 Selector: Precio por Unidad (c/u) vs Precio Total por el o los objetos */}
+                  {(() => {
+                    const modoRow = x.modo_precio || 'unidad';
+                    const qNum = parseNum(x.qty) || 1;
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                        <Text style={{ fontSize: 11, color: colors.muted, fontWeight: '700' }}>
+                          💰 ¿Cómo deseas colocar el precio?
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 4 }}>
+                          <TouchableOpacity
+                            onPress={() => cambiarModoPrecioRow(x.key, 'unidad')}
+                            style={{
+                              paddingHorizontal: 9,
+                              paddingVertical: 4,
+                              borderRadius: radius.pill,
+                              borderWidth: 1,
+                              borderColor: modoRow === 'unidad' ? colors.brand : colors.border,
+                              backgroundColor: modoRow === 'unidad' ? colors.brand : colors.surfaceAlt,
+                            }}
+                          >
+                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: modoRow === 'unidad' ? colors.brandContrast : colors.text }}>
+                              🎯 Por Unidad (c/u)
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => cambiarModoPrecioRow(x.key, 'total')}
+                            style={{
+                              paddingHorizontal: 9,
+                              paddingVertical: 4,
+                              borderRadius: radius.pill,
+                              borderWidth: 1,
+                              borderColor: modoRow === 'total' ? '#7C3AED' : colors.border,
+                              backgroundColor: modoRow === 'total' ? '#7C3AED' : colors.surfaceAlt,
+                            }}
+                          >
+                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: modoRow === 'total' ? '#fff' : colors.text }}>
+                              📦 Precio Total ({qNum} {x.unit || 'und'})
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })()}
+
                   {/* 🔢 Cantidad, Unidad, Precio en $ USD y Precio en Bs (Responsive Teléfono / PC) */}
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
                     <View style={{ width: 62 }}>
                       <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text>
                       <TextInput
                         value={x.qty}
-                        onChangeText={(t) => upd(x.key, 'qty', onlyDecimal(t))}
+                        onChangeText={(t) => handleQtyChange(x.key, t)}
                         keyboardType="numeric"
                         inputMode="decimal"
                         style={[inp, { textAlign: 'center' }]}
@@ -3389,7 +3817,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     {/* 💵 Barra Precio Dólares ($ USD) */}
                     <View style={{ flex: 1, minWidth: 120 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>💵 Precio ($ USD)</Text>
+                        <Text style={{ color: (x.modo_precio || 'unidad') === 'total' ? '#7C3AED' : colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                          {(x.modo_precio || 'unidad') === 'total' ? '📦 Total ($ USD)' : '💵 Unitario c/u ($ USD)'}
+                        </Text>
                         {rate && rate > 0 ? (
                           <TouchableOpacity onPress={() => recomputarDesdeBcv(x.key, 'VES')} style={{ paddingHorizontal: 2 }}>
                             <Text style={{ color: colors.muted, fontSize: 10 }}>🔄 de Bs</Text>
@@ -3397,20 +3827,22 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                         ) : null}
                       </View>
                       <TextInput
-                        value={x.price}
+                        value={(x.modo_precio || 'unidad') === 'total' ? (x.total_usd ?? x.price) : x.price}
                         onChangeText={(t) => handlePrecioUsdChange(x.key, t)}
                         keyboardType="numeric"
                         inputMode="decimal"
                         placeholder="0.00"
                         placeholderTextColor={colors.muted}
-                        style={[inp, { textAlign: 'right', fontWeight: '800' }]}
+                        style={[inp, { textAlign: 'right', fontWeight: '800', borderColor: (x.modo_precio || 'unidad') === 'total' ? '#7C3AED' : colors.border }]}
                       />
                     </View>
 
                     {/* 🇻🇪 Barra Precio Bolívares (Bs) */}
                     <View style={{ flex: 1, minWidth: 120 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <Text style={{ color: '#0D9488', fontSize: 11, fontWeight: '800' }}>🇻🇪 Precio (Bs)</Text>
+                        <Text style={{ color: '#0D9488', fontSize: 11, fontWeight: '800' }}>
+                          {(x.modo_precio || 'unidad') === 'total' ? '📦 Total (Bs)' : '🇻🇪 Unitario c/u (Bs)'}
+                        </Text>
                         {rate && rate > 0 ? (
                           <TouchableOpacity onPress={() => recomputarDesdeBcv(x.key, 'USD')} style={{ paddingHorizontal: 2 }}>
                             <Text style={{ color: colors.muted, fontSize: 10 }}>🔄 de $</Text>
@@ -3418,7 +3850,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                         ) : null}
                       </View>
                       <TextInput
-                        value={x.price_bs}
+                        value={(x.modo_precio || 'unidad') === 'total' ? (x.total_bs ?? x.price_bs) : x.price_bs}
                         onChangeText={(t) => handlePrecioBsChange(x.key, t)}
                         keyboardType="numeric"
                         inputMode="decimal"
@@ -3428,6 +3860,38 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       />
                     </View>
                   </View>
+
+                  {/* Resumen automático de Unitario vs Total del renglón */}
+                  {(() => {
+                    const q = Math.max(0.0001, parseNum(x.qty) || 1);
+                    const uUsd = parseNum(x.price);
+                    const uBs = parseNum(x.price_bs);
+                    const tUsd = rowUsd(x);
+                    const tBs = rowBs(x);
+                    if (uUsd <= 0 && uBs <= 0 && tUsd <= 0 && tBs <= 0) return null;
+                    return (
+                      <View style={{
+                        marginTop: 5,
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        borderRadius: radius.sm,
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 6,
+                      }}>
+                        <Text style={{ fontSize: 11, color: colors.muted, fontWeight: '700' }}>
+                          🎯 Unitario c/u: <Text style={{ color: colors.text, fontWeight: '800' }}>{usd(uUsd)}{uBs > 0 ? ` / ${fmtBs(uBs)}` : ''}</Text>
+                        </Text>
+                        <Text style={{ fontSize: 11, color: colors.brandText, fontWeight: '800' }}>
+                          📦 Total ({qtyFmt(q)} {x.unit || 'und'}): {usd(tUsd)}{tBs > 0 ? ` / ${fmtBs(tBs)}` : ''}
+                        </Text>
+                      </View>
+                    );
+                  })()}
 
                   {/* Indicador de Tasa Implícita del Renglón si se ingresó USD y Bs manualmente */}
                   {(() => {
@@ -3483,7 +3947,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       </Text>
                     </TouchableOpacity>
 
-                    {/* Botón para desplegar / agregar cotizaciones múltiples para este renglón */}
+                    {/* Botón para desplegar / agregar uno o varios presupuestos en la cotización de este renglón */}
                     <TouchableOpacity
                       onPress={() => upd(x.key, 'presupuestosAbierto', !x.presupuestosAbierto)}
                       style={{
@@ -3501,8 +3965,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       <Text style={{ fontSize: 12 }}>📋</Text>
                       <Text style={{ color: (x.presupuestos || []).length > 0 ? '#7E22CE' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
                         {(x.presupuestos || []).length === 0
-                          ? '＋ Comparar cotizaciones'
-                          : `Cotizaciones alternativas (${(x.presupuestos || []).length}) ${x.presupuestosAbierto ? '▲' : '▼'}`}
+                          ? '＋ Cotización / Presupuestos (1 o varios)'
+                          : `Presupuestos en cotización (${(x.presupuestos || []).length}) ${x.presupuestosAbierto ? '▲' : '▼'}`}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -3510,139 +3974,256 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   {/* 📋 Bloque desplegable de Presupuestos / Cotizaciones múltiples para este producto */}
                   {x.presupuestosAbierto ? (
                     <View style={{ marginTop: 8, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: spacing.xs }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                         <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
-                          📋 Cotizaciones / Presupuestos comparativos
+                          📋 Cotización · Uno o varios Presupuestos
                         </Text>
                         <TouchableOpacity
                           onPress={() => agregarPresupuesto(x.key)}
                           style={{ backgroundColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4 }}
                         >
-                          <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800' }}>＋ Agregar cotización</Text>
+                          <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800' }}>＋ Agregar presupuesto</Text>
                         </TouchableOpacity>
                       </View>
                       <Text style={{ fontSize: 11, color: colors.muted }}>
-                        Registra dos o más cotizaciones de diferentes proveedores y métodos de pago para esta pieza. Toca "✓ Elegir esta cotización" para cargar automáticamente su precio y proveedor en el renglón.
+                        Puedes registrar uno o varios presupuestos para este objeto, indicando el precio por unidad o el precio total, y adjuntar sus soportes (PDF/fotos). Toca "✓ Elegir este presupuesto" para aplicarlo al ítem.
                       </Text>
 
-                      {(x.presupuestos || []).map((cot, ci) => (
-                        <View key={cot.id} style={{ backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginTop: 4 }}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                            <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.brandText }}>Opción #{ci + 1}</Text>
-                            <TouchableOpacity onPress={() => eliminarPresupuesto(x.key, cot.id)}>
-                              <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑 Quitar</Text>
-                            </TouchableOpacity>
-                          </View>
+                      {(x.presupuestos || []).map((cot, ci) => {
+                        const modoCot = cot.modo_precio || 'unidad';
+                        const qCot = Math.max(0.0001, parseNum(x.qty) || 1);
+                        const uUsdCot = parseNum(cot.precio_usd);
+                        const uBsCot = parseNum(cot.precio_bs);
+                        const tUsdCot = parseNum(cot.total_usd || '0') || (uUsdCot * qCot);
+                        const tBsCot = parseNum(cot.total_bs || '0') || (uBsCot * qCot);
+                        return (
+                          <View key={cot.id} style={{ backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginTop: 4 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                              <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.brandText }}>Presupuesto #{ci + 1}</Text>
+                              <TouchableOpacity onPress={() => eliminarPresupuesto(x.key, cot.id)}>
+                                <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑 Quitar</Text>
+                              </TouchableOpacity>
+                            </View>
 
-                          <TextInput
-                            value={cot.proveedor}
-                            onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'proveedor', t)}
-                            placeholder="Nombre del proveedor o tienda (ej. Repuestos El Sol)"
-                            placeholderTextColor={colors.muted}
-                            style={[inp, { fontSize: 12, marginBottom: 4 }]}
-                          />
+                            <TextInput
+                              value={cot.proveedor}
+                              onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'proveedor', t)}
+                              placeholder="Nombre del proveedor o tienda (ej. Repuestos El Sol)"
+                              placeholderTextColor={colors.muted}
+                              style={[inp, { fontSize: 12, marginBottom: 4 }]}
+                            />
 
-                          {/* 💳 Método de Pago de esta opción */}
-                          <View style={{ marginTop: 2, marginBottom: 6 }}>
-                            <Text style={{ fontSize: 10, color: colors.muted, marginBottom: 3, fontWeight: '700' }}>
-                              💳 Condición / Método de Pago:
-                            </Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
-                              {METODOS_PAGO_COTIZACION.map((m) => {
-                                const active = (cot.metodo_pago || 'efectivo_usd') === m.key;
-                                return (
+                            {/* 💳 Método de Pago de este presupuesto */}
+                            <View style={{ marginTop: 2, marginBottom: 6 }}>
+                              <Text style={{ fontSize: 10, color: colors.muted, marginBottom: 3, fontWeight: '700' }}>
+                                💳 Condición / Método de Pago:
+                              </Text>
+                              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                                {METODOS_PAGO_COTIZACION.map((m) => {
+                                  const active = (cot.metodo_pago || 'efectivo_usd') === m.key;
+                                  return (
+                                    <TouchableOpacity
+                                      key={m.key}
+                                      onPress={() => actualizarPresupuesto(x.key, cot.id, 'metodo_pago', m.key)}
+                                      style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        paddingHorizontal: 8,
+                                        paddingVertical: 3,
+                                        borderRadius: radius.pill,
+                                        borderWidth: 1,
+                                        borderColor: active ? colors.brand : colors.border,
+                                        backgroundColor: active ? (isDark ? '#1E293B' : '#EFF6FF') : colors.surfaceAlt,
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 11 }}>{m.icon}</Text>
+                                      <Text style={{ fontSize: 10.5, fontWeight: active ? '800' : '600', color: active ? colors.brandText : colors.text }}>
+                                        {m.label}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </ScrollView>
+                            </View>
+
+                            {/* 🎯 Selector: Precio por Unidad vs Precio Total en este presupuesto */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: '700' }}>Modo de precio:</Text>
+                              <View style={{ flexDirection: 'row', gap: 4 }}>
+                                <TouchableOpacity
+                                  onPress={() => cambiarModoPrecioPresupuesto(x.key, cot.id, 'unidad')}
+                                  style={{
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    borderRadius: radius.pill,
+                                    borderWidth: 1,
+                                    borderColor: modoCot === 'unidad' ? colors.brand : colors.border,
+                                    backgroundColor: modoCot === 'unidad' ? colors.brand : colors.surfaceAlt,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 10, fontWeight: '800', color: modoCot === 'unidad' ? colors.brandContrast : colors.text }}>
+                                    🎯 Por Unidad (c/u)
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  onPress={() => cambiarModoPrecioPresupuesto(x.key, cot.id, 'total')}
+                                  style={{
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    borderRadius: radius.pill,
+                                    borderWidth: 1,
+                                    borderColor: modoCot === 'total' ? '#7C3AED' : colors.border,
+                                    backgroundColor: modoCot === 'total' ? '#7C3AED' : colors.surfaceAlt,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 10, fontWeight: '800', color: modoCot === 'total' ? '#fff' : colors.text }}>
+                                    📦 Precio Total ({qtyFmt(qCot)} {x.unit || 'und'})
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', gap: 6 }}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 10, color: modoCot === 'total' ? '#7C3AED' : colors.muted, fontWeight: '700', marginBottom: 2 }}>
+                                  {modoCot === 'total' ? `📦 Total ($ USD)` : `🎯 Unitario c/u ($ USD)`}
+                                </Text>
+                                <TextInput
+                                  value={modoCot === 'total' ? (cot.total_usd ?? cot.precio_usd) : cot.precio_usd}
+                                  onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, modoCot === 'total' ? 'total_usd' : 'precio_usd', t)}
+                                  keyboardType="numeric"
+                                  inputMode="decimal"
+                                  placeholder="$ 0.00"
+                                  placeholderTextColor={colors.muted}
+                                  style={[inp, { textAlign: 'right', fontSize: 12, fontWeight: '700' }]}
+                                />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 10, color: colors.muted, fontWeight: '700', marginBottom: 2 }}>
+                                  {modoCot === 'total' ? `📦 Total (Bs)` : `🎯 Unitario c/u (Bs)`}
+                                </Text>
+                                <TextInput
+                                  value={modoCot === 'total' ? (cot.total_bs ?? cot.precio_bs) : cot.precio_bs}
+                                  onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, modoCot === 'total' ? 'total_bs' : 'precio_bs', t)}
+                                  keyboardType="numeric"
+                                  inputMode="decimal"
+                                  placeholder="Bs 0.00"
+                                  placeholderTextColor={colors.muted}
+                                  style={[inp, { textAlign: 'right', fontSize: 12, fontWeight: '700' }]}
+                                />
+                              </View>
+                            </View>
+
+                            {/* Resumen automático Unitario y Total del Presupuesto */}
+                            {uUsdCot > 0 || uBsCot > 0 || tUsdCot > 0 || tBsCot > 0 ? (
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginTop: 4, backgroundColor: colors.surfaceAlt, paddingHorizontal: 6, paddingVertical: 3, borderRadius: radius.sm }}>
+                                <Text style={{ fontSize: 10, color: colors.muted, fontWeight: '700' }}>
+                                  Unitario: {usd(uUsdCot)}{uBsCot > 0 ? ` / ${fmtBs(uBsCot)}` : ''} c/u
+                                </Text>
+                                <Text style={{ fontSize: 10, color: colors.brandText, fontWeight: '800' }}>
+                                  Total ({qtyFmt(qCot)} {x.unit || 'und'}): {usd(tUsdCot)}{tBsCot > 0 ? ` / ${fmtBs(tBsCot)}` : ''}
+                                </Text>
+                              </View>
+                            ) : null}
+
+                            {uUsdCot > 0 && uBsCot > 0 ? (
+                              <Text style={{ fontSize: 9.5, color: '#0D9488', fontWeight: '700', marginTop: 3 }}>
+                                ⚡ Tasa implícita de este presupuesto: {(uBsCot / uUsdCot).toFixed(2)} Bs/$
+                              </Text>
+                            ) : null}
+
+                            <TextInput
+                              value={cot.nota || ''}
+                              onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'nota', t)}
+                              placeholder="Nota: entrega inmediata, garantía, marca, N° de presupuesto…"
+                              placeholderTextColor={colors.muted}
+                              style={[inp, { fontSize: 11.5, marginTop: 4 }]}
+                            />
+
+                            {/* 📎 Soportes / Archivos del presupuesto (uno o varios archivos PDF o fotos) */}
+                            <View style={{ marginTop: 6 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                                <Text style={{ fontSize: 10, color: colors.muted, fontWeight: '700' }}>
+                                  📎 Soportes del presupuesto ({(cot.archivos || []).length}):
+                                </Text>
+                                <View style={{ flexDirection: 'row', gap: 6 }}>
                                   <TouchableOpacity
-                                    key={m.key}
-                                    onPress={() => actualizarPresupuesto(x.key, cot.id, 'metodo_pago', m.key)}
-                                    style={{
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      gap: 4,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 3,
-                                      borderRadius: radius.pill,
-                                      borderWidth: 1,
-                                      borderColor: active ? colors.brand : colors.border,
-                                      backgroundColor: active ? (isDark ? '#1E293B' : '#EFF6FF') : colors.surfaceAlt,
-                                    }}
+                                    onPress={() => subirArchivoPresupuestoItem(x.key, cot.id, 'camara')}
+                                    disabled={subiendoPresupuestoId === cot.id}
+                                    style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 3 }}
                                   >
-                                    <Text style={{ fontSize: 11 }}>{m.icon}</Text>
-                                    <Text style={{ fontSize: 10.5, fontWeight: active ? '800' : '600', color: active ? colors.brandText : colors.text }}>
-                                      {m.label}
+                                    <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.text }}>📷 Foto</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    onPress={() => subirArchivoPresupuestoItem(x.key, cot.id, 'archivo')}
+                                    disabled={subiendoPresupuestoId === cot.id}
+                                    style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 3 }}
+                                  >
+                                    <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.brandText }}>
+                                      {subiendoPresupuestoId === cot.id ? '⏳ Subiendo…' : '📎 Subir PDF / Imagen(es)'}
                                     </Text>
                                   </TouchableOpacity>
-                                );
-                              })}
-                            </ScrollView>
-                          </View>
-
-                          <View style={{ flexDirection: 'row', gap: 6 }}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontSize: 10, color: colors.muted, marginBottom: 2 }}>Precio ($ USD)</Text>
-                              <TextInput
-                                value={cot.precio_usd}
-                                onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'precio_usd', t)}
-                                keyboardType="numeric"
-                                inputMode="decimal"
-                                placeholder="$ 0.00"
-                                placeholderTextColor={colors.muted}
-                                style={[inp, { textAlign: 'right', fontSize: 12, fontWeight: '700' }]}
-                              />
+                                </View>
+                              </View>
+                              {(cot.archivos || []).length > 0 ? (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                                  {(cot.archivos || []).map((arch) => (
+                                    <View
+                                      key={arch.id}
+                                      style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        backgroundColor: colors.surfaceAlt,
+                                        borderWidth: 1,
+                                        borderColor: colors.border,
+                                        borderRadius: radius.sm,
+                                        paddingHorizontal: 6,
+                                        paddingVertical: 2,
+                                      }}
+                                    >
+                                      <TouchableOpacity onPress={() => Linking.openURL(arch.url)}>
+                                        <Text style={{ fontSize: 10.5, color: colors.brandText, fontWeight: '700' }}>
+                                          {arch.kind === 'pdf' ? '📄' : '🖼️'} {arch.name}
+                                        </Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity onPress={() => quitarArchivoPresupuestoItem(x.key, cot.id, arch.id)}>
+                                        <Text style={{ fontSize: 10.5, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  ))}
+                                </View>
+                              ) : null}
                             </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontSize: 10, color: colors.muted, marginBottom: 2 }}>Precio (Bs)</Text>
-                              <TextInput
-                                value={cot.precio_bs}
-                                onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'precio_bs', t)}
-                                keyboardType="numeric"
-                                inputMode="decimal"
-                                placeholder="Bs 0.00"
-                                placeholderTextColor={colors.muted}
-                                style={[inp, { textAlign: 'right', fontSize: 12, fontWeight: '700' }]}
-                              />
-                            </View>
+
+                            <TouchableOpacity
+                              onPress={() => aplicarPresupuestoAlItem(x.key, cot)}
+                              style={{
+                                marginTop: 8,
+                                alignSelf: 'flex-start',
+                                backgroundColor: '#DCFCE7',
+                                borderWidth: 1,
+                                borderColor: '#16A34A',
+                                borderRadius: radius.pill,
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                              }}
+                            >
+                              <Text style={{ color: '#15803D', fontSize: 11, fontWeight: '800' }}>
+                                ✓ Elegir este presupuesto para el ítem
+                              </Text>
+                            </TouchableOpacity>
                           </View>
-
-                          {parseNum(cot.precio_usd) > 0 && parseNum(cot.precio_bs) > 0 ? (
-                            <Text style={{ fontSize: 9.5, color: '#0D9488', fontWeight: '700', marginTop: 3 }}>
-                              ⚡ Tasa implícita de esta opción: {(parseNum(cot.precio_bs) / parseNum(cot.precio_usd)).toFixed(2)} Bs/$
-                            </Text>
-                          ) : null}
-
-                          <TextInput
-                            value={cot.nota || ''}
-                            onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'nota', t)}
-                            placeholder="Nota: entrega inmediata, garantía, marca…"
-                            placeholderTextColor={colors.muted}
-                            style={[inp, { fontSize: 11.5, marginTop: 4 }]}
-                          />
-
-                          <TouchableOpacity
-                            onPress={() => aplicarPresupuestoAlItem(x.key, cot)}
-                            style={{
-                              marginTop: 6,
-                              alignSelf: 'flex-start',
-                              backgroundColor: '#DCFCE7',
-                              borderWidth: 1,
-                              borderColor: '#16A34A',
-                              borderRadius: radius.pill,
-                              paddingHorizontal: 10,
-                              paddingVertical: 3,
-                            }}
-                          >
-                            <Text style={{ color: '#15803D', fontSize: 11, fontWeight: '800' }}>
-                              ✓ Elegir esta cotización para el ítem
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
+                        );
+                      })}
 
                       {(x.presupuestos || []).length === 0 ? (
                         <TouchableOpacity
                           onPress={() => agregarPresupuesto(x.key)}
                           style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, alignItems: 'center', marginTop: 4 }}
                         >
-                          <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>＋ Toca para registrar la primera cotización</Text>
+                          <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>＋ Toca para registrar el primer presupuesto</Text>
                         </TouchableOpacity>
                       ) : null}
                     </View>
@@ -4978,6 +5559,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         visible={cotizacionesModalOpen}
         onClose={() => { setCotizacionesModalOpen(false); setCotizacionesTarget(null); }}
         requirementCode={cotizacionesTarget?.code}
+        requirementItems={cotizacionesTarget?.items || []}
         cotizaciones={cotizacionesTarget ? getReqCotizaciones(cotizacionesTarget) : []}
         suppliers={suppliers}
         rateBcv={rate || 0}

@@ -19,18 +19,48 @@ export const MONEDAS_COMUNES: MonedaConfig[] = [
   { codigo: 'COP', simbolo: 'COP $', nombre: 'Pesos Colombianos', bandera: '🇨🇴' },
 ];
 
+export interface ArchivoPresupuestoCotizacion {
+  id: string;
+  url: string;
+  name: string;
+  kind?: 'image' | 'pdf';
+}
+
+export interface PresupuestoLineaCotizacion {
+  id: string;
+  item_index?: number | null; // Índice del objeto en el requerimiento (si aplica)
+  descripcion: string;        // Nombre del objeto o concepto del presupuesto
+  qty: number;                // Cantidad de objetos
+  unit?: string | null;       // Unidad (UND, CAJA, etc.)
+  modo_precio: 'unidad' | 'total'; // Si el precio se colocó por unidad o total
+  precio_unitario: number;    // Precio por 1 unidad en la moneda de la cotización
+  precio_total: number;       // Precio total por las `qty` unidades
+  precio_bs_unitario?: number;// Equivalente/monto en Bs por unidad
+  precio_bs_total?: number;   // Equivalente/monto en Bs total
+  proveedor_sub?: string | null; // Proveedor o referencia del presupuesto específico
+  file_url?: string | null;   // Archivo/foto específico de este presupuesto
+  file_name?: string | null;
+}
+
 export interface CotizacionAlternativa {
   id: string;
   supplier_id?: string | null;
   supplier_name: string;
-  price: number;
+  price: number; // Monto total de la cotización (suma de presupuestos o monto directo)
+  modo_precio?: 'unidad' | 'total'; // Si se ingresó por unidad o por total
+  unit_price?: number; // Precio unitario si aplica a un objeto
+  qty_total?: number;  // Cantidad considerada
   currency: MonedaCotizacion;
   exchange_rate?: number; // Tasa de conversión a USD si no es USD
   price_usd_equiv: number; // Precio equivalente normalizado a USD
+  price_bs_equiv?: number; // Precio equivalente o pactado en Bolívares
   delivery_days?: string | null; // Tiempo de entrega (ej. "Inmediata", "3 días", "15 días")
   payment_terms?: string | null; // Términos de pago (ej. "Contado", "Crédito 15 días")
-  file_url?: string | null; // Archivo / Foto del presupuesto del proveedor
+  metodo_pago?: string | null;   // Método de pago (Efectivo USD, Pago Móvil, Zelle, etc.)
+  file_url?: string | null; // Archivo / Foto principal del presupuesto del proveedor (compatibilidad)
   file_name?: string | null;
+  files?: ArchivoPresupuestoCotizacion[]; // Uno o varios archivos de presupuestos adjuntos
+  presupuestos?: PresupuestoLineaCotizacion[]; // Uno o varios presupuestos / objetos cotizados dentro de la cotización
   is_selected?: boolean; // Oferta ganadora/seleccionada
   notes?: string | null;
   created_at: string;
