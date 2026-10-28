@@ -3224,6 +3224,17 @@ traslado, Gastos, Movimientos y Dotación**.
 > y, si la pones, queda guardada igual. En una compra de **varios** renglones, la foto de un renglón
 > es solo de ese renglón (ya no pasa a ser la foto de toda la compra ni se copia al primero).
 
+> **💱 Cuentas por pagar en dos monedas** *(28/10/2026)*. Las cuentas se llevan en **US$**, y debajo
+> del monto ahora sale **su equivalente en Bs** (monto y saldo) con la **tasa BCV de hoy**. Además,
+> cuando un **requerimiento con precios en Bs** se aprueba, su cuenta por pagar y su orden de compra
+> pasan esos Bs a **US$ con la tasa BCV del día de la aprobación**, y la nota de la cuenta dice la
+> tasa usada y cuánto equivale en Bs. Antes se sumaban los Bs como si fueran dólares (REQ-0169 salía
+> por $1.438.530 cuando eran Bs 1.438.530 = $1.619,75).
+>
+> **📱 Encabezado en teléfonos grandes** *(28/10/2026)*. En los iPhone grandes el título, los botones
+> y «Cerrar sesión» se montaban unos sobre otros. Ahora en todo teléfono el encabezado usa su modo
+> compacto (🚪 en vez de «Cerrar sesión», sin la línea de la fecha).
+
 > **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
 > **"✕ Limpiar"** quita los filtros.

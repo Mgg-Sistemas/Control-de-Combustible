@@ -44,6 +44,7 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { matchNorm, norm, cmpText } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
+import { useBcvRate, fmtBs, bsFromUsd } from '../lib/bcv';
 import {
   extraerReciboPagoCuenta,
   inyectarReciboPagoEnNota,
@@ -189,6 +190,8 @@ function calcular(
 // ── Pestaña (el mismo componente para los dos tipos) ─────────────────────────
 export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boolean }) {
   const { colors } = useTheme();
+  // 💱 Tasa BCV de hoy: para mostrar al lado de cada monto en US$ su equivalente en Bs (28-oct-2026).
+  const { rate: tasaBcv } = useBcvRate();
   const { session } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
@@ -893,6 +896,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             detail={
               <>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Monto original: {usd(Number(c.monto) || 0)} {c.moneda}</Text>
+                {/* 💱 Los dos montos: el de la cuenta es en US$; su equivalente en Bs con la tasa BCV de hoy. */}
+                {tasaBcv ? (
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    ≈ {fmtBs(bsFromUsd(Number(c.monto) || 0, tasaBcv))} · saldo ≈ {fmtBs(bsFromUsd(c.saldo, tasaBcv))} (tasa BCV de hoy: Bs {tasaBcv.toLocaleString('es-VE')} por $)
+                  </Text>
+                ) : null}
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Abonado: {usd(c.abonado)}</Text>
                 <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Saldo: {usd(c.saldo)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Emitida: {fmtFecha(c.fecha_emision)}</Text>

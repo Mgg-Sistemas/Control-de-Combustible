@@ -118,7 +118,9 @@ const LOGO = require('../../assets/logo.png');
 // Ancho de pantalla por debajo del cual el header no tiene espacio para todo
 // (logo+título a la izquierda y tuerca+campana+cerrar sesión+reloj a la derecha)
 // y hay que achicar/ocultar lo menos importante para que nada se superponga.
-const HEADER_COMPACT_BREAKPOINT = 420;
+// 520 (28-oct-2026): los iPhone grandes miden 430 px y con 420 mostraban «Cerrar sesión» en
+// texto y la fecha, y todo se montaba sobre el título. Ningún teléfono en vertical llega a 520.
+const HEADER_COMPACT_BREAKPOINT = 520;
 
 /** Marca del encabezado: logo de la empresa + título de la pantalla (se recorta,
  *  nunca empuja ni se superpone con los botones de la derecha). */
