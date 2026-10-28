@@ -3210,6 +3210,14 @@ traslado, Gastos, Movimientos y Dotación**.
 > nada: la pantalla mandaba un dato que esa tabla no tiene. Ya guarda; y si la base no te deja
 > guardar (permiso), ahora lo dice en vez de mostrar «actualizada».
 
+> **📷 Cada foto en su renglón** *(28/10/2026)*. En una solicitud o requerimiento de **varios
+> renglones**, la foto que adjuntas a un objeto queda **solo en ese objeto**: una solicitud puede
+> tener varias fotos, cada una del suyo. Antes, al crearla desde **Pedir material** o al editarla en
+> **Compras → Solicitudes**, la foto del primer renglón se copiaba como «foto de la pieza / muestra
+> adjunta» de **toda** la solicitud (y en Inventario salía en los demás productos). Con **un solo
+> renglón**, su foto sigue siendo también la de la solicitud. Las solicitudes viejas que ya tenían la
+> foto copiada se ven bien: la tarjeta ya no la muestra como si fuera de todos.
+
 > **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
 > **"✕ Limpiar"** quita los filtros.

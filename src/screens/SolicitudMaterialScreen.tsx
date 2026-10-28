@@ -751,7 +751,9 @@ export default function SolicitudMaterialScreen() {
           };
         });
 
-        const firstPhoto = compraItems.find((c) => c.fotoUrl)?.fotoUrl || null;
+        // 📷 Cada foto queda en SU renglón (items[].image_url). Solo con UN renglón su foto es
+        //    también la de la solicitud; con varios no se copia (28-oct-2026).
+        const firstPhoto = compraItems.length === 1 ? (compraItems[0].fotoUrl || null) : null;
 
         const reqPayload = {
           code: reqCode,

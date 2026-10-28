@@ -743,7 +743,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         supplier_name: it.supplier_name || null,
       }));
 
-      const firstPhoto = finalItems.find((it) => it.image_url)?.image_url || null;
+      // 📷 La foto de un renglón es SOLO de ese renglón (28-oct-2026): con UN renglón su foto
+      //    sirve también como foto de la solicitud; con varios no se copia a la solicitud.
+      const firstPhoto = finalItems.length === 1 ? (finalItems[0].image_url || null) : null;
 
       const payload: Record<string, any> = {
         title: editTitle.trim(),
@@ -1179,7 +1181,13 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
           const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
           const primerItem = r.items[0];
-          const tieneFoto = r.attachment_url || primerItem?.image_url;
+          // 📷 Foto GENERAL de la solicitud (28-oct-2026): con un renglón, la de ese renglón; con
+          //    varios, solo un adjunto propio de la solicitud, nunca la COPIA de la foto de un
+          //    renglón (esa ya sale en su renglón y parecía la foto de todos).
+          const esFotoDeRenglon = (url?: string | null) => !!url && r.items.some((x) => (x.image_url || '') === url);
+          const tieneFoto = r.items.length <= 1
+            ? (r.attachment_url || primerItem?.image_url)
+            : (r.attachment_url && !esFotoDeRenglon(r.attachment_url) ? r.attachment_url : null);
           const isAbierto = expandedIds.has(r.id);
           const empresaPagadora = r.empresa_pagadora_nombre || companies.find((c) => c.id === r.empresa_pagadora_id)?.name;
 
