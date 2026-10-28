@@ -37,6 +37,9 @@ import {
   saveFichaPersonalizada,
   deleteFichaPersonalizada,
   construirFichaInicial,
+  resolverNuevoRenglon,
+  aplicarPendientesFicha,
+  sincronizarFichaConCatalogo,
 } from '../lib/fichaTecnicaStorage';
 import { capturarFotoLocal, elegirFotoLocal } from '../lib/photo';
 
@@ -63,6 +66,7 @@ export function FichaTecnicaModal({
   const [data, setData] = useState<FichaPersonalizada | null>(null);
 
   // Estados para formulario de agregar renglón
+  const [catRenglonSel, setCatRenglonSel] = useState<'Datos Generales' | 'Componentes Principales' | '__otra__'>('Componentes Principales');
   const [nuevoCampoCat, setNuevoCampoCat] = useState('');
   const [nuevoCampoEtq, setNuevoCampoEtq] = useState('');
   const [nuevoCampoVal, setNuevoCampoVal] = useState('');
@@ -85,22 +89,24 @@ export function FichaTecnicaModal({
     if (!visible || !machine) return;
     setLoading(true);
     const mid = machineId || machine.code || 'default';
+    const inicial = construirFichaInicial(machine, options);
     getFichaPersonalizada(mid)
       .then((saved) => {
         if (saved) {
+          const sincronizada = sincronizarFichaConCatalogo(saved, inicial);
           setData({
-            ...saved,
+            ...sincronizada,
             fotoPrincipalUrl: saved.fotoPrincipalUrl !== undefined ? saved.fotoPrincipalUrl : (machine.photo_url || null),
             fotoPrincipalLeyenda: saved.fotoPrincipalLeyenda !== undefined ? saved.fotoPrincipalLeyenda : (machine.photo_url ? 'Vista general de la unidad en campo operativo' : null),
             seccionFotosTitulo: saved.seccionFotosTitulo || 'VISTA GENERAL DEL EQUIPO',
             seccionFotosTag: saved.seccionFotosTag || machine.clasificacion || 'Vista en Terreno',
           });
         } else {
-          setData(construirFichaInicial(machine, options));
+          setData(inicial);
         }
       })
       .catch(() => {
-        setData(construirFichaInicial(machine, options));
+        setData(inicial);
       })
       .finally(() => setLoading(false));
   }, [visible, machine, machineId]);
@@ -109,10 +115,41 @@ export function FichaTecnicaModal({
 
   const mid = machineId || machine.code || 'default';
 
+  const consolidarDatosActuales = (actual: FichaPersonalizada): FichaPersonalizada => {
+    const res = aplicarPendientesFicha(actual, {
+      categoriaSeleccionada: catRenglonSel === '__otra__' ? (nuevoCampoCat.trim() || 'Componentes Principales') : catRenglonSel,
+      nuevoCampoCat: catRenglonSel === '__otra__' ? nuevoCampoCat : '',
+      nuevoCampoEtq,
+      nuevoCampoVal,
+      nuevaMetricaTit,
+      nuevaMetricaSub,
+      nuevaMetricaVal,
+      nuevaObsTit,
+      nuevaObsTxt,
+    });
+    if (res.agregados.renglon) {
+      setNuevoCampoEtq('');
+      setNuevoCampoVal('');
+      if (catRenglonSel === '__otra__') setNuevoCampoCat('');
+    }
+    if (res.agregados.metrica) {
+      setNuevaMetricaTit('');
+      setNuevaMetricaSub('');
+      setNuevaMetricaVal('');
+    }
+    if (res.agregados.observacion) {
+      setNuevaObsTit('');
+      setNuevaObsTxt('');
+    }
+    return res.data;
+  };
+
   // Guardar personalización
   const guardar = async () => {
     if (!data) return;
-    await saveFichaPersonalizada(mid, data);
+    const finalData = consolidarDatosActuales(data);
+    setData(finalData);
+    await saveFichaPersonalizada(mid, finalData);
     toast.success('Ficha técnica personalizada guardada.');
   };
 
@@ -121,15 +158,21 @@ export function FichaTecnicaModal({
     await deleteFichaPersonalizada(mid);
     const inicial = construirFichaInicial(machine, options);
     setData(inicial);
+    setNuevoCampoEtq('');
+    setNuevoCampoVal('');
+    setNuevoCampoCat('');
     toast.info('Valores restablecidos a los datos originales del catálogo.');
   };
 
-  // Exportar PDF
+  // Exportar PDF (vuelca cualquier campo escrito pendiente y guarda automáticamente)
   const handleExport = async () => {
     if (!data || exporting) return;
     setExporting(true);
     try {
-      await onExport(data);
+      const finalData = consolidarDatosActuales(data);
+      setData(finalData);
+      await saveFichaPersonalizada(mid, finalData);
+      await onExport(finalData);
     } catch (e: any) {
       toast.error(e?.message ?? 'No se pudo exportar la ficha.');
     } finally {
@@ -187,26 +230,86 @@ export function FichaTecnicaModal({
     toast.info(`Foto ${slot} de Página 1 quitada.`);
   };
 
-  // Agregar / quitar renglón
+  // Agregar / editar / quitar renglón
   const agregarRenglon = () => {
-    if (!nuevoCampoEtq.trim() || !nuevoCampoVal.trim()) {
-      toast.error('Indica al menos el nombre del campo y su valor.');
+    const catActiva = catRenglonSel === '__otra__' ? (nuevoCampoCat.trim() || 'Componentes Principales') : catRenglonSel;
+    const nuevo = resolverNuevoRenglon({
+      categoriaSeleccionada: catActiva,
+      categoria: catRenglonSel === '__otra__' ? nuevoCampoCat : '',
+      etiqueta: nuevoCampoEtq,
+      valor: nuevoCampoVal,
+    });
+    if (!nuevo) {
+      toast.error('Escribe el nombre del campo o su valor para añadir el renglón.');
       return;
     }
-    const nuevo: FichaRenglon = {
-      id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      categoria: nuevoCampoCat.trim() || 'Componentes Principales',
-      etiqueta: nuevoCampoEtq.trim(),
-      valor: nuevoCampoVal.trim(),
-    };
-    setData((d) => (d ? { ...d, renglones: [...(d.renglones ?? []), nuevo] } : null));
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = { ...d, renglones: [...(d.renglones ?? []), nuevo] };
+      saveFichaPersonalizada(mid, next).catch(() => {});
+      return next;
+    });
     setNuevoCampoEtq('');
     setNuevoCampoVal('');
-    toast.success('Renglón agregado.');
+    toast.success(`Renglón "${nuevo.etiqueta}" agregado.`);
+  };
+
+  const agregarFilaDirecta = (categoria: 'Datos Generales' | 'Componentes Principales') => {
+    const nuevo: FichaRenglon = {
+      id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      categoria,
+      etiqueta: 'Nuevo campo',
+      valor: '',
+    };
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = { ...d, renglones: [...(d.renglones ?? []), nuevo] };
+      return next;
+    });
+  };
+
+  const actualizarRenglon = (id: string, patch: Partial<FichaRenglon>) => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = {
+        ...d,
+        renglones: (d.renglones ?? []).map((r) => (r.id === id ? { ...r, ...patch } : r)),
+      };
+      saveFichaPersonalizada(mid, next).catch(() => {});
+      return next;
+    });
+  };
+
+  const alternarCategoriaRenglon = (id: string) => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = {
+        ...d,
+        renglones: (d.renglones ?? []).map((r) => {
+          if (r.id !== id) return r;
+          const catActual = String(r.categoria ?? '').trim();
+          const nuevaCat = catActual === 'Datos Generales' ? 'Componentes Principales' : 'Datos Generales';
+          return { ...r, categoria: nuevaCat };
+        }),
+      };
+      saveFichaPersonalizada(mid, next).catch(() => {});
+      return next;
+    });
   };
 
   const eliminarRenglon = (id: string) => {
-    setData((d) => (d ? { ...d, renglones: (d.renglones ?? []).filter((r) => r.id !== id) } : null));
+    setData((d) => {
+      if (!d) return null;
+      const ocultos = new Set(d.renglonesOcultos ?? []);
+      ocultos.add(id);
+      const next: FichaPersonalizada = {
+        ...d,
+        renglones: (d.renglones ?? []).filter((r) => r.id !== id),
+        renglonesOcultos: Array.from(ocultos),
+      };
+      saveFichaPersonalizada(mid, next).catch(() => {});
+      return next;
+    });
   };
 
   // Agregar / quitar métrica
@@ -474,28 +577,80 @@ export function FichaTecnicaModal({
                   </View>
                 </View>
 
-                {/* Lista de renglones existentes */}
-                <View style={{ maxHeight: 240, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, backgroundColor: colors.surface, marginBottom: spacing.sm }}>
-                  <ScrollView nestedScrollEnabled style={{ padding: 4 }}>
+                {/* Lista de renglones existentes (editables en vivo) */}
+                <View style={{ maxHeight: 280, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
+                  <ScrollView nestedScrollEnabled style={{ padding: 6 }}>
                     {(data.renglones ?? []).map((r, idx) => (
                       <View
                         key={r.id}
                         style={{
                           flexDirection: 'row',
                           alignItems: 'center',
-                          paddingVertical: 4,
-                          paddingHorizontal: 6,
+                          gap: 6,
+                          paddingVertical: 5,
+                          paddingHorizontal: 4,
                           borderBottomWidth: idx === (data.renglones ?? []).length - 1 ? 0 : 1,
                           borderBottomColor: colors.border,
                         }}
                       >
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: '#16324F', fontWeight: '700', fontSize: 11 }}>{r.etiqueta}:</Text>
-                          <Text style={{ color: colors.text, fontSize: 11.5 }}>{r.valor}</Text>
-                          {r.categoria ? <Text style={{ color: colors.muted, fontSize: 9 }}>📂 {r.categoria}</Text> : null}
+                        <View style={{ flex: 1, gap: 4 }}>
+                          <View style={{ flexDirection: 'row', gap: 4 }}>
+                            <TextInput
+                              value={r.etiqueta}
+                              onChangeText={(txt) => actualizarRenglon(r.id, { etiqueta: txt })}
+                              placeholder="Nombre del campo"
+                              placeholderTextColor={colors.muted}
+                              style={{
+                                flex: 1,
+                                backgroundColor: colors.background,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                borderRadius: radius.sm,
+                                paddingHorizontal: 6,
+                                paddingVertical: 4,
+                                fontSize: 11,
+                                fontWeight: '700',
+                                color: '#16324F',
+                              }}
+                            />
+                            <TextInput
+                              value={r.valor}
+                              onChangeText={(txt) => actualizarRenglon(r.id, { valor: txt })}
+                              placeholder="Valor"
+                              placeholderTextColor={colors.muted}
+                              style={{
+                                flex: 1.3,
+                                backgroundColor: colors.background,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                borderRadius: radius.sm,
+                                paddingHorizontal: 6,
+                                paddingVertical: 4,
+                                fontSize: 11,
+                                color: colors.text,
+                              }}
+                            />
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <TouchableOpacity
+                              onPress={() => alternarCategoriaRenglon(r.id)}
+                              style={{
+                                backgroundColor: colors.surfaceAlt,
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: radius.sm,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                              }}
+                            >
+                              <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700' }}>
+                                📂 {r.categoria || 'Componentes Principales'} (toca para cambiar columna)
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
                         <TouchableOpacity onPress={() => eliminarRenglon(r.id)} style={{ padding: 6 }}>
-                          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕</Text>
+                          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>✕</Text>
                         </TouchableOpacity>
                       </View>
                     ))}
@@ -507,38 +662,106 @@ export function FichaTecnicaModal({
                   </ScrollView>
                 </View>
 
+                {/* Botones rápidos para insertar fila directo en cada columna */}
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.xs, flexWrap: 'wrap' }}>
+                  <TouchableOpacity
+                    onPress={() => agregarFilaDirecta('Datos Generales')}
+                    style={{
+                      flex: 1,
+                      minWidth: 160,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingVertical: 5,
+                      paddingHorizontal: 8,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 10.5 }}>
+                      + Fila en Datos Generales
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => agregarFilaDirecta('Componentes Principales')}
+                    style={{
+                      flex: 1,
+                      minWidth: 160,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingVertical: 5,
+                      paddingHorizontal: 8,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 10.5 }}>
+                      + Fila en Componentes Principales
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
                 {/* Formulario para agregar renglón */}
                 <View style={{ backgroundColor: colors.surface, padding: spacing.xs, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11, marginBottom: 4 }}>+ Agregar campo o renglón a la tabla:</Text>
-                  <View style={{ flexDirection: 'row', gap: 4, marginBottom: 4 }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11, marginBottom: 4 }}>
+                    + Agregar campo o renglón a la tabla:
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 4, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <Text style={{ color: colors.muted, fontSize: 10, marginRight: 2 }}>Columna:</Text>
+                    {(['Datos Generales', 'Componentes Principales', '__otra__'] as const).map((opCat) => {
+                      const activo = catRenglonSel === opCat;
+                      const label = opCat === '__otra__' ? 'Otra sección…' : opCat;
+                      return (
+                        <TouchableOpacity
+                          key={opCat}
+                          onPress={() => setCatRenglonSel(opCat)}
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: radius.pill,
+                            backgroundColor: activo ? '#16324F' : colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: activo ? '#16324F' : colors.border,
+                          }}
+                        >
+                          <Text style={{ color: activo ? '#fff' : colors.text, fontSize: 10, fontWeight: '700' }}>
+                            {label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  {catRenglonSel === '__otra__' ? (
                     <TextInput
                       value={nuevoCampoCat}
                       onChangeText={setNuevoCampoCat}
-                      placeholder="Categoría (ej. Datos Generales o Componentes)"
+                      placeholder="Nombre de la sección (ej. Sistema Hidráulico)"
                       placeholderTextColor={colors.muted}
-                      style={{ flex: 1, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, color: colors.text }}
+                      style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, color: colors.text, marginBottom: 4 }}
                     />
+                  ) : null}
+                  <View style={{ flexDirection: 'row', gap: 4 }}>
                     <TextInput
                       value={nuevoCampoEtq}
                       onChangeText={setNuevoCampoEtq}
-                      placeholder="Nombre del campo (ej. Voltaje de Salida)"
+                      placeholder="Nombre del campo (ej. Motor, Voltaje, Capacidad)"
                       placeholderTextColor={colors.muted}
-                      style={{ flex: 1, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, color: colors.text }}
+                      style={{ flex: 1.2, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, color: colors.text }}
                     />
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 4 }}>
                     <TextInput
                       value={nuevoCampoVal}
                       onChangeText={setNuevoCampoVal}
-                      placeholder="Valor (ej. 127 / 220 V Trifásica)"
+                      onSubmitEditing={agregarRenglon}
+                      placeholder="Valor (ej. Cummins 6BT, 1.2 m³)"
                       placeholderTextColor={colors.muted}
-                      style={{ flex: 2, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, color: colors.text }}
+                      style={{ flex: 1.4, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, color: colors.text }}
                     />
                     <TouchableOpacity
                       onPress={agregarRenglon}
-                      style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.sm, justifyContent: 'center', alignItems: 'center', paddingVertical: 6 }}
+                      style={{ flex: 0.7, backgroundColor: '#16324F', borderRadius: radius.sm, justifyContent: 'center', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 8 }}
                     >
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>Añadir</Text>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11 }}>+ Añadir</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

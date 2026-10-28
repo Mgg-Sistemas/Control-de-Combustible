@@ -6,6 +6,7 @@
 // SIN alterar la tabla `machinery` ni dañar el flujo de trabajo del catálogo.
 // ============================================================================
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from './supabase';
 import {
   FichaPersonalizada,
   FichaRenglon,
@@ -18,31 +19,96 @@ import {
   tapaTexto,
   aceiteTexto,
   proximoServicioTexto,
+  resolverNuevoRenglon,
+  aplicarPendientesFicha,
+  sincronizarFichaConCatalogo,
 } from './fichaTecnicaMaquina';
 import { dmy } from './informeTecnico';
 
+export { resolverNuevoRenglon, aplicarPendientesFicha, sincronizarFichaConCatalogo };
+
 const PREFIX = '@ficha_tecnica_custom_';
+const TABLA_CONFIG = 'tique_config';
+
+function limpiarParaNube(data: FichaPersonalizada): FichaPersonalizada {
+  const esDataUrl = (u?: string | null) => typeof u === 'string' && u.startsWith('data:');
+  return {
+    ...data,
+    fotoPrincipalUrl: esDataUrl(data.fotoPrincipalUrl) ? undefined : data.fotoPrincipalUrl,
+    fotoSecundariaUrl: esDataUrl(data.fotoSecundariaUrl) ? undefined : data.fotoSecundariaUrl,
+    fotosExtra: (data.fotosExtra ?? []).filter((f) => !esDataUrl(f.url)),
+  };
+}
 
 /** Recupera la personalización guardada para una máquina, o null si no existe. */
 export async function getFichaPersonalizada(machineId: string): Promise<FichaPersonalizada | null> {
   if (!machineId) return null;
+  let local: FichaPersonalizada | null = null;
   try {
     const raw = await AsyncStorage.getItem(`${PREFIX}${machineId}`);
-    if (!raw) return null;
-    return JSON.parse(raw);
+    if (raw) local = JSON.parse(raw);
   } catch (e) {
-    console.warn('[fichaTecnicaStorage] error leyendo:', e);
-    return null;
+    console.warn('[fichaTecnicaStorage] error leyendo local:', e);
   }
+
+  try {
+    const { data, error } = await supabase.from(TABLA_CONFIG).select('campos').eq('id', true).maybeSingle();
+    if (!error && data?.campos && typeof data.campos === 'object') {
+      const remotos = (data.campos as any).fichasTecnicasCustom;
+      const remoto: FichaPersonalizada | undefined = remotos && typeof remotos === 'object' ? remotos[machineId] : undefined;
+      if (remoto && typeof remoto === 'object') {
+        const combinado: FichaPersonalizada = {
+          ...remoto,
+          ...local,
+          renglones: (local?.renglones && local.renglones.length >= (remoto.renglones?.length ?? 0))
+            ? local.renglones
+            : (remoto.renglones ?? local?.renglones),
+          metricas: (local?.metricas && local.metricas.length >= (remoto.metricas?.length ?? 0))
+            ? local.metricas
+            : (remoto.metricas ?? local?.metricas),
+          observaciones: (local?.observaciones && local.observaciones.length >= (remoto.observaciones?.length ?? 0))
+            ? local.observaciones
+            : (remoto.observaciones ?? local?.observaciones),
+          fotoPrincipalUrl: local?.fotoPrincipalUrl ?? remoto.fotoPrincipalUrl,
+          fotoSecundariaUrl: local?.fotoSecundariaUrl ?? remoto.fotoSecundariaUrl,
+          fotosExtra: (local?.fotosExtra && local.fotosExtra.length > 0) ? local.fotosExtra : (remoto.fotosExtra ?? []),
+        };
+        await AsyncStorage.setItem(`${PREFIX}${machineId}`, JSON.stringify(combinado)).catch(() => {});
+        return combinado;
+      }
+    }
+  } catch {
+    // Si falla la red, devolvemos lo local
+  }
+
+  return local;
 }
 
-/** Guarda la personalización de la ficha de una máquina en el almacenamiento local. */
+/** Guarda la personalización de la ficha de una máquina en el almacenamiento local y sincroniza los textos/renglones. */
 export async function saveFichaPersonalizada(machineId: string, data: FichaPersonalizada): Promise<void> {
   if (!machineId) return;
   try {
     await AsyncStorage.setItem(`${PREFIX}${machineId}`, JSON.stringify(data));
   } catch (e) {
     console.warn('[fichaTecnicaStorage] error guardando:', e);
+  }
+
+  try {
+    const { data: row } = await supabase.from(TABLA_CONFIG).select('campos').eq('id', true).maybeSingle();
+    if (row) {
+      const dc = (row.campos && typeof row.campos === 'object') ? { ...(row.campos as any) } : {};
+      const mapa = (dc.fichasTecnicasCustom && typeof dc.fichasTecnicasCustom === 'object')
+        ? { ...dc.fichasTecnicasCustom }
+        : {};
+      mapa[machineId] = limpiarParaNube(data);
+      dc.fichasTecnicasCustom = mapa;
+      await supabase.from(TABLA_CONFIG).update({
+        campos: dc,
+        updated_at: new Date().toISOString(),
+      }).eq('id', true);
+    }
+  } catch {
+    // Queda guardado en el dispositivo aunque falle la red
   }
 }
 
@@ -53,6 +119,24 @@ export async function deleteFichaPersonalizada(machineId: string): Promise<void>
     await AsyncStorage.removeItem(`${PREFIX}${machineId}`);
   } catch (e) {
     console.warn('[fichaTecnicaStorage] error eliminando:', e);
+  }
+
+  try {
+    const { data: row } = await supabase.from(TABLA_CONFIG).select('campos').eq('id', true).maybeSingle();
+    if (row?.campos && typeof row.campos === 'object') {
+      const dc = { ...(row.campos as any) };
+      if (dc.fichasTecnicasCustom && typeof dc.fichasTecnicasCustom === 'object') {
+        const mapa = { ...dc.fichasTecnicasCustom };
+        delete mapa[machineId];
+        dc.fichasTecnicasCustom = mapa;
+        await supabase.from(TABLA_CONFIG).update({
+          campos: dc,
+          updated_at: new Date().toISOString(),
+        }).eq('id', true);
+      }
+    }
+  } catch {
+    // Ignorar error de red al borrar
   }
 }
 

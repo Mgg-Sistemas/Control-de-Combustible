@@ -213,7 +213,7 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
         : '';
       const defaultTitle = op.tara === false
         ? (op.combustible !== false ? 'Reporte de combustible y maquinaria' : 'Reporte de maquinaria')
-        : 'Reporte de taras';
+        : (op.combustible !== false && rComb.totalLitros > 0 ? 'Reporte de taras y combustible' : 'Reporte de taras');
       const html = pdfDocument({
         title: (op.tituloPersonalizado ?? '').trim() || defaultTitle,
         subtitle: op.verSubtitulo !== false ? ((op.subtituloPersonalizado ?? '').trim() || `${subBase}${subComb}`) : '',
@@ -267,12 +267,17 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
 
   const numLogosActivos = Object.values(logos).filter(Boolean).length;
 
+  const tituloPorDefecto = op.tara === false
+    ? (op.combustible !== false ? 'Reporte de combustible y maquinaria' : 'Reporte de maquinaria')
+    : (op.combustible !== false && rComb.totalLitros > 0 ? 'Reporte de taras y combustible' : 'Reporte de taras');
+  const tituloVisible = (op.tituloPersonalizado ?? '').trim() || tituloPorDefecto;
+
   return (
     <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt }}>
       {/* Barra superior con resumen y botón generar */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>📄 Reporte de taras</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>📄 {tituloVisible}</Text>
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
             {r.conTara} de {r.flota} camión(es) con tara cargada{r.exentos > 0 ? ` · ${r.exentos} no pasan por romana` : ''}
             {rComb.totalLitros > 0 ? ` · ⛽ ${rComb.conCombustible} con combustible (${litrosTexto(rComb.totalLitros)})` : ''}
@@ -285,6 +290,68 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
         >
           <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{generando ? 'Generando…' : '🖨️ Generar PDF'}</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Selector y editor rápido de título del reporte (siempre visible) */}
+      <View style={{ marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>✏️ Título del PDF:</Text>
+          <TextInput
+            value={op.tituloPersonalizado ?? ''}
+            onChangeText={(t) => setOp('tituloPersonalizado', t)}
+            placeholder={tituloPorDefecto}
+            placeholderTextColor={colors.muted}
+            style={{
+              flex: 1,
+              minWidth: 180,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: radius.sm,
+              paddingHorizontal: spacing.sm,
+              paddingVertical: 4,
+              color: colors.text,
+              backgroundColor: colors.background,
+              fontSize: 12,
+              fontWeight: '700',
+            }}
+          />
+          {(op.tituloPersonalizado ?? '').trim().length > 0 ? (
+            <TouchableOpacity
+              onPress={() => setOp('tituloPersonalizado', '')}
+              style={{ paddingHorizontal: 6, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+            >
+              <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700' }}>Automático</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+          {[
+            'Reporte de taras',
+            'Reporte de taras y combustible',
+            'Reporte de combustible',
+            'Control diario de combustible',
+          ].map((preset) => {
+            const activo = (op.tituloPersonalizado ?? '').trim().toLowerCase() === preset.toLowerCase();
+            return (
+              <TouchableOpacity
+                key={preset}
+                onPress={() => setOp('tituloPersonalizado', preset)}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 2,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: activo ? colors.primary : colors.border,
+                  backgroundColor: activo ? colors.primary : colors.surfaceAlt,
+                }}
+              >
+                <Text style={{ color: activo ? colors.primaryContrast : colors.muted, fontSize: 10, fontWeight: '700' }}>
+                  {preset}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       {/* Botón destacado para abrir/cerrar la personalización */}
