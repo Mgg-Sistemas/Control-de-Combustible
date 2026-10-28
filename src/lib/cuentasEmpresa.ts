@@ -156,3 +156,4 @@ export function pasaFiltroEmpresas(
   if (empresaSel.size === 0) return true;
   return empresaSel.has(empresaIdDeCuenta);
 }
+

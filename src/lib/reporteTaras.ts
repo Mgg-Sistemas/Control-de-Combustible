@@ -53,38 +53,61 @@ export type AlcanceTaras = 'conTara' | 'todos';
 export type OpcionesReporteTaras = {
   alcance: AlcanceTaras;
   unidad: UnidadPeso;
-  /** 🏢 Columna «Empresa». Apagada, el nombre no sale en NINGUNA parte. */
-  empresa: boolean;
-  marcaModelo: boolean;
-  /** 👤 Quién cargó la tara y cuándo. */
-  cargadaPor: boolean;
-  // ── 19-oct-2026, a pedido («hace falta esas opciones, así como en frentes y
-  //    en obras y ubicaciones»). Opcionales (`?`) a propósito: las opciones
-  //    guardadas en el equipo (AsyncStorage v1) y las llamadas viejas siguen
-  //    valiendo con el valor por defecto. Regla de la casa: lo que ya existía
-  //    queda encendido; lo NUEVO entra apagado; lo oculto no deja rastro.
+
+  // ── Columnas de la tabla ──
   /** 1️⃣ Columna «N°» (el enumerado). */
   numeracion?: boolean;
+  /** 🚜 Columna «Equipo» (código o identificación). */
+  equipo?: boolean;
   /** 🔢 Columna «Placa / serial». */
   placa?: boolean;
+  /** 🏷️ Columna «Marca y modelo». */
+  marcaModelo: boolean;
   /** ◆ Columna «Clasificación» por capacidad. Nace apagada. */
   clasificacion?: boolean;
-  /**
-   * 👤 Columna «Chofer»: el que esté asignado al camión en «Choferes por
-   * camión». Si día y noche son distintos salen los dos (☀️/🌙); si es el
-   * mismo, el nombre solo. Nace apagada.
-   */
+  /** 👤 Columna «Chofer» (☀️/🌙). Nace apagada. */
   chofer?: boolean;
+  /** 🏢 Columna «Empresa». Apagada, el nombre no sale en NINGUNA parte. */
+  empresa: boolean;
+  /** ⚖️ Columna «Tara». */
+  tara?: boolean;
   /** ⛽ Columna «Combustible (L)» para cada maquinaria en el día seleccionado. */
   combustible?: boolean;
-  /** 📅 Fecha (AAAA-MM-DD) del combustible mostrado en el reporte. */
-  fechaCombustible?: string;
   /** ⚙️ Columna «Estado» (solo tiene sentido con «Toda la flota»). */
   estado?: boolean;
-  /** 📊 Las cuatro tarjetas de arriba (total y taras). */
+  /** 👤 Quién cargó la tara y cuándo. */
+  cargadaPor: boolean;
+  /** ✍️ Columna «Firma / Recibido» para visto bueno físico. Nace apagada. */
+  firma?: boolean;
+
+  // ── Resumen y tarjetas ──
+  /** 📊 Las tarjetas de arriba (total y taras). */
   kpis?: boolean;
+  kpiCamiones?: boolean;
+  kpiPromedio?: boolean;
+  kpiMayor?: boolean;
+  kpiMenor?: boolean;
+  kpiCombustible?: boolean;
+  /** 🔢 Fila de totales en el pie de tabla. */
+  totalesPie?: boolean;
   /** 📝 La nota al pie que explica qué es la tara. */
   notaPie?: boolean;
+
+  // ── Encabezado y membrete ──
+  /** ✏️ Título personalizado del reporte (opcional). */
+  tituloPersonalizado?: string;
+  /** 📄 Subtítulo personalizado del reporte (opcional). */
+  subtituloPersonalizado?: string;
+  /** 📄 Mostrar subtítulo (por defecto true). */
+  verSubtitulo?: boolean;
+  /** 📝 Marca institucional de texto SOS/BCV (por defecto false para viajes/taras). */
+  verMarcaTexto?: boolean;
+  /** 📅 Mostrar fecha y hora de emisión (por defecto true). */
+  verFechaEmision?: boolean;
+
+  // ── Empresa y fecha ──
+  /** 📅 Fecha (AAAA-MM-DD) del combustible mostrado en el reporte. */
+  fechaCombustible?: string;
   /** 🏙 Toda la flota a nombre de UNA sola empresa (solo en el papel). Vacío = cada quien la suya. */
   empresaUnica?: string;
 };
@@ -92,17 +115,31 @@ export type OpcionesReporteTaras = {
 export const OPCIONES_TARAS_POR_DEFECTO: OpcionesReporteTaras = {
   alcance: 'conTara',
   unidad: 'kg',
-  empresa: true,
-  marcaModelo: true,
-  cargadaPor: true,
   numeracion: true,
+  equipo: true,
   placa: true,
+  marcaModelo: true,
   clasificacion: false,
   chofer: false,
+  empresa: true,
+  tara: true,
   combustible: true,
   estado: true,
+  cargadaPor: true,
+  firma: false,
   kpis: true,
+  kpiCamiones: true,
+  kpiPromedio: true,
+  kpiMayor: true,
+  kpiMenor: true,
+  kpiCombustible: true,
+  totalesPie: true,
   notaPie: true,
+  tituloPersonalizado: '',
+  subtituloPersonalizado: '',
+  verSubtitulo: true,
+  verMarcaTexto: false,
+  verFechaEmision: true,
   empresaUnica: '',
 };
 
@@ -264,13 +301,21 @@ export function cuerpoReporteTaras(
   const r = resumenTaras(camiones, taras);
   const filas = filasDeTaras(camiones, taras, op.alcance);
   const rComb = resumenCombustibleTaras(camiones, taras, op.alcance);
-  // Los `!== false` son por las opciones guardadas de antes del 19-oct-2026
-  // (no traen las claves nuevas): sin la clave, la columna de siempre SALE.
+
+  // Columnas configurables
   const verNum = op.numeracion !== false;
+  const verEquipo = op.equipo !== false;
   const verPlaca = op.placa !== false;
+  const verMarca = op.marcaModelo !== false;
   const verClasif = op.clasificacion === true;
   const verChofer = op.chofer === true;
+  const verEmpresa = op.empresa !== false;
+  const verTara = op.tara !== false;
   const verCombustible = op.combustible !== false;
+  const verEstado = op.alcance === 'todos' && op.estado !== false;
+  const verCargadaPor = op.cargadaPor !== false;
+  const verFirma = op.firma === true;
+
   /** ☀️/🌙 solo cuando hace falta distinguir: un mismo chofer en los dos turnos va limpio. */
   const choferTexto = (c: CamionParaTara): string => {
     const d = String(c.choferDia ?? '').trim();
@@ -279,44 +324,41 @@ export function cuerpoReporteTaras(
     if (d && n) return d === n ? d : `☀️ ${d} · 🌙 ${n}`;
     return d ? `☀️ ${d}` : `🌙 ${n}`;
   };
-  const verEstado = op.alcance === 'todos' && op.estado !== false;
+
   const verKpis = op.kpis !== false;
   const verNota = op.notaPie !== false;
   /** 🏙 El nombre que se imprime: la empresa única (solo papel) o la de cada quien. */
   const empresaImpresa = (c: CamionParaTara) => (op.empresaUnica ?? '').trim() || c.companyName || 'Sin empresa';
 
-  // ⭐ CUATRO TARJETAS: EL TOTAL Y LAS TARAS (07-oct-2026, a pedido: «quítame
-  //    esto, solo coloca el total de camiones y los totales de las taras»).
-  //    Se fueron «N de M con tara cargada», «sin tara» y «no pasan por romana»:
-  //    eran el estado de la carga del dato, no el dato. Quien quiera verlo tiene
-  //    la columna Estado con el alcance «flota completa».
-  //
-  // ⚠️ EL TOTAL ES EL DE LAS FILAS QUE SALEN, no el de la flota: la tarjeta va
-  //    pegada a la lista y tiene que cuadrar con ella. Con el alcance «solo con
-  //    tara» dice 39 y lista 39; con «flota completa» dice 44 y lista 44. Un
-  //    total que no cuadra con lo que está debajo manda a recontar a mano.
-  const kpis: [string, string][] = [
-    [String(filas.length), filas.length === 1 ? 'CAMIÓN' : 'CAMIONES'],
-    [pesoTexto(r.promedioKg, op.unidad), 'TARA PROMEDIO'],
-    [pesoTexto(r.mayorKg, op.unidad), 'TARA MAYOR'],
-    [pesoTexto(r.menorKg, op.unidad), 'TARA MENOR'],
-    ...(verCombustible && rComb.totalLitros > 0 ? [[litrosTexto(rComb.totalLitros), 'TOTAL COMBUSTIBLE'] as [string, string]] : []),
-  ];
+  // Tarjetas superiores configurables
+  const kpis: [string, string][] = [];
+  if (op.kpiCamiones !== false) {
+    kpis.push([String(filas.length), filas.length === 1 ? 'CAMIÓN' : 'CAMIONES']);
+  }
+  if (verTara) {
+    if (op.kpiPromedio !== false) kpis.push([pesoTexto(r.promedioKg, op.unidad), 'TARA PROMEDIO']);
+    if (op.kpiMayor !== false) kpis.push([pesoTexto(r.mayorKg, op.unidad), 'TARA MAYOR']);
+    if (op.kpiMenor !== false) kpis.push([pesoTexto(r.menorKg, op.unidad), 'TARA MENOR']);
+  }
+  if (verCombustible && rComb.totalLitros > 0 && op.kpiCombustible !== false) {
+    kpis.push([litrosTexto(rComb.totalLitros), 'TOTAL COMBUSTIBLE']);
+  }
 
   const cab = [
     verNum ? '<th class="n">N°</th>' : '',
-    '<th>Equipo</th>',
+    verEquipo ? '<th>Equipo</th>' : '',
     verPlaca ? '<th>Placa / serial</th>' : '',
-    op.marcaModelo ? '<th>Marca / modelo</th>' : '',
+    verMarca ? '<th>Marca / modelo</th>' : '',
     verClasif ? '<th>Clasificación</th>' : '',
     verChofer ? '<th>Chofer</th>' : '',
-    op.empresa ? '<th>Empresa</th>' : '',
-    `<th class="r">Tara (${op.unidad === 't' ? 'Ton' : 'Kg'})</th>`,
+    verEmpresa ? '<th>Empresa</th>' : '',
+    verTara ? `<th class="r">Tara (${op.unidad === 't' ? 'Ton' : 'Kg'})</th>` : '',
     verCombustible ? '<th class="r">Combustible (L)</th>' : '',
     verEstado ? '<th>Estado</th>' : '',
-    op.cargadaPor ? '<th>Cargada por</th>' : '',
+    verCargadaPor ? '<th>Cargada por</th>' : '',
+    verFirma ? '<th style="text-align:center;width:95px">Firma / Recibido</th>' : '',
   ].join('');
-  const nCols = [verNum, true, verPlaca, op.marcaModelo, verClasif, verChofer, op.empresa, true, verCombustible, verEstado, op.cargadaPor].filter(Boolean).length;
+  const nCols = [verNum, verEquipo, verPlaca, verMarca, verClasif, verChofer, verEmpresa, verTara, verCombustible, verEstado, verCargadaPor, verFirma].filter(Boolean).length;
 
   const cuerpo = filas.map((f, i) => {
     const c = f.camion;
@@ -327,41 +369,56 @@ export function cuerpoReporteTaras(
       : '—';
     return `<tr>
       ${verNum ? `<td class="n">${i + 1}</td>` : ''}
-      <td>${esc(c.code)}</td>
+      ${verEquipo ? `<td>${esc(c.code)}</td>` : ''}
       ${verPlaca ? `<td>${esc(ident)}</td>` : ''}
-      ${op.marcaModelo ? `<td>${esc(mm)}</td>` : ''}
+      ${verMarca ? `<td>${esc(mm)}</td>` : ''}
       ${verClasif ? `<td>${esc(String(c.clasificacion ?? '').trim() || '—')}</td>` : ''}
       ${verChofer ? `<td>${esc(choferTexto(c))}</td>` : ''}
-      ${op.empresa ? `<td>${esc(empresaImpresa(c))}</td>` : ''}
-      <td class="r${f.taraKg == null ? ' sin' : ''}">${esc(f.taraKg == null ? '—' : pesoTexto(f.taraKg, op.unidad))}</td>
+      ${verEmpresa ? `<td>${esc(empresaImpresa(c))}</td>` : ''}
+      ${verTara ? `<td class="r${f.taraKg == null ? ' sin' : ''}">${esc(f.taraKg == null ? '—' : pesoTexto(f.taraKg, op.unidad))}</td>` : ''}
       ${verCombustible ? `<td class="r${f.combustibleLitros == null ? ' sin' : ''}">${esc(litrosTexto(f.combustibleLitros))}</td>` : ''}
       ${verEstado ? `<td${f.estado === 'conTara' ? '' : ' class="sin"'}>${ESTADO_TEXTO[f.estado]}</td>` : ''}
-      ${op.cargadaPor ? `<td>${esc(quien)}</td>` : ''}
+      ${verCargadaPor ? `<td>${esc(quien)}</td>` : ''}
+      ${verFirma ? `<td style="border-bottom:1px dashed #A0AEC0;height:24px"></td>` : ''}
     </tr>`;
   }).join('');
 
-  const colsAntesDeCombustible = [verNum, true, verPlaca, op.marcaModelo, verClasif, verChofer, op.empresa, true].filter(Boolean).length;
-  const colsDespuesDeCombustible = [verEstado, op.cargadaPor].filter(Boolean).length;
-  const pieCombustible = verCombustible && rComb.totalLitros > 0 && filas.length > 0
-    ? `<tfoot><tr>
-        <td colspan="${colsAntesDeCombustible}" class="r">Total combustible (${rComb.conCombustible} eq.):</td>
+  const colsAntesDeCombustible = [verNum, verEquipo, verPlaca, verMarca, verClasif, verChofer, verEmpresa, verTara].filter(Boolean).length;
+  const colsDespuesDeCombustible = [verEstado, verCargadaPor, verFirma].filter(Boolean).length;
+  let pieTotales = '';
+  if (op.totalesPie !== false && filas.length > 0) {
+    if (verCombustible && rComb.totalLitros > 0) {
+      pieTotales = `<tfoot><tr>
+        <td colspan="${Math.max(1, colsAntesDeCombustible - 1)}" class="r">Total combustible (${rComb.conCombustible} eq.):</td>
+        ${verTara ? `<td class="r">${pesoTexto(r.promedioKg, op.unidad)} (prom.)</td>` : ''}
         <td class="r">${esc(litrosTexto(rComb.totalLitros))}</td>
         ${colsDespuesDeCombustible > 0 ? `<td colspan="${colsDespuesDeCombustible}"></td>` : ''}
-      </tr></tfoot>`
-    : '';
+      </tr></tfoot>`;
+    } else if (verTara && r.promedioKg != null) {
+      const colsAntesDeTara = [verNum, verEquipo, verPlaca, verMarca, verClasif, verChofer, verEmpresa].filter(Boolean).length;
+      const colsDespuesDeTara = [verCombustible, verEstado, verCargadaPor, verFirma].filter(Boolean).length;
+      pieTotales = `<tfoot><tr>
+        <td colspan="${Math.max(1, colsAntesDeTara)}" class="r">Tara promedio (${filas.length} eq.):</td>
+        <td class="r">${pesoTexto(r.promedioKg, op.unidad)}</td>
+        ${colsDespuesDeTara > 0 ? `<td colspan="${colsDespuesDeTara}"></td>` : ''}
+      </tr></tfoot>`;
+    }
+  }
 
   const vacio = filas.length === 0
     ? `<tr><td colspan="${nCols}" class="n">Todavía no hay camiones con tara cargada.</td></tr>`
     : '';
 
   return `
-    ${verKpis ? `<div class="kpis">${kpis.map(([v, t]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="t">${esc(t)}</div></div>`).join('')}</div>` : ''}
-    <table class="taras"><thead><tr>${cab}</tr></thead><tbody>${cuerpo}${vacio}</tbody>${pieCombustible}</table>
+    ${verKpis && kpis.length > 0 ? `<div class="kpis">${kpis.map(([v, t]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="t">${esc(t)}</div></div>`).join('')}</div>` : ''}
+    <table class="taras"><thead><tr>${cab}</tr></thead><tbody>${cuerpo}${vacio}</tbody>${pieTotales}</table>
     ${verNota ? `<div class="nota-t">La tara es el peso del camión vacío medido en romana. Cada viaje registrado conserva la tara que tenía ese día.</div>` : ''}
   `;
 }
 
-export function subtituloReporteTaras(r: ResumenTaras, alcance: AlcanceTaras): string {
+export function subtituloReporteTaras(r: ResumenTaras, alcance: AlcanceTaras, op?: OpcionesReporteTaras): string {
+  if (op?.verSubtitulo === false) return '';
+  if ((op?.subtituloPersonalizado ?? '').trim()) return op!.subtituloPersonalizado!.trim();
   return alcance === 'conTara'
     ? `${r.conTara} camión(es) con tara cargada de ${r.flota} en la flota`
     : `Flota completa: ${r.flota} camión(es)`;
@@ -375,15 +432,18 @@ export function subtituloReporteTaras(r: ResumenTaras, alcance: AlcanceTaras): s
 export function sufijoArchivoTaras(op: OpcionesReporteTaras): string {
   const partes: string[] = [];
   if (op.numeracion === false) partes.push('sin numeración');
+  if (op.equipo === false) partes.push('sin equipo');
   if (op.placa === false) partes.push('sin placa');
-  if (!op.marcaModelo) partes.push('sin marca-modelo');
+  if (op.marcaModelo === false) partes.push('sin marca-modelo');
   if (op.clasificacion === true) partes.push('con clasificación');
   if (op.chofer === true) partes.push('con chofer');
-  if (!op.empresa) partes.push('sin empresas');
+  if (op.empresa === false) partes.push('sin empresas');
   else if ((op.empresaUnica ?? '').trim()) partes.push('a nombre de una empresa');
+  if (op.tara === false) partes.push('sin tara');
   if (op.combustible === false) partes.push('sin combustible');
   if (op.alcance === 'todos' && op.estado === false) partes.push('sin estado');
-  if (!op.cargadaPor) partes.push('sin cargada-por');
+  if (op.cargadaPor === false) partes.push('sin cargada-por');
+  if (op.firma === true) partes.push('con firma');
   if (op.kpis === false) partes.push('sin resumen');
   if (op.notaPie === false) partes.push('sin nota');
   return partes.length ? ` (${partes.join(', ')})` : '';

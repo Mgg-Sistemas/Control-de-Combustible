@@ -101,6 +101,8 @@ export function pdfDocument(opts: {
    * la fecha de emisión sea elegible — es otro interruptor, como los logos.
    */
   emitida?: string;
+  /** Mostrar u ocultar la fecha y hora de emisión (por defecto true) */
+  verEmitida?: boolean;
 }): string {
   const { title, subtitle = '', body, extraCss = '' } = opts;
   const L = { bcv: opts.logos?.bcv ?? true, sos: opts.logos?.sos ?? true, golden: opts.logos?.golden ?? false, renace: opts.logos?.renace ?? false, jhenzaen: opts.logos?.jhenzaen ?? false };
@@ -120,7 +122,7 @@ export function pdfDocument(opts: {
       </div>
       <div class="brand-right">
         ${L.sos ? `<div class="logo-box"><img src="${LOGO_DATA_URI}"/><div class="logo-cap">SOS La Guaira</div></div>` : ''}
-        <div class="emit"><span class="k">Emitida:</span> ${opts.emitida ?? nowStamp()}</div>
+        ${opts.verEmitida !== false ? `<div class="emit"><span class="k">Emitida:</span> ${opts.emitida ?? nowStamp()}</div>` : ''}
       </div>
     </div>
     <div class="rule"></div>
