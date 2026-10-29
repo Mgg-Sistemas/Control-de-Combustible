@@ -8213,6 +8213,9 @@ Proveedores y Resumen.
 > **🏍️ Motorizado responsable:** en el formulario del requerimiento se elige de la lista de almacenistas o se
 > escribe el nombre a mano; sale en el detalle. Necesita el SQL del 29-oct; mientras no se corra, el
 > requerimiento se guarda igual y avisa que la prioridad o el motorizado no se guardaron.
+> **🧾 La pestaña Órdenes se ocultó** *(29/10/2026)*: repetía lo del requerimiento y Por pagar (cada
+> requerimiento aprobado genera su orden solo, por dentro). El proveedor, la recepción y la anulación se
+> hacen en el requerimiento o en Por pagar. Nada se borró: el 📊 Resumen de gasto sigue contando las órdenes.
 
 **Dos pestañas arriba:**
 - **💸 Por pagar** — lo que la empresa le debe a sus **proveedores**.

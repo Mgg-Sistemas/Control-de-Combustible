@@ -2234,6 +2234,13 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
 }
 
 // ── Contenedor con sub-pestañas ──────────────────────────────────────────────
+// 🧾 Órdenes OCULTA (29-oct-2026, a pedido: «oculta órdenes»). Repetía lo del
+// requerimiento y Por pagar: la base genera una orden por requerimiento y la app no
+// crea ninguna a mano. Solo se esconde la pestaña: la tabla purchase_orders, su
+// sincronización, el Resumen de gasto y el enlace de las cuentas siguen igual.
+// Para volver a mostrarla, poner true.
+const MOSTRAR_ORDENES = false;
+
 export default function ComprasScreen() {
   const { colors } = useTheme();
   const { moduleLevel } = useAuth();
@@ -2253,7 +2260,7 @@ export default function ComprasScreen() {
     { key: 'directas', label: 'Compras directas', icon: '🛒' },
     { key: 'servicios', label: 'Servicios', icon: '🧰' },
     { key: 'aires', label: 'Aires Acondicionados', icon: '❄️' },
-    { key: 'ordenes', label: 'Órdenes', icon: '🧾' },
+    ...(MOSTRAR_ORDENES ? [{ key: 'ordenes', label: 'Órdenes', icon: '🧾' }] : []),
     { key: 'proveedores', label: 'Proveedores', icon: '🏭' },
     { key: 'resumen', label: 'Resumen', icon: '📊' },
     { key: 'mangueras', label: 'Mangueras', icon: '🔧' },
