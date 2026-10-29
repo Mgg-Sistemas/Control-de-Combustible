@@ -23,7 +23,10 @@ export function empaquetarNotaConFotoProducto(
  */
 export function limpiarNotaFotoProducto(nota?: string | null): string {
   if (!nota) return '';
-  return nota.replace(/\[FOTO PRODUCTO:[^\]]+\]/gi, '').trim();
+  return nota
+    .replace(/\[FOTO PRODUCTO:[^\]]+\]/gi, '')
+    .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
+    .trim();
 }
 
 /**

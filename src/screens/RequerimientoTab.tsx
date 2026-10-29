@@ -70,7 +70,14 @@ import {
   type InfoEstadoRequerimiento,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
-import { inyectarReciboPagoEnNota } from '../lib/cuentasPago';
+import {
+  inyectarReciboPagoEnNota,
+  CONDICIONES_PAGO_CHIPS,
+  toggleChipCondicionPago,
+  extraerCondicionesPago,
+  limpiarCondicionesPagoDeNota,
+  inyectarCondicionesPagoEnNota,
+} from '../lib/cuentasPago';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -547,6 +554,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [destino, setDestino] = useState<string | null>(null);
   const [area, setArea] = useState<string>('');
   const [areaLibre, setAreaLibre] = useState(false);     // escribir un área que no está en la lista
+  const [condicionesPago, setCondicionesPago] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [personas, setPersonas] = useState<PersonaNomina[]>([]);
   const [contactosLista, setContactosLista] = useState<{ id: string; name: string }[]>([]);
@@ -1233,7 +1241,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setAlicuotaIva('16');
     setRows([]); setFormatos([]); setRespId(null); setRespNombre(null);
     setSolicitante(SIN_PERSONA); setAutorizado(SIN_PERSONA);
-    setDestino(null); setArea(''); setAreaLibre(false); setObservaciones('');
+    setDestino(null); setArea(''); setAreaLibre(false); setCondicionesPago(''); setObservaciones('');
   };
 
   // 💳 Modal de edición rápida de datos financieros del proveedor
@@ -1951,7 +1959,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setBusy(true);
 
     const primerFmt = formatos[0] || null;
-    const conFormatos = empaquetarFormatosEnObservaciones(observaciones, formatos);
+    const obsConCondiciones = inyectarCondicionesPagoEnNota(observaciones.trim() || null, condicionesPago.trim() || null) ?? '';
+    const conFormatos = empaquetarFormatosEnObservaciones(obsConCondiciones, formatos);
     const adj = primerFmt ? {
       attachment_url: primerFmt.url,
       attachment_type: primerFmt.kind,
@@ -2003,6 +2012,19 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       }
       setBusy(false);
       if (error) { setFormErr(error.message); return toast.error(error.message); }
+      // Sincronizar condiciones de pago hacia la cuenta por pagar vinculada (si existe)
+      try {
+        const { data: cxpRows } = await supabase
+          .from('cuentas')
+          .select('id, nota')
+          .or(`inventory_requirement_id.eq.${editId},order_id.eq.${editId}`);
+        if (cxpRows && cxpRows.length > 0) {
+          for (const cxp of cxpRows) {
+            const nuevaNotaCxp = inyectarCondicionesPagoEnNota(cxp.nota, condicionesPago.trim() || null);
+            await supabase.from('cuentas').update({ nota: nuevaNotaCxp }).eq('id', cxp.id);
+          }
+        }
+      } catch {}
       setCreateOpen(false); limpiarForm();
       refetch();
       const faltas = [!respGuardado ? 'el responsable' : '', !nuevosGuardados ? 'quién solicitó/autorizó, el área y las observaciones' : '']
@@ -2098,7 +2120,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setDestino(r.destino_tipo ?? null);
     setArea(r.area ?? '');
     setAreaLibre(false);
-    setObservaciones(limpiarObservacionesFormatos(r.observaciones ?? ''));
+    setCondicionesPago(extraerCondicionesPago(r.observaciones));
+    setObservaciones(limpiarCondicionesPagoDeNota(limpiarObservacionesFormatos(r.observaciones ?? '')));
     setAlicuotaIva(r.iva_alicuota != null ? String(r.iva_alicuota) : '16');
     setFormatos(extraerFormatosAdjuntos(r));
     let s = 0;
@@ -2822,6 +2845,19 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                   <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11 }}>✓ Aprobado por {r.gerente_aprobado_por || estDinamico.aprobadoresNombres || 'Gerente'}</Text>
                                 </View>
                               ) : null}
+
+                              {(() => {
+                                const condReq = extraerCondicionesPago(r.observaciones);
+                                if (!condReq) return null;
+                                return (
+                                  <View style={{ marginTop: 6, paddingHorizontal: 8, paddingVertical: 5, borderRadius: radius.sm, backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderLeftWidth: 3, borderLeftColor: colors.brand }}>
+                                    <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                                      <Text style={{ color: colors.infoSoftText, fontWeight: '800' }}>💳 Condiciones de pago: </Text>
+                                      <Text style={{ fontWeight: '700' }}>{condReq}</Text>
+                                    </Text>
+                                  </View>
+                                );
+                              })()}
 
                               {r.status === 'aclaratoria_solicitada' && r.aclaratoria_motivo ? (
                                 <View style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
@@ -4568,6 +4604,46 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   </Text>
                 </TouchableOpacity>
               </View>
+            </Card>
+
+            {/* 💳 CONDICIONES DE PAGO DE ESTA COMPRA — viaja automáticamente a Por Pagar */}
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>
+                💳 Condiciones de pago de esta compra (opcional)
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                Cada compra o requerimiento puede tener sus propias condiciones. Se mostrarán directo en Cuentas por Pagar para quien realiza el pago.
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {CONDICIONES_PAGO_CHIPS.map((chipLabel) => {
+                  const activo = condicionesPago.toUpperCase().includes(chipLabel.toUpperCase());
+                  return (
+                    <TouchableOpacity
+                      key={chipLabel}
+                      onPress={() => setCondicionesPago(toggleChipCondicionPago(condicionesPago, chipLabel))}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: activo ? colors.brand : colors.border,
+                        backgroundColor: activo ? colors.brand : colors.surfaceAlt,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 5,
+                      }}
+                    >
+                      <Text style={{ color: activo ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                        {activo ? `✓ ${chipLabel}` : chipLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={condicionesPago}
+                onChangeText={setCondicionesPago}
+                placeholder="Ej. 50% adelanto y 50% contra entrega · Transferencia Bs BCV…"
+                placeholderTextColor={colors.muted}
+                style={inp}
+              />
             </Card>
 
             {/* 📝 OBSERVACIONES — al final, como se pidió: «un espacio de

@@ -51,6 +51,11 @@ import {
   extraerComprobanteAbono,
   inyectarComprobanteEnAbonoNota,
   limpiarNotaCuentasVisual,
+  CONDICIONES_PAGO_CHIPS,
+  detectarDiasCreditoChip,
+  toggleChipCondicionPago,
+  inyectarCondicionesPagoEnNota,
+  resolverCondicionesYNotaCuenta,
   type ReciboPagoInfo,
 } from '../lib/cuentasPago';
 import { extraerReciboPago, inyectarReciboPagoEnObservaciones } from '../lib/requerimientoExpediente';
@@ -155,6 +160,8 @@ type CuentaCalc = Cuenta & {
   situacion: Situacion;
   empresaId: string;
   empresaNombre: string;
+  condicionesPago: string;
+  notaLimpia: string;
 };
 
 /** Calcula saldo y situación de una cuenta a partir de sus abonos.
@@ -166,7 +173,8 @@ function calcular(
   abonos: CuentaAbono[],
   hoy: string,
   contraparte: string,
-  empresaInfo: InfoEmpresaCuenta
+  empresaInfo: InfoEmpresaCuenta,
+  condYNota: { condicionesPago: string; notaLimpia: string }
 ): CuentaCalc {
   const abonado = abonos.reduce((s, a) => s + (Number(a.monto) || 0), 0);
   const monto = Number(c.monto) || 0;
@@ -185,6 +193,8 @@ function calcular(
     situacion,
     empresaId: empresaInfo.id,
     empresaNombre: empresaInfo.name,
+    condicionesPago: condYNota.condicionesPago,
+    notaLimpia: condYNota.notaLimpia,
   };
 }
 
@@ -274,6 +284,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [monto, setMonto] = useState('');
   const [emision, setEmision] = useState(hoy);
   const [vence, setVence] = useState('');
+  const [condicionesPago, setCondicionesPago] = useState('');
   const [nota, setNota] = useState('');
   const [prioridad, setPrioridad] = useState<Prioridad | null>(null);   // grado de prioridad (opcional)
   const [orderId, setOrderId] = useState<string | null>(null);          // orden de compra atada (opcional)
@@ -302,7 +313,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const abrirNueva = () => {
     setEdit(null); setContraparteId(null); setConcepto(''); setDocumento('');
-    setMonto(''); setEmision(hoy); setVence(''); setNota('');
+    setMonto(''); setEmision(hoy); setVence(''); setCondicionesPago(''); setNota('');
     setPrioridad(null); setOrderId(null); setFacturaUrl(null); setReciboPagoUrl(null);
     setEmpresaFormId(null);
     setOpen(true);
@@ -315,7 +326,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     setMonto(String(Number(c.monto) || 0));
     setEmision(c.fecha_emision);
     setVence(c.fecha_vencimiento ?? '');
-    setNota(limpiarNotaCuentasVisual(c.nota));
+    const { condicionesPago: condIni, notaLimpia } = resolverCondicionesYNotaCuenta(c, { requirements, orders });
+    setCondicionesPago(condIni);
+    setNota(notaLimpia);
     setPrioridad((c.prioridad as Prioridad) ?? null);
     setOrderId(c.order_id ?? null);
     setFacturaUrl(c.factura_url ?? null);
@@ -377,6 +390,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     } else {
       notaFinal = inyectarEmpresaEnNota(notaFinal, null, null) || '';
     }
+    notaFinal = inyectarCondicionesPagoEnNota(notaFinal, condicionesPago.trim()) || '';
 
     const fila = {
       tipo,
@@ -485,7 +499,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     if (tieneAbonos) {
       await supabase.from('cuenta_abonos').delete().eq('cuenta_id', c.id);
     }
-    const notaSinRecibo = inyectarReciboPagoEnNota(limpiarNotaCuentasVisual(c.nota), null);
+    const notaSinRecibo = inyectarReciboPagoEnNota(c.nota, null);
     const { error } = await supabase.from('cuentas')
       .update({ estado: 'pendiente', settled_by: null, settled_at: null, nota: notaSinRecibo, updated_at: nowISO() })
       .eq('id', c.id);
@@ -559,7 +573,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           situacionLabel: SIT_INFO[c.situacion].label,
           fechaEmision: c.fecha_emision ? fmtFecha(c.fecha_emision) : null,
           fechaVencimiento: c.fecha_vencimiento ? fmtFecha(c.fecha_vencimiento) : null,
-          nota: c.nota,
+          condicionesPago: c.condicionesPago || null,
+          nota: c.notaLimpia || null,
           abonos: abs,
         }),
         `${tipo === 'por_cobrar' ? 'Recibo de cobro' : 'Recibo de pago'} ${c.contraparte} ${fmtFecha(hoy)}`,
@@ -649,7 +664,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           requirements,
           orders,
         });
-        return calcular(c, porCuenta.get(c.id) ?? [], hoy, nombreDe(c), empInfo);
+        const condYNota = resolverCondicionesYNotaCuenta(c, {
+          requirements,
+          orders,
+        });
+        return calcular(c, porCuenta.get(c.id) ?? [], hoy, nombreDe(c), empInfo, condYNota);
       });
 
     // Conteo y saldo por empresa (para las fichas / chips del filtro)
@@ -679,7 +698,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const pasaVerPagadas = (c: CuentaCalc) => (verPagadas ? true : c.situacion !== 'pagada' && c.situacion !== 'anulada');
     const vis = porEmpresas
       .filter(pasaVerPagadas)
-      .filter((c) => matchNorm(nq, c.contraparte, c.concepto, c.documento, c.nota, c.empresaNombre))
+      .filter((c) => matchNorm(nq, c.contraparte, c.concepto, c.documento, c.nota, c.condicionesPago, c.notaLimpia, c.empresaNombre))
       // Orden: lo más urgente arriba (ver `ordenUrgencia`).
       .sort(ordenUrgencia);
 
@@ -958,6 +977,36 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </Text>
                   <Text style={{ color: colors.brandText, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{usd(c.saldo)}</Text>
                 </View>
+                {/* 💳 Condiciones de pago y 📝 Nota visibles DIRECTO en la tarjeta cerrada para Pagos */}
+                {c.condicionesPago || c.notaLimpia ? (
+                  <View
+                    style={{
+                      marginTop: 6,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderLeftWidth: 3,
+                      borderLeftColor: c.condicionesPago ? colors.accent : colors.brand,
+                      gap: 3,
+                    }}
+                  >
+                    {c.condicionesPago ? (
+                      <Text style={{ color: colors.text, fontSize: 12, lineHeight: 16 }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>💳 Condiciones de pago: </Text>
+                        <Text style={{ fontWeight: '700' }}>{c.condicionesPago}</Text>
+                      </Text>
+                    ) : null}
+                    {c.notaLimpia ? (
+                      <Text style={{ color: colors.text, fontSize: 12, lineHeight: 16 }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>📝 Nota: </Text>
+                        {c.notaLimpia}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             }
             detail={
@@ -973,8 +1022,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Saldo: {usd(c.saldo)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Emitida: {fmtFecha(c.fecha_emision)}</Text>
                 {c.order_id ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🧾 Atada a una orden de compra</Text> : null}
-                {c.nota && limpiarNotaCuentasVisual(c.nota) ? (
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {limpiarNotaCuentasVisual(c.nota)}</Text>
+                {c.condicionesPago ? (
+                  <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder }}>
+                    <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>💳 CONDICIONES DE PAGO</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 }}>{c.condicionesPago}</Text>
+                  </View>
+                ) : null}
+                {c.notaLimpia ? (
+                  <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder }}>
+                    <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '800' }}>📝 NOTA / DATOS E INSTRUCCIONES DE PAGO</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>{c.notaLimpia}</Text>
+                  </View>
                 ) : null}
 
                 {/* Soportes adjuntos: Factura y Recibo de Pago */}
@@ -1165,8 +1223,63 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             </Card>
 
             <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nota (opcional)</Text>
-              <TextInput value={nota} onChangeText={setNota} autoCapitalize="sentences" placeholder="Observación…" placeholderTextColor={colors.muted} style={inputStyle} />
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginBottom: 4 }}>
+                💳 Condiciones de pago (visible directo para Pagos)
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+                Toca una o varias opciones rápidas o escribe la condición específica de este servicio / compra:
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {CONDICIONES_PAGO_CHIPS.map((chipLabel) => {
+                  const activo = condicionesPago.toUpperCase().includes(chipLabel.toUpperCase());
+                  return (
+                    <TouchableOpacity
+                      key={chipLabel}
+                      onPress={() => {
+                        const next = toggleChipCondicionPago(condicionesPago, chipLabel);
+                        setCondicionesPago(next);
+                        const diasCred = detectarDiasCreditoChip(chipLabel);
+                        if (diasCred !== null && !activo) {
+                          setVence(masDias(fechaValida(emision) ? emision : hoy, diasCred));
+                        }
+                      }}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: activo ? colors.brand : colors.border,
+                        backgroundColor: activo ? colors.brand : colors.surfaceAlt,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 5,
+                      }}
+                    >
+                      <Text style={{ color: activo ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                        {activo ? `✓ ${chipLabel}` : chipLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={condicionesPago}
+                onChangeText={setCondicionesPago}
+                autoCapitalize="sentences"
+                placeholder="Ej. 50% de adelanto para iniciar y 50% al entregar factura · Transferencia Bs BCV…"
+                placeholderTextColor={colors.muted}
+                style={inputStyle}
+              />
+            </Card>
+
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>📝 Nota / Instrucciones para Pagos (opcional)</Text>
+              <TextInput
+                value={nota}
+                onChangeText={setNota}
+                autoCapitalize="sentences"
+                multiline
+                placeholder="Observación, datos bancarios o aclaratoria para quien va a pagar…"
+                placeholderTextColor={colors.muted}
+                style={[inputStyle, { minHeight: 58, textAlignVertical: 'top' }]}
+              />
             </Card>
 
             {/* Prioridad (opcional) */}

@@ -22,6 +22,22 @@
 //    su saldo cuenta como 0 aunque la hayan marcado pagada sin abonos: ya no se
 //    debe. Así subtotales y total general cuadran siempre entre sí.
 
+function extraerCondicionesDeNotaInterna(nota?: string | null): string {
+  if (!nota) return '';
+  const m = String(nota).match(/\[CONDICIONES_PAGO:\s*([^\]]*)\]/i);
+  return m && m[1] ? m[1].trim() : '';
+}
+
+function limpiarNotaInterna(nota?: string | null): string {
+  if (!nota) return '';
+  return String(nota)
+    .replace(/\[RECIBO_PAGO:[^\]]+\]/gi, '')
+    .replace(/\[COMPROBANTE_ABONO:[^\]]+\]/gi, '')
+    .replace(/\[EMPRESA:[^\]]+\]/gi, '')
+    .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
+    .trim();
+}
+
 export type TipoCuentaReporte = 'por_pagar' | 'por_cobrar';
 export type SituacionCuentaReporte = 'pagada' | 'anulada' | 'vencida' | 'por_vencer' | 'pendiente';
 
@@ -39,13 +55,16 @@ export type CuentaParaReporte = {
   abonado: number;
   saldo: number;
   situacion: SituacionCuentaReporte;
+  condicionesPago?: string | null;
+  notaLimpia?: string | null;
+  nota?: string | null;
 };
 
 export type AlcanceCuentas = 'marcadas' | 'todas';
 export type AgruparCuentas = 'ninguno' | 'contraparte' | 'empresa' | 'estado' | 'vencimiento' | 'mes';
 
 export type ColumnaCuenta =
-  | 'contraparte' | 'empresa' | 'concepto' | 'documento' | 'emision' | 'vence'
+  | 'contraparte' | 'empresa' | 'concepto' | 'documento' | 'condiciones' | 'nota' | 'emision' | 'vence'
   | 'estado' | 'monto' | 'abonado' | 'saldo' | 'bs';
 
 export type OpcionesReporteCuentas = {
@@ -61,7 +80,7 @@ export type OpcionesReporteCuentas = {
 };
 
 export const COLUMNAS_POR_DEFECTO: Record<ColumnaCuenta, boolean> = {
-  contraparte: true, empresa: true, concepto: true, documento: true, emision: true, vence: true,
+  contraparte: true, empresa: true, concepto: true, documento: true, condiciones: true, nota: true, emision: true, vence: true,
   estado: true, monto: true, abonado: true, saldo: true, bs: true,
 };
 
@@ -88,6 +107,8 @@ export function columnasCuentas(tipo: TipoCuentaReporte): [ColumnaCuenta, string
     ['empresa', 'Empresa'],
     ['concepto', 'Concepto'],
     ['documento', 'Documento'],
+    ['condiciones', 'Condiciones de pago'],
+    ['nota', 'Nota'],
     ['emision', 'Emisión'],
     ['vence', 'Vence'],
     ['estado', 'Estado'],
@@ -396,6 +417,14 @@ export function armarReporteCuentas(args: {
       case 'empresa': return `<td>${esc(limpio(c.empresaNombre) || '—')}</td>`;
       case 'concepto': return `<td>${esc(limpio(c.concepto) || '—')}</td>`;
       case 'documento': return `<td>${esc(limpio(c.documento) || '—')}</td>`;
+      case 'condiciones': {
+        const val = limpio(c.condicionesPago) || limpio(extraerCondicionesDeNotaInterna(c.nota));
+        return `<td>${esc(val || '—')}</td>`;
+      }
+      case 'nota': {
+        const val = limpio(c.notaLimpia) || limpio(limpiarNotaInterna(c.nota));
+        return `<td>${esc(val || '—')}</td>`;
+      }
       case 'emision': return `<td class="n">${esc(fechaTexto(c.fecha_emision))}</td>`;
       case 'vence': return `<td class="n${c.situacion === 'vencida' ? ' venc' : ''}">${esc(fechaTexto(c.fecha_vencimiento))}</td>`;
       case 'estado': return `<td${c.situacion === 'vencida' ? ' class="venc"' : ''}>${esc(ESTADO_TEXTO[c.situacion] ?? c.situacion)}</td>`;

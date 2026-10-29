@@ -19,6 +19,7 @@ export type ReciboCuentaData = {
   situacionLabel: string;      // ✅ Pagada / 🔴 Vencida / ...
   fechaEmision?: string | null;
   fechaVencimiento?: string | null;
+  condicionesPago?: string | null;
   nota?: string | null;
   abonos: ReciboAbono[];
 };
@@ -131,6 +132,7 @@ export function reciboCuentaHtml(d: ReciboCuentaData): string {
     </div>
 
     ${abonosHtml}
+    ${d.condicionesPago ? `<div class="rc-nota"><b>Condiciones de pago:</b> ${esc(d.condicionesPago)}</div>` : ''}
     ${d.nota ? `<div class="rc-nota"><b>Nota:</b> ${esc(d.nota)}</div>` : ''}
 
     <div class="rc-firmas">

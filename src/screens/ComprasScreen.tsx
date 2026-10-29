@@ -12,6 +12,13 @@ import { CuentasTab, CUENTAS_TABS } from './CuentasScreen';
 import { RequerimientoTab } from './RequerimientoTab';
 import { SolicitudesCompraTab } from './SolicitudesCompraTab';
 import { ServiciosTab } from './ServiciosTab';
+import { AiresAcondicionadosTab } from './AiresAcondicionadosTab';
+import {
+  CONDICIONES_PAGO_CHIPS,
+  toggleChipCondicionPago,
+  extraerCondicionesPago,
+  inyectarCondicionesPagoEnNota,
+} from '../lib/cuentasPago';
 import { pickAndUploadDocFile, takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../lib/photo';
 import * as ImagePicker from 'expo-image-picker';
 import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
@@ -966,6 +973,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const [nuevoProv, setNuevoProv] = useState('');       // crear proveedor en línea
   const [creandoProv, setCreandoProv] = useState(false);
   const [category, setCategory] = useState('repuestos');
+  const [condicionesPago, setCondicionesPago] = useState('');
   const [note, setNote] = useState('');
   const [items, setItems] = useState<PurchaseLine[]>([{ description: '', qty: 1, unit: '', price: 0 }]);
   // 🧾 La alícuota de IVA: nace en 16 y se puede cambiar (texto crudo para dejar
@@ -988,7 +996,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
 
   const resetForm = () => {
     setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setProvQ(''); setNuevoProv('');
-    setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]);
+    setCategory('repuestos'); setCondicionesPago(''); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]);
     setAlicuota(String(IVA_POR_DEFECTO)); setFactura(null); setFotoProducto(null); setSubiendoItemIndex(null);
   };
 
@@ -1008,7 +1016,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const abrirNueva = () => {
-    setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote('');
+    setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setCondicionesPago(''); setNote('');
     setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setAlicuota(String(IVA_POR_DEFECTO));
     setFactura(null); setFotoProducto(null); setSubiendoItemIndex(null);
     setFormKey((k) => k + 1); setOpen(true);
@@ -1019,6 +1027,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     setCompany(c.company_id ?? '');
     setSupplier(c.supplier_id ?? '');
     setCategory(c.category ?? 'repuestos');
+    setCondicionesPago(extraerCondicionesPago(c.note));
     setNote(limpiarNotaFotoProducto(c.note));
     setItems((c.items && c.items.length) ? c.items.map((l) => ({ ...l })) : [{ description: '', qty: 1, unit: '', price: 0 }]);
     // Compra vieja sin IVA: alícuota 0, para que editarla no le invente IVA.
@@ -1143,7 +1152,8 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     setBusy(true);
     // 🧾 La alícuota se acota a [0, 100]; el total guardado YA incluye el IVA.
     const alic = Math.min(100, Math.max(0, parseNum(alicuota) || 0));
-    const notaGuardar = empaquetarNotaConFotoProducto(note.trim().toUpperCase(), fotoDefinitiva);
+    const notaConFoto = empaquetarNotaConFotoProducto(note.trim().toUpperCase(), fotoDefinitiva);
+    const notaGuardar = inyectarCondicionesPagoEnNota(notaConFoto, condicionesPago.trim().toUpperCase());
     const payload = {
       company_id: company, supplier_id: supplier, category,
       items: clean, total: Math.round((linesTotal(clean) + ivaDe(clean, alic)) * 100) / 100,
@@ -1218,6 +1228,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       ) : groupByCompany(compras, companyName).map((grp) => (
         <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
           {grp.items.map((c) => {
+            const condPago = extraerCondicionesPago(c.note);
             const notaLimpia = limpiarNotaFotoProducto(c.note);
             const fotoObj = extraerFotoProducto(c);
             return (
@@ -1237,6 +1248,22 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
                         </Text>
                       );
                     })()}
+                    {condPago || notaLimpia ? (
+                      <View style={{ marginTop: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderLeftWidth: 3, borderLeftColor: condPago ? colors.accent : colors.brand, gap: 2 }}>
+                        {condPago ? (
+                          <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                            <Text style={{ color: colors.brandText, fontWeight: '800' }}>💳 Condiciones de pago: </Text>
+                            <Text style={{ fontWeight: '700' }}>{condPago}</Text>
+                          </Text>
+                        ) : null}
+                        {notaLimpia ? (
+                          <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                            <Text style={{ color: colors.brandText, fontWeight: '800' }}>📝 Nota: </Text>
+                            {notaLimpia}
+                          </Text>
+                        ) : null}
+                      </View>
+                    ) : null}
                   </View>
                 }
                 detail={
@@ -1268,7 +1295,8 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
                         Subtotal {usd(linesTotal(c.items || []))} · IVA ({Number(c.alicuota_iva)}%) {usd(Math.max(0, Math.round(((Number(c.total) || 0) - linesTotal(c.items || [])) * 100) / 100))} = {usd(c.total)}
                       </Text>
                     ) : null}
-                    {notaLimpia ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {notaLimpia}</Text> : null}
+                    {condPago ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginTop: 2 }}>💳 Condiciones de pago: {condPago}</Text> : null}
+                    {notaLimpia ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>📝 Nota: {notaLimpia}</Text> : null}
                     {fotoObj?.url ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
                         <Image source={{ uri: fotoObj.url }} style={{ width: 44, height: 44, borderRadius: radius.sm, backgroundColor: colors.surface }} resizeMode="cover" />
@@ -1468,7 +1496,43 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
               )}
             </Card>
             <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nota (opcional)</Text>
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginBottom: 4 }}>
+                💳 Condiciones de pago de esta compra (opcional)
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {CONDICIONES_PAGO_CHIPS.map((chipLabel) => {
+                  const activo = condicionesPago.toUpperCase().includes(chipLabel.toUpperCase());
+                  return (
+                    <TouchableOpacity
+                      key={chipLabel}
+                      onPress={() => setCondicionesPago(toggleChipCondicionPago(condicionesPago, chipLabel))}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: activo ? colors.brand : colors.border,
+                        backgroundColor: activo ? colors.brand : colors.surfaceAlt,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 5,
+                      }}
+                    >
+                      <Text style={{ color: activo ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                        {activo ? `✓ ${chipLabel}` : chipLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={condicionesPago}
+                onChangeText={setCondicionesPago}
+                autoCapitalize="sentences"
+                placeholder="Ej. Contado, 50% adelanto y 50% entrega, Crédito 15 días…"
+                placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+              />
+            </Card>
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>📝 Nota / Observaciones (opcional)</Text>
               <TextInput value={note} onChangeText={setNote} autoCapitalize="sentences" placeholder="Observación…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
             </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
@@ -2144,6 +2208,7 @@ export default function ComprasScreen() {
     { key: 'requerimiento', label: 'Requerimiento', icon: '📝' },
     { key: 'directas', label: 'Compras directas', icon: '🛒' },
     { key: 'servicios', label: 'Servicios', icon: '🧰' },
+    { key: 'aires', label: 'Aires Acondicionados', icon: '❄️' },
     { key: 'ordenes', label: 'Órdenes', icon: '🧾' },
     { key: 'proveedores', label: 'Proveedores', icon: '🏭' },
     { key: 'resumen', label: 'Resumen', icon: '📊' },
@@ -2179,7 +2244,9 @@ export default function ComprasScreen() {
         ) : active === 'directas' ? (
           <ComprasDirectasTab canWrite={canWrite} />
         ) : active === 'servicios' ? (
-          <ServiciosTab canWrite={canWrite} />
+          <ServiciosTab canWrite={canWrite} onGoToAires={() => setActive('aires')} />
+        ) : active === 'aires' ? (
+          <AiresAcondicionadosTab canWrite={canWrite} />
         ) : active === 'ordenes' ? (
           <OrdenesTab canWrite={canWrite} />
         ) : active === 'resumen' ? (

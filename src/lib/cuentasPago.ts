@@ -124,5 +124,194 @@ export function limpiarNotaCuentasVisual(nota?: string | null): string {
     .replace(/\[RECIBO_PAGO:[^\]]+\]/gi, '')
     .replace(/\[COMPROBANTE_ABONO:[^\]]+\]/gi, '')
     .replace(/\[EMPRESA:[^\]]+\]/gi, '')
+    .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
     .trim();
+}
+
+// ── Condiciones de pago (chips rápidos + empaquetado resiliente) ─────────────
+
+export const CONDICIONES_PAGO_CHIPS = [
+  'CONTADO',
+  '50% ADELANTO / 50% ENTREGA',
+  'CONTRA FACTURA',
+  'CRÉDITO 7 DÍAS',
+  'CRÉDITO 15 DÍAS',
+  'CRÉDITO 30 DÍAS',
+  'ZELLE / DIVISAS',
+  'TRANSFERENCIA BS (BCV)',
+] as const;
+
+const CHIPS_PLAZO = new Set([
+  'CONTADO',
+  '50% ADELANTO / 50% ENTREGA',
+  'CONTRA FACTURA',
+  'CRÉDITO 7 DÍAS',
+  'CRÉDITO 15 DÍAS',
+  'CRÉDITO 30 DÍAS',
+]);
+
+/**
+ * Si el chip implica una cantidad de días de crédito sobre la fecha de emisión, devuelve los días.
+ */
+export function detectarDiasCreditoChip(chip: string): number | null {
+  const u = (chip || '').trim().toUpperCase();
+  if (u === 'CONTADO') return 0;
+  if (u === 'CRÉDITO 7 DÍAS' || u === 'CREDITO 7 DIAS') return 7;
+  if (u === 'CRÉDITO 15 DÍAS' || u === 'CREDITO 15 DIAS') return 15;
+  if (u === 'CRÉDITO 30 DÍAS' || u === 'CREDITO 30 DIAS') return 30;
+  return null;
+}
+
+/**
+ * Alterna o combina inteligentemente un chip rápido dentro del campo de condiciones de pago.
+ */
+export function toggleChipCondicionPago(actual: string, chip: string): string {
+  const c = chip.trim().toUpperCase();
+  if (!c) return actual;
+  const partes = (actual || '')
+    .split(/\s*·\s*/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const idx = partes.findIndex((p) => p.toUpperCase() === c);
+  if (idx >= 0) {
+    partes.splice(idx, 1);
+    return partes.join(' · ');
+  }
+  if (CHIPS_PLAZO.has(c)) {
+    const sinOtroPlazo = partes.filter((p) => !CHIPS_PLAZO.has(p.toUpperCase()));
+    return [c, ...sinOtroPlazo].join(' · ');
+  }
+  return [...partes, c].join(' · ');
+}
+
+const REGEX_TAG_CONDICIONES = /\[CONDICIONES_PAGO:\s*([^\]]*)\]/i;
+const REGEX_REMOVE_CONDICIONES = /\[CONDICIONES_PAGO:[^\]]*\]/gi;
+
+/**
+ * Extrae las condiciones de pago desde un texto/nota/observaciones.
+ */
+export function extraerCondicionesPago(texto?: string | null): string {
+  if (!texto) return '';
+  const match = String(texto).match(REGEX_TAG_CONDICIONES);
+  return match && match[1] ? match[1].trim() : '';
+}
+
+/**
+ * Elimina únicamente el tag [CONDICIONES_PAGO: ...] dejando intactos otros tags o el texto base.
+ */
+export function limpiarCondicionesPagoDeNota(texto?: string | null): string {
+  if (!texto) return '';
+  return String(texto).replace(REGEX_REMOVE_CONDICIONES, '').trim();
+}
+
+/**
+ * Inyecta o actualiza el tag [CONDICIONES_PAGO: ...] dentro de una nota/observación,
+ * preservando cualquier otro tag ([EMPRESA:...], [RECIBO_PAGO:...], etc.).
+ */
+export function inyectarCondicionesPagoEnNota(
+  notaActual: string | null | undefined,
+  condiciones: string | null | undefined,
+): string | null {
+  const base = limpiarCondicionesPagoDeNota(notaActual);
+  const condLimpia = (condiciones ?? '').replace(/\]/g, ')').trim();
+  if (!condLimpia) return base || null;
+  const tag = `[CONDICIONES_PAGO: ${condLimpia}]`;
+  return base ? `${base}\n${tag}` : tag;
+}
+
+export interface ContextoCondicionesCuenta {
+  requirements?: readonly {
+    id: string;
+    code?: string | null;
+    codigo?: number | null;
+    observaciones?: string | null;
+    note?: string | null;
+    condiciones_pago?: string | null;
+  }[];
+  orders?: readonly {
+    id: string;
+    note?: string | null;
+    condiciones_pago?: string | null;
+  }[];
+}
+
+function limpiarTextoRequerimientoBasico(obs?: string | null): string {
+  if (!obs) return '';
+  return String(obs)
+    .replace(/\[PROVEEDOR SUGERIDO(?:\s*\([^)]*\))?:[^\]]+\]/gi, '')
+    .replace(/\[FACTURA PROVEEDOR:[^\]]+\]/gi, '')
+    .replace(/\[RECIBO PAGO:[^\]]+\]/gi, '')
+    .replace(/\[DESPACHO ALMACEN:[^\]]+\]/gi, '')
+    .replace(/\[RECEPCIÓN ALMACÉN:[^\]]+\]/gi, '')
+    .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
+    .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
+    .replace(/\[\[COTIZACIONES_COMPLETAS:[\s\S]*?:FIN_COTIZACIONES\]\]/gi, '')
+    .trim();
+}
+
+/**
+ * Resuelve tanto las Condiciones de Pago como la Nota limpia de una cuenta,
+ * cruzando automáticamente con el Requerimiento u Orden de Compra vinculada.
+ */
+export function resolverCondicionesYNotaCuenta(
+  c: {
+    id?: string;
+    order_id?: string | null;
+    inventory_requirement_id?: string | null;
+    concepto?: string | null;
+    documento?: string | null;
+    nota?: string | null;
+    condiciones_pago?: string | null;
+  } | null | undefined,
+  contexto?: ContextoCondicionesCuenta,
+): { condicionesPago: string; notaLimpia: string } {
+  if (!c) return { condicionesPago: '', notaLimpia: '' };
+
+  let condicionesPago = ((c as any).condiciones_pago ?? '').trim() || extraerCondicionesPago(c.nota);
+  const notaPropia = limpiarNotaCuentasVisual(c.nota);
+  // Ignorar el texto automático del trigger SQL si no aporta nota real del usuario
+  const esNotaAutoTrigger = /^Generada automáticamente desde Requerimiento REQ-\d+\. El monto se sincroniza con los ítems aprobados\.?$/i.test(notaPropia);
+  let notaLimpia = esNotaAutoTrigger ? '' : notaPropia;
+
+  // Buscar requerimiento vinculado
+  const reqs = contexto?.requirements ?? [];
+  if (reqs.length > 0) {
+    let req = c.inventory_requirement_id
+      ? reqs.find((r) => r.id === c.inventory_requirement_id)
+      : undefined;
+    if (!req && c.order_id) {
+      req = reqs.find((r) => r.id === c.order_id);
+    }
+    if (!req) {
+      const textoBusqueda = `${c.documento || ''} ${c.concepto || ''} ${c.nota || ''}`;
+      const matchReq = textoBusqueda.match(/\b(REQ-\d+)\b/i);
+      if (matchReq) {
+        const codeUpper = matchReq[1].toUpperCase();
+        req = reqs.find((r) => String(r.code || '').toUpperCase() === codeUpper);
+      }
+    }
+    if (req) {
+      if (!condicionesPago) {
+        condicionesPago =
+          ((req as any).condiciones_pago ?? '').trim() ||
+          extraerCondicionesPago(req.observaciones) ||
+          extraerCondicionesPago(req.note);
+      }
+      if (!notaLimpia) {
+        const obsReq = limpiarTextoRequerimientoBasico(req.observaciones);
+        const noteReq = limpiarTextoRequerimientoBasico(req.note);
+        notaLimpia = obsReq || noteReq || '';
+      }
+    }
+  }
+
+  // Fallback a orden de compra vinculada
+  if (!condicionesPago && c.order_id && contexto?.orders?.length) {
+    const ord = contexto.orders.find((o) => o.id === c.order_id);
+    if (ord) {
+      condicionesPago = ((ord as any).condiciones_pago ?? '').trim() || extraerCondicionesPago(ord.note);
+    }
+  }
+
+  return { condicionesPago, notaLimpia };
 }
