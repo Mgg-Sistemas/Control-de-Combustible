@@ -3,6 +3,9 @@
 // con total resiliencia y compatibilidad sin romper esquemas de base de datos.
 
 import type { Cuenta, CuentaAbono } from '../types/database.ts';
+import type { ArchivoSoporte, FacturaData } from './requerimientoExpediente.ts';
+
+export type { ArchivoSoporte, FacturaData };
 
 export interface ReciboPagoInfo {
   url: string | null;
@@ -10,45 +13,130 @@ export interface ReciboPagoInfo {
   nombre?: string | null;
   fecha?: string | null;
   referencia?: string | null;
+  metodo?: string | null;
+  nota?: string | null;
   monto?: number | null;
   subidoPor?: string | null;
   subidoAt?: string | null;
+  archivos?: ArchivoSoporte[];
+}
+
+export interface AprobacionCxpInfo {
+  estado: 'pendiente' | 'aprobado';
+  aprobadoPor?: string | null;
+  aprobadoPorId?: string | null;
+  fecha?: string | null;
+}
+
+function cleanField(s?: string | null): string {
+  return String(s ?? '')
+    .replace(/\|/g, '/')
+    .replace(/\]/g, ')')
+    .replace(/\r?\n/g, ' ')
+    .trim();
+}
+
+function serializarArchivos(archivos?: ArchivoSoporte[] | null): string {
+  if (!Array.isArray(archivos) || archivos.length === 0) return '';
+  const validos = archivos
+    .filter((a) => a && a.url)
+    .map((a) => ({
+      url: String(a.url).trim(),
+      tipo: a.tipo === 'pdf' ? ('pdf' as const) : ('image' as const),
+      nombre: a.nombre ? String(a.nombre).trim() : null,
+    }));
+  if (validos.length === 0) return '';
+  try {
+    return encodeURIComponent(JSON.stringify(validos));
+  } catch {
+    return '';
+  }
+}
+
+function parsearArchivos(
+  encoded?: string | null,
+  fallbackUrl?: string | null,
+  fallbackTipo?: 'image' | 'pdf' | null,
+  fallbackNombre?: string | null
+): ArchivoSoporte[] {
+  const raw = (encoded ?? '').trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(raw));
+      if (Array.isArray(parsed)) {
+        const list = parsed
+          .filter((a: any) => a && a.url)
+          .map((a: any) => ({
+            url: String(a.url).trim(),
+            tipo: a.tipo === 'pdf' ? ('pdf' as const) : ('image' as const),
+            nombre: a.nombre ? String(a.nombre).trim() : null,
+          }));
+        if (list.length > 0) return list;
+      }
+    } catch {}
+  }
+  if (fallbackUrl && fallbackUrl.trim()) {
+    return [
+      {
+        url: fallbackUrl.trim(),
+        tipo: fallbackTipo === 'pdf' ? 'pdf' : 'image',
+        nombre: fallbackNombre || null,
+      },
+    ];
+  }
+  return [];
 }
 
 /**
- * Extrae el recibo o comprobante de pago guardado en una cuenta
+ * Extrae el recibo o comprobante de pago guardado en una cuenta (soporta múltiples fotos/PDFs)
  */
 export function extraerReciboPagoCuenta(c?: Partial<Cuenta> | null): ReciboPagoInfo | null {
   if (!c) return null;
 
-  // 1. Si la tabla en Supabase tiene columna comprobante_url (o alias futuro)
-  const anyC = c as any;
-  if (anyC.comprobante_url || anyC.recibo_pago_url) {
-    return {
-      url: anyC.comprobante_url || anyC.recibo_pago_url,
-      tipo: anyC.comprobante_tipo === 'pdf' ? 'pdf' : 'image',
-      nombre: anyC.comprobante_nombre || 'Recibo de pago',
-      referencia: anyC.documento || null,
-      fecha: anyC.settled_at?.slice(0, 10) || null,
-    };
-  }
-
-  // 2. Extraer de tag en nota: [RECIBO_PAGO: Url: ... | Tipo: ... | Nombre: ... | Fecha: ... | Ref: ... | SubidoPor: ... | SubidoAt: ...]
+  // 1. Extraer de tag en nota: [RECIBO_PAGO: Url: ... | Tipo: ... | Nombre: ... | Fecha: ... | Ref: ... | SubidoPor: ... | SubidoAt: ... | Metodo: ... | Nota: ... | Archivos: ...]
   const nota = c.nota || '';
-  const match = nota.match(/\[RECIBO_PAGO:\s*Url:\s*([^|]*)\|\s*Tipo:\s*([^|]*)\|\s*Nombre:\s*([^|]*)\|\s*Fecha:\s*([^|]*)\|\s*Ref:\s*([^|]*)\|\s*SubidoPor:\s*([^|]*)\|\s*SubidoAt:\s*([^\]]*)\]/i);
+  const match = nota.match(
+    /\[RECIBO_PAGO:\s*Url:\s*([^|]*)\|\s*Tipo:\s*([^|]*)\|\s*Nombre:\s*([^|]*)\|\s*Fecha:\s*([^|]*)\|\s*Ref:\s*([^|]*)\|\s*SubidoPor:\s*([^|]*)\|\s*SubidoAt:\s*([^|\]]*)(?:\|\s*Metodo:\s*([^|\]]*))?(?:\|\s*Nota:\s*([^|\]]*))?(?:\|\s*Archivos:\s*([^\]]*))?\]/i
+  );
   if (match) {
-    const url = match[1].trim();
-    if (url) {
+    const urlRaw = match[1].trim();
+    const tipoRaw = (match[2].trim() as any) === 'pdf' ? ('pdf' as const) : ('image' as const);
+    const nombreRaw = match[3].trim() || 'Recibo de pago';
+    const ref = match[5].trim();
+    const metodo = (match[8] ?? '').trim();
+    const notaRec = (match[9] ?? '').trim();
+    const archivos = parsearArchivos(match[10], urlRaw, tipoRaw, nombreRaw);
+    const urlPrincipal = urlRaw || archivos[0]?.url || '';
+    if (urlPrincipal || ref || notaRec || archivos.length > 0) {
       return {
-        url,
-        tipo: (match[2].trim() as any) === 'pdf' ? 'pdf' : 'image',
-        nombre: match[3].trim() || 'Recibo de pago',
+        url: urlPrincipal || null,
+        tipo: archivos[0]?.tipo || tipoRaw,
+        nombre: archivos[0]?.nombre || nombreRaw,
         fecha: match[4].trim() || null,
-        referencia: match[5].trim() || null,
+        referencia: ref || null,
         subidoPor: match[6].trim() || null,
         subidoAt: match[7].trim() || null,
+        metodo: metodo || null,
+        nota: notaRec || null,
+        archivos,
       };
     }
+  }
+
+  // 2. Si la tabla en Supabase tiene columna comprobante_url (o alias futuro)
+  const anyC = c as any;
+  if (anyC.comprobante_url || anyC.recibo_pago_url) {
+    const u = anyC.comprobante_url || anyC.recibo_pago_url;
+    const t = anyC.comprobante_tipo === 'pdf' ? ('pdf' as const) : ('image' as const);
+    const n = anyC.comprobante_nombre || 'Recibo de pago';
+    return {
+      url: u,
+      tipo: t,
+      nombre: n,
+      referencia: anyC.documento || null,
+      fecha: anyC.settled_at?.slice(0, 10) || null,
+      archivos: [{ url: u, tipo: t, nombre: n }],
+    };
   }
 
   return null;
@@ -62,9 +150,116 @@ export function inyectarReciboPagoEnNota(
   recibo: ReciboPagoInfo | null
 ): string | null {
   let base = (notaActual || '').replace(/\[RECIBO_PAGO:[^\]]+\]/gi, '').trim();
-  if (!recibo || !recibo.url) return base || null;
+  const archivos = Array.isArray(recibo?.archivos) && recibo!.archivos!.length > 0
+    ? recibo!.archivos!.filter((a) => a && a.url)
+    : recibo?.url
+      ? [{ url: recibo.url, tipo: (recibo.tipo === 'pdf' ? 'pdf' : 'image') as 'image' | 'pdf', nombre: recibo.nombre || 'Recibo de pago' }]
+      : [];
+  const primera = archivos[0] || null;
+  if (!recibo || (!primera?.url && !recibo.referencia?.trim() && !recibo.nota?.trim())) return base || null;
 
-  const tag = `[RECIBO_PAGO: Url: ${recibo.url} | Tipo: ${recibo.tipo || 'image'} | Nombre: ${recibo.nombre || 'Recibo de pago'} | Fecha: ${recibo.fecha || ''} | Ref: ${recibo.referencia || ''} | SubidoPor: ${recibo.subidoPor || ''} | SubidoAt: ${recibo.subidoAt || new Date().toISOString()}]`;
+  const encArchivos = serializarArchivos(archivos);
+  const tag = `[RECIBO_PAGO: Url: ${cleanField(primera?.url || recibo.url)} | Tipo: ${primera?.tipo || recibo.tipo || 'image'} | Nombre: ${cleanField(primera?.nombre || recibo.nombre || 'Recibo de pago')} | Fecha: ${cleanField(recibo.fecha)} | Ref: ${cleanField(recibo.referencia)} | SubidoPor: ${cleanField(recibo.subidoPor)} | SubidoAt: ${cleanField(recibo.subidoAt || new Date().toISOString())} | Metodo: ${cleanField(recibo.metodo)} | Nota: ${cleanField(recibo.nota)} | Archivos: ${encArchivos}]`;
+  return base ? `${base}\n${tag}` : tag;
+}
+
+/**
+ * Extrae las facturas guardadas en una cuenta (soporta múltiples fotos / PDFs de factura)
+ */
+export function extraerFacturaCuenta(c?: Partial<Cuenta> | null): FacturaData | null {
+  if (!c) return null;
+  const nota = c.nota || '';
+  const match = nota.match(
+    /\[FACTURA_CUENTA:\s*Nro:\s*([^|]*)\|\s*Empresa:\s*([^|]*)\|\s*Fecha:\s*([^|]*)\|\s*Url:\s*([^|]*)\|\s*Tipo:\s*([^|]*)\|\s*Nombre:\s*([^|]*)\|\s*SubidaPor:\s*([^|]*)\|\s*SubidaAt:\s*([^|\]]*)(?:\|\s*Nota:\s*([^|\]]*))?(?:\|\s*Archivos:\s*([^\]]*))?\]/i
+  );
+  if (match) {
+    const num = match[1].trim();
+    const emp = match[2].trim();
+    const urlRaw = match[4].trim() || c.factura_url || '';
+    const tipoRaw = (match[5].trim() as any) === 'pdf' ? ('pdf' as const) : ('image' as const);
+    const nombreRaw = match[6].trim() || 'Factura';
+    const notaFac = (match[9] ?? '').trim();
+    const archivos = parsearArchivos(match[10], urlRaw, tipoRaw, nombreRaw);
+    const urlPrincipal = urlRaw || archivos[0]?.url || '';
+    if (num || emp || urlPrincipal || notaFac || archivos.length > 0) {
+      return {
+        numero: num || c.documento || '',
+        empresa: emp || '',
+        fecha: match[3].trim() || c.fecha_emision || null,
+        url: urlPrincipal || null,
+        tipo: archivos[0]?.tipo || tipoRaw,
+        nombre: archivos[0]?.nombre || nombreRaw,
+        subidaPor: match[7].trim() || null,
+        subidaAt: match[8].trim() || null,
+        nota: notaFac || null,
+        archivos,
+      };
+    }
+  }
+  if (c.factura_url) {
+    const isPdf = /\.pdf($|\?)/i.test(c.factura_url);
+    const t = isPdf ? ('pdf' as const) : ('image' as const);
+    return {
+      numero: c.documento || '',
+      empresa: '',
+      fecha: c.fecha_emision || null,
+      url: c.factura_url,
+      tipo: t,
+      nombre: 'Factura adjunta',
+      archivos: [{ url: c.factura_url, tipo: t, nombre: 'Factura adjunta' }],
+    };
+  }
+  return null;
+}
+
+/**
+ * Empaqueta los datos y archivos múltiples de la factura dentro de la nota de una cuenta
+ */
+export function inyectarFacturaEnCuentaNota(
+  notaActual: string | null | undefined,
+  factura: FacturaData | null
+): string | null {
+  let base = (notaActual || '').replace(/\[FACTURA_CUENTA:[^\]]+\]/gi, '').trim();
+  const archivos = Array.isArray(factura?.archivos) && factura!.archivos!.length > 0
+    ? factura!.archivos!.filter((a) => a && a.url)
+    : factura?.url
+      ? [{ url: factura.url, tipo: (factura.tipo === 'pdf' ? 'pdf' : 'image') as 'image' | 'pdf', nombre: factura.nombre || 'Factura' }]
+      : [];
+  const primera = archivos[0] || null;
+  if (!factura || (!factura.numero?.trim() && !primera?.url && !factura.nota?.trim() && !factura.empresa?.trim())) {
+    return base || null;
+  }
+  const encArchivos = serializarArchivos(archivos);
+  const tag = `[FACTURA_CUENTA: Nro: ${cleanField(factura.numero)} | Empresa: ${cleanField(factura.empresa)} | Fecha: ${cleanField(factura.fecha)} | Url: ${cleanField(primera?.url || factura.url)} | Tipo: ${primera?.tipo || factura.tipo || 'image'} | Nombre: ${cleanField(primera?.nombre || factura.nombre || 'Factura')} | SubidaPor: ${cleanField(factura.subidaPor)} | SubidaAt: ${cleanField(factura.subidaAt || new Date().toISOString())} | Nota: ${cleanField(factura.nota)} | Archivos: ${encArchivos}]`;
+  return base ? `${base}\n${tag}` : tag;
+}
+
+/**
+ * Extrae el estado de aprobación de Gerencia General / Usuario Designado en Por Pagar
+ */
+export function extraerAprobacionCxp(texto?: string | null): AprobacionCxpInfo | null {
+  if (!texto) return null;
+  const match = String(texto).match(/\[APROBADO_CXP:\s*Estado:\s*([^|]*)\|\s*Por:\s*([^|]*)\|\s*Id:\s*([^|]*)\|\s*Fecha:\s*([^\]]*)\]/i);
+  if (!match) return null;
+  const est = match[1].trim().toLowerCase() === 'aprobado' ? 'aprobado' : 'pendiente';
+  return {
+    estado: est,
+    aprobadoPor: match[2].trim() || null,
+    aprobadoPorId: match[3].trim() || null,
+    fecha: match[4].trim() || null,
+  };
+}
+
+/**
+ * Inyecta o actualiza el estado de aprobación en la nota de la cuenta o requerimiento
+ */
+export function inyectarAprobacionCxpEnNota(
+  notaActual: string | null | undefined,
+  info: AprobacionCxpInfo | null
+): string | null {
+  const base = String(notaActual ?? '').replace(/\[APROBADO_CXP:[^\]]*\]/gi, '').trim();
+  if (!info) return base || null;
+  const tag = `[APROBADO_CXP: Estado: ${info.estado} | Por: ${cleanField(info.aprobadoPor)} | Id: ${cleanField(info.aprobadoPorId)} | Fecha: ${cleanField(info.fecha || new Date().toISOString())}]`;
   return base ? `${base}\n${tag}` : tag;
 }
 
@@ -122,6 +317,8 @@ export function limpiarNotaCuentasVisual(nota?: string | null): string {
   if (!nota) return '';
   return nota
     .replace(/\[RECIBO_PAGO:[^\]]+\]/gi, '')
+    .replace(/\[FACTURA_CUENTA:[^\]]+\]/gi, '')
+    .replace(/\[APROBADO_CXP:[^\]]*\]/gi, '')
     .replace(/\[COMPROBANTE_ABONO:[^\]]+\]/gi, '')
     .replace(/\[EMPRESA:[^\]]+\]/gi, '')
     .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
@@ -244,6 +441,9 @@ function limpiarTextoRequerimientoBasico(obs?: string | null): string {
     .replace(/\[DESPACHO ALMACEN:[^\]]+\]/gi, '')
     .replace(/\[RECEPCIÓN ALMACÉN:[^\]]+\]/gi, '')
     .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
+    .replace(/\[APROBADO_CXP:[^\]]*\]/gi, '')
+    .replace(/\[ORIGEN:SOLICITUD\]/gi, '')
+    .replace(/\[CONVERTIDO_EN_REQ\]/gi, '')
     .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
     .replace(/\[\[COTIZACIONES_COMPLETAS:[\s\S]*?:FIN_COTIZACIONES\]\]/gi, '')
     .trim();

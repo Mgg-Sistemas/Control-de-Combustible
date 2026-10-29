@@ -16,7 +16,7 @@
 //
 // El módulo se llama 'cuentas' y NACE CERRADO: nadie lo ve hasta que un
 // administrador le dé el permiso desde Usuarios.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -37,7 +37,7 @@ import {
   extraerEmpresaDeNota,
   pasaFiltroEmpresas,
 } from '../lib/cuentasEmpresa';
-import { pickAndUploadDocFile, takePhotoAndUpload } from '../lib/photo';
+import { pickAndUploadDocFile, pickAndUploadDocFiles, takePhotoAndUpload } from '../lib/photo';
 import { exportPdf } from '../lib/pdf';
 import { reciboCuentaHtml } from '../lib/reciboCuenta';
 import { spacing, radius } from '../theme';
@@ -50,6 +50,10 @@ import {
   inyectarReciboPagoEnNota,
   extraerComprobanteAbono,
   inyectarComprobanteEnAbonoNota,
+  extraerFacturaCuenta,
+  inyectarFacturaEnCuentaNota,
+  extraerAprobacionCxp,
+  inyectarAprobacionCxpEnNota,
   limpiarNotaCuentasVisual,
   CONDICIONES_PAGO_CHIPS,
   detectarDiasCreditoChip,
@@ -57,8 +61,23 @@ import {
   inyectarCondicionesPagoEnNota,
   resolverCondicionesYNotaCuenta,
   type ReciboPagoInfo,
+  type AprobacionCxpInfo,
+  type ArchivoSoporte,
+  type FacturaData,
 } from '../lib/cuentasPago';
-import { extraerReciboPago, inyectarReciboPagoEnObservaciones } from '../lib/requerimientoExpediente';
+import {
+  extraerReciboPago,
+  inyectarReciboPagoEnObservaciones,
+  extraerFactura,
+  inyectarFacturaEnObservaciones,
+} from '../lib/requerimientoExpediente';
+import {
+  obtenerConfigAprobacionMonto,
+  guardarConfigAprobacionMonto,
+  esUsuarioAutorizadoConfigAprobacion,
+  puedeUsuarioAprobarRequerimiento,
+  type ReglaAprobacionMonto,
+} from '../lib/requerimientoFlujo';
 import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
 
 // Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
@@ -162,6 +181,9 @@ type CuentaCalc = Cuenta & {
   empresaNombre: string;
   condicionesPago: string;
   notaLimpia: string;
+  aprobacionEstado: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica';
+  aprobacionInfo: AprobacionCxpInfo | null;
+  esMayorAMil: boolean;
 };
 
 /** Calcula saldo y situación de una cuenta a partir de sus abonos.
@@ -174,7 +196,9 @@ function calcular(
   hoy: string,
   contraparte: string,
   empresaInfo: InfoEmpresaCuenta,
-  condYNota: { condicionesPago: string; notaLimpia: string }
+  condYNota: { condicionesPago: string; notaLimpia: string },
+  aprobacionEstado: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica' = 'no_aplica',
+  aprobacionInfo: AprobacionCxpInfo | null = null
 ): CuentaCalc {
   const abonado = abonos.reduce((s, a) => s + (Number(a.monto) || 0), 0);
   const monto = Number(c.monto) || 0;
@@ -185,6 +209,12 @@ function calcular(
   else if (c.fecha_vencimiento && c.fecha_vencimiento < hoy) situacion = 'vencida';
   else if (c.fecha_vencimiento && diasEntre(hoy, c.fecha_vencimiento) <= DIAS_POR_VENCER) situacion = 'por_vencer';
   else situacion = 'pendiente';
+  const estadoAprobFinal =
+    c.tipo !== 'por_pagar' || situacion === 'anulada'
+      ? 'no_aplica'
+      : situacion === 'pagada'
+        ? 'pagada'
+        : aprobacionEstado;
   return {
     ...c,
     contraparte,
@@ -195,6 +225,9 @@ function calcular(
     empresaNombre: empresaInfo.name,
     condicionesPago: condYNota.condicionesPago,
     notaLimpia: condYNota.notaLimpia,
+    aprobacionEstado: estadoAprobFinal,
+    aprobacionInfo,
+    esMayorAMil: monto >= 1000,
   };
 }
 
@@ -219,11 +252,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const { colors } = useTheme();
   // 💱 Tasa BCV de hoy: para mostrar al lado de cada monto en US$ su equivalente en Bs (28-oct-2026).
   const { rate: tasaBcv } = useBcvRate();
-  const { session } = useAuth();
+  const { session, role, fullName, appRole } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const cfg = TIPO_CFG[tipo];
   const hoy = hoyISO();
+  const uid = session?.user?.id ?? null;
 
   const { data: todas, loading, refetch } = useTable<Cuenta>('cuentas', { orderBy: 'fecha_vencimiento' });
   const { data: abonos, refetch: refetchAbonos } = useTable<CuentaAbono>('cuenta_abonos', { orderBy: 'fecha', ascending: false });
@@ -231,6 +265,181 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: orders } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: requirements, refetch: refetchRequirements } = useTable<InventoryRequirement>('inventory_requirements');
+
+  // ⚙️ Configuración y permisos de Aprobación Gerencial en Por Pagar
+  const [configAprobacion, setConfigAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [cfgActivo, setCfgActivo] = useState(true);
+  const [cfgExigirEnTodos, setCfgExigirEnTodos] = useState(true);
+  const [cfgMonto, setCfgMonto] = useState('0');
+  const [cfgEmpresaId, setCfgEmpresaId] = useState<string | null>(null);
+  const [cfgEmpresaNombre, setCfgEmpresaNombre] = useState('Todas las empresas');
+  const [cfgAprobadoresIds, setCfgAprobadoresIds] = useState<string[]>([]);
+  const [cfgAprobadoresNombres, setCfgAprobadoresNombres] = useState<string[]>([]);
+  const [cfgUserSearch, setCfgUserSearch] = useState('');
+  const [usuariosSistema, setUsuariosSistema] = useState<Array<{
+    id: string;
+    full_name: string;
+    username?: string | null;
+    cedula?: string | null;
+    role?: string | null;
+    app_role_name?: string | null;
+  }>>([]);
+
+  useEffect(() => {
+    if (tipo !== 'por_pagar') return;
+    let cancel = false;
+    (async () => {
+      try {
+        const [{ data: profs }, { data: ft }] = await Promise.all([
+          supabase.from('profiles').select('id, full_name, username, cedula, role, app_role:app_role_id(name)'),
+          supabase.from('feature_toggles').select('key, enabled, extra_user_ids').eq('key', 'compras_req_aprobacion').maybeSingle(),
+        ]);
+        if (cancel) return;
+        const lista = ((profs ?? []) as any[])
+          .filter((p) => String(p.full_name || p.username || '').trim())
+          .map((p) => ({
+            id: String(p.id),
+            full_name: String(p.full_name || p.username || '').trim(),
+            username: p.username ? String(p.username) : null,
+            cedula: p.cedula ? String(p.cedula) : null,
+            role: p.role ? String(p.role) : null,
+            app_role_name: p.app_role?.name ? String(p.app_role.name) : null,
+          }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
+        setUsuariosSistema(lista);
+
+        if (ft) {
+          const ids = Array.isArray(ft.extra_user_ids) ? ft.extra_user_ids.map(String) : [];
+          const nombresDesdeIds = ids
+            .map((id) => lista.find((u) => u.id === id)?.full_name)
+            .filter((n): n is string => Boolean(n));
+          setConfigAprobacion((prev) => {
+            const next: ReglaAprobacionMonto = {
+              ...prev,
+              activo: typeof ft.enabled === 'boolean' ? ft.enabled : prev.activo,
+              aprobadoresIds: ids.length > 0 ? ids : prev.aprobadoresIds,
+              aprobadoresNombres: nombresDesdeIds.length > 0 ? nombresDesdeIds : prev.aprobadoresNombres,
+            };
+            guardarConfigAprobacionMonto(next);
+            return next;
+          });
+        }
+      } catch {}
+    })();
+    return () => { cancel = true; };
+  }, [tipo]);
+
+  const miPerfil = useMemo(
+    () => usuariosSistema.find((u) => u.id === uid) || null,
+    [usuariosSistema, uid]
+  );
+
+  const puedeVerConfigAprobacion = useMemo(
+    () =>
+      esUsuarioAutorizadoConfigAprobacion({
+        fullName: miPerfil?.full_name || fullName,
+        username: miPerfil?.username,
+        cedula: miPerfil?.cedula,
+        email: session?.user?.email,
+      }),
+    [miPerfil, fullName, session?.user?.email]
+  );
+
+  const puedeAprobarPagos = useMemo(
+    () =>
+      puedeUsuarioAprobarRequerimiento({
+        userId: uid,
+        fullName: miPerfil?.full_name || fullName,
+        role,
+        appRoleName: appRole?.name || miPerfil?.app_role_name,
+        config: configAprobacion,
+      }),
+    [uid, miPerfil, fullName, role, appRole?.name, configAprobacion]
+  );
+
+  const aprobadoresLabel = useMemo(
+    () =>
+      configAprobacion.aprobadoresNombres && configAprobacion.aprobadoresNombres.length > 0
+        ? configAprobacion.aprobadoresNombres.join(' / ')
+        : 'Gerente General',
+    [configAprobacion.aprobadoresNombres]
+  );
+
+  const abrirConfigAprobadorModal = () => {
+    if (!puedeVerConfigAprobacion) {
+      toast.error('Solo Anthony Mansilla y Angelica Solis están autorizados para abrir esta configuración.');
+      return;
+    }
+    const cur = configAprobacion || obtenerConfigAprobacionMonto();
+    setCfgActivo(cur.activo !== false);
+    const esTodos = Boolean(cur.exigirEnTodos || Number(cur.montoLimiteUSD) === 0);
+    setCfgExigirEnTodos(esTodos);
+    setCfgMonto(String(cur.montoLimiteUSD ?? 0));
+    setCfgEmpresaId(cur.empresaId || null);
+    setCfgEmpresaNombre(cur.empresaNombre || 'Todas las empresas');
+    setCfgAprobadoresIds(Array.isArray(cur.aprobadoresIds) ? cur.aprobadoresIds : []);
+    setCfgAprobadoresNombres(cur.aprobadoresNombres?.length ? cur.aprobadoresNombres : ['Gerente General']);
+    setCfgUserSearch('');
+    setConfigModalOpen(true);
+  };
+
+  const toggleUsuarioAprobadorCxp = (u: { id: string; full_name: string }) => {
+    setCfgAprobadoresIds((prevIds) => {
+      const yaEsta = prevIds.includes(u.id);
+      const nextIds = yaEsta ? prevIds.filter((id) => id !== u.id) : [...prevIds, u.id];
+      setCfgAprobadoresNombres((prevNames) => {
+        if (yaEsta) {
+          return prevNames.filter((n) => norm(n) !== norm(u.full_name));
+        }
+        const existeNombre = prevNames.some((n) => norm(n) === norm(u.full_name));
+        return existeNombre ? prevNames : [...prevNames, u.full_name];
+      });
+      return nextIds;
+    });
+  };
+
+  const guardarConfigAprobadorModal = async () => {
+    if (!puedeVerConfigAprobacion) {
+      toast.error('Solo Anthony Mansilla y Angelica Solis pueden guardar esta configuración.');
+      return;
+    }
+    const m = cfgExigirEnTodos ? 0 : parseNum(cfgMonto);
+    if (!cfgExigirEnTodos && !(m >= 0)) {
+      toast.error('Indica un monto límite válido en USD.');
+      return;
+    }
+    const nombresFinales = cfgAprobadoresNombres.length > 0 ? cfgAprobadoresNombres : ['Gerente General'];
+    const nuevaRegla: ReglaAprobacionMonto = {
+      montoLimiteUSD: m,
+      exigirEnTodos: cfgExigirEnTodos,
+      empresaId: cfgEmpresaId,
+      empresaNombre: cfgEmpresaNombre,
+      aprobadoresIds: cfgAprobadoresIds,
+      aprobadoresNombres: nombresFinales,
+      activo: cfgActivo,
+    };
+    guardarConfigAprobacionMonto(nuevaRegla);
+    setConfigAprobacion(nuevaRegla);
+    try {
+      await supabase.from('feature_toggles').upsert({
+        key: 'compras_req_aprobacion',
+        enabled: cfgActivo,
+        extra_user_ids: cfgAprobadoresIds,
+        updated_at: nowISO(),
+        updated_by: uid,
+      });
+    } catch {}
+    setConfigModalOpen(false);
+    toast.success(
+      cfgActivo
+        ? `Aprobador configurado: ${nombresFinales.join(', ')} (${cfgExigirEnTodos ? 'Todas las cuentas' : `> $${m.toLocaleString()} USD`}).`
+        : 'Regla de aprobador desactivada.'
+    );
+  };
+
+  // Filtro de estado prioritario en Por Pagar
+  const [filtroEstadoCxp, setFiltroEstadoCxp] = useState<'todos' | 'esperando_aprobacion' | 'mayor_mil' | 'esperando_pago' | 'vencida' | 'prioridad_alta' | 'pagada'>('todos');
 
   // Filtro por empresa (una o varias)
   const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set());
@@ -317,11 +526,149 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [abComprobanteUrl, setAbComprobanteUrl] = useState<string | null>(null);
   const [subiendoAbComprobante, setSubiendoAbComprobante] = useState(false);
 
-  // ── Subir Comprobante de Pago directo desde la tarjeta ────────────────────
+  // ── Subir Factura(s) directo desde la tarjeta de Por Pagar (1 o más fotos/PDFs) ──
+  const [facturaDe, setFacturaDe] = useState<CuentaCalc | null>(null);
+  const [facArchivos, setFacArchivos] = useState<ArchivoSoporte[]>([]);
+  const [facNumero, setFacNumero] = useState('');
+  const [facEmpresa, setFacEmpresa] = useState('');
+  const [facFecha, setFacFecha] = useState(hoy);
+  const [facNota, setFacNota] = useState('');
+  const [facProvQ, setFacProvQ] = useState('');
+  const [facProvOpen, setFacProvOpen] = useState(false);
+  const [subiendoFacDirecta, setSubiendoFacDirecta] = useState(false);
+  const [guardandoFacDirecta, setGuardandoFacDirecta] = useState(false);
+
+  const abrirSubirFactura = (c: CuentaCalc) => {
+    setFacturaDe(c);
+    const facCta = extraerFacturaCuenta(c);
+    const reqVinc = c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null;
+    const facReq = reqVinc ? extraerFactura(reqVinc) : null;
+    const archivosIni: ArchivoSoporte[] =
+      facCta?.archivos && facCta.archivos.length > 0
+        ? facCta.archivos
+        : facReq?.archivos && facReq.archivos.length > 0
+          ? facReq.archivos
+          : c.factura_url
+            ? [{ url: c.factura_url, tipo: c.factura_url.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image', nombre: facCta?.nombre || facReq?.nombre || 'Factura adjunta' }]
+            : facReq?.url
+              ? [{ url: facReq.url, tipo: facReq.tipo === 'pdf' ? 'pdf' : 'image', nombre: facReq.nombre || 'Factura adjunta' }]
+              : [];
+    setFacArchivos(archivosIni);
+    setFacNumero(facCta?.numero || facReq?.numero || c.documento || '');
+    setFacEmpresa(facCta?.empresa || facReq?.empresa || c.contraparte || '');
+    setFacFecha(facCta?.fecha || facReq?.fecha || c.fecha_emision || hoy);
+    setFacNota(facCta?.nota || facReq?.nota || '');
+    setFacProvQ('');
+    setFacProvOpen(false);
+  };
+
+  const subirArchivoFacturaDirecta = async (origen: 'camara' | 'archivo') => {
+    if (!facturaDe) return;
+    setSubiendoFacDirecta(true);
+    try {
+      if (origen === 'camara') {
+        const r = await takePhotoAndUpload(facturaDe.id, 'facturas');
+        if (r.ok && r.url) {
+          setFacArchivos((prev) => [
+            ...prev,
+            { url: r.url!, tipo: 'image', nombre: `Foto Factura #${prev.length + 1}.jpg` },
+          ]);
+          toast.success('Foto de factura agregada.');
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      } else {
+        const r = await pickAndUploadDocFiles('facturas', facturaDe.id);
+        if (r.ok && r.files && r.files.length > 0) {
+          const nuevos: ArchivoSoporte[] = r.files.map((f, i) => ({
+            url: f.url,
+            tipo: f.kind === 'pdf' ? 'pdf' : 'image',
+            nombre: f.name || `Factura #${i + 1}`,
+          }));
+          setFacArchivos((prev) => [...prev, ...nuevos]);
+          toast.success(`${nuevos.length} archivo(s) de factura adjuntado(s).`);
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      }
+    } finally {
+      setSubiendoFacDirecta(false);
+    }
+  };
+
+  const guardarFacturaDirecta = async () => {
+    if (!facturaDe) return;
+    if (facArchivos.length === 0 && !facNumero.trim() && !facNota.trim()) {
+      return toast.error('Adjunta al menos una foto/PDF de la factura o escribe el N° de factura / nota.');
+    }
+    setGuardandoFacDirecta(true);
+    try {
+      const autor = miPerfil?.full_name || fullName || session?.user?.email || 'Tesorería';
+      const primerArch = facArchivos[0] || null;
+      const dataFac: FacturaData = {
+        numero: facNumero.trim() || facturaDe.documento || (primerArch ? 'ADJ-FACT' : 'S/N'),
+        empresa: facEmpresa.trim() || facturaDe.contraparte || 'Proveedor',
+        fecha: facFecha || hoy,
+        url: primerArch?.url || null,
+        tipo: primerArch?.tipo || 'image',
+        nombre: primerArch?.nombre || null,
+        archivos: facArchivos,
+        nota: facNota.trim() || null,
+        subidaPor: autor,
+        subidaAt: nowISO(),
+      };
+      const notaActualizada = inyectarFacturaEnCuentaNota(facturaDe.nota, dataFac);
+      const { error } = await supabase
+        .from('cuentas')
+        .update({
+          documento: facNumero.trim() || facturaDe.documento || null,
+          factura_url: primerArch?.url || null,
+          nota: notaActualizada,
+          updated_at: nowISO(),
+        })
+        .eq('id', facturaDe.id);
+      if (error) throw error;
+
+      // Sincronizar bidireccionalmente con el Requerimiento asociado si existe
+      if (facturaDe.inventory_requirement_id) {
+        try {
+          const { data: reqRows } = await supabase
+            .from('inventory_requirements')
+            .select('id, observaciones, attachment_url')
+            .eq('id', facturaDe.inventory_requirement_id)
+            .limit(1);
+          if (reqRows && reqRows[0]) {
+            const obsFac = inyectarFacturaEnObservaciones(reqRows[0].observaciones, dataFac);
+            const patchReq: Record<string, any> = { observaciones: obsFac };
+            if (primerArch?.url && !reqRows[0].attachment_url) {
+              patchReq.attachment_url = primerArch.url;
+              patchReq.attachment_type = primerArch.tipo || 'image';
+              patchReq.attachment_name = primerArch.nombre || `Factura ${dataFac.numero}`;
+            }
+            await supabase
+              .from('inventory_requirements')
+              .update(patchReq)
+              .eq('id', facturaDe.inventory_requirement_id);
+            refetchRequirements();
+          }
+        } catch (eSync) {
+          console.warn('Sync factura cxp a req error:', eSync);
+        }
+      }
+
+      setFacturaDe(null);
+      refetch();
+      toast.success('Factura(s) guardada(s) y sincronizada(s) con el Requerimiento.');
+    } catch (e: any) {
+      toast.error(e?.message || 'No se pudo guardar la factura.');
+    } finally {
+      setGuardandoFacDirecta(false);
+    }
+  };
+
+  // ── Subir Comprobante(s) de Pago directo desde la tarjeta (1 o más fotos/PDFs) ──
   const [comprobanteDe, setComprobanteDe] = useState<CuentaCalc | null>(null);
-  const [compUrl, setCompUrl] = useState<string | null>(null);
-  const [compTipo, setCompTipo] = useState<'image' | 'pdf'>('image');
-  const [compNombre, setCompNombre] = useState<string>('Comprobante de pago');
+  const [compArchivos, setCompArchivos] = useState<ArchivoSoporte[]>([]);
   const [compRef, setCompRef] = useState('');
   const [compMetodo, setCompMetodo] = useState('');
   const [compFecha, setCompFecha] = useState(hoy);
@@ -335,13 +682,21 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const rp = extraerReciboPagoCuenta(c);
     const reqVinc = c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null;
     const recReq = reqVinc ? extraerReciboPago(reqVinc) : null;
-    setCompUrl(rp?.url || recReq?.url || null);
-    setCompTipo(rp?.tipo || recReq?.tipo || 'image');
-    setCompNombre(rp?.nombre || recReq?.nombre || 'Comprobante de pago');
-    setCompRef(recReq?.referencia || '');
-    setCompMetodo(recReq?.metodo || '');
-    setCompFecha(recReq?.fecha || hoy);
-    setCompNota(recReq?.nota || '');
+    const archivosIni: ArchivoSoporte[] =
+      rp?.archivos && rp.archivos.length > 0
+        ? rp.archivos
+        : recReq?.archivos && recReq.archivos.length > 0
+          ? recReq.archivos
+          : rp?.url
+            ? [{ url: rp.url, tipo: rp.tipo === 'pdf' ? 'pdf' : 'image', nombre: rp.nombre || 'Comprobante de pago' }]
+            : recReq?.url
+              ? [{ url: recReq.url, tipo: recReq.tipo === 'pdf' ? 'pdf' : 'image', nombre: recReq.nombre || 'Comprobante de pago' }]
+              : [];
+    setCompArchivos(archivosIni);
+    setCompRef(rp?.referencia || recReq?.referencia || '');
+    setCompMetodo(rp?.metodo || recReq?.metodo || '');
+    setCompFecha(rp?.fecha || recReq?.fecha || hoy);
+    setCompNota(rp?.nota || recReq?.nota || '');
     setCompMarcarPagada(c.estado !== 'pagada');
   };
 
@@ -352,20 +707,24 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       if (origen === 'camara') {
         const r = await takePhotoAndUpload(comprobanteDe.id, 'recibos_pago');
         if (r.ok && r.url) {
-          setCompUrl(r.url);
-          setCompTipo('image');
-          setCompNombre('Foto Comprobante de Pago.jpg');
+          setCompArchivos((prev) => [
+            ...prev,
+            { url: r.url!, tipo: 'image', nombre: `Foto Comprobante #${prev.length + 1}.jpg` },
+          ]);
           toast.success('Foto del comprobante cargada.');
         } else if (r.error) {
           toast.error(r.error);
         }
       } else {
-        const r = await pickAndUploadDocFile('recibos_pago', comprobanteDe.id);
-        if (r.ok && r.url) {
-          setCompUrl(r.url);
-          setCompTipo(r.kind === 'pdf' ? 'pdf' : 'image');
-          setCompNombre(r.name || 'Comprobante de pago');
-          toast.success('Archivo de comprobante adjuntado.');
+        const r = await pickAndUploadDocFiles('recibos_pago', comprobanteDe.id);
+        if (r.ok && r.files && r.files.length > 0) {
+          const nuevos: ArchivoSoporte[] = r.files.map((f, i) => ({
+            url: f.url,
+            tipo: f.kind === 'pdf' ? 'pdf' : 'image',
+            nombre: f.name || `Comprobante #${i + 1}`,
+          }));
+          setCompArchivos((prev) => [...prev, ...nuevos]);
+          toast.success(`${nuevos.length} archivo(s) de comprobante adjuntado(s).`);
         } else if (r.error) {
           toast.error(r.error);
         }
@@ -377,23 +736,24 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const guardarComprobanteDirecto = async () => {
     if (!comprobanteDe) return;
-    if (!compUrl && !compRef.trim() && !compNota.trim()) {
-      return toast.error('Adjunta el archivo/foto del comprobante o escribe el número de referencia.');
+    if (compArchivos.length === 0 && !compRef.trim() && !compNota.trim()) {
+      return toast.error('Adjunta al menos una foto/PDF del comprobante o escribe el número de referencia.');
     }
     setGuardandoComp(true);
     try {
-      const autor = session?.user?.email || 'Tesorería';
-      let notaActualizada = inyectarReciboPagoEnNota(
-        comprobanteDe.nota,
-        compUrl
-          ? {
-              url: compUrl,
-              tipo: compTipo,
-              nombre: compNombre || 'Comprobante de pago',
-              subidoPor: autor,
-            }
-          : null
-      );
+      const autor = miPerfil?.full_name || fullName || session?.user?.email || 'Tesorería';
+      const primerArch = compArchivos[0] || null;
+      const notaActualizada = inyectarReciboPagoEnNota(comprobanteDe.nota, {
+        url: primerArch?.url || null,
+        tipo: primerArch?.tipo || 'image',
+        nombre: primerArch?.nombre || 'Comprobante de pago',
+        archivos: compArchivos,
+        referencia: compRef.trim() || null,
+        metodo: compMetodo.trim() || null,
+        nota: compNota.trim() || null,
+        subidoPor: autor,
+        fecha: compFecha || hoy,
+      });
       const patchCuenta: Record<string, any> = {
         nota: notaActualizada,
         updated_at: nowISO(),
@@ -416,9 +776,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             .limit(1);
           if (reqRows && reqRows[0]) {
             const notaRecibo = inyectarReciboPagoEnObservaciones(reqRows[0].observaciones, {
-              url: compUrl || '',
-              tipo: compTipo,
-              nombre: compNombre || 'Comprobante de Pago Cuentas por Pagar',
+              url: primerArch?.url || '',
+              tipo: primerArch?.tipo || 'image',
+              nombre: primerArch?.nombre || 'Comprobante de Pago Cuentas por Pagar',
+              archivos: compArchivos,
               fecha: compFecha || hoy,
               referencia: compRef.trim() || comprobanteDe.documento || 'CXP-PAGADA',
               monto: Number(comprobanteDe.monto) || null,
@@ -442,14 +803,99 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       refetch();
       toast.success(
         compMarcarPagada
-          ? 'Comprobante de pago guardado y cuenta marcada como PAGADA.'
-          : 'Comprobante de pago guardado en la cuenta.'
+          ? 'Comprobante(s) de pago guardado(s) y cuenta marcada como PAGADA (reflejado en Requerimientos).'
+          : 'Comprobante(s) de pago guardado(s) en la cuenta.'
       );
     } catch (e: any) {
       toast.error(e?.message || 'No se pudo guardar el comprobante de pago.');
     } finally {
       setGuardandoComp(false);
     }
+  };
+
+  // ── Autorización Gerencial de Pago directamente en Por Pagar ───────────────
+  const autorizarPagoCuenta = async (c: CuentaCalc) => {
+    if (!puedeAprobarPagos && role !== 'admin') {
+      return toast.error(`Solo ${aprobadoresLabel} está autorizado para aprobar pagos.`);
+    }
+    const aprobadorNombre = miPerfil?.full_name || fullName || session?.user?.email || 'Gerente General';
+    const infoAp: AprobacionCxpInfo = {
+      estado: 'aprobado',
+      aprobadoPor: aprobadorNombre,
+      aprobadoPorId: uid,
+      fecha: nowISO(),
+    };
+    const nuevaNota = inyectarAprobacionCxpEnNota(c.nota, infoAp);
+    const { error } = await supabase
+      .from('cuentas')
+      .update({ nota: nuevaNota, updated_at: nowISO() })
+      .eq('id', c.id);
+    if (error) return toast.error(error.message);
+
+    if (c.inventory_requirement_id) {
+      try {
+        const { data: reqRows } = await supabase
+          .from('inventory_requirements')
+          .select('id, observaciones')
+          .eq('id', c.inventory_requirement_id)
+          .limit(1);
+        if (reqRows && reqRows[0]) {
+          const obsAp = inyectarAprobacionCxpEnNota(reqRows[0].observaciones, infoAp);
+          await supabase
+            .from('inventory_requirements')
+            .update({ observaciones: obsAp })
+            .eq('id', c.inventory_requirement_id);
+          refetchRequirements();
+        }
+      } catch {}
+    }
+
+    refetch();
+    toast.success(`✅ Pago autorizado por ${aprobadorNombre}. Cuenta ahora en ⏳ Esperando Pago.`);
+  };
+
+  const autorizarPagoLote = async (cuentasParaAprobar: CuentaCalc[]) => {
+    if (!puedeAprobarPagos && role !== 'admin') {
+      return toast.error(`Solo ${aprobadoresLabel} está autorizado para aprobar pagos en lote.`);
+    }
+    if (cuentasParaAprobar.length === 0) return;
+    const ok = await confirm({
+      title: 'Autorizar pagos en lote',
+      message: `¿Autorizar ${cuentasParaAprobar.length} cuenta(s) marcada(s) para que pasen a ⏳ Esperando Pago?`,
+      confirmText: `Autorizar (${cuentasParaAprobar.length})`,
+    });
+    if (!ok) return;
+    const aprobadorNombre = miPerfil?.full_name || fullName || session?.user?.email || 'Gerente General';
+    const infoAp: AprobacionCxpInfo = {
+      estado: 'aprobado',
+      aprobadoPor: aprobadorNombre,
+      aprobadoPorId: uid,
+      fecha: nowISO(),
+    };
+    for (const c of cuentasParaAprobar) {
+      const nuevaNota = inyectarAprobacionCxpEnNota(c.nota, infoAp);
+      await supabase.from('cuentas').update({ nota: nuevaNota, updated_at: nowISO() }).eq('id', c.id);
+      if (c.inventory_requirement_id) {
+        try {
+          const { data: reqRows } = await supabase
+            .from('inventory_requirements')
+            .select('id, observaciones')
+            .eq('id', c.inventory_requirement_id)
+            .limit(1);
+          if (reqRows && reqRows[0]) {
+            const obsAp = inyectarAprobacionCxpEnNota(reqRows[0].observaciones, infoAp);
+            await supabase
+              .from('inventory_requirements')
+              .update({ observaciones: obsAp })
+              .eq('id', c.inventory_requirement_id);
+          }
+        } catch {}
+      }
+    }
+    setMarcadas(new Set());
+    refetchRequirements();
+    refetch();
+    toast.success(`✅ ${cuentasParaAprobar.length} cuenta(s) autorizada(s) por ${aprobadorNombre}.`);
   };
 
   const abrirNueva = () => {
@@ -521,10 +967,31 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     if (vence && vence < emision) return toast.error('El vencimiento no puede ser anterior a la emisión.');
 
     const notaLimpia = limpiarNotaCuentasVisual(nota);
+    const rpPrev = edit ? extraerReciboPagoCuenta(edit) : null;
+    const facPrev = edit ? extraerFacturaCuenta(edit) : null;
+    const apPrev = edit ? extraerAprobacionCxp(edit.nota) : null;
     let notaFinal = inyectarReciboPagoEnNota(
       notaLimpia,
-      reciboPagoUrl ? { url: reciboPagoUrl, tipo: 'image', nombre: 'Recibo de pago', subidoPor: session?.user?.email || 'Administración' } : null
+      reciboPagoUrl
+        ? {
+            url: reciboPagoUrl,
+            tipo: rpPrev?.tipo || 'image',
+            nombre: rpPrev?.nombre || 'Recibo de pago',
+            archivos: rpPrev?.archivos,
+            referencia: rpPrev?.referencia,
+            metodo: rpPrev?.metodo,
+            nota: rpPrev?.nota,
+            subidoPor: rpPrev?.subidoPor || session?.user?.email || 'Administración',
+            fecha: rpPrev?.fecha,
+          }
+        : null
     );
+    if (facPrev) {
+      notaFinal = inyectarFacturaEnCuentaNota(notaFinal, facPrev) || '';
+    }
+    if (apPrev) {
+      notaFinal = inyectarAprobacionCxpEnNota(notaFinal, apPrev) || '';
+    }
     if (empresaFormId) {
       const comp = companies.find((co) => co.id === empresaFormId);
       notaFinal = inyectarEmpresaEnNota(notaFinal, empresaFormId, comp?.name) || '';
@@ -600,17 +1067,20 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           .limit(1);
         if (reqRows && reqRows[0]) {
           const recExist = extraerReciboPago(reqRows[0]);
+          const rpCuenta = extraerReciboPagoCuenta(c);
           if (!recExist || (!recExist.url && !recExist.referencia)) {
             const notaRecibo = inyectarReciboPagoEnObservaciones(
               reqRows[0].observaciones,
               {
-                url: c.factura_url || '',
-                tipo: 'image',
-                nombre: 'Comprobante de Pago Cuentas por Pagar',
-                fecha: nowISO().slice(0, 10),
-                referencia: c.documento || 'CXP-PAGADA',
+                url: rpCuenta?.url || '',
+                tipo: rpCuenta?.tipo || 'image',
+                nombre: rpCuenta?.nombre || 'Comprobante de Pago Cuentas por Pagar',
+                archivos: rpCuenta?.archivos,
+                fecha: rpCuenta?.fecha || nowISO().slice(0, 10),
+                referencia: rpCuenta?.referencia || c.documento || 'CXP-PAGADA',
                 monto: Number(c.monto) || null,
-                metodo: 'Cuentas por Pagar',
+                metodo: rpCuenta?.metodo || 'Cuentas por Pagar',
+                nota: rpCuenta?.nota || null,
                 subidoPor: session?.user?.email || 'Tesorería',
                 subidoAt: nowISO(),
               }
@@ -620,6 +1090,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               .update({ observaciones: notaRecibo })
               .eq('id', c.inventory_requirement_id);
           }
+          refetchRequirements();
         }
       } catch (eSync) {
         console.warn('Sync cxp a req error:', eSync);
@@ -627,19 +1098,35 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     }
 
     refetch();
-    toast.success('Cuenta marcada como pagada.');
+    toast.success('Cuenta marcada como pagada (reflejado en Requerimientos).');
   };
 
   const anular = async (c: CuentaCalc) => {
     const ok = await confirm({
-      title: 'Anular cuenta',
-      message: `¿Anular la cuenta de ${c.contraparte} (${c.concepto})? Deja de sumar en los totales, pero NO se borra: queda en el historial como anulada.`,
+      title: 'Anular / Rechazar cuenta',
+      message:
+        `¿Anular la cuenta de ${c.contraparte} (${c.concepto})? Deja de sumar en los totales, pero NO se borra: queda en el historial como anulada.` +
+        (c.inventory_requirement_id ? '\n\nTambién se marcará como RECHAZADO el Requerimiento de Compra vinculado.' : ''),
       confirmText: 'Anular',
       danger: true,
     });
     if (!ok) return;
     const { error } = await supabase.from('cuentas').update({ estado: 'anulada', updated_at: nowISO() }).eq('id', c.id);
     if (error) return toast.error(error.message);
+    if (c.inventory_requirement_id) {
+      try {
+        await supabase
+          .from('inventory_requirements')
+          .update({
+            status: 'rechazado',
+            decided_by: uid,
+            decided_by_name: miPerfil?.full_name || fullName || session?.user?.email || 'Gerencia',
+            decided_at: nowISO(),
+          })
+          .eq('id', c.inventory_requirement_id);
+        refetchRequirements();
+      } catch {}
+    }
     refetch();
     toast.success('Cuenta anulada.');
   };
@@ -794,6 +1281,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             .from('inventory_requirements')
             .update({ observaciones: notaRecibo })
             .eq('id', abonoDe.inventory_requirement_id);
+          refetchRequirements();
         }
       } catch (eSync) {
         console.warn('Sync cxp abono a req error:', eSync);
@@ -805,14 +1293,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     toast.success(importe >= abonoDe.saldo ? 'Abono registrado. La cuenta quedó saldada.' : 'Abono registrado.');
   };
 
-  // ── Lista + totales con filtro por empresa (una o varias) ────────────────
-  const { lista, tot, empresaCounts, ordenadas, universo } = useMemo(() => {
+  // ── Lista + totales con filtro por empresa (una o varias) y estados de Por Pagar ──
+  const { lista, tot, empresaCounts, ordenadas, universo, porEmpresasCounts } = useMemo(() => {
     const porCuenta = new Map<string, CuentaAbono[]>();
     abonos.forEach((a) => {
       const arr = porCuenta.get(a.cuenta_id) ?? [];
       arr.push(a);
       porCuenta.set(a.cuenta_id, arr);
     });
+
+    const exigirTodos = Boolean(configAprobacion.exigirEnTodos || Number(configAprobacion.montoLimiteUSD) === 0);
+    const limiteRegla = exigirTodos ? 0 : Number(configAprobacion.montoLimiteUSD) || 1000;
 
     const calc = todas
       .filter((c) => c.tipo === tipo)
@@ -826,7 +1317,25 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           requirements,
           orders,
         });
-        return calcular(c, porCuenta.get(c.id) ?? [], hoy, nombreDe(c), empInfo, condYNota);
+        let apEstado: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica' = 'no_aplica';
+        let apInfo: AprobacionCxpInfo | null = null;
+        if (c.tipo === 'por_pagar') {
+          const apCuenta = extraerAprobacionCxp(c.nota);
+          const reqVinc = c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null;
+          const apReq = reqVinc ? extraerAprobacionCxp(reqVinc.observaciones) : null;
+          apInfo = apCuenta?.estado === 'aprobado' ? apCuenta : apReq?.estado === 'aprobado' ? apReq : apCuenta || apReq || null;
+          const montoNum = Number(c.monto) || 0;
+          if (apInfo?.estado === 'aprobado') {
+            apEstado = 'esperando_pago';
+          } else if (configAprobacion.activo === false) {
+            apEstado = 'esperando_pago';
+          } else if (!exigirTodos && montoNum <= limiteRegla && apInfo?.estado !== 'pendiente') {
+            apEstado = 'esperando_pago';
+          } else {
+            apEstado = 'esperando_aprobacion';
+          }
+        }
+        return calcular(c, porCuenta.get(c.id) ?? [], hoy, nombreDe(c), empInfo, condYNota, apEstado, apInfo);
       });
 
     // Conteo y saldo por empresa (para las fichas / chips del filtro)
@@ -843,6 +1352,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     // Filtrar por empresas seleccionadas si aplica
     const porEmpresas = calc.filter((c) => pasaFiltroEmpresas(c.empresaId, empresaSel));
 
+    // Conteos para los chips de estado prioritario en Por Pagar
+    const countsCxp = {
+      abiertas: porEmpresas.filter((c) => c.situacion !== 'pagada' && c.situacion !== 'anulada').length,
+      esperando_aprobacion: porEmpresas.filter((c) => c.aprobacionEstado === 'esperando_aprobacion').length,
+      mayor_mil: porEmpresas.filter((c) => c.esMayorAMil && c.situacion !== 'pagada' && c.situacion !== 'anulada').length,
+      esperando_pago: porEmpresas.filter((c) => c.aprobacionEstado === 'esperando_pago').length,
+      vencida: porEmpresas.filter((c) => c.situacion === 'vencida').length,
+      prioridad_alta: porEmpresas.filter((c) => c.prioridad === 'alta' && c.situacion !== 'pagada' && c.situacion !== 'anulada').length,
+      pagada: porEmpresas.filter((c) => c.situacion === 'pagada').length,
+    };
+
     // Los totales se calculan sobre las cuentas del filtro de empresa (la posición real de esa selección)
     const t = { pendiente: 0, vencido: 0, porVencer: 0, nVencidas: 0 };
     porEmpresas.forEach((c) => {
@@ -853,9 +1373,21 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     });
 
     const nq = norm(q);
-    const pasaVerPagadas = (c: CuentaCalc) => (verPagadas ? true : c.situacion !== 'pagada' && c.situacion !== 'anulada');
+    const mostrarPagadasEfectivo = verPagadas || (tipo === 'por_pagar' && filtroEstadoCxp === 'pagada');
+    const pasaVerPagadas = (c: CuentaCalc) => (mostrarPagadasEfectivo ? true : c.situacion !== 'pagada' && c.situacion !== 'anulada');
+    const pasaFiltroEstadoCxp = (c: CuentaCalc) => {
+      if (tipo !== 'por_pagar' || filtroEstadoCxp === 'todos') return true;
+      if (filtroEstadoCxp === 'esperando_aprobacion') return c.aprobacionEstado === 'esperando_aprobacion';
+      if (filtroEstadoCxp === 'mayor_mil') return c.esMayorAMil && c.situacion !== 'pagada' && c.situacion !== 'anulada';
+      if (filtroEstadoCxp === 'esperando_pago') return c.aprobacionEstado === 'esperando_pago';
+      if (filtroEstadoCxp === 'vencida') return c.situacion === 'vencida';
+      if (filtroEstadoCxp === 'prioridad_alta') return c.prioridad === 'alta' && c.situacion !== 'pagada' && c.situacion !== 'anulada';
+      if (filtroEstadoCxp === 'pagada') return c.situacion === 'pagada';
+      return true;
+    };
     const vis = porEmpresas
       .filter(pasaVerPagadas)
+      .filter(pasaFiltroEstadoCxp)
       .filter((c) => matchNorm(nq, c.contraparte, c.concepto, c.documento, c.nota, c.condicionesPago, c.notaLimpia, c.empresaNombre))
       // Orden: lo más urgente arriba (ver `ordenUrgencia`).
       .sort(ordenUrgencia);
@@ -866,8 +1398,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const ord = calc.slice().sort(ordenUrgencia);
     const uni = ord.filter(pasaVerPagadas);
 
-    return { lista: vis, tot: t, empresaCounts: arrEmpresas, ordenadas: ord, universo: uni };
-  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, companies, requirements, orders, empresaSel]);
+    return { lista: vis, tot: t, empresaCounts: arrEmpresas, ordenadas: ord, universo: uni, porEmpresasCounts: countsCxp };
+  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, companies, requirements, orders, empresaSel, configAprobacion, filtroEstadoCxp]);
 
   // Contador de marcas: solo las que existen en esta pestaña; y cuántas no se ven ahora.
   const nMarcadas = useMemo(() => ordenadas.filter((c) => marcadas.has(c.id)).length, [ordenadas, marcadas]);
@@ -892,9 +1424,26 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
 
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
         <SectionTitle>Cuentas {cfg.label.toLowerCase()}</SectionTitle>
-        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap' }}>
+          {tipo === 'por_pagar' && puedeVerConfigAprobacion ? (
+            <TouchableOpacity
+              onPress={abrirConfigAprobadorModal}
+              style={{
+                backgroundColor: colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: colors.brand,
+                paddingHorizontal: spacing.md,
+                paddingVertical: spacing.xs,
+                borderRadius: radius.pill,
+              }}
+            >
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                ⚙️ Aprobador: {aprobadoresLabel}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
           {/* 📄 Reporte: solo lectura, así que también lo tiene quien no escribe. */}
           <TouchableOpacity onPress={() => setReporteOpen(true)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.brandText, fontWeight: '800' }}>📄 Reporte</Text>
@@ -1048,6 +1597,90 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         ) : null}
       </View>
 
+      {/* Filtros de estados prioritarios de Por Pagar (Esperando Aprobación, > $1,000 USD, Esperando Pago, Vencidas, Prioridad Alta, Pagadas) */}
+      {tipo === 'por_pagar' ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 6, paddingVertical: 4, marginBottom: spacing.xs }}
+        >
+          {(
+            [
+              ['todos', `Todas (${porEmpresasCounts.abiertas})`, colors.brand, colors.brandContrast],
+              [
+                'esperando_aprobacion',
+                `👔 Esperando Aprobación: ${aprobadoresLabel} (${porEmpresasCounts.esperando_aprobacion})`,
+                colors.warningSoftBorder,
+                colors.warningSoftText,
+              ],
+              [
+                'mayor_mil',
+                `💰 Pago > $1,000 USD (${porEmpresasCounts.mayor_mil})`,
+                colors.dangerSoftBorder,
+                colors.dangerSoftText,
+              ],
+              [
+                'esperando_pago',
+                `⏳ Esperando Pago (${porEmpresasCounts.esperando_pago})`,
+                colors.infoSoftBorder,
+                colors.infoSoftText,
+              ],
+              [
+                'vencida',
+                `🔴 Vencidas (${porEmpresasCounts.vencida})`,
+                colors.danger,
+                colors.dangerSoftText,
+              ],
+              [
+                'prioridad_alta',
+                `🔺 Prioridad Alta (${porEmpresasCounts.prioridad_alta})`,
+                colors.dangerSoftBorder,
+                colors.dangerSoftText,
+              ],
+              [
+                'pagada',
+                `✅ Pagadas (${porEmpresasCounts.pagada})`,
+                colors.successSoftBorder,
+                colors.successSoftText,
+              ],
+            ] as const
+          ).map(([key, label, activeBorder, activeText]) => {
+            const on = filtroEstadoCxp === key;
+            return (
+              <TouchableOpacity
+                key={key}
+                onPress={() => {
+                  setFiltroEstadoCxp(key);
+                  if (key === 'pagada') setVerPagadas(true);
+                }}
+                style={{
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: on ? activeBorder : colors.border,
+                  backgroundColor: on
+                    ? key === 'todos'
+                      ? colors.brand
+                      : colors.surfaceAlt
+                    : colors.surface,
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: 6,
+                }}
+              >
+                <Text
+                  style={{
+                    color: on ? (key === 'todos' ? colors.brandContrast : activeText) : colors.text,
+                    fontWeight: '800',
+                    fontSize: 12,
+                  }}
+                >
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+
       {/* Buscador */}
       <TextInput
         value={q}
@@ -1062,7 +1695,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         </Text>
       </TouchableOpacity>
 
-      {/* ☑ Marcas para el reporte: por id, sobreviven a filtrar y buscar. */}
+      {/* ☑ Marcas para el reporte y aprobación en lote: por id, sobreviven a filtrar y buscar. */}
       {lista.length > 0 || nMarcadas > 0 ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
           <TouchableOpacity
@@ -1078,6 +1711,31 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             >
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>☐ Quitar marcas</Text>
             </TouchableOpacity>
+          ) : null}
+          {tipo === 'por_pagar' && nMarcadas > 0 && (puedeAprobarPagos || role === 'admin') ? (
+            (() => {
+              const pendientesAprob = ordenadas.filter(
+                (c) => marcadas.has(c.id) && c.situacion !== 'pagada' && c.situacion !== 'anulada' && c.aprobacionEstado === 'esperando_aprobacion'
+              );
+              if (pendientesAprob.length === 0) return null;
+              return (
+                <TouchableOpacity
+                  onPress={() => autorizarPagoLote(pendientesAprob)}
+                  style={{
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: colors.successSoftBorder,
+                    backgroundColor: colors.successSoftBg,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: 4,
+                  }}
+                >
+                  <Text style={{ color: colors.successSoftText, fontWeight: '900', fontSize: 11 }}>
+                    👔 Autorizar marcadas ({pendientesAprob.length})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })()
           ) : null}
           <Text style={{ color: nMarcadas > 0 ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 12 }}>
             {nMarcadas} marcada{nMarcadas === 1 ? '' : 's'}{nMarcadasFuera > 0 ? ` (${nMarcadasFuera} fuera de la lista de ahora)` : ''}
@@ -1116,8 +1774,70 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </TouchableOpacity>
                   <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>{c.contraparte}</Text>
                   {c.prioridad ? <Pill label={PRIORIDAD_INFO[c.prioridad as Prioridad].label} {...toneSoft(colors, PRIORIDAD_INFO[c.prioridad as Prioridad].tone)} /> : null}
+                  {tipo === 'por_pagar' && c.esMayorAMil ? (
+                    <Pill label="💰 Pago > $1,000 USD" {...toneSoft(colors, 'danger')} />
+                  ) : null}
                   <Pill label={st.label} {...toneSoft(colors, st.tone)} />
                 </View>
+                {/* Estado gerencial de aprobación o espera de pago (solo en Por Pagar cuando sigue abierta) */}
+                {tipo === 'por_pagar' && abiertas ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                    {c.aprobacionEstado === 'esperando_aprobacion' ? (
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 6,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: radius.pill,
+                          backgroundColor: colors.warningSoftBg,
+                          borderWidth: 1,
+                          borderColor: colors.warningSoftBorder,
+                        }}
+                      >
+                        <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '900' }}>
+                          👔 Esperando Aprobación de {aprobadoresLabel}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 6,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: radius.pill,
+                          backgroundColor: colors.infoSoftBg,
+                          borderWidth: 1,
+                          borderColor: colors.infoSoftBorder,
+                        }}
+                      >
+                        <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '900' }}>
+                          ⏳ Esperando Pago{c.aprobacionInfo?.aprobadoPor ? ` · ✅ Autorizado por ${c.aprobacionInfo.aprobadoPor}` : ''}
+                        </Text>
+                      </View>
+                    )}
+                    {c.aprobacionEstado === 'esperando_aprobacion' && (puedeAprobarPagos || role === 'admin') ? (
+                      <TouchableOpacity
+                        onPress={() => autorizarPagoCuenta(c)}
+                        style={{
+                          backgroundColor: colors.successSoftBg,
+                          borderWidth: 1,
+                          borderColor: colors.successSoftBorder,
+                          borderRadius: radius.pill,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                        }}
+                      >
+                        <Text style={{ color: colors.successSoftText, fontSize: 11, fontWeight: '900' }}>
+                          👔 Autorizar Pago
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
                   <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 1 }}>
                     <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>
@@ -1193,22 +1913,61 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </View>
                 ) : null}
 
-                {/* Soportes adjuntos: Factura y Recibo de Pago */}
+                {/* Soportes adjuntos: Factura(s) y Comprobante(s) de Pago (1 o más fotos/PDFs) */}
                 {(() => {
                   const rp = extraerReciboPagoCuenta(c);
-                  if (!c.factura_url && !rp?.url) return null;
+                  const facCta = extraerFacturaCuenta(c);
+                  const reqVinc = c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null;
+                  const facReq = reqVinc ? extraerFactura(reqVinc) : null;
+                  const recReq = reqVinc ? extraerReciboPago(reqVinc) : null;
+
+                  const listaFacturas: ArchivoSoporte[] =
+                    facCta?.archivos && facCta.archivos.length > 0
+                      ? facCta.archivos
+                      : facReq?.archivos && facReq.archivos.length > 0
+                        ? facReq.archivos
+                        : c.factura_url
+                          ? [{ url: c.factura_url, tipo: c.factura_url.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image', nombre: facCta?.nombre || facReq?.nombre || 'Factura' }]
+                          : facReq?.url
+                            ? [{ url: facReq.url, tipo: facReq.tipo === 'pdf' ? 'pdf' : 'image', nombre: facReq.nombre || 'Factura' }]
+                            : [];
+
+                  const listaComprobantes: ArchivoSoporte[] =
+                    rp?.archivos && rp.archivos.length > 0
+                      ? rp.archivos
+                      : recReq?.archivos && recReq.archivos.length > 0
+                        ? recReq.archivos
+                        : rp?.url
+                          ? [{ url: rp.url, tipo: rp.tipo === 'pdf' ? 'pdf' : 'image', nombre: rp.nombre || 'Comprobante de pago' }]
+                          : recReq?.url
+                            ? [{ url: recReq.url, tipo: recReq.tipo === 'pdf' ? 'pdf' : 'image', nombre: recReq.nombre || 'Comprobante de pago' }]
+                            : [];
+
+                  if (listaFacturas.length === 0 && listaComprobantes.length === 0) return null;
                   return (
                     <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
-                      {c.factura_url ? (
-                        <TouchableOpacity onPress={() => Linking.openURL(c.factura_url!)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>📎 Ver factura</Text>
+                      {listaFacturas.map((f, idx) => (
+                        <TouchableOpacity
+                          key={`fac-${idx}-${f.url}`}
+                          onPress={() => Linking.openURL(f.url)}
+                          style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                        >
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                            🧾 Ver factura {listaFacturas.length > 1 ? `#${idx + 1}` : ''}{f.nombre ? ` (${f.nombre})` : ''}
+                          </Text>
                         </TouchableOpacity>
-                      ) : null}
-                      {rp?.url ? (
-                        <TouchableOpacity onPress={() => Linking.openURL(rp.url!)} style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                          <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>💳 Ver recibo de pago</Text>
+                      ))}
+                      {listaComprobantes.map((p, idx) => (
+                        <TouchableOpacity
+                          key={`comp-${idx}-${p.url}`}
+                          onPress={() => Linking.openURL(p.url)}
+                          style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                        >
+                          <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>
+                            💳 Ver comprobante {listaComprobantes.length > 1 ? `#${idx + 1}` : ''}{p.nombre ? ` (${p.nombre})` : ''}
+                          </Text>
                         </TouchableOpacity>
-                      ) : null}
+                      ))}
                     </View>
                   );
                 })()}
@@ -1240,26 +1999,45 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </View>
                 ) : null}
 
-                {/* Subir comprobante de pago + Recibo (PDF) */}
+                {/* Subir Factura(s), Subir Comprobante(s) de Pago + Recibo (PDF) */}
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                   {canWrite ? (
-                    <TouchableOpacity
-                      onPress={() => abrirSubirComprobante(c)}
-                      style={{
-                        flexGrow: 1,
-                        backgroundColor: colors.surfaceAlt,
-                        borderWidth: 1,
-                        borderColor: colors.successSoftBorder,
-                        borderRadius: radius.md,
-                        paddingVertical: spacing.sm,
-                        paddingHorizontal: spacing.sm,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>
-                        {extraerReciboPagoCuenta(c)?.url ? '💳 Cambiar comprobante de pago' : '📤 Subir comprobante de pago'}
-                      </Text>
-                    </TouchableOpacity>
+                    <>
+                      <TouchableOpacity
+                        onPress={() => abrirSubirFactura(c)}
+                        style={{
+                          flexGrow: 1,
+                          backgroundColor: colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: colors.brand,
+                          borderRadius: radius.md,
+                          paddingVertical: spacing.sm,
+                          paddingHorizontal: spacing.sm,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                          {c.factura_url || extraerFacturaCuenta(c)?.url ? '🧾 Editar / + Fotos Factura' : '🧾 Subir Factura(s)'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => abrirSubirComprobante(c)}
+                        style={{
+                          flexGrow: 1,
+                          backgroundColor: colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: colors.successSoftBorder,
+                          borderRadius: radius.md,
+                          paddingVertical: spacing.sm,
+                          paddingHorizontal: spacing.sm,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>
+                          {extraerReciboPagoCuenta(c)?.url ? '💳 Editar / + Fotos Comprobante' : '📤 Subir Comprobante(s) de Pago'}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
                   ) : null}
                   <TouchableOpacity onPress={() => generarRecibo(c)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
                     <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 {tipo === 'por_cobrar' ? 'Recibo de cobro' : 'Recibo de pago'}</Text>
@@ -1270,6 +2048,22 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                     {abiertas ? (
                       <>
+                        {tipo === 'por_pagar' && c.aprobacionEstado === 'esperando_aprobacion' && (puedeAprobarPagos || role === 'admin') ? (
+                          <TouchableOpacity
+                            onPress={() => autorizarPagoCuenta(c)}
+                            style={{
+                              flexGrow: 1,
+                              backgroundColor: colors.infoSoftBg,
+                              borderWidth: 1,
+                              borderColor: colors.infoSoftBorder,
+                              borderRadius: radius.md,
+                              paddingVertical: spacing.sm,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ color: colors.infoSoftText, fontWeight: '900', fontSize: 13 }}>👔 Autorizar Pago</Text>
+                          </TouchableOpacity>
+                        ) : null}
                         <TouchableOpacity onPress={() => marcarPagada(c)} style={{ flexGrow: 1, backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
                           <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>✅ Marcar pagada</Text>
                         </TouchableOpacity>
@@ -1627,11 +2421,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         </Screen>
       </Modal>
 
-      {/* ── Modal: Subir Comprobante de Pago directo desde la tarjeta ─────── */}
+      {/* ── Modal: Subir Comprobante(s) de Pago directo desde la tarjeta (1 o más fotos/PDFs) ── */}
       <Modal visible={!!comprobanteDe} animationType="slide" onRequestClose={() => setComprobanteDe(null)}>
         <Screen>
           <ScrollView>
-            <SectionTitle>💳 Subir Comprobante de Pago</SectionTitle>
+            <SectionTitle>💳 Subir Comprobante(s) de Pago</SectionTitle>
             {comprobanteDe ? (
               <>
                 <Card>
@@ -1644,29 +2438,48 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
                 <Card>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                    Foto o documento del comprobante / transferencia (imagen o PDF)
+                    Foto(s) o documento(s) del comprobante / transferencia (puedes subir 1 o varios)
                   </Text>
-                  {compUrl ? (
+                  {compArchivos.length > 0 ? (
                     <View style={{ gap: spacing.xs }}>
-                      <View style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, padding: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
-                        <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
-                          ✓ {compNombre || 'Comprobante adjunto'}
-                        </Text>
-                        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                          <TouchableOpacity onPress={() => Linking.openURL(compUrl)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>👁️ Ver</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setCompUrl(null)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️ Quitar</Text>
-                          </TouchableOpacity>
+                      {compArchivos.map((arch, idx) => (
+                        <View
+                          key={`comp-item-${idx}-${arch.url}`}
+                          style={{
+                            backgroundColor: colors.successSoftBg,
+                            borderWidth: 1,
+                            borderColor: colors.successSoftBorder,
+                            borderRadius: radius.md,
+                            padding: spacing.sm,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: spacing.xs,
+                          }}
+                        >
+                          <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
+                            ✓ #{idx + 1} · {arch.nombre || 'Comprobante adjunto'}
+                          </Text>
+                          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                            <TouchableOpacity onPress={() => Linking.openURL(arch.url)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>👁️ Ver</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => setCompArchivos((prev) => prev.filter((_, i) => i !== idx))}
+                              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                            >
+                              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️ Quitar</Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                      </View>
+                      ))}
                       <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                         <TouchableOpacity onPress={() => subirArchivoComprobanteDirecto('camara')} disabled={subiendoComp} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoComp ? 0.6 : 1 }}>
-                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{subiendoComp ? '⏳ Subiendo…' : '📷 Tomar otra foto'}</Text>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{subiendoComp ? '⏳ Subiendo…' : '📷 + Tomar otra foto'}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => subirArchivoComprobanteDirecto('archivo')} disabled={subiendoComp} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoComp ? 0.6 : 1 }}>
-                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{subiendoComp ? '⏳ Subiendo…' : '📎 Subir otro archivo/PDF'}</Text>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{subiendoComp ? '⏳ Subiendo…' : '📎 + Agregar más fotos/PDFs'}</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1676,7 +2489,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                         <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoComp ? '⏳ Subiendo…' : '📷 Tomar foto'}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => subirArchivoComprobanteDirecto('archivo')} disabled={subiendoComp} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoComp ? 0.6 : 1 }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoComp ? '⏳ Subiendo…' : '📎 Subir archivo / PDF'}</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoComp ? '⏳ Subiendo…' : '📎 Subir fotos / PDFs'}</Text>
                       </TouchableOpacity>
                     </View>
                   )}
@@ -1734,7 +2547,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                         {compMarcarPagada ? '☑' : '☐'}
                       </Text>
                       <Text style={{ color: compMarcarPagada ? colors.successSoftText : colors.text, fontWeight: '800', fontSize: 12.5, flex: 1 }}>
-                        Marcar también esta cuenta como PAGADA al guardar
+                        Marcar también esta cuenta como PAGADA al guardar (se reflejará en Requerimientos)
                       </Text>
                     </TouchableOpacity>
                   ) : null}
@@ -1747,7 +2560,298 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={guardarComprobanteDirecto} disabled={guardandoComp || subiendoComp} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoComp || subiendoComp ? 0.6 : 1 }}>
-                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{guardandoComp ? 'Guardando…' : '💾 Guardar comprobante'}</Text>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{guardandoComp ? 'Guardando…' : '💾 Guardar comprobante(s)'}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Subir Factura(s) directo desde la tarjeta (1 o más fotos/PDFs) ── */}
+      <Modal visible={!!facturaDe} animationType="slide" onRequestClose={() => setFacturaDe(null)}>
+        <Screen>
+          <ScrollView>
+            <SectionTitle>🧾 Subir Factura(s) Fiscal / Comercial</SectionTitle>
+            {facturaDe ? (
+              <>
+                <Card>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{facturaDe.contraparte}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{facturaDe.concepto}</Text>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', marginTop: spacing.xs, fontVariant: ['tabular-nums'] as any }}>
+                    Monto: {usd(Number(facturaDe.monto) || 0)} · Saldo: {usd(facturaDe.saldo)}
+                  </Text>
+                </Card>
+
+                <Card>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                    Foto(s) o documento(s) de la factura (puedes adjuntar 1 o varias imágenes/PDFs)
+                  </Text>
+                  {facArchivos.length > 0 ? (
+                    <View style={{ gap: spacing.xs }}>
+                      {facArchivos.map((arch, idx) => (
+                        <View
+                          key={`fac-item-${idx}-${arch.url}`}
+                          style={{
+                            backgroundColor: colors.infoSoftBg,
+                            borderWidth: 1,
+                            borderColor: colors.infoSoftBorder,
+                            borderRadius: radius.md,
+                            padding: spacing.sm,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: spacing.xs,
+                          }}
+                        >
+                          <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
+                            ✓ #{idx + 1} · {arch.nombre || 'Factura adjunta'}
+                          </Text>
+                          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                            <TouchableOpacity onPress={() => Linking.openURL(arch.url)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>👁️ Ver</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => setFacArchivos((prev) => prev.filter((_, i) => i !== idx))}
+                              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                            >
+                              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️ Quitar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+                      <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                        <TouchableOpacity onPress={() => subirArchivoFacturaDirecta('camara')} disabled={subiendoFacDirecta} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoFacDirecta ? 0.6 : 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{subiendoFacDirecta ? '⏳ Subiendo…' : '📷 + Tomar otra foto'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => subirArchivoFacturaDirecta('archivo')} disabled={subiendoFacDirecta} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoFacDirecta ? 0.6 : 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{subiendoFacDirecta ? '⏳ Subiendo…' : '📎 + Agregar más fotos/PDFs'}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                      <TouchableOpacity onPress={() => subirArchivoFacturaDirecta('camara')} disabled={subiendoFacDirecta} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoFacDirecta ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoFacDirecta ? '⏳ Subiendo…' : '📷 Tomar foto'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => subirArchivoFacturaDirecta('archivo')} disabled={subiendoFacDirecta} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoFacDirecta ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoFacDirecta ? '⏳ Subiendo…' : '📎 Subir fotos / PDFs'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </Card>
+
+                <Card>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>N° de factura / control (opcional)</Text>
+                  <TextInput value={facNumero} onChangeText={setFacNumero} placeholder="Ej. F-004512" placeholderTextColor={colors.muted} style={inputStyle} />
+
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Proveedor / Empresa emisora de la factura</Text>
+                  <TextInput value={facEmpresa} onChangeText={setFacEmpresa} placeholder="Nombre del proveedor o razón social…" placeholderTextColor={colors.muted} style={inputStyle} />
+                  {suppliers.length > 0 ? (
+                    <View style={{ marginTop: 6 }}>
+                      <TouchableOpacity
+                        onPress={() => setFacProvOpen((o) => !o)}
+                        style={{ alignSelf: 'flex-start', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                      >
+                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>
+                          {facProvOpen ? '▲ Ocultar catálogo de proveedores' : '🔍 Elegir de proveedores registrados'}
+                        </Text>
+                      </TouchableOpacity>
+                      {facProvOpen ? (
+                        <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                          <TextInput
+                            value={facProvQ}
+                            onChangeText={setFacProvQ}
+                            placeholder="Buscar proveedor…"
+                            placeholderTextColor={colors.muted}
+                            style={[inputStyle, { paddingVertical: 4, fontSize: 12, marginBottom: 6 }]}
+                          />
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, maxHeight: 140 }}>
+                            {suppliers
+                              .filter((s) => !facProvQ || matchNorm(norm(facProvQ), s.name))
+                              .slice(0, 25)
+                              .map((s) => (
+                                <TouchableOpacity
+                                  key={s.id}
+                                  onPress={() => {
+                                    setFacEmpresa(s.name);
+                                    setFacProvOpen(false);
+                                  }}
+                                  style={{
+                                    borderRadius: radius.pill,
+                                    borderWidth: 1,
+                                    borderColor: norm(facEmpresa) === norm(s.name) ? colors.brand : colors.border,
+                                    backgroundColor: norm(facEmpresa) === norm(s.name) ? colors.brand : colors.surface,
+                                    paddingHorizontal: spacing.sm,
+                                    paddingVertical: 4,
+                                  }}
+                                >
+                                  <Text style={{ color: norm(facEmpresa) === norm(s.name) ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                                    {s.name}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Fecha de factura (AAAA-MM-DD)</Text>
+                  <TextInput value={facFecha} onChangeText={setFacFecha} placeholder={hoy} placeholderTextColor={colors.muted} style={inputStyle} />
+
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>📝 Nota de la factura (opcional)</Text>
+                  <TextInput value={facNota} onChangeText={setFacNota} placeholder="Observación sobre IVA, retención o entrega…" placeholderTextColor={colors.muted} style={inputStyle} />
+                </Card>
+              </>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+              <TouchableOpacity onPress={() => setFacturaDe(null)} disabled={guardandoFacDirecta} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={guardarFacturaDirecta} disabled={guardandoFacDirecta || subiendoFacDirecta} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoFacDirecta || subiendoFacDirecta ? 0.6 : 1 }}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{guardandoFacDirecta ? 'Guardando…' : '💾 Guardar factura(s)'}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Configurar Usuario Designado Aprobador de Pagos (Anthony / Angelica) ── */}
+      <Modal visible={configModalOpen} animationType="slide" onRequestClose={() => setConfigModalOpen(false)}>
+        <Screen>
+          <ScrollView>
+            <SectionTitle>⚙️ Configurar Aprobación Gerencial en Por Pagar</SectionTitle>
+            <Card>
+              <TouchableOpacity
+                onPress={() => setCfgActivo((v) => !v)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: spacing.sm,
+                  borderRadius: radius.md,
+                  backgroundColor: cfgActivo ? colors.successSoftBg : colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: cfgActivo ? colors.successSoftBorder : colors.border,
+                }}
+              >
+                <Text style={{ fontSize: 16, color: cfgActivo ? colors.successSoftText : colors.muted }}>
+                  {cfgActivo ? '☑' : '☐'}
+                </Text>
+                <Text style={{ color: cfgActivo ? colors.successSoftText : colors.text, fontWeight: '800', fontSize: 13, flex: 1 }}>
+                  Exigir aprobación del Gerente General / Usuario Designado en Por Pagar
+                </Text>
+              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+                <TouchableOpacity
+                  onPress={() => setCfgExigirEnTodos(true)}
+                  style={{
+                    flex: 1,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: cfgExigirEnTodos ? colors.brand : colors.border,
+                    backgroundColor: cfgExigirEnTodos ? colors.brand : colors.surfaceAlt,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ color: cfgExigirEnTodos ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+                    En todas las cuentas
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setCfgExigirEnTodos(false);
+                    if (!parseNum(cfgMonto)) setCfgMonto('1000');
+                  }}
+                  style={{
+                    flex: 1,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: !cfgExigirEnTodos ? colors.brand : colors.border,
+                    backgroundColor: !cfgExigirEnTodos ? colors.brand : colors.surfaceAlt,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ color: !cfgExigirEnTodos ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+                    Solo mayores a un monto
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {!cfgExigirEnTodos ? (
+                <View style={{ marginTop: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Monto mínimo en USD (ej. 1000):</Text>
+                  <TextInput value={cfgMonto} onChangeText={setCfgMonto} keyboardType="numeric" placeholder="1000" placeholderTextColor={colors.muted} style={inputStyle} />
+                </View>
+              ) : null}
+            </Card>
+
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: 4 }}>
+                👔 Usuario(s) Designado(s) para Aprobar Pagos
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                Selecciona quiénes autorizan pagos en Por Pagar (actual: {cfgAprobadoresNombres.join(', ') || 'Gerente General'}):
+              </Text>
+              <TextInput
+                value={cfgUserSearch}
+                onChangeText={setCfgUserSearch}
+                placeholder="Buscar usuario por nombre o cargo…"
+                placeholderTextColor={colors.muted}
+                style={[inputStyle, { marginBottom: spacing.xs }]}
+              />
+              <View style={{ gap: 6, maxHeight: 260 }}>
+                {usuariosSistema
+                  .filter(
+                    (u) =>
+                      !cfgUserSearch ||
+                      matchNorm(norm(cfgUserSearch), `${u.full_name} ${u.role || ''} ${u.app_role_name || ''}`)
+                  )
+                  .slice(0, 30)
+                  .map((u) => {
+                    const sel =
+                      cfgAprobadoresIds.includes(u.id) ||
+                      cfgAprobadoresNombres.some((n) => norm(n) === norm(u.full_name));
+                    return (
+                      <TouchableOpacity
+                        key={u.id}
+                        onPress={() => toggleUsuarioAprobadorCxp(u)}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingHorizontal: spacing.sm,
+                          paddingVertical: 8,
+                          borderRadius: radius.md,
+                          borderWidth: 1,
+                          borderColor: sel ? colors.brand : colors.border,
+                          backgroundColor: sel ? colors.infoSoftBg : colors.surfaceAlt,
+                        }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: sel ? '800' : '600', fontSize: 13 }}>
+                          {sel ? '☑ ' : '☐ '}
+                          {u.full_name}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          {u.app_role_name || u.role || ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+              </View>
+            </Card>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+              <TouchableOpacity onPress={() => setConfigModalOpen(false)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={guardarConfigAprobadorModal} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>💾 Guardar configuración</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>

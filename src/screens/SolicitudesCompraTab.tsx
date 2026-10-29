@@ -349,6 +349,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
 
   // Buscador y filtros
   const [query, setQuery] = useState('');
+  const [verConvertidas, setVerConvertidas] = useState(false);
   const [filterEstado, setFilterEstado] = useState<
     'todos' | 'por_cotizar' | 'esperando_aprobacion_gg' | 'esperando_pago' | 'aclaratoria' | 'convertido' | 'rechazado' | 'pendiente'
   >('todos');
@@ -403,9 +404,31 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const [subiendoFotoKey, setSubiendoFotoKey] = useState<string | null>(null);
 
   // 1. Universo base de solicitudes técnicas pertenecientes a esta bandeja
-  const solicitudesBase = useMemo(() => {
+  const todasSolicitudes = useMemo(() => {
     return (allReqs || []).filter((r) => esSolicitudDeCompra(r));
   }, [allReqs]);
+
+  // Cantidad de solicitudes que ya se convirtieron en Requerimiento o fueron rechazadas (ocultas por defecto como en Por Pagar)
+  const countOcultasConvertidas = useMemo(() => {
+    return todasSolicitudes.filter(
+      (r) => estaSolicitudConvertidaEnRequerimiento(r) || r.status === 'rechazado' || (r.status as string) === 'cancelado'
+    ).length;
+  }, [todasSolicitudes]);
+
+  // Universo visible según si el check `verConvertidas` está activado o si se eligió un chip de convertidas/rechazadas
+  const mostrarOcultasEfectivo =
+    verConvertidas ||
+    filterEstado === 'convertido' ||
+    filterEstado === 'rechazado' ||
+    filterEstado === 'esperando_aprobacion_gg' ||
+    filterEstado === 'esperando_pago';
+
+  const solicitudesBase = useMemo(() => {
+    if (mostrarOcultasEfectivo) return todasSolicitudes;
+    return todasSolicitudes.filter(
+      (r) => !estaSolicitudConvertidaEnRequerimiento(r) && r.status !== 'rechazado' && (r.status as string) !== 'cancelado'
+    );
+  }, [todasSolicitudes, mostrarOcultasEfectivo]);
 
   // 1b. Conteo y filtro por Empresa (una o varias empresas seleccionadas)
   const empresaCounts = useMemo(
@@ -1406,22 +1429,55 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         onChangeText={setQuery}
         placeholder="🔍 Buscar por código, repuesto, solicitante, empresa, medidas, máquina…"
         placeholderTextColor={colors.muted}
-        style={[inp, { marginBottom: spacing.sm }]}
+        style={[inp, { marginBottom: spacing.xs }]}
       />
+
+      {/* Check estilo Por Pagar: ocultar por defecto las solicitudes que ya se volvieron un Requerimiento o fueron rechazadas */}
+      <TouchableOpacity
+        onPress={() => {
+          setVerConvertidas((prev) => {
+            const next = !prev;
+            if (!next && (filterEstado === 'convertido' || filterEstado === 'rechazado' || filterEstado === 'esperando_aprobacion_gg' || filterEstado === 'esperando_pago')) {
+              setFilterEstado('todos');
+            }
+            return next;
+          });
+        }}
+        style={{
+          alignSelf: 'flex-start',
+          marginBottom: spacing.sm,
+          borderRadius: radius.pill,
+          borderWidth: 1,
+          borderColor: mostrarOcultasEfectivo ? colors.brand : colors.border,
+          backgroundColor: mostrarOcultasEfectivo ? colors.brand : colors.surfaceAlt,
+          paddingHorizontal: spacing.md,
+          paddingVertical: 5,
+        }}
+      >
+        <Text style={{ color: mostrarOcultasEfectivo ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>
+          {mostrarOcultasEfectivo
+            ? `✓ Mostrando también ya en Requerimientos y rechazadas (${countOcultasConvertidas})`
+            : `Mostrar también ya en Requerimientos y rechazadas (${countOcultasConvertidas})`}
+        </Text>
+      </TouchableOpacity>
 
       {/* Chips de filtro por estado */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: spacing.md }}>
         {[
           { key: 'todos', label: `Todos (${countTodos})` },
-          { key: 'por_cotizar', label: `📋 Por Cotizar (${countPorCotizar})` },
-          {
-            key: 'esperando_aprobacion_gg',
-            label: `👔 Esperando Aprobación: ${(configAprobacion.aprobadoresNombres && configAprobacion.aprobadoresNombres.length > 0) ? configAprobacion.aprobadoresNombres.join(' / ') : 'Gerente General'} (${countEsperandoAprobacion})`,
-          },
-          { key: 'esperando_pago', label: `💳 Esperando Pago (${countEsperandoPago})` },
+          { key: 'por_cotizar', label: `📋 Pendientes por Convertir (${countPorCotizar})` },
           { key: 'aclaratoria', label: `⚠️ En Aclaratoria (${countAclaratorias})` },
-          { key: 'convertido', label: `✅ Convertidos (${countConvertidos})` },
-          { key: 'rechazado', label: `❌ Rechazados (${countRechazados})` },
+          ...(mostrarOcultasEfectivo
+            ? [
+                { key: 'convertido', label: `🔄 Ya en Requerimientos (${countConvertidos})` },
+                {
+                  key: 'esperando_aprobacion_gg',
+                  label: `👔 En Por Pagar · Esperando Aprobación (${countEsperandoAprobacion})`,
+                },
+                { key: 'esperando_pago', label: `💳 En Gestión / Por Pagar (${countEsperandoPago})` },
+                { key: 'rechazado', label: `❌ Rechazados (${countRechazados})` },
+              ]
+            : []),
         ].map((f) => {
           const sel = filterEstado === f.key || (f.key === 'por_cotizar' && filterEstado === 'pendiente');
           return (
@@ -1974,10 +2030,16 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               ) : null}
 
-              {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial */}
+              {/* 🧾 Si la cuenta en Por Pagar ya tiene factura cargada, se muestra solo como referencia de lectura (las facturas y pagos solo se suben desde 💸 Por Pagar) */}
               {(() => {
                 const fac = extraerFactura(r);
-                const tieneFac = Boolean(fac && (fac.numero || fac.url || fac.nota));
+                const tieneFac = Boolean(fac && (fac.numero || fac.url || fac.nota || (fac.archivos && fac.archivos.length > 0)));
+                if (!tieneFac) return null;
+                const archivosFac = fac?.archivos && fac.archivos.length > 0
+                  ? fac.archivos
+                  : fac?.url
+                    ? [{ url: fac.url, tipo: (fac.tipo === 'pdf' ? 'pdf' : 'image') as 'image' | 'pdf', nombre: fac.nombre || 'Factura' }]
+                    : [];
                 return (
                   <View
                     style={{
@@ -1985,7 +2047,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                       backgroundColor: colors.surfaceAlt,
                       borderRadius: radius.md,
                       borderWidth: 1.5,
-                      borderColor: tieneFac ? '#6366F1' : colors.border,
+                      borderColor: '#6366F1',
                       padding: spacing.sm,
                       gap: 6,
                     }}
@@ -1994,10 +2056,10 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Text style={{ fontSize: 14 }}>🧾</Text>
                         <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
-                          Factura Fiscal / Comercial
+                          Factura Registrada en Por Pagar ({archivosFac.length || 1})
                         </Text>
                       </View>
-                      {tieneFac && fac?.empresa ? (
+                      {fac?.empresa ? (
                         <View
                           style={{
                             backgroundColor: '#E0E7FF',
@@ -2014,97 +2076,48 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                         </View>
                       ) : null}
                     </View>
-
-                    {tieneFac ? (
-                      <View style={{ gap: 4 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
-                          <Text style={{ fontSize: 12, color: colors.text }}>
-                            <Text style={{ fontWeight: '700' }}>N° Factura:</Text>{' '}
-                            <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero || 'S/N'}</Text>
-                          </Text>
-                          {fac?.fecha ? (
-                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
-                              📅 Fecha: {fac.fecha}
-                            </Text>
-                          ) : null}
-                        </View>
-                        {fac?.nota ? (
-                          <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic' }}>
-                            📝 Nota factura: {fac.nota}
-                          </Text>
-                        ) : null}
-                        {fac?.subidaPor ? (
-                          <Text style={{ fontSize: 11, color: colors.muted }}>
-                            👤 Subida por: {fac.subidaPor}
-                          </Text>
-                        ) : null}
-                        <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                          {fac?.url ? (
-                            <TouchableOpacity
-                              onPress={() => abrirVisorFactura(fac.url, fac.tipo, fac.nombre)}
-                              style={{
-                                backgroundColor: colors.surface,
-                                borderWidth: 1,
-                                borderColor: colors.brand,
-                                borderRadius: radius.sm,
-                                paddingHorizontal: spacing.sm,
-                                paddingVertical: 4,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              <Text style={{ fontSize: 11 }}>👁️</Text>
-                              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>
-                                Ver Factura Adjunta
-                              </Text>
-                            </TouchableOpacity>
-                          ) : null}
-                          {canWrite ? (
-                            <TouchableOpacity
-                              onPress={() => abrirSubirFactura(r)}
-                              style={{
-                                backgroundColor: colors.surface,
-                                borderWidth: 1,
-                                borderColor: colors.border,
-                                borderRadius: radius.sm,
-                                paddingHorizontal: spacing.sm,
-                                paddingVertical: 4,
-                              }}
-                            >
-                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>
-                                ✏️ Modificar Factura
-                              </Text>
-                            </TouchableOpacity>
-                          ) : null}
-                        </View>
-                      </View>
-                    ) : (
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                        <Text style={{ fontSize: 11.5, color: colors.muted, fontStyle: 'italic', flex: 1 }}>
-                          Sin factura cargada todavía.
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                      <Text style={{ fontSize: 12, color: colors.text }}>
+                        <Text style={{ fontWeight: '700' }}>N° Factura:</Text>{' '}
+                        <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero || 'S/N'}</Text>
+                      </Text>
+                      {fac?.fecha ? (
+                        <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                          📅 Fecha: {fac.fecha}
                         </Text>
-                        {canWrite ? (
+                      ) : null}
+                    </View>
+                    {fac?.nota ? (
+                      <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic' }}>
+                        📝 Nota factura: {fac.nota}
+                      </Text>
+                    ) : null}
+                    {archivosFac.length > 0 ? (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                        {archivosFac.map((arch, aIdx) => (
                           <TouchableOpacity
-                            onPress={() => abrirSubirFactura(r)}
+                            key={aIdx}
+                            onPress={() => abrirVisorFactura(arch.url, arch.tipo, arch.nombre || `Factura #${aIdx + 1}`)}
                             style={{
-                              backgroundColor: colors.brand,
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.brand,
                               borderRadius: radius.sm,
                               paddingHorizontal: spacing.sm,
-                              paddingVertical: 5,
+                              paddingVertical: 4,
                               flexDirection: 'row',
                               alignItems: 'center',
                               gap: 4,
                             }}
                           >
-                            <Text style={{ fontSize: 12 }}>➕</Text>
-                            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11.5 }}>
-                              Subir Factura
+                            <Text style={{ fontSize: 11 }}>👁️</Text>
+                            <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>
+                              {archivosFac.length > 1 ? `Ver Factura #${aIdx + 1}` : 'Ver Factura Adjunta'}
                             </Text>
                           </TouchableOpacity>
-                        ) : null}
+                        ))}
                       </View>
-                    )}
+                    ) : null}
                   </View>
                 );
               })()}
