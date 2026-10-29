@@ -2227,7 +2227,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       if (error) { setBusy(false); setFormErr(error.message); return toast.error(error.message); }
       const extrasFalta = await guardarExtras(editId, extrasAntes);
       setBusy(false);
-      if (error) { setFormErr(error.message); return toast.error(error.message); }
       // Sincronizar condiciones de pago hacia la cuenta por pagar vinculada (si existe)
       try {
         const { data: cxpRows } = await supabase
@@ -2714,7 +2713,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               ? `${prevNota ? prevNota + '\n' : ''}Nota recepción almacén: ${notaGenTrim}`
               : undefined;
             // Sin `monto`: en la cuenta atada lo pone la base desde los renglones del
-            // requerimiento (la guardia trg_cxp_req_guardia rechaza cambiarlo aquí).
+            // requerimiento (la guardia trg_cxp_req_guardia lo conserva aunque llegue).
             const { error: cxpUpdErr } = await supabase
               .from('cuentas')
               .update({

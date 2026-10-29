@@ -544,8 +544,10 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   // nivel de prioridad. Update APARTE (columna nueva) y la base la copia a su cuenta
   // por pagar. Si el SQL del 29-oct aún no se corrió, se avisa y no se rompe nada.
   const ponerPrioridad = async (r: InventoryRequirement, p: PrioridadCompra | null) => {
-    const { error } = await supabase.from('inventory_requirements').update({ prioridad: p }).eq('id', r.id);
+    const { data, error } = await supabase.from('inventory_requirements').update({ prioridad: p }).eq('id', r.id).select('id');
     if (error) return toast.error(faltaColumnaSyncCompras(error.message) ? 'La prioridad aún no se puede guardar: falta correr el SQL del 29-oct.' : error.message);
+    // La RLS rechaza sin error y con 0 filas: no se anuncia un éxito que no hubo.
+    if (!data || data.length === 0) return toast.error(`No se pudo poner la prioridad en ${r.code}: no tienes permiso para editar ese requerimiento.`);
     refetch();
     toast.success(p ? `Prioridad ${PRIORIDAD_COMPRA_INFO[p].label} puesta en ${r.code}.` : `Prioridad quitada de ${r.code}.`);
   };
