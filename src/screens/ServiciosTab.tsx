@@ -19,6 +19,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
+import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
 import { Company, Supplier, ServicioRecord, ServicioItem, ServiceCategory, ServiceKind } from '../types/database';
 import { generalCompanies } from '../lib/companies';
@@ -48,6 +49,8 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const { data: servicios, loading, refetch } = useTable<ServicioRecord>('servicios', { orderBy: 'created_at', ascending: false, realtimeFrom: 'servicios' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: suppliers, refetch: refetchSuppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
@@ -194,6 +197,26 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
     toast.success(editado ? 'Servicio actualizado.' : 'Servicio registrado.');
   };
 
+  const eliminarServicio = async (s: ServicioRecord) => {
+    if (!canWrite) return toast.error('No tienes permiso para eliminar servicios.');
+    const usaRepuestos = (s.items || []).some((l) => l.usa_inventario && l.item_id);
+    const ok = await confirm({
+      title: `Eliminar ${s.code}`,
+      message: `¿Seguro que deseas eliminar el servicio ${s.code} por ${usd(s.total)}?${usaRepuestos ? ' Los repuestos descontados del inventario se restituirán automáticamente.' : ''} Esta acción no se puede deshacer.`,
+      confirmText: '🗑️ Sí, eliminar',
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingId(s.id);
+    const { data: del, error } = await supabase.from('servicios').delete().eq('id', s.id).select('id');
+    setDeletingId(null);
+    if (error) return toast.error(error.message);
+    if (!del || del.length === 0) return toast.error('No se pudo eliminar el servicio (verifica tus permisos).');
+    if (editingId === s.id) resetForm();
+    refetch();
+    toast.success(`Servicio ${s.code} eliminado.`);
+  };
+
   const verFactura = (s: ServicioRecord) => {
     if (!s.factura_url) return;
     if (Platform.OS === 'web') { setPreview(s); return; }
@@ -275,9 +298,18 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
                       </TouchableOpacity>
                     ) : null}
                     {canWrite ? (
-                      <TouchableOpacity onPress={() => abrirEditar(s)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>✏️ Editar</Text>
-                      </TouchableOpacity>
+                      <>
+                        <TouchableOpacity onPress={() => abrirEditar(s)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center' }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>✏️ Editar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => eliminarServicio(s)}
+                          disabled={deletingId === s.id}
+                          style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center', opacity: deletingId === s.id ? 0.6 : 1 }}
+                        >
+                          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>{deletingId === s.id ? '⏳ Eliminando…' : '🗑️ Eliminar'}</Text>
+                        </TouchableOpacity>
+                      </>
                     ) : null}
                   </View>
                 </>
@@ -404,10 +436,25 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
               {input(note, (t) => setNote(t.toUpperCase()), 'OBSERVACIÓN…', { autoCapitalize: 'characters' })}
             </Card>
 
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: editingId ? spacing.sm : spacing.xl }}>
               <TouchableOpacity onPress={resetForm} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Registrar servicio'}</Text></TouchableOpacity>
             </View>
+            {editingId && canWrite ? (
+              (() => {
+                const srvActual = servicios.find((x) => x.id === editingId);
+                if (!srvActual) return null;
+                return (
+                  <TouchableOpacity
+                    onPress={() => eliminarServicio(srvActual)}
+                    disabled={deletingId === srvActual.id || busy}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginBottom: spacing.xl, opacity: deletingId === srvActual.id || busy ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.danger, fontWeight: '800' }}>{deletingId === srvActual.id ? '⏳ Eliminando…' : `🗑️ Eliminar servicio ${srvActual.code}`}</Text>
+                  </TouchableOpacity>
+                );
+              })()
+            ) : null}
           </ScrollView>
 
           {/* Selector de EQUIPO (buscador por todas las características) */}
