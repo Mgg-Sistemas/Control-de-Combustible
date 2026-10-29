@@ -53,6 +53,13 @@ import {
   ESTADO_EXISTENCIA_CONFIG,
   ESTADO_COMPRA_CONFIG,
   ESTADO_GRUPO_CONFIG,
+  MOTIVOS_CANCELACION_RAPIDOS,
+  formatCancellationNote,
+  isCancelledNote,
+  parseCancelacionNote,
+  extraerCancelacionCompra,
+  puedeCancelarSolicitudStock,
+  puedeCancelarSolicitudCompra,
   parseRejectionNote,
   agruparSolicitudesStock,
   type GrupoSolicitudStock,
@@ -827,6 +834,129 @@ export default function SolicitudMaterialScreen() {
       toast.error(parseFriendlyError(e, 'No se pudo enviar la respuesta.'));
     } finally {
       setAclaratoriaBusy(false);
+    }
+  };
+
+  // ── MODAL: Cancelar Solicitud (Almacén o Compra Técnica) ────────────────────
+  type CancelTargetInfo = {
+    tipo: 'stock_item' | 'stock_grupo' | 'compra' | 'compra_renglon';
+    ids: string[];
+    codigo: string;
+    titulo: string;
+    reqCompra?: InventoryRequirement;
+    renglonIdx?: number;
+  };
+  const [modalCancelarOpen, setModalCancelarOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<CancelTargetInfo | null>(null);
+  const [cancelMotivoChip, setCancelMotivoChip] = useState<string>(MOTIVOS_CANCELACION_RAPIDOS[0].label);
+  const [cancelNotaLibre, setCancelNotaLibre] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+
+  const abrirModalCancelar = (target: CancelTargetInfo) => {
+    setCancelTarget(target);
+    setCancelMotivoChip(MOTIVOS_CANCELACION_RAPIDOS[0].label);
+    setCancelNotaLibre('');
+    setModalCancelarOpen(true);
+  };
+
+  const confirmarCancelacion = async () => {
+    if (!cancelTarget || cancelBusy) return;
+    const motivoPartes = [
+      cancelMotivoChip.trim(),
+      cancelNotaLibre.trim(),
+    ].filter(Boolean);
+    const motivoFinal = motivoPartes.join(' — ') || 'Ya no se necesita';
+    const autorNombre = (fullName || '').trim() || 'Solicitante';
+    const notaEstructurada = formatCancellationNote(autorNombre, motivoFinal);
+
+    setCancelBusy(true);
+    try {
+      if (cancelTarget.tipo === 'stock_item' || cancelTarget.tipo === 'stock_grupo') {
+        const { data: upd, error } = await supabase
+          .from('inventory_stock_requests')
+          .update({
+            status: 'rechazado',
+            rejection_note: notaEstructurada,
+          })
+          .in('id', cancelTarget.ids)
+          .eq('status', 'pendiente')
+          .select('id');
+
+        if (error) throw error;
+        if (!upd || upd.length === 0) {
+          throw new Error('No se pudo cancelar: la solicitud ya fue despachada o procesada por Almacén.');
+        }
+
+        toast.success(
+          upd.length > 1
+            ? `Se cancelaron ${upd.length} repuestos pendientes del pedido ${cancelTarget.codigo}.`
+            : `Solicitud ${cancelTarget.codigo} cancelada correctamente.`
+        );
+        setModalCancelarOpen(false);
+        setCancelTarget(null);
+        refetchStockReqs();
+      } else if (cancelTarget.tipo === 'compra_renglon' && cancelTarget.reqCompra && typeof cancelTarget.renglonIdx === 'number') {
+        const reqActual = cancelTarget.reqCompra;
+        const itemsActuales = Array.isArray(reqActual.items) ? [...reqActual.items] : [];
+        if (itemsActuales.length <= 1) {
+          throw new Error('Si solo queda un renglón, cancela la solicitud completa.');
+        }
+        const eliminado = itemsActuales[cancelTarget.renglonIdx];
+        const nuevosItems = itemsActuales.filter((_, idx) => idx !== cancelTarget.renglonIdx);
+        const obsPrev = String(reqActual.observaciones ?? '').trim();
+        const trazaRenglon = `[Renglón cancelado por ${autorNombre}: ${eliminado?.name || 'Ítem'} (${motivoFinal})]`;
+        const nuevasObs = [obsPrev, trazaRenglon].filter(Boolean).join('\n');
+
+        const { data: upd, error } = await supabase
+          .from('inventory_requirements')
+          .update({
+            items: nuevosItems,
+            observaciones: nuevasObs,
+          })
+          .eq('id', reqActual.id)
+          .in('status', ['pendiente', 'aclaratoria_solicitada'])
+          .select('id');
+
+        if (error) throw error;
+        if (!upd || upd.length === 0) {
+          throw new Error('No se pudo quitar el renglón: la solicitud ya cambió de estado o no tienes permiso de actualización.');
+        }
+
+        toast.success(`Renglón "${eliminado?.name || ''}" quitado de ${reqActual.code}.`);
+        setModalCancelarOpen(false);
+        setCancelTarget(null);
+        refetchReqs();
+      } else if (cancelTarget.tipo === 'compra') {
+        const reqId = cancelTarget.ids[0];
+        const { data: upd, error } = await supabase
+          .from('inventory_requirements')
+          .update({
+            status: 'rechazado',
+            decided_by: uid,
+            decided_by_name: autorNombre,
+            decided_at: nowISO(),
+            decision_note: notaEstructurada,
+          })
+          .eq('id', reqId)
+          .in('status', ['pendiente', 'aclaratoria_solicitada'])
+          .select('id');
+
+        if (error) throw error;
+        if (!upd || upd.length === 0) {
+          throw new Error('No se pudo cancelar: la solicitud ya fue procesada por Compras o no tienes permiso de actualización.');
+        }
+
+        toast.success(`Solicitud de compra ${cancelTarget.codigo} cancelada correctamente.`);
+        setModalCancelarOpen(false);
+        setCancelTarget(null);
+        refetchReqs();
+      }
+    } catch (e: any) {
+      toast.error(parseFriendlyError(e, 'No se pudo cancelar la solicitud.'));
+      refetchStockReqs();
+      refetchReqs();
+    } finally {
+      setCancelBusy(false);
     }
   };
 
@@ -2054,20 +2184,57 @@ export default function SolicitudMaterialScreen() {
                         </Text>
                       </View>
 
-                      <TouchableOpacity
-                        onPress={() => abrirResponderAclaratoria(r)}
-                        style={{
-                          backgroundColor: '#EA580C',
-                          paddingVertical: 9,
-                          borderRadius: radius.md,
-                          alignItems: 'center',
-                          marginTop: 4,
-                        }}
-                      >
-                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
-                          ✏️ Responder medidas y especificaciones
-                        </Text>
-                      </TouchableOpacity>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                        <TouchableOpacity
+                          onPress={() => abrirResponderAclaratoria(r)}
+                          style={{
+                            flex: 2,
+                            minWidth: 200,
+                            backgroundColor: '#EA580C',
+                            paddingVertical: 9,
+                            paddingHorizontal: 12,
+                            borderRadius: radius.md,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
+                            ✏️ Responder medidas y especificaciones
+                          </Text>
+                        </TouchableOpacity>
+
+                        {puedeCancelarSolicitudCompra(r, uid, fullName, esAdmin).ok && (
+                          <TouchableOpacity
+                            onPress={() =>
+                              abrirModalCancelar({
+                                tipo: 'compra',
+                                ids: [r.id],
+                                codigo: r.code || 'REQ',
+                                titulo: r.title || 'Solicitud de Compra Técnica',
+                                reqCompra: r,
+                              })
+                            }
+                            style={{
+                              flex: 1,
+                              minWidth: 150,
+                              backgroundColor: scheme === 'dark' ? 'rgba(239,68,68,0.16)' : '#FEF2F2',
+                              borderWidth: 1.5,
+                              borderColor: scheme === 'dark' ? '#F87171' : '#FCA5A5',
+                              paddingVertical: 9,
+                              paddingHorizontal: 12,
+                              borderRadius: radius.md,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexDirection: 'row',
+                              gap: 5,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12 }}>🚫</Text>
+                            <Text style={{ color: scheme === 'dark' ? '#FCA5A5' : '#DC2626', fontWeight: '800', fontSize: 12 }}>
+                              Cancelar solicitud
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     </View>
                   );
                 })}
@@ -2126,10 +2293,13 @@ export default function SolicitudMaterialScreen() {
             />
           ) : (
             gruposStockFiltrados.map((grupo) => {
-              const est = (ESTADO_GRUPO_CONFIG as any)[grupo.estadoGrupo] || ESTADO_GRUPO_CONFIG.pendiente;
+              const est = grupo.todoCanceladoPorUsuario
+                ? ESTADO_GRUPO_CONFIG.cancelado
+                : (ESTADO_GRUPO_CONFIG as any)[grupo.estadoGrupo] || ESTADO_GRUPO_CONFIG.pendiente;
               const urg = (URGENCIA_CONFIG as any)[grupo.urgencyMax || 'normal'] || URGENCIA_CONFIG.normal;
               const mach = grupo.machinery_id ? machines.find((m) => m.id === grupo.machinery_id) : null;
               const veh = grupo.vehicle_id ? vehicles.find((v) => v.id === grupo.vehicle_id) : null;
+              const permCancelarGrupo = puedeCancelarSolicitudStock(grupo, uid, fullName, esAdmin);
 
               const isOpenDefault = grupo.estadoGrupo === 'pendiente' || grupo.estadoGrupo === 'parcial';
               const isAbierto = expandidosStock[grupo.id] !== undefined ? expandidosStock[grupo.id] : isOpenDefault;
@@ -2278,8 +2448,12 @@ export default function SolicitudMaterialScreen() {
                         </Text>
 
                         {grupo.items.map((s, idx) => {
-                          const itemEst = (ESTADO_EXISTENCIA_CONFIG as any)[s.status] || ESTADO_EXISTENCIA_CONFIG.pendiente;
                           const rej = parseRejectionNote(s.rejection_note);
+                          const esItemCancelado = s.status === 'rechazado' && Boolean(rej.isCancelled);
+                          const itemEst = esItemCancelado
+                            ? ESTADO_EXISTENCIA_CONFIG.cancelado
+                            : (ESTADO_EXISTENCIA_CONFIG as any)[s.status] || ESTADO_EXISTENCIA_CONFIG.pendiente;
+                          const puedeCancelarItem = puedeCancelarSolicitudStock(s, uid, fullName, esAdmin).ok;
 
                           return (
                             <View
@@ -2287,7 +2461,14 @@ export default function SolicitudMaterialScreen() {
                               style={{
                                 backgroundColor: colors.surface,
                                 borderWidth: 1,
-                                borderColor: s.status === 'despachado' ? '#86EFAC' : s.status === 'rechazado' ? '#FCA5A5' : colors.border,
+                                borderColor:
+                                  s.status === 'despachado'
+                                    ? '#86EFAC'
+                                    : esItemCancelado
+                                      ? '#94A3B8'
+                                      : s.status === 'rechazado'
+                                        ? '#FCA5A5'
+                                        : colors.border,
                                 borderRadius: radius.md,
                                 padding: spacing.sm,
                                 gap: 4,
@@ -2311,11 +2492,41 @@ export default function SolicitudMaterialScreen() {
                                 </View>
                               </View>
 
-                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                                 <Text style={{ color: colors.muted, fontSize: 12 }}>
                                   Cantidad: <Text style={{ color: colors.text, fontWeight: '800' }}>{qtyFmt(s.qty)} {s.unit || 'UND'}</Text>
                                   <Text style={{ color: colors.muted, fontSize: 10.5 }}> · Ticket {s.code}</Text>
                                 </Text>
+
+                                {puedeCancelarItem && (
+                                  <TouchableOpacity
+                                    onPress={() =>
+                                      abrirModalCancelar({
+                                        tipo: 'stock_item',
+                                        ids: [s.id],
+                                        codigo: s.code || grupo.codigoLote,
+                                        titulo: `${s.item_name} (${qtyFmt(s.qty)} ${s.unit || 'UND'})`,
+                                      })
+                                    }
+                                    activeOpacity={0.75}
+                                    style={{
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      backgroundColor: scheme === 'dark' ? 'rgba(239,68,68,0.16)' : '#FEF2F2',
+                                      borderWidth: 1,
+                                      borderColor: scheme === 'dark' ? '#F87171' : '#FECACA',
+                                      paddingHorizontal: 9,
+                                      paddingVertical: 4,
+                                      borderRadius: radius.sm,
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 11 }}>🚫</Text>
+                                    <Text style={{ color: scheme === 'dark' ? '#FCA5A5' : '#DC2626', fontWeight: '800', fontSize: 11 }}>
+                                      {grupo.totalItems > 1 ? 'Cancelar este repuesto' : 'Cancelar solicitud'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                )}
                               </View>
 
                               {s.cleanReason ? (
@@ -2331,9 +2542,31 @@ export default function SolicitudMaterialScreen() {
                               )}
 
                               {s.status === 'rechazado' && (
-                                <View style={{ backgroundColor: '#FEE2E2', padding: spacing.xs, borderRadius: radius.sm, marginTop: 2 }}>
-                                  <Text style={{ color: '#991B1B', fontSize: 11, fontWeight: '700' }}>
-                                    ❌ Rechazado por {rej.rejectedBy || 'Almacén'}: {rej.note || 'Sin motivo'}
+                                <View
+                                  style={{
+                                    backgroundColor: esItemCancelado
+                                      ? (scheme === 'dark' ? 'rgba(100,116,139,0.18)' : '#F1F5F9')
+                                      : '#FEE2E2',
+                                    borderLeftWidth: 3,
+                                    borderLeftColor: esItemCancelado ? '#64748B' : '#DC2626',
+                                    padding: spacing.xs,
+                                    paddingHorizontal: spacing.sm,
+                                    borderRadius: radius.sm,
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  <Text
+                                    style={{
+                                      color: esItemCancelado
+                                        ? (scheme === 'dark' ? '#E2E8F0' : '#334155')
+                                        : '#991B1B',
+                                      fontSize: 11,
+                                      fontWeight: '700',
+                                    }}
+                                  >
+                                    {esItemCancelado
+                                      ? `🚫 Cancelada por ${rej.rejectedBy || 'Solicitante'}${rej.rejectedAt ? ` (${rej.rejectedAt})` : ''}: ${rej.note || 'Cancelada por el solicitante'}`
+                                      : `❌ Rechazado por ${rej.rejectedBy || 'Almacén'}: ${rej.note || 'Sin motivo'}`}
                                   </Text>
                                 </View>
                               )}
@@ -2409,9 +2642,11 @@ export default function SolicitudMaterialScreen() {
                       {grupo.estadoGrupo === 'rechazado' && (
                         <View
                           style={{
-                            backgroundColor: '#FEE2E2',
+                            backgroundColor: grupo.todoCanceladoPorUsuario
+                              ? (scheme === 'dark' ? 'rgba(100,116,139,0.18)' : '#F1F5F9')
+                              : '#FEE2E2',
                             borderWidth: 1,
-                            borderColor: '#F87171',
+                            borderColor: grupo.todoCanceladoPorUsuario ? '#94A3B8' : '#F87171',
                             padding: spacing.xs,
                             paddingHorizontal: spacing.sm,
                             borderRadius: radius.sm,
@@ -2420,13 +2655,65 @@ export default function SolicitudMaterialScreen() {
                             gap: 6,
                           }}
                         >
-                          <Text style={{ fontSize: 14 }}>❌</Text>
-                          <Text style={{ color: '#991B1B', fontWeight: '800', fontSize: 11.5 }}>
-                            Todos los artículos de esta orden fueron rechazados.
+                          <Text style={{ fontSize: 14 }}>{grupo.todoCanceladoPorUsuario ? '🚫' : '❌'}</Text>
+                          <Text
+                            style={{
+                              color: grupo.todoCanceladoPorUsuario
+                                ? (scheme === 'dark' ? '#E2E8F0' : '#334155')
+                                : '#991B1B',
+                              fontWeight: '800',
+                              fontSize: 11.5,
+                            }}
+                          >
+                            {grupo.todoCanceladoPorUsuario
+                              ? 'Esta solicitud fue cancelada por el solicitante.'
+                              : 'Todos los artículos de esta orden fueron rechazados.'}
                           </Text>
                         </View>
                       )}
                     </>
+                  )}
+
+                  {/* Botón de cancelación a nivel de pedido (visible plegado o desplegado cuando hay pendientes) */}
+                  {permCancelarGrupo.ok && grupo.pendientesCount > 0 && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          const pendientes = grupo.items.filter((i: any) => i.status === 'pendiente' && !i.movement_id);
+                          abrirModalCancelar({
+                            tipo: 'stock_grupo',
+                            ids: pendientes.map((i: any) => i.id),
+                            codigo: grupo.codigoLote,
+                            titulo:
+                              pendientes.length === 1
+                                ? `${pendientes[0].item_name} (${qtyFmt(pendientes[0].qty)} ${pendientes[0].unit || 'UND'})`
+                                : `${pendientes.length} repuestos pendientes: ${pendientes.map((i: any) => i.item_name).slice(0, 3).join(', ')}${pendientes.length > 3 ? '…' : ''}`,
+                          });
+                        }}
+                        activeOpacity={0.75}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          backgroundColor: scheme === 'dark' ? 'rgba(239,68,68,0.16)' : '#FEF2F2',
+                          borderWidth: 1.5,
+                          borderColor: scheme === 'dark' ? '#F87171' : '#FCA5A5',
+                          paddingHorizontal: 14,
+                          paddingVertical: 8,
+                          borderRadius: radius.sm,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12 }}>🚫</Text>
+                        <Text style={{ color: scheme === 'dark' ? '#FCA5A5' : '#DC2626', fontWeight: '800', fontSize: 12 }}>
+                          {grupo.totalItems > 1
+                            ? grupo.pendientesCount === grupo.totalItems
+                              ? `Cancelar pedido completo (${grupo.pendientesCount})`
+                              : `Cancelar pendientes (${grupo.pendientesCount})`
+                            : 'Cancelar solicitud'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   )}
                 </Card>
               );
@@ -2704,19 +2991,61 @@ export default function SolicitudMaterialScreen() {
                   </View>
 
                   {/* Renglones */}
-                  <View style={{ backgroundColor: colors.surfaceAlt, padding: spacing.sm, borderRadius: radius.sm, gap: 4 }}>
-                    {(r.items || []).map((it, idx) => (
-                      <View key={idx}>
-                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
-                          • {it.name} ({qtyFmt(it.qty)} {it.unit || 'UND'})
-                        </Text>
-                        {it.note ? (
-                          <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginLeft: 8 }}>
-                            📐 Medidas/Specs: {it.note}
-                          </Text>
-                        ) : null}
-                      </View>
-                    ))}
+                  <View style={{ backgroundColor: colors.surfaceAlt, padding: spacing.sm, borderRadius: radius.sm, gap: 6 }}>
+                    {(r.items || []).map((it, idx) => {
+                      const puedeQuitarRenglon =
+                        (r.items || []).length > 1 && puedeCancelarSolicitudCompra(r, uid, fullName, esAdmin).ok;
+                      return (
+                        <View
+                          key={idx}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 6,
+                          }}
+                        >
+                          <View style={{ flex: 1, minWidth: 180 }}>
+                            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+                              • {it.name} ({qtyFmt(it.qty)} {it.unit || 'UND'})
+                            </Text>
+                            {it.note ? (
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginLeft: 8 }}>
+                                📐 Medidas/Specs: {it.note}
+                              </Text>
+                            ) : null}
+                          </View>
+
+                          {puedeQuitarRenglon && (
+                            <TouchableOpacity
+                              onPress={() =>
+                                abrirModalCancelar({
+                                  tipo: 'compra_renglon',
+                                  ids: [r.id],
+                                  codigo: `${r.code} · Renglón ${idx + 1}`,
+                                  titulo: `${it.name} (${qtyFmt(it.qty)} ${it.unit || 'UND'})`,
+                                  reqCompra: r,
+                                  renglonIdx: idx,
+                                })
+                              }
+                              style={{
+                                backgroundColor: scheme === 'dark' ? 'rgba(239,68,68,0.16)' : '#FEF2F2',
+                                borderWidth: 1,
+                                borderColor: scheme === 'dark' ? '#F87171' : '#FECACA',
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: scheme === 'dark' ? '#FCA5A5' : '#DC2626', fontSize: 10.5, fontWeight: '800' }}>
+                                ✕ Cancelar renglón
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      );
+                    })}
                   </View>
 
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2760,40 +3089,78 @@ export default function SolicitudMaterialScreen() {
                     </View>
                   )}
 
-                  {/* Cuadro de Rechazo con quién rechazó, fecha/hora y motivo */}
-                  {r.status === 'rechazado' && (
-                    <View
-                      style={{
-                        backgroundColor: '#FEE2E2',
-                        borderWidth: 1.5,
-                        borderColor: '#F87171',
-                        padding: spacing.sm,
-                        borderRadius: radius.md,
-                        marginTop: 4,
-                        gap: 3,
-                      }}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ fontSize: 15 }}>❌</Text>
-                        <Text style={{ color: '#991B1B', fontWeight: '900', fontSize: 12 }}>
-                          SOLICITUD DE COMPRA RECHAZADA
+                  {/* Cuadro de Rechazo o Cancelación por el Solicitante */}
+                  {r.status === 'rechazado' && (() => {
+                    const infoCanc = extraerCancelacionCompra(r);
+                    if (infoCanc.isCancelled) {
+                      return (
+                        <View
+                          style={{
+                            backgroundColor: scheme === 'dark' ? 'rgba(100,116,139,0.18)' : '#F8FAFC',
+                            borderWidth: 1.5,
+                            borderColor: scheme === 'dark' ? '#64748B' : '#CBD5E1',
+                            padding: spacing.sm,
+                            borderRadius: radius.md,
+                            marginTop: 4,
+                            gap: 3,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={{ fontSize: 15 }}>🚫</Text>
+                            <Text style={{ color: scheme === 'dark' ? '#E2E8F0' : '#334155', fontWeight: '900', fontSize: 12 }}>
+                              SOLICITUD CANCELADA POR EL SOLICITANTE
+                            </Text>
+                          </View>
+                          <Text style={{ color: scheme === 'dark' ? '#CBD5E1' : '#475569', fontSize: 11.5, fontWeight: '700' }}>
+                            Cancelada por: <Text style={{ fontWeight: '800' }}>{infoCanc.cancelledBy || r.decided_by_name || r.solicitante_nombre || 'Solicitante'}</Text>
+                          </Text>
+                          {infoCanc.cancelledAt || r.decided_at ? (
+                            <Text style={{ color: scheme === 'dark' ? '#94A3B8' : '#64748B', fontSize: 11 }}>
+                              📅 Fecha y hora: <Text style={{ fontWeight: '700' }}>{infoCanc.cancelledAt || (r.decided_at ? dmyTimeOf(r.decided_at) : '')}</Text>
+                            </Text>
+                          ) : null}
+                          <View style={{ backgroundColor: colors.surface, padding: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginTop: 2 }}>
+                            <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                              💬 Motivo: <Text style={{ fontWeight: '700' }}>{infoCanc.note || 'Cancelada voluntariamente por el solicitante'}</Text>
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    }
+                    return (
+                      <View
+                        style={{
+                          backgroundColor: '#FEE2E2',
+                          borderWidth: 1.5,
+                          borderColor: '#F87171',
+                          padding: spacing.sm,
+                          borderRadius: radius.md,
+                          marginTop: 4,
+                          gap: 3,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 15 }}>❌</Text>
+                          <Text style={{ color: '#991B1B', fontWeight: '900', fontSize: 12 }}>
+                            SOLICITUD DE COMPRA RECHAZADA
+                          </Text>
+                        </View>
+                        <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '700' }}>
+                          Rechazado por: <Text style={{ color: '#991B1B', fontWeight: '800' }}>{r.decided_by_name || 'Compras / Gerencia'}</Text>
                         </Text>
+                        {r.decided_at ? (
+                          <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
+                            📅 Fecha y hora de rechazo: <Text style={{ fontWeight: '700' }}>{dmyTimeOf(r.decided_at)}</Text>
+                          </Text>
+                        ) : null}
+                        <View style={{ backgroundColor: '#fff', padding: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.sm, marginTop: 2 }}>
+                          <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
+                            💬 Motivo del rechazo: <Text style={{ fontWeight: '700' }}>{r.decision_note || 'Sin motivo especificado'}</Text>
+                          </Text>
+                        </View>
                       </View>
-                      <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '700' }}>
-                        Rechazado por: <Text style={{ color: '#991B1B', fontWeight: '800' }}>{r.decided_by_name || 'Compras / Gerencia'}</Text>
-                      </Text>
-                      {r.decided_at ? (
-                        <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
-                          📅 Fecha y hora de rechazo: <Text style={{ fontWeight: '700' }}>{dmyTimeOf(r.decided_at)}</Text>
-                        </Text>
-                      ) : null}
-                      <View style={{ backgroundColor: '#fff', padding: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.sm, marginTop: 2 }}>
-                        <Text style={{ color: '#7F1D1D', fontSize: 11.5 }}>
-                          💬 Motivo del rechazo: <Text style={{ fontWeight: '700' }}>{r.decision_note || 'Sin motivo especificado'}</Text>
-                        </Text>
-                      </View>
-                    </View>
-                  )}
+                    );
+                  })()}
 
                   {/* Cuadro de Aclaratoria Técnica Pendiente */}
                   {r.status === 'aclaratoria_solicitada' && (
@@ -2936,25 +3303,63 @@ export default function SolicitudMaterialScreen() {
                     </View>
                   )}
 
-                  {/* Botón: Expediente Completo de Compra (Falta 2) */}
-                  <TouchableOpacity
-                    onPress={() => descargarExpediente(r)}
-                    style={{
-                      backgroundColor: '#1E3A5F',
-                      paddingVertical: 8,
-                      borderRadius: radius.sm,
-                      alignItems: 'center',
-                      flexDirection: 'row',
-                      justifyContent: 'center',
-                      gap: 6,
-                      marginTop: 4,
-                    }}
-                  >
-                    <Text style={{ fontSize: 13 }}>📑</Text>
-                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
-                      Expediente Completo de Compra (PDF)
-                    </Text>
-                  </TouchableOpacity>
+                  {/* Barra inferior: Expediente PDF + Botón Cancelar Solicitud (adaptable Teléfono y PC) */}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                    <TouchableOpacity
+                      onPress={() => descargarExpediente(r)}
+                      style={{
+                        flex: 1,
+                        minWidth: 200,
+                        backgroundColor: '#1E3A5F',
+                        paddingVertical: 9,
+                        paddingHorizontal: 12,
+                        borderRadius: radius.sm,
+                        alignItems: 'center',
+                        flexDirection: 'row',
+                        justifyContent: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <Text style={{ fontSize: 13 }}>📑</Text>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                        Expediente Completo de Compra (PDF)
+                      </Text>
+                    </TouchableOpacity>
+
+                    {puedeCancelarSolicitudCompra(r, uid, fullName, esAdmin).ok && (
+                      <TouchableOpacity
+                        onPress={() =>
+                          abrirModalCancelar({
+                            tipo: 'compra',
+                            ids: [r.id],
+                            codigo: r.code || 'REQ',
+                            titulo: r.title || 'Solicitud de Compra Técnica',
+                            reqCompra: r,
+                          })
+                        }
+                        activeOpacity={0.75}
+                        style={{
+                          flexGrow: Platform.OS === 'web' ? 0 : 1,
+                          minWidth: 165,
+                          backgroundColor: scheme === 'dark' ? 'rgba(239,68,68,0.16)' : '#FEF2F2',
+                          borderWidth: 1.5,
+                          borderColor: scheme === 'dark' ? '#F87171' : '#FCA5A5',
+                          paddingVertical: 9,
+                          paddingHorizontal: 14,
+                          borderRadius: radius.sm,
+                          alignItems: 'center',
+                          flexDirection: 'row',
+                          justifyContent: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <Text style={{ fontSize: 13 }}>🚫</Text>
+                        <Text style={{ color: scheme === 'dark' ? '#FCA5A5' : '#DC2626', fontWeight: '800', fontSize: 12 }}>
+                          Cancelar Solicitud
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </Card>
               );
             })
@@ -3622,7 +4027,7 @@ export default function SolicitudMaterialScreen() {
                     alignItems: 'center',
                   }}
                 >
-                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -3639,6 +4044,200 @@ export default function SolicitudMaterialScreen() {
                 >
                   <Text style={{ color: '#fff', fontWeight: '800' }}>
                     {aclaratoriaBusy ? 'Enviando…' : '✓ Enviar Respuesta'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {aclaratoriaTarget && puedeCancelarSolicitudCompra(aclaratoriaTarget, uid, fullName, esAdmin).ok && (
+                <TouchableOpacity
+                  onPress={() => {
+                    const target = aclaratoriaTarget;
+                    setModalAclaratoriaOpen(false);
+                    abrirModalCancelar({
+                      tipo: 'compra',
+                      ids: [target.id],
+                      codigo: target.code || 'REQ',
+                      titulo: target.title || 'Solicitud de Compra Técnica',
+                      reqCompra: target,
+                    });
+                  }}
+                  style={{
+                    marginTop: spacing.md,
+                    paddingVertical: 10,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: scheme === 'dark' ? '#F87171' : '#FCA5A5',
+                    backgroundColor: scheme === 'dark' ? 'rgba(239,68,68,0.14)' : '#FEF2F2',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ color: scheme === 'dark' ? '#FCA5A5' : '#DC2626', fontWeight: '800', fontSize: 12 }}>
+                    🚫 Ya no necesito este repuesto · Cancelar solicitud
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ════════════════════════════════════════════════════════════════════════ */}
+      {/* MODAL 4: CONFIRMAR CANCELACIÓN DE SOLICITUD (TELÉFONO Y PC)            */}
+      {/* ════════════════════════════════════════════════════════════════════════ */}
+      <Modal visible={modalCancelarOpen} transparent animationType="fade" onRequestClose={() => setModalCancelarOpen(false)}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: spacing.md,
+          }}
+        >
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 480,
+              backgroundColor: colors.surface,
+              borderRadius: radius.lg,
+              padding: spacing.lg,
+              borderWidth: 1.5,
+              borderColor: scheme === 'dark' ? '#7F1D1D' : '#FCA5A5',
+              maxHeight: '90%',
+            }}
+          >
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Text style={{ fontSize: 20 }}>🚫</Text>
+                <Text style={{ fontSize: 17, fontWeight: '900', color: colors.text, flex: 1 }}>
+                  Cancelar Solicitud
+                </Text>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+                Esta acción retirará la solicitud de la cola de{' '}
+                {cancelTarget?.tipo === 'compra' || cancelTarget?.tipo === 'compra_renglon' ? 'Compras' : 'Almacén'} y dejará constancia en el historial.
+              </Text>
+
+              {cancelTarget && (
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderLeftWidth: 4,
+                    borderLeftColor: '#DC2626',
+                    borderRadius: radius.md,
+                    padding: spacing.sm,
+                    marginBottom: spacing.md,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                    {cancelTarget.codigo}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                    {cancelTarget.titulo}
+                  </Text>
+                </View>
+              )}
+
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5, marginBottom: 6 }}>
+                Selecciona el motivo de cancelación (1 toque): *
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.md }}>
+                {MOTIVOS_CANCELACION_RAPIDOS.map((m) => {
+                  const active = cancelMotivoChip === m.label;
+                  return (
+                    <TouchableOpacity
+                      key={m.id}
+                      onPress={() => setCancelMotivoChip(m.label)}
+                      activeOpacity={0.75}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 8,
+                        borderRadius: radius.md,
+                        backgroundColor: active
+                          ? (scheme === 'dark' ? 'rgba(220,38,38,0.28)' : '#FEE2E2')
+                          : colors.surfaceAlt,
+                        borderWidth: 1.5,
+                        borderColor: active ? '#DC2626' : colors.border,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                    >
+                      <Text style={{ fontSize: 13 }}>{active ? '✓' : m.icon}</Text>
+                      <Text
+                        style={{
+                          color: active
+                            ? (scheme === 'dark' ? '#FCA5A5' : '#991B1B')
+                            : colors.text,
+                          fontWeight: active ? '800' : '600',
+                          fontSize: 12,
+                        }}
+                      >
+                        {m.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                Nota o explicación adicional (opcional):
+              </Text>
+              <TextInput
+                value={cancelNotaLibre}
+                onChangeText={setCancelNotaLibre}
+                placeholder="Ej: Se reparó en taller o se usó otra pieza disponible…"
+                placeholderTextColor={colors.muted}
+                multiline
+                numberOfLines={2}
+                style={[inp, { height: 64, textAlignVertical: 'top', marginBottom: spacing.md }]}
+              />
+
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                <TouchableOpacity
+                  onPress={() => setModalCancelarOpen(false)}
+                  disabled={cancelBusy}
+                  style={{
+                    flex: 1,
+                    minWidth: 120,
+                    paddingVertical: 11,
+                    borderRadius: radius.md,
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                    Volver
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={confirmarCancelacion}
+                  disabled={cancelBusy}
+                  style={{
+                    flex: 1.6,
+                    minWidth: 175,
+                    paddingVertical: 11,
+                    borderRadius: radius.md,
+                    backgroundColor: '#DC2626',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 6,
+                    opacity: cancelBusy ? 0.6 : 1,
+                  }}
+                >
+                  {cancelBusy ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={{ fontSize: 13 }}>🚫</Text>
+                  )}
+                  <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13 }}>
+                    {cancelBusy ? 'Cancelando…' : 'Confirmar Cancelación'}
                   </Text>
                 </TouchableOpacity>
               </View>

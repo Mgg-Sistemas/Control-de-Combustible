@@ -183,14 +183,19 @@ export function calcularEstadoRequerimiento(
     };
   }
 
-  if (r.status === 'rechazado') {
+  if (r.status === 'rechazado' || (r.status as string) === 'cancelado') {
+    const rawNota = String(r.decision_note || r.observaciones || '').trim();
+    const esCanceladaPorSolicitante =
+      (r.status as string) === 'cancelado' ||
+      /^\[Cancelad[oa](?:\s+por(?:\s+(?:el\s+)?solicitante)?)?:/i.test(rawNota);
+
     return {
       codigo: 'rechazado',
-      label: '❌ Rechazado',
-      short: 'Rechazado',
-      color: '#DC2626',
-      bg: '#FEE2E2',
-      icon: '❌',
+      label: esCanceladaPorSolicitante ? '🚫 Cancelada por Solicitante' : '❌ Rechazado',
+      short: esCanceladaPorSolicitante ? 'Cancelada' : 'Rechazado',
+      color: esCanceladaPorSolicitante ? '#475569' : '#DC2626',
+      bg: esCanceladaPorSolicitante ? '#F1F5F9' : '#FEE2E2',
+      icon: esCanceladaPorSolicitante ? '🚫' : '❌',
       requiereAprobacionGG: false,
       totalUSD,
       tieneProveedorCompleto: true,

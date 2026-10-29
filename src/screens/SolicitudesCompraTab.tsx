@@ -1866,7 +1866,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   </Text>
                 </TouchableOpacity>
 
-                {canWrite && r.status !== 'recibido' && (
+                {canWrite && r.status !== 'recibido' && r.status !== 'rechazado' && (
                   <TouchableOpacity
                     onPress={() => abrirEditar(r)}
                     style={{
@@ -1889,7 +1889,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   </TouchableOpacity>
                 )}
 
-                {canWrite && (
+                {canWrite && r.status !== 'rechazado' && (
                   <TouchableOpacity
                     onPress={() => abrirConvertir(r)}
                     style={{
@@ -1912,7 +1912,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   </TouchableOpacity>
                 )}
 
-                {canWrite && (
+                {canWrite && r.status !== 'rechazado' && (
                   <TouchableOpacity
                     onPress={() => abrirAclaratoria(r)}
                     style={{

@@ -4143,12 +4143,24 @@ function SolicitudesExistenciaTab({ canWrite }: { canWrite: boolean }) {
 
                           {it.status === 'rechazado' && (() => {
                             const rej = parseRejectionNote(it.rejection_note);
+                            const esCanc = Boolean(rej.isCancelled);
                             return (
-                              <View style={{ backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5', padding: 6, borderRadius: radius.sm, gap: 2 }}>
-                                <Text style={{ color: '#DC2626', fontSize: 11, fontWeight: '800' }}>
-                                  ✕ Rechazado por: {rej.rejectedBy || 'Almacén / Supervisor'}
+                              <View
+                                style={{
+                                  backgroundColor: esCanc ? '#F1F5F9' : '#FEE2E2',
+                                  borderWidth: 1,
+                                  borderColor: esCanc ? '#94A3B8' : '#FCA5A5',
+                                  padding: 6,
+                                  borderRadius: radius.sm,
+                                  gap: 2,
+                                }}
+                              >
+                                <Text style={{ color: esCanc ? '#334155' : '#DC2626', fontSize: 11, fontWeight: '800' }}>
+                                  {esCanc
+                                    ? `🚫 Cancelada por el solicitante: ${rej.rejectedBy || 'Solicitante'}`
+                                    : `✕ Rechazado por: ${rej.rejectedBy || 'Almacén / Supervisor'}`}
                                 </Text>
-                                <Text style={{ color: '#7F1D1D', fontSize: 11 }}>
+                                <Text style={{ color: esCanc ? '#475569' : '#7F1D1D', fontSize: 11 }}>
                                   Motivo: {rej.note || 'Sin motivo especificado'}
                                 </Text>
                               </View>
