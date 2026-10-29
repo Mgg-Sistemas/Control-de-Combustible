@@ -37,7 +37,7 @@ import {
   extraerEmpresaDeNota,
   pasaFiltroEmpresas,
 } from '../lib/cuentasEmpresa';
-import { pickAndUploadDocFile } from '../lib/photo';
+import { pickAndUploadDocFile, takePhotoAndUpload } from '../lib/photo';
 import { exportPdf } from '../lib/pdf';
 import { reciboCuentaHtml } from '../lib/reciboCuenta';
 import { spacing, radius } from '../theme';
@@ -316,6 +316,141 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [abRef, setAbRef] = useState('');
   const [abComprobanteUrl, setAbComprobanteUrl] = useState<string | null>(null);
   const [subiendoAbComprobante, setSubiendoAbComprobante] = useState(false);
+
+  // ── Subir Comprobante de Pago directo desde la tarjeta ────────────────────
+  const [comprobanteDe, setComprobanteDe] = useState<CuentaCalc | null>(null);
+  const [compUrl, setCompUrl] = useState<string | null>(null);
+  const [compTipo, setCompTipo] = useState<'image' | 'pdf'>('image');
+  const [compNombre, setCompNombre] = useState<string>('Comprobante de pago');
+  const [compRef, setCompRef] = useState('');
+  const [compMetodo, setCompMetodo] = useState('');
+  const [compFecha, setCompFecha] = useState(hoy);
+  const [compNota, setCompNota] = useState('');
+  const [compMarcarPagada, setCompMarcarPagada] = useState(true);
+  const [subiendoComp, setSubiendoComp] = useState(false);
+  const [guardandoComp, setGuardandoComp] = useState(false);
+
+  const abrirSubirComprobante = (c: CuentaCalc) => {
+    setComprobanteDe(c);
+    const rp = extraerReciboPagoCuenta(c);
+    const reqVinc = c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null;
+    const recReq = reqVinc ? extraerReciboPago(reqVinc) : null;
+    setCompUrl(rp?.url || recReq?.url || null);
+    setCompTipo(rp?.tipo || recReq?.tipo || 'image');
+    setCompNombre(rp?.nombre || recReq?.nombre || 'Comprobante de pago');
+    setCompRef(recReq?.referencia || '');
+    setCompMetodo(recReq?.metodo || '');
+    setCompFecha(recReq?.fecha || hoy);
+    setCompNota(recReq?.nota || '');
+    setCompMarcarPagada(c.estado !== 'pagada');
+  };
+
+  const subirArchivoComprobanteDirecto = async (origen: 'camara' | 'archivo') => {
+    if (!comprobanteDe) return;
+    setSubiendoComp(true);
+    try {
+      if (origen === 'camara') {
+        const r = await takePhotoAndUpload(comprobanteDe.id, 'recibos_pago');
+        if (r.ok && r.url) {
+          setCompUrl(r.url);
+          setCompTipo('image');
+          setCompNombre('Foto Comprobante de Pago.jpg');
+          toast.success('Foto del comprobante cargada.');
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      } else {
+        const r = await pickAndUploadDocFile('recibos_pago', comprobanteDe.id);
+        if (r.ok && r.url) {
+          setCompUrl(r.url);
+          setCompTipo(r.kind === 'pdf' ? 'pdf' : 'image');
+          setCompNombre(r.name || 'Comprobante de pago');
+          toast.success('Archivo de comprobante adjuntado.');
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      }
+    } finally {
+      setSubiendoComp(false);
+    }
+  };
+
+  const guardarComprobanteDirecto = async () => {
+    if (!comprobanteDe) return;
+    if (!compUrl && !compRef.trim() && !compNota.trim()) {
+      return toast.error('Adjunta el archivo/foto del comprobante o escribe el número de referencia.');
+    }
+    setGuardandoComp(true);
+    try {
+      const autor = session?.user?.email || 'Tesorería';
+      let notaActualizada = inyectarReciboPagoEnNota(
+        comprobanteDe.nota,
+        compUrl
+          ? {
+              url: compUrl,
+              tipo: compTipo,
+              nombre: compNombre || 'Comprobante de pago',
+              subidoPor: autor,
+            }
+          : null
+      );
+      const patchCuenta: Record<string, any> = {
+        nota: notaActualizada,
+        updated_at: nowISO(),
+      };
+      if (compMarcarPagada && comprobanteDe.estado !== 'pagada') {
+        patchCuenta.estado = 'pagada';
+        patchCuenta.settled_by = session?.user?.id ?? null;
+        patchCuenta.settled_at = nowISO();
+      }
+      const { error } = await supabase.from('cuentas').update(patchCuenta).eq('id', comprobanteDe.id);
+      if (error) throw error;
+
+      // Sincronizar también con el Requerimiento asociado si existe
+      if (comprobanteDe.inventory_requirement_id) {
+        try {
+          const { data: reqRows } = await supabase
+            .from('inventory_requirements')
+            .select('id, observaciones')
+            .eq('id', comprobanteDe.inventory_requirement_id)
+            .limit(1);
+          if (reqRows && reqRows[0]) {
+            const notaRecibo = inyectarReciboPagoEnObservaciones(reqRows[0].observaciones, {
+              url: compUrl || '',
+              tipo: compTipo,
+              nombre: compNombre || 'Comprobante de Pago Cuentas por Pagar',
+              fecha: compFecha || hoy,
+              referencia: compRef.trim() || comprobanteDe.documento || 'CXP-PAGADA',
+              monto: Number(comprobanteDe.monto) || null,
+              metodo: compMetodo.trim() || 'Cuentas por Pagar',
+              nota: compNota.trim() || null,
+              subidoPor: autor,
+              subidoAt: nowISO(),
+            });
+            await supabase
+              .from('inventory_requirements')
+              .update({ observaciones: notaRecibo })
+              .eq('id', comprobanteDe.inventory_requirement_id);
+            refetchRequirements();
+          }
+        } catch (eSync) {
+          console.warn('Sync comprobante cxp a req error:', eSync);
+        }
+      }
+
+      setComprobanteDe(null);
+      refetch();
+      toast.success(
+        compMarcarPagada
+          ? 'Comprobante de pago guardado y cuenta marcada como PAGADA.'
+          : 'Comprobante de pago guardado en la cuenta.'
+      );
+    } catch (e: any) {
+      toast.error(e?.message || 'No se pudo guardar el comprobante de pago.');
+    } finally {
+      setGuardandoComp(false);
+    }
+  };
 
   const abrirNueva = () => {
     setEdit(null); setContraparteId(null); setConcepto(''); setDocumento('');
@@ -1105,9 +1240,28 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </View>
                 ) : null}
 
-                {/* Recibo (PDF) — disponible siempre (solo lectura), con o sin permiso de escritura. */}
+                {/* Subir comprobante de pago + Recibo (PDF) */}
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-                  <TouchableOpacity onPress={() => generarRecibo(c)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  {canWrite ? (
+                    <TouchableOpacity
+                      onPress={() => abrirSubirComprobante(c)}
+                      style={{
+                        flexGrow: 1,
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.successSoftBorder,
+                        borderRadius: radius.md,
+                        paddingVertical: spacing.sm,
+                        paddingHorizontal: spacing.sm,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>
+                        {extraerReciboPagoCuenta(c)?.url ? '💳 Cambiar comprobante de pago' : '📤 Subir comprobante de pago'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity onPress={() => generarRecibo(c)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
                     <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 {tipo === 'por_cobrar' ? 'Recibo de cobro' : 'Recibo de pago'}</Text>
                   </TouchableOpacity>
                 </View>
@@ -1467,6 +1621,133 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               </TouchableOpacity>
               <TouchableOpacity onPress={guardarAbono} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
                 <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : 'Guardar abono'}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Subir Comprobante de Pago directo desde la tarjeta ─────── */}
+      <Modal visible={!!comprobanteDe} animationType="slide" onRequestClose={() => setComprobanteDe(null)}>
+        <Screen>
+          <ScrollView>
+            <SectionTitle>💳 Subir Comprobante de Pago</SectionTitle>
+            {comprobanteDe ? (
+              <>
+                <Card>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{comprobanteDe.contraparte}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{comprobanteDe.concepto}</Text>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', marginTop: spacing.xs, fontVariant: ['tabular-nums'] as any }}>
+                    Monto: {usd(Number(comprobanteDe.monto) || 0)} · Saldo: {usd(comprobanteDe.saldo)}
+                  </Text>
+                </Card>
+
+                <Card>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                    Foto o documento del comprobante / transferencia (imagen o PDF)
+                  </Text>
+                  {compUrl ? (
+                    <View style={{ gap: spacing.xs }}>
+                      <View style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, padding: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
+                        <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
+                          ✓ {compNombre || 'Comprobante adjunto'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                          <TouchableOpacity onPress={() => Linking.openURL(compUrl)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>👁️ Ver</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => setCompUrl(null)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️ Quitar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                        <TouchableOpacity onPress={() => subirArchivoComprobanteDirecto('camara')} disabled={subiendoComp} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoComp ? 0.6 : 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{subiendoComp ? '⏳ Subiendo…' : '📷 Tomar otra foto'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => subirArchivoComprobanteDirecto('archivo')} disabled={subiendoComp} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoComp ? 0.6 : 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{subiendoComp ? '⏳ Subiendo…' : '📎 Subir otro archivo/PDF'}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                      <TouchableOpacity onPress={() => subirArchivoComprobanteDirecto('camara')} disabled={subiendoComp} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoComp ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoComp ? '⏳ Subiendo…' : '📷 Tomar foto'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => subirArchivoComprobanteDirecto('archivo')} disabled={subiendoComp} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoComp ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoComp ? '⏳ Subiendo…' : '📎 Subir archivo / PDF'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </Card>
+
+                <Card>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>N° de referencia / comprobante (opcional)</Text>
+                  <TextInput value={compRef} onChangeText={setCompRef} placeholder="Ej. Ref #893421 o Voucher 4410" placeholderTextColor={colors.muted} style={inputStyle} />
+
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Método de pago (opcional)</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                    {(['Transferencia', 'Pago Móvil', 'Binance / USDT', 'Zelle', 'Efectivo'] as const).map((m) => {
+                      const on = compMetodo === m;
+                      return (
+                        <TouchableOpacity
+                          key={m}
+                          onPress={() => setCompMetodo(on ? '' : m)}
+                          style={{
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: on ? colors.brand : colors.border,
+                            backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                            paddingHorizontal: spacing.sm,
+                            paddingVertical: 5,
+                          }}
+                        >
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{m}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs, marginBottom: 4 }}>Fecha de pago (AAAA-MM-DD)</Text>
+                  <TextInput value={compFecha} onChangeText={setCompFecha} placeholder={hoy} placeholderTextColor={colors.muted} style={inputStyle} />
+
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>📝 Nota del pago (opcional)</Text>
+                  <TextInput value={compNota} onChangeText={setCompNota} placeholder="Ej. Pagado desde cuenta Banesco, tasa acordada…" placeholderTextColor={colors.muted} style={inputStyle} />
+
+                  {comprobanteDe.estado !== 'pagada' ? (
+                    <TouchableOpacity
+                      onPress={() => setCompMarcarPagada((v) => !v)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                        marginTop: spacing.md,
+                        padding: spacing.sm,
+                        borderRadius: radius.md,
+                        backgroundColor: compMarcarPagada ? colors.successSoftBg : colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: compMarcarPagada ? colors.successSoftBorder : colors.border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 16, color: compMarcarPagada ? colors.successSoftText : colors.muted }}>
+                        {compMarcarPagada ? '☑' : '☐'}
+                      </Text>
+                      <Text style={{ color: compMarcarPagada ? colors.successSoftText : colors.text, fontWeight: '800', fontSize: 12.5, flex: 1 }}>
+                        Marcar también esta cuenta como PAGADA al guardar
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </Card>
+              </>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+              <TouchableOpacity onPress={() => setComprobanteDe(null)} disabled={guardandoComp} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={guardarComprobanteDirecto} disabled={guardandoComp || subiendoComp} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoComp || subiendoComp ? 0.6 : 1 }}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{guardandoComp ? 'Guardando…' : '💾 Guardar comprobante'}</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
