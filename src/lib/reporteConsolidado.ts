@@ -113,13 +113,13 @@ export type FilaConsolidada = {
   cant?: Partial<Record<FuenteKey, number>>;
 };
 
-/** La cantidad en palabras del jefe: «36 h», «12 viajes», «48,50 t». */
+/** La cantidad en palabras del jefe: «36 h», «11,37 h», «12 viajes», «48,50 t». */
 export function cantTexto(k: FuenteKey, v: number | null | undefined): string {
   const n = Number(v ?? 0);
   if (!Number.isFinite(n) || n === 0) return '';
   if (k === 'viajes') return `${Math.round(n)} viaje${Math.round(n) === 1 ? '' : 's'}`;
   if (k === 'peso') return `${(n / 1000).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t`;
-  return `${n.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h`;
+  return `${n.toLocaleString('es-VE', { maximumFractionDigits: 2 })} h`;
 }
 
 /** Cómo se parte el cuerpo del papel (20-oct-2026: + categoría y frente; 22-oct-2026: + encargado). */
@@ -623,7 +623,7 @@ export function cantTotalFila(f: FilaConsolidada, op: OpcionesConsolidado): stri
       totH += Number(f.cant?.[k] ?? 0);
     }
   }
-  if (totH > 0) return `${totH.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h`;
+  if (totH > 0) return `${totH.toLocaleString('es-VE', { maximumFractionDigits: 2 })} h`;
   if (fuentesConTotal.includes('viajes') && f.cant?.viajes) return `${Math.round(f.cant.viajes)} viajes`;
   if (fuentesConTotal.includes('peso') && f.cant?.peso) return `${(f.cant.peso / 1000).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t`;
   return '—';
@@ -1060,7 +1060,7 @@ export function resumenConsolidado(d: {
 
   if (op.sinPagos) {
     const totH = r2((t.cantPorFuente.jornadas ?? 0) + (t.cantPorFuente.horometros ?? 0));
-    tarjetas.push({ k: 'total', titulo: '⏱️ TOTAL HORAS', valor: totH > 0 ? `${totH.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h` : '—', nota: `Del ${dmy(d.desde)} al ${dmy(d.hasta)}` });
+    tarjetas.push({ k: 'total', titulo: '⏱️ TOTAL HORAS', valor: totH > 0 ? `${totH.toLocaleString('es-VE', { maximumFractionDigits: 2 })} h` : '—', nota: `Del ${dmy(d.desde)} al ${dmy(d.hasta)}` });
   } else {
     tarjetas.push({ k: 'total', titulo: '💰 TOTAL GENERAL', valor: usd(t.total), nota: `Del ${dmy(d.desde)} al ${dmy(d.hasta)}` });
   }
@@ -1180,7 +1180,7 @@ export function resumenConsolidado(d: {
         k: 'hora_prom',
         titulo: '🕐 Hora promedio de maquinaria',
         valor: ct.usdPorHora != null ? `${usd(ct.usdPorHora)} /h` : '—',
-        nota: `${ct.horas.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h facturadas de maquinaria (por máquina: horómetro si lo hay, si no jornada) por ${usd(ct.costo)}${ct.usdPorHora == null ? ' · sin horas en el rango' : ''}`,
+        nota: `${ct.horas.toLocaleString('es-VE', { maximumFractionDigits: 2 })} h facturadas de maquinaria (por máquina: horómetro si lo hay, si no jornada) por ${usd(ct.costo)}${ct.usdPorHora == null ? ' · sin horas en el rango' : ''}`,
       });
     }
   }
@@ -1398,7 +1398,7 @@ export function cuerpoConsolidado(d: {
           const totHGen = r2(empresas.reduce((s, e) => s + (e.cantPorFuente.jornadas ?? 0) + (e.cantPorFuente.horometros ?? 0), 0));
           html += `<h3>${esc(c.titulo)}</h3><table><thead><tr><th>Empresa</th><th class="r">Máquinas</th>${colsP.map((col) => `<th class="r">${col.th}</th>`).join('')}<th class="r">TOTAL HORAS</th><th class="r">% de horas</th></tr></thead><tbody>${empresas.map((e) => {
             const eh = r2((e.cantPorFuente.jornadas ?? 0) + (e.cantPorFuente.horometros ?? 0));
-            return `<tr><td>${esc(e.empresa)}</td><td class="r">${e.maquinas}</td>${colsP.map((col) => `<td class="${clsCol(col)}">${celdaColumna(col, e.porFuente, e.cantPorFuente, conCant, false, true)}</td>`).join('')}<td class="r b">${eh > 0 ? `${eh.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h` : '—'}</td><td class="r">${totHGen > 0 && eh > 0 ? `${Math.round((eh / totHGen) * 100)}%` : '—'}</td></tr>`;
+            return `<tr><td>${esc(e.empresa)}</td><td class="r">${e.maquinas}</td>${colsP.map((col) => `<td class="${clsCol(col)}">${celdaColumna(col, e.porFuente, e.cantPorFuente, conCant, false, true)}</td>`).join('')}<td class="r b">${eh > 0 ? `${eh.toLocaleString('es-VE', { maximumFractionDigits: 2 })} h` : '—'}</td><td class="r">${totHGen > 0 && eh > 0 ? `${Math.round((eh / totHGen) * 100)}%` : '—'}</td></tr>`;
           }).join('')}</tbody></table>`;
         } else {
           html += `<h3>${esc(c.titulo)}</h3><table><thead><tr><th>Empresa</th><th class="r">Máquinas</th>${colsP.map((col) => `<th class="r">${col.th}</th>`).join('')}<th class="r">TOTAL</th><th class="r">% del total</th></tr></thead><tbody>${empresas.map((e) => `<tr><td>${esc(e.empresa)}</td><td class="r">${e.maquinas}</td>${colsP.map((col) => `<td class="${clsCol(col)}">${celdaColumna(col, e.porFuente, e.cantPorFuente, conCant)}</td>`).join('')}<td class="r b">${usd(e.total)}</td><td class="r">${t.total > 0 ? `${Math.round((e.total / t.total) * 100)}%` : '—'}</td></tr>`).join('')}</tbody></table>`;
@@ -1407,7 +1407,7 @@ export function cuerpoConsolidado(d: {
       }
       // ⚖️ El cuadro sobre todo el acarreo cierra con su fila TOTAL resaltada.
       const ultimaEsTotal = c.k === 'ton_acarreo_total';
-      html += `<h3>${esc(c.titulo)}</h3><table><tbody>${c.filas.map((f, i) => `<tr${ultimaEsTotal && i === c.filas.length - 1 ? ' class="tot"' : ''}><td>${esc(f.clave)}</td><td class="r b">${op.sinPagos && c.k === 'top5' ? `${Number(f.n).toLocaleString('es-VE', { maximumFractionDigits: 1 })} h` : usd(f.n)}</td></tr>`).join('')}</tbody></table>`;
+      html += `<h3>${esc(c.titulo)}</h3><table><tbody>${c.filas.map((f, i) => `<tr${ultimaEsTotal && i === c.filas.length - 1 ? ' class="tot"' : ''}><td>${esc(f.clave)}</td><td class="r b">${op.sinPagos && c.k === 'top5' ? `${Number(f.n).toLocaleString('es-VE', { maximumFractionDigits: 2 })} h` : usd(f.n)}</td></tr>`).join('')}</tbody></table>`;
     }
   }
 
@@ -1458,7 +1458,7 @@ export function cuerpoConsolidado(d: {
             celda: (x) => {
               if (op.sinPagos) {
                 const dh = r2((x.cant.jornadas ?? 0) + (x.cant.horometros ?? 0));
-                return dh > 0 ? `${dh.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h` : '—';
+                return dh > 0 ? `${dh.toLocaleString('es-VE', { maximumFractionDigits: 2 })} h` : '—';
               }
               return usd(x.total);
             },
@@ -1481,7 +1481,7 @@ export function cuerpoConsolidado(d: {
           if (k === 'total') {
             if (op.sinPagos) {
               const totH = r2(ds.reduce((s, x) => s + (x.cant.jornadas ?? 0) + (x.cant.horometros ?? 0), 0));
-              return totH > 0 ? `${totH.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h` : '—';
+              return totH > 0 ? `${totH.toLocaleString('es-VE', { maximumFractionDigits: 2 })} h` : '—';
             }
             return usd(sumaDias);
           }
@@ -1522,7 +1522,7 @@ export function cuerpoConsolidado(d: {
     const porF = colsP.map((c) => `<td class="${clsCol(c)}">${celdaColumna(c, sM, sQ, conCant, true, sinPagos)}</td>`).join('');
     if (sinPagos) {
       const totH = r2((sQ.jornadas ?? 0) + (sQ.horometros ?? 0));
-      return `<tr class="${clase}"><td colspan="${cols}">${esc(etiqueta)}</td>${porF}<td class="r">${totH > 0 ? `${totH.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h` : '—'}</td></tr>`;
+      return `<tr class="${clase}"><td colspan="${cols}">${esc(etiqueta)}</td>${porF}<td class="r">${totH > 0 ? `${totH.toLocaleString('es-VE', { maximumFractionDigits: 2 })} h` : '—'}</td></tr>`;
     }
     const tot = r2(lista.reduce((s, f) => s + totalFila(f, op), 0));
     return `<tr class="${clase}"><td colspan="${cols}">${esc(etiqueta)}</td>${porF}<td class="r">${usd(tot)}</td></tr>`;

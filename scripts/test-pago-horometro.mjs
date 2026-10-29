@@ -371,6 +371,24 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   ok('el panel ofrece Agrupar por (empresa / encargado) y usa los grupos de la librería', /agruparPor/.test(panel9) && /gruposPagoHorometro\(/.test(panel9));
 }
 
+// ── 10. Fracción exacta de jornada 12h ($83,33 -> $1.000 / 12) (29-oct-2026) ──
+{
+  eq('⭐ precioHoraEfectivo reconstruye $1.000/12 desde $83,33', Math.round(P.precioHoraEfectivo(83.33) * 12 * 100) / 100, 1000);
+  eq('⭐ precioHoraEfectivo deja intactos precios exactos ($10/h, $50/h)', [P.precioHoraEfectivo(10), P.precioHoraEfectivo(50)], [10, 50]);
+  const filasJumbo = P.filasPagoHorometro({
+    maquinas: [{ id: 'j1', code: 'JUMBO CON MARTILLO', placa: 'CAT0323DKTDT11135', empresa: 'GOLDEN TOUCH 1127 CA', clasificacion: 'Tierra', marca: 'CAT', modelo: '323' }],
+    lecturas: [
+      L('j1', '2026-10-14', 'day', 1000, 1009.3),
+      L('j1', '2026-10-15', 'day', 1009.3, 1020.1),
+    ],
+    precios: [precio('pj1', 'j1', 83.33, '2026-10-01')],
+    desde: '2026-10-14',
+    hasta: '2026-10-15',
+  });
+  eq('⭐⭐ 9,3 h y 10,8 h a $83,33/h ($1.000/12) dan $775,00 y $900,00 exactos como en el Excel',
+    filasJumbo[0].dias.map((d) => d.monto), [775, 900]);
+}
+
 console.log('\nCONTROL DE HORÓMETROS — pago por horómetro, al lado de Control de jornadas\n');
 if (failures.length) console.log(failures.join('\n'));
 console.log(`\n${failures.length ? '❌' : '✅'} test-pago-horometro · ${pass} ok · ${fail} fallando\n`);

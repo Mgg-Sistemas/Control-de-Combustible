@@ -59,6 +59,18 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 const r2 = (n: number): number => Math.round(n * 100) / 100;
+/**
+ * Si el precio por hora viene de dividir una jornada entera de 12 h a 2 decimales
+ * (ej. $83,33 de $1.000/12, o $41,67 de $500/12), usa la fracción exacta (J/12)
+ * para que no se pierdan 3 o 4 centavos diarios frente al cálculo por jornada.
+ */
+export function precioHoraEfectivo(precioHora: number): number {
+  const jEntera = Math.round(precioHora * 12);
+  if (jEntera > 0 && Math.abs(r2(jEntera / 12) - r2(precioHora)) < 0.001) {
+    return jEntera / 12;
+  }
+  return precioHora;
+}
 const limpio = (v: unknown): string => String(v ?? '').replace(/\s+/g, ' ').trim();
 const esFecha = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -562,8 +574,9 @@ export function filasPagoHorometro(opts: {
         const cc = porCambio.get(`${m.id}|${fecha}`);
         const horasDia = cc ? Math.max(0, r2(h.horas + cc.horas)) : h.horas;
         const sinPrecio = horasDia > 0 && precio == null;
+        const tarifaEfectiva = precio != null ? precioHoraEfectivo(precio) : null;
         d = {
-          ...h, horas: horasDia, fecha, precio, monto: precio != null ? r2(horasDia * precio) : 0, sinPrecio, cerrado: false,
+          ...h, horas: horasDia, fecha, precio, monto: tarifaEfectiva != null ? r2(horasDia * tarifaEfectiva) : 0, sinPrecio, cerrado: false,
           cambio: !!cc, horasCambio: cc ? cc.horas : 0, motivoCambio: cc ? cc.motivos.join(' · ') : '',
         };
         if (h.estado === 'invalida' || h.estado === 'incompleta' || sinPrecio) alertas++;

@@ -869,6 +869,10 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     && !/con relleno automático por día/.test(C.sufijoArchivoConsolidado(AUTO)));
   ok('* apagar el aviso también se dice en el nombre (regla de la casa)',
     /sin aviso de huecos/.test(C.sufijoArchivoConsolidado({ ...AUTO, avisoHuecosHorometro: false })));
+  // 2 decimales de horas cuando existen (ej. 11,37 h no se recorta a 11,4 h), manteniendo enteros y 1 decimal limpios.
+  eq('⭐⭐ cantTexto muestra hasta 2 decimales en horas (11,37 h) sin ensuciar enteros (36 h) ni 1 decimal (10,5 h)',
+    [C.cantTexto('jornadas', 11.37), C.cantTexto('horometros', 11.11), C.cantTexto('jornadas', 36), C.cantTexto('horometros', 10.5)],
+    ['11,37 h', '11,11 h', '36 h', '10,5 h']);
 }
 
 if (fail) {

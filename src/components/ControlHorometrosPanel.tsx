@@ -32,7 +32,7 @@ import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import {
   AjusteHorometro, AgruparPagoHorometro, COLUMNAS_PAGO_HOROMETRO, CSS_PAGO_HOROMETRO, OPCIONES_PAGO_HOROMETRO, OpcionesPagoHorometro, PASTILLAS_PAGO_HOROMETRO,
   PrecioHorometro, CambioHorometro, MaquinaPago, cuerpoPagoHorometro, filasPagoHorometro, fmtHoras, gruposPagoHorometro, motivoAlertaDia, pagoPorEmpresa,
-  sufijoArchivoPagoHorometro, textoPrecioHorometro, totalPagoHorometro, usd, validarPrecioHorometro,
+  precioHoraEfectivo, sufijoArchivoPagoHorometro, textoPrecioHorometro, totalPagoHorometro, usd, validarPrecioHorometro,
   CierreHorometro, cierresSolapados, filasDeCierre, validarCierreHorometro,
 } from '../lib/pagoHorometro';
 import {
@@ -634,7 +634,7 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
                         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Precio por HORA de horómetro (USD)</Text>
                         <TextInput value={pPrecio} onChangeText={setPPrecio} keyboardType="numeric" inputMode="decimal" placeholder="0,00" placeholderTextColor={colors.muted} style={input} />
                         {aNumero(pPrecio) > 0 ? (
-                          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Equivale a {usd(aNumero(pPrecio) * 12)} por 12 horas de horómetro.</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Equivale a {usd(precioHoraEfectivo(aNumero(pPrecio)) * 12)} por 12 horas de horómetro.</Text>
                         ) : null}
                         {ref != null ? (
                           <TouchableOpacity onPress={() => setPPrecio(String(Math.round((ref / 12) * 100) / 100))}>
