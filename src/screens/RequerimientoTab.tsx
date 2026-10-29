@@ -84,6 +84,7 @@ import {
   limpiarCondicionesPagoDeNota,
   inyectarCondicionesPagoEnNota,
 } from '../lib/cuentasPago';
+import { PRIORIDADES_COMPRA, PRIORIDAD_COMPRA_INFO, PrioridadCompra, esPrioridadCompra, colorPrioridad, faltaColumnaSyncCompras, parcheExtrasReq, ExtrasReq } from '../lib/prioridadCompra';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -642,6 +643,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [respId, setRespId] = useState<string | null>(null);
   const [respNombre, setRespNombre] = useState<string | null>(null);
   const [almacenistas, setAlmacenistas] = useState<{ id: string; name: string }[]>([]);
+  // 🔺 PRIORIDAD y 🏍️ MOTORIZADO responsable (29-oct-2026, a pedido). El motorizado
+  // puede ser un almacenista de la lista o un nombre escrito a mano. Son columnas
+  // nuevas: se guardan en un update APARTE y solo si cambiaron (lib/prioridadCompra),
+  // para que el guardado no se caiga si el SQL del 29-oct aún no se corrió.
+  const [prioridadReq, setPrioridadReq] = useState<PrioridadCompra | null>(null);
+  const [motoId, setMotoId] = useState<string | null>(null);
+  const [motoNombre, setMotoNombre] = useState('');
+  const [extrasAntes, setExtrasAntes] = useState<ExtrasReq | null>(null);
   useEffect(() => {
     if (!createOpen) return;
     (async () => {
@@ -1352,6 +1361,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setEmpresaPagadoraId(null); setEmpresaPagadoraNombre(null);
     setAlicuotaIva('16');
     setRows([]); setFormatos([]); setRespId(null); setRespNombre(null);
+    setPrioridadReq(null); setMotoId(null); setMotoNombre(''); setExtrasAntes(null);
     setSolicitante(SIN_PERSONA); setAutorizado(SIN_PERSONA);
     setDestino(null); setArea(''); setAreaLibre(false); setCondicionesPago(''); setObservaciones('');
   };
@@ -1756,20 +1766,24 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
       if (error) throw error;
 
-      // Sincronización automática con Cuentas por Pagar si existe una cuenta ligada
+      // Sincronización automática con Cuentas por Pagar si existe una cuenta ligada.
+      // ⚠️ 29-oct-2026: se busca por inventory_requirement_id. Antes era
+      //    «order_id = id del requerimiento O el mismo proveedor»: lo primero nunca
+      //    calzaba y lo segundo agarraba CUALQUIER cuenta de ese proveedor (la factura
+      //    podía caer en la cuenta equivocada). Y si no se subió recibo, la nota se deja
+      //    como está (antes se le borraba el recibo que ya tuviera).
       try {
-        if (facturaTarget.id || facturaTarget.supplier_id) {
+        if (facturaTarget.id) {
           const { data: ctas } = await supabase
             .from('cuentas')
             .select('id, nota, factura_url')
-            .or(`order_id.eq.${facturaTarget.id},supplier_id.eq.${facturaTarget.supplier_id || '00000000-0000-0000-0000-000000000000'}`)
+            .eq('inventory_requirement_id', facturaTarget.id)
             .limit(1);
           if (ctas && ctas.length > 0) {
             const targetCta = ctas[0];
-            const notaCta = inyectarReciboPagoEnNota(
-              targetCta.nota,
-              reciboPagoUrl ? { url: reciboPagoUrl, tipo: reciboPagoTipo || 'image', nombre: 'Recibo de pago', subidoPor: userName || 'Requerimientos' } : null
-            );
+            const notaCta = reciboPagoUrl
+              ? inyectarReciboPagoEnNota(targetCta.nota, { url: reciboPagoUrl, tipo: reciboPagoTipo || 'image', nombre: 'Recibo de pago', subidoPor: userName || 'Requerimientos' })
+              : targetCta.nota;
             await supabase.from('cuentas').update({
               nota: notaCta,
               factura_url: dataFac?.url || targetCta.factura_url,
@@ -1812,15 +1826,20 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         .eq('id', r.id);
       if (error) throw error;
 
-      // También revertir en Cuentas por Pagar si tiene cuenta asociada
+      // También revertir en Cuentas por Pagar si tiene cuenta asociada.
+      // ⚠️ 29-oct-2026: se busca por inventory_requirement_id (con order_id nunca
+      //    calzaba y la cuenta seguía pagada). Si la cuenta tiene ABONOS no se tocan
+      //    aquí (antes se borraban sin avisar): se revierte desde Por pagar, que avisa.
+      let ctaConAbonos = false;
       try {
         const { data: ctas } = await supabase
           .from('cuentas')
           .select('id, nota')
-          .eq('order_id', r.id);
+          .eq('inventory_requirement_id', r.id);
         if (ctas && ctas.length > 0) {
           for (const cta of ctas) {
-            await supabase.from('cuenta_abonos').delete().eq('cuenta_id', cta.id);
+            const { count: nAbonos } = await supabase.from('cuenta_abonos').select('id', { count: 'exact', head: true }).eq('cuenta_id', cta.id);
+            if ((nAbonos ?? 0) > 0) { ctaConAbonos = true; continue; }
             const notaSinRec = inyectarReciboPagoEnNota(cta.nota, null);
             await supabase.from('cuentas').update({
               estado: 'pendiente',
@@ -1837,6 +1856,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
       refetch();
       refetchCuentas();
+      if (ctaConAbonos) {
+        toast.error(`Pago revertido en ${r.code}, pero su cuenta por pagar tiene abonos: revierte el pago desde Por pagar para decidir qué pasa con ellos.`);
+        return;
+      }
       toast.success(`Pago revertido en ${r.code}. Volvió a Pendiente por Pagar en Requerimientos y en Cuentas por Pagar.`);
     } catch (e: any) {
       toast.error(e?.message ?? 'No se pudo revertir el pago.');
@@ -2157,6 +2180,15 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     // Columna nueva (17-oct-2026): si el SQL del responsable aún no se corrió, el
     // guardado NO se cae — se reintenta sin esos campos y se avisa.
     const faltaColResp = (msg: string) => /responsable/i.test(msg) && /column|does not exist|schema cache|no existe/i.test(msg);
+    // 🔺🏍️ Prioridad y motorizado (29-oct-2026): update APARTE, solo con lo que cambió.
+    //    Devuelve lo que NO se pudo guardar (para el aviso), o '' si todo bien.
+    const guardarExtras = async (id: string, antes: ExtrasReq | null) => {
+      const parche = parcheExtrasReq(antes, { prioridad: prioridadReq, motorizado_user_id: motoId, motorizado_nombre: motoNombre });
+      if (Object.keys(parche).length === 0) return '';
+      const { error: exErr } = await supabase.from('inventory_requirements').update(parche).eq('id', id);
+      if (!exErr) return '';
+      return faltaColumnaSyncCompras(exErr.message) ? 'la prioridad ni el motorizado' : `la prioridad ni el motorizado (${exErr.message})`;
+    };
     if (editId) {
       const base = {
         title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId,
@@ -2192,6 +2224,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         respGuardado = false;
         ({ error } = await supabase.from('inventory_requirements').update(base).eq('id', editId));
       }
+      if (error) { setBusy(false); setFormErr(error.message); return toast.error(error.message); }
+      const extrasFalta = await guardarExtras(editId, extrasAntes);
       setBusy(false);
       if (error) { setFormErr(error.message); return toast.error(error.message); }
       // Sincronizar condiciones de pago hacia la cuenta por pagar vinculada (si existe)
@@ -2209,7 +2243,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       } catch {}
       setCreateOpen(false); limpiarForm();
       refetch();
-      const faltas = [!respGuardado ? 'el responsable' : '', !nuevosGuardados ? 'quién solicitó/autorizó, el área y las observaciones' : '']
+      const faltas = [!respGuardado ? 'el responsable' : '', !nuevosGuardados ? 'quién solicitó/autorizó, el área y las observaciones' : '', extrasFalta]
         .filter(Boolean).join(' ni ');
       toast.success(faltas
         ? `Requerimiento actualizado (no se guardó ${faltas}: falta correr el SQL).`
@@ -2235,6 +2269,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     let nuevosCampos: Record<string, any> = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones: conFormatos });
     let nuevosFaltaSql = false;
     let ivaCampos: Record<string, any> = { iva_alicuota: alicNum };
+    let insertedId: string | null = null;
     for (let intento = 0; intento < 6 && !saved; intento++) {
       const { data: codeRows, error: readErr } = await supabase.from('inventory_requirements').select('code');
       if (readErr || !codeRows) {
@@ -2249,7 +2284,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, status: 'pendiente', items,
         requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos, ...nuevosCampos, ...empresaCampos, ...ivaCampos,
       }).select('id, code').single();
-      if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; saved = true; break; }
+      if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; insertedId = (inserted as any)?.id ?? null; saved = true; break; }
       // Falta la columna de iva_alicuota: se reintenta sin ella
       if (Object.keys(ivaCampos).length && /iva_alicuota/i.test(error.message)) { ivaCampos = {}; intento--; continue; }
       // Falta la columna de empresa pagadora: se reintenta sin ella
@@ -2263,8 +2298,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       setBusy(false);
       setFormErr(error.message); return toast.error(error.message);
     }
+    if (!saved) { setBusy(false); const m = 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.'; setFormErr(m); return toast.error(m); }
+    const extrasFaltaAlta = insertedId ? await guardarExtras(insertedId, null) : '';
     setBusy(false);
-    if (!saved) { const m = 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.'; setFormErr(m); return toast.error(m); }
     // 🔔 EL AVISO AL RESPONSABLE LO MANDA LA BASE, NO LA APP (18-oct-2026). El
     // trigger trg_notify_requirement_responsable (gemelo del que avisa a los admin)
     // crea la notificación dirigida (recipient_id) al INSERTAR con responsable y al
@@ -2278,6 +2314,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       respFaltaSql ? 'el responsable' : '',
       nuevosFaltaSql ? 'quién solicitó/autorizó, el área y las observaciones' : '',
       empresaFaltaSql ? 'la empresa pagadora' : '',
+      extrasFaltaAlta,
     ].filter(Boolean).join(' ni ');
     toast.success(sinSql
       ? `Requerimiento ${code} enviado. ⚠️ No se guardó ${sinSql} (falta correr el SQL); el aviso sí se envió.`
@@ -2295,6 +2332,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setEmpresaPagadoraNombre(r.empresa_pagadora_nombre ?? null);
     setRespId(r.responsable_id ?? null);
     setRespNombre(r.responsable_nombre ?? null);
+    setPrioridadReq(esPrioridadCompra(r.prioridad) ? r.prioridad : null);
+    setMotoId(r.motorizado_user_id ?? null);
+    setMotoNombre(r.motorizado_nombre ?? '');
+    setExtrasAntes({ prioridad: r.prioridad ?? null, motorizado_user_id: r.motorizado_user_id ?? null, motorizado_nombre: r.motorizado_nombre ?? null });
     // 👤 Lo del 20-oct. Un requerimiento viejo no los trae: quedan en blanco y el
     //    formulario se ve igual que siempre.
     setSolicitante({ nombre: r.solicitante_nombre ?? null, employeeId: r.solicitante_employee_id ?? null });
@@ -2658,32 +2699,37 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             return s + pr * parseNum(it.qty);
           }, 0);
 
+          // ⚠️ 29-oct-2026: la cuenta del requerimiento se busca por
+          //    inventory_requirement_id (con order_id nunca calzaba: se intentaba
+          //    crear otra cuenta con el id del requerimiento como orden y fallaba).
           const { data: existCxp } = await supabase
             .from('cuentas')
             .select('id, nota')
-            .eq('order_id', recvFor.id)
+            .eq('inventory_requirement_id', recvFor.id)
             .limit(1);
 
           if (existCxp && existCxp.length > 0) {
             const prevNota = (existCxp[0] as any).nota || '';
             const nuevaNotaCxp = notaGenTrim
-              ? `${prevNota ? prevNota + ' · ' : ''}Nota recepción almacén: ${notaGenTrim}`
+              ? `${prevNota ? prevNota + '\n' : ''}Nota recepción almacén: ${notaGenTrim}`
               : undefined;
-            await supabase
+            // Sin `monto`: en la cuenta atada lo pone la base desde los renglones del
+            // requerimiento (la guardia trg_cxp_req_guardia rechaza cambiarlo aquí).
+            const { error: cxpUpdErr } = await supabase
               .from('cuentas')
               .update({
                 documento: recvFacturaNumero.trim() || undefined,
                 factura_url: recvFacturaUrl || undefined,
-                monto: totalMontoRecv > 0 ? totalMontoRecv : undefined,
                 ...(nuevaNotaCxp ? { nota: nuevaNotaCxp } : {}),
                 updated_at: nowISO(),
               })
               .eq('id', existCxp[0].id);
-          } else {
-            await supabase.from('cuentas').insert({
+            if (cxpUpdErr) console.warn('Sync cxp error:', cxpUpdErr.message);
+          } else if (totalMontoRecv > 0) {
+            const { error: cxpInsErr } = await supabase.from('cuentas').insert({
               tipo: 'por_pagar',
               supplier_id: recvFor.supplier_id,
-              order_id: recvFor.id,
+              inventory_requirement_id: recvFor.id,
               concepto: `Compra recibida en almacén: ${recvFor.title || recvFor.code}`,
               documento: recvFacturaNumero.trim() || null,
               factura_url: recvFacturaUrl || null,
@@ -2694,6 +2740,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               nota: `Factura cargada por Almacén al recibir requerimiento ${recvFor.code}.${notaGenTrim ? ` Nota: ${notaGenTrim}` : ''}`,
               created_by: uid,
             });
+            if (cxpInsErr) console.warn('Sync cxp error:', cxpInsErr.message);
           }
         } catch (cxpErr) {
           console.warn('Sync cxp error:', cxpErr);
@@ -3144,6 +3191,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                     <Pill label={estDinamico.label} color={estDinamico.color} />
                                   )}
                                   {faltaPrecio ? <Pill label="❗ Pendiente por cargar precio" color={colors.danger} /> : null}
+                                  {esPrioridadCompra(r.prioridad) ? <Pill label={`Prioridad ${PRIORIDAD_COMPRA_INFO[r.prioridad].label}`} color={colorPrioridad(colors, r.prioridad).text} /> : null}
                                 </View>
                               </View>
 
@@ -3317,6 +3365,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               })()}
                               {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
                               {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
+                              {r.motorizado_nombre ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>🏍️ Motorizado responsable: {r.motorizado_nombre}</Text> : null}
                               {(() => {
                                 const fmts = extraerFormatosAdjuntos(r);
                                 if (fmts.length === 0) return null;
@@ -4132,6 +4181,50 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   <Text style={{ color: colors.muted, fontSize: 11 }}>No hay usuarios con rol de almacenista todavía (se asigna en Usuarios).</Text>
                 ) : null}
               </View>
+
+              {/* 🏍️ MOTORIZADO RESPONSABLE (29-oct-2026, a pedido): quien lleva o busca
+                  la compra. Puede ser un almacenista de la lista o un nombre a mano. */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Motorizado responsable</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[{ id: null as string | null, name: 'Sin motorizado' }, ...almacenistas].map((a) => {
+                  const on = a.id ? motoId === a.id : (!motoId && !motoNombre.trim());
+                  return (
+                    <TouchableOpacity key={a.id ?? '__moto_none__'} onPress={() => { setMotoId(a.id); setMotoNombre(a.id ? a.name : ''); }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{a.id ? `🏍️ ${a.name}` : a.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={motoId ? '' : motoNombre}
+                onChangeText={(t) => { setMotoId(null); setMotoNombre(t); }}
+                placeholder="…o escribe el nombre del motorizado (si hace falta)"
+                placeholderTextColor={colors.muted}
+                style={{ marginTop: 6, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+              />
+
+              {/* 🔺 PRIORIDAD (29-oct-2026): la misma de Por pagar; se copia sola a su cuenta. */}
+              {editId ? (
+                <>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Prioridad (opcional)</Text>
+                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                    {PRIORIDADES_COMPRA.map((p) => {
+                      const on = prioridadReq === p;
+                      const t = colorPrioridad(colors, p);
+                      return (
+                        <TouchableOpacity key={p} onPress={() => setPrioridadReq(on ? null : p)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? t.border : colors.border, backgroundColor: on ? t.bg : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                          <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 12 }}>{PRIORIDAD_COMPRA_INFO[p].label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    {prioridadReq ? (
+                      <TouchableOpacity onPress={() => setPrioridadReq(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Quitar ✕</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </>
+              ) : null}
 
               {/* 👤 QUIÉN LO SOLICITÓ Y QUIÉN LO AUTORIZÓ (20-oct-2026, a pedido).
                   Salen de la NÓMINA —que acá solo se lee— y, si la persona no está,

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Link
 import { Screen, Card, SectionTitle, EmptyState, Loading, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
+import { PRIORIDADES_COMPRA, PRIORIDAD_COMPRA_INFO, PrioridadCompra, esPrioridadCompra, colorPrioridad, faltaColumnaSyncCompras, ESTADOS_REQ_ACEPTADO } from '../lib/prioridadCompra';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
@@ -538,6 +539,16 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const [convertItemSuppliers, setConvertItemSuppliers] = useState<Record<number, string | null>>({});
   const [convertSupQ, setConvertSupQ] = useState('');
   const [convertSupOpen, setConvertSupOpen] = useState(false);
+
+  // 🔺 PRIORIDAD (29-oct-2026, a pedido): ya aceptada la solicitud, se le pone el
+  // nivel de prioridad. Update APARTE (columna nueva) y la base la copia a su cuenta
+  // por pagar. Si el SQL del 29-oct aún no se corrió, se avisa y no se rompe nada.
+  const ponerPrioridad = async (r: InventoryRequirement, p: PrioridadCompra | null) => {
+    const { error } = await supabase.from('inventory_requirements').update({ prioridad: p }).eq('id', r.id);
+    if (error) return toast.error(faltaColumnaSyncCompras(error.message) ? 'La prioridad aún no se puede guardar: falta correr el SQL del 29-oct.' : error.message);
+    refetch();
+    toast.success(p ? `Prioridad ${PRIORIDAD_COMPRA_INFO[p].label} puesta en ${r.code}.` : `Prioridad quitada de ${r.code}.`);
+  };
 
   // Abrir Modal de Conversión a Requerimiento
   const abrirConvertir = (r: InventoryRequirement) => {
@@ -1477,6 +1488,27 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   </View>
                 </View>
               </TouchableOpacity>
+
+              {/* 🔺 Prioridad: solo cuando la solicitud ya fue aceptada (29-oct-2026) */}
+              {ESTADOS_REQ_ACEPTADO.includes(r.status) && (canWrite || esPrioridadCompra(r.prioridad)) ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>Prioridad:</Text>
+                  {PRIORIDADES_COMPRA.filter((p) => canWrite || r.prioridad === p).map((p) => {
+                    const on = r.prioridad === p;
+                    const t = colorPrioridad(colors, p);
+                    return (
+                      <TouchableOpacity key={p} disabled={!canWrite} onPress={() => ponerPrioridad(r, on ? null : p)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? t.border : colors.border, backgroundColor: on ? t.bg : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                        <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 11.5 }}>{PRIORIDAD_COMPRA_INFO[p].label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {canWrite && esPrioridadCompra(r.prioridad) ? (
+                    <TouchableOpacity onPress={() => ponerPrioridad(r, null)} style={{ paddingHorizontal: spacing.xs, paddingVertical: 3 }}>
+                      <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 11.5 }}>Quitar ✕</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : null}
 
               {/* Fila de Metadatos Obligatorios (Quién, Fecha/Hora, Destino, Área) */}
               <View

@@ -8200,6 +8200,20 @@ Es la **libreta de deudas** de la empresa. Compras te dice **qué se compró**; 
 *Compras → pestañas 💸 **Por pagar** y 💰 **Por cobrar***, junto a Requerimiento, 🛒 Compras directas, Órdenes,
 Proveedores y Resumen.
 
+> **🔗 Por pagar, requerimiento y orden van sincronizados** *(29/10/2026)*. Una cuenta que nace de un
+> requerimiento dice arriba **«🔗 Se sincroniza con REQ-…»**. El **proveedor** se cambia en cualquiera de
+> los tres (cuenta, requerimiento u orden) y **gana el último que guarda**; si la cuenta ya está **pagada**,
+> el proveedor queda como se pagó (primero se revierte el pago), y si los renglones del requerimiento son de
+> **varios proveedores**, se cambia en el requerimiento, renglón por renglón. El **monto** sale de los
+> renglones del requerimiento: en la cuenta y en la orden se ve de solo lectura. La empresa pagadora, el
+> Nº de factura y las notas ya no se borran al guardar.
+> **🔺 Prioridad:** ya aceptada la solicitud, en *Compras → Solicitudes* se toca 🔺 Alta / 🔸 Media /
+> 🔹 Baja (o «Quitar ✕»); también en ✏️ Editar del requerimiento. Es la **misma** prioridad de Por pagar y
+> se copia sola en los dos sentidos.
+> **🏍️ Motorizado responsable:** en el formulario del requerimiento se elige de la lista de almacenistas o se
+> escribe el nombre a mano; sale en el detalle. Necesita el SQL del 29-oct; mientras no se corra, el
+> requerimiento se guarda igual y avisa que la prioridad o el motorizado no se guardaron.
+
 **Dos pestañas arriba:**
 - **💸 Por pagar** — lo que la empresa le debe a sus **proveedores**.
 - **💰 Por cobrar** — lo que las **empresas** le deben a la empresa.

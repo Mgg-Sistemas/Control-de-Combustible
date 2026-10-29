@@ -294,6 +294,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [subiendoReciboPago, setSubiendoReciboPago] = useState(false);
   const [empresaFormId, setEmpresaFormId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 🔗 Cuenta que nace de un requerimiento (29-oct-2026): proveedor, empresa y
+  // prioridad se sincronizan con él (y con su orden) desde la base; el monto sale de
+  // sus renglones y, pagada, el proveedor queda como se pagó.
+  const atadaReq = !!edit?.inventory_requirement_id;
+  const reqAtado = atadaReq ? requirements.find((r) => r.id === edit?.inventory_requirement_id) ?? null : null;
+  const proveedorBloqueado = atadaReq && edit?.estado === 'pagada';
 
   // Órdenes de compra ligables (con etiqueta legible). Solo las de esta contraparte
   // si se puede resolver; si no, todas. purchase_orders puede estar vacía.
@@ -406,6 +412,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       fecha_vencimiento: vence || null,
       nota: notaFinal,
     };
+    // 🔗 Atada a un requerimiento: el monto y el vínculo los pone la base
+    //    (req_sync_compra); no se reenvían para no chocar con trg_cxp_req_guardia.
+    if (edit?.inventory_requirement_id) { delete (fila as any).monto; delete (fila as any).order_id; }
 
     setBusy(true);
     const { error } = edit
@@ -432,13 +441,15 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       .eq('id', c.id);
     if (error) return toast.error(error.message);
 
-    // Sincronización automática con el requerimiento de compras si nació de uno
-    if (c.order_id) {
+    // Sincronización automática con el requerimiento de compras si nació de uno.
+    // ⚠️ 29-oct-2026: el requerimiento se busca por inventory_requirement_id; order_id
+    //    es el id de la ORDEN y con él la búsqueda fallaba sin avisar.
+    if (c.inventory_requirement_id) {
       try {
         const { data: reqRows } = await supabase
           .from('inventory_requirements')
           .select('id, observaciones')
-          .eq('id', c.order_id)
+          .eq('id', c.inventory_requirement_id)
           .limit(1);
         if (reqRows && reqRows[0]) {
           const recExist = extraerReciboPago(reqRows[0]);
@@ -460,7 +471,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             await supabase
               .from('inventory_requirements')
               .update({ observaciones: notaRecibo })
-              .eq('id', c.order_id);
+              .eq('id', c.inventory_requirement_id);
           }
         }
       } catch (eSync) {
@@ -492,7 +503,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       title: 'Revertir pago / Volver a pendiente',
       message: `¿Devolver a PENDIENTE la cuenta de ${c.contraparte} (${c.concepto})?` +
         (tieneAbonos ? `\n\nSe eliminarán también los abonos registrados (${usd(c.abonado)}) para restaurar el saldo completo.` : '') +
-        (c.order_id ? '\n\nTambién se revertirá el estado de pago en el Requerimiento de Compra asociado.' : ''),
+        (c.inventory_requirement_id ? '\n\nTambién se revertirá el estado de pago en el Requerimiento de Compra asociado.' : ''),
       confirmText: 'Volver a pendiente',
     });
     if (!ok) return;
@@ -506,12 +517,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     if (error) return toast.error(error.message);
 
     // Sincronizar con el requerimiento si está ligado (quitar recibo de pago y devolver a aprobado si estaba en esperando_recepcion/pagado)
-    if (c.order_id) {
+    if (c.inventory_requirement_id) {
       try {
         const { data: reqRows } = await supabase
           .from('inventory_requirements')
           .select('id, status, observaciones')
-          .eq('id', c.order_id)
+          .eq('id', c.inventory_requirement_id)
           .limit(1);
         if (reqRows && reqRows[0]) {
           const rRow = reqRows[0] as any;
@@ -520,7 +531,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           await supabase
             .from('inventory_requirements')
             .update({ observaciones: obsSinRecibo, status: nextStatus })
-            .eq('id', c.order_id);
+            .eq('id', c.inventory_requirement_id);
         }
       } catch (eSync) {
         console.warn('Sync reabrir cxp a req error:', eSync);
@@ -610,12 +621,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     if (error) return toast.error(error.message);
 
     // Sincronización automática con requerimiento si el abono saldó la deuda
-    if (importe >= abonoDe.saldo && abonoDe.order_id) {
+    if (importe >= abonoDe.saldo && abonoDe.inventory_requirement_id) {
       try {
         const { data: reqRows } = await supabase
           .from('inventory_requirements')
           .select('id, observaciones')
-          .eq('id', abonoDe.order_id)
+          .eq('id', abonoDe.inventory_requirement_id)
           .limit(1);
         if (reqRows && reqRows[0]) {
           const notaRecibo = inyectarReciboPagoEnObservaciones(
@@ -635,7 +646,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           await supabase
             .from('inventory_requirements')
             .update({ observaciones: notaRecibo })
-            .eq('id', abonoDe.order_id);
+            .eq('id', abonoDe.inventory_requirement_id);
         }
       } catch (eSync) {
         console.warn('Sync cxp abono a req error:', eSync);
@@ -1125,14 +1136,21 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           <ScrollView>
             <SectionTitle>{edit ? 'Editar cuenta' : `Nueva cuenta ${cfg.label.toLowerCase()}`}</SectionTitle>
 
+            {atadaReq ? (
+              <Card>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🔗 Se sincroniza con {reqAtado?.code || 'su requerimiento'}</Text>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>El proveedor, la empresa y la prioridad que cambies aquí pasan al requerimiento y a su orden (y al revés). El monto sale de los renglones del requerimiento.</Text>
+              </Card>
+            ) : null}
+
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>{cfg.contraparteLabel}</Text>
-              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>{cfg.contraparteHint}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>{proveedorBloqueado ? '🔒 La cuenta ya está pagada: el proveedor queda como se pagó. Para cambiarlo, primero revierte el pago.' : cfg.contraparteHint}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                 {maestro.map((m) => {
                   const on = contraparteId === m.id;
                   return (
-                    <TouchableOpacity key={m.id} onPress={() => setContraparteId(m.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <TouchableOpacity key={m.id} disabled={proveedorBloqueado} onPress={() => setContraparteId(m.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                       <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{m.name}</Text>
                     </TouchableOpacity>
                   );
@@ -1204,7 +1222,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Monto (USD)</Text>
-              <TextInput value={monto} onChangeText={setMonto} keyboardType="numeric" placeholder="0.00" placeholderTextColor={colors.muted} style={inputStyle} />
+              <TextInput value={monto} onChangeText={setMonto} editable={!atadaReq} keyboardType="numeric" placeholder="0.00" placeholderTextColor={colors.muted} style={[inputStyle, atadaReq ? { opacity: 0.6 } : null]} />
+              {atadaReq ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>🔒 Sale de los renglones de {reqAtado?.code || 'su requerimiento'}: si está mal, corrígelo en el requerimiento.</Text> : null}
               <Text style={{ color: colors.brandText, fontWeight: '800', textAlign: 'right', marginTop: 4, fontVariant: ['tabular-nums'] as any }}>{usd(parseNum(monto))}</Text>
             </Card>
 
@@ -1306,7 +1325,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             {/* Atar a una orden de compra (opcional) */}
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Atar a una compra (orden, opcional)</Text>
-              {orders.length === 0 ? (
+              {atadaReq ? (
+                <Text style={{ color: colors.muted, fontSize: 13 }}>🔗 Atada a la orden de {reqAtado?.code || 'su requerimiento'}: el vínculo no se cambia aquí.</Text>
+              ) : orders.length === 0 ? (
                 <Text style={{ color: colors.muted, fontSize: 13 }}>No hay órdenes de compra registradas todavía.</Text>
               ) : (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>

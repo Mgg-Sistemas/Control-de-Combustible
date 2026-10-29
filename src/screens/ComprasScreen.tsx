@@ -1603,12 +1603,19 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
 
   const openEdit = (o: PurchaseOrder) => { setSel(o); setSupplier(o.supplier_id ?? ''); setItems(o.items || []); setNote(o.note ?? ''); };
   const readOnly = sel ? sel.status !== 'borrador' : false;
+  // 🔗 Orden que nace de un requerimiento (29-oct-2026): renglones y total los escribe
+  // req_sync_compra desde el requerimiento (lo que se tecleara aquí se pisaba). El
+  // proveedor sí se elige aquí: la base lo pasa al requerimiento y a su cuenta.
+  const atadaReq = !!sel?.inventory_requirement_id;
+  const renglonesOrden = () => (atadaReq ? {} : { items, total: linesTotal(items) });
 
   const guardar = async () => {
     if (!sel) return;
     setBusy(true);
-    await supabase.from('purchase_orders').update({ supplier_id: supplier || null, items, total: linesTotal(items), note: note.trim() || null }).eq('id', sel.id);
-    setBusy(false); setSel(null); refetch();
+    const { error } = await supabase.from('purchase_orders').update({ supplier_id: supplier || null, ...renglonesOrden(), note: note.trim() || null }).eq('id', sel.id);
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    setSel(null); refetch();
   };
 
   const aprobar = async () => {
@@ -1616,7 +1623,8 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
     if (!supplier) return toast.error('Elige el proveedor antes de aprobar.');
     const ok = await confirm({ title: 'Aprobar orden', message: `Aprobar la orden a ${supplierName(supplier)} por ${usd(linesTotal(items))}?`, confirmText: 'Aprobar' });
     if (!ok) return;
-    await supabase.from('purchase_orders').update({ supplier_id: supplier, items, total: linesTotal(items), note: note.trim() || null, status: 'aprobada', approved_by: session?.user?.id ?? null, approved_at: nowISO() }).eq('id', sel.id);
+    const { error } = await supabase.from('purchase_orders').update({ supplier_id: supplier, ...renglonesOrden(), note: note.trim() || null, status: 'aprobada', approved_by: session?.user?.id ?? null, approved_at: nowISO() }).eq('id', sel.id);
+    if (error) return toast.error(error.message);
     setSel(null); refetch();
   };
 
@@ -1753,7 +1761,8 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
             </Card>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Renglones (precio unitario)</Text>
-              <LineEditor items={items} setItems={setItems} priceLabel="Precio unit." readOnly={readOnly} catalog={catalog} />
+              {atadaReq ? <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>🔗 Salen del requerimiento: los renglones y el total se corrigen allá (aquí se pisarían).</Text> : null}
+              <LineEditor items={items} setItems={setItems} priceLabel="Precio unit." readOnly={readOnly || atadaReq} catalog={catalog} />
             </Card>
             {!readOnly ? (
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>

@@ -936,6 +936,14 @@ export interface InventoryRequirement {
   empresa_pagadora_id?: string | null;
   empresa_pagadora_nombre?: string | null;
 
+  // 🔺 Prioridad (29-oct-2026): mismos valores que cuentas.prioridad y la base la
+  // copia en los dos sentidos con la cuenta por pagar. NULL = sin prioridad.
+  prioridad?: 'alta' | 'media' | 'baja' | null;
+  // 🏍️ Motorizado responsable (29-oct-2026): un usuario de la lista (puede ser un
+  // almacenista) o un nombre escrito a mano; el nombre se guarda siempre aparte.
+  motorizado_user_id?: string | null;
+  motorizado_nombre?: string | null;
+
   // 👔 Filtro de Seguridad por Monto (> $1,000 USD): Aprobación del Gerente General antes del Pago
   gerente_aprobado?: boolean | null;
   gerente_aprobado_por?: string | null;
@@ -1931,7 +1939,10 @@ export interface Cuenta {
   /** Nombre libre de la contraparte cuando NO viene del catálogo (p. ej. empresa
    *  de mangueras): una 'por_cobrar' vale con company_id O con contraparte. */
   contraparte: string | null;
-  order_id: string | null;        // orden de compra que originó la deuda
+  order_id: string | null;        // orden de compra que originó la deuda (id de la ORDEN, no del requerimiento)
+  // 🔗 Requerimiento del que nace la cuenta (la crea req_sync_compra). Ojo: el
+  // requerimiento se busca por ESTA columna, nunca por order_id (29-oct-2026).
+  inventory_requirement_id?: string | null;
   concepto: string;
   documento: string | null;       // Nº de factura / control / recibo
   factura_url: string | null;     // archivo de la factura (imagen/PDF) en storage
