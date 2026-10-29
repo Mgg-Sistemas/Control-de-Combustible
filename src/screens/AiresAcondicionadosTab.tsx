@@ -286,8 +286,41 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     if (ok) setEditUnitModal(false);
   };
 
+  // 🗑️ Eliminar unidades del catálogo (29-oct-2026). Solo se quitan de la lista: los
+  // mantenimientos ya registrados (servicios y sus cuentas por pagar) NO se tocan.
+  const eliminarUnidades = async (codes: string[]) => {
+    if (!canWrite) return toast.error('No tienes permiso de escritura en Compras.');
+    const set = new Set(codes);
+    const afectadas = unidadesCalc.filter((u) => set.has(u.code));
+    if (afectadas.length === 0) return;
+    const conHistorial = afectadas.filter((u) => u.mantenimientosCount > 0).length;
+    const ok = await confirm({
+      title: afectadas.length === 1 ? `Eliminar ${afectadas[0].code}` : `Eliminar ${afectadas.length} unidades`,
+      message: (afectadas.length === 1
+        ? `¿Eliminar el aire ${afectadas[0].code} (${afectadas[0].area}) de la lista?`
+        : `¿Eliminar estas ${afectadas.length} unidades de la lista?
+${afectadas.slice(0, 12).map((u) => u.code).join(', ')}${afectadas.length > 12 ? '…' : ''}`) +
+        (conHistorial > 0 ? `
+
+${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas por pagar se conservan.` : ''),
+      confirmText: 'Eliminar',
+      danger: true,
+    });
+    if (!ok) return;
+    const restantes = unidadesCatalogo.filter((u) => !set.has(u.code));
+    const guardado = await guardarCatalogoEnSupabase(
+      restantes,
+      afectadas.length === 1 ? `${afectadas[0].code} eliminado.` : `${afectadas.length} unidades eliminadas.`,
+    );
+    if (guardado) setSelCodes(new Set());
+  };
+
   const abrirNuevaUnidadExtra = () => {
-    const nextNum = unidadesCatalogo.length + 1;
+    // Siguiente número libre (con unidades eliminadas, «cantidad + 1» repetiría un código).
+    const nextNum = unidadesCatalogo.reduce((max, u) => {
+      const n = Number((u.code.match(/(\d+)\s*$/) || [])[1]);
+      return Number.isFinite(n) && n > max ? n : max;
+    }, 0) + 1;
     const nextCode = `AA-${String(nextNum).padStart(2, '0')}`;
     setEditBatchMode(false);
     setEditCode(nextCode);
@@ -631,7 +664,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       </View>
 
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Control riguroso de las {kpis.total} unidades de aire acondicionado en la base (AA-01 a AA-37): ubicación, BTU, ciclo de mantenimiento, checklist técnico y envío directo a Cuentas por Pagar.
+        Control riguroso de las {kpis.total} unidades de aire acondicionado cargadas: ubicación, BTU, ciclo de mantenimiento, checklist técnico y envío directo a Cuentas por Pagar.
       </Text>
 
       {/* Tarjetas KPI interactivas del Semáforo Riguroso (responsivas en móvil y PC) */}
@@ -735,6 +768,13 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
               >
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>✕ Quitar marca</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => eliminarUnidades(Array.from(selCodes))}
+                disabled={savingCatalog}
+                style={{ backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.dangerSoftBorder, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+              >
+                <Text style={{ color: colors.dangerSoftText, fontSize: 11, fontWeight: '800' }}>🗑️ Eliminar los {selCodes.size} marcados</Text>
+              </TouchableOpacity>
             </>
           ) : null}
         </View>
@@ -744,7 +784,11 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       {loading ? (
         <Loading />
       ) : lista.length === 0 ? (
-        <EmptyState title="Sin unidades en este filtro" subtitle="Cambia el filtro del semáforo o el texto de búsqueda." />
+        unidadesCatalogo.length === 0 ? (
+          <EmptyState title="Sin aires cargados" subtitle="Usa «+ Unidad» para cargar cada aire acondicionado." />
+        ) : (
+          <EmptyState title="Sin unidades en este filtro" subtitle="Cambia el filtro del semáforo o el texto de búsqueda." />
+        )
       ) : (
         lista.map((u) => {
           const sc = semaforoColors(u.semaforo);
@@ -859,6 +903,21 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
                           ✏️ Editar ubicación / BTU / ciclo
                         </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => eliminarUnidades([u.code])}
+                        disabled={savingCatalog}
+                        style={{
+                          backgroundColor: colors.dangerSoftBg,
+                          borderWidth: 1,
+                          borderColor: colors.dangerSoftBorder,
+                          borderRadius: radius.md,
+                          paddingVertical: spacing.sm,
+                          paddingHorizontal: spacing.md,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 12.5 }}>🗑️ Eliminar</Text>
                       </TouchableOpacity>
                     </View>
                   ) : null}

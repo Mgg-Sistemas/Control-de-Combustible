@@ -203,8 +203,10 @@ export function generar37UnidadesBase(existentes: AcUnit[] = []): AcUnit[] {
  */
 export function extraerCatalogoAiresDeServicios(servicios: ServicioRecord[]): AcUnit[] {
   const master = (servicios || []).find((s) => s.code === AC_MASTER_CODE);
+  // 29-oct-2026 (a pedido: «borra todos esos, que los van a cargar manualmente»):
+  // ya NO se inventan las 37 unidades de relleno. Se muestra solo lo que se cargó.
   if (!master || !Array.isArray(master.items)) {
-    return generar37UnidadesBase([]);
+    return [];
   }
   const guardadas: AcUnit[] = [];
   for (const raw of master.items as any[]) {
@@ -227,7 +229,9 @@ export function extraerCatalogoAiresDeServicios(servicios: ServicioRecord[]): Ac
       });
     }
   }
-  return generar37UnidadesBase(guardadas);
+  return guardadas.sort((a, b) =>
+    a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' }),
+  );
 }
 
 /**
