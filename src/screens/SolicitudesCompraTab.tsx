@@ -34,6 +34,11 @@ import {
   resolverEmpresaRequerimiento,
   ID_SIN_EMPRESA_REQ,
   puedeUsuarioAprobarRequerimiento,
+  esSolicitudDeCompra,
+  estaSolicitudConvertidaEnRequerimiento,
+  marcarObservacionesComoConvertidaEnReq,
+  preservarMarcadoresSolicitudEnObservaciones,
+  limpiarMarcadoresSolicitudDeTexto,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
 import { spacing, radius } from '../theme';
@@ -399,14 +404,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
 
   // 1. Universo base de solicitudes técnicas pertenecientes a esta bandeja
   const solicitudesBase = useMemo(() => {
-    return (allReqs || []).filter((r) => {
-      const isTecnico =
-        Boolean(r.solicitante_nombre) ||
-        (r.title && r.title.toLowerCase().includes('pedido técnico')) ||
-        (r.observaciones && r.observaciones.toLowerCase().includes('portal técnico')) ||
-        r.items.some((it) => Boolean(it.note && it.note.trim()));
-      return isTecnico;
-    });
+    return (allReqs || []).filter((r) => esSolicitudDeCompra(r));
   }, [allReqs]);
 
   // 1b. Conteo y filtro por Empresa (una o varias empresas seleccionadas)
@@ -446,30 +444,34 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     return solicitudesBuscadas.map((r) => {
       const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
       const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
-      return { req: r, est, provGeneral };
+      const yaConvertido = estaSolicitudConvertidaEnRequerimiento(r);
+      return { req: r, est, provGeneral, yaConvertido };
     });
   }, [solicitudesBuscadas, suppliers, rate, configAprobacion]);
 
-  // Contadores reactivos precisos
+  // Contadores reactivos precisos (separando Solicitudes sin convertir vs ya convertidas en Requerimiento)
   const countTodos = solicitudesConEstado.length;
   const countPorCotizar = useMemo(
     () =>
       solicitudesConEstado.filter(
-        ({ est }) => est.codigo === 'esperando_proveedor' || est.codigo === 'esperando_cotizacion'
+        ({ est, yaConvertido }) =>
+          !yaConvertido && est.codigo !== 'aclaratoria_solicitada' && est.codigo !== 'rechazado'
       ).length,
     [solicitudesConEstado]
   );
   const countEsperandoAprobacion = useMemo(
     () =>
       solicitudesConEstado.filter(
-        ({ est }) => est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG)
+        ({ est, yaConvertido }) =>
+          yaConvertido && (est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG))
       ).length,
     [solicitudesConEstado]
   );
   const countEsperandoPago = useMemo(
     () =>
       solicitudesConEstado.filter(
-        ({ est }) => est.codigo === 'esperando_pago'
+        ({ est, yaConvertido }) =>
+          yaConvertido && (est.codigo === 'esperando_pago' || est.codigo === 'aprobado')
       ).length,
     [solicitudesConEstado]
   );
@@ -480,7 +482,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const countConvertidos = useMemo(
     () =>
       solicitudesConEstado.filter(
-        ({ est }) => est.codigo === 'aprobado' || est.codigo === 'esperando_recepcion' || est.codigo === 'recibido'
+        ({ est, yaConvertido }) => yaConvertido && est.codigo !== 'rechazado'
       ).length,
     [solicitudesConEstado]
   );
@@ -494,21 +496,24 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     if (filterEstado === 'por_cotizar' || filterEstado === 'pendiente') {
       return solicitudesConEstado
         .filter(
-          ({ est }) => est.codigo === 'esperando_proveedor' || est.codigo === 'esperando_cotizacion'
+          ({ est, yaConvertido }) =>
+            !yaConvertido && est.codigo !== 'aclaratoria_solicitada' && est.codigo !== 'rechazado'
         )
         .map((x) => x.req);
     }
     if (filterEstado === 'esperando_aprobacion_gg') {
       return solicitudesConEstado
         .filter(
-          ({ est }) => est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG)
+          ({ est, yaConvertido }) =>
+            yaConvertido && (est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG))
         )
         .map((x) => x.req);
     }
     if (filterEstado === 'esperando_pago') {
       return solicitudesConEstado
         .filter(
-          ({ est }) => est.codigo === 'esperando_pago'
+          ({ est, yaConvertido }) =>
+            yaConvertido && (est.codigo === 'esperando_pago' || est.codigo === 'aprobado')
         )
         .map((x) => x.req);
     }
@@ -520,7 +525,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     if (filterEstado === 'convertido') {
       return solicitudesConEstado
         .filter(
-          ({ est }) => est.codigo === 'aprobado' || est.codigo === 'esperando_recepcion' || est.codigo === 'recibido'
+          ({ est, yaConvertido }) => yaConvertido && est.codigo !== 'rechazado'
         )
         .map((x) => x.req);
     }
@@ -601,49 +606,55 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       const updatedItems = convertTarget.items.map((it, idx) => {
         const supId = convertItemSuppliers[idx] !== undefined ? convertItemSuppliers[idx] : convertSupplierId;
         const supObj = supId ? suppliers.find((s) => s.id === supId) : null;
+        const rawPrice = priceNum > 0 ? priceNum : Number(it.est_price) || 0;
+        const curr = priceNum > 0 ? convertCurrency : (it.currency || 'USD');
+        const pUsd =
+          curr === 'VES'
+            ? rate && rate > 0
+              ? Math.round((rawPrice / rate) * 10000) / 10000
+              : rawPrice
+            : rawPrice;
+        const pBs =
+          curr === 'VES'
+            ? rawPrice
+            : rate && rate > 0
+              ? Math.round(pUsd * rate * 100) / 100
+              : Number(it.price_bs) || 0;
+        const qty = Math.max(0.0001, Number(it.qty) || 1);
         return {
           ...it,
-          est_price: priceNum > 0 ? priceNum : it.est_price || 0,
-          currency: convertCurrency,
+          est_price: pUsd,
+          price_usd: pUsd,
+          price_bs: pBs,
+          total_usd: Math.round(pUsd * qty * 100) / 100,
+          total_bs: Math.round(pBs * qty * 100) / 100,
+          currency: 'USD' as const,
           supplier_id: supId || null,
-          supplier_name: supObj?.name || null,
+          supplier_name: supObj?.name || it.supplier_name || null,
         };
       });
 
       const empPagadora = companies.find((c) => c.id === convertEmpresaPagadoraId);
-      const totalConvertUSD = updatedItems.reduce((acc, it) => {
-        const sub = (Number(it.qty) || 0) * (Number(it.est_price) || 0);
-        if (it.currency === 'VES') return acc + (rate && rate > 0 ? sub / rate : 0);
-        return acc + sub;
-      }, 0);
-      const limiteRegla = configAprobacion.exigirEnTodos ? 0 : (Number(configAprobacion.montoLimiteUSD) >= 0 ? Number(configAprobacion.montoLimiteUSD) : 0);
-      const requierePrimeroAprobador = Boolean(
-        configAprobacion.activo && (configAprobacion.exigirEnTodos || totalConvertUSD > limiteRegla)
-      );
-      const soyAprobadorDesignado = puedeUsuarioAprobarRequerimiento({
-        userId: session?.user?.id,
-        fullName,
-        role,
-        appRoleName: appRole?.name,
-        config: configAprobacion,
-      });
-      const pasaDirectoAprobado = !requierePrimeroAprobador || soyAprobadorDesignado || Boolean(convertTarget.gerente_aprobado);
       const supplierIdEfectivo = convertSupplierId || updatedItems.find((it) => it.supplier_id)?.supplier_id || null;
 
+      // 🔗 FLUJO ESTRICTO (Solicitud → Requerimiento → Por Pagar):
+      // Convertir una Solicitud la transforma en un Requerimiento en la pestaña 📝 Requerimiento (status = 'pendiente').
+      // Recién cuando el Requerimiento se apruebe en 📝 Requerimiento pasará a 💸 Por Pagar.
+      const yaEstabaAprobado =
+        convertTarget.status === 'aprobado' ||
+        convertTarget.status === 'esperando_recepcion' ||
+        convertTarget.status === 'recibido';
+
       const patchPayload: Record<string, any> = {
-        status: pasaDirectoAprobado ? 'aprobado' : 'pendiente',
+        status: yaEstabaAprobado ? convertTarget.status : 'pendiente',
         supplier_id: supplierIdEfectivo,
         company_id: convertCompanyId || convertTarget.company_id || null,
         empresa_pagadora_id: convertEmpresaPagadoraId || null,
         empresa_pagadora_nombre: empPagadora?.name || null,
         items: updatedItems,
         note: convertNote.trim() || convertTarget.note || null,
-        decided_by: pasaDirectoAprobado ? (session?.user?.id || null) : null,
-        decided_by_name: pasaDirectoAprobado ? (fullName || 'Compras') : null,
-        decided_at: pasaDirectoAprobado ? nowISO() : null,
-        decision_note: pasaDirectoAprobado
-          ? 'Solicitud convertida a Requerimiento oficial de compra.'
-          : 'Cotización cargada en Solicitudes; pendiente de aprobación por el usuario designado.',
+        observaciones: marcarObservacionesComoConvertidaEnReq(convertTarget.observaciones),
+        decision_note: '[CONVERTIDO_EN_REQ] Solicitud convertida en Requerimiento oficial.',
       };
 
       let { error } = await supabase
@@ -679,9 +690,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       }
 
       toast.success(
-        pasaDirectoAprobado
-          ? `¡Solicitud ${convertTarget.code} convertida en Requerimiento oficial de compra!`
-          : `Cotización registrada en ${convertTarget.code}. Queda pendiente de aprobación por ${configAprobacion.aprobadoresNombres.join(' / ') || 'Gerencia General'}.`
+        `¡Solicitud ${convertTarget.code} convertida en Requerimiento! Ahora aparece en la pestaña 📝 Requerimiento para su revisión y aprobación.`
       );
       setConvertTarget(null);
       refetch();
@@ -771,12 +780,13 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     setEditDestinoTipo((r.destino_tipo as any) || 'maquinaria');
 
     let destText = '';
+    const obsLimpia = limpiarMarcadoresSolicitudDeTexto(r.observaciones);
     if (r.title && r.title.includes('para ')) {
       destText = r.title.split('para ')[1]?.trim();
-    } else if (r.observaciones && r.observaciones.includes('para ')) {
-      destText = r.observaciones.split('para ')[1]?.trim();
-    } else if (r.observaciones) {
-      destText = r.observaciones;
+    } else if (obsLimpia && obsLimpia.includes('para ')) {
+      destText = obsLimpia.split('para ')[1]?.trim();
+    } else if (obsLimpia) {
+      destText = obsLimpia;
     }
     setEditDestinoTexto(destText);
     setEditMachineSearch('');
@@ -895,7 +905,10 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         solicitante_nombre: editSolicitante.trim() || null,
         area: editArea.trim() || null,
         destino_tipo: editDestinoTipo,
-        observaciones: editDestinoTexto.trim() ? editDestinoTexto.trim() : null,
+        observaciones: preservarMarcadoresSolicitudEnObservaciones(
+          editTarget.observaciones,
+          editDestinoTexto.trim() ? editDestinoTexto.trim() : limpiarMarcadoresSolicitudDeTexto(editTarget.observaciones)
+        ),
         note: editNote.trim() || null,
         items: finalItems,
         // Sin `updated_at`: inventory_requirements NO tiene esa columna y mandarla hacía
@@ -1483,6 +1496,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         solicitudes.map((r) => {
           const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
           const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
+          const yaConvertida = estaSolicitudConvertidaEnRequerimiento(r);
           const primerItem = r.items[0];
           // 📷 Foto GENERAL de la solicitud (28-oct-2026): con un renglón, la de ese renglón; con
           //    varios, solo un adjunto propio de la solicitud, nunca la COPIA de la foto de un
@@ -1518,6 +1532,38 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 </View>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {yaConvertida ? (
+                    <View
+                      style={{
+                        backgroundColor: '#DBEAFE',
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: '#2563EB',
+                      }}
+                    >
+                      <Text style={{ color: '#1E40AF', fontWeight: '800', fontSize: 10.5 }} numberOfLines={1}>
+                        🔄 Convertida en Requerimiento
+                      </Text>
+                    </View>
+                  ) : r.status !== 'rechazado' && r.status !== 'aclaratoria_solicitada' ? (
+                    <View
+                      style={{
+                        backgroundColor: '#FEF3C7',
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: '#D97706',
+                      }}
+                    >
+                      <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 10.5 }} numberOfLines={1}>
+                        📥 Solicitud (Sin convertir a Req.)
+                      </Text>
+                    </View>
+                  ) : null}
+
                   <View
                     style={{
                       backgroundColor: est.bg,
@@ -1553,7 +1599,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               </TouchableOpacity>
 
               {/* 🔺 Prioridad: cuando la solicitud ya fue aceptada o convertida en requerimiento (29-oct-2026) */}
-              {(ESTADOS_REQ_ACEPTADO.includes(r.status) || est.tieneCotizacionCompleta) && (canWrite || esPrioridadCompra(r.prioridad)) ? (
+              {(yaConvertida || ESTADOS_REQ_ACEPTADO.includes(r.status) || est.tieneCotizacionCompleta) && (canWrite || esPrioridadCompra(r.prioridad)) ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
                   <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>Prioridad:</Text>
                   {PRIORIDADES_COMPRA.filter((p) => canWrite || r.prioridad === p).map((p) => {
@@ -2233,7 +2279,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     style={{
                       flex: 2,
                       minWidth: 160,
-                      backgroundColor: colors.brand,
+                      backgroundColor: yaConvertida ? colors.surfaceAlt : colors.brand,
+                      borderWidth: yaConvertida ? 1.5 : 0,
+                      borderColor: colors.brand,
                       paddingVertical: 9,
                       paddingHorizontal: spacing.sm,
                       borderRadius: radius.md,
@@ -2244,8 +2292,8 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     }}
                   >
                     <Text style={{ fontSize: 14 }}>🔄</Text>
-                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
-                      Convertir a Requerimiento
+                    <Text style={{ color: yaConvertida ? colors.brandText : colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                      {yaConvertida ? 'Actualizar Requerimiento' : 'Convertir a Requerimiento'}
                     </Text>
                   </TouchableOpacity>
                 )}

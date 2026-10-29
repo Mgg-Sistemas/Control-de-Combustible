@@ -73,6 +73,9 @@ import {
   resolverEmpresaRequerimiento,
   pasaFiltroEmpresasReq,
   calcularConteoEmpresasReq,
+  esRequerimientoVisibleEnBandejaRequerimientos,
+  preservarMarcadoresSolicitudEnObservaciones,
+  limpiarMarcadoresSolicitudDeTexto,
   type InfoEstadoRequerimiento,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
@@ -398,7 +401,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const canReceive = isAdmin || levelMeets(moduleLevel('inventario'), 'full');
   const uid = session?.user?.id ?? null;
   const { rate } = useBcvRate();
-  const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
+  const { data: allReqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
+  // 🔗 FLUJO ESTRICTO: Cualquier Solicitud es primero una Solicitud en `📥 Solicitudes`;
+  // recién cuando se convierte en Requerimiento aparece en `📝 Requerimiento`.
+  const reqs = useMemo(
+    () => (allReqs || []).filter((r) => esRequerimientoVisibleEnBandejaRequerimientos(r)),
+    [allReqs]
+  );
   // Filtro por estatus del requerimiento (+ "esperando_aprobacion_gg" y "sin precio").
   const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'esperando_aprobacion_gg' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'sin_precio' | 'aclaratoria_solicitada'>('todos');
   // Filtro por nivel de prioridad (alta, media, baja)
@@ -2172,7 +2181,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setBusy(true);
 
     const primerFmt = formatos[0] || null;
-    const obsConCondiciones = inyectarCondicionesPagoEnNota(observaciones.trim() || null, condicionesPago.trim() || null) ?? '';
+    const reqAnterior = editId ? (allReqs || []).find((x) => x.id === editId) : null;
+    const obsBaseTexto = editId
+      ? preservarMarcadoresSolicitudEnObservaciones(reqAnterior?.observaciones, observaciones.trim() || null)
+      : (observaciones.trim() || null);
+    const obsConCondiciones = inyectarCondicionesPagoEnNota(obsBaseTexto, condicionesPago.trim() || null) ?? '';
     const conFormatos = empaquetarFormatosEnObservaciones(obsConCondiciones, formatos);
     const adj = primerFmt ? {
       attachment_url: primerFmt.url,
@@ -2359,7 +2372,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setArea(r.area ?? '');
     setAreaLibre(false);
     setCondicionesPago(extraerCondicionesPago(r.observaciones));
-    setObservaciones(limpiarCondicionesPagoDeNota(limpiarObservacionesFormatos(r.observaciones ?? '')));
+    setObservaciones(limpiarMarcadoresSolicitudDeTexto(limpiarCondicionesPagoDeNota(limpiarObservacionesFormatos(r.observaciones ?? ''))));
     setAlicuotaIva(r.iva_alicuota != null ? String(r.iva_alicuota) : '16');
     setFormatos(extraerFormatosAdjuntos(r));
     let s = 0;
@@ -2436,7 +2449,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       return toast.error(`Solo el usuario designado (${configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}) puede aprobar los requerimientos.`);
     }
     const decName = await perfilNombre();
-    const fallbackSup = r.supplier_id || r.items.find((it) => it.supplier_id)?.supplier_id || null;
+    const fallbackSup =
+      r.supplier_id ||
+      r.items.find((it) => it.supplier_id)?.supplier_id ||
+      suppliers.find((s) => r.items.some((it) => it.supplier_name && norm(it.supplier_name) === norm(s.name)))?.id ||
+      null;
     const { error } = await supabase.from('inventory_requirements').update({
       status: 'aprobado',
       ...(fallbackSup && !r.supplier_id ? { supplier_id: fallbackSup } : {}),
@@ -2445,9 +2462,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       decided_at: nowISO(),
     }).eq('id', r.id);
     if (error) return toast.error(error.message);
+    try {
+      const compCxp = r.empresa_pagadora_id || r.company_id || null;
+      const patchCxp: Record<string, any> = { updated_at: nowISO() };
+      if (compCxp) patchCxp.company_id = compCxp;
+      if (esPrioridadCompra(r.prioridad)) patchCxp.prioridad = r.prioridad;
+      if (Object.keys(patchCxp).length > 1) {
+        await supabase.from('cuentas').update(patchCxp).eq('inventory_requirement_id', r.id);
+      }
+    } catch {}
     refetch();
     refetchCuentas();
-    toast.success(`Requerimiento ${r.code} aprobado por ${decName}. Pasa a espera de pago.`);
+    toast.success(`Requerimiento ${r.code} aprobado por ${decName}. Enviado a 💸 Por Pagar.`);
   };
 
   // Eliminar TODO el requerimiento (con confirmación). No revierte movimientos de
@@ -2476,7 +2502,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       return toast.error('No se puede aprobar un requerimiento con aclaratoria técnica pendiente. Espera la respuesta técnica del solicitante.');
     }
     const decName = await perfilNombre();
-    const fallbackSup = r.supplier_id || r.items.find((it) => it.supplier_id)?.supplier_id || null;
+    const fallbackSup =
+      r.supplier_id ||
+      r.items.find((it) => it.supplier_id)?.supplier_id ||
+      suppliers.find((s) => r.items.some((it) => it.supplier_name && norm(it.supplier_name) === norm(s.name)))?.id ||
+      null;
     const patch: Record<string, any> = {
       status,
       decided_by: uid,
@@ -2488,6 +2518,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
     const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
     if (error) return toast.error(error.message);
+    if (status === 'aprobado') {
+      try {
+        const compCxp = r.empresa_pagadora_id || r.company_id || null;
+        const patchCxp: Record<string, any> = { updated_at: nowISO() };
+        if (compCxp) patchCxp.company_id = compCxp;
+        if (esPrioridadCompra(r.prioridad)) patchCxp.prioridad = r.prioridad;
+        if (Object.keys(patchCxp).length > 1) {
+          await supabase.from('cuentas').update(patchCxp).eq('inventory_requirement_id', r.id);
+        }
+      } catch {}
+    }
     refetch();
     refetchCuentas();
     // Al APROBAR, si trae formato adjunto, se abre la vista previa para ver y descargar.

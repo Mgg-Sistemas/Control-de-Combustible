@@ -64,7 +64,12 @@ import {
   agruparSolicitudesStock,
   type GrupoSolicitudStock,
 } from '../lib/solicitudMaterial';
-import { calcularEstadoRequerimiento, type InfoEstadoRequerimiento } from '../lib/requerimientoFlujo';
+import {
+  calcularEstadoRequerimiento,
+  esSolicitudDeCompra,
+  marcarObservacionesComoSolicitud,
+  type InfoEstadoRequerimiento,
+} from '../lib/requerimientoFlujo';
 import {
   extraerFactura,
   extraerDespacho,
@@ -774,7 +779,9 @@ export default function SolicitudMaterialScreen() {
           solicitante_employee_id: solicitante.employeeId || null,
           destino_tipo: destinoTipo === 'maquinaria' || destinoTipo === 'vehiculo' ? destinoTipo : null,
           area: destinoTipo === 'area' ? targetArea : 'TALLER / MANTENIMIENTO',
-          observaciones: `Solicitud múltiple creada desde el portal técnico de taller para ${targetLabel}.${provGlobal}`,
+          observaciones: marcarObservacionesComoSolicitud(
+            `Solicitud múltiple creada desde el portal técnico de taller para ${targetLabel}.${provGlobal}`
+          ),
           attachment_url: firstPhoto,
           attachment_type: firstPhoto ? 'image' : null,
         };
@@ -997,13 +1004,7 @@ export default function SolicitudMaterialScreen() {
   };
 
   const requirementsFiltradas = useMemo(() => {
-    const soloTecnicas = (requirements || []).filter((r) => {
-      return (
-        Boolean(r.solicitante_nombre) ||
-        (r.title && r.title.toLowerCase().includes('pedido técnico')) ||
-        (r.observaciones && r.observaciones.toLowerCase().includes('portal técnico'))
-      );
-    });
+    const soloTecnicas = (requirements || []).filter((r) => esSolicitudDeCompra(r));
 
     if (esAdmin && verTodosAdmin) return soloTecnicas;
 

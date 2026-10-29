@@ -265,6 +265,154 @@ export function guardarConfigAprobacionMonto(regla: ReglaAprobacionMonto): void 
   }
 }
 
+// ── Separación estricta de Fases: 📥 Solicitud → 📝 Requerimiento → 💸 Por Pagar ──
+export const MARCADOR_ORIGEN_SOLICITUD = '[ORIGEN:SOLICITUD]';
+export const MARCADOR_CONVERTIDO_EN_REQ = '[CONVERTIDO_EN_REQ]';
+
+/**
+ * Identifica si un registro de `inventory_requirements` nació como una Solicitud
+ * (creada desde "Pedir Material / Repuesto" en campo/taller) y pertenece a la bandeja `📥 Solicitudes`.
+ * Los requerimientos creados directamente en `📝 Requerimiento` (botón ➕ Nuevo) devuelven `false`.
+ */
+export function esSolicitudDeCompra(r: Partial<InventoryRequirement>): boolean {
+  if (!r) return false;
+  const title = normClean(r.title);
+  const obs = normClean(r.observaciones);
+  const note = normClean(r.note);
+  const decNote = normClean(r.decision_note);
+  const rawObs = String(r.observaciones ?? '');
+  const rawNote = String(r.note ?? '');
+  const rawDec = String(r.decision_note ?? '');
+
+  if (
+    rawObs.includes(MARCADOR_ORIGEN_SOLICITUD) ||
+    rawObs.includes(MARCADOR_CONVERTIDO_EN_REQ) ||
+    rawNote.includes(MARCADOR_ORIGEN_SOLICITUD) ||
+    rawDec.includes(MARCADOR_CONVERTIDO_EN_REQ)
+  ) {
+    return true;
+  }
+
+  if (
+    title.includes('pedido tecnico') ||
+    obs.includes('portal tecnico') ||
+    note.includes('solicitud tecnica con') ||
+    decNote.includes('solicitud convertida') ||
+    decNote.includes('cotizacion cargada en solicitudes')
+  ) {
+    return true;
+  }
+
+  if (normClean(r.area) === 'taller / mantenimiento' && Boolean(r.solicitante_nombre)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Determina si una Solicitud ya fue CONVERTIDA explícitamente en un Requerimiento
+ * mediante el botón "🔄 Convertir a Requerimiento" en la pestaña `📥 Solicitudes`.
+ * Mientras devuelva `false`, es únicamente una Solicitud y NO debe aparecer en `📝 Requerimiento`.
+ */
+export function estaSolicitudConvertidaEnRequerimiento(r: Partial<InventoryRequirement>): boolean {
+  if (!r) return false;
+  const rawObs = String(r.observaciones ?? '');
+  const rawNote = String(r.note ?? '');
+  const rawDec = String(r.decision_note ?? '');
+  const decClean = normClean(r.decision_note);
+
+  // 1. Marcador explícito de conversión a Requerimiento
+  if (
+    rawObs.includes(MARCADOR_CONVERTIDO_EN_REQ) ||
+    rawNote.includes(MARCADOR_CONVERTIDO_EN_REQ) ||
+    rawDec.includes(MARCADOR_CONVERTIDO_EN_REQ) ||
+    decClean.includes('solicitud convertida') ||
+    decClean.includes('cotizacion cargada en solicitudes')
+  ) {
+    return true;
+  }
+
+  // 2. Registros históricos que ya avanzaron a fases posteriores del requerimiento
+  const st = String(r.status ?? '');
+  if (st === 'aprobado' || st === 'esperando_recepcion' || st === 'recibido' || st === 'pagado') {
+    return true;
+  }
+
+  // 3. Solicitudes históricas a las que ya se les asignó proveedor y precio en Compras
+  const items = Array.isArray(r.items) ? r.items : [];
+  const tieneProveedor = Boolean(r.supplier_id) || items.some((it) => Boolean(it?.supplier_id));
+  const tienePrecio = items.some((it) => Number(it?.est_price) > 0);
+  if (tieneProveedor && tienePrecio) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Define qué registros pueden aparecer en la pestaña `📝 Requerimiento`:
+ * - Requerimientos creados directamente en `📝 Requerimiento` (`!esSolicitudDeCompra(r)`): SIEMPRE visibles.
+ * - Solicitudes de compra (`esSolicitudDeCompra(r)`): SOLO visibles cuando ya fueron convertidas en Requerimiento (`estaSolicitudConvertidaEnRequerimiento(r)`).
+ */
+export function esRequerimientoVisibleEnBandejaRequerimientos(r: Partial<InventoryRequirement>): boolean {
+  if (!r) return false;
+  if (!esSolicitudDeCompra(r)) return true;
+  return estaSolicitudConvertidaEnRequerimiento(r);
+}
+
+/**
+ * Asegura que las observaciones lleven el marcador de origen de Solicitud.
+ */
+export function marcarObservacionesComoSolicitud(observaciones?: string | null): string {
+  const base = String(observaciones ?? '').trim();
+  if (base.includes(MARCADOR_ORIGEN_SOLICITUD)) return base;
+  return base ? `${MARCADOR_ORIGEN_SOLICITUD} ${base}` : MARCADOR_ORIGEN_SOLICITUD;
+}
+
+/**
+ * Marca las observaciones de una Solicitud como convertida en Requerimiento oficial.
+ */
+export function marcarObservacionesComoConvertidaEnReq(observaciones?: string | null): string {
+  let base = marcarObservacionesComoSolicitud(observaciones);
+  if (!base.includes(MARCADOR_CONVERTIDO_EN_REQ)) {
+    base = `${MARCADOR_CONVERTIDO_EN_REQ} ${base}`.trim();
+  }
+  return base;
+}
+
+/**
+ * Al editar una Solicitud o un Requerimiento proveniente de Solicitud, preserva
+ * los marcadores internos (`[ORIGEN:SOLICITUD]`, `[CONVERTIDO_EN_REQ]`) aunque el usuario edite el texto.
+ */
+export function preservarMarcadoresSolicitudEnObservaciones(
+  observacionesOriginal?: string | null,
+  nuevasObservaciones?: string | null
+): string | null {
+  const orig = String(observacionesOriginal ?? '');
+  let res = String(nuevasObservaciones ?? '').trim();
+  const teniaConvertido = orig.includes(MARCADOR_CONVERTIDO_EN_REQ);
+  const teniaOrigen = orig.includes(MARCADOR_ORIGEN_SOLICITUD) || teniaConvertido;
+
+  if (teniaOrigen && !res.includes(MARCADOR_ORIGEN_SOLICITUD)) {
+    res = res ? `${MARCADOR_ORIGEN_SOLICITUD} ${res}` : MARCADOR_ORIGEN_SOLICITUD;
+  }
+  if (teniaConvertido && !res.includes(MARCADOR_CONVERTIDO_EN_REQ)) {
+    res = res ? `${MARCADOR_CONVERTIDO_EN_REQ} ${res}` : MARCADOR_CONVERTIDO_EN_REQ;
+  }
+  return res || null;
+}
+
+/**
+ * Limpia los marcadores internos de Solicitud para mostrar texto limpio en pantalla o PDF.
+ */
+export function limpiarMarcadoresSolicitudDeTexto(texto?: string | null): string {
+  return String(texto ?? '')
+    .replace(/\[ORIGEN:SOLICITUD\]/g, '')
+    .replace(/\[CONVERTIDO_EN_REQ\]/g, '')
+    .trim();
+}
+
 export type CodigoEstadoDinamico =
   | 'esperando_proveedor'
   | 'esperando_cotizacion'
