@@ -2440,9 +2440,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const { error } = await supabase.from('inventory_requirements').update({
       status: 'aprobado',
       ...(fallbackSup && !r.supplier_id ? { supplier_id: fallbackSup } : {}),
-      gerente_aprobado: true,
-      gerente_aprobado_por: decName,
-      gerente_aprobado_at: nowISO(),
       decided_by: uid,
       decided_by_name: decName,
       decided_at: nowISO(),
@@ -2487,9 +2484,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       decided_at: nowISO(),
     };
     if (status === 'aprobado') {
-      patch.gerente_aprobado = true;
-      patch.gerente_aprobado_por = decName;
-      patch.gerente_aprobado_at = nowISO();
       if (fallbackSup && !r.supplier_id) patch.supplier_id = fallbackSup;
     }
     const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
@@ -2513,9 +2507,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const decName = await perfilNombre();
     const { error } = await supabase.from('inventory_requirements').update({
       status: 'aprobado',
-      gerente_aprobado: true,
-      gerente_aprobado_por: decName,
-      gerente_aprobado_at: nowISO(),
       decided_by: uid,
       decided_by_name: decName,
       decided_at: nowISO(),

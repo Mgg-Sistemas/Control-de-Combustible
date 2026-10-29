@@ -630,27 +630,42 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       const pasaDirectoAprobado = !requierePrimeroAprobador || soyAprobadorDesignado || Boolean(convertTarget.gerente_aprobado);
       const supplierIdEfectivo = convertSupplierId || updatedItems.find((it) => it.supplier_id)?.supplier_id || null;
 
-      const { error } = await supabase
+      const patchPayload: Record<string, any> = {
+        status: pasaDirectoAprobado ? 'aprobado' : 'pendiente',
+        supplier_id: supplierIdEfectivo,
+        company_id: convertCompanyId || convertTarget.company_id || null,
+        empresa_pagadora_id: convertEmpresaPagadoraId || null,
+        empresa_pagadora_nombre: empPagadora?.name || null,
+        items: updatedItems,
+        note: convertNote.trim() || convertTarget.note || null,
+        decided_by: pasaDirectoAprobado ? (session?.user?.id || null) : null,
+        decided_by_name: pasaDirectoAprobado ? (fullName || 'Compras') : null,
+        decided_at: pasaDirectoAprobado ? nowISO() : null,
+        decision_note: pasaDirectoAprobado
+          ? 'Solicitud convertida a Requerimiento oficial de compra.'
+          : 'Cotización cargada en Solicitudes; pendiente de aprobación por el usuario designado.',
+      };
+
+      let { error } = await supabase
         .from('inventory_requirements')
-        .update({
-          status: pasaDirectoAprobado ? 'aprobado' : 'pendiente',
-          gerente_aprobado: pasaDirectoAprobado ? true : Boolean(convertTarget.gerente_aprobado),
-          gerente_aprobado_por: pasaDirectoAprobado && soyAprobadorDesignado ? (fullName || 'Gerencia General') : convertTarget.gerente_aprobado_por,
-          gerente_aprobado_at: pasaDirectoAprobado && soyAprobadorDesignado ? nowISO() : convertTarget.gerente_aprobado_at,
-          supplier_id: supplierIdEfectivo,
-          company_id: convertCompanyId || null,
-          empresa_pagadora_id: convertEmpresaPagadoraId || null,
-          empresa_pagadora_nombre: empPagadora?.name || null,
-          items: updatedItems,
-          note: convertNote.trim() || convertTarget.note || null,
-          decided_by: pasaDirectoAprobado ? (session?.user?.id || null) : null,
-          decided_by_name: pasaDirectoAprobado ? (fullName || 'Compras') : null,
-          decided_at: pasaDirectoAprobado ? nowISO() : null,
-          decision_note: pasaDirectoAprobado
-            ? 'Solicitud convertida a Requerimiento oficial de compra.'
-            : 'Cotización cargada en Solicitudes; pendiente de aprobación por el usuario designado.',
-        })
+        .update(patchPayload)
         .eq('id', convertTarget.id);
+
+      // Si alguna columna opcional aún no existe en la caché de esquema de Supabase, reintenta sin ella
+      for (let retry = 0; retry < 4 && error; retry++) {
+        const msg = String(error.message || '');
+        const colMatch = msg.match(/'([a-zA-Z0-9_]+)'\s+column/i) || msg.match(/column\s+"?([a-zA-Z0-9_]+)"?/i);
+        if (colMatch && colMatch[1] && colMatch[1] in patchPayload) {
+          delete patchPayload[colMatch[1]];
+          if (colMatch[1].startsWith('empresa_pagadora')) {
+            delete patchPayload.empresa_pagadora_id;
+            delete patchPayload.empresa_pagadora_nombre;
+          }
+          ({ error } = await supabase.from('inventory_requirements').update(patchPayload).eq('id', convertTarget.id));
+        } else {
+          break;
+        }
+      }
 
       if (error) throw error;
 
