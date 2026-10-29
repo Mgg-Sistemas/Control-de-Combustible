@@ -12,25 +12,222 @@ export const LIMITE_MONTO_GERENTE_GENERAL_USD = 1000;
 
 export interface ReglaAprobacionMonto {
   montoLimiteUSD: number;
+  exigirEnTodos?: boolean; // true = todos los requerimientos deben ser aprobados primero por el usuario designado
   empresaId: string | null; // null = Todas las empresas
   empresaNombre?: string | null;
-  aprobadoresIds: string[]; // Lista de IDs de usuarios autorizados
+  aprobadoresIds: string[]; // Lista de IDs de usuarios autorizados (profiles.id)
   aprobadoresNombres: string[]; // Lista de nombres de personas/cargos autorizados
   activo?: boolean;
 }
 
 export const REGLA_APROBACION_DEFAULT: ReglaAprobacionMonto = {
-  montoLimiteUSD: 1000,
+  montoLimiteUSD: 0,
+  exigirEnTodos: true,
   empresaId: null,
   empresaNombre: 'Todas las empresas',
   aprobadoresIds: [],
-  aprobadoresNombres: ['Gerencia General'],
+  aprobadoresNombres: ['Gerente General'],
   activo: true,
 };
 
 const STORAGE_KEY_REGLA_APROBACION = 'compras_regla_aprobacion_monto_v1';
 
 let memoriaReglaAprobacion: ReglaAprobacionMonto = { ...REGLA_APROBACION_DEFAULT };
+
+function normClean(s?: string | null): string {
+  return String(s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Verifica de forma estricta si el usuario conectado es Anthony Mansilla o Angelica Solis.
+ * Solo ellos dos pueden ver y abrir la configuración de quién aprueba los requerimientos.
+ */
+export function esUsuarioAutorizadoConfigAprobacion(params: {
+  fullName?: string | null;
+  username?: string | null;
+  cedula?: string | null;
+  email?: string | null;
+}): boolean {
+  const fn = normClean(params.fullName);
+  const un = normClean(params.username);
+  const ci = normClean(params.cedula).replace(/\D/g, '');
+  const em = normClean(params.email);
+
+  const esAnthony =
+    (fn.includes('anthony') && fn.includes('mansilla')) ||
+    un === 'sistemas2' ||
+    (un.includes('anthony') && un.includes('mansilla')) ||
+    (em.includes('anthony') && em.includes('mansilla')) ||
+    em.startsWith('sistemas2@');
+
+  const esAngelica =
+    (fn.includes('angelica') && fn.includes('solis')) ||
+    un === '27514385' ||
+    ci === '27514385' ||
+    (un.includes('angelica') && un.includes('solis')) ||
+    (em.includes('angelica') && em.includes('solis')) ||
+    em.startsWith('27514385@');
+
+  return esAnthony || esAngelica;
+}
+
+/**
+ * Evalúa si el usuario actual está designado para aprobar requerimientos según la configuración activa.
+ */
+export function puedeUsuarioAprobarRequerimiento(params: {
+  userId?: string | null;
+  fullName?: string | null;
+  role?: string | null;
+  appRoleName?: string | null;
+  config?: ReglaAprobacionMonto | null;
+}): boolean {
+  const cfg = params.config || obtenerConfigAprobacionMonto();
+  if (cfg.activo === false) {
+    return params.role === 'admin';
+  }
+
+  const uid = String(params.userId ?? '').trim();
+  const fn = normClean(params.fullName);
+  const ar = normClean(params.appRoleName);
+  const ids = Array.isArray(cfg.aprobadoresIds) ? cfg.aprobadoresIds.filter(Boolean) : [];
+  const nombres = Array.isArray(cfg.aprobadoresNombres)
+    ? cfg.aprobadoresNombres.map((n) => normClean(n)).filter(Boolean)
+    : [];
+
+  // 1. Si hay usuarios específicos seleccionados por ID, validar contra esa lista (o coincidencia exacta de nombre)
+  if (ids.length > 0) {
+    if (uid && ids.includes(uid)) return true;
+    if (fn && nombres.some((nom) => nom === fn || (nom.length > 4 && fn.includes(nom)))) return true;
+    return false;
+  }
+
+  // 2. Si solo hay nombres o cargos configurados (ej. "Gerente General" o el nombre de una persona)
+  if (nombres.length > 0) {
+    const matchNombre = Boolean(
+      fn &&
+        nombres.some(
+          (nom) =>
+            nom === fn ||
+            (nom.length >= 4 && !nom.includes('geren') && (fn.includes(nom) || nom.includes(fn)))
+        )
+    );
+    if (matchNombre) return true;
+
+    const matchCargo = Boolean(
+      ar &&
+        nombres.some(
+          (nom) =>
+            nom === ar ||
+            (nom.includes('gerente') && ar.includes('gerente')) ||
+            (nom.includes('gerencia') && ar.includes('geren'))
+        )
+    );
+    if (matchCargo) return true;
+
+    // Si solo dice el genérico "Gerente General" / "Gerencia General" sin un nombre de persona específico,
+    // cualquier usuario con rol admin o rol Gerente General puede aprobar hasta que se designe un usuario puntual.
+    const soloGenericoGerente = nombres.every(
+      (nom) => nom === 'gerente general' || nom === 'gerencia general' || nom === 'gerente'
+    );
+    if (soloGenericoGerente) {
+      return params.role === 'admin' || ar.includes('gerente');
+    }
+
+    return false;
+  }
+
+  return params.role === 'admin';
+}
+
+export const ID_SIN_EMPRESA_REQ = '__sin_empresa__';
+
+export interface EmpresaFiltroItem {
+  id: string;
+  name: string;
+  count: number;
+}
+
+/**
+ * Resuelve la empresa asociada a una Solicitud o Requerimiento (company_id o empresa_pagadora_id).
+ */
+export function resolverEmpresaRequerimiento(
+  r: Partial<InventoryRequirement>,
+  companies: Array<{ id: string; name: string }> = []
+): { id: string; name: string } {
+  if (r.company_id) {
+    const found = companies.find((c) => c.id === r.company_id);
+    if (found) return { id: found.id, name: found.name };
+    return { id: r.company_id, name: 'Empresa asignada' };
+  }
+  if (r.empresa_pagadora_id) {
+    const found = companies.find((c) => c.id === r.empresa_pagadora_id);
+    if (found) return { id: found.id, name: found.name };
+    if (r.empresa_pagadora_nombre) {
+      return { id: r.empresa_pagadora_id, name: r.empresa_pagadora_nombre };
+    }
+  }
+  if (r.empresa_pagadora_nombre && r.empresa_pagadora_nombre.trim()) {
+    const clean = normClean(r.empresa_pagadora_nombre);
+    const byName = companies.find((c) => normClean(c.name) === clean);
+    if (byName) return { id: byName.id, name: byName.name };
+    return { id: `nombre:${clean}`, name: r.empresa_pagadora_nombre.trim() };
+  }
+  return { id: ID_SIN_EMPRESA_REQ, name: 'Sin empresa' };
+}
+
+/**
+ * Verifica si una Solicitud o Requerimiento pasa el filtro multi-empresa.
+ * Si el conjunto está vacío, pasan todas.
+ */
+export function pasaFiltroEmpresasReq(
+  r: Partial<InventoryRequirement>,
+  empresaSel: Set<string> | string[],
+  companies: Array<{ id: string; name: string }> = []
+): boolean {
+  if (!empresaSel) return true;
+  const set = Array.isArray(empresaSel) ? new Set(empresaSel) : empresaSel;
+  if (set.size === 0) return true;
+  const info = resolverEmpresaRequerimiento(r, companies);
+  if (set.has(info.id)) return true;
+  if (r.company_id && set.has(r.company_id)) return true;
+  if (r.empresa_pagadora_id && set.has(r.empresa_pagadora_id)) return true;
+  return false;
+}
+
+/**
+ * Calcula la lista de empresas con sus conteos para el filtro multi-empresa en Solicitudes y Requerimientos.
+ */
+export function calcularConteoEmpresasReq(
+  reqs: Array<Partial<InventoryRequirement>>,
+  companies: Array<{ id: string; name: string }> = []
+): EmpresaFiltroItem[] {
+  const map = new Map<string, EmpresaFiltroItem>();
+  (companies || []).forEach((c) => {
+    if (c && c.id && c.name) {
+      map.set(c.id, { id: c.id, name: c.name, count: 0 });
+    }
+  });
+
+  (reqs || []).forEach((r) => {
+    const info = resolverEmpresaRequerimiento(r, companies);
+    const prev = map.get(info.id) || { id: info.id, name: info.name, count: 0 };
+    prev.count += 1;
+    map.set(info.id, prev);
+  });
+
+  return Array.from(map.values())
+    .filter((item) => item.id !== ID_SIN_EMPRESA_REQ || item.count > 0)
+    .sort((a, b) => {
+      if (a.id === ID_SIN_EMPRESA_REQ) return 1;
+      if (b.id === ID_SIN_EMPRESA_REQ) return -1;
+      if (b.count !== a.count) return b.count - a.count;
+      return a.name.localeCompare(b.name, 'es');
+    });
+}
 
 export function obtenerConfigAprobacionMonto(): ReglaAprobacionMonto {
   try {
@@ -42,6 +239,10 @@ export function obtenerConfigAprobacionMonto(): ReglaAprobacionMonto {
           memoriaReglaAprobacion = {
             ...REGLA_APROBACION_DEFAULT,
             ...parsed,
+            exigirEnTodos:
+              typeof parsed.exigirEnTodos === 'boolean'
+                ? parsed.exigirEnTodos
+                : parsed.montoLimiteUSD === 0,
           };
           return memoriaReglaAprobacion;
         }
@@ -255,7 +456,12 @@ export function calcularEstadoRequerimiento(
 
   // 4. Si ya fue pagado (en Cuentas por Pagar o con comprobante bancario adjunto) pero no ha sido recibido físicamente
   const cfg = configOverride || obtenerConfigAprobacionMonto();
-  const limiteUSD = Number(cfg?.montoLimiteUSD) > 0 ? Number(cfg.montoLimiteUSD) : LIMITE_MONTO_GERENTE_GENERAL_USD;
+  const exigirTodos = cfg?.exigirEnTodos === true || Number(cfg?.montoLimiteUSD) === 0;
+  const limiteUSD = exigirTodos
+    ? 0
+    : Number(cfg?.montoLimiteUSD) > 0
+      ? Number(cfg!.montoLimiteUSD)
+      : LIMITE_MONTO_GERENTE_GENERAL_USD;
 
   if (tienePagoRegistrado) {
     return {
@@ -315,10 +521,10 @@ export function calcularEstadoRequerimiento(
   }
 
   // 7. Tiene Proveedor Y Cotización cargada:
-  // Aplicar Regla de Negocio Dinámica de Aprobación por Monto, Empresa y Personas
-  const aplicaEmpresa = !cfg?.empresaId || r.company_id === cfg.empresaId;
+  // Aplicar Regla de Negocio Dinámica de Aprobación por Usuario Designado, Monto y Empresa
+  const aplicaEmpresa = !cfg?.empresaId || r.company_id === cfg.empresaId || r.empresa_pagadora_id === cfg.empresaId;
   const reglaActiva = cfg?.activo !== false;
-  const superaLimiteGG = aplicaEmpresa && reglaActiva && totalUSD > limiteUSD;
+  const superaLimiteGG = aplicaEmpresa && reglaActiva && (exigirTodos ? totalUSD >= 0 : totalUSD > limiteUSD);
   const yaAprobadoGG = Boolean(r.gerente_aprobado || (r.status === 'aprobado' && r.decided_by));
 
   const textoMonto = limiteUSD.toLocaleString('en-US');
@@ -326,12 +532,13 @@ export function calcularEstadoRequerimiento(
   const aprobadoresTxt = (cfg?.aprobadoresNombres && cfg.aprobadoresNombres.length > 0)
     ? cfg.aprobadoresNombres.join(', ')
     : 'Gerente General';
+  const sufijoCondicion = exigirTodos ? '' : ` (> $${textoMonto} USD)`;
 
   if (superaLimiteGG && !yaAprobadoGG) {
     return {
       codigo: 'esperando_aprobacion_gg',
-      label: `👔 Esperando Aprobación de ${aprobadoresTxt} (> $${textoMonto} USD)${sufijoEmpresa}`,
-      short: `Aprobación (> $${textoMonto})${sufijoEmpresa}`,
+      label: `👔 Esperando Aprobación de ${aprobadoresTxt}${sufijoCondicion}${sufijoEmpresa}`,
+      short: exigirTodos ? `Aprobación (${aprobadoresTxt})${sufijoEmpresa}` : `Aprobación (> $${textoMonto})${sufijoEmpresa}`,
       color: '#7C3AED',
       bg: '#F5F3FF',
       icon: '👔',
@@ -373,7 +580,9 @@ export function calcularEstadoRequerimiento(
   // 9. Si está formalmente aprobado (pendiente por pago y recepción)
   return {
     codigo: 'aprobado',
-    label: superaLimiteGG ? `✅ Aprobado / En Gestión de Pago (> $${textoMonto})` : '✅ Aprobado / En Gestión de Pago',
+    label: superaLimiteGG && !exigirTodos
+      ? `✅ Aprobado / En Gestión de Pago (> $${textoMonto})`
+      : '✅ Aprobado / En Gestión de Pago',
     short: 'Aprobado',
     color: '#059669',
     bg: '#ECFDF5',

@@ -27,6 +27,12 @@ import { machineLabel, machineMatches } from '../lib/machineLabel';
 import {
   calcularEstadoRequerimiento,
   obtenerConfigAprobacionMonto,
+  guardarConfigAprobacionMonto,
+  calcularConteoEmpresasReq,
+  pasaFiltroEmpresasReq,
+  resolverEmpresaRequerimiento,
+  ID_SIN_EMPRESA_REQ,
+  puedeUsuarioAprobarRequerimiento,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
 import { spacing, radius } from '../theme';
@@ -245,7 +251,7 @@ function ConvertItemSupplierPicker({
 export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const { colors, scheme } = useTheme();
   const isDark = scheme === 'dark';
-  const { session, fullName } = useAuth();
+  const { session, fullName, role, appRole } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const { rate } = useBcvRate();
@@ -260,19 +266,59 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'name' });
-  const [configAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
+  const [configAprobacion, setConfigAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
 
-  // 🧾 Factura Fiscal / Comercial (Ilusiones / Golden Touch)
+  // Sincronizar configuración de usuario designado para aprobar desde feature_toggles + profiles
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const [{ data: ft }, { data: profs }] = await Promise.all([
+          supabase.from('feature_toggles').select('enabled, extra_user_ids').eq('key', 'compras_req_aprobacion').maybeSingle(),
+          supabase.from('profiles').select('id, full_name'),
+        ]);
+        if (!active || !ft) return;
+        const ids: string[] = Array.isArray((ft as any).extra_user_ids) ? (ft as any).extra_user_ids : [];
+        const profMap = new Map<string, string>();
+        ((profs ?? []) as any[]).forEach((p) => {
+          if (p.id && p.full_name) profMap.set(String(p.id), String(p.full_name).trim());
+        });
+        const nombresDesdeIds = ids.map((id) => profMap.get(id)).filter((n): n is string => Boolean(n));
+        const cur = obtenerConfigAprobacionMonto();
+        const merged: ReglaAprobacionMonto = {
+          ...cur,
+          activo: (ft as any).enabled !== false,
+          aprobadoresIds: ids,
+          aprobadoresNombres: nombresDesdeIds.length > 0 ? nombresDesdeIds : (cur.aprobadoresNombres?.length ? cur.aprobadoresNombres : ['Gerente General']),
+        };
+        guardarConfigAprobacionMonto(merged);
+        setConfigAprobacion(merged);
+      } catch {
+        // Silencioso si no existe fila o tabla
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  // 🧾 Factura Fiscal / Comercial (Proveedor registrado o manual + Nota)
   const [facturaModalOpen, setFacturaModalOpen] = useState(false);
   const [facturaTarget, setFacturaTarget] = useState<InventoryRequirement | null>(null);
   const [facturaNumero, setFacturaNumero] = useState('');
-  const [facturaEmpresa, setFacturaEmpresa] = useState<EmpresaFactura>('Inversiones Las Ilusiones');
+  const [facturaEmpresa, setFacturaEmpresa] = useState<EmpresaFactura>('');
+  const [facturaProvSearch, setFacturaProvSearch] = useState('');
+  const [facturaProvOpen, setFacturaProvOpen] = useState(false);
   const [facturaFecha, setFacturaFecha] = useState('');
+  const [facturaNota, setFacturaNota] = useState('');
   const [facturaUrl, setFacturaUrl] = useState<string | null>(null);
   const [facturaTipo, setFacturaTipo] = useState<'image' | 'pdf' | null>('image');
   const [facturaNombre, setFacturaNombre] = useState<string | null>(null);
   const [subiendoFactura, setSubiendoFactura] = useState(false);
   const [guardandoFactura, setGuardandoFactura] = useState(false);
+
+  // 🏢 Filtro por empresa (una o varias)
+  const [empresaSel, setEmpresaSel] = useState<string[]>([]);
+  const [empresasOpen, setEmpresasOpen] = useState(false);
+  const [empresaQ, setEmpresaQ] = useState('');
 
   // 👁️ Visor de Factura Modal
   const [facturaViewerOpen, setFacturaViewerOpen] = useState(false);
@@ -362,21 +408,37 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     });
   }, [allReqs]);
 
-  // 2. Filtrado por texto (búsqueda en código, título, solicitante, área, repuestos y notas)
+  // 1b. Conteo y filtro por Empresa (una o varias empresas seleccionadas)
+  const empresaCounts = useMemo(
+    () => calcularConteoEmpresasReq(solicitudesBase, companies),
+    [solicitudesBase, companies]
+  );
+
+  const toggleEmpresa = (id: string) =>
+    setEmpresaSel((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const solicitudesPorEmpresa = useMemo(() => {
+    if (empresaSel.length === 0) return solicitudesBase;
+    return solicitudesBase.filter((r) => pasaFiltroEmpresasReq(r, empresaSel, companies));
+  }, [solicitudesBase, empresaSel, companies]);
+
+  // 2. Filtrado por texto (búsqueda en código, título, solicitante, área, empresa, repuestos y notas)
   const solicitudesBuscadas = useMemo(() => {
-    if (!query.trim()) return solicitudesBase;
+    if (!query.trim()) return solicitudesPorEmpresa;
     const q = norm(query);
-    return solicitudesBase.filter((r) => {
+    return solicitudesPorEmpresa.filter((r) => {
+      const empInfo = resolverEmpresaRequerimiento(r, companies);
       const matchCode = r.code && norm(r.code).includes(q);
       const matchTitle = r.title && norm(r.title).includes(q);
       const matchSolicitante = r.solicitante_nombre && norm(r.solicitante_nombre).includes(q);
       const matchArea = r.area && norm(r.area).includes(q);
+      const matchEmpresa = empInfo.name && norm(empInfo.name).includes(q);
       const matchItems = r.items.some(
         (it) => norm(it.name).includes(q) || (it.note && norm(it.note).includes(q))
       );
-      return matchCode || matchTitle || matchSolicitante || matchArea || matchItems;
+      return matchCode || matchTitle || matchSolicitante || matchArea || matchEmpresa || matchItems;
     });
-  }, [solicitudesBase, query]);
+  }, [solicitudesPorEmpresa, query, companies]);
 
   // 3. Evaluación dinámica de estados sincronizada con Requerimientos
   const solicitudesConEstado = useMemo(() => {
@@ -517,28 +579,52 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       });
 
       const empPagadora = companies.find((c) => c.id === convertEmpresaPagadoraId);
+      const totalConvertUSD = updatedItems.reduce((acc, it) => {
+        const sub = (Number(it.qty) || 0) * (Number(it.est_price) || 0);
+        if (it.currency === 'VES') return acc + (rate && rate > 0 ? sub / rate : 0);
+        return acc + sub;
+      }, 0);
+      const limiteRegla = configAprobacion.exigirEnTodos ? 0 : (Number(configAprobacion.montoLimiteUSD) >= 0 ? Number(configAprobacion.montoLimiteUSD) : 0);
+      const requierePrimeroAprobador = Boolean(
+        configAprobacion.activo && (configAprobacion.exigirEnTodos || totalConvertUSD > limiteRegla)
+      );
+      const soyAprobadorDesignado = puedeUsuarioAprobarRequerimiento({
+        userId: session?.user?.id,
+        fullName,
+        role,
+        appRoleName: appRole?.name,
+        config: configAprobacion,
+      });
+      const pasaDirectoAprobado = !requierePrimeroAprobador || soyAprobadorDesignado || Boolean(convertTarget.gerente_aprobado);
 
       const { error } = await supabase
         .from('inventory_requirements')
         .update({
-          status: 'aprobado', // Oficializado / Aprobado para emisión de orden de compra
+          status: pasaDirectoAprobado ? 'aprobado' : 'pendiente',
+          gerente_aprobado: pasaDirectoAprobado ? true : Boolean(convertTarget.gerente_aprobado),
+          gerente_aprobado_por: pasaDirectoAprobado && soyAprobadorDesignado ? (fullName || 'Gerencia General') : convertTarget.gerente_aprobado_por,
+          gerente_aprobado_at: pasaDirectoAprobado && soyAprobadorDesignado ? nowISO() : convertTarget.gerente_aprobado_at,
           supplier_id: convertSupplierId || null,
           company_id: convertCompanyId || null,
           empresa_pagadora_id: convertEmpresaPagadoraId || null,
           empresa_pagadora_nombre: empPagadora?.name || null,
           items: updatedItems,
           note: convertNote.trim() || convertTarget.note || null,
-          decided_by: session?.user?.id || null,
-          decided_by_name: fullName || 'Compras',
-          decided_at: nowISO(),
-          decision_note: 'Solicitud convertida a Requerimiento oficial de compra.',
+          decided_by: pasaDirectoAprobado ? (session?.user?.id || null) : null,
+          decided_by_name: pasaDirectoAprobado ? (fullName || 'Compras') : null,
+          decided_at: pasaDirectoAprobado ? nowISO() : null,
+          decision_note: pasaDirectoAprobado
+            ? 'Solicitud convertida a Requerimiento oficial de compra.'
+            : 'Cotización cargada en Solicitudes; pendiente de aprobación por el usuario designado.',
         })
         .eq('id', convertTarget.id);
 
       if (error) throw error;
 
       toast.success(
-        `¡Solicitud ${convertTarget.code} convertida en Requerimiento oficial de compra!`
+        pasaDirectoAprobado
+          ? `¡Solicitud ${convertTarget.code} convertida en Requerimiento oficial de compra!`
+          : `Cotización registrada en ${convertTarget.code}. Queda pendiente de aprobación por ${configAprobacion.aprobadoresNombres.join(' / ') || 'Gerencia General'}.`
       );
       setConvertTarget(null);
       refetch();
@@ -787,20 +873,32 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const abrirSubirFactura = (r: InventoryRequirement) => {
     setFacturaTarget(r);
     const fac = extraerFactura(r);
+    const provDefecto =
+      suppliers.find((s) => s.id === r.supplier_id)?.name ||
+      r.items?.map((it) => it.supplier_name || suppliers.find((s) => s.id === it.supplier_id)?.name).find(Boolean) ||
+      '';
+    setFacturaProvSearch('');
+    setFacturaProvOpen(false);
     if (fac) {
       setFacturaNumero(fac.numero || '');
-      setFacturaEmpresa(fac.empresa || 'Inversiones Las Ilusiones');
+      const empGuardada =
+        fac.empresa && fac.empresa !== 'Inversiones Las Ilusiones' && fac.empresa !== 'Golden Touch'
+          ? fac.empresa
+          : provDefecto || fac.empresa || '';
+      setFacturaEmpresa(empGuardada);
       setFacturaFecha(fac.fecha || new Date().toISOString().slice(0, 10));
       setFacturaUrl(fac.url || null);
       setFacturaTipo(fac.tipo || 'image');
       setFacturaNombre(fac.nombre || null);
+      setFacturaNota(fac.nota || '');
     } else {
       setFacturaNumero('');
-      setFacturaEmpresa('Inversiones Las Ilusiones');
+      setFacturaEmpresa(provDefecto);
       setFacturaFecha(new Date().toISOString().slice(0, 10));
       setFacturaUrl(null);
       setFacturaTipo('image');
       setFacturaNombre(null);
+      setFacturaNota('');
     }
     setFacturaModalOpen(true);
   };
@@ -847,19 +945,22 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
 
   const guardarFacturaModal = async () => {
     if (!facturaTarget) return;
-    if (!facturaNumero.trim()) {
-      toast.error('Indica el número de factura fiscal o comercial.');
+    if (!facturaNumero.trim() && !facturaUrl && !facturaNota.trim() && !facturaEmpresa.trim()) {
+      toast.error('Indica al menos el proveedor, número de factura, archivo o una nota.');
       return;
     }
     setGuardandoFactura(true);
     try {
+      const provDefault =
+        suppliers.find((s) => s.id === facturaTarget.supplier_id)?.name || 'Proveedor';
       const dataFac: FacturaData = {
-        numero: facturaNumero.trim(),
-        empresa: facturaEmpresa,
+        numero: facturaNumero.trim() || (facturaUrl ? 'ADJ-FACT' : 'S/N'),
+        empresa: facturaEmpresa.trim() || provDefault,
         fecha: facturaFecha || new Date().toISOString().slice(0, 10),
         url: facturaUrl || null,
         tipo: facturaTipo || 'image',
         nombre: facturaNombre || null,
+        nota: facturaNota.trim() || null,
         subidaPor: fullName || session?.user?.email || 'Administración',
         subidaAt: nowISO(),
       };
@@ -883,7 +984,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       setFacturaModalOpen(false);
       setFacturaTarget(null);
       refetch();
-      toast.success(`Factura N° ${dataFac.numero} de ${dataFac.empresa} registrada.`);
+      toast.success(`Factura N° ${dataFac.numero} (${dataFac.empresa}) registrada.`);
     } catch (e: any) {
       toast.error('Error al guardar factura: ' + (e?.message ?? e));
     } finally {
@@ -1088,11 +1189,139 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         </Text>
       </View>
 
+      {/* Filtro por Empresa (una o varias) */}
+      <View
+        style={{
+          marginBottom: spacing.sm,
+          padding: 8,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surfaceAlt,
+          gap: 6,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+          <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.text }}>
+            🏢 Filtrar por Empresa {empresaSel.length > 0 ? `(${empresaSel.length} seleccionada${empresaSel.length > 1 ? 's' : ''})` : '(Todas)'}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {empresaSel.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => setEmpresaSel([])}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: radius.pill,
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.danger }}>✕ Limpiar</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              onPress={() => setEmpresasOpen((v) => !v)}
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: radius.pill,
+                backgroundColor: empresasOpen ? colors.brand : colors.surface,
+                borderWidth: 1,
+                borderColor: empresasOpen ? colors.brand : colors.border,
+              }}
+            >
+              <Text style={{ fontSize: 10.5, fontWeight: '700', color: empresasOpen ? colors.brandContrast : colors.text }}>
+                {empresasOpen ? '▲ Ocultar buscador' : '🔍 Buscar / Más empresas'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          <TouchableOpacity
+            onPress={() => setEmpresaSel([])}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: radius.pill,
+              backgroundColor: empresaSel.length === 0 ? colors.brand : colors.surface,
+              borderWidth: 1,
+              borderColor: empresaSel.length === 0 ? colors.brand : colors.border,
+            }}
+          >
+            <Text style={{ color: empresaSel.length === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+              Todas ({solicitudesBase.length})
+            </Text>
+          </TouchableOpacity>
+          {empresaCounts.map((emp) => {
+            const sel = empresaSel.includes(emp.id);
+            return (
+              <TouchableOpacity
+                key={emp.id}
+                onPress={() => toggleEmpresa(emp.id)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: radius.pill,
+                  backgroundColor: sel ? colors.brand : colors.surface,
+                  borderWidth: 1,
+                  borderColor: sel ? colors.brand : colors.border,
+                }}
+              >
+                <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                  {sel ? '✓ ' : ''}{emp.name} ({emp.count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {empresasOpen ? (
+          <View style={{ gap: 6, marginTop: 4 }}>
+            <TextInput
+              value={empresaQ}
+              onChangeText={setEmpresaQ}
+              placeholder="Buscar empresa por nombre..."
+              placeholderTextColor={colors.muted}
+              style={[inp, { paddingVertical: 6, fontSize: 12 }]}
+            />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {companies
+                .filter((c) => !empresaQ.trim() || norm(c.name).includes(norm(empresaQ)))
+                .map((c) => {
+                  const sel = empresaSel.includes(c.id);
+                  const cnt = empresaCounts.find((x) => x.id === c.id)?.count || 0;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      onPress={() => toggleEmpresa(c.id)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: radius.md,
+                        backgroundColor: sel ? colors.brand : colors.surface,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.brand : colors.border,
+                      }}
+                    >
+                      <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
+                        {sel ? '☑ ' : '☐ '}{c.name} ({cnt})
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+            </View>
+          </View>
+        ) : null}
+      </View>
+
       {/* Buscador */}
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="🔍 Buscar por código, repuesto, solicitante, medidas, máquina…"
+        placeholder="🔍 Buscar por código, repuesto, solicitante, empresa, medidas, máquina…"
         placeholderTextColor={colors.muted}
         style={[inp, { marginBottom: spacing.sm }]}
       />
@@ -1303,6 +1532,16 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                       📍 <Text style={{ fontWeight: '700' }}>Área:</Text> {r.area}
                     </Text>
                   ) : null}
+
+                  {(() => {
+                    const empInfo = resolverEmpresaRequerimiento(r, companies);
+                    if (empInfo.id === ID_SIN_EMPRESA_REQ) return null;
+                    return (
+                      <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '700' }}>
+                        🏢 <Text style={{ fontWeight: '800' }}>Empresa:</Text> {empInfo.name}
+                      </Text>
+                    );
+                  })()}
                 </View>
 
                 {/* Sincronización comercial con Requerimientos: Proveedor asignado, Pagadora y Cotización */}
@@ -1597,8 +1836,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial */}
               {(() => {
                 const fac = extraerFactura(r);
-                const tieneFac = Boolean(fac && fac.numero);
-                const esGoldenFac = fac?.empresa?.toLowerCase().includes('golden');
+                const tieneFac = Boolean(fac && (fac.numero || fac.url || fac.nota));
                 return (
                   <View
                     style={{
@@ -1606,7 +1844,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                       backgroundColor: colors.surfaceAlt,
                       borderRadius: radius.md,
                       borderWidth: 1.5,
-                      borderColor: tieneFac ? (esGoldenFac ? '#F59E0B' : '#6366F1') : colors.border,
+                      borderColor: tieneFac ? '#6366F1' : colors.border,
                       padding: spacing.sm,
                       gap: 6,
                     }}
@@ -1618,19 +1856,19 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                           Factura Fiscal / Comercial
                         </Text>
                       </View>
-                      {tieneFac ? (
+                      {tieneFac && fac?.empresa ? (
                         <View
                           style={{
-                            backgroundColor: esGoldenFac ? '#FEF3C7' : '#E0E7FF',
-                            borderColor: esGoldenFac ? '#F59E0B' : '#6366F1',
+                            backgroundColor: '#E0E7FF',
+                            borderColor: '#6366F1',
                             borderWidth: 1,
                             paddingHorizontal: 8,
                             paddingVertical: 2,
                             borderRadius: radius.pill,
                           }}
                         >
-                          <Text style={{ color: esGoldenFac ? '#92400E' : '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
-                            {fac?.empresa}
+                          <Text style={{ color: '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
+                            🏭 {fac.empresa}
                           </Text>
                         </View>
                       ) : null}
@@ -1641,7 +1879,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
                           <Text style={{ fontSize: 12, color: colors.text }}>
                             <Text style={{ fontWeight: '700' }}>N° Factura:</Text>{' '}
-                            <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero}</Text>
+                            <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero || 'S/N'}</Text>
                           </Text>
                           {fac?.fecha ? (
                             <Text style={{ fontSize: 11.5, color: colors.muted }}>
@@ -1649,6 +1887,11 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                             </Text>
                           ) : null}
                         </View>
+                        {fac?.nota ? (
+                          <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic' }}>
+                            📝 Nota factura: {fac.nota}
+                          </Text>
+                        ) : null}
                         {fac?.subidaPor ? (
                           <Text style={{ fontSize: 11, color: colors.muted }}>
                             👤 Subida por: {fac.subidaPor}
@@ -2948,38 +3191,102 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           <ScrollView keyboardShouldPersistTaps="handled">
             <SectionTitle>🧾 Carga de Factura de Compra</SectionTitle>
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-              Requerimiento {facturaTarget?.code ?? ''}: Asigna la empresa fiscal/comercial emisora e ingresa los datos de control para trazabilidad en Cuentas por Pagar.
+              Requerimiento {facturaTarget?.code ?? ''}: Busca un proveedor registrado o escribe su nombre manualmente, e ingresa los datos o nota de la factura.
             </Text>
 
             <Card>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: 4 }}>
-                Empresa Pagadora / Emisora de la Factura:
-              </Text>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-                {(['Inversiones Las Ilusiones', 'Golden Touch'] as const).map((emp) => {
-                  const sel = facturaEmpresa === emp;
-                  return (
-                    <TouchableOpacity
-                      key={emp}
-                      onPress={() => setFacturaEmpresa(emp)}
-                      style={{
-                        flex: 1,
-                        paddingVertical: spacing.sm,
-                        paddingHorizontal: spacing.xs,
-                        borderRadius: radius.md,
-                        borderWidth: 1.5,
-                        borderColor: sel ? (emp === 'Golden Touch' ? '#F59E0B' : '#6366F1') : colors.border,
-                        backgroundColor: sel ? (emp === 'Golden Touch' ? '#FEF3C7' : '#EEF2FF') : colors.surfaceAlt,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Text style={{ color: sel ? (emp === 'Golden Touch' ? '#92400E' : '#3730A3') : colors.text, fontWeight: '800', fontSize: 12 }}>
-                        {emp === 'Golden Touch' ? '✨ Golden Touch' : '🏢 Las Ilusiones'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', gap: 6 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                  🏭 Proveedor / Emisor de la Factura (buscar o escribir manualmente):
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setFacturaProvOpen((v) => !v)}
+                  style={{
+                    backgroundColor: facturaProvOpen ? colors.brand : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: facturaProvOpen ? colors.brand : colors.border,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: radius.pill,
+                  }}
+                >
+                  <Text style={{ color: facturaProvOpen ? colors.brandContrast : colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                    {facturaProvOpen ? '▲ Cerrar lista de proveedores' : `🔍 Buscar en proveedores (${suppliers.length})`}
+                  </Text>
+                </TouchableOpacity>
               </View>
+
+              <TextInput
+                value={facturaEmpresa}
+                onChangeText={(txt) => {
+                  setFacturaEmpresa(txt);
+                  if (facturaProvOpen) setFacturaProvSearch(txt);
+                }}
+                placeholder="Escribe manualmente el proveedor/emisor o búscalo en el catálogo..."
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.xs }]}
+              />
+
+              {facturaProvOpen ? (
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.brand,
+                    borderRadius: radius.md,
+                    padding: spacing.xs,
+                    marginBottom: spacing.sm,
+                    maxHeight: 210,
+                  }}
+                >
+                  <TextInput
+                    value={facturaProvSearch}
+                    onChangeText={setFacturaProvSearch}
+                    placeholder="🔍 Filtrar proveedor por nombre o RIF..."
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { backgroundColor: colors.surface, paddingVertical: 6, fontSize: 12, marginBottom: 6 }]}
+                  />
+                  <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+                    {suppliers
+                      .filter((s) => {
+                        if (!facturaProvSearch.trim()) return true;
+                        const q = norm(facturaProvSearch);
+                        return norm(s.name).includes(q) || (s.rif && norm(s.rif).includes(q));
+                      })
+                      .slice(0, 40)
+                      .map((s) => {
+                        const sel = norm(facturaEmpresa) === norm(s.name);
+                        return (
+                          <TouchableOpacity
+                            key={s.id}
+                            onPress={() => {
+                              setFacturaEmpresa(s.name);
+                              setFacturaProvOpen(false);
+                            }}
+                            style={{
+                              paddingVertical: 7,
+                              paddingHorizontal: 8,
+                              borderRadius: radius.sm,
+                              backgroundColor: sel ? colors.brand + '22' : 'transparent',
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: colors.border,
+                              flexDirection: 'row',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ color: sel ? colors.brandText : colors.text, fontWeight: sel ? '800' : '600', fontSize: 12 }}>
+                              🏭 {s.name}
+                            </Text>
+                            {s.rif ? (
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>{s.rif}</Text>
+                            ) : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </ScrollView>
+                </View>
+              ) : null}
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>N° de Factura / Control</Text>
               <TextInput
@@ -2997,6 +3304,16 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 placeholder="2026-10-26"
                 placeholderTextColor={colors.muted}
                 style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nota de la Factura (Opcional)</Text>
+              <TextInput
+                value={facturaNota}
+                onChangeText={setFacturaNota}
+                placeholder="Ej. Factura entregada en físico, pendiente retención, observación..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { marginBottom: spacing.sm, minHeight: 54, textAlignVertical: 'top' }]}
               />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Documento Adjunto (PDF o Imagen de la Factura)</Text>

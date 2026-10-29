@@ -67,6 +67,12 @@ import {
   obtenerProveedorDeLinea,
   obtenerConfigAprobacionMonto,
   guardarConfigAprobacionMonto,
+  esUsuarioAutorizadoConfigAprobacion,
+  puedeUsuarioAprobarRequerimiento,
+  ID_SIN_EMPRESA_REQ,
+  resolverEmpresaRequerimiento,
+  pasaFiltroEmpresasReq,
+  calcularConteoEmpresasReq,
   type InfoEstadoRequerimiento,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
@@ -381,7 +387,7 @@ function ItemSupplierPicker({
 export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { colors, scheme } = useTheme();
   const isDark = scheme === 'dark';
-  const { session, role, moduleLevel } = useAuth();
+  const { session, role, fullName, appRole, moduleLevel } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const isAdmin = role === 'admin';
@@ -436,15 +442,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'name' });
 
-  // 🧾 Factura Fiscal / Comercial (Ilusiones / Golden Touch)
+  // 🧾 Factura Fiscal / Comercial (Proveedor registrado o manual + Nota)
   const [facturaModalOpen, setFacturaModalOpen] = useState(false);
   const [facturaTarget, setFacturaTarget] = useState<InventoryRequirement | null>(null);
   const [facturaNumero, setFacturaNumero] = useState('');
-  const [facturaEmpresa, setFacturaEmpresa] = useState<EmpresaFactura>('Inversiones Las Ilusiones');
+  const [facturaEmpresa, setFacturaEmpresa] = useState<EmpresaFactura>('');
   const [facturaFecha, setFacturaFecha] = useState('');
   const [facturaUrl, setFacturaUrl] = useState<string | null>(null);
   const [facturaTipo, setFacturaTipo] = useState<'image' | 'pdf' | null>('image');
   const [facturaNombre, setFacturaNombre] = useState<string | null>(null);
+  const [facturaNota, setFacturaNota] = useState('');
+  const [facturaProvSearch, setFacturaProvSearch] = useState('');
+  const [facturaProvOpen, setFacturaProvOpen] = useState(false);
   const [subiendoFactura, setSubiendoFactura] = useState(false);
   const [guardandoFactura, setGuardandoFactura] = useState(false);
 
@@ -455,15 +464,118 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [reciboPagoRef, setReciboPagoRef] = useState('');
   const [reciboPagoFecha, setReciboPagoFecha] = useState('');
   const [reciboPagoMetodo, setReciboPagoMetodo] = useState('');
+  const [reciboPagoNota, setReciboPagoNota] = useState('');
   const [subiendoReciboPago, setSubiendoReciboPago] = useState(false);
 
-  // ⚙️ Regla de Aprobación por Monto, Empresa y Personas
+  // 🏢 Filtro por Empresa (una o varias empresas seleccionadas)
+  const [empresaSel, setEmpresaSel] = useState<string[]>([]);
+  const [empresasOpen, setEmpresasOpen] = useState(false);
+  const [empresaQ, setEmpresaQ] = useState('');
+  const toggleEmpresa = (id: string) =>
+    setEmpresaSel((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const empresaCounts = useMemo(
+    () => calcularConteoEmpresasReq(reqs, companies),
+    [reqs, companies]
+  );
+  const reqsPorEmpresa = useMemo(() => {
+    if (empresaSel.length === 0) return reqs;
+    return reqs.filter((r) => pasaFiltroEmpresasReq(r, empresaSel, companies));
+  }, [reqs, empresaSel, companies]);
+
+  // ⚙️ Regla de Aprobación de Requerimientos (solo visible para Anthony Mansilla y Angelica Solis)
   const [configAprobacion, setConfigAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
   const [configModalOpen, setConfigModalOpen] = useState(false);
-  const [cfgMonto, setCfgMonto] = useState('1000');
+  const [cfgActivo, setCfgActivo] = useState(true);
+  const [cfgExigirEnTodos, setCfgExigirEnTodos] = useState(true);
+  const [cfgMonto, setCfgMonto] = useState('0');
   const [cfgEmpresaId, setCfgEmpresaId] = useState<string | null>(null);
   const [cfgEmpresaNombre, setCfgEmpresaNombre] = useState('Todas las empresas');
+  const [cfgAprobadoresIds, setCfgAprobadoresIds] = useState<string[]>([]);
   const [cfgAprobadoresNombres, setCfgAprobadoresNombres] = useState<string[]>([]);
+  const [cfgUserSearch, setCfgUserSearch] = useState('');
+  const [usuariosSistema, setUsuariosSistema] = useState<Array<{
+    id: string;
+    full_name: string;
+    username?: string | null;
+    cedula?: string | null;
+    role?: string | null;
+    app_role_name?: string | null;
+  }>>([]);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const [{ data: profs }, { data: ft }] = await Promise.all([
+          supabase.from('profiles').select('id, full_name, username, cedula, role, app_role:app_role_id(name)'),
+          supabase.from('feature_toggles').select('key, enabled, extra_user_ids').eq('key', 'compras_req_aprobacion').maybeSingle(),
+        ]);
+        if (cancel) return;
+        const lista = ((profs ?? []) as any[])
+          .filter((p) => String(p.full_name || p.username || '').trim())
+          .map((p) => ({
+            id: String(p.id),
+            full_name: String(p.full_name || p.username || '').trim(),
+            username: p.username ? String(p.username) : null,
+            cedula: p.cedula ? String(p.cedula) : null,
+            role: p.role ? String(p.role) : null,
+            app_role_name: p.app_role?.name ? String(p.app_role.name) : null,
+          }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
+        setUsuariosSistema(lista);
+
+        if (ft) {
+          const ids = Array.isArray(ft.extra_user_ids) ? ft.extra_user_ids.map(String) : [];
+          const nombresDesdeIds = ids
+            .map((id) => lista.find((u) => u.id === id)?.full_name)
+            .filter((n): n is string => Boolean(n));
+          setConfigAprobacion((prev) => {
+            const next: ReglaAprobacionMonto = {
+              ...prev,
+              activo: typeof ft.enabled === 'boolean' ? ft.enabled : prev.activo,
+              aprobadoresIds: ids.length > 0 ? ids : prev.aprobadoresIds,
+              aprobadoresNombres: nombresDesdeIds.length > 0 ? nombresDesdeIds : prev.aprobadoresNombres,
+            };
+            guardarConfigAprobacionMonto(next);
+            return next;
+          });
+        }
+      } catch {
+        // Fallback silencioso a localStorage
+      }
+    })();
+    return () => { cancel = true; };
+  }, []);
+
+  const miPerfil = useMemo(
+    () => usuariosSistema.find((u) => u.id === uid) || null,
+    [usuariosSistema, uid]
+  );
+
+  // 🔒 Solo Anthony Mansilla y Angelica Solis pueden ver y abrir la configuración de quién aprueba
+  const puedeVerConfigAprobacion = useMemo(
+    () =>
+      esUsuarioAutorizadoConfigAprobacion({
+        fullName: miPerfil?.full_name || fullName,
+        username: miPerfil?.username,
+        cedula: miPerfil?.cedula,
+        email: session?.user?.email,
+      }),
+    [miPerfil, fullName, session?.user?.email]
+  );
+
+  // 👔 Verifica si el usuario actual es el designado para aprobar requerimientos
+  const puedeAprobarRequerimientos = useMemo(
+    () =>
+      puedeUsuarioAprobarRequerimiento({
+        userId: uid,
+        fullName: miPerfil?.full_name || fullName,
+        role,
+        appRoleName: appRole?.name || miPerfil?.app_role_name,
+        config: configAprobacion,
+      }),
+    [uid, miPerfil, fullName, role, appRole?.name, configAprobacion]
+  );
 
   // 👁️ Visor de Factura / Recibo Modal
   const [facturaViewerOpen, setFacturaViewerOpen] = useState(false);
@@ -1371,20 +1483,32 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const abrirSubirFactura = (r: InventoryRequirement) => {
     setFacturaTarget(r);
     const fac = extraerFactura(r);
+    const provDefecto =
+      suppliers.find((s) => s.id === r.supplier_id)?.name ||
+      r.items?.map((it) => it.supplier_name || suppliers.find((s) => s.id === it.supplier_id)?.name).find(Boolean) ||
+      '';
+    setFacturaProvSearch('');
+    setFacturaProvOpen(false);
     if (fac) {
-      setFacturaNumero(fac.numero);
-      setFacturaEmpresa(fac.empresa);
+      setFacturaNumero(fac.numero || '');
+      const empGuardada =
+        fac.empresa && fac.empresa !== 'Inversiones Las Ilusiones' && fac.empresa !== 'Golden Touch'
+          ? fac.empresa
+          : provDefecto || fac.empresa || '';
+      setFacturaEmpresa(empGuardada);
       setFacturaFecha(fac.fecha || new Date().toISOString().slice(0, 10));
       setFacturaUrl(fac.url || null);
       setFacturaTipo(fac.tipo || 'image');
       setFacturaNombre(fac.nombre || null);
+      setFacturaNota(fac.nota || '');
     } else {
       setFacturaNumero('');
-      setFacturaEmpresa(r.company_id ? 'Inversiones Las Ilusiones' : 'Golden Touch');
+      setFacturaEmpresa(provDefecto);
       setFacturaFecha(new Date().toISOString().slice(0, 10));
       setFacturaUrl(null);
       setFacturaTipo('image');
       setFacturaNombre(null);
+      setFacturaNota('');
     }
 
     const rec = extraerReciboPago(r);
@@ -1395,6 +1519,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       setReciboPagoRef(rec.referencia || '');
       setReciboPagoFecha(rec.fecha || new Date().toISOString().slice(0, 10));
       setReciboPagoMetodo(rec.metodo || '');
+      setReciboPagoNota(rec.nota || '');
     } else {
       setReciboPagoUrl(null);
       setReciboPagoTipo('image');
@@ -1402,6 +1527,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       setReciboPagoRef('');
       setReciboPagoFecha(new Date().toISOString().slice(0, 10));
       setReciboPagoMetodo('');
+      setReciboPagoNota('');
     }
 
     setFacturaModalOpen(true);
@@ -1487,71 +1613,127 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
-  // ── Configuración de Regla de Aprobación por Monto, Empresa y Personas ──
+  // ── Configuración de Usuario Designado para Aprobar Requerimientos (solo Anthony Mansilla y Angelica Solis) ──
   const abrirConfigModal = () => {
-    const cur = obtenerConfigAprobacionMonto();
-    setConfigAprobacion(cur);
-    setCfgMonto(String(cur.montoLimiteUSD || 1000));
+    if (!puedeVerConfigAprobacion) {
+      toast.error('Solo Anthony Mansilla y Angelica Solis están autorizados para abrir esta configuración.');
+      return;
+    }
+    const cur = configAprobacion || obtenerConfigAprobacionMonto();
+    setCfgActivo(cur.activo !== false);
+    const esTodos = Boolean(cur.exigirEnTodos || Number(cur.montoLimiteUSD) === 0);
+    setCfgExigirEnTodos(esTodos);
+    setCfgMonto(String(cur.montoLimiteUSD ?? 0));
     setCfgEmpresaId(cur.empresaId || null);
     setCfgEmpresaNombre(cur.empresaNombre || 'Todas las empresas');
-    setCfgAprobadoresNombres(cur.aprobadoresNombres || ['Gerencia General']);
+    setCfgAprobadoresIds(Array.isArray(cur.aprobadoresIds) ? cur.aprobadoresIds : []);
+    setCfgAprobadoresNombres(cur.aprobadoresNombres?.length ? cur.aprobadoresNombres : ['Gerente General']);
+    setCfgUserSearch('');
     setConfigModalOpen(true);
   };
 
-  const guardarConfigModal = () => {
-    const m = parseNum(cfgMonto);
-    if (!(m > 0)) {
-      toast.error('Indica un monto límite válido mayor a 0 USD.');
+  const toggleUsuarioAprobador = (u: { id: string; full_name: string }) => {
+    setCfgAprobadoresIds((prevIds) => {
+      const yaEsta = prevIds.includes(u.id);
+      const nextIds = yaEsta ? prevIds.filter((id) => id !== u.id) : [...prevIds, u.id];
+      setCfgAprobadoresNombres((prevNames) => {
+        if (yaEsta) {
+          return prevNames.filter((n) => norm(n) !== norm(u.full_name));
+        }
+        const existeNombre = prevNames.some((n) => norm(n) === norm(u.full_name));
+        return existeNombre ? prevNames : [...prevNames, u.full_name];
+      });
+      return nextIds;
+    });
+  };
+
+  const guardarConfigModal = async () => {
+    if (!puedeVerConfigAprobacion) {
+      toast.error('Solo Anthony Mansilla y Angelica Solis pueden guardar esta configuración.');
       return;
     }
+    const m = cfgExigirEnTodos ? 0 : parseNum(cfgMonto);
+    if (!cfgExigirEnTodos && !(m >= 0)) {
+      toast.error('Indica un monto límite válido en USD.');
+      return;
+    }
+    const nombresFinales = cfgAprobadoresNombres.length > 0 ? cfgAprobadoresNombres : ['Gerente General'];
     const nuevaRegla: ReglaAprobacionMonto = {
       montoLimiteUSD: m,
+      exigirEnTodos: cfgExigirEnTodos,
       empresaId: cfgEmpresaId,
       empresaNombre: cfgEmpresaNombre,
-      aprobadoresIds: [],
-      aprobadoresNombres: cfgAprobadoresNombres.length > 0 ? cfgAprobadoresNombres : ['Gerencia General'],
-      activo: true,
+      aprobadoresIds: cfgAprobadoresIds,
+      aprobadoresNombres: nombresFinales,
+      activo: cfgActivo,
     };
     guardarConfigAprobacionMonto(nuevaRegla);
     setConfigAprobacion(nuevaRegla);
+
+    try {
+      await supabase.from('feature_toggles').upsert({
+        key: 'compras_req_aprobacion',
+        enabled: cfgActivo,
+        extra_user_ids: cfgAprobadoresIds,
+        updated_at: nowISO(),
+        updated_by: uid,
+      });
+    } catch {
+      // Silencioso si no hay red
+    }
+
     setConfigModalOpen(false);
-    toast.success(`Regla de aprobación actualizada: > $${m.toLocaleString()} USD (${cfgEmpresaNombre}).`);
+    toast.success(
+      cfgActivo
+        ? `Aprobación configurada: ${nombresFinales.join(', ')} (${cfgExigirEnTodos ? 'Todos los requerimientos' : `> $${m.toLocaleString()} USD`}).`
+        : 'Regla de aprobador designado desactivada.'
+    );
   };
 
   const guardarFacturaModal = async () => {
     if (!facturaTarget) return;
-    if (!facturaNumero.trim() && !reciboPagoUrl) {
-      toast.error('Indica al menos el número de factura o adjunta un comprobante de pago.');
+    const hayDatosFactura = Boolean(
+      facturaNumero.trim() || facturaUrl || facturaNota.trim() || facturaEmpresa.trim()
+    );
+    const hayDatosRecibo = Boolean(
+      reciboPagoUrl || reciboPagoRef.trim() || reciboPagoNota.trim()
+    );
+    if (!hayDatosFactura && !hayDatosRecibo) {
+      toast.error('Indica al menos los datos/nota de la factura o del recibo de pago.');
       return;
     }
     setGuardandoFactura(true);
     try {
       const userName = await perfilNombre();
       let nuevaObs = facturaTarget.observaciones || '';
+      const provDefault =
+        suppliers.find((s) => s.id === facturaTarget.supplier_id)?.name || 'Proveedor';
 
       let dataFac: FacturaData | null = null;
-      if (facturaNumero.trim()) {
+      if (facturaNumero.trim() || facturaUrl || facturaNota.trim()) {
         dataFac = {
-          numero: facturaNumero.trim(),
-          empresa: facturaEmpresa,
+          numero: facturaNumero.trim() || (facturaUrl ? 'ADJ-FACT' : 'S/N'),
+          empresa: facturaEmpresa.trim() || provDefault,
           fecha: facturaFecha || new Date().toISOString().slice(0, 10),
           url: facturaUrl || null,
           tipo: facturaTipo || 'image',
           nombre: facturaNombre || null,
+          nota: facturaNota.trim() || null,
           subidaPor: userName || session?.user?.email || 'Administración',
           subidaAt: nowISO(),
         };
         nuevaObs = inyectarFacturaEnObservaciones(nuevaObs, dataFac);
       }
 
-      if (reciboPagoUrl) {
+      if (hayDatosRecibo) {
         const dataRec: ReciboPagoData = {
-          url: reciboPagoUrl,
+          url: reciboPagoUrl || null,
           tipo: reciboPagoTipo || 'image',
-          nombre: reciboPagoNombre || 'Recibo de pago',
+          nombre: reciboPagoNombre || (reciboPagoUrl ? 'Recibo de pago' : null),
           referencia: reciboPagoRef.trim() || null,
           fecha: reciboPagoFecha || new Date().toISOString().slice(0, 10),
           metodo: reciboPagoMetodo.trim() || null,
+          nota: reciboPagoNota.trim() || null,
           subidoPor: userName || session?.user?.email || 'Administración',
           subidoAt: nowISO(),
         };
@@ -2175,17 +2357,24 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setCreateOpen(true);
   };
 
-  // Aprobación de seguridad para requerimientos > $1,000 USD
+  // Aprobación por el Usuario Designado (p.ej. Gerente General)
   const aprobarGerenteGeneral = async (r: InventoryRequirement) => {
+    if (!puedeAprobarRequerimientos) {
+      return toast.error(`Solo el usuario designado (${configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}) puede aprobar los requerimientos.`);
+    }
     const decName = await perfilNombre();
     const { error } = await supabase.from('inventory_requirements').update({
+      status: 'aprobado',
       gerente_aprobado: true,
       gerente_aprobado_por: decName,
       gerente_aprobado_at: nowISO(),
+      decided_by: uid,
+      decided_by_name: decName,
+      decided_at: nowISO(),
     }).eq('id', r.id);
     if (error) return toast.error(error.message);
     refetch();
-    toast.success(`Requerimiento ${r.code} aprobado por Gerente General (> $1,000 USD). Pasa a espera de pago.`);
+    toast.success(`Requerimiento ${r.code} aprobado por ${decName}. Pasa a espera de pago.`);
   };
 
   // Eliminar TODO el requerimiento (con confirmación). No revierte movimientos de
@@ -2207,29 +2396,51 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const decidir = async (r: InventoryRequirement, status: 'aprobado' | 'rechazado') => {
+    if (status === 'aprobado' && !puedeAprobarRequerimientos) {
+      return toast.error(`Solo el usuario designado (${configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}) puede aprobar los requerimientos.`);
+    }
     if (r.status === 'aclaratoria_solicitada' && status === 'aprobado') {
       return toast.error('No se puede aprobar un requerimiento con aclaratoria técnica pendiente. Espera la respuesta técnica del solicitante.');
     }
     const decName = await perfilNombre();
-    const { error } = await supabase.from('inventory_requirements').update({
-      status, decided_by: uid, decided_by_name: decName, decided_at: nowISO(),
-    }).eq('id', r.id);
+    const patch: Record<string, any> = {
+      status,
+      decided_by: uid,
+      decided_by_name: decName,
+      decided_at: nowISO(),
+    };
+    if (status === 'aprobado') {
+      patch.gerente_aprobado = true;
+      patch.gerente_aprobado_por = decName;
+      patch.gerente_aprobado_at = nowISO();
+    }
+    const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
     if (error) return toast.error(error.message);
     refetch();
     // Al APROBAR, si trae formato adjunto, se abre la vista previa para ver y descargar.
     if (status === 'aprobado' && r.attachment_url) setPreviewReq({ ...r, status });
   };
 
-  // APROBACIÓN EN LOTE: el gerente marca (☑) varios requerimientos PENDIENTES y los
-  // aprueba todos de un click. Solo toca los pendientes seleccionados; el trigger
-  // req_sync_compra genera la orden/cuenta de cada uno igual que al aprobar uno a uno.
+  // APROBACIÓN EN LOTE: el usuario designado marca (☑) varios requerimientos PENDIENTES y los
+  // aprueba todos de un click.
   const aprobarLote = async () => {
+    if (!puedeAprobarRequerimientos) {
+      return toast.error(`Solo el usuario designado (${configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}) puede aprobar requerimientos en lote.`);
+    }
     const ids = reqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').map((r) => r.id);
     if (!ids.length) return toast.error('Marca (☑) requerimientos PENDIENTES para aprobar en lote.');
     const ok = await confirm({ title: 'Aprobar en lote', message: `¿Aprobar ${ids.length} requerimiento(s) pendiente(s) de una vez?`, confirmText: `Aprobar ${ids.length}` });
     if (!ok) return;
     const decName = await perfilNombre();
-    const { error } = await supabase.from('inventory_requirements').update({ status: 'aprobado', decided_by: uid, decided_by_name: decName, decided_at: nowISO() }).in('id', ids);
+    const { error } = await supabase.from('inventory_requirements').update({
+      status: 'aprobado',
+      gerente_aprobado: true,
+      gerente_aprobado_por: decName,
+      gerente_aprobado_at: nowISO(),
+      decided_by: uid,
+      decided_by_name: decName,
+      decided_at: nowISO(),
+    }).in('id', ids);
     if (error) return toast.error(error.message);
     setReqSelIds(new Set());
     refetch();
@@ -2598,16 +2809,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   return (
     <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
         <SectionTitle>Requerimientos</SectionTitle>
-        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
-          {isAdmin ? (
+        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap' }}>
+          {puedeVerConfigAprobacion ? (
             <TouchableOpacity
               onPress={abrirConfigModal}
               style={{
                 backgroundColor: colors.surfaceAlt,
-                borderColor: colors.border,
-                borderWidth: 1,
+                borderColor: colors.brand,
+                borderWidth: 1.5,
                 paddingHorizontal: spacing.sm,
                 paddingVertical: spacing.xs,
                 borderRadius: radius.pill,
@@ -2617,8 +2828,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               }}
             >
               <Text style={{ fontSize: 11 }}>⚙️</Text>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11 }}>
-                Límite: ${configAprobacion.montoLimiteUSD.toLocaleString()} USD
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                Aprobador: {configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}{' '}
+                ({configAprobacion.exigirEnTodos || Number(configAprobacion.montoLimiteUSD) === 0
+                  ? 'Todos'
+                  : `> $${configAprobacion.montoLimiteUSD.toLocaleString()}`})
               </Text>
             </TouchableOpacity>
           ) : null}
@@ -2630,8 +2844,136 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         </View>
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Pide productos del inventario o nuevos para que el jefe apruebe la compra. Si se compra, se recibe en el inventario con su precio. {rate ? `Tasa hoy: ${fmtBs(rate)}/US$.` : ''}
+        Pide productos del inventario o nuevos para que el usuario designado ({configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}) apruebe la compra. Si se compra, se recibe en el inventario con su precio. {rate ? `Tasa hoy: ${fmtBs(rate)}/US$.` : ''}
       </Text>
+
+      {/* Filtro por Empresa (una o varias) */}
+      <View
+        style={{
+          marginBottom: spacing.sm,
+          padding: 8,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surfaceAlt,
+          gap: 6,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+          <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.text }}>
+            🏢 Filtrar por Empresa {empresaSel.length > 0 ? `(${empresaSel.length} seleccionada${empresaSel.length > 1 ? 's' : ''})` : '(Todas)'}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {empresaSel.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => setEmpresaSel([])}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: radius.pill,
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.danger }}>✕ Limpiar</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              onPress={() => setEmpresasOpen((v) => !v)}
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: radius.pill,
+                backgroundColor: empresasOpen ? colors.brand : colors.surface,
+                borderWidth: 1,
+                borderColor: empresasOpen ? colors.brand : colors.border,
+              }}
+            >
+              <Text style={{ fontSize: 10.5, fontWeight: '700', color: empresasOpen ? colors.brandContrast : colors.text }}>
+                {empresasOpen ? '▲ Ocultar buscador' : '🔍 Buscar / Más empresas'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          <TouchableOpacity
+            onPress={() => setEmpresaSel([])}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: radius.pill,
+              backgroundColor: empresaSel.length === 0 ? colors.brand : colors.surface,
+              borderWidth: 1,
+              borderColor: empresaSel.length === 0 ? colors.brand : colors.border,
+            }}
+          >
+            <Text style={{ color: empresaSel.length === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+              Todas ({reqs.length})
+            </Text>
+          </TouchableOpacity>
+          {empresaCounts.map((emp) => {
+            const sel = empresaSel.includes(emp.id);
+            return (
+              <TouchableOpacity
+                key={emp.id}
+                onPress={() => toggleEmpresa(emp.id)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: radius.pill,
+                  backgroundColor: sel ? colors.brand : colors.surface,
+                  borderWidth: 1,
+                  borderColor: sel ? colors.brand : colors.border,
+                }}
+              >
+                <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                  {sel ? '✓ ' : ''}{emp.name} ({emp.count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {empresasOpen ? (
+          <View style={{ gap: 6, marginTop: 4 }}>
+            <TextInput
+              value={empresaQ}
+              onChangeText={setEmpresaQ}
+              placeholder="Buscar empresa por nombre..."
+              placeholderTextColor={colors.muted}
+              style={[inp, { paddingVertical: 6, fontSize: 12 }]}
+            />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {companies
+                .filter((c) => !empresaQ.trim() || norm(c.name).includes(norm(empresaQ)))
+                .map((c) => {
+                  const sel = empresaSel.includes(c.id);
+                  const cnt = empresaCounts.find((x) => x.id === c.id)?.count || 0;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      onPress={() => toggleEmpresa(c.id)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: radius.md,
+                        backgroundColor: sel ? colors.brand : colors.surface,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.brand : colors.border,
+                      }}
+                    >
+                      <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
+                        {sel ? '☑ ' : '☐ '}{c.name} ({cnt})
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+            </View>
+          </View>
+        ) : null}
+      </View>
 
       {/* Filtro por estatus */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -2647,20 +2989,20 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         ] as const).map((f) => {
           const on = filterStatus === f.k;
           const n = f.k === 'todos'
-            ? reqs.length
+            ? reqsPorEmpresa.length
             : f.k === 'sin_precio'
-              ? reqs.filter(faltaPrecioDe).length
+              ? reqsPorEmpresa.filter(faltaPrecioDe).length
               : f.k === 'esperando_recepcion'
-                ? reqs.filter((r) => {
+                ? reqsPorEmpresa.filter((r) => {
                   const provG = suppliers.find((s) => s.id === r.supplier_id);
                   return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_recepcion';
                 }).length
                 : f.k === 'aprobado'
-                  ? reqs.filter((r) => {
+                  ? reqsPorEmpresa.filter((r) => {
                     const provG = suppliers.find((s) => s.id === r.supplier_id);
                     return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'aprobado';
                   }).length
-                  : reqs.filter((r) => r.status === f.k).length;
+                  : reqsPorEmpresa.filter((r) => r.status === f.k).length;
           return (
             <TouchableOpacity key={f.k} onPress={() => setFilterStatus(f.k)} style={{ borderWidth: 1.5, borderColor: f.color, backgroundColor: on ? f.color : 'transparent', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
               <Text style={{ color: on ? '#fff' : f.color, fontWeight: '800', fontSize: 12 }}>{f.label} ({n})</Text>
@@ -2695,7 +3037,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
       {(() => {
         const nq = norm(listQuery);
-        const filteredReqs = reqs
+        const filteredReqs = reqsPorEmpresa
           .filter((r) => {
             if (filterStatus === 'todos') return true;
             if (filterStatus === 'sin_precio') return faltaPrecioDe(r);
@@ -2709,7 +3051,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           .filter((r) => !reqDateTo || r.created_at.slice(0, 10) <= reqDateTo)
           .filter((r) => {
             if (!nq) return true;
-            const haystack = [r.code, r.title, r.note, r.requested_by_name, r.decided_by_name, companyName(r.company_id), ...r.items.map((it) => it.name)]
+            const empInfo = resolverEmpresaRequerimiento(r, companies);
+            const haystack = [r.code, r.title, r.note, r.requested_by_name, r.decided_by_name, companyName(r.company_id), empInfo.name, ...r.items.map((it) => it.name)]
               .filter(Boolean).join(' ');
             return norm(haystack).includes(nq);
           });
@@ -2731,7 +3074,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           } catch (e: any) { toast.error('No se pudo generar el resumen: ' + (e?.message ?? e)); }
         };
         return filteredReqs.length === 0 ? (
-          <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' && !listQuery && !reqDateFrom && !reqDateTo ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'Ningún requerimiento coincide con el filtro/búsqueda.'} />
+          <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' && empresaSel.length === 0 && !listQuery && !reqDateFrom && !reqDateTo ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'Ningún requerimiento coincide con el filtro/búsqueda.'} />
         ) : (
           <>
             {/* Selección para el PDF por lote: "Seleccionar todos" marca los VISIBLES (ya
@@ -2753,9 +3096,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 </TouchableOpacity>
               </View>
             </View>
-            {/* APROBACIÓN EN LOTE (solo admin): aparece cuando hay ≥1 requerimiento
+            {/* APROBACIÓN EN LOTE (solo usuario designado): aparece cuando hay ≥1 requerimiento
               PENDIENTE marcado; aprueba todos los marcados de un solo click. */}
-            {isAdmin && (() => {
+            {puedeAprobarRequerimientos && (() => {
               const nPend = filteredReqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').length;
               if (!nPend) return null;
               return (
@@ -3089,8 +3432,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               {/* 🧾 Sección Dedicada: Factura Fiscal / Comercial (Ilusiones / Golden) */}
                               {(() => {
                                 const fac = extraerFactura(r);
-                                const tieneFac = Boolean(fac && fac.numero);
-                                const esGoldenFac = fac?.empresa?.toLowerCase().includes('golden');
+                                const tieneFac = Boolean(fac && (fac.numero || fac.url || fac.nota));
                                 return (
                                   <View
                                     style={{
@@ -3098,7 +3440,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                       backgroundColor: colors.surfaceAlt,
                                       borderRadius: radius.md,
                                       borderWidth: 1.5,
-                                      borderColor: tieneFac ? (esGoldenFac ? '#F59E0B' : '#6366F1') : colors.border,
+                                      borderColor: tieneFac ? '#6366F1' : colors.border,
                                       padding: spacing.sm,
                                       gap: 6,
                                     }}
@@ -3110,19 +3452,19 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                           Factura Fiscal / Comercial
                                         </Text>
                                       </View>
-                                      {tieneFac ? (
+                                      {tieneFac && fac?.empresa ? (
                                         <View
                                           style={{
-                                            backgroundColor: esGoldenFac ? '#FEF3C7' : '#E0E7FF',
-                                            borderColor: esGoldenFac ? '#F59E0B' : '#6366F1',
+                                            backgroundColor: '#E0E7FF',
+                                            borderColor: '#6366F1',
                                             borderWidth: 1,
                                             paddingHorizontal: 8,
                                             paddingVertical: 2,
                                             borderRadius: radius.pill,
                                           }}
                                         >
-                                          <Text style={{ color: esGoldenFac ? '#92400E' : '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
-                                            {fac?.empresa}
+                                          <Text style={{ color: '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
+                                            🏭 {fac.empresa}
                                           </Text>
                                         </View>
                                       ) : null}
@@ -3133,7 +3475,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
                                           <Text style={{ fontSize: 12, color: colors.text }}>
                                             <Text style={{ fontWeight: '700' }}>N° Factura:</Text>{' '}
-                                            <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero}</Text>
+                                            <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero || 'S/N'}</Text>
                                           </Text>
                                           {fac?.fecha ? (
                                             <Text style={{ fontSize: 11.5, color: colors.muted }}>
@@ -3141,6 +3483,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                             </Text>
                                           ) : null}
                                         </View>
+                                        {fac?.nota ? (
+                                          <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic' }}>
+                                            📝 Nota factura: {fac.nota}
+                                          </Text>
+                                        ) : null}
                                         {fac?.subidaPor ? (
                                           <Text style={{ fontSize: 11, color: colors.muted }}>
                                             👤 Subida por: {fac.subidaPor}
@@ -3220,7 +3567,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               {/* 💳 Sección Dedicada: Recibo / Comprobante de Pago Bancario (Expediente Unificado) */}
                               {(() => {
                                 const rec = extraerReciboPago(r);
-                                const tieneRec = Boolean(rec && (rec.url || rec.referencia));
+                                const tieneRec = Boolean(rec && (rec.url || rec.referencia || rec.nota));
                                 const marcadoPagado = tieneRec || cuentasPagadasSet.has(r.id) || r.status === 'esperando_recepcion' || (r.status as string) === 'pagado';
                                 return (
                                   <View
@@ -3276,6 +3623,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                                 </Text>
                                               ) : null}
                                             </View>
+                                            {rec?.nota ? (
+                                              <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic' }}>
+                                                📝 Nota de pago: {rec.nota}
+                                              </Text>
+                                            ) : null}
                                             {rec?.subidoPor ? (
                                               <Text style={{ fontSize: 11, color: colors.muted }}>
                                                 👤 Adjuntado por: {rec.subidoPor}
@@ -3579,20 +3931,26 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                     </TouchableOpacity>
                                   );
                                 })() : null}
-                                {/* Botón de aprobación Gerente General si supera los $1,000 USD */}
-                                {isAdmin && estDinamico.requiereAprobacionGG ? (
+                                {/* Botón de aprobación por el Usuario Designado (p.ej. Gerente General) */}
+                                {puedeAprobarRequerimientos && estDinamico.requiereAprobacionGG ? (
                                   <TouchableOpacity onPress={() => aprobarGerenteGeneral(r)} style={{ backgroundColor: '#7C3AED', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>👔 Aprobar GG (&gt; $1k)</Text>
+                                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                                      👔 Aprobar ({configAprobacion.aprobadoresNombres[0] || 'Gerente General'})
+                                    </Text>
                                   </TouchableOpacity>
                                 ) : null}
-                                {isAdmin && r.status === 'pendiente' ? (
+                                {r.status === 'pendiente' ? (
                                   <>
-                                    <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity onPress={() => decidir(r, 'rechazado')} style={{ backgroundColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>❌ Rechazar</Text>
-                                    </TouchableOpacity>
+                                    {puedeAprobarRequerimientos ? (
+                                      <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
+                                      </TouchableOpacity>
+                                    ) : null}
+                                    {isAdmin || puedeAprobarRequerimientos ? (
+                                      <TouchableOpacity onPress={() => decidir(r, 'rechazado')} style={{ backgroundColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>❌ Rechazar</Text>
+                                      </TouchableOpacity>
+                                    ) : null}
                                   </>
                                 ) : null}
                                 {canReceive && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
@@ -5190,34 +5548,98 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 </Text>
               </View>
 
-              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12, marginBottom: 4 }}>
-                Empresa Emisora de la Factura:
-              </Text>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-                {(['Inversiones Las Ilusiones', 'Golden Touch'] as const).map((emp) => {
-                  const sel = facturaEmpresa === emp;
-                  return (
-                    <TouchableOpacity
-                      key={emp}
-                      onPress={() => setFacturaEmpresa(emp)}
-                      style={{
-                        flex: 1,
-                        paddingVertical: spacing.sm,
-                        paddingHorizontal: spacing.xs,
-                        borderRadius: radius.md,
-                        borderWidth: 1.5,
-                        borderColor: sel ? (emp === 'Golden Touch' ? '#F59E0B' : '#6366F1') : colors.border,
-                        backgroundColor: sel ? (emp === 'Golden Touch' ? '#FEF3C7' : '#EEF2FF') : colors.surfaceAlt,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Text style={{ color: sel ? (emp === 'Golden Touch' ? '#92400E' : '#3730A3') : colors.text, fontWeight: '800', fontSize: 12 }}>
-                        {emp === 'Golden Touch' ? '✨ Golden Touch' : '🏢 Las Ilusiones'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', gap: 6 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                  🏭 Proveedor / Emisor de la Factura (buscar o escribir manualmente):
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setFacturaProvOpen((v) => !v)}
+                  style={{
+                    backgroundColor: facturaProvOpen ? colors.brand : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: facturaProvOpen ? colors.brand : colors.border,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: radius.pill,
+                  }}
+                >
+                  <Text style={{ color: facturaProvOpen ? colors.brandContrast : colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                    {facturaProvOpen ? '▲ Cerrar lista de proveedores' : `🔍 Buscar en proveedores (${suppliers.length})`}
+                  </Text>
+                </TouchableOpacity>
               </View>
+
+              <TextInput
+                value={facturaEmpresa}
+                onChangeText={(txt) => {
+                  setFacturaEmpresa(txt);
+                  if (facturaProvOpen) setFacturaProvSearch(txt);
+                }}
+                placeholder="Escribe manualmente el proveedor/emisor o selecciónalo del catálogo..."
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.xs }]}
+              />
+
+              {facturaProvOpen ? (
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.brand,
+                    borderRadius: radius.md,
+                    padding: spacing.xs,
+                    marginBottom: spacing.sm,
+                    maxHeight: 210,
+                  }}
+                >
+                  <TextInput
+                    value={facturaProvSearch}
+                    onChangeText={setFacturaProvSearch}
+                    placeholder="🔍 Filtrar proveedor por nombre o RIF..."
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { backgroundColor: colors.surface, paddingVertical: 6, fontSize: 12, marginBottom: 6 }]}
+                  />
+                  <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+                    {suppliers
+                      .filter((s) => {
+                        if (!facturaProvSearch.trim()) return true;
+                        const q = norm(facturaProvSearch);
+                        return norm(s.name).includes(q) || (s.rif && norm(s.rif).includes(q));
+                      })
+                      .slice(0, 40)
+                      .map((s) => {
+                        const sel = norm(facturaEmpresa) === norm(s.name);
+                        return (
+                          <TouchableOpacity
+                            key={s.id}
+                            onPress={() => {
+                              setFacturaEmpresa(s.name);
+                              setFacturaProvOpen(false);
+                            }}
+                            style={{
+                              paddingVertical: 7,
+                              paddingHorizontal: 8,
+                              borderRadius: radius.sm,
+                              backgroundColor: sel ? colors.brand + '22' : 'transparent',
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: colors.border,
+                              flexDirection: 'row',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ color: sel ? colors.brandText : colors.text, fontWeight: sel ? '800' : '600', fontSize: 12 }}>
+                              🏭 {s.name}
+                            </Text>
+                            {s.rif ? (
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>{s.rif}</Text>
+                            ) : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </ScrollView>
+                </View>
+              ) : null}
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>N° de Factura / Control</Text>
               <TextInput
@@ -5235,6 +5657,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 placeholder="2026-10-26"
                 placeholderTextColor={colors.muted}
                 style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nota de la Factura (Opcional)</Text>
+              <TextInput
+                value={facturaNota}
+                onChangeText={setFacturaNota}
+                placeholder="Ej. Factura entregada en físico, pendiente retención, observación..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { marginBottom: spacing.sm, minHeight: 54, textAlignVertical: 'top' }]}
               />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Documento Adjunto (PDF o Imagen de la Factura)</Text>
@@ -5331,6 +5763,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 placeholder="2026-10-26"
                 placeholderTextColor={colors.muted}
                 style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nota del Recibo / Pago (Opcional)</Text>
+              <TextInput
+                value={reciboPagoNota}
+                onChangeText={setReciboPagoNota}
+                placeholder="Ej. Abono parcial, pagado desde cuenta Banesco, observación del pago..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { marginBottom: spacing.sm, minHeight: 54, textAlignVertical: 'top' }]}
               />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Foto o Documento del Recibo / Comprobante</Text>
@@ -5444,94 +5886,224 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         </View>
       </Modal>
 
-      {/* ── Modal: Configuración de Umbral de Aprobación por Monto, Empresa y Personas ── */}
-      <Modal visible={configModalOpen} animationType="fade" transparent onRequestClose={() => setConfigModalOpen(false)}>
+      {/* ── Modal: Configuración de Usuario Designado para Aprobar Requerimientos (Solo Anthony Mansilla y Angelica Solis) ── */}
+      <Modal visible={configModalOpen && puedeVerConfigAprobacion} animationType="fade" transparent onRequestClose={() => setConfigModalOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: spacing.md }}>
-          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, maxHeight: '90%' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, maxHeight: '92%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                 <Text style={{ fontSize: 16 }}>⚙️</Text>
-                <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text }}>Umbral de Aprobación Dinámico</Text>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text }}>
+                  Designar Usuario Aprobador de Requerimientos
+                </Text>
               </View>
               <TouchableOpacity onPress={() => setConfigModalOpen(false)}>
                 <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
               </TouchableOpacity>
             </View>
-            <Text style={{ fontSize: 12, color: colors.muted, marginBottom: spacing.md }}>
-              Configura el monto a partir del cual las compras exigen aprobación especial obligatoria, asignable a una empresa en específico o a todas, y a qué responsables/personas autorizadas corresponde.
+            <Text style={{ fontSize: 11.5, color: colors.muted, marginBottom: spacing.sm }}>
+              🔒 Configuración exclusiva (visible únicamente para Anthony Mansilla y Angelica Solis). Elige qué usuario(s) (ej. Gerente General) deben aprobar primero los requerimientos de compra.
             </Text>
 
-            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
-              Monto Límite en Dólares (USD):
-            </Text>
-            <TextInput
-              value={cfgMonto}
-              onChangeText={setCfgMonto}
-              keyboardType="numeric"
-              placeholder="1000"
-              placeholderTextColor={colors.muted}
-              style={[inp, { marginBottom: spacing.md }]}
-            />
+            <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled">
+              {/* Modo de aplicación: Todos los requerimientos vs Por monto */}
+              <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.text, marginBottom: 6 }}>
+                1. ¿Cuándo se exige aprobación del usuario designado?
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={() => { setCfgActivo(true); setCfgExigirEnTodos(true); setCfgMonto('0'); }}
+                  style={{
+                    flex: 1,
+                    minWidth: 180,
+                    padding: 10,
+                    borderRadius: radius.md,
+                    borderWidth: 1.5,
+                    borderColor: cfgActivo && cfgExigirEnTodos ? colors.brand : colors.border,
+                    backgroundColor: cfgActivo && cfgExigirEnTodos ? colors.brand + '18' : colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: cfgActivo && cfgExigirEnTodos ? colors.brandText : colors.text }}>
+                    {cfgActivo && cfgExigirEnTodos ? '● ' : '○ '}En TODOS los requerimientos
+                  </Text>
+                  <Text style={{ fontSize: 10.5, color: colors.muted, marginTop: 2 }}>
+                    Todo requerimiento debe ser aprobado primero por el usuario designado (ej. Gerente General).
+                  </Text>
+                </TouchableOpacity>
 
-            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 6 }}>
-              Aplica a la Empresa:
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.md }}>
-              <TouchableOpacity
-                onPress={() => { setCfgEmpresaId(null); setCfgEmpresaNombre('Todas las empresas'); }}
+                <TouchableOpacity
+                  onPress={() => { setCfgActivo(true); setCfgExigirEnTodos(false); if (parseNum(cfgMonto) <= 0) setCfgMonto('1000'); }}
+                  style={{
+                    flex: 1,
+                    minWidth: 180,
+                    padding: 10,
+                    borderRadius: radius.md,
+                    borderWidth: 1.5,
+                    borderColor: cfgActivo && !cfgExigirEnTodos ? colors.brand : colors.border,
+                    backgroundColor: cfgActivo && !cfgExigirEnTodos ? colors.brand + '18' : colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: cfgActivo && !cfgExigirEnTodos ? colors.brandText : colors.text }}>
+                    {cfgActivo && !cfgExigirEnTodos ? '● ' : '○ '}Solo mayores a un monto ($ USD)
+                  </Text>
+                  <Text style={{ fontSize: 10.5, color: colors.muted, marginTop: 2 }}>
+                    Exige la aprobación especial cuando el requerimiento supere el monto indicado.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {!cfgExigirEnTodos ? (
+                <View style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
+                    Monto Límite en Dólares (USD):
+                  </Text>
+                  <TextInput
+                    value={cfgMonto}
+                    onChangeText={setCfgMonto}
+                    keyboardType="numeric"
+                    placeholder="1000"
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+              ) : null}
+
+              {/* Selección de Usuario(s) Designado(s) */}
+              <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.text, marginBottom: 4, marginTop: 4 }}>
+                2. Usuario(s) Designado(s) para Aprobar Requerimientos:
+              </Text>
+              <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 6 }}>
+                Selecciona de la lista de usuarios registrados o escribe el cargo/nombre (por defecto: Gerente General).
+              </Text>
+
+              <TextInput
+                value={cfgUserSearch}
+                onChangeText={setCfgUserSearch}
+                placeholder="🔍 Buscar usuario por nombre, usuario o cargo..."
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6, paddingVertical: 6, fontSize: 12 }]}
+              />
+
+              <View
                 style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: radius.pill,
+                  maxHeight: 170,
                   borderWidth: 1,
-                  borderColor: cfgEmpresaId === null ? colors.brand : colors.border,
-                  backgroundColor: cfgEmpresaId === null ? colors.surfaceAlt : 'transparent',
+                  borderColor: colors.border,
+                  borderRadius: radius.md,
+                  backgroundColor: colors.surfaceAlt,
+                  padding: 6,
+                  marginBottom: spacing.sm,
                 }}
               >
-                <Text style={{ fontSize: 11, fontWeight: '800', color: cfgEmpresaId === null ? colors.brandText : colors.text }}>
-                  🌐 Todas las empresas
-                </Text>
-              </TouchableOpacity>
-              {companies.map((c) => {
-                const sel = cfgEmpresaId === c.id;
-                return (
-                  <TouchableOpacity
-                    key={c.id}
-                    onPress={() => { setCfgEmpresaId(c.id); setCfgEmpresaNombre(c.name); }}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: radius.pill,
-                      borderWidth: 1,
-                      borderColor: sel ? colors.brand : colors.border,
-                      backgroundColor: sel ? colors.surfaceAlt : 'transparent',
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: sel ? colors.brandText : colors.text }}>
-                      🏢 {c.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {usuariosSistema
+                    .filter((u) => {
+                      if (!cfgUserSearch.trim()) return true;
+                      const q = norm(cfgUserSearch);
+                      return (
+                        norm(u.full_name).includes(q) ||
+                        (u.username && norm(u.username).includes(q)) ||
+                        (u.app_role_name && norm(u.app_role_name).includes(q)) ||
+                        (u.role && norm(u.role).includes(q))
+                      );
+                    })
+                    .map((u) => {
+                      const sel =
+                        cfgAprobadoresIds.includes(u.id) ||
+                        cfgAprobadoresNombres.some((n) => norm(n) === norm(u.full_name));
+                      return (
+                        <TouchableOpacity
+                          key={u.id}
+                          onPress={() => toggleUsuarioAprobador(u)}
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            paddingVertical: 7,
+                            paddingHorizontal: 8,
+                            borderRadius: radius.sm,
+                            backgroundColor: sel ? colors.brand + '22' : 'transparent',
+                            borderBottomWidth: 0.5,
+                            borderBottomColor: colors.border,
+                          }}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: sel ? colors.brandText : colors.text, fontWeight: sel ? '800' : '600', fontSize: 12 }}>
+                              {sel ? '☑ ' : '☐ '}👤 {u.full_name}
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                              {u.app_role_name || u.role || 'Usuario'}{u.username ? ` · @${u.username}` : ''}
+                            </Text>
+                          </View>
+                          {sel ? (
+                            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>Designado</Text>
+                          ) : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                </ScrollView>
+              </View>
 
-            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
-              Personas / Cargos Autorizados a Aprobar:
-            </Text>
-            <TextInput
-              value={cfgAprobadoresNombres.join(', ')}
-              onChangeText={(t) => setCfgAprobadoresNombres(t.split(',').map((x) => x.trim()).filter(Boolean))}
-              placeholder="Ej. Gerencia General, Anthony, Director Ejecutivo"
-              placeholderTextColor={colors.muted}
-              style={[inp, { marginBottom: spacing.lg }]}
-            />
+              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
+                Nombres / Cargos Autorizados (puedes agregar &quot;Gerente General&quot; o separar por coma):
+              </Text>
+              <TextInput
+                value={cfgAprobadoresNombres.join(', ')}
+                onChangeText={(t) => setCfgAprobadoresNombres(t.split(',').map((x) => x.trim()).filter(Boolean))}
+                placeholder="Ej. Gerente General, Anthony Mansilla"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
 
-            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 6 }}>
+                3. Aplica a la Empresa:
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.md }}>
+                <TouchableOpacity
+                  onPress={() => { setCfgEmpresaId(null); setCfgEmpresaNombre('Todas las empresas'); }}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: cfgEmpresaId === null ? colors.brand : colors.border,
+                    backgroundColor: cfgEmpresaId === null ? colors.surfaceAlt : 'transparent',
+                  }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: cfgEmpresaId === null ? colors.brandText : colors.text }}>
+                    🌐 Todas las empresas
+                  </Text>
+                </TouchableOpacity>
+                {companies.map((c) => {
+                  const sel = cfgEmpresaId === c.id;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      onPress={() => { setCfgEmpresaId(c.id); setCfgEmpresaNombre(c.name); }}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.brand : colors.border,
+                        backgroundColor: sel ? colors.surfaceAlt : 'transparent',
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: sel ? colors.brandText : colors.text }}>
+                        🏢 {c.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
               <TouchableOpacity onPress={() => setConfigModalOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={guardarConfigModal} style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>💾 Guardar Umbral</Text>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>💾 Guardar Aprobador Designado</Text>
               </TouchableOpacity>
             </View>
           </View>

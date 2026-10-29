@@ -13,7 +13,7 @@ import { LOGO_DATA_URI } from './logoData';
 import { FIRMA_DATA_URI, FIRMA2_DATA_URI } from './firmaData';
 import type { InventoryRequirement, RequirementLine } from '../types/database';
 
-export type EmpresaFactura = 'Inversiones Las Ilusiones' | 'Golden Touch';
+export type EmpresaFactura = string;
 
 export interface FacturaData {
   numero: string;
@@ -25,6 +25,7 @@ export interface FacturaData {
   subidaPor?: string | null;
   subidaAt?: string | null;
   monto?: number | null;
+  nota?: string | null;
 }
 
 export interface ReciboPagoData {
@@ -161,43 +162,59 @@ export function limpiarObservacionesUsuario(obs?: string | null): string {
     .trim();
 }
 
+function cleanTagField(s?: string | null): string {
+  return String(s ?? '')
+    .replace(/\|/g, '/')
+    .replace(/\]/g, ')')
+    .replace(/\r?\n/g, ' ')
+    .trim();
+}
+
 /**
  * Extrae los datos de la factura fiscal cargada desde columnas o etiqueta de observaciones
  */
 export function extraerFactura(r: Partial<InventoryRequirement>): FacturaData | null {
   if (!r) return null;
 
-  // 1. Si viene como campo de primer nivel
+  const obs = r.observaciones || '';
+
+  // 1. Extraer de tag en observaciones (soporta formato con o sin campo Nota al final)
+  const match = obs.match(
+    /\[FACTURA PROVEEDOR:\s*Nro:\s*([^|]*)\|\s*Empresa:\s*([^|]*)\|\s*Fecha:\s*([^|]*)\|\s*Url:\s*([^|]*)\|\s*Tipo:\s*([^|]*)\|\s*Nombre:\s*([^|]*)\|\s*SubidaPor:\s*([^|]*)\|\s*SubidaAt:\s*([^|\]]*)(?:\|\s*Nota:\s*([^\]]*))?\]/i
+  );
+  if (match) {
+    const num = match[1].trim();
+    const emp = match[2].trim();
+    const url = match[4].trim();
+    const nota = (match[9] ?? '').trim();
+    if ((num && num !== 'No indicado') || url || nota || emp) {
+      return {
+        numero: num === 'No indicado' ? '' : num,
+        empresa: emp || '',
+        fecha: match[3].trim() || null,
+        url: url || null,
+        tipo: (match[5].trim() as any) || 'image',
+        nombre: match[6].trim() || null,
+        subidaPor: match[7].trim() || null,
+        subidaAt: match[8].trim() || null,
+        nota: nota || null,
+      };
+    }
+  }
+
+  // 2. Si viene como campo de primer nivel
   if (r.factura_numero) {
     return {
       numero: r.factura_numero,
-      empresa: (r.factura_empresa as EmpresaFactura) || 'Inversiones Las Ilusiones',
+      empresa: (r.factura_empresa as EmpresaFactura) || '',
       fecha: r.factura_fecha || null,
       url: r.factura_url || null,
       tipo: r.factura_tipo || 'image',
       nombre: r.factura_nombre || null,
       subidaPor: r.factura_subida_por || null,
       subidaAt: r.factura_subida_at || null,
+      nota: null,
     };
-  }
-
-  // 2. Extraer de tag en observaciones: [FACTURA PROVEEDOR: Nro: ... | Empresa: ... | Fecha: ... | Url: ... | Tipo: ... | Nombre: ... | SubidaPor: ... | SubidaAt: ...]
-  const obs = r.observaciones || '';
-  const match = obs.match(/\[FACTURA PROVEEDOR:\s*Nro:\s*([^|]+)\|\s*Empresa:\s*([^|]+)\|\s*Fecha:\s*([^|]*)\|\s*Url:\s*([^|]*)\|\s*Tipo:\s*([^|]*)\|\s*Nombre:\s*([^|]*)\|\s*SubidaPor:\s*([^|]*)\|\s*SubidaAt:\s*([^\]]*)\]/i);
-  if (match) {
-    const num = match[1].trim();
-    if (num && num !== 'No indicado') {
-      return {
-        numero: num,
-        empresa: (match[2].trim() as EmpresaFactura) || 'Inversiones Las Ilusiones',
-        fecha: match[3].trim() || null,
-        url: match[4].trim() || null,
-        tipo: (match[5].trim() as any) || 'image',
-        nombre: match[6].trim() || null,
-        subidaPor: match[7].trim() || null,
-        subidaAt: match[8].trim() || null,
-      };
-    }
   }
 
   // 3. Respaldo histórico: si venía en [RECEPCIÓN ALMACÉN: · Factura N° XXXXX (con soporte adjunto)]
@@ -205,13 +222,14 @@ export function extraerFactura(r: Partial<InventoryRequirement>): FacturaData | 
   if (matchHist && matchHist[1]) {
     return {
       numero: matchHist[1].trim(),
-      empresa: 'Inversiones Las Ilusiones',
+      empresa: '',
       fecha: r.received_at ? dmyOf(r.received_at) : null,
       url: r.attachment_url || null,
       tipo: (r.attachment_type === 'pdf' ? 'pdf' : 'image'),
       nombre: r.attachment_name || null,
       subidaPor: 'Almacén',
       subidaAt: r.received_at || null,
+      nota: null,
     };
   }
 
@@ -226,9 +244,14 @@ export function inyectarFacturaEnObservaciones(
   factura: FacturaData | null
 ): string {
   let base = (obs || '').replace(/\[FACTURA PROVEEDOR:[^\]]+\]/gi, '').trim();
-  if (!factura || !factura.numero.trim()) return base;
+  if (
+    !factura ||
+    (!factura.numero?.trim() && !factura.url && !factura.nota?.trim() && !factura.empresa?.trim())
+  ) {
+    return base;
+  }
 
-  const tag = `[FACTURA PROVEEDOR: Nro: ${factura.numero.trim()} | Empresa: ${factura.empresa} | Fecha: ${factura.fecha || ''} | Url: ${factura.url || ''} | Tipo: ${factura.tipo || 'image'} | Nombre: ${factura.nombre || ''} | SubidaPor: ${factura.subidaPor || ''} | SubidaAt: ${factura.subidaAt || ''}]`;
+  const tag = `[FACTURA PROVEEDOR: Nro: ${cleanTagField(factura.numero)} | Empresa: ${cleanTagField(factura.empresa)} | Fecha: ${cleanTagField(factura.fecha)} | Url: ${cleanTagField(factura.url)} | Tipo: ${factura.tipo || 'image'} | Nombre: ${cleanTagField(factura.nombre)} | SubidaPor: ${cleanTagField(factura.subidaPor)} | SubidaAt: ${cleanTagField(factura.subidaAt)} | Nota: ${cleanTagField(factura.nota)}]`;
   return base ? `${base}\n${tag}` : tag;
 }
 
@@ -237,6 +260,31 @@ export function inyectarFacturaEnObservaciones(
  */
 export function extraerReciboPago(r: Partial<InventoryRequirement>): ReciboPagoData | null {
   if (!r) return null;
+
+  const obs = r.observaciones || '';
+  const match = obs.match(
+    /\[RECIBO PAGO:\s*Url:\s*([^|]*)\|\s*Tipo:\s*([^|]*)\|\s*Nombre:\s*([^|]*)\|\s*Fecha:\s*([^|]*)\|\s*Ref:\s*([^|]*)\|\s*Monto:\s*([^|]*)\|\s*Metodo:\s*([^|]*)\|\s*SubidoPor:\s*([^|]*)\|\s*SubidoAt:\s*([^|\]]*)(?:\|\s*Nota:\s*([^\]]*))?\]/i
+  );
+  if (match) {
+    const url = match[1].trim();
+    const ref = match[5].trim();
+    const nota = (match[10] ?? '').trim();
+    if (url || ref || nota) {
+      return {
+        url: url || null,
+        tipo: (match[2].trim() as any) === 'pdf' ? 'pdf' : 'image',
+        nombre: match[3].trim() || 'Recibo de pago',
+        fecha: match[4].trim() || null,
+        referencia: ref || null,
+        monto: match[6].trim() ? Number(match[6].trim()) : null,
+        metodo: match[7].trim() || null,
+        subidoPor: match[8].trim() || null,
+        subidoAt: match[9].trim() || null,
+        nota: nota || null,
+      };
+    }
+  }
+
   const anyR = r as any;
   if (anyR.recibo_pago_url || anyR.comprobante_pago_url) {
     return {
@@ -249,26 +297,8 @@ export function extraerReciboPago(r: Partial<InventoryRequirement>): ReciboPagoD
       metodo: anyR.recibo_pago_metodo || null,
       subidoPor: anyR.recibo_pago_subido_por || null,
       subidoAt: anyR.recibo_pago_subido_at || null,
+      nota: anyR.recibo_pago_nota || null,
     };
-  }
-
-  const obs = r.observaciones || '';
-  const match = obs.match(/\[RECIBO PAGO:\s*Url:\s*([^|]*)\|\s*Tipo:\s*([^|]*)\|\s*Nombre:\s*([^|]*)\|\s*Fecha:\s*([^|]*)\|\s*Ref:\s*([^|]*)\|\s*Monto:\s*([^|]*)\|\s*Metodo:\s*([^|]*)\|\s*SubidoPor:\s*([^|]*)\|\s*SubidoAt:\s*([^\]]*)\]/i);
-  if (match) {
-    const url = match[1].trim();
-    if (url) {
-      return {
-        url,
-        tipo: (match[2].trim() as any) === 'pdf' ? 'pdf' : 'image',
-        nombre: match[3].trim() || 'Recibo de pago',
-        fecha: match[4].trim() || null,
-        referencia: match[5].trim() || null,
-        monto: match[6].trim() ? Number(match[6].trim()) : null,
-        metodo: match[7].trim() || null,
-        subidoPor: match[8].trim() || null,
-        subidoAt: match[9].trim() || null,
-      };
-    }
   }
 
   return null;
@@ -282,9 +312,9 @@ export function inyectarReciboPagoEnObservaciones(
   recibo: ReciboPagoData | null
 ): string {
   let base = (obs || '').replace(/\[RECIBO PAGO:[^\]]+\]/gi, '').trim();
-  if (!recibo || !recibo.url) return base;
+  if (!recibo || (!recibo.url && !recibo.referencia?.trim() && !recibo.nota?.trim())) return base;
 
-  const tag = `[RECIBO PAGO: Url: ${recibo.url} | Tipo: ${recibo.tipo || 'image'} | Nombre: ${recibo.nombre || 'Recibo de pago'} | Fecha: ${recibo.fecha || ''} | Ref: ${recibo.referencia || ''} | Monto: ${recibo.monto ?? ''} | Metodo: ${recibo.metodo || ''} | SubidoPor: ${recibo.subidoPor || ''} | SubidoAt: ${recibo.subidoAt || new Date().toISOString()}]`;
+  const tag = `[RECIBO PAGO: Url: ${cleanTagField(recibo.url)} | Tipo: ${recibo.tipo || 'image'} | Nombre: ${cleanTagField(recibo.nombre || 'Recibo de pago')} | Fecha: ${cleanTagField(recibo.fecha)} | Ref: ${cleanTagField(recibo.referencia)} | Monto: ${recibo.monto ?? ''} | Metodo: ${cleanTagField(recibo.metodo)} | SubidoPor: ${cleanTagField(recibo.subidoPor)} | SubidoAt: ${cleanTagField(recibo.subidoAt || new Date().toISOString())} | Nota: ${cleanTagField(recibo.nota)}]`;
   return base ? `${base}\n${tag}` : tag;
 }
 
@@ -621,12 +651,13 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
   `;
 
   // 5. Sección Factura Fiscal / Comercial
+  const reciboExp = extraerReciboPago(r);
   const seccionFactura = `
     <div class="exp-section">
       <div class="exp-header">
         <span>5. FACTURA FISCAL / COMERCIAL DEL PROVEEDOR</span>
         <span class="badge-tag ${factura ? (factura.empresa.includes('Golden') ? 'badge-golden' : 'badge-ilusiones') : 'badge-warning'}">
-          ${factura ? esc(factura.empresa) : 'PENDIENTE DE SUBIDA'}
+          ${factura ? esc(factura.empresa || proveedorNombre || 'REGISTRADA') : 'PENDIENTE DE SUBIDA'}
         </span>
       </div>
       <div class="exp-content">
@@ -634,11 +665,11 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
           <div class="grid-2">
             <div class="grid-item">
               <div class="k-label">🧾 Número de Factura:</div>
-              <div class="k-val accent" style="font-size:13px;color:#0F766E;">N° ${esc(factura.numero)}</div>
+              <div class="k-val accent" style="font-size:13px;color:#0F766E;">N° ${esc(factura.numero || 'S/N')}</div>
             </div>
             <div class="grid-item">
-              <div class="k-label">🏢 Empresa Titular de la Factura:</div>
-              <div class="k-val accent">${esc(factura.empresa)}</div>
+              <div class="k-label">🏬 Proveedor / Emisor de la Factura:</div>
+              <div class="k-val accent">${esc(factura.empresa || proveedorNombre)}</div>
             </div>
             <div class="grid-item">
               <div class="k-label">📅 Fecha de Factura:</div>
@@ -648,6 +679,11 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
               <div class="k-label">👤 Subida y Verificada por:</div>
               <div class="k-val">${esc(factura.subidaPor || 'Administración')}${factura.subidaAt ? ` (${dmyTimeOf(factura.subidaAt)})` : ''}</div>
             </div>
+            ${factura.nota ? `
+            <div class="grid-item" style="flex: 1 1 95%;">
+              <div class="k-label">📝 Nota de la Factura:</div>
+              <div class="k-val" style="font-style:italic;">${esc(factura.nota)}</div>
+            </div>` : ''}
           </div>
           ${factura.url && factura.tipo === 'image' ? `
             <div style="margin-top:10px;text-align:center;">
@@ -664,6 +700,17 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
             🧾 La factura fiscal aún no ha sido cargada para este requerimiento.
           </div>
         `}
+        ${reciboExp && (reciboExp.referencia || reciboExp.nota || reciboExp.url) ? `
+          <div style="margin-top:10px;padding-top:8px;border-top:1px dashed #CBD5E1;">
+            <div class="k-label">💳 RECIBO / COMPROBANTE DE PAGO BANCARIO:</div>
+            <div class="k-val" style="font-size:10.5px;">
+              ${reciboExp.referencia ? `Ref: <b>${esc(reciboExp.referencia)}</b>` : ''}
+              ${reciboExp.metodo ? ` · Método: <b>${esc(reciboExp.metodo)}</b>` : ''}
+              ${reciboExp.fecha ? ` · Fecha: ${esc(dmyOf(reciboExp.fecha))}` : ''}
+              ${reciboExp.nota ? `<div style="margin-top:3px;font-style:italic;color:#334155;">📝 Nota de Pago: ${esc(reciboExp.nota)}</div>` : ''}
+            </div>
+          </div>
+        ` : ''}
       </div>
     </div>
   `;
