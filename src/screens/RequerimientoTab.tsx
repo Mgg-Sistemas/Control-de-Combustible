@@ -92,6 +92,17 @@ import {
 } from '../lib/cuentasPago';
 import { inyectarEmpresaEnNota } from '../lib/cuentasEmpresa';
 import { PRIORIDADES_COMPRA, PRIORIDAD_COMPRA_INFO, PrioridadCompra, esPrioridadCompra, colorPrioridad, faltaColumnaSyncCompras, parcheExtrasReq, ExtrasReq } from '../lib/prioridadCompra';
+import {
+  anexarEventoHistorial,
+  calcularDiffItemsCompra,
+  construirTimelineExpediente,
+  extraerDestinoDeRequerimiento,
+  extraerEnvioCxp,
+  fmtFechaHora,
+  inyectarEnvioCxpEnTexto,
+  preservarHistorialYEnvioEnTexto,
+} from '../lib/comprasHistorico';
+import { TimelineExpedienteBox } from './HistoricoComprasTab';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -2201,6 +2212,32 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       if (apPrev) obsCompuesta = inyectarAprobacionCxpEnNota(obsCompuesta, apPrev) ?? obsCompuesta;
       const cotPrev = extraerCotizacionesDeTexto(reqAnterior.observaciones);
       if (cotPrev.length > 0) obsCompuesta = empaquetarCotizacionesEnTexto(obsCompuesta, cotPrev);
+      obsCompuesta = preservarHistorialYEnvioEnTexto(reqAnterior.observaciones, obsCompuesta) ?? obsCompuesta;
+
+      const autorEdicion = await perfilNombre();
+      const diffItems = calcularDiffItemsCompra({
+        itemsAntes: reqAnterior.items || [],
+        itemsDespues: items,
+        autor: autorEdicion,
+        modulo: 'Requerimientos',
+        ivaAntes: reqAnterior.iva_alicuota ?? 0,
+        ivaDespues: alicNum,
+      });
+      if (diffItems.hayCambios) {
+        obsCompuesta = anexarEventoHistorial(obsCompuesta, {
+          by: autorEdicion,
+          byId: uid,
+          modulo: 'Requerimientos',
+          tipo: 'items_modificados',
+          titulo: 'Modificación de ítems / precios en Requerimiento',
+          detalle: diffItems.resumenDetalle,
+          montoAntesUsd: diffItems.montoAntesUsd,
+          montoDespuesUsd: diffItems.montoDespuesUsd,
+          cambiosItems: diffItems.cambiosItems,
+          reqId: reqAnterior.id,
+          reqCode: reqAnterior.code,
+        });
+      }
     }
     const conFormatos = empaquetarFormatosEnObservaciones(obsCompuesta, formatos);
     const adj = primerFmt ? {
@@ -2502,21 +2539,60 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (status === 'aprobado' && faltaPrecioDe(r)) {
       return toast.error('Todos los renglones deben tener precio mayor a 0 antes de enviarlo a 💸 Por Pagar.');
     }
+    const ahoraIso = nowISO();
     const apActual = extraerAprobacionCxp(r.observaciones);
-    const nuevaObs =
+    let nuevaObs =
       status === 'aprobado' && apActual?.estado !== 'aprobado'
         ? inyectarAprobacionCxpEnNota(r.observaciones, {
             estado: 'pendiente',
             aprobadoPor: null,
             aprobadoPorId: null,
-            fecha: nowISO(),
+            fecha: ahoraIso,
           })
         : r.observaciones;
+    if (status === 'aprobado') {
+      nuevaObs =
+        inyectarEnvioCxpEnTexto(nuevaObs, {
+          enviadoPor: decName,
+          enviadoPorId: uid,
+          fecha: ahoraIso,
+          origen: 'requerimiento',
+        }) ?? nuevaObs;
+      const provNombreEnv =
+        suppliers.find((s) => s.id === fallbackSup)?.name ||
+        r.items.find((it) => it.supplier_name)?.supplier_name ||
+        'Proveedor asignado';
+      const montoEnv = calcularTotalReqUsd(r.items, rate, r.iva_alicuota);
+      nuevaObs = anexarEventoHistorial(nuevaObs, {
+        at: ahoraIso,
+        by: decName,
+        byId: uid,
+        modulo: 'Requerimientos',
+        tipo: 'enviado_por_pagar',
+        titulo: 'Enviado a Por Pagar desde Requerimientos',
+        detalle: `Enviado a Cuentas por Pagar por ${decName} · Proveedor: ${provNombreEnv} · Monto: ${usd(montoEnv)} USD.`,
+        montoDespuesUsd: montoEnv,
+        reqId: r.id,
+        reqCode: r.code,
+      });
+    } else if (status === 'rechazado') {
+      nuevaObs = anexarEventoHistorial(nuevaObs, {
+        at: ahoraIso,
+        by: decName,
+        byId: uid,
+        modulo: 'Requerimientos',
+        tipo: 'rechazado_o_anulado',
+        titulo: 'Requerimiento rechazado / anulado',
+        detalle: `Rechazado por ${decName}.`,
+        reqId: r.id,
+        reqCode: r.code,
+      });
+    }
     const patch: Record<string, any> = {
       status,
       decided_by: uid,
       decided_by_name: decName,
-      decided_at: nowISO(),
+      decided_at: ahoraIso,
       ...(nuevaObs !== r.observaciones ? { observaciones: nuevaObs } : {}),
     };
     if (status === 'aprobado') {
@@ -2535,6 +2611,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           r.empresa_pagadora_nombre ||
           (empId ? companies.find((c) => c.id === empId)?.name || null : null);
         const condReq = extraerCondicionesPago(r.observaciones);
+        const provNombreEnv =
+          suppliers.find((s) => s.id === fallbackSup)?.name ||
+          r.items.find((it) => it.supplier_name)?.supplier_name ||
+          'Proveedor asignado';
+        const montoEnv = calcularTotalReqUsd(r.items, rate, r.iva_alicuota);
         if (cxpRows && cxpRows.length > 0) {
           for (const cxp of cxpRows) {
             let notaCxp = cxp.nota || '';
@@ -2544,6 +2625,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             if (condReq) {
               notaCxp = inyectarCondicionesPagoEnNota(notaCxp, condReq) ?? notaCxp;
             }
+            notaCxp =
+              inyectarEnvioCxpEnTexto(notaCxp, {
+                enviadoPor: decName,
+                enviadoPorId: uid,
+                fecha: ahoraIso,
+                origen: 'requerimiento',
+              }) ?? notaCxp;
             const apCxpExist = extraerAprobacionCxp(notaCxp);
             if (apCxpExist?.estado !== 'aprobado') {
               notaCxp =
@@ -2551,12 +2639,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   estado: 'pendiente',
                   aprobadoPor: null,
                   aprobadoPorId: null,
-                  fecha: nowISO(),
+                  fecha: ahoraIso,
                 }) ?? notaCxp;
             }
+            notaCxp = anexarEventoHistorial(notaCxp, {
+              at: ahoraIso,
+              by: decName,
+              byId: uid,
+              modulo: 'Requerimientos',
+              tipo: 'enviado_por_pagar',
+              titulo: 'Enviado a Por Pagar desde Requerimientos',
+              detalle: `Enviado a Cuentas por Pagar por ${decName} · Proveedor: ${provNombreEnv} · Monto: ${usd(montoEnv)} USD.`,
+              montoDespuesUsd: montoEnv,
+              reqId: r.id,
+              reqCode: r.code,
+              cuentaId: cxp.id,
+            });
             const patchCxp: Record<string, any> = {
               nota: notaCxp || null,
-              updated_at: nowISO(),
+              updated_at: ahoraIso,
             };
             if (esPrioridadCompra(r.prioridad)) patchCxp.prioridad = r.prioridad;
             await supabase.from('cuentas').update(patchCxp).eq('id', cxp.id);
@@ -3365,6 +3466,42 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                   {r.empresa_pagadora_nombre ? (
                                     <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>💳 Pagadora: {r.empresa_pagadora_nombre}</Text>
                                   ) : null}
+                                  {(() => {
+                                    const destConPlaca = extraerDestinoDeRequerimiento(r, machines, null);
+                                    const envInfo = extraerEnvioCxp(r.observaciones);
+                                    const enviadoPorTxt = envInfo?.enviadoPor || (r.status === 'aprobado' ? r.decided_by_name : null);
+                                    const enviadoAtTxt = envInfo?.fecha || (r.status === 'aprobado' ? r.decided_at : null);
+                                    return (
+                                      <View style={{ marginTop: 3, gap: 1 }}>
+                                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                                          👤 <Text style={{ fontWeight: '700' }}>Solicitado por:</Text>{' '}
+                                          <Text style={{ color: colors.brandText, fontWeight: '800' }}>
+                                            {r.solicitante_nombre || r.requested_by_name || 'Personal de Campo'}
+                                          </Text>
+                                          {r.requested_by_name && r.solicitante_nombre && r.requested_by_name !== r.solicitante_nombre ? (
+                                            <Text style={{ color: colors.muted, fontSize: 11 }}> (registró: {r.requested_by_name})</Text>
+                                          ) : null}
+                                          <Text style={{ color: colors.muted, fontSize: 11 }}> · 🕒 {fmtFechaHora(r.created_at)}</Text>
+                                        </Text>
+                                        {destConPlaca || r.area ? (
+                                          <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                                            {destConPlaca ? (
+                                              <>
+                                                🚜 <Text style={{ fontWeight: '700', color: colors.text }}>Para / Destino:</Text>{' '}
+                                                <Text style={{ fontWeight: '800', color: colors.brandText }}>{destConPlaca}</Text>
+                                              </>
+                                            ) : null}
+                                            {r.area ? `  📍 Área: ${r.area}` : ''}
+                                          </Text>
+                                        ) : null}
+                                        {enviadoPorTxt && enviadoAtTxt ? (
+                                          <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '700' }}>
+                                            📤 Enviado a Por Pagar por {enviadoPorTxt} · 🕒 {fmtFechaHora(enviadoAtTxt)}
+                                          </Text>
+                                        ) : null}
+                                      </View>
+                                    );
+                                  })()}
                                 </View>
                                 <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 1, maxWidth: 260 }}>
                                   {canReceive ? (
@@ -3552,6 +3689,19 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
                               {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
                               {r.motorizado_nombre ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>🏍️ Motorizado responsable: {r.motorizado_nombre}</Text> : null}
+
+                              {/* 📜 Línea de tiempo / Histórico de movimientos del Requerimiento */}
+                              {(() => {
+                                const ctaVinc = (cuentasData || []).find((c) => c.inventory_requirement_id === r.id) || null;
+                                const evs = construirTimelineExpediente({
+                                  req: r,
+                                  cuenta: ctaVinc,
+                                  companies,
+                                  suppliers,
+                                  machines,
+                                });
+                                return <TimelineExpedienteBox eventos={evs} />;
+                              })()}
 
                               {/* 🔺 Selector rápido de Prioridad directo en la tarjeta (sincronizado con Por Pagar) */}
                               {canWrite || esPrioridadCompra(r.prioridad) ? (

@@ -166,10 +166,12 @@ export function limpiarObservacionesUsuario(obs?: string | null): string {
     .replace(/\[RECEPCIÓN ALMACÉN:[^\]]+\]/gi, '')
     .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
     .replace(/\[APROBADO_CXP:[^\]]*\]/gi, '')
+    .replace(/\[ENVIADO_CXP:[^\]]*\]/gi, '')
     .replace(/\[ORIGEN:SOLICITUD\]/gi, '')
     .replace(/\[CONVERTIDO_EN_REQ\]/gi, '')
     .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
     .replace(/\[\[COTIZACIONES_COMPLETAS:[\s\S]*?:FIN_COTIZACIONES\]\]/gi, '')
+    .replace(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi, '')
     .trim();
 }
 

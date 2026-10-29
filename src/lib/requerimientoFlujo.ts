@@ -77,18 +77,50 @@ export function esUsuarioAutorizadoConfigAprobacion(params: {
 }
 
 /**
+ * Identifica explícitamente al aprobador designado Jesús Lozada (lozcheli15 · C.I. 18162307).
+ */
+export function esUsuarioJesusLozada(params: {
+  fullName?: string | null;
+  username?: string | null;
+  cedula?: string | null;
+  email?: string | null;
+}): boolean {
+  const fn = normClean(params.fullName);
+  const un = normClean(params.username);
+  const ci = normClean(params.cedula).replace(/\D/g, '');
+  const em = normClean(params.email);
+
+  return (
+    un === 'lozcheli15' ||
+    ci === '18162307' ||
+    un === '18162307' ||
+    (fn.includes('jesus') && fn.includes('lozada')) ||
+    em.startsWith('lozcheli15@') ||
+    em.startsWith('18162307@')
+  );
+}
+
+/**
  * Evalúa si el usuario actual está designado para aprobar requerimientos según la configuración activa.
  */
 export function puedeUsuarioAprobarRequerimiento(params: {
   userId?: string | null;
   fullName?: string | null;
+  username?: string | null;
+  cedula?: string | null;
+  email?: string | null;
   role?: string | null;
   appRoleName?: string | null;
   config?: ReglaAprobacionMonto | null;
 }): boolean {
   const cfg = params.config || obtenerConfigAprobacionMonto();
   if (cfg.activo === false) {
-    return params.role === 'admin';
+    return params.role === 'admin' || esUsuarioJesusLozada(params);
+  }
+
+  // Jesús Lozada (lozcheli15 · C.I. 18162307) siempre está autorizado para aprobar y modificar en Por Pagar
+  if (esUsuarioJesusLozada(params)) {
+    return true;
   }
 
   const uid = String(params.userId ?? '').trim();
@@ -401,6 +433,14 @@ export function preservarMarcadoresSolicitudEnObservaciones(
   if (teniaConvertido && !res.includes(MARCADOR_CONVERTIDO_EN_REQ)) {
     res = res ? `${MARCADOR_CONVERTIDO_EN_REQ} ${res}` : MARCADOR_CONVERTIDO_EN_REQ;
   }
+  const mEnv = orig.match(/\[ENVIADO_CXP:[^\]]*\]/i);
+  if (mEnv && !/\[ENVIADO_CXP:[^\]]*\]/i.test(res)) {
+    res = res ? `${res}\n${mEnv[0]}` : mEnv[0];
+  }
+  const mHist = orig.match(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/i);
+  if (mHist && !/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/i.test(res)) {
+    res = res ? `${res}\n${mHist[0]}` : mHist[0];
+  }
   return res || null;
 }
 
@@ -411,6 +451,8 @@ export function limpiarMarcadoresSolicitudDeTexto(texto?: string | null): string
   return String(texto ?? '')
     .replace(/\[ORIGEN:SOLICITUD\]/g, '')
     .replace(/\[CONVERTIDO_EN_REQ\]/g, '')
+    .replace(/\[ENVIADO_CXP:[^\]]*\]/gi, '')
+    .replace(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi, '')
     .trim();
 }
 

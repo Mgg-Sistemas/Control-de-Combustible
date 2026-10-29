@@ -26,7 +26,17 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
-import { Cuenta, CuentaAbono, CuentaTipo, Supplier, Company, PurchaseOrder, InventoryRequirement } from '../types/database';
+import { Cuenta, CuentaAbono, CuentaTipo, Supplier, Company, PurchaseOrder, InventoryRequirement, Machinery, Vehicle, RequirementLine } from '../types/database';
+import { DateField } from '../components/DateField';
+import {
+  resolverTrazabilidadPorPagar,
+  anexarEventoHistorial,
+  preservarHistorialYEnvioEnTexto,
+  calcularDiffItemsCompra,
+  construirTimelineExpediente,
+  type TrazabilidadPorPagar,
+} from '../lib/comprasHistorico';
+import { TimelineExpedienteBox } from './HistoricoComprasTab';
 import { generalCompanies } from '../lib/companies';
 import {
   ID_SIN_EMPRESA,
@@ -184,6 +194,7 @@ type CuentaCalc = Cuenta & {
   aprobacionEstado: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica';
   aprobacionInfo: AprobacionCxpInfo | null;
   esMayorAMil: boolean;
+  traza: TrazabilidadPorPagar;
 };
 
 /** Calcula saldo y situación de una cuenta a partir de sus abonos.
@@ -197,6 +208,7 @@ function calcular(
   contraparte: string,
   empresaInfo: InfoEmpresaCuenta,
   condYNota: { condicionesPago: string; notaLimpia: string },
+  traza: TrazabilidadPorPagar,
   aprobacionEstado: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica' = 'no_aplica',
   aprobacionInfo: AprobacionCxpInfo | null = null
 ): CuentaCalc {
@@ -228,6 +240,7 @@ function calcular(
     aprobacionEstado: estadoAprobFinal,
     aprobacionInfo,
     esMayorAMil: monto >= 1000,
+    traza,
   };
 }
 
@@ -265,6 +278,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: orders } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: requirements, refetch: refetchRequirements } = useTable<InventoryRequirement>('inventory_requirements');
+  const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
 
   // ⚙️ Configuración y permisos de Aprobación Gerencial en Por Pagar
   const [configAprobacion, setConfigAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
@@ -351,12 +366,18 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       puedeUsuarioAprobarRequerimiento({
         userId: uid,
         fullName: miPerfil?.full_name || fullName,
+        username: miPerfil?.username,
+        cedula: miPerfil?.cedula,
+        email: session?.user?.email,
         role,
         appRoleName: appRole?.name || miPerfil?.app_role_name,
         config: configAprobacion,
       }),
-    [uid, miPerfil, fullName, role, appRole?.name, configAprobacion]
+    [uid, miPerfil, fullName, session?.user?.email, role, appRole?.name, configAprobacion]
   );
+
+  // El aprobador designado (ej. Jesús Lozada / lozcheli15 · C.I. 18162307) o admin siempre puede operar y modificar peticiones en Por Pagar
+  const puedeOperarCxp = canWrite || puedeAprobarPagos || role === 'admin';
 
   const aprobadoresLabel = useMemo(
     () =>
@@ -440,6 +461,221 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   // Filtro de estado prioritario en Por Pagar
   const [filtroEstadoCxp, setFiltroEstadoCxp] = useState<'todos' | 'esperando_aprobacion' | 'mayor_mil' | 'esperando_pago' | 'vencida' | 'prioridad_alta' | 'pagada'>('todos');
+
+  // 📅 Filtro por Fecha Específica o Rango de Fechas en Por Pagar
+  const [modoFechaCxp, setModoFechaCxp] = useState<'todas' | 'dia' | 'rango'>('todas');
+  const [campoFechaCxp, setCampoFechaCxp] = useState<'cualquiera' | 'envio' | 'solicitud'>('cualquiera');
+  const [fechaDesdeCxp, setFechaDesdeCxp] = useState('');
+  const [fechaHastaCxp, setFechaHastaCxp] = useState('');
+
+  // Renglones expandidos por cuenta en la tarjeta
+  const [renglonesAbiertosIds, setRenglonesAbiertosIds] = useState<Set<string>>(new Set());
+  const toggleRenglonesCuenta = (id: string) => {
+    setRenglonesAbiertosIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // ✏️ Edición bidireccional de ítems del Requerimiento desde Por Pagar (Jesús Lozada / Aprobador / Admin)
+  type DraftItemCxp = {
+    name: string;
+    qty: string;
+    unit: string;
+    unitUsd: string;
+    note: string;
+    exento: boolean;
+    item_id: string | null;
+    supplier_id?: string | null;
+    supplier_name?: string | null;
+  };
+  const [editItemsCuenta, setEditItemsCuenta] = useState<CuentaCalc | null>(null);
+  const [editItemsDraft, setEditItemsDraft] = useState<DraftItemCxp[]>([]);
+  const [editItemsIvaAlicuota, setEditItemsIvaAlicuota] = useState<number>(0);
+  const [editItemsMotivo, setEditItemsMotivo] = useState('');
+  const [guardandoItemsCxp, setGuardandoItemsCxp] = useState(false);
+
+  const abrirEditorItemsCxp = (c: CuentaCalc) => {
+    if (!puedeAprobarPagos && role !== 'admin' && !canWrite) {
+      return toast.error(`Solo ${aprobadoresLabel} está autorizado para modificar los ítems en Por Pagar.`);
+    }
+    const reqVinc = c.traza.reqVinculado;
+    const baseItems: RequirementLine[] =
+      reqVinc && Array.isArray(reqVinc.items) && reqVinc.items.length > 0
+        ? reqVinc.items
+        : c.traza.items.length > 0
+          ? c.traza.items
+          : [
+              {
+                product_id: null,
+                name: c.concepto || 'Ítem de compra',
+                qty: 1,
+                unit: 'und',
+                est_price: Number(c.monto) || 0,
+                currency: 'USD',
+                note: null,
+                exento: true,
+              },
+            ];
+    setEditItemsCuenta(c);
+    setEditItemsIvaAlicuota(Number(reqVinc?.iva_alicuota) || 0);
+    setEditItemsDraft(
+      baseItems.map((it) => ({
+        name: String(it.name || ''),
+        qty: String(Number(it.qty) || 1),
+        unit: String(it.unit || 'und'),
+        unitUsd: String(Number(it.est_price ?? it.price_usd) || 0),
+        note: String(it.note || ''),
+        exento: Boolean(it.exento),
+        item_id: (it as any).item_id ?? it.product_id ?? null,
+        supplier_id: it.supplier_id ?? null,
+        supplier_name: it.supplier_name ?? null,
+      }))
+    );
+    setEditItemsMotivo('');
+  };
+
+  const guardarModificacionItemsCxp = async () => {
+    if (!editItemsCuenta) return;
+    const validos: RequirementLine[] = editItemsDraft
+      .map((l) => {
+        const qVal = parseNum(l.qty);
+        const pVal = parseNum(l.unitUsd);
+        const unitUsd = pVal > 0 ? pVal : 0;
+        return {
+          product_id: l.item_id ?? null,
+          name: l.name.trim(),
+          qty: qVal,
+          unit: l.unit.trim() || 'und',
+          est_price: unitUsd,
+          price_usd: unitUsd > 0 ? unitUsd : undefined,
+          total_usd: unitUsd > 0 ? Math.round(qVal * unitUsd * 100) / 100 : undefined,
+          modo_precio: 'unidad' as const,
+          currency: 'USD' as const,
+          note: l.note.trim() || null,
+          exento: Boolean(l.exento),
+          supplier_id: l.supplier_id ?? editItemsCuenta.supplier_id ?? null,
+          supplier_name: l.supplier_name ?? editItemsCuenta.contraparte ?? null,
+        };
+      })
+      .filter((l) => l.name && l.qty > 0);
+
+    if (validos.length === 0) {
+      return toast.error('La petición debe conservar al menos 1 ítem válido con cantidad mayor a 0. Si deseas cancelar todo el pedido, usa el botón ⛔ Anular.');
+    }
+
+    const reqVinc = editItemsCuenta.traza.reqVinculado;
+    const itemsAntes: RequirementLine[] =
+      reqVinc && Array.isArray(reqVinc.items) && reqVinc.items.length > 0
+        ? reqVinc.items
+        : editItemsCuenta.traza.items;
+
+    const diff = calcularDiffItemsCompra(itemsAntes, validos);
+    if (!diff.huboCambios && !editItemsMotivo.trim()) {
+      setEditItemsCuenta(null);
+      return toast.info('No se detectaron cambios en los ítems.');
+    }
+
+    // Calcular total considerando IVA si el requerimiento tenía alícuota de IVA
+    const alicuota = Number(editItemsIvaAlicuota) || 0;
+    const subtotalBruto = validos.reduce((acc, it) => acc + (Number(it.qty) || 0) * (Number(it.est_price) || 0), 0);
+    const baseGravable = validos.reduce((acc, it) => acc + (it.exento ? 0 : (Number(it.qty) || 0) * (Number(it.est_price) || 0)), 0);
+    const ivaMonto = alicuota > 0 ? Math.round(baseGravable * (alicuota / 100) * 100) / 100 : 0;
+    const nuevoMontoTotal = Math.round((subtotalBruto + ivaMonto) * 100) / 100;
+
+    const nuevoConcepto = validos
+      .map((it) => `${it.name} (${it.qty} ${it.unit || 'und'})`)
+      .join(', ');
+
+    const autorNombre = miPerfil?.full_name || fullName || session?.user?.email || 'Jesús Lozada';
+    const motivoStr = editItemsMotivo.trim() ? ` · Motivo: ${editItemsMotivo.trim()}` : '';
+    const detalleHist = `${diff.resumenTexto}${motivoStr}`;
+
+    setGuardandoItemsCxp(true);
+    try {
+      const eventoHist = {
+        tipo: 'items_modificados' as const,
+        fecha: nowISO(),
+        usuarioNombre: autorNombre,
+        usuarioId: uid,
+        origen: 'por_pagar' as const,
+        titulo: `Modificación de ítems en Por Pagar (${editItemsCuenta.traza.reqCode || editItemsCuenta.documento || 'CXP'})`,
+        detalle: detalleHist,
+        montoAntes: Number(editItemsCuenta.monto) || diff.montoAntes,
+        montoDespues: nuevoMontoTotal,
+        cambiosItems: diff.cambios,
+      };
+
+      // 1. Si hay requerimiento vinculado, actualizar primero inventory_requirements
+      //    El trigger `trg_req_sync_compra` actualizará purchase_orders y cuentas.monto / concepto automáticamente.
+      const reqId = editItemsCuenta.inventory_requirement_id || reqVinc?.id || null;
+      if (reqId) {
+        const { data: rRow } = await supabase
+          .from('inventory_requirements')
+          .select('id, observaciones')
+          .eq('id', reqId)
+          .maybeSingle();
+        const obsBase = rRow?.observaciones ?? reqVinc?.observaciones ?? null;
+        const obsConHist = anexarEventoHistorial(obsBase, eventoHist);
+        const { error: errReq } = await supabase
+          .from('inventory_requirements')
+          .update({
+            items: validos,
+            title: nuevoConcepto,
+            observaciones: obsConHist,
+          })
+          .eq('id', reqId);
+        if (errReq) throw errReq;
+      }
+
+      // 2. Actualizar la nota de la cuenta con el evento en el historial
+      //    (y si la cuenta NO tiene inventory_requirement_id directo, actualizar también concepto y monto)
+      const notaConHist = anexarEventoHistorial(editItemsCuenta.nota, eventoHist);
+      const patchCuenta: Record<string, any> = {
+        nota: notaConHist,
+        updated_at: nowISO(),
+      };
+      if (!editItemsCuenta.inventory_requirement_id) {
+        patchCuenta.concepto = nuevoConcepto;
+        patchCuenta.monto = nuevoMontoTotal;
+      }
+      const { error: errCta } = await supabase
+        .from('cuentas')
+        .update(patchCuenta)
+        .eq('id', editItemsCuenta.id);
+      if (errCta) throw errCta;
+
+      // Si había orden de compra vinculada sin trigger directo, sincronizarla también
+      if (editItemsCuenta.order_id && !editItemsCuenta.inventory_requirement_id) {
+        try {
+          await supabase
+            .from('purchase_orders')
+            .update({
+              items: validos.map((it) => ({
+                item_id: it.product_id,
+                name: it.name,
+                qty: it.qty,
+                unit: it.unit,
+                unit_price: Number(it.est_price) || 0,
+              })),
+              total: nuevoMontoTotal,
+            })
+            .eq('id', editItemsCuenta.order_id);
+        } catch {}
+      }
+
+      setEditItemsCuenta(null);
+      refetchRequirements();
+      refetch();
+      toast.success(`✅ Ítems actualizados por ${autorNombre}. Se sincronizó el Requerimiento y se guardó en el Histórico.`);
+    } catch (e: any) {
+      toast.error(e?.message || 'No se pudieron guardar los cambios en los ítems.');
+    } finally {
+      setGuardandoItemsCxp(false);
+    }
+  };
 
   // Filtro por empresa (una o varias)
   const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set());
@@ -617,7 +853,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         subidaPor: autor,
         subidaAt: nowISO(),
       };
-      const notaActualizada = inyectarFacturaEnCuentaNota(facturaDe.nota, dataFac);
+      const evFac = {
+        tipo: 'factura_adjuntada' as const,
+        fecha: nowISO(),
+        usuarioNombre: autor,
+        usuarioId: uid,
+        origen: 'por_pagar' as const,
+        titulo: `Factura ${dataFac.numero} adjuntada en Por Pagar`,
+        detalle: `Proveedor: ${dataFac.empresa} · ${facArchivos.length || 1} archivo(s)${dataFac.nota ? ` · ${dataFac.nota}` : ''}`,
+      };
+      const notaActualizada = anexarEventoHistorial(inyectarFacturaEnCuentaNota(facturaDe.nota, dataFac), evFac);
       const { error } = await supabase
         .from('cuentas')
         .update({
@@ -638,7 +883,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             .eq('id', facturaDe.inventory_requirement_id)
             .limit(1);
           if (reqRows && reqRows[0]) {
-            const obsFac = inyectarFacturaEnObservaciones(reqRows[0].observaciones, dataFac);
+            const obsFac = anexarEventoHistorial(inyectarFacturaEnObservaciones(reqRows[0].observaciones, dataFac), evFac);
             const patchReq: Record<string, any> = { observaciones: obsFac };
             if (primerArch?.url && !reqRows[0].attachment_url) {
               patchReq.attachment_url = primerArch.url;
@@ -743,17 +988,31 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     try {
       const autor = miPerfil?.full_name || fullName || session?.user?.email || 'Tesorería';
       const primerArch = compArchivos[0] || null;
-      const notaActualizada = inyectarReciboPagoEnNota(comprobanteDe.nota, {
-        url: primerArch?.url || null,
-        tipo: primerArch?.tipo || 'image',
-        nombre: primerArch?.nombre || 'Comprobante de pago',
-        archivos: compArchivos,
-        referencia: compRef.trim() || null,
-        metodo: compMetodo.trim() || null,
-        nota: compNota.trim() || null,
-        subidoPor: autor,
-        fecha: compFecha || hoy,
-      });
+      const evComp = {
+        tipo: compMarcarPagada ? ('pagado_completo' as const) : ('pago_registrado' as const),
+        fecha: nowISO(),
+        usuarioNombre: autor,
+        usuarioId: uid,
+        origen: 'por_pagar' as const,
+        titulo: compMarcarPagada
+          ? `Cuenta marcada como PAGADA con comprobante (${compRef.trim() || 'S/Ref'})`
+          : `Comprobante de pago adjuntado (${compRef.trim() || 'S/Ref'})`,
+        detalle: `Método: ${compMetodo.trim() || 'Cuentas por Pagar'} · Monto: ${usd(Number(comprobanteDe.monto) || 0)}${compNota.trim() ? ` · ${compNota.trim()}` : ''}`,
+      };
+      const notaActualizada = anexarEventoHistorial(
+        inyectarReciboPagoEnNota(comprobanteDe.nota, {
+          url: primerArch?.url || null,
+          tipo: primerArch?.tipo || 'image',
+          nombre: primerArch?.nombre || 'Comprobante de pago',
+          archivos: compArchivos,
+          referencia: compRef.trim() || null,
+          metodo: compMetodo.trim() || null,
+          nota: compNota.trim() || null,
+          subidoPor: autor,
+          fecha: compFecha || hoy,
+        }),
+        evComp
+      );
       const patchCuenta: Record<string, any> = {
         nota: notaActualizada,
         updated_at: nowISO(),
@@ -775,19 +1034,22 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             .eq('id', comprobanteDe.inventory_requirement_id)
             .limit(1);
           if (reqRows && reqRows[0]) {
-            const notaRecibo = inyectarReciboPagoEnObservaciones(reqRows[0].observaciones, {
-              url: primerArch?.url || '',
-              tipo: primerArch?.tipo || 'image',
-              nombre: primerArch?.nombre || 'Comprobante de Pago Cuentas por Pagar',
-              archivos: compArchivos,
-              fecha: compFecha || hoy,
-              referencia: compRef.trim() || comprobanteDe.documento || 'CXP-PAGADA',
-              monto: Number(comprobanteDe.monto) || null,
-              metodo: compMetodo.trim() || 'Cuentas por Pagar',
-              nota: compNota.trim() || null,
-              subidoPor: autor,
-              subidoAt: nowISO(),
-            });
+            const notaRecibo = anexarEventoHistorial(
+              inyectarReciboPagoEnObservaciones(reqRows[0].observaciones, {
+                url: primerArch?.url || '',
+                tipo: primerArch?.tipo || 'image',
+                nombre: primerArch?.nombre || 'Comprobante de Pago Cuentas por Pagar',
+                archivos: compArchivos,
+                fecha: compFecha || hoy,
+                referencia: compRef.trim() || comprobanteDe.documento || 'CXP-PAGADA',
+                monto: Number(comprobanteDe.monto) || null,
+                metodo: compMetodo.trim() || 'Cuentas por Pagar',
+                nota: compNota.trim() || null,
+                subidoPor: autor,
+                subidoAt: nowISO(),
+              }),
+              evComp
+            );
             await supabase
               .from('inventory_requirements')
               .update({ observaciones: notaRecibo })
@@ -825,7 +1087,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       aprobadoPorId: uid,
       fecha: nowISO(),
     };
-    const nuevaNota = inyectarAprobacionCxpEnNota(c.nota, infoAp);
+    const evAp = {
+      tipo: 'aprobacion_gerencial' as const,
+      fecha: nowISO(),
+      usuarioNombre: aprobadorNombre,
+      usuarioId: uid,
+      origen: 'por_pagar' as const,
+      titulo: `Pago autorizado por ${aprobadorNombre}`,
+      detalle: `Monto: ${usd(Number(c.monto) || 0)} · Proveedor: ${c.contraparte}`,
+    };
+    const nuevaNota = anexarEventoHistorial(inyectarAprobacionCxpEnNota(c.nota, infoAp), evAp);
     const { error } = await supabase
       .from('cuentas')
       .update({ nota: nuevaNota, updated_at: nowISO() })
@@ -840,7 +1111,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           .eq('id', c.inventory_requirement_id)
           .limit(1);
         if (reqRows && reqRows[0]) {
-          const obsAp = inyectarAprobacionCxpEnNota(reqRows[0].observaciones, infoAp);
+          const obsAp = anexarEventoHistorial(inyectarAprobacionCxpEnNota(reqRows[0].observaciones, infoAp), evAp);
           await supabase
             .from('inventory_requirements')
             .update({ observaciones: obsAp })
@@ -873,7 +1144,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       fecha: nowISO(),
     };
     for (const c of cuentasParaAprobar) {
-      const nuevaNota = inyectarAprobacionCxpEnNota(c.nota, infoAp);
+      const evAp = {
+        tipo: 'aprobacion_gerencial' as const,
+        fecha: nowISO(),
+        usuarioNombre: aprobadorNombre,
+        usuarioId: uid,
+        origen: 'por_pagar' as const,
+        titulo: `Pago autorizado en lote por ${aprobadorNombre}`,
+        detalle: `Monto: ${usd(Number(c.monto) || 0)} · Proveedor: ${c.contraparte}`,
+      };
+      const nuevaNota = anexarEventoHistorial(inyectarAprobacionCxpEnNota(c.nota, infoAp), evAp);
       await supabase.from('cuentas').update({ nota: nuevaNota, updated_at: nowISO() }).eq('id', c.id);
       if (c.inventory_requirement_id) {
         try {
@@ -883,7 +1163,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             .eq('id', c.inventory_requirement_id)
             .limit(1);
           if (reqRows && reqRows[0]) {
-            const obsAp = inyectarAprobacionCxpEnNota(reqRows[0].observaciones, infoAp);
+            const obsAp = anexarEventoHistorial(inyectarAprobacionCxpEnNota(reqRows[0].observaciones, infoAp), evAp);
             await supabase
               .from('inventory_requirements')
               .update({ observaciones: obsAp })
@@ -999,6 +1279,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       notaFinal = inyectarEmpresaEnNota(notaFinal, null, null) || '';
     }
     notaFinal = inyectarCondicionesPagoEnNota(notaFinal, condicionesPago.trim()) || '';
+    if (edit?.nota) {
+      notaFinal = preservarHistorialYEnvioEnTexto(edit.nota, notaFinal) || '';
+    }
 
     const fila = {
       tipo,
@@ -1050,8 +1333,19 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       confirmText: 'Marcar pagada',
     });
     if (!ok) return;
+    const autorPago = miPerfil?.full_name || fullName || session?.user?.email || 'Tesorería';
+    const evPag = {
+      tipo: 'pagado_completo' as const,
+      fecha: nowISO(),
+      usuarioNombre: autorPago,
+      usuarioId: uid,
+      origen: 'por_pagar' as const,
+      titulo: `Cuenta marcada como PAGADA por ${autorPago}`,
+      detalle: `Monto: ${usd(Number(c.monto) || 0)} · Proveedor: ${c.contraparte}`,
+    };
+    const notaConPag = anexarEventoHistorial(c.nota, evPag);
     const { error } = await supabase.from('cuentas')
-      .update({ estado: 'pagada', settled_by: session?.user?.id ?? null, settled_at: nowISO(), updated_at: nowISO() })
+      .update({ estado: 'pagada', settled_by: session?.user?.id ?? null, settled_at: nowISO(), nota: notaConPag, updated_at: nowISO() })
       .eq('id', c.id);
     if (error) return toast.error(error.message);
 
@@ -1068,9 +1362,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         if (reqRows && reqRows[0]) {
           const recExist = extraerReciboPago(reqRows[0]);
           const rpCuenta = extraerReciboPagoCuenta(c);
+          let obsTarget = reqRows[0].observaciones;
           if (!recExist || (!recExist.url && !recExist.referencia)) {
-            const notaRecibo = inyectarReciboPagoEnObservaciones(
-              reqRows[0].observaciones,
+            obsTarget = inyectarReciboPagoEnObservaciones(
+              obsTarget,
               {
                 url: rpCuenta?.url || '',
                 tipo: rpCuenta?.tipo || 'image',
@@ -1081,15 +1376,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 monto: Number(c.monto) || null,
                 metodo: rpCuenta?.metodo || 'Cuentas por Pagar',
                 nota: rpCuenta?.nota || null,
-                subidoPor: session?.user?.email || 'Tesorería',
+                subidoPor: autorPago,
                 subidoAt: nowISO(),
               }
             );
-            await supabase
-              .from('inventory_requirements')
-              .update({ observaciones: notaRecibo })
-              .eq('id', c.inventory_requirement_id);
           }
+          obsTarget = anexarEventoHistorial(obsTarget, evPag);
+          await supabase
+            .from('inventory_requirements')
+            .update({ observaciones: obsTarget })
+            .eq('id', c.inventory_requirement_id);
           refetchRequirements();
         }
       } catch (eSync) {
@@ -1111,17 +1407,35 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       danger: true,
     });
     if (!ok) return;
-    const { error } = await supabase.from('cuentas').update({ estado: 'anulada', updated_at: nowISO() }).eq('id', c.id);
+    const autorAnul = miPerfil?.full_name || fullName || session?.user?.email || 'Gerencia';
+    const evAnul = {
+      tipo: 'rechazado_o_anulado' as const,
+      fecha: nowISO(),
+      usuarioNombre: autorAnul,
+      usuarioId: uid,
+      origen: 'por_pagar' as const,
+      titulo: `Cuenta anulada / rechazada en Por Pagar por ${autorAnul}`,
+      detalle: `Proveedor: ${c.contraparte} · Monto: ${usd(Number(c.monto) || 0)}`,
+    };
+    const notaAnul = anexarEventoHistorial(c.nota, evAnul);
+    const { error } = await supabase.from('cuentas').update({ estado: 'anulada', nota: notaAnul, updated_at: nowISO() }).eq('id', c.id);
     if (error) return toast.error(error.message);
     if (c.inventory_requirement_id) {
       try {
+        const { data: reqRows } = await supabase
+          .from('inventory_requirements')
+          .select('id, observaciones')
+          .eq('id', c.inventory_requirement_id)
+          .limit(1);
+        const obsRech = anexarEventoHistorial(reqRows?.[0]?.observaciones ?? null, evAnul);
         await supabase
           .from('inventory_requirements')
           .update({
             status: 'rechazado',
             decided_by: uid,
-            decided_by_name: miPerfil?.full_name || fullName || session?.user?.email || 'Gerencia',
+            decided_by_name: autorAnul,
             decided_at: nowISO(),
+            observaciones: obsRech,
           })
           .eq('id', c.inventory_requirement_id);
         refetchRequirements();
@@ -1144,7 +1458,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     if (tieneAbonos) {
       await supabase.from('cuenta_abonos').delete().eq('cuenta_id', c.id);
     }
-    const notaSinRecibo = inyectarReciboPagoEnNota(c.nota, null);
+    const autorReab = miPerfil?.full_name || fullName || session?.user?.email || 'Administración';
+    const evReab = {
+      tipo: 'reabierto_pendiente' as const,
+      fecha: nowISO(),
+      usuarioNombre: autorReab,
+      usuarioId: uid,
+      origen: 'por_pagar' as const,
+      titulo: `Pago revertido / Cuenta reabierta a pendiente por ${autorReab}`,
+      detalle: `Proveedor: ${c.contraparte} · Monto: ${usd(Number(c.monto) || 0)}`,
+    };
+    const notaSinRecibo = anexarEventoHistorial(inyectarReciboPagoEnNota(c.nota, null), evReab);
     const { error } = await supabase.from('cuentas')
       .update({ estado: 'pendiente', settled_by: null, settled_at: null, nota: notaSinRecibo, updated_at: nowISO() })
       .eq('id', c.id);
@@ -1160,12 +1484,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           .limit(1);
         if (reqRows && reqRows[0]) {
           const rRow = reqRows[0] as any;
-          const obsSinRecibo = inyectarReciboPagoEnObservaciones(rRow.observaciones, null);
+          const obsSinRecibo = anexarEventoHistorial(inyectarReciboPagoEnObservaciones(rRow.observaciones, null), evReab);
           const nextStatus = rRow.status === 'esperando_recepcion' || rRow.status === 'pagado' ? 'aprobado' : rRow.status;
           await supabase
             .from('inventory_requirements')
             .update({ observaciones: obsSinRecibo, status: nextStatus })
             .eq('id', c.inventory_requirement_id);
+          refetchRequirements();
         }
       } catch (eSync) {
         console.warn('Sync reabrir cxp a req error:', eSync);
@@ -1254,8 +1579,25 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     setBusy(false);
     if (error) return toast.error(error.message);
 
+    const autorAbono = miPerfil?.full_name || fullName || session?.user?.email || 'Tesorería';
+    const evAbono = {
+      tipo: (importe >= abonoDe.saldo ? 'pagado_completo' : 'pago_registrado') as 'pagado_completo' | 'pago_registrado',
+      fecha: nowISO(),
+      usuarioNombre: autorAbono,
+      usuarioId: uid,
+      origen: 'por_pagar' as const,
+      titulo: importe >= abonoDe.saldo
+        ? `Abono que salda la cuenta (${usd(importe)})`
+        : `Abono parcial registrado (${usd(importe)})`,
+      detalle: `Método: ${abMetodo.trim() || 'Abono'} · Ref: ${abRef.trim() || 'S/Ref'} · Saldo restante: ${usd(Math.max(0, abonoDe.saldo - importe))}`,
+    };
+    try {
+      const notaConAb = anexarEventoHistorial(abonoDe.nota, evAbono);
+      await supabase.from('cuentas').update({ nota: notaConAb, updated_at: nowISO() }).eq('id', abonoDe.id);
+    } catch {}
+
     // Sincronización automática con requerimiento si el abono saldó la deuda
-    if (importe >= abonoDe.saldo && abonoDe.inventory_requirement_id) {
+    if (abonoDe.inventory_requirement_id) {
       try {
         const { data: reqRows } = await supabase
           .from('inventory_requirements')
@@ -1263,23 +1605,27 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           .eq('id', abonoDe.inventory_requirement_id)
           .limit(1);
         if (reqRows && reqRows[0]) {
-          const notaRecibo = inyectarReciboPagoEnObservaciones(
-            reqRows[0].observaciones,
-            {
-              url: abComprobanteUrl || '',
-              tipo: 'image',
-              nombre: 'Comprobante de Pago Cuentas por Pagar',
-              fecha: abFecha,
-              referencia: abRef.trim() || 'Abono Total CXP',
-              monto: importe,
-              metodo: abMetodo.trim() || 'Abono Bancario',
-              subidoPor: session?.user?.email || 'Tesorería',
-              subidoAt: nowISO(),
-            }
-          );
+          let obsTarget = reqRows[0].observaciones;
+          if (importe >= abonoDe.saldo) {
+            obsTarget = inyectarReciboPagoEnObservaciones(
+              obsTarget,
+              {
+                url: abComprobanteUrl || '',
+                tipo: 'image',
+                nombre: 'Comprobante de Pago Cuentas por Pagar',
+                fecha: abFecha,
+                referencia: abRef.trim() || 'Abono Total CXP',
+                monto: importe,
+                metodo: abMetodo.trim() || 'Abono Bancario',
+                subidoPor: autorAbono,
+                subidoAt: nowISO(),
+              }
+            );
+          }
+          obsTarget = anexarEventoHistorial(obsTarget, evAbono);
           await supabase
             .from('inventory_requirements')
-            .update({ observaciones: notaRecibo })
+            .update({ observaciones: obsTarget })
             .eq('id', abonoDe.inventory_requirement_id);
           refetchRequirements();
         }
@@ -1293,7 +1639,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     toast.success(importe >= abonoDe.saldo ? 'Abono registrado. La cuenta quedó saldada.' : 'Abono registrado.');
   };
 
-  // ── Lista + totales con filtro por empresa (una o varias) y estados de Por Pagar ──
+  // ── Lista + totales con filtro por empresa (una o varias), fechas y estados de Por Pagar ──
   const { lista, tot, empresaCounts, ordenadas, universo, porEmpresasCounts } = useMemo(() => {
     const porCuenta = new Map<string, CuentaAbono[]>();
     abonos.forEach((a) => {
@@ -1317,11 +1663,18 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           requirements,
           orders,
         });
+        const traza = resolverTrazabilidadPorPagar(c, {
+          requirements,
+          orders,
+          companies,
+          machinery,
+          vehicles,
+        });
         let apEstado: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica' = 'no_aplica';
         let apInfo: AprobacionCxpInfo | null = null;
         if (c.tipo === 'por_pagar') {
           const apCuenta = extraerAprobacionCxp(c.nota);
-          const reqVinc = c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null;
+          const reqVinc = traza.reqVinculado || (c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null);
           const apReq = reqVinc ? extraerAprobacionCxp(reqVinc.observaciones) : null;
           apInfo = apCuenta?.estado === 'aprobado' ? apCuenta : apReq?.estado === 'aprobado' ? apReq : apCuenta || apReq || null;
           const montoNum = Number(c.monto) || 0;
@@ -1335,7 +1688,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             apEstado = 'esperando_aprobacion';
           }
         }
-        return calcular(c, porCuenta.get(c.id) ?? [], hoy, nombreDe(c), empInfo, condYNota, apEstado, apInfo);
+        return calcular(c, porCuenta.get(c.id) ?? [], hoy, nombreDe(c), empInfo, condYNota, traza, apEstado, apInfo);
       });
 
     // Conteo y saldo por empresa (para las fichas / chips del filtro)
@@ -1385,10 +1738,46 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       if (filtroEstadoCxp === 'pagada') return c.situacion === 'pagada';
       return true;
     };
+    const pasaFiltroFechaCxp = (c: CuentaCalc) => {
+      if (modoFechaCxp === 'todas') return true;
+      const dEnvio = c.traza.fechaEnvioSoloDia || '';
+      const dSol = c.traza.fechaSolicitudSoloDia || c.fecha_emision || '';
+      const cumpleFecha = (d: string) => {
+        if (!d) return false;
+        if (modoFechaCxp === 'dia') {
+          if (!fechaDesdeCxp) return true;
+          return d === fechaDesdeCxp;
+        }
+        if (fechaDesdeCxp && d < fechaDesdeCxp) return false;
+        if (fechaHastaCxp && d > fechaHastaCxp) return false;
+        return true;
+      };
+      if (campoFechaCxp === 'envio') return cumpleFecha(dEnvio);
+      if (campoFechaCxp === 'solicitud') return cumpleFecha(dSol);
+      return cumpleFecha(dEnvio) || cumpleFecha(dSol);
+    };
     const vis = porEmpresas
       .filter(pasaVerPagadas)
       .filter(pasaFiltroEstadoCxp)
-      .filter((c) => matchNorm(nq, c.contraparte, c.concepto, c.documento, c.nota, c.condicionesPago, c.notaLimpia, c.empresaNombre))
+      .filter(pasaFiltroFechaCxp)
+      .filter((c) =>
+        matchNorm(
+          nq,
+          c.contraparte,
+          c.concepto,
+          c.documento,
+          c.nota,
+          c.condicionesPago,
+          c.notaLimpia,
+          c.empresaNombre,
+          c.traza.solicitadoPor,
+          c.traza.registradoPor,
+          c.traza.enviadoPorPagarPor,
+          c.traza.destinoTexto,
+          c.traza.areaTexto,
+          c.traza.reqCode
+        )
+      )
       // Orden: lo más urgente arriba (ver `ordenUrgencia`).
       .sort(ordenUrgencia);
 
@@ -1399,7 +1788,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const uni = ord.filter(pasaVerPagadas);
 
     return { lista: vis, tot: t, empresaCounts: arrEmpresas, ordenadas: ord, universo: uni, porEmpresasCounts: countsCxp };
-  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, companies, requirements, orders, empresaSel, configAprobacion, filtroEstadoCxp]);
+  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, companies, requirements, orders, machinery, vehicles, empresaSel, configAprobacion, filtroEstadoCxp, modoFechaCxp, campoFechaCxp, fechaDesdeCxp, fechaHastaCxp]);
 
   // Contador de marcas: solo las que existen en esta pestaña; y cuántas no se ven ahora.
   const nMarcadas = useMemo(() => ordenadas.filter((c) => marcadas.has(c.id)).length, [ordenadas, marcadas]);
@@ -1681,11 +2070,214 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         </ScrollView>
       ) : null}
 
+      {/* 📅 Filtro por Fecha Específica o Rango de Fechas (Solicitud / Marcado para Por Pagar) */}
+      <View
+        style={{
+          marginBottom: spacing.xs,
+          backgroundColor: colors.surfaceAlt,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: radius.md,
+          padding: spacing.xs,
+          gap: 6,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
+            📅 Filtrar por Fecha:
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {(
+              [
+                ['todas', 'Todas las fechas'],
+                ['dia', '📆 Fecha específica'],
+                ['rango', '🗓️ Rango (Desde — Hasta)'],
+              ] as const
+            ).map(([k, lbl]) => {
+              const on = modoFechaCxp === k;
+              return (
+                <TouchableOpacity
+                  key={k}
+                  onPress={() => {
+                    setModoFechaCxp(k);
+                    if (k === 'todas') {
+                      setFechaDesdeCxp('');
+                      setFechaHastaCxp('');
+                    } else if (k === 'dia' && !fechaDesdeCxp) {
+                      setFechaDesdeCxp(hoy);
+                    }
+                  }}
+                  style={{
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: on ? colors.brand : colors.border,
+                    backgroundColor: on ? colors.brand : colors.surface,
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: 4,
+                  }}
+                >
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11 }}>
+                    {lbl}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              onPress={() => {
+                setModoFechaCxp('dia');
+                setFechaDesdeCxp(hoy);
+                setFechaHastaCxp(hoy);
+              }}
+              style={{
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: modoFechaCxp === 'dia' && fechaDesdeCxp === hoy ? colors.brand : colors.border,
+                backgroundColor: colors.surface,
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 4,
+              }}
+            >
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>Hoy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                const ayer = masDias(hoy, -1);
+                setModoFechaCxp('dia');
+                setFechaDesdeCxp(ayer);
+                setFechaHastaCxp(ayer);
+              }}
+              style={{
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 4,
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>Ayer</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setModoFechaCxp('rango');
+                setFechaDesdeCxp(masDias(hoy, -7));
+                setFechaHastaCxp(hoy);
+              }}
+              style={{
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 4,
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>Últimos 7 días</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setModoFechaCxp('rango');
+                setFechaDesdeCxp(`${hoy.slice(0, 8)}01`);
+                setFechaHastaCxp(hoy);
+              }}
+              style={{
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 4,
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>Este mes</Text>
+            </TouchableOpacity>
+            {modoFechaCxp !== 'todas' ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setModoFechaCxp('todas');
+                  setFechaDesdeCxp('');
+                  setFechaHastaCxp('');
+                }}
+                style={{
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: colors.danger,
+                  backgroundColor: colors.surface,
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 4,
+                }}
+              >
+                <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>✕ Limpiar fecha</Text>
+              </TouchableOpacity>
+            ) : null}
+          </ScrollView>
+        </View>
+
+        {modoFechaCxp !== 'todas' ? (
+          <View style={{ gap: 6, marginTop: 2 }}>
+            {tipo === 'por_pagar' ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>Filtrar por:</Text>
+                {(
+                  [
+                    ['cualquiera', 'Solicitud o Enviado a Por Pagar'],
+                    ['envio', '📤 Fecha marcado para Por Pagar'],
+                    ['solicitud', '📝 Fecha de solicitud / emisión'],
+                  ] as const
+                ).map(([ck, clbl]) => {
+                  const on = campoFechaCxp === ck;
+                  return (
+                    <TouchableOpacity
+                      key={ck}
+                      onPress={() => setCampoFechaCxp(ck)}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: on ? colors.brand : colors.border,
+                        backgroundColor: on ? colors.infoSoftBg : colors.surface,
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                      }}
+                    >
+                      <Text style={{ color: on ? colors.brandText : colors.text, fontWeight: on ? '800' : '600', fontSize: 11 }}>
+                        {clbl}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {modoFechaCxp === 'dia' ? (
+              <View style={{ maxWidth: 260 }}>
+                <DateField
+                  label="Fecha específica"
+                  value={fechaDesdeCxp}
+                  onChange={(v) => {
+                    setFechaDesdeCxp(v);
+                    setFechaHastaCxp(v);
+                  }}
+                />
+              </View>
+            ) : (
+              <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                <View style={{ flex: 1, minWidth: 145 }}>
+                  <DateField label="Desde" value={fechaDesdeCxp} onChange={setFechaDesdeCxp} />
+                </View>
+                <View style={{ flex: 1, minWidth: 145 }}>
+                  <DateField label="Hasta" value={fechaHastaCxp} onChange={setFechaHastaCxp} />
+                </View>
+              </View>
+            )}
+          </View>
+        ) : null}
+      </View>
+
       {/* Buscador */}
       <TextInput
         value={q}
         onChangeText={setQ}
-        placeholder="Buscar por contraparte, concepto, factura o nota…"
+        placeholder="Buscar por contraparte, concepto, solicitante, máquina/placa, factura o nota…"
         placeholderTextColor={colors.muted}
         style={[inputStyle, { marginBottom: spacing.xs }]}
       />
@@ -1848,6 +2440,176 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     {c.concepto}{c.documento ? ` · ${c.documento}` : ''}
                   </Text>
                 </View>
+
+                {/* 📋 Ficha de Trazabilidad Completa en Por Pagar (Quién lo solicitó, Para quién es + Placa, Fecha/Hora solicitud, Quién lo marcó para Por Pagar y Fecha/Hora) */}
+                {tipo === 'por_pagar' ? (
+                  <View
+                    style={{
+                      marginTop: 6,
+                      padding: 8,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      gap: 4,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                        📋 TRAZABILIDAD DE LA SOLICITUD{c.traza.reqCode ? ` · ${c.traza.reqCode}` : ''}
+                      </Text>
+                      {c.traza.fechaHoraEnviadoPorPagarTexto || c.traza.enviadoPorPagarPor ? (
+                        <View
+                          style={{
+                            paddingHorizontal: 7,
+                            paddingVertical: 2,
+                            borderRadius: radius.pill,
+                            backgroundColor: colors.infoSoftBg,
+                            borderWidth: 1,
+                            borderColor: colors.infoSoftBorder,
+                          }}
+                        >
+                          <Text style={{ color: colors.infoSoftText, fontSize: 10.5, fontWeight: '800' }}>
+                            📤 Marcado para Por Pagar: {c.traza.enviadoPorPagarPor || 'Compras'}
+                            {c.traza.fechaHoraEnviadoPorPagarTexto ? ` · ${c.traza.fechaHoraEnviadoPorPagarTexto}` : ''}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                        👤 <Text style={{ color: colors.muted, fontWeight: '700' }}>Solicitado por:</Text>{' '}
+                        <Text style={{ fontWeight: '900' }}>{c.traza.solicitadoPor || '—'}</Text>
+                        {c.traza.registradoPor && norm(c.traza.registradoPor) !== norm(c.traza.solicitadoPor)
+                          ? ` (registró: ${c.traza.registradoPor})`
+                          : ''}
+                      </Text>
+                      {c.traza.fechaHoraSolicitudTexto ? (
+                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                          🕒 <Text style={{ color: colors.muted, fontWeight: '700' }}>Fecha/Hora Solicitud:</Text>{' '}
+                          <Text style={{ fontWeight: '800' }}>{c.traza.fechaHoraSolicitudTexto}</Text>
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {c.traza.destinoTexto ? (
+                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                          🚜 <Text style={{ color: colors.muted, fontWeight: '700' }}>Para / Destino:</Text>{' '}
+                          <Text style={{ color: colors.brandText, fontWeight: '900' }}>{c.traza.destinoTexto}</Text>
+                        </Text>
+                      ) : null}
+                      {c.traza.areaTexto ? (
+                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                          📍 <Text style={{ color: colors.muted, fontWeight: '700' }}>Área:</Text>{' '}
+                          <Text style={{ fontWeight: '800' }}>{c.traza.areaTexto}</Text>
+                        </Text>
+                      ) : null}
+                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                        🏢 <Text style={{ color: colors.muted, fontWeight: '700' }}>Empresa:</Text>{' '}
+                        <Text style={{ fontWeight: '800' }}>{c.empresaNombre}</Text>
+                      </Text>
+                    </View>
+
+                    {/* 📦 Renglones / Ítems del requerimiento + Botón Modificar Ítems (Jesús Lozada / Aprobador) */}
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 6,
+                        marginTop: 2,
+                        paddingTop: 4,
+                        borderTopWidth: 1,
+                        borderTopColor: colors.border,
+                      }}
+                    >
+                      <TouchableOpacity
+                        onPress={() => toggleRenglonesCuenta(c.id)}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 }}
+                      >
+                        <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '800' }}>
+                          {renglonesAbiertosIds.has(c.id)
+                            ? `▲ Ocultar renglones (${c.traza.items.length || 1})`
+                            : `▼ Ver renglones / ítems del requerimiento (${c.traza.items.length || 1})`}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {puedeOperarCxp ? (
+                        <TouchableOpacity
+                          onPress={() => abrirEditorItemsCxp(c)}
+                          style={{
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: colors.brand,
+                            backgroundColor: colors.surface,
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                          }}
+                        >
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                            ✏️ Modificar ítems (Quitar / Agregar)
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+
+                    {renglonesAbiertosIds.has(c.id) ? (
+                      <View
+                        style={{
+                          marginTop: 4,
+                          padding: 8,
+                          borderRadius: radius.sm,
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          gap: 4,
+                        }}
+                      >
+                        {(c.traza.items.length > 0
+                          ? c.traza.items
+                          : [{ item_id: null, name: c.concepto, qty: 1, unit: 'und', est_price: Number(c.monto) || 0, note: null }]
+                        ).map((it, idx) => {
+                          const qty = Number(it.qty) || 0;
+                          const unitP = Number(it.est_price) || 0;
+                          const sub = Math.round(qty * unitP * 100) / 100;
+                          return (
+                            <View
+                              key={`item-${c.id}-${idx}`}
+                              style={{
+                                flexDirection: 'row',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: 6,
+                                paddingVertical: 2,
+                                borderBottomWidth: idx < (c.traza.items.length || 1) - 1 ? 1 : 0,
+                                borderBottomColor: colors.border,
+                              }}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+                                  • {it.name}{' '}
+                                  <Text style={{ color: colors.muted, fontWeight: '600' }}>
+                                    ({qty} {it.unit || 'und'}{unitP > 0 ? ` × ${usd(unitP)}` : ''})
+                                  </Text>
+                                </Text>
+                                {it.note ? (
+                                  <Text style={{ color: colors.muted, fontSize: 10.5 }}>Nota: {it.note}</Text>
+                                ) : null}
+                              </View>
+                              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>
+                                {sub > 0 ? usd(sub) : '—'}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
                   <Text style={{ color: vencida ? colors.dangerSoftText : colors.text, fontSize: 12, fontWeight: '700' }}>
                     Vence: {fmtFecha(c.fecha_vencimiento)}
@@ -1911,6 +2673,21 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '800' }}>📝 NOTA / DATOS E INSTRUCCIONES DE PAGO</Text>
                     <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>{c.notaLimpia}</Text>
                   </View>
+                ) : null}
+
+                {/* 📜 Línea de Tiempo / Histórico del Expediente (Requerimiento + Por Pagar) */}
+                {tipo === 'por_pagar' ? (
+                  <TimelineExpedienteBox
+                    eventos={construirTimelineExpediente({
+                      req: c.traza.reqVinculado,
+                      cuenta: c,
+                      abonos: abonos.filter((a) => a.cuenta_id === c.id),
+                      companies,
+                      machinery,
+                      vehicles,
+                    })}
+                    titulo="📜 Histórico de movimientos de esta compra"
+                  />
                 ) : null}
 
                 {/* Soportes adjuntos: Factura(s) y Comprobante(s) de Pago (1 o más fotos/PDFs) */}
@@ -1988,7 +2765,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                               <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>📎 Soporte</Text>
                             </TouchableOpacity>
                           ) : null}
-                          {canWrite ? (
+                          {puedeOperarCxp ? (
                             <TouchableOpacity onPress={() => eliminarAbono(a, c)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
                               <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>🗑️ Quitar</Text>
                             </TouchableOpacity>
@@ -2001,7 +2778,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
                 {/* Subir Factura(s), Subir Comprobante(s) de Pago + Recibo (PDF) */}
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-                  {canWrite ? (
+                  {puedeOperarCxp ? (
                     <>
                       <TouchableOpacity
                         onPress={() => abrirSubirFactura(c)}
@@ -2037,6 +2814,25 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           {extraerReciboPagoCuenta(c)?.url ? '💳 Editar / + Fotos Comprobante' : '📤 Subir Comprobante(s) de Pago'}
                         </Text>
                       </TouchableOpacity>
+                      {tipo === 'por_pagar' ? (
+                        <TouchableOpacity
+                          onPress={() => abrirEditorItemsCxp(c)}
+                          style={{
+                            flexGrow: 1,
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.warningSoftBorder,
+                            borderRadius: radius.md,
+                            paddingVertical: spacing.sm,
+                            paddingHorizontal: spacing.sm,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>
+                            ✏️ Modificar Ítems (Quitar / Agregar)
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
                     </>
                   ) : null}
                   <TouchableOpacity onPress={() => generarRecibo(c)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
@@ -2044,7 +2840,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </TouchableOpacity>
                 </View>
 
-                {canWrite ? (
+                {puedeOperarCxp ? (
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                     {abiertas ? (
                       <>
@@ -2852,6 +3648,245 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               </TouchableOpacity>
               <TouchableOpacity onPress={guardarConfigAprobadorModal} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
                 <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>💾 Guardar configuración</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Modificar Ítems del Requerimiento desde Por Pagar (Jesús Lozada / Aprobador / Admin) ── */}
+      <Modal visible={!!editItemsCuenta} animationType="slide" onRequestClose={() => setEditItemsCuenta(null)}>
+        <Screen>
+          <ScrollView>
+            <SectionTitle>✏️ Modificar Ítems en Por Pagar</SectionTitle>
+            {editItemsCuenta ? (
+              <>
+                <Card>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, flex: 1 }}>
+                      {editItemsCuenta.contraparte}
+                    </Text>
+                    {editItemsCuenta.traza.reqCode ? (
+                      <Pill label={`🔗 ${editItemsCuenta.traza.reqCode}`} {...toneSoft(colors, 'info')} />
+                    ) : null}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
+                    Todo ítem que quites, agregues o modifiques aquí se actualiza inmediatamente en el Requerimiento de Compra y en esta cuenta Por Pagar, quedando registrado en el 📜 Histórico.
+                  </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+                    <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                      👤 Solicitó: <Text style={{ fontWeight: '800' }}>{editItemsCuenta.traza.solicitadoPor}</Text>
+                    </Text>
+                    {editItemsCuenta.traza.destinoTexto ? (
+                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                        🚜 Para: <Text style={{ color: colors.brandText, fontWeight: '900' }}>{editItemsCuenta.traza.destinoTexto}</Text>
+                      </Text>
+                    ) : null}
+                  </View>
+                </Card>
+
+                <Card>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>
+                      📦 Renglones / Ítems ({editItemsDraft.length})
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() =>
+                        setEditItemsDraft((prev) => [
+                          ...prev,
+                          { name: '', qty: '1', unit: 'und', unitUsd: '', note: '', exento: false, item_id: null },
+                        ])
+                      }
+                      style={{
+                        borderRadius: radius.pill,
+                        backgroundColor: colors.brand,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 5,
+                      }}
+                    >
+                      <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>
+                        ➕ Agregar ítem
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={{ gap: spacing.sm }}>
+                    {editItemsDraft.map((line, idx) => {
+                      const qNum = parseNum(line.qty);
+                      const pNum = parseNum(line.unitUsd);
+                      const sub = Math.round(qNum * pNum * 100) / 100;
+                      return (
+                        <View
+                          key={`draft-cxp-${idx}`}
+                          style={{
+                            padding: spacing.sm,
+                            borderRadius: radius.md,
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            gap: 6,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 12 }}>
+                              Ítem #{idx + 1} · Subtotal: {usd(sub)}
+                            </Text>
+                            <TouchableOpacity
+                              onPress={() => {
+                                if (editItemsDraft.length <= 1) {
+                                  toast.error('Debe quedar al menos 1 ítem. Para cancelar toda la compra usa ⛔ Anular.');
+                                  return;
+                                }
+                                setEditItemsDraft((prev) => prev.filter((_, i) => i !== idx));
+                              }}
+                              style={{
+                                borderRadius: radius.pill,
+                                borderWidth: 1,
+                                borderColor: colors.danger,
+                                backgroundColor: colors.surface,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                              }}
+                            >
+                              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>
+                                🗑️ Quitar ítem
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+
+                          <View>
+                            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nombre / Descripción del ítem</Text>
+                            <TextInput
+                              value={line.name}
+                              onChangeText={(v) =>
+                                setEditItemsDraft((prev) => prev.map((it, i) => (i === idx ? { ...it, name: v } : it)))
+                              }
+                              placeholder="Ej. Filtro hidráulico / Aceite 15W40…"
+                              placeholderTextColor={colors.muted}
+                              style={inputStyle}
+                            />
+                          </View>
+
+                          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                            <View style={{ flex: 1, minWidth: 85 }}>
+                              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cantidad</Text>
+                              <TextInput
+                                value={line.qty}
+                                onChangeText={(v) =>
+                                  setEditItemsDraft((prev) => prev.map((it, i) => (i === idx ? { ...it, qty: v } : it)))
+                                }
+                                keyboardType="numeric"
+                                placeholder="1"
+                                placeholderTextColor={colors.muted}
+                                style={inputStyle}
+                              />
+                            </View>
+                            <View style={{ flex: 1, minWidth: 85 }}>
+                              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Unidad</Text>
+                              <TextInput
+                                value={line.unit}
+                                onChangeText={(v) =>
+                                  setEditItemsDraft((prev) => prev.map((it, i) => (i === idx ? { ...it, unit: v } : it)))
+                                }
+                                placeholder="und"
+                                placeholderTextColor={colors.muted}
+                                style={inputStyle}
+                              />
+                            </View>
+                            <View style={{ flex: 1.3, minWidth: 110 }}>
+                              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Precio Unitario ($ USD)</Text>
+                              <TextInput
+                                value={line.unitUsd}
+                                onChangeText={(v) =>
+                                  setEditItemsDraft((prev) => prev.map((it, i) => (i === idx ? { ...it, unitUsd: v } : it)))
+                                }
+                                keyboardType="numeric"
+                                placeholder="0.00"
+                                placeholderTextColor={colors.muted}
+                                style={inputStyle}
+                              />
+                            </View>
+                          </View>
+
+                          <View>
+                            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nota / Especificación (opcional)</Text>
+                            <TextInput
+                              value={line.note}
+                              onChangeText={(v) =>
+                                setEditItemsDraft((prev) => prev.map((it, i) => (i === idx ? { ...it, note: v } : it)))
+                              }
+                              placeholder="Marca, serial o aclaratoria…"
+                              placeholderTextColor={colors.muted}
+                              style={[inputStyle, { paddingVertical: 6, fontSize: 12 }]}
+                            />
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </Card>
+
+                {/* Resumen de impacto antes vs después y motivo */}
+                {(() => {
+                  const subBruto = editItemsDraft.reduce(
+                    (acc, l) => acc + (parseNum(l.qty) > 0 ? parseNum(l.qty) : 0) * (parseNum(l.unitUsd) > 0 ? parseNum(l.unitUsd) : 0),
+                    0
+                  );
+                  const baseGrav = editItemsDraft.reduce(
+                    (acc, l) => acc + (l.exento ? 0 : (parseNum(l.qty) > 0 ? parseNum(l.qty) : 0) * (parseNum(l.unitUsd) > 0 ? parseNum(l.unitUsd) : 0)),
+                    0
+                  );
+                  const ivaM = editItemsIvaAlicuota > 0 ? Math.round(baseGrav * (editItemsIvaAlicuota / 100) * 100) / 100 : 0;
+                  const nuevoTotal = Math.round((subBruto + ivaM) * 100) / 100;
+                  const antesTotal = Number(editItemsCuenta.monto) || 0;
+                  return (
+                    <Card>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <View>
+                          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>MONTO ANTERIOR</Text>
+                          <Text style={{ color: colors.text, fontSize: 15, fontWeight: '800' }}>{usd(antesTotal)}</Text>
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '900' }}>→</Text>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                            NUEVO MONTO TOTAL{editItemsIvaAlicuota > 0 ? ` (incl. IVA ${editItemsIvaAlicuota}%)` : ''}
+                          </Text>
+                          <Text style={{ color: colors.brandText, fontSize: 18, fontWeight: '900' }}>{usd(nuevoTotal)}</Text>
+                        </View>
+                      </View>
+
+                      <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
+                        📝 Motivo o nota del ajuste (opcional, se guardará en el Histórico):
+                      </Text>
+                      <TextInput
+                        value={editItemsMotivo}
+                        onChangeText={setEditItemsMotivo}
+                        placeholder="Ej. Se retiró ítem que ya había en almacén / Se ajustó cantidad autorizada por Gerencia…"
+                        placeholderTextColor={colors.muted}
+                        style={inputStyle}
+                      />
+                    </Card>
+                  );
+                })()}
+              </>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+              <TouchableOpacity
+                onPress={() => setEditItemsCuenta(null)}
+                disabled={guardandoItemsCxp}
+                style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={guardarModificacionItemsCxp}
+                disabled={guardandoItemsCxp}
+                style={{ flex: 1.3, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoItemsCxp ? 0.6 : 1 }}
+              >
+                <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>
+                  {guardandoItemsCxp ? '⏳ Sincronizando…' : '💾 Guardar y Sincronizar Requerimiento'}
+                </Text>
               </TouchableOpacity>
             </View>
           </ScrollView>

@@ -13,6 +13,8 @@ import { RequerimientoTab } from './RequerimientoTab';
 import { SolicitudesCompraTab } from './SolicitudesCompraTab';
 import { ServiciosTab } from './ServiciosTab';
 import { AiresAcondicionadosTab } from './AiresAcondicionadosTab';
+import { HistoricoComprasTab } from './HistoricoComprasTab';
+import { esUsuarioJesusLozada } from '../lib/requerimientoFlujo';
 import {
   CONDICIONES_PAGO_CHIPS,
   toggleChipCondicionPago,
@@ -2243,16 +2245,20 @@ const MOSTRAR_ORDENES = false;
 
 export default function ComprasScreen() {
   const { colors } = useTheme();
-  const { moduleLevel } = useAuth();
-  const canWrite = levelMeets(moduleLevel('compras'), 'escritura');
+  const { moduleLevel, fullName, session } = useAuth();
+  const esLozada = esUsuarioJesusLozada({
+    fullName,
+    email: session?.user?.email,
+  });
+  const canWrite = levelMeets(moduleLevel('compras'), 'escritura') || esLozada;
 
   // Cuentas por pagar / por cobrar viven ACÁ dentro (pedido del cliente,
   // 17-ago-2026: "en compras estén las cuentas por cobrar y cuentas por pagar"),
   // pero con permiso PROPIO: las políticas RLS de `cuentas` consultan
   // `cuentas_nivel()`, así que abrirlas con el permiso de compras solo lograría
   // que las pestañas salieran vacías. Sin el permiso, ni se muestran.
-  const veCuentas = levelMeets(moduleLevel('cuentas'), 'lectura');
-  const cuentasWrite = levelMeets(moduleLevel('cuentas'), 'escritura');
+  const veCuentas = levelMeets(moduleLevel('cuentas'), 'lectura') || esLozada;
+  const cuentasWrite = levelMeets(moduleLevel('cuentas'), 'escritura') || esLozada;
 
   const TABS = [
     { key: 'solicitudes', label: 'Solicitudes', icon: '📥' },
@@ -2265,6 +2271,7 @@ export default function ComprasScreen() {
     { key: 'resumen', label: 'Resumen', icon: '📊' },
     { key: 'mangueras', label: 'Mangueras', icon: '🔧' },
     ...(veCuentas ? CUENTAS_TABS : []),
+    { key: 'historico', label: 'Histórico', icon: '📜' },
   ];
   const [active, setActive] = useState('solicitudes');
 
@@ -2288,6 +2295,8 @@ export default function ComprasScreen() {
           // `key` fuerza remontar al cambiar de tipo: cada uno arranca con su
           // propio buscador y formulario limpios.
           <CuentasTab key={active} tipo={active} canWrite={cuentasWrite} />
+        ) : active === 'historico' ? (
+          <HistoricoComprasTab />
         ) : active === 'solicitudes' ? (
           <SolicitudesCompraTab canWrite={canWrite} />
         ) : active === 'requerimiento' ? (
