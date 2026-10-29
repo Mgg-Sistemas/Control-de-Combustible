@@ -23,7 +23,8 @@ import { pickAndUploadDocFile, takePhotoAndUpload, pickPhotoFromGalleryAndUpload
 import * as ImagePicker from 'expo-image-picker';
 import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
 import { extraerFotoProducto, empaquetarNotaConFotoProducto, limpiarNotaFotoProducto, FotoProductoData } from '../lib/comprasDirectas';
-import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa, DirectPurchase } from '../types/database';
+import { PRIORIDAD_COMPRA_INFO, esPrioridadCompra, colorPrioridad } from '../lib/prioridadCompra';
+import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa, DirectPurchase, InventoryRequirement } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -1589,11 +1590,13 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
   const confirm = useConfirm();
   const toast = useToast();
   const { data: orders, loading, refetch } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
+  const { data: requirements, refetch: refetchReqs } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: catalog, refetch: refetchCatalog } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
   const supplierName = (id: string | null) => (id ? suppliers.find((s) => s.id === id)?.name ?? '—' : '—');
+  const reqById = (id?: string | null) => (id ? requirements.find((r) => r.id === id) ?? null : null);
 
   const [sel, setSel] = useState<PurchaseOrder | null>(null);
   const [supplier, setSupplier] = useState('');
@@ -1658,9 +1661,14 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
         });
         if (mErr) throw mErr;
       }
-      // 2) Marcar la orden como recibida.
+      // 2) Marcar la orden como recibida y sincronizar con el requerimiento si está atada.
       await supabase.from('purchase_orders').update({ status: 'recibida', received_at: nowISO() }).eq('id', o.id);
-      refetch(); refetchCatalog();
+      if (o.inventory_requirement_id) {
+        try {
+          await supabase.from('inventory_requirements').update({ status: 'recibido', received_at: nowISO() }).eq('id', o.inventory_requirement_id);
+        } catch {}
+      }
+      refetch(); refetchCatalog(); refetchReqs();
       toast.success('Orden recibida y cargada al inventario. El PMP de cada producto se actualizó.');
     } catch (e: any) {
       toast.error(e?.message || 'No se pudo cargar al inventario.');
@@ -1702,21 +1710,48 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
         <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
           {grp.items.map((o) => {
             const st = ORD_STATUS[o.status] ?? ORD_STATUS.borrador;
+            const req = reqById(o.inventory_requirement_id);
             return (
               <ExpandableCard
                 key={o.id}
                 summary={
                   <View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.brandText, flex: 1, fontVariant: ['tabular-nums'] as any }} numberOfLines={1}>{usd(o.total)} · {supplierName(o.supplier_id)}</Text>
-                      <Pill label={st.label} {...toneSoft(colors, st.tone)} />
+                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.brandText, flex: 1, fontVariant: ['tabular-nums'] as any }} numberOfLines={1}>
+                        {req?.code ? `${req.code} · ` : ''}{usd(o.total)} · {supplierName(o.supplier_id)}
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {req && esPrioridadCompra(req.prioridad) ? (
+                          <Pill label={`Prioridad ${PRIORIDAD_COMPRA_INFO[req.prioridad].label}`} {...colorPrioridad(colors, req.prioridad)} />
+                        ) : null}
+                        <Pill label={st.label} {...toneSoft(colors, st.tone)} />
+                      </View>
                     </View>
-                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(o.category).icon} {catInfo(o.category).label}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                      {catInfo(o.category).icon} {catInfo(o.category).label}
+                      {req?.title ? ` · ${req.title}` : ''}
+                      {req?.responsable_nombre ? ` · 📦 Resp.: ${req.responsable_nombre}` : ''}
+                      {req?.motorizado_nombre ? ` · 🏍️ Moto.: ${req.motorizado_nombre}` : ''}
+                    </Text>
                   </View>
                 }
                 detail={
                   <>
+                    {req ? (
+                      <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>
+                        🔗 Sincronizada con Requerimiento {req.code ?? ''}{req.title ? ` — ${req.title}` : ''}
+                      </Text>
+                    ) : null}
                     <Text style={{ color: colors.muted, fontSize: 13 }}>Proveedor: {supplierName(o.supplier_id)}</Text>
+                    {(o.items || []).length > 0 ? (
+                      <View style={{ marginTop: 6, marginBottom: 4, gap: 2 }}>
+                        {(o.items || []).map((ln, idx) => (
+                          <Text key={idx} style={{ color: colors.text, fontSize: 12 }}>
+                            • {ln.description} — {ln.qty} {ln.unit || 'UND'} × {usd(Number(ln.price) || 0)} = {usd((Number(ln.qty) || 0) * (Number(ln.price) || 0))}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : null}
                     <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Total: {usd(o.total)}</Text>
                     {canWrite ? (
                       <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>

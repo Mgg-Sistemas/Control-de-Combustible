@@ -401,6 +401,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
   // Filtro por estatus del requerimiento (+ "esperando_aprobacion_gg" y "sin precio").
   const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'esperando_aprobacion_gg' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'sin_precio' | 'aclaratoria_solicitada'>('todos');
+  // Filtro por nivel de prioridad (alta, media, baja)
+  const [filterPrioridad, setFilterPrioridad] = useState<'todas' | PrioridadCompra>('todas');
   const faltaPrecioDe = (r: InventoryRequirement) => r.items.some((it) => !(Number(it.est_price) > 0));
   // Búsqueda libre (código, título, nota, solicitante, empresa, nombre de los ítems) +
   // rango de fecha (por created_at, ISO AAAA-MM-DD) — se combinan con el filtro de estatus.
@@ -421,8 +423,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const cuentasPagadasSet = useMemo(() => {
     const set = new Set<string>();
     (cuentasData || []).forEach((c) => {
-      if ((c.estado === 'pagada' || (c as any).saldo <= 0) && c.order_id) {
-        set.add(c.order_id);
+      if (c.estado === 'pagada' || ((c as any).saldo != null && (c as any).saldo <= 0)) {
+        if (c.inventory_requirement_id) set.add(c.inventory_requirement_id);
+        if (c.order_id) set.add(c.order_id);
       }
     });
     return set;
@@ -1776,17 +1779,22 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         if (facturaTarget.id) {
           const { data: ctas } = await supabase
             .from('cuentas')
-            .select('id, nota, factura_url')
+            .select('id, nota, factura_url, documento, estado')
             .eq('inventory_requirement_id', facturaTarget.id)
             .limit(1);
           if (ctas && ctas.length > 0) {
-            const targetCta = ctas[0];
+            const targetCta = ctas[0] as any;
             const notaCta = reciboPagoUrl
               ? inyectarReciboPagoEnNota(targetCta.nota, { url: reciboPagoUrl, tipo: reciboPagoTipo || 'image', nombre: 'Recibo de pago', subidoPor: userName || 'Requerimientos' })
               : targetCta.nota;
+            const tienePagoRegistrado = Boolean(reciboPagoUrl || reciboPagoRef.trim());
             await supabase.from('cuentas').update({
               nota: notaCta,
               factura_url: dataFac?.url || targetCta.factura_url,
+              ...(dataFac?.numero ? { documento: dataFac.numero } : {}),
+              ...(tienePagoRegistrado && targetCta.estado !== 'pagada'
+                ? { estado: 'pagada', settled_by: uid, settled_at: nowISO() }
+                : {}),
               updated_at: nowISO(),
             }).eq('id', targetCta.id);
           }
@@ -2186,12 +2194,20 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const parche = parcheExtrasReq(antes, { prioridad: prioridadReq, motorizado_user_id: motoId, motorizado_nombre: motoNombre });
       if (Object.keys(parche).length === 0) return '';
       const { error: exErr } = await supabase.from('inventory_requirements').update(parche).eq('id', id);
-      if (!exErr) return '';
-      return faltaColumnaSyncCompras(exErr.message) ? 'la prioridad ni el motorizado' : `la prioridad ni el motorizado (${exErr.message})`;
+      if (exErr) {
+        return faltaColumnaSyncCompras(exErr.message) ? 'la prioridad ni el motorizado' : `la prioridad ni el motorizado (${exErr.message})`;
+      }
+      if ('prioridad' in parche) {
+        try {
+          await supabase.from('cuentas').update({ prioridad: parche.prioridad ?? null, updated_at: nowISO() }).eq('inventory_requirement_id', id);
+        } catch {}
+      }
+      return '';
     };
+    const supplierIdEfectivo = supplierId || items.find((it) => it.supplier_id)?.supplier_id || null;
     if (editId) {
       const base = {
-        title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId,
+        title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierIdEfectivo,
         empresa_pagadora_id: empresaPagadoraId, empresa_pagadora_nombre: empresaPagadoraNombre,
         iva_alicuota: alicNum,
         items, ...adj
@@ -2280,7 +2296,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // La BASE reasigna el código con un trigger (correlativo a prueba de fallos);
       // leemos el código REAL que quedó para mostrarlo.
       const { data: inserted, error } = await supabase.from('inventory_requirements').insert({
-        code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, status: 'pendiente', items,
+        code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierIdEfectivo, status: 'pendiente', items,
         requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos, ...nuevosCampos, ...empresaCampos, ...ivaCampos,
       }).select('id, code').single();
       if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; insertedId = (inserted as any)?.id ?? null; saved = true; break; }
@@ -2397,14 +2413,33 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setCreateOpen(true);
   };
 
+  // 🔺 Asignación rápida de Prioridad desde la tarjeta del requerimiento (sincronizada con Por pagar)
+  const ponerPrioridadReq = async (r: InventoryRequirement, p: PrioridadCompra | null) => {
+    const { data, error } = await supabase.from('inventory_requirements').update({ prioridad: p }).eq('id', r.id).select('id');
+    if (error) {
+      return toast.error(faltaColumnaSyncCompras(error.message) ? 'La prioridad aún no se puede guardar: falta correr el SQL del 29-oct.' : error.message);
+    }
+    if (!data || data.length === 0) {
+      return toast.error(`No se pudo poner la prioridad en ${r.code}: no tienes permiso para editar ese requerimiento.`);
+    }
+    try {
+      await supabase.from('cuentas').update({ prioridad: p, updated_at: nowISO() }).eq('inventory_requirement_id', r.id);
+    } catch {}
+    refetch();
+    refetchCuentas();
+    toast.success(p ? `Prioridad ${PRIORIDAD_COMPRA_INFO[p].label} asignada a ${r.code} (sincronizada con Por Pagar).` : `Prioridad quitada de ${r.code}.`);
+  };
+
   // Aprobación por el Usuario Designado (p.ej. Gerente General)
   const aprobarGerenteGeneral = async (r: InventoryRequirement) => {
     if (!puedeAprobarRequerimientos) {
       return toast.error(`Solo el usuario designado (${configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}) puede aprobar los requerimientos.`);
     }
     const decName = await perfilNombre();
+    const fallbackSup = r.supplier_id || r.items.find((it) => it.supplier_id)?.supplier_id || null;
     const { error } = await supabase.from('inventory_requirements').update({
       status: 'aprobado',
+      ...(fallbackSup && !r.supplier_id ? { supplier_id: fallbackSup } : {}),
       gerente_aprobado: true,
       gerente_aprobado_por: decName,
       gerente_aprobado_at: nowISO(),
@@ -2414,6 +2449,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }).eq('id', r.id);
     if (error) return toast.error(error.message);
     refetch();
+    refetchCuentas();
     toast.success(`Requerimiento ${r.code} aprobado por ${decName}. Pasa a espera de pago.`);
   };
 
@@ -2443,6 +2479,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       return toast.error('No se puede aprobar un requerimiento con aclaratoria técnica pendiente. Espera la respuesta técnica del solicitante.');
     }
     const decName = await perfilNombre();
+    const fallbackSup = r.supplier_id || r.items.find((it) => it.supplier_id)?.supplier_id || null;
     const patch: Record<string, any> = {
       status,
       decided_by: uid,
@@ -2453,10 +2490,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       patch.gerente_aprobado = true;
       patch.gerente_aprobado_por = decName;
       patch.gerente_aprobado_at = nowISO();
+      if (fallbackSup && !r.supplier_id) patch.supplier_id = fallbackSup;
     }
     const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
     if (error) return toast.error(error.message);
     refetch();
+    refetchCuentas();
     // Al APROBAR, si trae formato adjunto, se abre la vista previa para ver y descargar.
     if (status === 'aprobado' && r.attachment_url) setPreviewReq({ ...r, status });
   };
@@ -2689,6 +2728,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
       const { error: uErr } = await supabase.from('inventory_requirements').update(reqPatch).eq('id', recvFor.id);
       if (uErr) throw uErr;
+
+      // 🔗 Sincronizar también la orden de compra vinculada en purchase_orders como 'recibida'
+      try {
+        await supabase.from('purchase_orders').update({ status: 'recibida', received_at: nowISO() }).eq('inventory_requirement_id', recvFor.id);
+      } catch {}
 
       // 🧾 Sincronización automática con Cuentas por Pagar
       if (recvFor.supplier_id) {
@@ -3069,6 +3113,49 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         })}
       </View>
 
+      {/* 🔺 Filtro por Nivel de Prioridad (sincronizado con Por Pagar) */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '800' }}>Prioridad:</Text>
+        <TouchableOpacity
+          onPress={() => setFilterPrioridad('todas')}
+          style={{
+            borderRadius: radius.pill,
+            borderWidth: 1,
+            borderColor: filterPrioridad === 'todas' ? colors.brand : colors.border,
+            backgroundColor: filterPrioridad === 'todas' ? colors.brand : colors.surfaceAlt,
+            paddingHorizontal: spacing.sm,
+            paddingVertical: 4,
+          }}
+        >
+          <Text style={{ color: filterPrioridad === 'todas' ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+            Todas ({reqsPorEmpresa.length})
+          </Text>
+        </TouchableOpacity>
+        {PRIORIDADES_COMPRA.map((p) => {
+          const on = filterPrioridad === p;
+          const t = colorPrioridad(colors, p);
+          const countP = reqsPorEmpresa.filter((r) => r.prioridad === p).length;
+          return (
+            <TouchableOpacity
+              key={p}
+              onPress={() => setFilterPrioridad(on ? 'todas' : p)}
+              style={{
+                borderRadius: radius.pill,
+                borderWidth: 1.5,
+                borderColor: on ? t.border : colors.border,
+                backgroundColor: on ? t.bg : colors.surfaceAlt,
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 4,
+              }}
+            >
+              <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                {PRIORIDAD_COMPRA_INFO[p].label} ({countP})
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       {/* Búsqueda libre (código, título, nota, solicitante, empresa, ítems) + rango de fecha. */}
       <TextInput
         value={listQuery}
@@ -3097,6 +3184,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         const nq = norm(listQuery);
         const filteredReqs = reqsPorEmpresa
           .filter((r) => {
+            if (filterPrioridad !== 'todas' && r.prioridad !== filterPrioridad) return false;
             if (filterStatus === 'todos') return true;
             if (filterStatus === 'sin_precio') return faltaPrecioDe(r);
             const provG = suppliers.find((s) => s.id === r.supplier_id);
@@ -3380,6 +3468,41 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
                               {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
                               {r.motorizado_nombre ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>🏍️ Motorizado responsable: {r.motorizado_nombre}</Text> : null}
+
+                              {/* 🔺 Selector rápido de Prioridad directo en la tarjeta (sincronizado con Por Pagar) */}
+                              {canWrite || esPrioridadCompra(r.prioridad) ? (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                                  <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '800' }}>Prioridad:</Text>
+                                  {PRIORIDADES_COMPRA.filter((p) => canWrite || r.prioridad === p).map((p) => {
+                                    const on = r.prioridad === p;
+                                    const t = colorPrioridad(colors, p);
+                                    return (
+                                      <TouchableOpacity
+                                        key={p}
+                                        disabled={!canWrite}
+                                        onPress={() => ponerPrioridadReq(r, on ? null : p)}
+                                        style={{
+                                          borderRadius: radius.pill,
+                                          borderWidth: 1,
+                                          borderColor: on ? t.border : colors.border,
+                                          backgroundColor: on ? t.bg : colors.surfaceAlt,
+                                          paddingHorizontal: spacing.sm,
+                                          paddingVertical: 3,
+                                        }}
+                                      >
+                                        <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                                          {PRIORIDAD_COMPRA_INFO[p].label}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                  {canWrite && esPrioridadCompra(r.prioridad) ? (
+                                    <TouchableOpacity onPress={() => ponerPrioridadReq(r, null)} style={{ paddingHorizontal: spacing.xs, paddingVertical: 3 }}>
+                                      <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 11.5 }}>Quitar ✕</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                </View>
+                              ) : null}
                               {(() => {
                                 const fmts = extraerFormatosAdjuntos(r);
                                 if (fmts.length === 0) return null;
@@ -4218,27 +4341,23 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               />
 
               {/* 🔺 PRIORIDAD (29-oct-2026): la misma de Por pagar; se copia sola a su cuenta. */}
-              {editId ? (
-                <>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Prioridad (opcional)</Text>
-                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-                    {PRIORIDADES_COMPRA.map((p) => {
-                      const on = prioridadReq === p;
-                      const t = colorPrioridad(colors, p);
-                      return (
-                        <TouchableOpacity key={p} onPress={() => setPrioridadReq(on ? null : p)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? t.border : colors.border, backgroundColor: on ? t.bg : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                          <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 12 }}>{PRIORIDAD_COMPRA_INFO[p].label}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                    {prioridadReq ? (
-                      <TouchableOpacity onPress={() => setPrioridadReq(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Quitar ✕</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                </>
-              ) : null}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Prioridad (opcional)</Text>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                {PRIORIDADES_COMPRA.map((p) => {
+                  const on = prioridadReq === p;
+                  const t = colorPrioridad(colors, p);
+                  return (
+                    <TouchableOpacity key={p} onPress={() => setPrioridadReq(on ? null : p)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? t.border : colors.border, backgroundColor: on ? t.bg : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 12 }}>{PRIORIDAD_COMPRA_INFO[p].label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {prioridadReq ? (
+                  <TouchableOpacity onPress={() => setPrioridadReq(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Quitar ✕</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
 
               {/* 👤 QUIÉN LO SOLICITÓ Y QUIÉN LO AUTORIZÓ (20-oct-2026, a pedido).
                   Salen de la NÓMINA —que acá solo se lee— y, si la persona no está,

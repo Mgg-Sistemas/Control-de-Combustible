@@ -230,7 +230,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: orders } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
-  const { data: requirements } = useTable<InventoryRequirement>('inventory_requirements');
+  const { data: requirements, refetch: refetchRequirements } = useTable<InventoryRequirement>('inventory_requirements');
 
   // Filtro por empresa (una o varias)
   const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set());
@@ -422,6 +422,18 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       : await supabase.from('cuentas').insert({ ...fila, estado: 'pendiente', created_by: session?.user?.id ?? null });
     setBusy(false);
     if (error) return toast.error(error.message);
+    if (edit?.inventory_requirement_id) {
+      try {
+        await supabase
+          .from('inventory_requirements')
+          .update({
+            prioridad: prioridad ?? null,
+            ...(tipo === 'por_pagar' && contraparteId ? { supplier_id: contraparteId } : {}),
+          })
+          .eq('id', edit.inventory_requirement_id);
+        refetchRequirements();
+      } catch {}
+    }
     setOpen(false); setEdit(null);
     refetch();
     toast.success(edit ? 'Cuenta actualizada.' : 'Cuenta registrada.');

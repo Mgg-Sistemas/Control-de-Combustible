@@ -553,6 +553,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const [convertItemSuppliers, setConvertItemSuppliers] = useState<Record<number, string | null>>({});
   const [convertSupQ, setConvertSupQ] = useState('');
   const [convertSupOpen, setConvertSupOpen] = useState(false);
+  const [convertPrioridad, setConvertPrioridad] = useState<PrioridadCompra | null>(null);
 
   // 🔺 PRIORIDAD (29-oct-2026, a pedido): ya aceptada la solicitud, se le pone el
   // nivel de prioridad. Update APARTE (columna nueva) y la base la copia a su cuenta
@@ -562,6 +563,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     if (error) return toast.error(faltaColumnaSyncCompras(error.message) ? 'La prioridad aún no se puede guardar: falta correr el SQL del 29-oct.' : error.message);
     // La RLS rechaza sin error y con 0 filas: no se anuncia un éxito que no hubo.
     if (!data || data.length === 0) return toast.error(`No se pudo poner la prioridad en ${r.code}: no tienes permiso para editar ese requerimiento.`);
+    try {
+      await supabase.from('cuentas').update({ prioridad: p, updated_at: nowISO() }).eq('inventory_requirement_id', r.id);
+    } catch {}
     refetch();
     toast.success(p ? `Prioridad ${PRIORIDAD_COMPRA_INFO[p].label} puesta en ${r.code}.` : `Prioridad quitada de ${r.code}.`);
   };
@@ -572,6 +576,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     setConvertSupplierId(r.supplier_id || null);
     setConvertCompanyId(r.company_id || null);
     setConvertEmpresaPagadoraId(r.empresa_pagadora_id || null);
+    setConvertPrioridad(esPrioridadCompra(r.prioridad) ? r.prioridad : null);
     setConvertSupQ('');
     setConvertSupOpen(false);
     const primerItem = r.items[0];
@@ -623,6 +628,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         config: configAprobacion,
       });
       const pasaDirectoAprobado = !requierePrimeroAprobador || soyAprobadorDesignado || Boolean(convertTarget.gerente_aprobado);
+      const supplierIdEfectivo = convertSupplierId || updatedItems.find((it) => it.supplier_id)?.supplier_id || null;
 
       const { error } = await supabase
         .from('inventory_requirements')
@@ -631,7 +637,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           gerente_aprobado: pasaDirectoAprobado ? true : Boolean(convertTarget.gerente_aprobado),
           gerente_aprobado_por: pasaDirectoAprobado && soyAprobadorDesignado ? (fullName || 'Gerencia General') : convertTarget.gerente_aprobado_por,
           gerente_aprobado_at: pasaDirectoAprobado && soyAprobadorDesignado ? nowISO() : convertTarget.gerente_aprobado_at,
-          supplier_id: convertSupplierId || null,
+          supplier_id: supplierIdEfectivo,
           company_id: convertCompanyId || null,
           empresa_pagadora_id: convertEmpresaPagadoraId || null,
           empresa_pagadora_nombre: empPagadora?.name || null,
@@ -647,6 +653,15 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         .eq('id', convertTarget.id);
 
       if (error) throw error;
+
+      // Guardar prioridad en update aparte (si fue seleccionada o cambió) y sincronizar con cuenta por pagar
+      const prioAntes = esPrioridadCompra(convertTarget.prioridad) ? convertTarget.prioridad : null;
+      if (convertPrioridad !== prioAntes) {
+        try {
+          await supabase.from('inventory_requirements').update({ prioridad: convertPrioridad }).eq('id', convertTarget.id);
+          await supabase.from('cuentas').update({ prioridad: convertPrioridad, updated_at: nowISO() }).eq('inventory_requirement_id', convertTarget.id);
+        } catch {}
+      }
 
       toast.success(
         pasaDirectoAprobado
@@ -1008,6 +1023,19 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         .eq('id', facturaTarget.id);
 
       if (error) throw error;
+
+      // Sincronizar también factura con Cuenta por Pagar vinculada (si existe)
+      try {
+        await supabase
+          .from('cuentas')
+          .update({
+            ...(dataFac.url ? { factura_url: dataFac.url } : {}),
+            ...(dataFac.numero ? { documento: dataFac.numero } : {}),
+            updated_at: nowISO(),
+          })
+          .eq('inventory_requirement_id', facturaTarget.id);
+      } catch {}
+
       setFacturaModalOpen(false);
       setFacturaTarget(null);
       refetch();
@@ -1509,8 +1537,8 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               </TouchableOpacity>
 
-              {/* 🔺 Prioridad: solo cuando la solicitud ya fue aceptada (29-oct-2026) */}
-              {ESTADOS_REQ_ACEPTADO.includes(r.status) && (canWrite || esPrioridadCompra(r.prioridad)) ? (
+              {/* 🔺 Prioridad: cuando la solicitud ya fue aceptada o convertida en requerimiento (29-oct-2026) */}
+              {(ESTADOS_REQ_ACEPTADO.includes(r.status) || est.tieneCotizacionCompleta) && (canWrite || esPrioridadCompra(r.prioridad)) ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
                   <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>Prioridad:</Text>
                   {PRIORIDADES_COMPRA.filter((p) => canWrite || r.prioridad === p).map((p) => {
@@ -2474,6 +2502,43 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     })}
                   </View>
                 </View>
+              </View>
+
+              {/* 🔺 Prioridad del requerimiento (se sincroniza con Por Pagar) */}
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                🔺 Nivel de Prioridad (se sincroniza con Por Pagar):
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: spacing.sm }}>
+                {PRIORIDADES_COMPRA.map((p) => {
+                  const on = convertPrioridad === p;
+                  const t = colorPrioridad(colors, p);
+                  return (
+                    <TouchableOpacity
+                      key={p}
+                      onPress={() => setConvertPrioridad(on ? null : p)}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: on ? t.border : colors.border,
+                        backgroundColor: on ? t.bg : colors.surfaceAlt,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 6,
+                      }}
+                    >
+                      <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 12 }}>
+                        {PRIORIDAD_COMPRA_INFO[p].label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {convertPrioridad ? (
+                  <TouchableOpacity
+                    onPress={() => setConvertPrioridad(null)}
+                    style={{ paddingHorizontal: spacing.sm, paddingVertical: 6 }}
+                  >
+                    <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Quitar ✕</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               {/* Notas de compra */}
