@@ -345,7 +345,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   // Buscador y filtros
   const [query, setQuery] = useState('');
   const [filterEstado, setFilterEstado] = useState<
-    'todos' | 'por_cotizar' | 'esperando_pago' | 'aclaratoria' | 'convertido' | 'rechazado' | 'pendiente'
+    'todos' | 'por_cotizar' | 'esperando_aprobacion_gg' | 'esperando_pago' | 'aclaratoria' | 'convertido' | 'rechazado' | 'pendiente'
   >('todos');
 
   // Modales
@@ -459,10 +459,17 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       ).length,
     [solicitudesConEstado]
   );
+  const countEsperandoAprobacion = useMemo(
+    () =>
+      solicitudesConEstado.filter(
+        ({ est }) => est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG)
+      ).length,
+    [solicitudesConEstado]
+  );
   const countEsperandoPago = useMemo(
     () =>
       solicitudesConEstado.filter(
-        ({ est }) => est.codigo === 'esperando_pago' || est.codigo === 'esperando_aprobacion_gg'
+        ({ est }) => est.codigo === 'esperando_pago'
       ).length,
     [solicitudesConEstado]
   );
@@ -491,10 +498,17 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         )
         .map((x) => x.req);
     }
+    if (filterEstado === 'esperando_aprobacion_gg') {
+      return solicitudesConEstado
+        .filter(
+          ({ est }) => est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG)
+        )
+        .map((x) => x.req);
+    }
     if (filterEstado === 'esperando_pago') {
       return solicitudesConEstado
         .filter(
-          ({ est }) => est.codigo === 'esperando_pago' || est.codigo === 'esperando_aprobacion_gg'
+          ({ est }) => est.codigo === 'esperando_pago'
         )
         .map((x) => x.req);
     }
@@ -1344,6 +1358,10 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         {[
           { key: 'todos', label: `Todos (${countTodos})` },
           { key: 'por_cotizar', label: `📋 Por Cotizar (${countPorCotizar})` },
+          {
+            key: 'esperando_aprobacion_gg',
+            label: `👔 Esperando Aprobación: ${(configAprobacion.aprobadoresNombres && configAprobacion.aprobadoresNombres.length > 0) ? configAprobacion.aprobadoresNombres.join(' / ') : 'Gerente General'} (${countEsperandoAprobacion})`,
+          },
           { key: 'esperando_pago', label: `💳 Esperando Pago (${countEsperandoPago})` },
           { key: 'aclaratoria', label: `⚠️ En Aclaratoria (${countAclaratorias})` },
           { key: 'convertido', label: `✅ Convertidos (${countConvertidos})` },

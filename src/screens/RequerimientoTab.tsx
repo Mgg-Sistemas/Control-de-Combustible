@@ -399,8 +399,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const uid = session?.user?.id ?? null;
   const { rate } = useBcvRate();
   const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
-  // Filtro por estatus del requerimiento (+ "sin precio" para ubicar los que faltan cargar precio).
-  const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'sin_precio' | 'aclaratoria_solicitada'>('todos');
+  // Filtro por estatus del requerimiento (+ "esperando_aprobacion_gg" y "sin precio").
+  const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'esperando_aprobacion_gg' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'sin_precio' | 'aclaratoria_solicitada'>('todos');
   const faltaPrecioDe = (r: InventoryRequirement) => r.items.some((it) => !(Number(it.est_price) > 0));
   // Búsqueda libre (código, título, nota, solicitante, empresa, nombre de los ítems) +
   // rango de fecha (por created_at, ISO AAAA-MM-DD) — se combinan con el filtro de estatus.
@@ -3026,6 +3026,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         {([
           { k: 'todos', label: 'Todos', color: colors.brandText },
           { k: 'pendiente', label: '⏳ Pendientes', color: '#D97706' },
+          {
+            k: 'esperando_aprobacion_gg',
+            label: `👔 Esperando Aprobación: ${(configAprobacion.aprobadoresNombres && configAprobacion.aprobadoresNombres.length > 0) ? configAprobacion.aprobadoresNombres.join(' / ') : 'Gerente General'}`,
+            color: '#7C3AED',
+          },
           { k: 'aclaratoria_solicitada', label: '⚠️ En Aclaratoria', color: '#D97706' },
           { k: 'sin_precio', label: '❗ Sin precio', color: '#DC2626' },
           { k: 'aprobado', label: '✅ Aprobados (Por Pagar)', color: '#2563EB' },
@@ -3038,17 +3043,24 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             ? reqsPorEmpresa.length
             : f.k === 'sin_precio'
               ? reqsPorEmpresa.filter(faltaPrecioDe).length
-              : f.k === 'esperando_recepcion'
+              : f.k === 'esperando_aprobacion_gg'
                 ? reqsPorEmpresa.filter((r) => {
                   const provG = suppliers.find((s) => s.id === r.supplier_id);
-                  return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_recepcion';
+                  const est = calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id));
+                  return est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG);
                 }).length
-                : f.k === 'aprobado'
+                : f.k === 'esperando_recepcion'
                   ? reqsPorEmpresa.filter((r) => {
                     const provG = suppliers.find((s) => s.id === r.supplier_id);
-                    return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'aprobado';
+                    return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_recepcion';
                   }).length
-                  : reqsPorEmpresa.filter((r) => r.status === f.k).length;
+                  : f.k === 'aprobado'
+                    ? reqsPorEmpresa.filter((r) => {
+                      const provG = suppliers.find((s) => s.id === r.supplier_id);
+                      const est = calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id));
+                      return est.codigo === 'aprobado' || est.codigo === 'esperando_pago';
+                    }).length
+                    : reqsPorEmpresa.filter((r) => r.status === f.k).length;
           return (
             <TouchableOpacity key={f.k} onPress={() => setFilterStatus(f.k)} style={{ borderWidth: 1.5, borderColor: f.color, backgroundColor: on ? f.color : 'transparent', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
               <Text style={{ color: on ? '#fff' : f.color, fontWeight: '800', fontSize: 12 }}>{f.label} ({n})</Text>
@@ -3089,8 +3101,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             if (filterStatus === 'sin_precio') return faltaPrecioDe(r);
             const provG = suppliers.find((s) => s.id === r.supplier_id);
             const est = calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id));
+            if (filterStatus === 'esperando_aprobacion_gg') {
+              return est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG);
+            }
             if (filterStatus === 'esperando_recepcion') return est.codigo === 'esperando_recepcion';
-            if (filterStatus === 'aprobado') return est.codigo === 'aprobado';
+            if (filterStatus === 'aprobado') return est.codigo === 'aprobado' || est.codigo === 'esperando_pago';
             return r.status === filterStatus;
           })
           .filter((r) => !reqDateFrom || r.created_at.slice(0, 10) >= reqDateFrom)

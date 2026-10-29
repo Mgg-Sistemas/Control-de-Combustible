@@ -339,15 +339,15 @@ export function obtenerProveedorDeLinea(
   supplierIdGeneral?: string | null,
   supplierNameGeneral?: string | null
 ): { supplier_id: string | null; supplier_name: string | null } {
-  if (line.supplier_id) {
+  if (line.supplier_id || (line.supplier_name && line.supplier_name.trim())) {
     return {
-      supplier_id: line.supplier_id,
+      supplier_id: line.supplier_id || line.supplier_name!.trim(),
       supplier_name: line.supplier_name || 'Proveedor asignado',
     };
   }
-  if (supplierIdGeneral) {
+  if (supplierIdGeneral || (supplierNameGeneral && supplierNameGeneral.trim())) {
     return {
-      supplier_id: supplierIdGeneral,
+      supplier_id: supplierIdGeneral || supplierNameGeneral!.trim(),
       supplier_name: supplierNameGeneral || 'Proveedor principal',
     };
   }
@@ -484,44 +484,7 @@ export function calcularEstadoRequerimiento(
     };
   }
 
-  // 5. Si falta proveedor en el sistema
-  if (!tieneProveedorCompleto) {
-    return {
-      codigo: 'esperando_proveedor',
-      label: '🔍 Esperando Proveedor',
-      short: 'Esperando Prov.',
-      color: '#4B5563',
-      bg: '#F3F4F6',
-      icon: '🔍',
-      requiereAprobacionGG: false,
-      totalUSD,
-      tieneProveedorCompleto: false,
-      tieneCotizacionCompleta,
-      proveedoresNombres,
-      esMultiProveedor,
-    };
-  }
-
-  // 6. Si tiene proveedor pero falta cotización/precio
-  if (!tieneCotizacionCompleta) {
-    return {
-      codigo: 'esperando_cotizacion',
-      label: '📋 Esperando Cotización / Precios',
-      short: 'Esperando Cot.',
-      color: '#D97706',
-      bg: '#FEF3C7',
-      icon: '📋',
-      requiereAprobacionGG: false,
-      totalUSD,
-      tieneProveedorCompleto: true,
-      tieneCotizacionCompleta: false,
-      proveedoresNombres,
-      esMultiProveedor,
-    };
-  }
-
-  // 7. Tiene Proveedor Y Cotización cargada:
-  // Aplicar Regla de Negocio Dinámica de Aprobación por Usuario Designado, Monto y Empresa
+  // Evaluar Regla de Negocio Dinámica de Aprobación por Usuario Designado, Monto y Empresa
   const aplicaEmpresa = !cfg?.empresaId || r.company_id === cfg.empresaId || r.empresa_pagadora_id === cfg.empresaId;
   const reglaActiva = cfg?.activo !== false;
   const superaLimiteGG = aplicaEmpresa && reglaActiva && (exigirTodos ? totalUSD >= 0 : totalUSD > limiteUSD);
@@ -533,6 +496,102 @@ export function calcularEstadoRequerimiento(
     ? cfg.aprobadoresNombres.join(', ')
     : 'Gerente General';
   const sufijoCondicion = exigirTodos ? '' : ` (> $${textoMonto} USD)`;
+
+  // 5. Si ya está formalmente aprobado (y no le falta aprobación del usuario designado)
+  if (r.status === 'aprobado' && (yaAprobadoGG || !superaLimiteGG)) {
+    return {
+      codigo: 'aprobado',
+      label: superaLimiteGG && !exigirTodos
+        ? `✅ Aprobado / En Gestión de Pago (> $${textoMonto})`
+        : '✅ Aprobado / En Gestión de Pago',
+      short: 'Aprobado',
+      color: '#059669',
+      bg: '#ECFDF5',
+      icon: '✅',
+      requiereAprobacionGG: false,
+      totalUSD,
+      tieneProveedorCompleto,
+      tieneCotizacionCompleta,
+      proveedoresNombres,
+      esMultiProveedor,
+      montoLimiteAplicado: limiteUSD,
+      empresaReglaAplicada: cfg?.empresaNombre || null,
+      aprobadoresNombres: cfg?.aprobadoresNombres || [],
+      aprobadoresIds: cfg?.aprobadoresIds || [],
+    };
+  }
+
+  // 6. Si tiene cotización/precio cargado y requiere aprobación del Usuario Designado / Gerente General
+  if (superaLimiteGG && !yaAprobadoGG && tieneCotizacionCompleta) {
+    return {
+      codigo: 'esperando_aprobacion_gg',
+      label: `👔 Esperando Aprobación de ${aprobadoresTxt}${sufijoCondicion}${sufijoEmpresa}`,
+      short: exigirTodos ? `Aprobación (${aprobadoresTxt})${sufijoEmpresa}` : `Aprobación (> $${textoMonto})${sufijoEmpresa}`,
+      color: '#7C3AED',
+      bg: '#F5F3FF',
+      icon: '👔',
+      requiereAprobacionGG: true,
+      totalUSD,
+      tieneProveedorCompleto,
+      tieneCotizacionCompleta: true,
+      proveedoresNombres,
+      esMultiProveedor,
+      montoLimiteAplicado: limiteUSD,
+      empresaReglaAplicada: cfg?.empresaNombre || null,
+      aprobadoresNombres: cfg?.aprobadoresNombres || [],
+      aprobadoresIds: cfg?.aprobadoresIds || [],
+    };
+  }
+
+  const requiereAprobacionPorReglaTodos = Boolean(exigirTodos && aplicaEmpresa && reglaActiva && !yaAprobadoGG);
+
+  // 7. Si falta proveedor en el sistema
+  if (!tieneProveedorCompleto) {
+    return {
+      codigo: 'esperando_proveedor',
+      label: requiereAprobacionPorReglaTodos
+        ? `🔍 Esperando Proveedor · 👔 Por aprobar (${aprobadoresTxt})`
+        : '🔍 Esperando Proveedor',
+      short: 'Esperando Prov.',
+      color: '#4B5563',
+      bg: '#F3F4F6',
+      icon: '🔍',
+      requiereAprobacionGG: requiereAprobacionPorReglaTodos,
+      totalUSD,
+      tieneProveedorCompleto: false,
+      tieneCotizacionCompleta,
+      proveedoresNombres,
+      esMultiProveedor,
+      montoLimiteAplicado: limiteUSD,
+      empresaReglaAplicada: cfg?.empresaNombre || null,
+      aprobadoresNombres: cfg?.aprobadoresNombres || [],
+      aprobadoresIds: cfg?.aprobadoresIds || [],
+    };
+  }
+
+  // 8. Si tiene proveedor pero falta cotización/precio
+  if (!tieneCotizacionCompleta) {
+    return {
+      codigo: 'esperando_cotizacion',
+      label: requiereAprobacionPorReglaTodos
+        ? `📋 Esperando Cotización · 👔 Por aprobar (${aprobadoresTxt})`
+        : '📋 Esperando Cotización / Precios',
+      short: 'Esperando Cot.',
+      color: '#D97706',
+      bg: '#FEF3C7',
+      icon: '📋',
+      requiereAprobacionGG: requiereAprobacionPorReglaTodos,
+      totalUSD,
+      tieneProveedorCompleto: true,
+      tieneCotizacionCompleta: false,
+      proveedoresNombres,
+      esMultiProveedor,
+      montoLimiteAplicado: limiteUSD,
+      empresaReglaAplicada: cfg?.empresaNombre || null,
+      aprobadoresNombres: cfg?.aprobadoresNombres || [],
+      aprobadoresIds: cfg?.aprobadoresIds || [],
+    };
+  }
 
   if (superaLimiteGG && !yaAprobadoGG) {
     return {
@@ -555,7 +614,7 @@ export function calcularEstadoRequerimiento(
     };
   }
 
-  // 8. Si no está formalmente aprobado aún
+  // 9. Si no está formalmente aprobado aún
   if (r.status !== 'aprobado' && !r.decided_by) {
     return {
       codigo: 'esperando_pago',
@@ -577,7 +636,7 @@ export function calcularEstadoRequerimiento(
     };
   }
 
-  // 9. Si está formalmente aprobado (pendiente por pago y recepción)
+  // 10. Si está formalmente aprobado (pendiente por pago y recepción)
   return {
     codigo: 'aprobado',
     label: superaLimiteGG && !exigirTodos
