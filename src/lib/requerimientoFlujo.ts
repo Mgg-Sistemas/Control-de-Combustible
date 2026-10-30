@@ -5,9 +5,23 @@
 //    - "esperando proveedor" si falta proveedor en la orden/ítems.
 //    - "esperando pago" si ya tiene cotización y proveedor para montos <= $1,000 USD.
 //    - "esperando aprobación del gerente general" si supera los $1,000 USD (filtro de seguridad).
-import type { InventoryRequirement, RequirementLine, Supplier } from '../types/database.ts';
-import { extraerReciboPago } from './requerimientoExpediente';
-import { extraerAprobacionCxp } from './cuentasPago';
+import type { InventoryRequirement, RequirementLine, Supplier } from '../types/database';
+
+function tieneReciboPagoReq(r?: Partial<InventoryRequirement> | null): boolean {
+  if (!r) return false;
+  const obs = r.observaciones || '';
+  return /\[RECIBO PAGO:\s*Url:\s*[^|\]]+/i.test(obs) || /\[RECIBO PAGO:[^\]]*Ref:\s*[^|\]]+/i.test(obs);
+}
+
+function extraerAprobacionCxpReq(obs?: string | null): { estado: 'aprobado' | 'pendiente'; aprobadoPor?: string | null } | null {
+  if (!obs) return null;
+  const match = String(obs).match(/\[APROBADO_CXP:\s*Estado:\s*([^|]*)(?:\|\s*Por:\s*([^|]*))?/i);
+  if (!match) return null;
+  return {
+    estado: match[1].trim().toLowerCase() === 'aprobado' ? 'aprobado' : 'pendiente',
+    aprobadoPor: match[2]?.trim() || null,
+  };
+}
 
 export const LIMITE_MONTO_GERENTE_GENERAL_USD = 1000;
 
@@ -615,9 +629,8 @@ export function calcularEstadoRequerimiento(
   }
 
   // 2. Analizar si ya cuenta con recibo / comprobante de pago bancario o fue marcado como pagado en Cuentas por Pagar
-  const reciboPago = extraerReciboPago(r);
   const tienePagoRegistrado =
-    Boolean(reciboPago && (reciboPago.url || reciboPago.referencia)) ||
+    tieneReciboPagoReq(r) ||
     estaPagadoOverride === true ||
     (r as any).pagado === true ||
     (r.status as string) === 'pagado' ||
@@ -682,7 +695,7 @@ export function calcularEstadoRequerimiento(
   const aplicaEmpresa = !cfg?.empresaId || r.company_id === cfg.empresaId || r.empresa_pagadora_id === cfg.empresaId;
   const reglaActiva = cfg?.activo !== false;
   const superaLimiteGG = aplicaEmpresa && reglaActiva && (exigirTodos ? totalUSD >= 0 : totalUSD > limiteUSD);
-  const apCxp = extraerAprobacionCxp(r.observaciones);
+  const apCxp = extraerAprobacionCxpReq(r.observaciones);
   const yaAprobadoGG = Boolean(
     apCxp?.estado === 'aprobado' ||
     (r.gerente_aprobado && apCxp?.estado !== 'pendiente') ||

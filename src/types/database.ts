@@ -1946,6 +1946,8 @@ export interface Cuenta {
   concepto: string;
   documento: string | null;       // Nº de factura / control / recibo
   factura_url: string | null;     // archivo de la factura (imagen/PDF) en storage
+  presupuesto_files?: Array<{ id: string; url: string; kind: 'image' | 'pdf'; name: string; sizeBytes?: number; uploadedAt?: string }> | null;
+  alicuota_iva?: number | null;   // alícuota de IVA aplicada (%)
   prioridad: 'alta' | 'media' | 'baja' | null; // grado de prioridad (opcional)
   monto: number;
   moneda: string;

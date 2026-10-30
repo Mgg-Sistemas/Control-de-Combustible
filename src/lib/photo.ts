@@ -302,6 +302,27 @@ export async function pickAndUploadDocFile(
 }
 
 /**
+ * Toma una FOTO DIRECTA con la cámara (documento o presupuesto físico) y la sube
+ * al bucket 'machinery' en la carpeta `<folder>/<id>/`.
+ */
+export async function takeAndUploadDocPhoto(
+  folder: string,
+  id: string
+): Promise<{ ok: boolean; url?: string; kind?: 'image'; name?: string; error?: string }> {
+  const webBase64 = Platform.OS !== 'web';
+  const cam = await ImagePicker.requestCameraPermissionsAsync();
+  if (!cam.granted) return { ok: false, error: 'Permiso de cámara denegado.' };
+  const res = await pick(() => ImagePicker.launchCameraAsync({ quality: PICK_QUALITY, base64: webBase64 }));
+  if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
+  const body = await assetToBody(res.assets[0]);
+  if (!body) return { ok: false, error: 'No se pudo leer la foto tomada.' };
+  const path = `${folder}/${id}/${Date.now()}.jpg`;
+  const r = await uploadToMachinery(path, body);
+  return r.ok ? { ok: true, url: r.url, kind: 'image', name: `presupuesto_${Date.now()}.jpg` } : { ok: false, error: r.error };
+}
+
+
+/**
  * Selecciona UNO O MÁS FORMATOS (imágenes o PDFs) y los sube al bucket 'machinery'
  * en la carpeta `<folder>/<id>/`.
  * - WEB: <input type=file multiple> (permite elegir 2 o más archivos a la vez).

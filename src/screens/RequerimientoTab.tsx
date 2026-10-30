@@ -2659,8 +2659,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               nota: notaCxp || null,
               updated_at: ahoraIso,
             };
+            if (montoEnv > 0) patchCxp.monto = montoEnv;
             if (esPrioridadCompra(r.prioridad)) patchCxp.prioridad = r.prioridad;
             await supabase.from('cuentas').update(patchCxp).eq('id', cxp.id);
+            if (montoEnv > 0) {
+              await supabase.from('purchase_orders').update({ total: montoEnv }).eq('inventory_requirement_id', r.id);
+            }
           }
         }
       } catch {}
@@ -2682,18 +2686,32 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (!canWrite && !puedeAprobarRequerimientos && !isAdmin) {
       return toast.error('No tienes permiso para pasar requerimientos en lote a Por Pagar.');
     }
-    const ids = reqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').map((r) => r.id);
+    const reqsLote = reqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente');
+    const ids = reqsLote.map((r) => r.id);
     if (!ids.length) return toast.error('Marca (☑) requerimientos PENDIENTES para enviar en lote a Por Pagar.');
     const ok = await confirm({ title: 'Enviar en lote a Por Pagar', message: `¿Pasar ${ids.length} requerimiento(s) pendiente(s) a 💸 Por Pagar para aprobación?`, confirmText: `Pasar ${ids.length} a Por Pagar` });
     if (!ok) return;
     const decName = await perfilNombre();
+    const ahoraIso = nowISO();
     const { error } = await supabase.from('inventory_requirements').update({
       status: 'aprobado',
       decided_by: uid,
       decided_by_name: decName,
-      decided_at: nowISO(),
+      decided_at: ahoraIso,
     }).in('id', ids);
     if (error) return toast.error(error.message);
+
+    // Sincronizar monto con IVA en cuentas y órdenes de los requerimientos aprobados
+    try {
+      for (const reqItem of reqsLote) {
+        const montoConIva = calcularTotalReqUsd(reqItem.items, rate, reqItem.iva_alicuota);
+        if (montoConIva > 0) {
+          await supabase.from('cuentas').update({ monto: montoConIva, updated_at: ahoraIso }).eq('inventory_requirement_id', reqItem.id);
+          await supabase.from('purchase_orders').update({ total: montoConIva }).eq('inventory_requirement_id', reqItem.id);
+        }
+      }
+    } catch {}
+
     setReqSelIds(new Set());
     refetch();
     refetchCuentas();

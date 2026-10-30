@@ -47,7 +47,18 @@ import {
   extraerEmpresaDeNota,
   pasaFiltroEmpresas,
 } from '../lib/cuentasEmpresa';
-import { pickAndUploadDocFile, pickAndUploadDocFiles, takePhotoAndUpload } from '../lib/photo';
+import {
+  pickAndUploadDocFile,
+  pickAndUploadDocFiles,
+  takeAndUploadDocPhoto,
+  takePhotoAndUpload,
+} from '../lib/photo';
+import {
+  FormatoAdjunto,
+  extraerFormatosAdjuntos,
+  empaquetarFormatosEnObservaciones,
+  limpiarObservacionesFormatos,
+} from '../lib/formatosAdjuntos';
 import { exportPdf } from '../lib/pdf';
 import { reciboCuentaHtml } from '../lib/reciboCuenta';
 import { spacing, radius } from '../theme';
@@ -187,6 +198,77 @@ const SIT_INFO: Record<Situacion, { label: string; tone: Tone }> = {
 /** Ventana de "por vencer": vence dentro de los próximos 7 días. */
 const DIAS_POR_VENCER = 7;
 
+/** Desglose financiero detallado de IVA para Cuentas por Pagar */
+export interface DesgloseIvaCuenta {
+  subtotal: number;
+  exento: number;
+  baseImponible: number;
+  alicuota: number;
+  montoIva: number;
+  total: number;
+  tieneIva: boolean;
+}
+
+export function resolverDesgloseIvaCuenta(
+  c: Cuenta,
+  reqVinc?: InventoryRequirement | null,
+  tasaBcv?: number | null
+): DesgloseIvaCuenta {
+  const montoCuenta = Number(c.monto) || 0;
+  if (reqVinc && Array.isArray(reqVinc.items) && reqVinc.items.length > 0) {
+    const rate = Number(tasaBcv) || 1;
+    const lineTotalUsd = (it: RequirementLine) => {
+      if (it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0) {
+        return Number(it.total_usd);
+      }
+      const q = Number(it.qty) || 0;
+      const estPrice = Number(it.est_price) || 0;
+      const priceUsd = it.currency === 'USD' ? estPrice : estPrice / rate;
+      return priceUsd * q;
+    };
+    const subtotal = Math.round(reqVinc.items.reduce((s, it) => s + lineTotalUsd(it), 0) * 100) / 100;
+    const exento = Math.round(reqVinc.items.reduce((s, it) => it.exento ? s + lineTotalUsd(it) : s, 0) * 100) / 100;
+    const baseImponible = Math.max(0, Math.round((subtotal - exento) * 100) / 100);
+    const alicuota = reqVinc.iva_alicuota != null ? Number(reqVinc.iva_alicuota) : (c.alicuota_iva != null ? Number(c.alicuota_iva) : 16);
+    const montoIva = alicuota > 0 ? Math.round(baseImponible * (alicuota / 100) * 100) / 100 : 0;
+    const total = Math.round((subtotal + montoIva) * 100) / 100;
+    return {
+      subtotal,
+      exento,
+      baseImponible,
+      alicuota,
+      montoIva,
+      total: total > 0 ? total : montoCuenta,
+      tieneIva: alicuota > 0 && montoIva > 0,
+    };
+  }
+
+  const alicuota = c.alicuota_iva != null ? Number(c.alicuota_iva) : 0;
+  if (alicuota > 0 && montoCuenta > 0) {
+    const subtotal = Math.round((montoCuenta / (1 + (alicuota / 100))) * 100) / 100;
+    const montoIva = Math.round((montoCuenta - subtotal) * 100) / 100;
+    return {
+      subtotal,
+      exento: 0,
+      baseImponible: subtotal,
+      alicuota,
+      montoIva,
+      total: montoCuenta,
+      tieneIva: true,
+    };
+  }
+
+  return {
+    subtotal: montoCuenta,
+    exento: 0,
+    baseImponible: montoCuenta,
+    alicuota: 0,
+    montoIva: 0,
+    total: montoCuenta,
+    tieneIva: false,
+  };
+}
+
 /** `contraparte` NO viene de la base: se resuelve contra el maestro
  *  (`suppliers` / `companies`) al momento de pintar. */
 type CuentaCalc = Cuenta & {
@@ -203,6 +285,8 @@ type CuentaCalc = Cuenta & {
   esMayorAMil: boolean;
   traza: TrazabilidadPorPagar;
   infoPago: InfoMetodoPagoPorPagar;
+  desgloseIva: DesgloseIvaCuenta;
+  presupuestosCount: number;
 };
 
 /** Calcula saldo y situación de una cuenta a partir de sus abonos.
@@ -218,11 +302,16 @@ function calcular(
   condYNota: { condicionesPago: string; notaLimpia: string },
   traza: TrazabilidadPorPagar,
   infoPago: InfoMetodoPagoPorPagar,
+  desgloseIva: DesgloseIvaCuenta,
   aprobacionEstado: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica' = 'no_aplica',
   aprobacionInfo: AprobacionCxpInfo | null = null
 ): CuentaCalc {
   const abonado = abonos.reduce((s, a) => s + (Number(a.monto) || 0), 0);
-  const monto = Number(c.monto) || 0;
+  // Si la cuenta viene de un requerimiento con IVA y el monto en la base era el neto sin IVA,
+  // el monto total a pagar prevalece con el desglose exacto de IVA.
+  const monto = desgloseIva.tieneIva && desgloseIva.total > (Number(c.monto) || 0)
+    ? desgloseIva.total
+    : (Number(c.monto) || 0);
   const saldo = Math.max(0, Math.round((monto - abonado) * 100) / 100);
   let situacion: Situacion;
   if (c.estado === 'anulada') situacion = 'anulada';
@@ -236,8 +325,14 @@ function calcular(
       : situacion === 'pagada'
         ? 'pagada'
         : aprobacionEstado;
+
+  const presCta = extraerFormatosAdjuntos(c);
+  const presReq = traza.reqVinculado ? extraerFormatosAdjuntos(traza.reqVinculado) : [];
+  const presupuestosCount = presCta.length + presReq.length;
+
   return {
     ...c,
+    monto,
     contraparte,
     abonado,
     saldo,
@@ -251,6 +346,8 @@ function calcular(
     esMayorAMil: monto >= 1000,
     traza,
     infoPago,
+    desgloseIva,
+    presupuestosCount,
   };
 }
 
@@ -758,6 +855,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [subiendoFactura, setSubiendoFactura] = useState(false);
   const [reciboPagoUrl, setReciboPagoUrl] = useState<string | null>(null); // soporte/recibo de pago
   const [subiendoReciboPago, setSubiendoReciboPago] = useState(false);
+  // 📄 Presupuesto / Cotizaciones (uno o varios archivos, imagen o PDF)
+  const [presupuestos, setPresupuestos] = useState<FormatoAdjunto[]>([]);
+  const [subiendoPresupuesto, setSubiendoPresupuesto] = useState(false);
+  // 💰 Alícuota y cálculo de IVA para cuentas directas
+  const [alicuotaIvaForm, setAlicuotaIvaForm] = useState<string>('16');
+  const [aplicaIvaForm, setAplicaIvaForm] = useState(true);
+  const [montoBaseForm, setMontoBaseForm] = useState('');
   const [empresaFormId, setEmpresaFormId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // 🔗 Cuenta que nace de un requerimiento (29-oct-2026): proveedor, empresa y
@@ -1203,6 +1307,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     setEdit(null); setContraparteId(null); setConcepto(''); setDocumento('');
     setMonto(''); setEmision(hoy); setVence(''); setCondicionesPago(''); setNota('');
     setPrioridad(null); setOrderId(null); setFacturaUrl(null); setReciboPagoUrl(null);
+    setPresupuestos([]);
+    setAlicuotaIvaForm('16');
+    setAplicaIvaForm(true);
+    setMontoBaseForm('');
     setEmpresaFormId(null);
     setOpen(true);
   };
@@ -1222,9 +1330,71 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     setFacturaUrl(c.factura_url ?? null);
     const rp = extraerReciboPagoCuenta(c);
     setReciboPagoUrl(rp?.url ?? null);
+    // Presupuestos existentes de la cuenta
+    setPresupuestos(extraerFormatosAdjuntos(c));
+    const alicIni = c.alicuota_iva != null ? Number(c.alicuota_iva) : 16;
+    setAlicuotaIvaForm(String(alicIni));
+    setAplicaIvaForm(alicIni > 0);
+    const mNum = Number(c.monto) || 0;
+    if (alicIni > 0 && mNum > 0) {
+      const baseCalc = Math.round((mNum / (1 + (alicIni / 100))) * 100) / 100;
+      setMontoBaseForm(String(baseCalc));
+    } else {
+      setMontoBaseForm(String(mNum));
+    }
     const empExtraida = (c as any).empresaId || extraerEmpresaDeNota(c.nota)?.id || c.company_id;
     setEmpresaFormId(empExtraida && empExtraida !== ID_SIN_EMPRESA ? empExtraida : null);
     setOpen(true);
+  };
+
+  // Sube uno o varios ARCHIVOS DE PRESUPUESTO / COTIZACIÓN (imágenes o PDFs)
+  const subirArchivosPresupuesto = async () => {
+    setSubiendoPresupuesto(true);
+    try {
+      const r = await pickAndUploadDocFiles('presupuestos', edit?.id ?? 'nuevas');
+      if (r.ok && r.files && r.files.length > 0) {
+        const nuevos: FormatoAdjunto[] = r.files.map((f, i) => ({
+          id: `pres-${Date.now()}-${i}`,
+          url: f.url,
+          kind: f.kind,
+          name: f.name || `Presupuesto #${presupuestos.length + i + 1}`,
+          uploadedAt: nowISO(),
+        }));
+        setPresupuestos((prev) => [...prev, ...nuevos]);
+        toast.success(`${nuevos.length} archivo(s) de presupuesto agregado(s).`);
+      } else if (r.error) {
+        toast.error(r.error);
+      }
+    } finally {
+      setSubiendoPresupuesto(false);
+    }
+  };
+
+  // Toma FOTO DIRECTA con la cámara del presupuesto físico o cotización
+  const tomarFotoPresupuesto = async () => {
+    setSubiendoPresupuesto(true);
+    try {
+      const r = await takeAndUploadDocPhoto('presupuestos', edit?.id ?? 'nuevas');
+      if (r.ok && r.url) {
+        const nuevo: FormatoAdjunto = {
+          id: `pres-${Date.now()}`,
+          url: r.url,
+          kind: 'image',
+          name: r.name || `Foto Presupuesto #${presupuestos.length + 1}`,
+          uploadedAt: nowISO(),
+        };
+        setPresupuestos((prev) => [...prev, nuevo]);
+        toast.success('Foto de presupuesto agregada.');
+      } else if (r.error) {
+        toast.error(r.error);
+      }
+    } finally {
+      setSubiendoPresupuesto(false);
+    }
+  };
+
+  const quitarPresupuesto = (idx: number) => {
+    setPresupuestos((prev) => prev.filter((_, i) => i !== idx));
   };
 
   // Sube la FACTURA (imagen/PDF) al bucket y guarda su URL en el estado del formulario.
@@ -1300,11 +1470,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       notaFinal = inyectarEmpresaEnNota(notaFinal, null, null) || '';
     }
     notaFinal = inyectarCondicionesPagoEnNota(notaFinal, condicionesPago.trim()) || '';
+
+    // Empaquetar presupuestos en observaciones/nota
+    notaFinal = empaquetarFormatosEnObservaciones(notaFinal, presupuestos);
+
     if (edit?.nota) {
       notaFinal = preservarHistorialYEnvioEnTexto(edit.nota, notaFinal) || '';
     }
 
-    const fila = {
+    const alicuotaGuardar = aplicaIvaForm ? (Number(alicuotaIvaForm) || 0) : 0;
+
+    const fila: Record<string, any> = {
       tipo,
       supplier_id: tipo === 'por_pagar' ? contraparteId : null,
       company_id: tipo === 'por_cobrar' ? contraparteId : null,
@@ -1312,6 +1488,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       concepto: concepto.trim(),
       documento: documento.trim() || null,
       factura_url: facturaUrl,
+      presupuesto_files: presupuestos.length > 0 ? presupuestos : null,
+      alicuota_iva: alicuotaGuardar,
       prioridad,
       monto: importe,
       fecha_emision: emision,
@@ -1711,7 +1889,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         }
         const abonosCta = porCuenta.get(c.id) ?? [];
         const abonadoCta = abonosCta.reduce((s, a) => s + (Number(a.monto) || 0), 0);
-        const saldoCta = Math.max(0, Math.round(((Number(c.monto) || 0) - abonadoCta) * 100) / 100);
+        const desgloseIva = resolverDesgloseIvaCuenta(c, traza.reqVinculado, tasaBcv);
+        const montoBaseCalc = desgloseIva.tieneIva && desgloseIva.total > (Number(c.monto) || 0)
+          ? desgloseIva.total
+          : (Number(c.monto) || 0);
+        const saldoCta = Math.max(0, Math.round((montoBaseCalc - abonadoCta) * 100) / 100);
         const nomContraparte = nombreDe(c);
         const infoPago = resolverInfoMetodoPagoPorPagar(c, {
           suppliers,
@@ -1723,7 +1905,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           tasaBcv,
           saldoUsd: saldoCta,
         });
-        return calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, apEstado, apInfo);
+        return calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, desgloseIva, apEstado, apInfo);
       });
 
     // Conteo y saldo por empresa (para las fichas / chips del filtro)
@@ -2785,9 +2967,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                             <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>{met}</Text>
                           </View>
                         ))}
-                        {c.infoPago.alertaTasaEspecial ? (
-                          <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
-                            <Text style={{ color: colors.warningSoftText, fontSize: 10, fontWeight: '900' }}>{c.infoPago.alertaTasaEspecial}</Text>
+                        {c.presupuestosCount > 0 ? (
+                          <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
+                            <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>
+                              📄 {c.presupuestosCount} presupuesto{c.presupuestosCount > 1 ? 's' : ''}
+                            </Text>
                           </View>
                         ) : null}
                       </View>
@@ -2801,6 +2985,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     <Text style={{ color: colors.brandText, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
                       {usd(c.saldo)}
                     </Text>
+                    {c.desgloseIva?.tieneIva ? (
+                      <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: 5, paddingVertical: 1, marginTop: 1 }}>
+                        <Text style={{ color: colors.infoSoftText, fontSize: 9.5, fontWeight: '800' }}>
+                          IVA {c.desgloseIva.alicuota}% inc.
+                        </Text>
+                      </View>
+                    ) : null}
                     {tasaBcv && c.saldo > 0 ? (
                       <Text selectable style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700', fontVariant: ['tabular-nums'] as any }}>
                         ≈ {fmtBs(bsFromUsd(c.saldo, tasaBcv))}
@@ -3354,7 +3545,42 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     );
                   })()
                 ) : null}
-                <Text style={{ color: colors.muted, fontSize: 13 }}>Monto original: {usd(Number(c.monto) || 0)} {c.moneda}</Text>
+                {/* Desglose financiero con IVA o Monto original */}
+                {c.desgloseIva?.tieneIva ? (
+                  <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginVertical: 4, gap: 3 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                        📊 DESGLOSE FINANCIERO CON IVA
+                      </Text>
+                      <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
+                        <Text style={{ color: colors.infoSoftText, fontSize: 10, fontWeight: '800' }}>
+                          IVA ({c.desgloseIva.alicuota}%)
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>
+                        Subtotal: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(c.desgloseIva.subtotal)}</Text>
+                      </Text>
+                      {c.desgloseIva.exento > 0 && (
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          Exento: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(c.desgloseIva.exento)}</Text>
+                        </Text>
+                      )}
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>
+                        Base imponible: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(c.desgloseIva.baseImponible)}</Text>
+                      </Text>
+                      <Text style={{ color: colors.infoSoftText || colors.brandText, fontSize: 12, fontWeight: '700' }}>
+                        IVA: <Text style={{ color: colors.text, fontWeight: '800' }}>+{usd(c.desgloseIva.montoIva)}</Text>
+                      </Text>
+                    </View>
+                    <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '900', marginTop: 2 }}>
+                      Total Factura / Cuenta: {usd(Number(c.monto) || 0)} {c.moneda}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={{ color: colors.muted, fontSize: 13 }}>Monto original: {usd(Number(c.monto) || 0)} {c.moneda}</Text>
+                )}
                 {/* 💱 Los dos montos: el de la cuenta es en US$; su equivalente en Bs con la tasa BCV de hoy. */}
                 {tasaBcv ? (
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
@@ -3392,6 +3618,55 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     titulo="📜 Histórico de movimientos de esta compra"
                   />
                 ) : null}
+
+                {/* 📄 Presupuesto(s) / Cotización(es) (1 o varios archivos: fotos / PDFs) */}
+                {(() => {
+                  const reqVinc = c.traza?.reqVinculado || (c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null);
+                  const presCta = extraerFormatosAdjuntos(c);
+                  const presReq = reqVinc ? extraerFormatosAdjuntos(reqVinc) : [];
+                  const mapaUrls = new Set<string>();
+                  const todosPres: FormatoAdjunto[] = [];
+                  for (const item of [...presCta, ...presReq]) {
+                    if (item.url && !mapaUrls.has(item.url)) {
+                      mapaUrls.add(item.url);
+                      todosPres.push(item);
+                    }
+                  }
+
+                  if (todosPres.length === 0) return null;
+
+                  return (
+                    <View style={{ marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>
+                        📄 PRESUPUESTOS Y COTIZACIONES ADJUNTAS ({todosPres.length})
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                        {todosPres.map((p, idx) => (
+                          <TouchableOpacity
+                            key={`pres-${idx}-${p.url}`}
+                            onPress={() => Linking.openURL(p.url)}
+                            style={{
+                              backgroundColor: colors.surfaceAlt,
+                              borderWidth: 1,
+                              borderColor: colors.brand,
+                              borderRadius: radius.md,
+                              paddingHorizontal: spacing.md,
+                              paddingVertical: spacing.xs,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 5,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12 }}>{p.kind === 'pdf' ? '📄' : '🖼️'}</Text>
+                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                              {p.name || `Presupuesto #${idx + 1}`}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  );
+                })()}
 
                 {/* Soportes adjuntos: Factura(s) y Comprobante(s) de Pago (1 o más fotos/PDFs) */}
                 {(() => {
@@ -3680,10 +3955,146 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             </Card>
 
             <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Monto (USD)</Text>
-              <TextInput value={monto} onChangeText={setMonto} editable={!atadaReq} keyboardType="numeric" placeholder="0.00" placeholderTextColor={colors.muted} style={[inputStyle, atadaReq ? { opacity: 0.6 } : null]} />
-              {atadaReq ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>🔒 Sale de los renglones de {reqAtado?.code || 'su requerimiento'}: si está mal, corrígelo en el requerimiento.</Text> : null}
-              <Text style={{ color: colors.brandText, fontWeight: '800', textAlign: 'right', marginTop: 4, fontVariant: ['tabular-nums'] as any }}>{usd(parseNum(monto))}</Text>
+              <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', marginBottom: 4 }}>
+                💰 Monto e IVA (USD)
+              </Text>
+              {atadaReq ? (
+                <View style={{ gap: 4 }}>
+                  <TextInput value={monto} editable={false} keyboardType="numeric" placeholder="0.00" placeholderTextColor={colors.muted} style={[inputStyle, { opacity: 0.7 }]} />
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    🔒 Monto derivado de los renglones de {reqAtado?.code || 'su requerimiento'}: si requiere cambio, edítalo en el requerimiento.
+                  </Text>
+                  {(() => {
+                    const reqObj = reqAtado || (edit ? requirements.find((r) => r.id === edit.inventory_requirement_id) : null);
+                    if (!reqObj || !Array.isArray(reqObj.items) || reqObj.items.length === 0) return null;
+                    const rate = Number(tasaBcv) || 1;
+                    const lineTot = (it: RequirementLine) => {
+                      if (it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0) return Number(it.total_usd);
+                      const q = Number(it.qty) || 0;
+                      const p = it.currency === 'USD' ? (Number(it.est_price) || 0) : ((Number(it.est_price) || 0) / rate);
+                      return q * p;
+                    };
+                    const sub = Math.round(reqObj.items.reduce((s, it) => s + lineTot(it), 0) * 100) / 100;
+                    const exe = Math.round(reqObj.items.reduce((s, it) => it.exento ? s + lineTot(it) : s, 0) * 100) / 100;
+                    const base = Math.max(0, Math.round((sub - exe) * 100) / 100);
+                    const alic = reqObj.iva_alicuota != null ? Number(reqObj.iva_alicuota) : 16;
+                    const mIva = alic > 0 ? Math.round(base * (alic / 100) * 100) / 100 : 0;
+                    const totCalc = Math.round((sub + mIva) * 100) / 100;
+                    return (
+                      <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: 8, marginTop: 4, gap: 2 }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                          📊 Desglose del Requerimiento:
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                          Subtotal: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(sub)}</Text>
+                          {exe > 0 ? ` · Exento: ${usd(exe)}` : ''} · Base: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(base)}</Text> · IVA ({alic}%): <Text style={{ color: colors.text, fontWeight: '800' }}>+{usd(mIva)}</Text>
+                        </Text>
+                        <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '900', marginTop: 2 }}>
+                          Total Requerimiento: {usd(totCalc)} USD
+                        </Text>
+                      </View>
+                    );
+                  })()}
+                </View>
+              ) : (
+                <View style={{ gap: spacing.xs }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>Alícuota de IVA a aplicar:</Text>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      {(['16', '8', '0'] as const).map((alic) => {
+                        const on = aplicaIvaForm && alicuotaIvaForm === alic;
+                        return (
+                          <TouchableOpacity
+                            key={alic}
+                            onPress={() => {
+                              setAplicaIvaForm(alic !== '0');
+                              setAlicuotaIvaForm(alic);
+                              const b = parseNum(montoBaseForm || monto);
+                              if (b > 0) {
+                                const factor = 1 + (Number(alic) / 100);
+                                const nuevoTot = Math.round(b * factor * 100) / 100;
+                                setMonto(String(nuevoTot));
+                              }
+                            }}
+                            style={{
+                              backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                              borderWidth: 1,
+                              borderColor: on ? colors.brand : colors.border,
+                              borderRadius: radius.pill,
+                              paddingHorizontal: 8,
+                              paddingVertical: 2,
+                            }}
+                          >
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
+                              {alic === '0' ? 'Exento (0%)' : `${alic}%`}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Subtotal / Base (sin IVA):</Text>
+                  <TextInput
+                    value={montoBaseForm}
+                    onChangeText={(txt) => {
+                      setMontoBaseForm(txt);
+                      const baseNum = parseNum(txt);
+                      const alicNum = aplicaIvaForm ? (Number(alicuotaIvaForm) || 0) : 0;
+                      const tot = Math.round(baseNum * (1 + (alicNum / 100)) * 100) / 100;
+                      setMonto(tot > 0 ? String(tot) : txt);
+                    }}
+                    keyboardType="numeric"
+                    placeholder="0.00"
+                    placeholderTextColor={colors.muted}
+                    style={inputStyle}
+                  />
+
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Monto Total a Pagar (con IVA incluido):</Text>
+                  <TextInput
+                    value={monto}
+                    onChangeText={(txt) => {
+                      setMonto(txt);
+                      const totNum = parseNum(txt);
+                      const alicNum = aplicaIvaForm ? (Number(alicuotaIvaForm) || 0) : 0;
+                      if (alicNum > 0 && totNum > 0) {
+                        const b = Math.round((totNum / (1 + (alicNum / 100))) * 100) / 100;
+                        setMontoBaseForm(String(b));
+                      } else {
+                        setMontoBaseForm(txt);
+                      }
+                    }}
+                    keyboardType="numeric"
+                    placeholder="0.00"
+                    placeholderTextColor={colors.muted}
+                    style={inputStyle}
+                  />
+
+                  {(() => {
+                    const totalNum = parseNum(monto);
+                    const alicNum = aplicaIvaForm ? (Number(alicuotaIvaForm) || 0) : 0;
+                    if (!(totalNum > 0)) return null;
+                    const subCalculado = alicNum > 0 ? Math.round((totalNum / (1 + (alicNum / 100))) * 100) / 100 : totalNum;
+                    const ivaCalculado = Math.round((totalNum - subCalculado) * 100) / 100;
+                    return (
+                      <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: 8, marginTop: 4, gap: 2 }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                          📊 Resumen de la Cuenta:
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                          Subtotal: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(subCalculado)}</Text>
+                          {alicNum > 0 ? ` · IVA (${alicNum}%): ` : ' · Sin IVA'}
+                          {alicNum > 0 ? <Text style={{ color: colors.text, fontWeight: '800' }}>+{usd(ivaCalculado)}</Text> : null}
+                        </Text>
+                        <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '900', marginTop: 2 }}>
+                          Total a Pagar: {usd(totalNum)} USD
+                          {tasaBcv ? ` · ≈ ${fmtBs(bsFromUsd(totalNum, tasaBcv))}` : ''}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+                </View>
+              )}
             </Card>
 
             <Card>
@@ -3801,6 +4212,118 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       </TouchableOpacity>
                     );
                   })}
+                </View>
+              )}
+            </Card>
+
+            {/* Presupuesto / Cotizaciones (uno o varios archivos, imagen o PDF) */}
+            <Card>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800' }}>
+                  📄 Presupuesto / Cotizaciones (uno o varios archivos)
+                </Text>
+                {presupuestos.length > 0 && (
+                  <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                    <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>
+                      {presupuestos.length} adjunto{presupuestos.length === 1 ? '' : 's'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                Adjunta fotos o documentos en PDF del presupuesto o cotizaciones recibidas del proveedor (puedes subir varios archivos).
+              </Text>
+
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: presupuestos.length > 0 ? spacing.sm : 0 }}>
+                <TouchableOpacity
+                  onPress={tomarFotoPresupuesto}
+                  disabled={subiendoPresupuesto}
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: 6,
+                    opacity: subiendoPresupuesto ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ fontSize: 14 }}>📷</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Tomar foto</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={subirArchivosPresupuesto}
+                  disabled={subiendoPresupuesto}
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: 6,
+                    opacity: subiendoPresupuesto ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ fontSize: 14 }}>📁</Text>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                    {subiendoPresupuesto ? 'Subiendo…' : 'Subir archivo(s)'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Lista de archivos adjuntos */}
+              {presupuestos.length > 0 && (
+                <View style={{ gap: 6, marginTop: spacing.xs }}>
+                  {presupuestos.map((p, idx) => (
+                    <View
+                      key={p.id || `pre-${idx}-${p.url}`}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.sm,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 6,
+                        gap: spacing.sm,
+                      }}
+                    >
+                      <Text style={{ fontSize: 14 }}>{p.kind === 'pdf' ? '📄' : '🖼️'}</Text>
+                      <TouchableOpacity
+                        onPress={() => Linking.openURL(p.url)}
+                        style={{ flex: 1 }}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}
+                        >
+                          {p.name || `Presupuesto #${idx + 1}`}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => Linking.openURL(p.url)}
+                        style={{ paddingHorizontal: 6, paddingVertical: 2 }}
+                      >
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => quitarPresupuesto(idx)}
+                        style={{ paddingHorizontal: 6, paddingVertical: 2 }}
+                      >
+                        <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
               )}
             </Card>

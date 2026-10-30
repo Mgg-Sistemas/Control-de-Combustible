@@ -45,9 +45,10 @@ export function limpiarObservacionesFormatos(observaciones: string | null | unde
 }
 
 /**
- * Extrae la lista completa de formatos adjuntos. Si el requerimiento tiene formatos
- * en el tag de observaciones, los retorna; de lo contrario, o como respaldo,
- * extrae el formato legado de attachment_url / attachment_name / attachment_type.
+ * Extrae la lista completa de formatos adjuntos. Soporta:
+ * 1. Campo `presupuesto_files` (array de FormatoAdjunto en cuentas)
+ * 2. Tag estructurado [[FORMATOS_ADJUNTOS:...:FIN_FORMATOS]] en `observaciones` o `nota`
+ * 3. Campos legados `attachment_url` / `attachment_name` / `attachment_type`.
  */
 export function extraerFormatosAdjuntos(
   r: {
@@ -55,28 +56,37 @@ export function extraerFormatosAdjuntos(
     attachment_type?: string | null;
     attachment_name?: string | null;
     observaciones?: string | null;
+    nota?: string | null;
+    presupuesto_files?: FormatoAdjunto[] | null;
   } | null | undefined
 ): FormatoAdjunto[] {
   if (!r) return [];
 
   let lista: FormatoAdjunto[] = [];
-  const obs = r.observaciones || '';
 
-  // 1. Intentar extraer del tag estructurado
-  const regex = new RegExp(`${escapeRegExp(TAG_FORMATOS_INICIO)}([\\s\\S]*?)${escapeRegExp(TAG_FORMATOS_FIN)}`);
-  const match = obs.match(regex);
-  if (match && match[1]) {
-    try {
-      const parsed = JSON.parse(match[1]);
-      if (Array.isArray(parsed)) {
-        lista = parsed.filter((it) => it && typeof it.url === 'string' && it.url.trim());
+  // 1. Si ya viene el array de archivos directamente (columna JSONB)
+  if (Array.isArray(r.presupuesto_files) && r.presupuesto_files.length > 0) {
+    lista = r.presupuesto_files.filter((it) => it && typeof it.url === 'string' && it.url.trim());
+  }
+
+  // 2. Intentar extraer del tag estructurado en observaciones o nota
+  if (lista.length === 0) {
+    const texto = r.observaciones || r.nota || '';
+    const regex = new RegExp(`${escapeRegExp(TAG_FORMATOS_INICIO)}([\\s\\S]*?)${escapeRegExp(TAG_FORMATOS_FIN)}`);
+    const match = texto.match(regex);
+    if (match && match[1]) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed)) {
+          lista = parsed.filter((it) => it && typeof it.url === 'string' && it.url.trim());
+        }
+      } catch {
+        lista = [];
       }
-    } catch {
-      lista = [];
     }
   }
 
-  // 2. Si hay attachment_url legado y no está en la lista, incluirlo al principio
+  // 3. Si hay attachment_url legado y no está en la lista, incluirlo al principio
   if (r.attachment_url && r.attachment_url.trim()) {
     const yaExiste = lista.some((it) => it.url === r.attachment_url);
     if (!yaExiste) {
@@ -92,3 +102,4 @@ export function extraerFormatosAdjuntos(
 
   return lista;
 }
+

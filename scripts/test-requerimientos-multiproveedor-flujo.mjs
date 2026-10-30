@@ -49,11 +49,11 @@ assert.strictEqual(st2.codigo, 'esperando_pago', 'Debe estar en esperando_pago d
 assert.strictEqual(st2.totalUSD, 50);
 assert.strictEqual(st2.requiereAprobacionGG, false);
 
-// Caso 3: Solicitud con proveedor pero monto > $1,000 USD (sin aprobaci처n GG)
+// Caso 3: Solicitud enviada a Por Pagar (status: 'aprobado') con proveedor pero monto > $1,000 USD (sin aprobaci처n GG)
 const reqMayor1000SinAprobacion = {
   id: 'req-3',
   code: 'REQ-0103',
-  status: 'pendiente',
+  status: 'aprobado',
   supplier_id: 'sup-1',
   items: [
     { name: 'TUBO ESTRUCTURAL', qty: 100, est_price: 15, currency: 'USD', note: '3 PULGADAS POR 1 PULGADA' }, // $1,500
@@ -66,7 +66,7 @@ assert.strictEqual(st3.codigo, 'esperando_aprobacion_gg', 'Debe exigir aprobaci�
 assert.strictEqual(st3.requiereAprobacionGG, true);
 assert.strictEqual(st3.totalUSD, 1500);
 
-// Caso 4: Solicitud > $1,000 USD con aprobaci처n del Gerente General registrada -> pasa a esperando pago
+// Caso 4: Solicitud > $1,000 USD con aprobaci처n del Gerente General registrada -> aprobada en Por Pagar
 const reqMayor1000ConAprobacion = {
   ...reqMayor1000SinAprobacion,
   gerente_aprobado: true,
@@ -76,7 +76,7 @@ const reqMayor1000ConAprobacion = {
 
 const st4 = calcularEstadoRequerimiento(reqMayor1000ConAprobacion, 1, { id: 'sup-1', name: 'Hierros del Sur' });
 console.log('Test 4 - > $1,000 USD con aprobaci처n GG:', st4.codigo, '|', st4.label);
-assert.strictEqual(st4.codigo, 'esperando_pago', 'Una vez aprobado por GG, pasa a esperando pago');
+assert.strictEqual(st4.codigo, 'aprobado', 'Una vez aprobado por GG, queda en Por Pagar esperando pago');
 assert.strictEqual(st4.requiereAprobacionGG, false);
 
 // Caso 5: Compra consolidada Multi-Proveedor en una misma orden
