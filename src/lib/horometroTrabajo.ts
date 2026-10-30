@@ -731,17 +731,120 @@ const CLASE_ESTADO: Record<FilaComparativa['estado'], string> = {
 //    estado, los colores del cuadre y las «listas» (todos se calculan contra ella), y
 //    hasta el título del papel cambia (tituloComparativo / subtituloComparativo).
 
+export type ClaveCajaComparativo =
+  | 'maquinas'
+  | 'dias'
+  | 'conLectura'
+  | 'cuadran'
+  | 'horometroMayor'
+  | 'jornadaMayor'
+  | 'invalidas'
+  | 'sinLectura'
+  | 'sinJornada'
+  | 'corregidas'
+  | 'cambios'
+  | 'horasJornada'
+  | 'horasHorometro';
+
+export const CAJAS_COMPARATIVO: {
+  key: ClaveCajaComparativo;
+  chip: string;
+  largo: string;
+  soloConJornada?: boolean;
+}[] = [
+  { key: 'maquinas', chip: 'Máquinas', largo: 'cuadro máquinas' },
+  { key: 'dias', chip: 'Días con ronda', largo: 'cuadro días con ronda' },
+  { key: 'conLectura', chip: 'Con lectura', largo: 'cuadro con lectura' },
+  { key: 'cuadran', chip: 'Cuadran', largo: 'cuadro cuadran', soloConJornada: true },
+  { key: 'horometroMayor', chip: 'Horómetro mayor', largo: 'cuadro horómetro mayor', soloConJornada: true },
+  { key: 'jornadaMayor', chip: 'Jornada mayor', largo: 'cuadro jornada mayor', soloConJornada: true },
+  { key: 'invalidas', chip: 'Inválidas', largo: 'cuadro inválidas' },
+  { key: 'sinLectura', chip: 'Sin lectura', largo: 'cuadro sin lectura' },
+  { key: 'sinJornada', chip: 'Sin jornada', largo: 'cuadro sin jornada', soloConJornada: true },
+  { key: 'corregidas', chip: '✎ Corregidas a mano', largo: 'cuadro corregidas a mano' },
+  { key: 'cambios', chip: '🔁 Cambios de horómetro', largo: 'cuadro cambios de horómetro' },
+  { key: 'horasJornada', chip: 'H jornada', largo: 'cuadro h jornada', soloConJornada: true },
+  { key: 'horasHorometro', chip: 'H horómetro', largo: 'cuadro h horómetro' },
+];
+
 export type OpcionesComparativo = {
   sinMarca: boolean; sinModelo: boolean; sinPlaca: boolean;
   sinEmpresa: boolean; sinJornada: boolean; sinResumen: boolean; sinListas: boolean; sinDetalle: boolean;
   /** 🚫 Las columnas Inicio y Fin del horómetro (26-sep-2026). */
   sinInicioFin: boolean;
+  /** Cuadros individuales ocultos en el bloque superior de resumen (recuadro morado). */
+  cajasOcultas?: Partial<Record<ClaveCajaComparativo, boolean>>;
+  /** Columnas individuales de la tabla por día que el usuario puede ocultar/mostrar (recuadro rojo). */
+  sinMaquina?: boolean;
+  sinColJornada?: boolean;
+  sinInicio?: boolean;
+  sinFin?: boolean;
+  sinHorometro?: boolean;
+  sinDiferencia?: boolean;
+  sinEstado?: boolean;
+  sinNotas?: boolean;
+  /** Columnas adicionales opcionales que el usuario puede colocar en la tabla. */
+  conClasificacion?: boolean;
+  conTurnos?: boolean;
+  conInspector?: boolean;
+  conObservacionCol?: boolean;
 };
+
 export const OPCIONES_COMPARATIVO_COMPLETO: OpcionesComparativo = {
   sinMarca: false, sinModelo: false, sinPlaca: false,
   sinEmpresa: false, sinJornada: false, sinResumen: false, sinListas: false, sinDetalle: false,
   sinInicioFin: false,
 };
+
+export type ClaveColumnaTablaComp =
+  | 'sinMaquina'
+  | 'sinMarca'
+  | 'sinModelo'
+  | 'sinPlaca'
+  | 'sinEmpresa'
+  | 'sinColJornada'
+  | 'sinInicio'
+  | 'sinFin'
+  | 'sinHorometro'
+  | 'sinDiferencia'
+  | 'sinEstado'
+  | 'sinNotas';
+
+export const COLUMNAS_BASE_COMPARATIVO: {
+  key: ClaveColumnaTablaComp;
+  label: string;
+  soloConJornada?: boolean;
+}[] = [
+  { key: 'sinMaquina', label: 'Máquina' },
+  { key: 'sinMarca', label: 'Marca' },
+  { key: 'sinModelo', label: 'Modelo' },
+  { key: 'sinPlaca', label: 'Serial / Placa' },
+  { key: 'sinEmpresa', label: 'Empresa' },
+  { key: 'sinColJornada', label: 'Jornada h', soloConJornada: true },
+  { key: 'sinInicio', label: 'Inicio' },
+  { key: 'sinFin', label: 'Fin' },
+  { key: 'sinHorometro', label: 'Horómetro h' },
+  { key: 'sinDiferencia', label: 'Diferencia', soloConJornada: true },
+  { key: 'sinEstado', label: 'Estado', soloConJornada: true },
+  { key: 'sinNotas', label: 'Notas (✎ / 🔁 bajo máquina)' },
+];
+
+export type ClaveColumnaExtraComp =
+  | 'conClasificacion'
+  | 'conTurnos'
+  | 'conInspector'
+  | 'conObservacionCol';
+
+export const COLUMNAS_EXTRA_COMPARATIVO: {
+  key: ClaveColumnaExtraComp;
+  label: string;
+}[] = [
+  { key: 'conClasificacion', label: 'Clasificación' },
+  { key: 'conTurnos', label: 'Turnos (☀️ Día / 🌙 Noche)' },
+  { key: 'conInspector', label: 'Inspector' },
+  { key: 'conObservacionCol', label: 'Columna Observación / Motivo' },
+];
+
 export const PASTILLAS_COMPARATIVO: { key: keyof OpcionesComparativo; chip: string; largo: string; archivo: string }[] = [
   { key: 'sinMarca', chip: '🚫 Marca', largo: 'marca', archivo: 'sin marca' },
   { key: 'sinModelo', chip: '🚫 Modelo', largo: 'modelo', archivo: 'sin modelo' },
@@ -754,10 +857,103 @@ export const PASTILLAS_COMPARATIVO: { key: keyof OpcionesComparativo; chip: stri
   { key: 'sinDetalle', chip: '🚫 Detalle por día', largo: 'detalle día por día', archivo: 'sin detalle' },
 ];
 export function alternarComparativo(o: OpcionesComparativo, key: keyof OpcionesComparativo): OpcionesComparativo {
-  return { ...o, [key]: !o[key] };
+  const nextVal = !o[key];
+  const next: OpcionesComparativo = { ...o, [key]: nextVal };
+  if (key === 'sinInicioFin') {
+    next.sinInicio = nextVal;
+    next.sinFin = nextVal;
+  } else if (key === 'sinInicio' || key === 'sinFin') {
+    const iniOff = Boolean(key === 'sinInicio' ? nextVal : next.sinInicio);
+    const finOff = Boolean(key === 'sinFin' ? nextVal : next.sinFin);
+    next.sinInicioFin = iniOff && finOff;
+  }
+  return next;
+}
+export function estaOcultaCajaComparativo(o: OpcionesComparativo, key: ClaveCajaComparativo): boolean {
+  if (o.sinResumen) return true;
+  return Boolean(o.cajasOcultas?.[key]);
+}
+export function alternarCajaComparativo(o: OpcionesComparativo, key: ClaveCajaComparativo): OpcionesComparativo {
+  // Si todo el resumen estaba apagado con `sinResumen`, al tocar un cuadro para encenderlo
+  // prendemos ese cuadro y dejamos los demás ocultos; si estaba visible, alternamos ese cuadro.
+  if (o.sinResumen) {
+    const todasMenosEsta: Partial<Record<ClaveCajaComparativo, boolean>> = {};
+    for (const c of CAJAS_COMPARATIVO) {
+      if (c.key !== key) todasMenosEsta[c.key] = true;
+    }
+    return { ...o, sinResumen: false, cajasOcultas: todasMenosEsta };
+  }
+  const actual = Boolean(o.cajasOcultas?.[key]);
+  const nextCajas: Partial<Record<ClaveCajaComparativo, boolean>> = { ...(o.cajasOcultas ?? {}), [key]: !actual };
+  if (!nextCajas[key]) delete nextCajas[key];
+  const todasOcultas = CAJAS_COMPARATIVO.every((c) => Boolean(nextCajas[c.key]));
+  return {
+    ...o,
+    sinResumen: todasOcultas,
+    cajasOcultas: Object.keys(nextCajas).length > 0 ? nextCajas : undefined,
+  };
+}
+export function mostrarTodasCajasComparativo(o: OpcionesComparativo): OpcionesComparativo {
+  const next = { ...o, sinResumen: false };
+  delete next.cajasOcultas;
+  return next;
+}
+export function ocultarTodasCajasComparativo(o: OpcionesComparativo): OpcionesComparativo {
+  const todas: Partial<Record<ClaveCajaComparativo, boolean>> = {};
+  for (const c of CAJAS_COMPARATIVO) todas[c.key] = true;
+  return { ...o, sinResumen: true, cajasOcultas: todas };
+}
+export function mostrarTodasColumnasComparativo(o: OpcionesComparativo): OpcionesComparativo {
+  return {
+    ...o,
+    sinDetalle: false,
+    sinMaquina: false,
+    sinMarca: false,
+    sinModelo: false,
+    sinPlaca: false,
+    sinEmpresa: false,
+    sinColJornada: false,
+    sinInicioFin: false,
+    sinInicio: false,
+    sinFin: false,
+    sinHorometro: false,
+    sinDiferencia: false,
+    sinEstado: false,
+    sinNotas: false,
+  };
+}
+export function ocultarTodasColumnasBaseComparativo(o: OpcionesComparativo): OpcionesComparativo {
+  return {
+    ...o,
+    sinMaquina: true,
+    sinMarca: true,
+    sinModelo: true,
+    sinPlaca: true,
+    sinEmpresa: true,
+    sinColJornada: true,
+    sinInicioFin: true,
+    sinInicio: true,
+    sinFin: true,
+    sinHorometro: true,
+    sinDiferencia: true,
+    sinEstado: true,
+    sinNotas: true,
+  };
 }
 export function ocultosComparativoEnPalabras(o: OpcionesComparativo): string {
   const l = PASTILLAS_COMPARATIVO.filter((p) => o[p.key]).map((p) => p.largo);
+  if (!o.sinResumen && o.cajasOcultas) {
+    for (const c of CAJAS_COMPARATIVO) {
+      if (o.cajasOcultas[c.key]) l.push(c.largo);
+    }
+  }
+  if (o.sinMaquina) l.push('columna máquina');
+  if (!o.sinJornada && o.sinColJornada) l.push('columna jornada h');
+  if (!o.sinInicioFin && o.sinInicio) l.push('columna inicio');
+  if (!o.sinInicioFin && o.sinFin) l.push('columna fin');
+  if (o.sinHorometro) l.push('columna horómetro h');
+  if (!o.sinJornada && o.sinDiferencia) l.push('columna diferencia');
+  if (!o.sinJornada && o.sinEstado) l.push('columna estado');
   return l.length === 0 ? 'Sale completo.' : `No sale: ${l.join(', ')}.`;
 }
 export function sufijoArchivoComparativo(o: OpcionesComparativo): string {
@@ -766,7 +962,7 @@ export function sufijoArchivoComparativo(o: OpcionesComparativo): string {
 }
 /** Sin jornada, el papel no puede seguir llamándose «vs jornada»: delataría lo oculto. */
 export function tituloComparativo(o: OpcionesComparativo): string {
-  return o.sinJornada ? 'HORÓMETRO DE TRABAJO (MODO SOMBRA)' : 'HORÓMETRO VS JORNADA (MODO SOMBRA)';
+  return o.sinJornada ? 'HORÓMETRO DE TRABAJO' : 'HORÓMETRO VS JORNADA';
 }
 /** Marca / Modelo se funden en una columna, como en ubicaciones. */
 export function tituloMarcaModeloComp(o: OpcionesComparativo): string {
@@ -778,27 +974,40 @@ export function subtituloComparativo(o: OpcionesComparativo): string {
     : 'Jornada declarada vs horómetro de trabajo, máquina por máquina y día por día';
 }
 
+export type ExtraFilaComparativo = {
+  clasificacion?: string;
+  turnos?: string;
+  inspector?: string;
+};
+
 /** Cuerpo HTML del comparativo: resumen, máquinas listas para encender y una tabla por día.
  *  `o` dice qué se oculta (pastillas de arriba); sin `o`, sale completo, como siempre. */
 export function cuerpoComparativo(
-  d: { desde: string; hasta: string; filas: FilaComparativa[] },
+  d: {
+    desde: string;
+    hasta: string;
+    filas: FilaComparativa[];
+    extrasPorFila?: Map<string, ExtraFilaComparativo>;
+  },
   o: OpcionesComparativo = OPCIONES_COMPARATIVO_COMPLETO,
 ): string {
   const filas = d.filas ?? [];
   const r = resumenComparativo(filas);
   const caja = (t: string, v: string | number) => `<div><b>${esc(v)}</b>${esc(t)}</div>`;
   let html = `<div class="hc">`;
+  const hideIni = Boolean(o.sinInicioFin || o.sinInicio);
+  const hideFin = Boolean(o.sinInicioFin || o.sinFin);
   // La nota explica lo que cambió el 26-sep-2026: de dónde salen las horas (Inicio y
   // Fin, a la vista) y qué significa el ✎ azul.
   // ⚠️ NI UNA PALABRA QUE DELATE LO OCULTO. Con «🚫 Horas de jornada» encendida, el
   //    papel no puede ni nombrar la jornada: por eso acá se dice «el día».
-  const notaIF = o.sinInicioFin ? '' : ' <b>Inicio</b> y <b>Fin</b> son los números del tablero con los que arrancó y terminó el día.';
-  const notaCorr = r.corregidas > 0
+  const notaIF = (hideIni && hideFin) ? '' : ' <b>Inicio</b> y <b>Fin</b> son los números del tablero con los que arrancó y terminó el día.';
+  const notaCorr = r.corregidas > 0 && !o.sinNotas
     ? ` <span style="color:#1D4ED8"><b>✎ corregido</b> marca las ${r.corregidas} lectura(s) que se arreglaron a mano —desde Control o por el inspector que las cargó—, con el motivo que escribió quien las corrigió.</span>`
     : '';
   // 🔁 Solo si hubo cambios de aparato: explicar la marca para que nadie lea un
   //    número menor como un retroceso ni unas horas de menos (10-oct-2026).
-  const notaCambio = r.cambios > 0
+  const notaCambio = r.cambios > 0 && !o.sinNotas
     ? ` <span style="color:#1D4ED8"><b>🔁 cambio de horómetro</b> marca los días en que se instaló un aparato nuevo (arranca de 0 y sienta base nueva); las ± horas reconocidas por el cambio ya están sumadas al horómetro de ese día.</span>`
     : '';
   // 02-oct-2026: ya no es «día con ronda» a secas — una lectura de un día sin jornada
@@ -810,20 +1019,33 @@ export function cuerpoComparativo(
   if (!o.sinResumen) {
     // 02-oct-2026: `filas` ahora incluye las de «sin jornada»; «días con ronda» las resta.
     // Con 🚫 Horas de jornada encendida no se nombra la jornada: la caja dice solo «días».
-    html += `<div class="hc-res">` + caja('máquinas', r.maquinas)
-      + (o.sinJornada ? caja('días', r.filas) : caja('días con ronda', r.filas - r.sinRonda))
-      + caja('con lectura', r.conLectura);
-    if (!o.sinJornada) html += caja('cuadran', r.cuadran) + caja('horómetro mayor', r.horometroMayor) + caja('jornada mayor', r.jornadaMayor);
-    html += caja('inválidas', r.invalidas) + caja('sin lectura', r.sinLectura);
+    const oc = o.cajasOcultas ?? {};
+    const cajasHtml: string[] = [];
+    const addCaja = (k: ClaveCajaComparativo, t: string, v: string | number) => {
+      if (!oc[k]) cajasHtml.push(caja(t, v));
+    };
+    addCaja('maquinas', 'máquinas', r.maquinas);
+    addCaja('dias', o.sinJornada ? 'días' : 'días con ronda', o.sinJornada ? r.filas : r.filas - r.sinRonda);
+    addCaja('conLectura', 'con lectura', r.conLectura);
+    if (!o.sinJornada) {
+      addCaja('cuadran', 'cuadran', r.cuadran);
+      addCaja('horometroMayor', 'horómetro mayor', r.horometroMayor);
+      addCaja('jornadaMayor', 'jornada mayor', r.jornadaMayor);
+    }
+    addCaja('invalidas', 'inválidas', r.invalidas);
+    addCaja('sinLectura', 'sin lectura', r.sinLectura);
     // «Sin jornada» (02-oct-2026): solo si hay alguna, como las corregidas — un cero
     // permanente es ruido. Y nunca con la jornada oculta: nombrarla la delataría.
-    if (!o.sinJornada && r.sinRonda > 0) html += caja('sin jornada', r.sinRonda);
+    if (!o.sinJornada && r.sinRonda > 0) addCaja('sinJornada', 'sin jornada', r.sinRonda);
     // ✎ La caja solo sale si hubo correcciones: un cero permanente es ruido.
-    if (r.corregidas > 0) html += caja('✎ corregidas a mano', r.corregidas);
+    if (r.corregidas > 0) addCaja('corregidas', '✎ corregidas a mano', r.corregidas);
     // 🔁 Igual: la caja de cambios de horómetro solo sale si hubo alguno.
-    if (r.cambios > 0) html += caja('🔁 cambios de horómetro', r.cambios);
-    if (!o.sinJornada) html += caja('h jornada', fmtH(r.horasJornada));
-    html += caja('h horómetro', fmtH(r.horasHorometro)) + `</div>`;
+    if (r.cambios > 0) addCaja('cambios', '🔁 cambios de horómetro', r.cambios);
+    if (!o.sinJornada) addCaja('horasJornada', 'h jornada', fmtH(r.horasJornada));
+    addCaja('horasHorometro', 'h horómetro', fmtH(r.horasHorometro));
+    if (cajasHtml.length > 0) {
+      html += `<div class="hc-res">${cajasHtml.join('')}</div>`;
+    }
   }
 
   if (!o.sinListas && !o.sinJornada) {
@@ -841,40 +1063,88 @@ export function cuerpoComparativo(
     for (const f of filas) { const a = porDia.get(f.fecha); if (a) a.push(f); else porDia.set(f.fecha, [f]); }
     const fechas = [...porDia.keys()].sort();
     if (fechas.length === 0) html += `<p class="nota">Sin datos en el rango.</p>`;
+
+    const showMaq = !o.sinMaquina;
+    const showMM = !(o.sinMarca && o.sinModelo);
+    const showPlaca = !o.sinPlaca;
+    const showEmp = !o.sinEmpresa;
+    const showClasif = Boolean(o.conClasificacion);
+    const showTurnos = Boolean(o.conTurnos) && !o.sinJornada;
+    const showJornadaH = !o.sinJornada && !o.sinColJornada;
+    const showIni = !hideIni;
+    const showFin = !hideFin;
+    const showHoroH = !o.sinHorometro;
+    const showDif = !o.sinJornada && !o.sinDiferencia;
+    const showEst = !o.sinJornada && !o.sinEstado;
+    const showInsp = Boolean(o.conInspector);
+    const showObsCol = Boolean(o.conObservacionCol);
+
+    const ths: string[] = [];
+    if (showMaq) ths.push('<th>Máquina</th>');
+    if (showMM) ths.push(`<th>${tituloMarcaModeloComp(o)}</th>`);
+    if (showPlaca) ths.push('<th>Serial / Placa</th>');
+    if (showEmp) ths.push('<th>Empresa</th>');
+    if (showClasif) ths.push('<th>Clasificación</th>');
+    if (showTurnos) ths.push('<th>Turnos</th>');
+    if (showJornadaH) ths.push('<th class="r">Jornada h</th>');
+    if (showIni) ths.push('<th class="r">Inicio</th>');
+    if (showFin) ths.push('<th class="r">Fin</th>');
+    if (showHoroH) ths.push('<th class="r">Horómetro h</th>');
+    if (showDif) ths.push('<th class="r">Diferencia</th>');
+    if (showEst) ths.push('<th>Estado</th>');
+    if (showInsp) ths.push('<th>Inspector</th>');
+    if (showObsCol) ths.push('<th>Observación</th>');
+
     for (const fecha of fechas) {
       const del = [...(porDia.get(fecha) ?? [])].sort((a, b) => cmp(a.code, b.code));
       html += `<h3 class="sect">${dmy(fecha)} <span>${del.length} máquina(s)</span></h3>`;
-      // 🕒 INICIO / FIN (26-sep-2026): las dos columnas que faltaban. Sin ellas, una
-      //    corrección hecha en Control se veía como un número de horas distinto sin
-      //    poder saber de dónde salía ni si alguien lo había tocado a mano.
-      const colsIF = o.sinInicioFin ? '' : '<th class="r">Inicio</th><th class="r">Fin</th>';
-      html += `<table><thead><tr><th>Máquina</th>${o.sinMarca && o.sinModelo ? '' : `<th>${tituloMarcaModeloComp(o)}</th>`}${o.sinPlaca ? '' : '<th>Serial / Placa</th>'}${o.sinEmpresa ? '' : '<th>Empresa</th>'}${o.sinJornada ? '' : '<th class="r">Jornada h</th>'}${colsIF}<th class="r">Horómetro h</th>${o.sinJornada ? '' : '<th class="r">Diferencia</th><th>Estado</th>'}</tr></thead><tbody>`;
+      if (ths.length === 0) {
+        html += `<p class="nota">Todas las columnas de la tabla están ocultas.</p>`;
+        continue;
+      }
+      html += `<table><thead><tr>${ths.join('')}</tr></thead><tbody>`;
       for (const f of del) {
-        // La identidad de la máquina (25-sep-2026: «falta marca y modelo, placa»), cada
-        // pedazo con su pastilla. Lo apagado no deja ni la celda.
-        const ident = (o.sinMarca && o.sinModelo ? '' : `<td>${esc([!o.sinMarca ? f.marca : '', !o.sinModelo ? f.modelo : ''].filter(Boolean).join(' / '))}</td>`)
-          + (o.sinPlaca ? '' : `<td>${esc(f.placa)}</td>`)
-          + (o.sinEmpresa ? '' : `<td>${esc(f.empresa)}</td>`);
-        const celdasIF = o.sinInicioFin ? ''
-          : `<td class="r">${fmtNum(f.inicial)}</td><td class="r">${fmtNum(f.final)}</td>`;
-        // ✎ La marca de «lo corrigieron a mano», con su motivo debajo del código.
-        // 02-oct-2026: se dice QUIÉN — Control o el inspector (que ya puede corregir lo suyo).
         const quien = f.corregidaPor === 'inspector' ? 'por el inspector' : 'desde Control';
-        // 🔁 Un día con cambio de horómetro se marca como tal (no como una corrección
-        //    cualquiera): esa era justo la confusión que se pidió quitar (10-oct-2026).
-        const marca = f.cambio
-          ? `<br/><span class="hc-corr">🔁 cambio de horómetro${f.cambioDetalle ? `: ${esc(f.cambioDetalle)}` : ''}</span>`
+        const textoObs = f.cambio
+          ? `🔁 cambio de horómetro${f.cambioDetalle ? `: ${f.cambioDetalle}` : ''}`
           : f.corregida
-            ? `<br/><span class="hc-corr">✎ corregido ${quien}${f.motivo ? `: ${esc(f.motivo)}` : ''}</span>`
+            ? `✎ corregido ${quien}${f.motivo ? `: ${f.motivo}` : ''}`
             : '';
-        if (o.sinJornada) {
-          // Sin jornada tampoco hay clase de color: el verde/ámbar/rojo ES el cuadre.
-          html += `<tr><td>${esc(f.code)}${marca}</td>${ident}${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td></tr>`;
-        } else {
-          const dif = f.diferencia == null ? '—' : (f.diferencia > 0 ? '+' : '') + fmtH(f.diferencia);
-          // Sin jornada no se imprime un «0» que parezca una jornada de cero horas: va «—».
+        const marca = o.sinNotas
+          ? ''
+          : f.cambio
+            ? `<br/><span class="hc-corr">🔁 cambio de horómetro${f.cambioDetalle ? `: ${esc(f.cambioDetalle)}` : ''}</span>`
+            : f.corregida
+              ? `<br/><span class="hc-corr">✎ corregido ${quien}${f.motivo ? `: ${esc(f.motivo)}` : ''}</span>`
+              : '';
+        const extrasMap: Map<string, ExtraFilaComparativo> | undefined = d.extrasPorFila ?? (filas as any)?.extrasPorFila;
+        const ex = extrasMap?.get(`${f.machineryId}|${f.fecha}`);
+        const tds: string[] = [];
+        if (showMaq) tds.push(`<td>${esc(f.code)}${marca}</td>`);
+        if (showMM) tds.push(`<td>${esc([!o.sinMarca ? f.marca : '', !o.sinModelo ? f.modelo : ''].filter(Boolean).join(' / '))}</td>`);
+        if (showPlaca) tds.push(`<td>${esc(f.placa)}</td>`);
+        if (showEmp) tds.push(`<td>${esc(f.empresa)}</td>`);
+        if (showClasif) tds.push(`<td>${esc(ex?.clasificacion ?? '')}</td>`);
+        if (showTurnos) tds.push(`<td>${esc(ex?.turnos ?? '')}</td>`);
+        if (showJornadaH) {
           const hj = f.estado === 'sin_ronda' ? '—' : fmtH(f.horasJornada);
-          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}${marca}</td>${ident}<td class="r">${hj}</td>${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${esc(etiquetaDeEstado(f))}</td></tr>`;
+          tds.push(`<td class="r">${hj}</td>`);
+        }
+        if (showIni) tds.push(`<td class="r">${fmtNum(f.inicial)}</td>`);
+        if (showFin) tds.push(`<td class="r">${fmtNum(f.final)}</td>`);
+        if (showHoroH) tds.push(`<td class="r">${fmtH(f.horasHorometro)}</td>`);
+        if (showDif) {
+          const dif = f.diferencia == null ? '—' : (f.diferencia > 0 ? '+' : '') + fmtH(f.diferencia);
+          tds.push(`<td class="r">${dif}</td>`);
+        }
+        if (showEst) tds.push(`<td class="est">${esc(etiquetaDeEstado(f))}</td>`);
+        if (showInsp) tds.push(`<td>${esc(ex?.inspector ?? '')}</td>`);
+        if (showObsCol) tds.push(`<td>${esc(textoObs)}</td>`);
+
+        if (o.sinJornada) {
+          html += `<tr>${tds.join('')}</tr>`;
+        } else {
+          html += `<tr class="${CLASE_ESTADO[f.estado]}">${tds.join('')}</tr>`;
         }
       }
       html += `</tbody></table>`;

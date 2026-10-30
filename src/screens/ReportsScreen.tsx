@@ -59,9 +59,13 @@ import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
 import {
   CSS_COMPARATIVO, compararJornadaHorometro, cuerpoComparativo,
   OpcionesComparativo, OPCIONES_COMPARATIVO_COMPLETO, PASTILLAS_COMPARATIVO,
-  alternarComparativo, ocultosComparativoEnPalabras, sufijoArchivoComparativo,
+  CAJAS_COMPARATIVO, COLUMNAS_BASE_COMPARATIVO, COLUMNAS_EXTRA_COMPARATIVO,
+  alternarComparativo, estaOcultaCajaComparativo, alternarCajaComparativo,
+  mostrarTodasCajasComparativo, ocultarTodasCajasComparativo,
+  mostrarTodasColumnasComparativo, ocultarTodasColumnasBaseComparativo,
+  ocultosComparativoEnPalabras, sufijoArchivoComparativo,
   tituloComparativo, subtituloComparativo, seccionFotosComparativo,
-  horometroPorMaquina, lineaHorometroJornada, HorometroDeMaquina,
+  horometroPorMaquina, lineaHorometroJornada, HorometroDeMaquina, ExtraFilaComparativo,
 } from '../lib/horometroTrabajo';
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
 import { FrentesReportesCard } from '../components/FrentesReportesCard';
@@ -1896,6 +1900,37 @@ export default function ReportsScreen({ route }: any) {
       // 🔁 10-oct-2026: los cambios de horómetro viajan al comparativo para que el
       //    estado diga «Cambio de horómetro» (con sus ± horas) y no un retroceso.
       const filas = compararJornadaHorometro(rondas, d.lecturas, fichasFiltradas, d.cambios);
+      const extrasPorFila = new Map<string, ExtraFilaComparativo>();
+      const rondasByKey = new Map<string, typeof rondas[number]>();
+      for (const r of rondas) rondasByKey.set(`${r.machineryId}|${r.fecha}`, r);
+      const inspByKey = new Map<string, string[]>();
+      for (const l of d.lecturas) {
+        const uid = l.updatedBy || l.createdBy;
+        const nom = uid ? d.nombres.get(uid) : undefined;
+        if (!nom) continue;
+        const k = `${l.machineryId}|${l.roundDate}`;
+        const arr = inspByKey.get(k) ?? [];
+        if (!arr.includes(nom)) arr.push(nom);
+        inspByKey.set(k, arr);
+      }
+      for (const f of filas) {
+        const k = `${f.machineryId}|${f.fecha}`;
+        const ficha = d.maquinas.get(f.machineryId);
+        const r = rondasByKey.get(k);
+        const partesTurno: string[] = [];
+        if (r?.ronda) {
+          if (r.ronda.dia) partesTurno.push(`☀️ ${r.ronda.dia}h`);
+          if (r.ronda.noche) partesTurno.push(`🌙 ${r.ronda.noche}h`);
+          if (r.ronda.extras) partesTurno.push(`+${r.ronda.extras}h ext`);
+          if (r.ronda.parada) partesTurno.push(`⏸ ${r.ronda.parada}h par`);
+        }
+        extrasPorFila.set(k, {
+          clasificacion: ficha?.clasificacion || r?.clasificacion || '—',
+          turnos: partesTurno.length > 0 ? partesTurno.join(' · ') : '—',
+          inspector: (inspByKey.get(k) ?? []).join(' / ') || '—',
+        });
+      }
+      Object.defineProperty(filas, 'extrasPorFila', { value: extrasPorFila, enumerable: false });
       // ⚙️ 25-sep-2026: pastillas de ocultar + logos, como los demás reportes de maquinaria.
       //    Lo oculto no deja rastro (título y subtítulo incluidos: ver tituloComparativo).
       // 📷 FOTOS: solo con el check prendido, y de las MISMAS máquinas del papel
@@ -3493,7 +3528,7 @@ export default function ReportsScreen({ route }: any) {
       {/* ⚙️ Horómetro vs jornada: aviso de que es MODO SOMBRA (no toca pagos). */}
       {mode === 'horometro' ? (
         <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
-          Modo sombra: compara lo que pagó la jornada con lo que dice el horómetro de trabajo. No cambia ningún pago. Una máquina está «lista» con 5 días seguidos cuadrando.
+          Compara lo que pagó la jornada con lo que dice el horómetro de trabajo. No cambia ningún pago. Una máquina está «lista» con 5 días seguidos cuadrando.
         </Text>
       ) : null}
 
@@ -4128,10 +4163,153 @@ export default function ReportsScreen({ route }: any) {
         {/* ⚙️ Horómetro: qué se oculta y qué logos van — lo oculto no deja rastro en el PDF. */}
         {mode === 'horometro' ? (
           <View style={{ marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>¿Qué se oculta en el PDF?</Text>
+            {/* 1. CUADRO MORADO: Cuadros de resumen superior (quitar uno o todos) */}
+            <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, marginBottom: spacing.xs }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  📊 Cuadros de resumen superior (quita uno o todos)
+                </Text>
+                <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                  <TouchableOpacity
+                    onPress={() => setOpHoro((o) => mostrarTodasCajasComparativo(o))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.brand + '18', paddingHorizontal: 10, paddingVertical: 4 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>✓ Mostrar todos</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setOpHoro((o) => ocultarTodasCajasComparativo(o))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warning + '22', paddingHorizontal: 10, paddingVertical: 4 }}
+                  >
+                    <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>🚫 Quitar todos</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {CAJAS_COMPARATIVO.filter((c) => !opHoro.sinJornada || !c.soloConJornada).map((c) => {
+                  const oculta = estaOcultaCajaComparativo(opHoro, c.key);
+                  return (
+                    <TouchableOpacity
+                      key={c.key}
+                      onPress={() => setOpHoro((o) => alternarCajaComparativo(o, c.key))}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: oculta ? colors.warning : colors.brand,
+                        backgroundColor: oculta ? colors.warning : colors.surfaceAlt,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.xs,
+                      }}
+                    >
+                      <Text style={{ color: oculta ? '#fff' : colors.text, fontSize: 12, fontWeight: '700' }}>
+                        {oculta ? `🚫 ${c.chip}` : `✓ ${c.chip}`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                Toca cualquier cuadro para quitarlo o volverlo a poner en el PDF. Si quitas todos, la franja entera desaparece sin dejar espacio en blanco.
+              </Text>
+            </View>
+
+            {/* 2. CUADRO ROJO: Columnas de la tabla del reporte (colocar o quitar cualquiera) */}
+            <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, marginBottom: spacing.xs }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  📋 Columnas de la tabla del reporte (coloca o quita cualquiera)
+                </Text>
+                <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                  <TouchableOpacity
+                    onPress={() => setOpHoro((o) => mostrarTodasColumnasComparativo(o))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.brand + '18', paddingHorizontal: 10, paddingVertical: 4 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>✓ Mostrar todas</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setOpHoro((o) => ocultarTodasColumnasBaseComparativo(o))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warning + '22', paddingHorizontal: 10, paddingVertical: 4 }}
+                  >
+                    <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>🚫 Ocultar todas</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {COLUMNAS_BASE_COMPARATIVO.filter((col) => !opHoro.sinJornada || !col.soloConJornada).map((col) => {
+                  const oculta =
+                    col.key === 'sinInicio'
+                      ? Boolean(opHoro.sinInicioFin || opHoro.sinInicio)
+                      : col.key === 'sinFin'
+                        ? Boolean(opHoro.sinInicioFin || opHoro.sinFin)
+                        : Boolean(opHoro[col.key]);
+                  return (
+                    <TouchableOpacity
+                      key={col.key}
+                      onPress={() =>
+                        setOpHoro((o) => {
+                          if (col.key === 'sinInicio') {
+                            const cur = Boolean(o.sinInicioFin || o.sinInicio);
+                            const nextIni = !cur;
+                            const nextFin = Boolean(o.sinInicioFin ? true : o.sinFin);
+                            return { ...o, sinInicio: nextIni, sinFin: nextFin, sinInicioFin: nextIni && nextFin };
+                          }
+                          if (col.key === 'sinFin') {
+                            const cur = Boolean(o.sinInicioFin || o.sinFin);
+                            const nextFin = !cur;
+                            const nextIni = Boolean(o.sinInicioFin ? true : o.sinInicio);
+                            return { ...o, sinInicio: nextIni, sinFin: nextFin, sinInicioFin: nextIni && nextFin };
+                          }
+                          return alternarComparativo(o, col.key);
+                        })
+                      }
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: oculta ? colors.warning : colors.brand,
+                        backgroundColor: oculta ? colors.warning : colors.surfaceAlt,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.xs,
+                      }}
+                    >
+                      <Text style={{ color: oculta ? '#fff' : colors.text, fontSize: 12, fontWeight: '700' }}>
+                        {oculta ? `🚫 ${col.label}` : `✓ ${col.label}`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: spacing.xs, marginBottom: 4 }}>
+                ➕ Columnas adicionales opcionales (toca para colocar o quitar en la tabla):
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {COLUMNAS_EXTRA_COMPARATIVO.filter((col) => !opHoro.sinJornada || col.key !== 'conTurnos').map((col) => {
+                  const activa = Boolean(opHoro[col.key]);
+                  return (
+                    <TouchableOpacity
+                      key={col.key}
+                      onPress={() => setOpHoro((o) => alternarComparativo(o, col.key))}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: activa ? colors.brand : colors.border,
+                        backgroundColor: activa ? colors.brand : colors.surfaceAlt,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.xs,
+                      }}
+                    >
+                      <Text style={{ color: activa ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>
+                        {activa ? `✓ ${col.label}` : `➕ ${col.label}`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* 3. Atajos rápidos y secciones del PDF */}
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>¿Qué se oculta en el PDF? (Bloques y atajos rápidos)</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {PASTILLAS_COMPARATIVO.map((pz) => {
-                const on = opHoro[pz.key];
+                const on = Boolean(opHoro[pz.key]);
                 return (
                   <TouchableOpacity key={pz.key} onPress={() => setOpHoro((o) => alternarComparativo(o, pz.key))}
                     style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
