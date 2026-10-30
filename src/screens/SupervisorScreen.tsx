@@ -367,6 +367,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number; openDay: boolean; openNight: boolean; dayWorked: number; nightWorked: number; openStartDay: number; openStartNight: number; declaredDay: boolean; declaredNight: boolean }>>({});
   // Cómo cerró cada máquina su jornada (por turno): hora real + manual/automático.
   const [cierreById, setCierreById] = useState<Record<string, { day?: CierreInfo; night?: CierreInfo }>>({});
+  // 🔁 Si el ÚLTIMO tramo del turno fue una PARADA (no un cierre de jornada), guarda su
+  //    hora (ms). Esa máquina se puede volver a poner a trabajar en el mismo turno.
+  const [paradaCierreById, setParadaCierreById] = useState<Record<string, { day?: number; night?: number }>>({});
   // Paradas VIGENTES (crudas) con su TURNO (día/noche, por hora Caracas de la marca).
   // La parada es POR TURNO: la que marca el inspector de DÍA no le aplica al de NOCHE.
   const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string; arrastrada: boolean; createdMs: number }[]>([]);
@@ -876,6 +879,23 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       };
     });
     setCierreById(cMap);
+    // 🔁 Último tramo de CUALQUIER tipo por máquina+turno: si fue una parada, el turno
+    //    no «cerró» — el inspector la paró y la puede volver a poner a trabajar (30-oct-2026).
+    const ultRaw: Record<string, { day?: { src: string; ms: number }; night?: { src: string; ms: number } }> = {};
+    ((segs ?? []) as any[]).forEach((s) => {
+      const ms = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
+      if (isNaN(ms)) return;
+      const sh: 'day' | 'night' = s.shift === 'night' ? 'night' : 'day';
+      const u = ultRaw[s.machinery_id] ?? {};
+      if (!u[sh] || ms > u[sh]!.ms) u[sh] = { src: String(s.source || ''), ms };
+      ultRaw[s.machinery_id] = u;
+    });
+    const pMap: Record<string, { day?: number; night?: number }> = {};
+    Object.entries(ultRaw).forEach(([id, u]) => {
+      const esParada = (x?: { src: string }) => !!x && (x.src === 'parada_averia' || x.src === 'parada_no_trabajo');
+      pMap[id] = { day: esParada(u.day) ? u.day!.ms : undefined, night: esParada(u.night) ? u.night!.ms : undefined };
+    });
+    setParadaCierreById(pMap);
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
     // turno del inspector se hace en los memos paradaIds/paradaMotivos (más abajo).
     const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasParts(new Date(iso)).hour; return h >= 7 && h < 19 ? 'day' : 'night'; };
@@ -1144,8 +1164,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const shiftClosed = useMemo(() => {
     if (!ci) return false;
     if (openMine(ci.id)) return false;
+    // 🔁 Si lo último del turno fue una PARADA, el turno no cerró: se puede volver a
+    //    poner a trabajar (pedido de los inspectores, 30-oct-2026).
+    const sh = shiftOfMine(ci.id);
+    const pc = paradaCierreById[ci.id];
+    if (pc && ((sh === 'night' ? pc.night : pc.day) ?? 0) > 0) return false;
     return hoursMine(ci.id);
-  }, [ci, roundsById, assignMap, uid, nowShift]);
+  }, [ci, roundsById, assignMap, uid, nowShift, paradaCierreById]);
   // 🕐 Tramos de HOY y AYER de la máquina elegida (para «Corregir hora de inicio / fin»).
   //    Se recargan al finalizar (cambian jornadaStart/shiftClosed) y tras guardar.
   useEffect(() => {
@@ -2047,6 +2072,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // `jornada_start_at`, y sus 1.410 rondas salían "⏳ pendiente" (cliente 18-ago-2026).
     // El detalle de cada regla está documentado en la función.
     const { roundDate, startIso, retrasoMin } = calcularInicioJornada({ declaredIso, shift: sh, now });
+    // 🔁 Al volver a poner a trabajar una máquina que se PARÓ en este turno, la nueva
+    //    jornada no puede empezar antes de la parada: esas horas ya quedaron guardadas
+    //    y se contarían dos veces (30-oct-2026).
+    const paradaMs = ci ? (sh === 'night' ? paradaCierreById[ci.id]?.night : paradaCierreById[ci.id]?.day) : undefined;
+    if (paradaMs && new Date(startIso).getTime() < paradaMs) {
+      setNotice(`❌ La máquina se paró a las ${caracasClock(new Date(paradaMs).toISOString())}: la nueva jornada no puede empezar antes. Escribe la hora en que volvió a trabajar.`);
+      return;
+    }
 
     setJornadaBusy(true); setNotice(null);
     const vis = await registrarVisita('trabajando');

@@ -2374,6 +2374,10 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
 > **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale
 > **🟢 Volver a OPERATIVA** (cierra la avería y quita el "MÁQUINA PARADA" de Control).
+> **🔁 Volver a ponerla a trabajar el mismo turno** *(30/10/2026)*: si el inspector paró la máquina y luego le da
+> **🟢 Volver a OPERATIVA**, puede **iniciar jornada otra vez** en el mismo turno (antes salía «La jornada de hoy ya
+> cerró»). Las horas nuevas se suman a las ya guardadas, y la nueva hora de inicio **no puede ser anterior a la parada**:
+> se escribe la hora en que de verdad volvió a trabajar.
 >
 > **⚡ Eficiencia por inspector — es por HORAS TRABAJADAS, no por máquinas encendidas
 > (corregido 08/08/2026):** en **👷 POR INSPECTOR** (debajo del panel anterior), cada barra de
