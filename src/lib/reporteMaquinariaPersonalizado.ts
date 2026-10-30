@@ -167,6 +167,119 @@ export function resumenPersonalizado(filas: FilaPersonalizada[]): { total: numbe
   return { total: filas.length, porEstado };
 }
 
+/** Clave normalizada de empresa (vacía → 'Sin empresa'). */
+export function nombreEmpresaCatalogo(empresa?: string | null): string {
+  return String(empresa ?? '').trim() || 'Sin empresa';
+}
+
+/** Clave normalizada de estado (vacía → 'Sin estado'). */
+export function nombreEstadoCatalogo(estado?: string | null): string {
+  return String(estado ?? '').trim() || 'Sin estado';
+}
+
+/** Lista ordenada de empresas únicas del catálogo con su cantidad de equipos. */
+export function empresasCatalogoPersonalizado(
+  catalogo: FilaPersonalizada[],
+  fuente: 'todos' | 'maq' | 'veh' = 'todos',
+): { nombre: string; count: number }[] {
+  const m = new Map<string, { nombre: string; count: number }>();
+  catalogo.forEach((f) => {
+    const esVeh = String(f.id ?? '').startsWith('veh-');
+    if (fuente !== 'todos' && (fuente === 'veh') !== esVeh) return;
+    const nombre = nombreEmpresaCatalogo(f.empresa);
+    const k = nombre.toLowerCase();
+    const prev = m.get(k);
+    if (prev) prev.count += 1;
+    else m.set(k, { nombre, count: 1 });
+  });
+  return Array.from(m.values()).sort((a, b) => {
+    if (a.nombre === 'Sin empresa') return 1;
+    if (b.nombre === 'Sin empresa') return -1;
+    return a.nombre.localeCompare(b.nombre, 'es');
+  });
+}
+
+/** Lista ordenada de estados actuales del catálogo con su cantidad de equipos. */
+export function estadosCatalogoPersonalizado(
+  catalogo: FilaPersonalizada[],
+  fuente: 'todos' | 'maq' | 'veh' = 'todos',
+  empresasSel?: ReadonlySet<string> | readonly string[],
+): { nombre: string; count: number }[] {
+  const empSet = empresasSel
+    ? new Set(Array.from(empresasSel).map((e) => String(e).trim().toLowerCase()))
+    : null;
+  const m = new Map<string, { nombre: string; count: number }>();
+  // Pre-seed con los 6 estados del sistema para que siempre estén visibles aunque tengan 0
+  ESTADOS_PERSONALIZADO.forEach((e) => {
+    m.set(e.toLowerCase(), { nombre: e, count: 0 });
+  });
+  catalogo.forEach((f) => {
+    const esVeh = String(f.id ?? '').startsWith('veh-');
+    if (fuente !== 'todos' && (fuente === 'veh') !== esVeh) return;
+    if (empSet && empSet.size > 0) {
+      const empKey = nombreEmpresaCatalogo(f.empresa).toLowerCase();
+      if (!empSet.has(empKey)) return;
+    }
+    const nombre = nombreEstadoCatalogo(f.estado);
+    const k = nombre.toLowerCase();
+    const prev = m.get(k);
+    if (prev) prev.count += 1;
+    else m.set(k, { nombre, count: 1 });
+  });
+  const ordenBase = new Map<string, number>(ESTADOS_PERSONALIZADO.map((e, i) => [e.toLowerCase(), i]));
+  return Array.from(m.values())
+    .filter((item) => item.count > 0 || ordenBase.has(item.nombre.toLowerCase()))
+    .sort((a, b) => {
+      const ia = ordenBase.get(a.nombre.toLowerCase()) ?? 99;
+      const ib = ordenBase.get(b.nombre.toLowerCase()) ?? 99;
+      if (ia !== ib) return ia - ib;
+      return a.nombre.localeCompare(b.nombre, 'es');
+    });
+}
+
+/** Filtra el catálogo por tipo (Todos/Máquinas/Vehículos), empresas seleccionadas, estados actuales y búsqueda. */
+export function filtrarCatalogoPersonalizado(params: {
+  catalogo: FilaPersonalizada[];
+  fuente?: 'todos' | 'maq' | 'veh';
+  empresasSel?: ReadonlySet<string> | readonly string[];
+  estadosSel?: ReadonlySet<string> | readonly string[];
+  busca?: string;
+}): FilaPersonalizada[] {
+  const fuente = params.fuente ?? 'todos';
+  const empSet = params.empresasSel
+    ? new Set(Array.from(params.empresasSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
+    : null;
+  const estSet = params.estadosSel
+    ? new Set(Array.from(params.estadosSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
+    : null;
+  const q = String(params.busca ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+  return (params.catalogo || []).filter((m) => {
+    const esVeh = String(m.id ?? '').startsWith('veh-');
+    if (fuente !== 'todos' && (fuente === 'veh') !== esVeh) return false;
+    if (empSet && empSet.size > 0) {
+      const empKey = nombreEmpresaCatalogo(m.empresa).toLowerCase();
+      if (!empSet.has(empKey)) return false;
+    }
+    if (estSet && estSet.size > 0) {
+      const estKey = nombreEstadoCatalogo(m.estado).toLowerCase();
+      if (!estSet.has(estKey)) return false;
+    }
+    if (q) {
+      const haystack = `${m.code} ${m.plate} ${m.serial} ${m.marca} ${m.modelo} ${m.clasificacion} ${m.empresa} ${m.estado}`
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
 export const CSS_REPORTE_PERSONALIZADO = `
   table{width:100%;border-collapse:collapse;font-size:11px;margin-top:10px}
   th{background:#1E3A5F;color:#fff;padding:6px 7px;text-align:left;font-size:10px}

@@ -30,6 +30,7 @@ import {
   OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO,
   alternarPersonalizado, cuerpoReportePersonalizado, dmyPersonalizado, emitidaTexto, filaVacia,
   ocultosPersonalizadoEnPalabras, sufijoArchivoPersonalizado,
+  empresasCatalogoPersonalizado, estadosCatalogoPersonalizado, filtrarCatalogoPersonalizado,
 } from '../lib/reporteMaquinariaPersonalizado';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -76,6 +77,10 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const [marcaTexto, setMarcaTexto] = useState(true);
   const [busca, setBusca] = useState('');
   const [fuente, setFuente] = useState<'todos' | 'maq' | 'veh'>('todos');
+  const [empresasSel, setEmpresasSel] = useState<string[]>([]);
+  const [estadosSel, setEstadosSel] = useState<string[]>([]);
+  const [empresaBusca, setEmpresaBusca] = useState('');
+  const [mostrarTodasPastillas, setMostrarTodasPastillas] = useState(false);
   const [manuales, setManuales] = useState(0);
   const [confirmaVaciar, setConfirmaVaciar] = useState(false);
   const [descargando, setDescargando] = useState(false);
@@ -159,16 +164,46 @@ export function ReporteMaquinariaPersonalizadoCard() {
 
   const enPapel = useMemo(() => new Set(filas.map((f) => f.id)), [filas]);
   const esVehiculo = (id: string) => id.startsWith('veh-');
-  const coincidentes = useMemo(() => {
-    const q = norm(busca);
-    return catalogo.filter((m) =>
-      (fuente === 'todos' || (fuente === 'veh') === esVehiculo(m.id))
-      && (!q || norm(`${m.code} ${m.plate} ${m.serial} ${m.marca} ${m.modelo} ${m.clasificacion} ${m.empresa}`).includes(q)));
-  }, [catalogo, busca, fuente]);
+
+  const empresasDisponibles = useMemo(
+    () => empresasCatalogoPersonalizado(catalogo, fuente),
+    [catalogo, fuente],
+  );
+  const empresasVisibles = useMemo(() => {
+    const qEmp = norm(empresaBusca);
+    if (!qEmp) return empresasDisponibles;
+    return empresasDisponibles.filter((e) => norm(e.nombre).includes(qEmp));
+  }, [empresasDisponibles, empresaBusca]);
+
+  const estadosDisponibles = useMemo(
+    () => estadosCatalogoPersonalizado(catalogo, fuente, empresasSel),
+    [catalogo, fuente, empresasSel],
+  );
+
+  const coincidentes = useMemo(
+    () => filtrarCatalogoPersonalizado({ catalogo, fuente, empresasSel, estadosSel, busca }),
+    [catalogo, fuente, empresasSel, estadosSel, busca],
+  );
+
+  const toggleEmpresaFiltro = (nombre: string) =>
+    setEmpresasSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
+
+  const toggleEstadoFiltro = (nombre: string) =>
+    setEstadosSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
 
   // Quitar y reordenar: SIN tocar nada fuera de la tarjeta (es puro estado local).
   const agregar = (m: FilaPersonalizada) => setFilas((prev) => (prev.some((f) => f.id === m.id) ? prev : [...prev, { ...m }]));
+  const agregarVarias = (lista: FilaPersonalizada[]) =>
+    setFilas((prev) => {
+      const ya = new Set(prev.map((f) => f.id));
+      const nuevas = lista.filter((m) => !ya.has(m.id)).map((m) => ({ ...m }));
+      return nuevas.length === 0 ? prev : [...prev, ...nuevas];
+    });
   const quitar = (id: string) => setFilas((prev) => prev.filter((f) => f.id !== id));
+  const quitarVarias = (lista: FilaPersonalizada[]) => {
+    const idsQuitar = new Set(lista.map((m) => m.id));
+    setFilas((prev) => prev.filter((f) => !idsQuitar.has(f.id)));
+  };
   const mover = (i: number, dir: -1 | 1) => setFilas((prev) => {
     const j = i + dir;
     if (j < 0 || j >= prev.length) return prev;
@@ -278,27 +313,147 @@ export function ReporteMaquinariaPersonalizadoCard() {
         {pastilla('f-maq', '🚜 Máquinas', fuente === 'maq', () => setFuente('maq'))}
         {pastilla('f-veh', '🚗 Vehículos', fuente === 'veh', () => setFuente('veh'))}
       </View>
+
+      {/* 🏢 Filtro por una o varias Empresas */}
+      {empresasDisponibles.length > 0 ? (
+        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+              🏢 Filtrar por empresa ({empresasSel.length === 0 ? `Todas · ${empresasDisponibles.length}` : `${empresasSel.length} seleccionada(s)`})
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {empresasSel.length < empresasDisponibles.length ? (
+                <TouchableOpacity onPress={() => setEmpresasSel(empresasDisponibles.map((e) => e.nombre))}>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>☑ Marcar todas</Text>
+                </TouchableOpacity>
+              ) : null}
+              {empresasSel.length > 0 ? (
+                <TouchableOpacity onPress={() => setEmpresasSel([])}>
+                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Limpiar empresas ({empresasSel.length})</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+          {empresasDisponibles.length > 6 ? (
+            <TextInput
+              value={empresaBusca}
+              onChangeText={setEmpresaBusca}
+              placeholder="🔎 Buscar empresa…"
+              placeholderTextColor={colors.muted}
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4, color: colors.text, fontSize: 12, backgroundColor: colors.surface, marginBottom: 6 }}
+            />
+          ) : null}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            {pastilla('emp-todas', `🏢 Todas (${catalogo.filter((m) => fuente === 'todos' || (fuente === 'veh') === esVehiculo(m.id)).length})`, empresasSel.length === 0, () => setEmpresasSel([]))}
+            {empresasVisibles.map((emp) => {
+              const activa = empresasSel.includes(emp.nombre);
+              return pastilla(
+                `emp-${emp.nombre}`,
+                `${activa ? '✓ ' : ''}${emp.nombre} · ${emp.count}`,
+                activa,
+                () => toggleEmpresaFiltro(emp.nombre),
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+            {empresasSel.length === 0
+              ? 'Toca una o varias empresas para ver y seleccionar solo sus máquinas.'
+              : `Mostrando máquinas de: ${empresasSel.join(' · ')}. Puedes seleccionarlas todas o escoger una por una abajo.`}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* 🚦 Filtro por Estado Actual de las máquinas */}
+      <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+            🚦 Filtrar por estado actual ({estadosSel.length === 0 ? 'Todos los estados' : `${estadosSel.length} estado(s)`})
+          </Text>
+          {estadosSel.length > 0 ? (
+            <TouchableOpacity onPress={() => setEstadosSel([])}>
+              <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Limpiar estados ({estadosSel.length})</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('est-todos', 'Todos los estados', estadosSel.length === 0, () => setEstadosSel([]))}
+          {estadosDisponibles.map((est) => {
+            const activo = estadosSel.includes(est.nombre);
+            return pastilla(
+              `est-${est.nombre}`,
+              `${activo ? '✓ ' : ''}${est.nombre} · ${est.count}`,
+              activo,
+              () => toggleEstadoFiltro(est.nombre),
+            );
+          })}
+        </View>
+      </View>
+
       <TextInput value={busca} onChangeText={setBusca} placeholder="🔎 Buscar por código, placa, serial, marca o empresa…" placeholderTextColor={colors.muted}
         style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 6, color: colors.text, fontSize: 13, backgroundColor: colors.surface }} />
+
+      {/* Botones rápidos para seleccionar o des-seleccionar en bloque las máquinas filtradas */}
+      {(() => {
+        const seleccionadasDeFiltro = coincidentes.filter((m) => enPapel.has(m.id)).length;
+        const faltanPorSeleccionar = coincidentes.length - seleccionadasDeFiltro;
+        return (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs, alignItems: 'center' }}>
+            {pastilla(
+              'todas',
+              `➕ Seleccionar las ${coincidentes.length} filtradas${faltanPorSeleccionar > 0 && seleccionadasDeFiltro > 0 ? ` (+${faltanPorSeleccionar})` : ''}`,
+              false,
+              () => agregarVarias(coincidentes),
+            )}
+            {seleccionadasDeFiltro > 0
+              ? pastilla(
+                  'quitar-filtradas',
+                  `➖ Des-seleccionar las ${seleccionadasDeFiltro} filtradas en el papel`,
+                  false,
+                  () => quitarVarias(coincidentes),
+                )
+              : null}
+            {pastilla('manual', '➕ Agregar fila manual (en blanco)', false, agregarManual)}
+            {filas.length > 0 ? pastilla('vaciar', confirmaVaciar ? '⚠️ ¿Seguro? Toca otra vez' : '🧹 Vaciar todo el papel', confirmaVaciar, vaciar) : null}
+          </View>
+        );
+      })()}
+
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-        {coincidentes.slice(0, MAX_PASTILLAS_CATALOGO).map((m) =>
-          pastilla(m.id, `${enPapel.has(m.id) ? '✓ ' : ''}${esVehiculo(m.id) ? '🚗 ' : ''}${m.code || m.plate || m.serial || '—'}`, enPapel.has(m.id),
-            () => (enPapel.has(m.id) ? quitar(m.id) : agregar(m))))}
+        {(mostrarTodasPastillas ? coincidentes : coincidentes.slice(0, MAX_PASTILLAS_CATALOGO)).map((m) => {
+          const baseCode = m.code || m.plate || m.serial || '—';
+          const placaTxt = m.plate && m.plate !== baseCode ? ` · Placa: ${m.plate}` : (!m.plate ? ' · S/P' : '');
+          const empTxt = m.empresa ? ` · ${m.empresa}` : '';
+          const estTxt = m.estado && m.estado !== 'Operativa' ? ` [${m.estado}]` : '';
+          return pastilla(
+            m.id,
+            `${enPapel.has(m.id) ? '✓ ' : ''}${esVehiculo(m.id) ? '🚗 ' : ''}${baseCode}${placaTxt}${empTxt}${estTxt}`,
+            enPapel.has(m.id),
+            () => (enPapel.has(m.id) ? quitar(m.id) : agregar(m)),
+          );
+        })}
       </View>
       {coincidentes.length > MAX_PASTILLAS_CATALOGO ? (
-        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>…y {coincidentes.length - MAX_PASTILLAS_CATALOGO} más: afina la búsqueda para verlas.</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 4, flexWrap: 'wrap' }}>
+          <Text style={{ color: colors.muted, fontSize: 11 }}>
+            {mostrarTodasPastillas
+              ? `Mostrando las ${coincidentes.length} máquinas filtradas.`
+              : `Mostrando ${MAX_PASTILLAS_CATALOGO} de ${coincidentes.length} máquinas filtradas.`}
+          </Text>
+          <TouchableOpacity onPress={() => setMostrarTodasPastillas((v) => !v)}>
+            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+              {mostrarTodasPastillas ? '▲ Mostrar menos' : `▼ Ver las ${coincidentes.length} máquinas`}
+            </Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-        {pastilla('todas', `➕ Agregar las ${coincidentes.length} de la búsqueda`, false, () => coincidentes.forEach(agregar))}
-        {pastilla('manual', '➕ Agregar fila manual (en blanco)', false, agregarManual)}
-        {filas.length > 0 ? pastilla('vaciar', confirmaVaciar ? '⚠️ ¿Seguro? Toca otra vez' : '🧹 Vaciar el papel', confirmaVaciar, vaciar) : null}
-      </View>
 
       {filas.length > 0 ? rotulo(`✏️ LAS ${filas.length} FILA(S) DEL PAPEL (toca cualquier celda y corrígela)`) : null}
       {filas.map((f, i) => (
         <View key={f.id} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs, backgroundColor: colors.surfaceAlt }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>{i + 1}. {esVehiculo(f.id) ? '🚗 ' : ''}{f.code || '(sin código)'}</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+              {i + 1}. {esVehiculo(f.id) ? '🚗 ' : ''}{f.code || '(sin código)'} · Placa: {f.plate || 'S/P'}{f.empresa ? ` · ${f.empresa}` : ''}
+            </Text>
             <View style={{ flexDirection: 'row', gap: spacing.xs }}>
               {pastilla(`up${f.id}`, '↑', false, () => mover(i, -1))}
               {pastilla(`dn${f.id}`, '↓', false, () => mover(i, 1))}

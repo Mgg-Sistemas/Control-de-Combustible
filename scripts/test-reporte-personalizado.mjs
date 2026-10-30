@@ -103,6 +103,31 @@ eq('sufijo del archivo: la fecha sola si no hay cambios', L.sufijoArchivoPersona
 eq('sufijo del archivo: nombra los cambios', L.sufijoArchivoPersonalizado('2026-10-09', o({ sinPorEmpresa: false })), '09/10/2026 · con empresas');
 eq('los seis estados sugeridos del sistema', [...L.ESTADOS_PERSONALIZADO], ['Operativa', 'Averiada', 'Parada', 'Esperando instrucciones', 'Retirada', 'Inactiva']);
 
+// ——— 5b. Filtros de catálogo por Empresa y Estado Actual ———
+const catDemo = [
+  { ...L.filaVacia('m1'), code: 'JUMBO 320', plate: 'A11BC2D', empresa: 'Savanna', estado: 'Operativa' },
+  { ...L.filaVacia('m2'), code: 'PAYLOADER', plate: 'B22CD3E', empresa: 'Savanna', estado: 'Averiada' },
+  { ...L.filaVacia('m3'), code: 'RETROEXCAVADORA', plate: 'C33DE4F', empresa: 'Costa Brava', estado: 'Parada' },
+  { ...L.filaVacia('veh-v1'), code: 'HILUX', plate: 'D44EF5G', empresa: 'Costa Brava', estado: 'Operativa' },
+  { ...L.filaVacia('m4'), code: 'MOTONIVELADORA', plate: 'E55FG6H', empresa: '', estado: 'Inactiva' },
+];
+const empCat = L.empresasCatalogoPersonalizado(catDemo, 'todos');
+eq('empresas del catálogo: lista ordenada con Sin empresa al final', empCat, [
+  { nombre: 'Costa Brava', count: 2 },
+  { nombre: 'Savanna', count: 2 },
+  { nombre: 'Sin empresa', count: 1 },
+]);
+const estCatSavanna = L.estadosCatalogoPersonalizado(catDemo, 'todos', ['Savanna']);
+eq('estados del catálogo filtrados por Savanna: Operativa=1, Averiada=1', [
+  estCatSavanna.find((e) => e.nombre === 'Operativa')?.count,
+  estCatSavanna.find((e) => e.nombre === 'Averiada')?.count,
+  estCatSavanna.find((e) => e.nombre === 'Parada')?.count,
+], [1, 1, 0]);
+eq('filtrar por 1 empresa (Savanna)', L.filtrarCatalogoPersonalizado({ catalogo: catDemo, empresasSel: ['Savanna'] }).map((m) => m.id), ['m1', 'm2']);
+eq('filtrar por varias empresas (Savanna + Costa Brava) y solo máquinas', L.filtrarCatalogoPersonalizado({ catalogo: catDemo, fuente: 'maq', empresasSel: ['Savanna', 'Costa Brava'] }).map((m) => m.id), ['m1', 'm2', 'm3']);
+eq('filtrar por empresa + estado actual (Savanna + Averiada)', L.filtrarCatalogoPersonalizado({ catalogo: catDemo, empresasSel: ['Savanna'], estadosSel: ['Averiada'] }).map((m) => m.id), ['m2']);
+eq('filtrar por varios estados actuales (Operativa + Parada)', L.filtrarCatalogoPersonalizado({ catalogo: catDemo, estadosSel: ['Operativa', 'Parada'] }).map((m) => m.id), ['m1', 'm3', 'veh-v1']);
+
 // ——— 6. Candados sobre el código fuente ———
 const srcLib = fs.readFileSync(path.join(ROOT, 'src/lib/reporteMaquinariaPersonalizado.ts'), 'utf8');
 ok('⭐⭐ la librería es PURA (sin imports): se prueba sola', !/^\s*import\s/m.test(srcLib));
@@ -123,6 +148,11 @@ ok('🚗 la clave local del vehículo lleva el prefijo veh- (así se pinta el �
   /id: `veh-\$\{String\(v\.id\)\}`/.test(srcCard) && /startsWith\('veh-'\)/.test(srcCard));
 ok('🚗 hay filtro Todos / Máquinas / Vehículos en el buscador',
   srcCard.includes("pastilla('f-maq', '🚜 Máquinas'") && srcCard.includes("pastilla('f-veh', '🚗 Vehículos'"));
+ok('🏢 hay filtro por una o varias empresas y por estado actual con selección/des-selección en bloque',
+  srcCard.includes('Filtrar por empresa') &&
+  srcCard.includes('Filtrar por estado actual') &&
+  srcCard.includes('Seleccionar las') &&
+  srcCard.includes('Des-seleccionar las'));
 ok('vaciar el papel pide confirmación (doble toque)', srcCard.includes('¿Seguro? Toca otra vez'));
 ok('el estado también se puede escribir libre', srcCard.includes('Estado libre…'));
 ok('hay fila manual en blanco', /filaVacia\(`manual-\$\{manuales \+ 1\}`\)/.test(srcCard));
