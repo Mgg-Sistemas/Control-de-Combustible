@@ -36,9 +36,14 @@ function limpiarNotaInterna(nota?: string | null): string {
     .replace(/\[APROBADO_CXP:[^\]]*\]/gi, '')
     .replace(/\[ENVIADO_CXP:[^\]]*\]/gi, '')
     .replace(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi, '')
+    .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
+    .replace(/\[\[COTIZACIONES_COMPLETAS:[\s\S]*?:FIN_COTIZACIONES\]\]/gi, '')
+    .replace(/\[PRESUPUESTO_CUENTA:[^\]]*\]/gi, '')
+    .replace(/\[IVA_CUENTA:[^\]]*\]/gi, '')
     .replace(/\[COMPROBANTE_ABONO:[^\]]+\]/gi, '')
     .replace(/\[EMPRESA:[^\]]+\]/gi, '')
     .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
+    .replace(/Generada automáticamente desde Requerimiento REQ-\d+\. El monto se sincroniza con los ítems aprobados\.?/gi, '')
     .trim();
 }
 

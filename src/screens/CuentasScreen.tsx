@@ -75,6 +75,9 @@ import {
   inyectarFacturaEnCuentaNota,
   extraerAprobacionCxp,
   inyectarAprobacionCxpEnNota,
+  extraerIvaCuenta,
+  inyectarIvaEnCuentaNota,
+  resolverAlicuotaIvaRequerimiento,
   limpiarNotaCuentasVisual,
   CONDICIONES_PAGO_CHIPS,
   detectarDiasCreditoChip,
@@ -229,7 +232,7 @@ export function resolverDesgloseIvaCuenta(
     const subtotal = Math.round(reqVinc.items.reduce((s, it) => s + lineTotalUsd(it), 0) * 100) / 100;
     const exento = Math.round(reqVinc.items.reduce((s, it) => it.exento ? s + lineTotalUsd(it) : s, 0) * 100) / 100;
     const baseImponible = Math.max(0, Math.round((subtotal - exento) * 100) / 100);
-    const alicuota = reqVinc.iva_alicuota != null ? Number(reqVinc.iva_alicuota) : (c.alicuota_iva != null ? Number(c.alicuota_iva) : 16);
+    const alicuota = reqVinc.iva_alicuota != null ? Number(reqVinc.iva_alicuota) : (c.alicuota_iva != null ? Number(c.alicuota_iva) : resolverAlicuotaIvaRequerimiento(reqVinc, c.nota));
     const montoIva = alicuota > 0 ? Math.round(baseImponible * (alicuota / 100) * 100) / 100 : 0;
     const total = Math.round((subtotal + montoIva) * 100) / 100;
     return {
@@ -243,7 +246,7 @@ export function resolverDesgloseIvaCuenta(
     };
   }
 
-  const alicuota = c.alicuota_iva != null ? Number(c.alicuota_iva) : 0;
+  const alicuota = c.alicuota_iva != null ? Number(c.alicuota_iva) : (extraerIvaCuenta(c.nota) ?? 0);
   if (alicuota > 0 && montoCuenta > 0) {
     const subtotal = Math.round((montoCuenta / (1 + (alicuota / 100))) * 100) / 100;
     const montoIva = Math.round((montoCuenta - subtotal) * 100) / 100;
@@ -638,7 +641,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               },
             ];
     setEditItemsCuenta(c);
-    setEditItemsIvaAlicuota(Number(reqVinc?.iva_alicuota) || 0);
+    setEditItemsIvaAlicuota(
+      c.desgloseIva?.alicuota ??
+      (reqVinc?.iva_alicuota != null ? Number(reqVinc.iva_alicuota) : (c.alicuota_iva != null ? Number(c.alicuota_iva) : resolverAlicuotaIvaRequerimiento(reqVinc, c.nota)))
+    );
     setEditItemsDraft(
       baseItems.map((it) => ({
         name: String(it.name || ''),
@@ -748,16 +754,19 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         if (errReq) throw errReq;
       }
 
-      // 2. Actualizar la nota de la cuenta con el evento en el historial
-      //    (y si la cuenta NO tiene inventory_requirement_id directo, actualizar también concepto y monto)
-      const notaConHist = anexarEventoHistorial(editItemsCuenta.nota, eventoHist);
+      // 2. Actualizar la nota de la cuenta con el evento en el historial y monto con IVA
+      const notaConHist = anexarEventoHistorial(
+        inyectarIvaEnCuentaNota(editItemsCuenta.nota, alicuota),
+        eventoHist
+      );
       const patchCuenta: Record<string, any> = {
         nota: notaConHist,
+        alicuota_iva: alicuota,
+        monto: nuevoMontoTotal,
         updated_at: nowISO(),
       };
       if (!editItemsCuenta.inventory_requirement_id) {
         patchCuenta.concepto = nuevoConcepto;
-        patchCuenta.monto = nuevoMontoTotal;
       }
       const { error: errCta } = await supabase
         .from('cuentas')
@@ -1479,6 +1488,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     }
 
     const alicuotaGuardar = aplicaIvaForm ? (Number(alicuotaIvaForm) || 0) : 0;
+    notaFinal = inyectarIvaEnCuentaNota(notaFinal, alicuotaGuardar) || '';
 
     const fila: Record<string, any> = {
       tipo,

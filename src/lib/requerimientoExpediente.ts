@@ -172,6 +172,8 @@ export function limpiarObservacionesUsuario(obs?: string | null): string {
     .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
     .replace(/\[\[COTIZACIONES_COMPLETAS:[\s\S]*?:FIN_COTIZACIONES\]\]/gi, '')
     .replace(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi, '')
+    .replace(/\[PRESUPUESTO_CUENTA:[^\]]*\]/gi, '')
+    .replace(/\[IVA_CUENTA:[^\]]*\]/gi, '')
     .trim();
 }
 

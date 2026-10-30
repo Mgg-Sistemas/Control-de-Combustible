@@ -312,6 +312,55 @@ export function inyectarComprobanteEnAbonoNota(
 }
 
 /**
+ * Extrae la alícuota de IVA embebida en la nota de la cuenta o requerimiento `[IVA_CUENTA: 16]`
+ */
+export function extraerIvaCuenta(nota?: string | null): number | null {
+  if (!nota) return null;
+  const m = String(nota).match(/\[IVA_CUENTA:\s*(\d+(?:[.,]\d+)?)\s*\]/i);
+  if (!m || !m[1]) return null;
+  const val = Number(m[1].replace(',', '.'));
+  return Number.isFinite(val) && val >= 0 ? val : null;
+}
+
+/**
+ * Inyecta o actualiza la alícuota de IVA en la nota `[IVA_CUENTA: 16]`
+ */
+export function inyectarIvaEnCuentaNota(
+  notaActual: string | null | undefined,
+  alicuota: number | null | undefined,
+): string | null {
+  const base = (notaActual || '').replace(/\[IVA_CUENTA:[^\]]*\]/gi, '').trim();
+  if (alicuota == null || !Number.isFinite(Number(alicuota))) return base || null;
+  const val = Math.max(0, Number(alicuota));
+  const tag = `[IVA_CUENTA: ${val}]`;
+  return base ? `${base}\n${tag}` : tag;
+}
+
+/**
+ * Resuelve la alícuota de IVA de un requerimiento (desde columna, tag en observaciones/nota, o ítems)
+ */
+export function resolverAlicuotaIvaRequerimiento(
+  req?: {
+    iva_alicuota?: number | null;
+    observaciones?: string | null;
+    note?: string | null;
+    items?: readonly any[] | null;
+  } | null,
+  cuentaNota?: string | null,
+): number {
+  if (req && req.iva_alicuota != null && Number.isFinite(Number(req.iva_alicuota))) {
+    return Number(req.iva_alicuota);
+  }
+  const ivaObs = extraerIvaCuenta(req?.observaciones) ?? extraerIvaCuenta(req?.note) ?? extraerIvaCuenta(cuentaNota);
+  if (ivaObs != null) return ivaObs;
+  if (req && Array.isArray(req.items) && req.items.length > 0) {
+    const itemConIva = req.items.find((it) => it && it.iva_alicuota != null && Number.isFinite(Number(it.iva_alicuota)));
+    if (itemConIva) return Number(itemConIva.iva_alicuota);
+  }
+  return 16;
+}
+
+/**
  * Limpia la nota para vista del usuario quitando etiquetas técnicas de comprobantes
  */
 export function limpiarNotaCuentasVisual(nota?: string | null): string {
@@ -322,9 +371,14 @@ export function limpiarNotaCuentasVisual(nota?: string | null): string {
     .replace(/\[APROBADO_CXP:[^\]]*\]/gi, '')
     .replace(/\[ENVIADO_CXP:[^\]]*\]/gi, '')
     .replace(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi, '')
+    .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
+    .replace(/\[\[COTIZACIONES_COMPLETAS:[\s\S]*?:FIN_COTIZACIONES\]\]/gi, '')
+    .replace(/\[PRESUPUESTO_CUENTA:[^\]]*\]/gi, '')
+    .replace(/\[IVA_CUENTA:[^\]]*\]/gi, '')
     .replace(/\[COMPROBANTE_ABONO:[^\]]+\]/gi, '')
     .replace(/\[EMPRESA:[^\]]+\]/gi, '')
     .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
+    .replace(/Generada automáticamente desde Requerimiento REQ-\d+\. El monto se sincroniza con los ítems aprobados\.?/gi, '')
     .trim();
 }
 
@@ -467,6 +521,8 @@ function limpiarTextoRequerimientoBasico(obs?: string | null): string {
     .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
     .replace(/\[\[COTIZACIONES_COMPLETAS:[\s\S]*?:FIN_COTIZACIONES\]\]/gi, '')
     .replace(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi, '')
+    .replace(/\[PRESUPUESTO_CUENTA:[^\]]*\]/gi, '')
+    .replace(/\[IVA_CUENTA:[^\]]*\]/gi, '')
     .trim();
 }
 

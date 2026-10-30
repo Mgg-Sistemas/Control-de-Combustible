@@ -89,6 +89,8 @@ import {
   inyectarCondicionesPagoEnNota,
   extraerAprobacionCxp,
   inyectarAprobacionCxpEnNota,
+  inyectarIvaEnCuentaNota,
+  resolverAlicuotaIvaRequerimiento,
 } from '../lib/cuentasPago';
 import { inyectarEmpresaEnNota } from '../lib/cuentasEmpresa';
 import { PRIORIDADES_COMPRA, PRIORIDAD_COMPRA_INFO, PrioridadCompra, esPrioridadCompra, colorPrioridad, faltaColumnaSyncCompras, parcheExtrasReq, ExtrasReq } from '../lib/prioridadCompra';
@@ -2176,6 +2178,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         supplier_id: x.supplier_id || supplierId || null,
         supplier_name: x.supplier_name || supObj?.name || null,
         exento: Boolean(x.exento),
+        iva_alicuota: alicNum,
         cotizaciones: (x.presupuestos || []).filter((c) => c.proveedor.trim() || parseNum(c.precio_usd) > 0 || parseNum(c.precio_bs) > 0 || parseNum(c.total_usd || '0') > 0 || parseNum(c.total_bs || '0') > 0 || (c.archivos && c.archivos.length > 0)).map((c) => ({
           id: c.id,
           proveedor: c.proveedor.trim().toUpperCase(),
@@ -2201,6 +2204,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       ? preservarMarcadoresSolicitudEnObservaciones(reqAnterior?.observaciones, observaciones.trim() || null)
       : (observaciones.trim() || null);
     let obsCompuesta = inyectarCondicionesPagoEnNota(obsBaseTexto, condicionesPago.trim() || null) ?? '';
+    obsCompuesta = inyectarIvaEnCuentaNota(obsCompuesta, alicNum) ?? obsCompuesta;
     if (editId && reqAnterior) {
       const facPrev = extraerFactura(reqAnterior);
       if (facPrev) obsCompuesta = inyectarFacturaEnObservaciones(obsCompuesta, facPrev);
@@ -2220,7 +2224,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         itemsDespues: items,
         autor: autorEdicion,
         modulo: 'Requerimientos',
-        ivaAntes: reqAnterior.iva_alicuota ?? 0,
+        ivaAntes: resolverAlicuotaIvaRequerimiento(reqAnterior),
         ivaDespues: alicNum,
       });
       if (diffItems.hayCambios) {
@@ -2306,22 +2310,39 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         respGuardado = false;
         ({ error } = await supabase.from('inventory_requirements').update(base).eq('id', editId));
       }
-      if (error) { setBusy(false); setFormErr(error.message); return toast.error(error.message); }
-      const extrasFalta = await guardarExtras(editId, extrasAntes);
-      setBusy(false);
-      // Sincronizar condiciones de pago hacia la cuenta por pagar vinculada (si existe)
+      // Sincronizar condiciones de pago e IVA hacia la cuenta por pagar vinculada (si existe)
       try {
+        const montoEditConIva = calcularTotalReqUsd(items, rate, alicNum);
         const { data: cxpRows } = await supabase
           .from('cuentas')
           .select('id, nota')
           .or(`inventory_requirement_id.eq.${editId},order_id.eq.${editId}`);
         if (cxpRows && cxpRows.length > 0) {
           for (const cxp of cxpRows) {
-            const nuevaNotaCxp = inyectarCondicionesPagoEnNota(cxp.nota, condicionesPago.trim() || null);
-            await supabase.from('cuentas').update({ nota: nuevaNotaCxp }).eq('id', cxp.id);
+            let nuevaNotaCxp = inyectarCondicionesPagoEnNota(cxp.nota, condicionesPago.trim() || null);
+            nuevaNotaCxp = inyectarIvaEnCuentaNota(nuevaNotaCxp, alicNum);
+            const patchCxpEdit: Record<string, any> = {
+              nota: nuevaNotaCxp,
+              alicuota_iva: alicNum,
+              updated_at: nowISO(),
+            };
+            if (montoEditConIva > 0) patchCxpEdit.monto = montoEditConIva;
+            await supabase.from('cuentas').update(patchCxpEdit).eq('id', cxp.id);
           }
+          refetchCuentas();
         }
       } catch {}
+      if (error) {
+        setBusy(false);
+        const esTriggerIva = /record\s+"new"\s+has\s+no\s+field\s+"iva_alicuota"/i.test(error.message);
+        const msgError = esTriggerIva
+          ? 'Falta agregar la columna iva_alicuota en inventory_requirements en Supabase: ALTER TABLE public.inventory_requirements ADD COLUMN IF NOT EXISTS iva_alicuota numeric(5,2) DEFAULT 16; (La cuenta por pagar vinculada sí se actualizó con el IVA).'
+          : error.message;
+        setFormErr(msgError);
+        return toast.error(msgError);
+      }
+      const extrasFalta = await guardarExtras(editId, extrasAntes);
+      setBusy(false);
       setCreateOpen(false); limpiarForm();
       refetch();
       const faltas = [!respGuardado ? 'el responsable' : '', !nuevosGuardados ? 'quién solicitó/autorizó, el área y las observaciones' : '', extrasFalta]
@@ -2426,7 +2447,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setAreaLibre(false);
     setCondicionesPago(extraerCondicionesPago(r.observaciones));
     setObservaciones(limpiarObservacionesUsuario(r.observaciones ?? ''));
-    setAlicuotaIva(r.iva_alicuota != null ? String(r.iva_alicuota) : '16');
+    const alicEditar = r.iva_alicuota != null ? String(r.iva_alicuota) : String(resolverAlicuotaIvaRequerimiento(r));
+    setAlicuotaIva(alicEditar);
     setFormatos(extraerFormatosAdjuntos(r));
     let s = 0;
     setRows(r.items.map((it) => {
@@ -2562,7 +2584,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         suppliers.find((s) => s.id === fallbackSup)?.name ||
         r.items.find((it) => it.supplier_name)?.supplier_name ||
         'Proveedor asignado';
-      const montoEnv = calcularTotalReqUsd(r.items, rate, r.iva_alicuota);
+      const alicEnv = r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r);
+      const montoEnv = calcularTotalReqUsd(r.items, rate, alicEnv);
       nuevaObs = anexarEventoHistorial(nuevaObs, {
         at: ahoraIso,
         by: decName,
@@ -2615,7 +2638,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           suppliers.find((s) => s.id === fallbackSup)?.name ||
           r.items.find((it) => it.supplier_name)?.supplier_name ||
           'Proveedor asignado';
-        const montoEnv = calcularTotalReqUsd(r.items, rate, r.iva_alicuota);
+        const alicEnv = r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r);
+      const montoEnv = calcularTotalReqUsd(r.items, rate, alicEnv);
         if (cxpRows && cxpRows.length > 0) {
           for (const cxp of cxpRows) {
             let notaCxp = cxp.nota || '';
@@ -2625,6 +2649,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             if (condReq) {
               notaCxp = inyectarCondicionesPagoEnNota(notaCxp, condReq) ?? notaCxp;
             }
+            notaCxp = inyectarIvaEnCuentaNota(notaCxp, alicEnv) ?? notaCxp;
             notaCxp =
               inyectarEnvioCxpEnTexto(notaCxp, {
                 enviadoPor: decName,
@@ -2657,6 +2682,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             });
             const patchCxp: Record<string, any> = {
               nota: notaCxp || null,
+              alicuota_iva: alicEnv,
               updated_at: ahoraIso,
             };
             if (montoEnv > 0) patchCxp.monto = montoEnv;
@@ -2991,7 +3017,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
-  const totalUsdDe = (r: InventoryRequirement) => calcularTotalReqUsd(r.items || [], rate, r.iva_alicuota);
+  const totalUsdDe = (r: InventoryRequirement) => calcularTotalReqUsd(r.items || [], rate, r.iva_alicuota != null ? r.iva_alicuota : resolverAlicuotaIvaRequerimiento(r));
 
   // Convierte los ítems al formato del PDF, incrustando la imagen de cada producto
   // como data-URI (para que salga SÍ o SÍ en el PDF, sin depender de CORS ni de que
@@ -3039,7 +3065,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         fechaRespuesta: r.aclaratoria_fecha_respuesta ? dmyOf(r.aclaratoria_fecha_respuesta) : null,
       } : null,
       approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
-      ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : 16,
+      ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r),
       items: await itemsToPdf(r),
     };
   };
@@ -3669,7 +3695,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                 const subUsd = r.items.reduce((s, it) => s + lineTotalUsd(it), 0);
                                 const baseUsd = r.items.reduce((s, it) => s + (it.exento ? 0 : lineTotalUsd(it)), 0);
                                 const exentoUsd = subUsd - baseUsd;
-                                const alic = r.iva_alicuota != null ? Number(r.iva_alicuota) : 0;
+                                const alic = r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r);
                                 const ivaUsd = Math.round(baseUsd * (alic / 100) * 100) / 100;
                                 const totalConIvaUsd = alic > 0 ? Math.round((subUsd + ivaUsd) * 100) / 100 : tUsd;
 

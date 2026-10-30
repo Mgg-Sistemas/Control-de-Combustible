@@ -522,7 +522,13 @@ export function calcularTotalReqUsd(
   };
   const subtotal = items.reduce((sum, it) => sum + lineTotalUsd(it), 0);
 
-  if (alicuotaIva === undefined || alicuotaIva === null) {
+  let alicFinal = alicuotaIva;
+  if (alicFinal === undefined || alicFinal === null) {
+    const itemConIva = items.find((it: any) => it && it.iva_alicuota != null && Number.isFinite(Number(it.iva_alicuota)));
+    if (itemConIva) alicFinal = Number((itemConIva as any).iva_alicuota);
+  }
+
+  if (alicFinal === undefined || alicFinal === null) {
     return Math.round(subtotal * 100) / 100;
   }
 
@@ -531,7 +537,7 @@ export function calcularTotalReqUsd(
     return sum + lineTotalUsd(it);
   }, 0);
 
-  const alic = Math.min(100, Math.max(0, Number(alicuotaIva) || 0));
+  const alic = Math.min(100, Math.max(0, Number(alicFinal) || 0));
   const iva = Math.round(baseImponible * (alic / 100) * 100) / 100;
   return Math.round((subtotal + iva) * 100) / 100;
 }
