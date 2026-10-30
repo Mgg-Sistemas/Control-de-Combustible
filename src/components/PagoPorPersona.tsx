@@ -11,6 +11,7 @@ import { useToast } from '../components/ToastProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
 import { canonicalCargo } from '../lib/cargos';
 import { useTable } from '../hooks/useTable';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { Employee, StaffPersonPayment } from '../types/database';
 import { spacing, radius } from '../theme';
@@ -87,14 +88,18 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   const toast = useToast();
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
-  const { data: employees, loading: empLoading } = useTable<Employee>('employees', { orderBy: 'first_name' });
+  const { data: employees, loading: empLoading, refetch: refetchEmployees } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: pays, loading: payLoading, refetch: refetchPays } = useTable<StaffPersonPayment>('staff_payments', { orderBy: 'fecha', ascending: false });
+  useRealtimeRefresh(['employees', 'payroll_companies', 'staff_payments'], () => {
+    refetchEmployees();
+    refetchPays();
+  });
   const { rate: bcvRate } = useBcvRate();
   // Bs equivalente de un monto en US$ (o '' si no hay tasa del día).
   const bsTxt = (usdAmount: number) => (bcvRate ? fmtBs(bsFromUsd(usdAmount, bcvRate)) : '');
 
   const [q, setQ] = useState('');
-  // "activos" = status==='activo' · "todos" = todo menos 'otro' · "inactivos" = inactivo/suspendido.
+  // "activos" = status==='activo' · "todos" = activos + grupos (sin inactivos) · "inactivos" = inactivo/suspendido.
   const [filtroEstado, setFiltroEstado] = useState<'activos' | 'todos' | 'inactivos'>('activos');
 
   // Empleados filtrados por búsqueda + estado, ordenados A→Z.
@@ -104,11 +109,13 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
       // Estado "otro" = NO entra al control de pago: se excluye siempre (en las 3 opciones).
       .filter((e) => (e.status || '').toLowerCase() !== 'otro')
       .filter((e) => {
-        if (filtroEstado === 'activos') return e.status === 'activo';
-        if (filtroEstado === 'inactivos') return e.status === 'inactivo' || e.status === 'suspendido';
-        return true; // "todos"
+        const st = (e.status || 'activo').toLowerCase();
+        const isInact = st === 'inactivo' || st === 'suspendido';
+        if (filtroEstado === 'activos') return st === 'activo';
+        if (filtroEstado === 'inactivos') return isInact;
+        return !isInact; // "todos" excluye inactivos/suspendidos para que solo salgan en el apartado Inactivos
       })
-      .filter((e) => !nq || norm(fullName(e)).includes(nq) || norm(e.cedula).includes(nq) || norm(e.cargo).includes(nq) || norm(e.ficha_number).includes(nq))
+      .filter((e) => !nq || norm(fullName(e)).includes(nq) || norm(e.cedula).includes(nq) || norm(e.cargo).includes(nq) || norm(e.ficha_number).includes(nq) || norm(e.department).includes(nq) || norm(e.grupo).includes(nq))
       .sort((a, b) => cmpText(fullName(a), fullName(b)));
   }, [employees, q, filtroEstado]);
 

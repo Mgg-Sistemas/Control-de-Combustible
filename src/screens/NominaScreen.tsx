@@ -82,16 +82,59 @@ export default function NominaScreen({ navigation }: any) {
   const verFichasGeneral = () => { exportPdf(fichasHtml(), 'Manual de cargos SOS La Guaira'); };
   const verFichaCargo = (title: string) => { exportPdf(fichaCargoHtml(title), `Ficha - ${title}`); };
 
-  const loadItems = async (pid: string) => {
+  const loadItems = async (pid: string, periodStatus?: string) => {
     setItemsLoading(true);
     const { data } = await supabase.from('payroll_items').select('*').eq('period_id', pid).order('employee_name');
-    setItems((data ?? []) as PayrollItem[]);
+    let list = (data ?? []) as PayrollItem[];
+    const st = periodStatus ?? sel?.status;
+    if (st === 'borrador' && list.length > 0) {
+      const empIds = Array.from(new Set(list.map((it) => it.employee_id).filter(Boolean))) as string[];
+      if (empIds.length > 0) {
+        const { data: emps } = await supabase
+          .from('employees')
+          .select('id, status, first_name, last_name, cargo, ficha_number, cedula')
+          .in('id', empIds);
+        const empMap = new Map<string, any>();
+        (emps ?? []).forEach((e: any) => empMap.set(e.id, e));
+        const toDeleteIds: string[] = [];
+        for (const it of list) {
+          if (!it.employee_id) continue;
+          const emp = empMap.get(it.employee_id);
+          const empSt = String(emp?.status || '').toLowerCase();
+          if (!emp || empSt === 'inactivo' || empSt === 'suspendido' || empSt === 'otro') {
+            toDeleteIds.push(it.id);
+          } else {
+            const full = `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim() || it.employee_name;
+            if ((emp.cargo ?? null) !== (it.cargo ?? null) || full !== it.employee_name) {
+              it.cargo = emp.cargo ?? it.cargo;
+              it.employee_name = full;
+              await supabase.from('payroll_items').update({
+                cargo: emp.cargo ?? null,
+                employee_name: full,
+                ficha_number: emp.ficha_number ?? it.ficha_number,
+                cedula: emp.cedula ?? it.cedula,
+              }).eq('id', it.id);
+            }
+          }
+        }
+        if (toDeleteIds.length > 0) {
+          await supabase.from('payroll_items').delete().in('id', toDeleteIds);
+          const delSet = new Set(toDeleteIds);
+          list = list.filter((it) => !delSet.has(it.id));
+          const newTotal = list.reduce((s, r) => s + (Number(r.net_amount) || 0), 0);
+          await supabase.from('payroll_periods').update({ total_amount: newTotal }).eq('id', pid);
+          setSel((prev) => (prev && prev.id === pid ? { ...prev, total_amount: newTotal } : prev));
+          refetch();
+        }
+      }
+    }
+    setItems(list);
     setItemsLoading(false);
   };
-  const openDetail = (p: PayrollPeriod) => { setSel(p); setItems([]); loadItems(p.id); };
+  const openDetail = (p: PayrollPeriod) => { setSel(p); setItems([]); loadItems(p.id, p.status); };
   // Los renglones (payroll_items) del período abierto no vienen de useTable, así
   // que se refrescan aparte; solo mientras hay un período abierto en el modal.
-  useRealtimeRefresh(['payroll_items'], () => { if (sel) loadItems(sel.id); });
+  useRealtimeRefresh(['payroll_items', 'employees'], () => { if (sel) loadItems(sel.id, sel.status); });
 
   const crearPeriodo = async () => {
     if (!cCompany) return toast.error('Elige la empresa.');

@@ -142,6 +142,7 @@ export default function PagoPersonalScreen() {
 
   const { data: periods, loading, refetch } = useTable<StaffPayPeriod>('staff_pay_periods', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  const { data: payrollCompanies } = useTable<{ id: string; name: string; active?: boolean }>('payroll_companies', { orderBy: 'name' });
   // Sin empresa (id null) = personal de la organización → se rotula SOS LA GUAIRA.
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : EMPLEADOR);
 
@@ -150,6 +151,7 @@ export default function PagoPersonalScreen() {
   // consulta por renglón. La regla de unificación vive en lib/nominaDepartamentos.
   const { data: tarifas } = useTable<{ cargo: string; departamento: string | null }>('staff_cargo_tariffs', { select: 'cargo, departamento', orderBy: 'cargo' });
   const depts = useMemo(() => mapaDepartamentos(tarifas ?? []), [tarifas]);
+  const deptsSinTab = useMemo(() => mapaDepartamentos([]), []);
 
   // Buscador de la LISTA DE NÓMINAS (pestaña "Por período"). Con decenas de nóminas
   // cargadas, encontrar la del mes pasado era bajar a ojo por toda la lista.
@@ -176,7 +178,7 @@ export default function PagoPersonalScreen() {
   // del período (mismo patrón que PagoPorPersona). Default 'todos': un período ya cerrado tiene
   // sentido verlo completo, incluidos los desincorporados después de cargarlo.
   const [personaQuery, setPersonaQuery] = useState('');
-  const [estadoSel, setEstadoSel] = useState<EstadoFiltro>('todos');
+  const [estadoSel, setEstadoSel] = useState<EstadoFiltro>('activos');
   const [gruposConfig, setGruposConfig] = useState<GrupoApartadoConfig[]>(DEFAULT_GRUPOS_APARTADOS);
 
   useEffect(() => {
@@ -214,6 +216,7 @@ export default function PagoPersonalScreen() {
   // Es el respaldo de segunda mano: manda lo que diga el tabulador para su cargo, y
   // esto solo entra cuando el tabulador no tiene nada para ese cargo.
   const [itemEmployeeDepto, setItemEmployeeDepto] = useState<Map<string, string>>(new Map());
+  const [itemEmployeeEmpresaNomina, setItemEmployeeEmpresaNomina] = useState<Map<string, string>>(new Map());
   // ¿Ya llegó el estado de los empleados de este período? Sin esto no se puede
   // distinguir "todavía no cargó" de "este renglón no tiene estado", que es justo
   // lo que rompía el filtro de desincorporados (ver `itemsShown`).
@@ -291,41 +294,154 @@ export default function PagoPersonalScreen() {
     const list = (its ?? []) as StaffPayItem[];
     const ids = list.map((i) => i.id);
     const { data: pp } = ids.length ? await supabase.from('staff_pay_payments').select('*').in('item_id', ids) : { data: [] as StaffPayPayment[] };
-    setItems(list);
-    setPays((pp ?? []) as StaffPayPayment[]);
+    const paysList = (pp ?? []) as StaffPayPayment[];
+    setPays(paysList);
     // 📎 Los soportes del período (facturas, comprobantes…), de un solo viaje.
     const sops = await listarSoportesPeriodo(p.id);
-    setSoportes(sops.missing ? [] : sops.soportes);
-    // Empleados ACTIVOS que aún NO están en este período (para avisar y poder incluir a TODOS).
-    const { data: actives } = await supabase.from('employees').select('id').eq('status', 'activo');
-    const have = new Set(list.map((i) => i.employee_id));
-    setFaltantesCount((actives ?? []).filter((e: any) => !have.has(e.id)).length);
+    const sopsList = sops.missing ? [] : sops.soportes;
+    setSoportes(sopsList);
+
     // Estado ACTUAL de los empleados ya incluidos (puede haber cambiado desde que se
-    // agregaron al período) → para marcar "Desincorporado" en la lista sin afectar montos.
+    // agregaron al período) → para marcar "Desincorporado" en la lista o depurar borradores.
     const empIds = Array.from(new Set(list.map((i) => i.employee_id).filter((id): id is string => !!id)));
     // Se traen también `cargo`, el `department` de la ficha y la empresa filtro de
     // nómina (embebida por la FK employees_payroll_company_id_fkey) para poder
     // resolver el GRUPO APARTADO y el DEPARTAMENTO de cada quien en la misma
     // consulta, sin un viaje extra.
     const { data: empStatus } = empIds.length
-      ? await supabase.from('employees').select('id, status, cargo, department, payroll_company:payroll_company_id(name)').in('id', empIds)
+      ? await supabase.from('employees').select('id, status, cargo, department, payroll_company_id, grupo, first_name, last_name, cedula, precio_hora, precio_dia, precio_noche, precio_semana, payroll_company:payroll_company_id(name)').in('id', empIds)
       : { data: [] as any[] };
+    const empMap = new Map<string, any>((empStatus ?? []).map((e: any) => [e.id, e]));
+    const paidItemSet = new Set(paysList.map((x) => x.item_id));
+    const sopsItemSet = new Set(sopsList.map((x) => x.itemId));
+
+    // En BORRADOR:
+    // 1) Si un empleado fue sacado de nómina (inactivo/suspendido/otro) y no tiene abonos,
+    //    ni soportes, ni fue agregado/ajustado manualmente (overridden), se depura automáticamente.
+    // 2) Si un empleado cambió de cargo, nombre o tarifas en Empleados, se sincroniza en vivo
+    //    con su ficha actual para que el área de trabajo, departamento y cargo coincidan siempre.
+    let finalList = list;
+    if (p.status === 'borrador') {
+      const idsBajaBorrar: string[] = [];
+      const keptList: StaffPayItem[] = [];
+      for (const it of list) {
+        if (it.employee_id) {
+          const emp = empMap.get(it.employee_id);
+          const st = String(emp?.status ?? '').trim().toLowerCase();
+          const fueraDeNomina = !emp || esDesincorporado(st) || st === 'otro';
+          if (fueraDeNomina && !it.overridden && !paidItemSet.has(it.id) && !sopsItemSet.has(it.id)) {
+            idsBajaBorrar.push(it.id);
+            continue;
+          }
+        }
+        keptList.push(it);
+      }
+      if (idsBajaBorrar.length > 0) {
+        await supabase.from('staff_pay_items').delete().in('id', idsBajaBorrar);
+      }
+      let huboCambioMonto = idsBajaBorrar.length > 0;
+      const syncedList: StaffPayItem[] = [];
+      for (const it of keptList) {
+        const emp = it.employee_id ? empMap.get(it.employee_id) : null;
+        if (emp) {
+          const liveCargo = emp.cargo ?? it.cargo;
+          const liveName = `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim() || it.person_name;
+          const liveCedula = emp.cedula ?? it.cedula;
+          const ph = !it.overridden && Number(emp.precio_hora) ? Number(emp.precio_hora) : Number(it.precio_hora) || 0;
+          const pd = !it.overridden && Number(emp.precio_dia) ? Number(emp.precio_dia) : Number(it.precio_dia) || 0;
+          const pn = !it.overridden && Number(emp.precio_noche) ? Number(emp.precio_noche) : Number(it.precio_noche) || 0;
+          const ps = !it.overridden && Number(emp.precio_semana) ? Number(emp.precio_semana) : Number(it.precio_semana) || 0;
+          const preciosCambian = !it.overridden && (
+            ph !== (Number(it.precio_hora) || 0) ||
+            pd !== (Number(it.precio_dia) || 0) ||
+            pn !== (Number(it.precio_noche) || 0) ||
+            ps !== (Number(it.precio_semana) || 0)
+          );
+          const metaCambia = (liveCargo ?? '') !== (it.cargo ?? '') || liveName !== it.person_name || (liveCedula ?? '') !== (it.cedula ?? '');
+          if (metaCambia || preciosCambian) {
+            const nextIt: StaffPayItem = {
+              ...it,
+              cargo: liveCargo,
+              person_name: liveName,
+              cedula: liveCedula,
+              precio_hora: ph,
+              precio_dia: pd,
+              precio_noche: pn,
+              precio_semana: ps,
+            };
+            const dev = devengadoOf(nextIt, p.mode);
+            const tot = totalOf(nextIt, p.mode);
+            nextIt.devengado = dev;
+            nextIt.total = tot;
+            await supabase.from('staff_pay_items').update({
+              cargo: liveCargo,
+              person_name: liveName,
+              cedula: liveCedula,
+              precio_hora: ph,
+              precio_dia: pd,
+              precio_noche: pn,
+              precio_semana: ps,
+              devengado: dev,
+              total: tot,
+            }).eq('id', it.id);
+            if (tot !== Number(it.total)) huboCambioMonto = true;
+            syncedList.push(nextIt);
+            continue;
+          }
+          syncedList.push({ ...it, cargo: liveCargo, person_name: liveName, cedula: liveCedula });
+        } else {
+          syncedList.push(it);
+        }
+      }
+      finalList = syncedList.sort((a, b) => cmpText(a.person_name, b.person_name));
+      if (huboCambioMonto) {
+        const total = round2(finalList.reduce((s, it) => s + totalOf(it, p.mode), 0));
+        await supabase.from('staff_pay_periods').update({ total_amount: total }).eq('id', p.id);
+        setSel((prev) => (prev && prev.id === p.id ? { ...prev, total_amount: total } : prev));
+        refetch();
+      }
+    } else {
+      // Incluso en períodos cerrados, si el renglón tenía cargo nulo o desactualizado en memoria,
+      // conservamos la referencia en vivo para los filtros de departamento y grupo.
+      finalList = list.map((it) => {
+        const emp = it.employee_id ? empMap.get(it.employee_id) : null;
+        return emp ? { ...it, cargo: emp.cargo ?? it.cargo } : it;
+      });
+    }
+
+    setItems(finalList);
+    // Empleados ACTIVOS que aún NO están en este período (para avisar y poder incluir a TODOS).
+    const { data: actives } = await supabase.from('employees').select('id').eq('status', 'activo');
+    const have = new Set(finalList.map((i) => i.employee_id));
+    setFaltantesCount((actives ?? []).filter((e: any) => !have.has(e.id)).length);
+
     setItemEmployeeStatus(new Map((empStatus ?? []).map((e: any) => [e.id, e.status])));
     const grupos = new Map<string, GrupoApartado>();
     const deptosFicha = new Map<string, string>();
+    const empresasNomina = new Map<string, string>();
     const activeGrupos = await leerGruposApartados();
     setGruposConfig(activeGrupos);
     (empStatus ?? []).forEach((e: any) => {
-      const g = grupoApartado(e.payroll_company?.name, e.cargo, e.department, activeGrupos);
+      const embName = Array.isArray(e.payroll_company) ? e.payroll_company[0]?.name : e.payroll_company?.name;
+      const pcName = embName || (e.payroll_company_id ? (payrollCompanies ?? []).find((c) => c.id === e.payroll_company_id)?.name : undefined);
+      if (pcName && !pcName.startsWith('__')) empresasNomina.set(e.id, pcName);
+      const deptFichaRaw = (e.department || e.grupo || '').trim();
+      const inferidoCargo = deptsSinTab.de(e.cargo, null);
+      const canonFicha = deptFichaRaw ? deptsSinTab.de(null, deptFichaRaw) : SIN_DEPARTAMENTO;
+      const deptoEfectivo = (deptFichaRaw && canonFicha !== SIN_DEPARTAMENTO && canonFicha !== inferidoCargo)
+        ? depts.de(null, deptFichaRaw)
+        : depts.de(e.cargo, deptFichaRaw || null);
+      const g = grupoApartado(pcName, e.cargo, `${e.department ?? ''} ${deptoEfectivo ?? ''} ${e.grupo ?? ''}`.trim(), activeGrupos);
       if (g) grupos.set(e.id, g);
-      if (e.department) deptosFicha.set(e.id, e.department);
+      if (deptFichaRaw) deptosFicha.set(e.id, deptFichaRaw);
     });
     setItemEmployeeGrupo(grupos);
     setItemEmployeeDepto(deptosFicha);
+    setItemEmployeeEmpresaNomina(empresasNomina);
     setStatusLoaded(true);
     setItemsLoading(false);
   };
-  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setItemEmployeeGrupo(new Map()); setItemEmployeeDepto(new Map()); setStatusLoaded(false); setCargoSel(new Set()); setCargoOpen(false); setDeptoSel(new Set()); setDeptoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
+  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setItemEmployeeGrupo(new Map()); setItemEmployeeDepto(new Map()); setItemEmployeeEmpresaNomina(new Map()); setStatusLoaded(false); setEstadoSel(p.status === 'borrador' ? 'activos' : 'todos'); setCargoSel(new Set()); setCargoOpen(false); setDeptoSel(new Set()); setDeptoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
   // El detalle (renglones, abonos y estado de empleados) se carga aparte con
   // supabase.from() directo (no useTable), así que se sincroniza en vivo aquí.
   useRealtimeRefresh(['staff_pay_items', 'staff_pay_payments', 'employees', 'payroll_companies'], () => { if (sel) loadDetail(sel); });
@@ -488,7 +604,12 @@ export default function PagoPersonalScreen() {
     // Se le calculan sus jornadas del rango igual que a cualquiera: un desincorporado
     // pudo haber trabajado parte del período antes de salir, y eso SÍ se le paga.
     const byCed = await buildAuto(sel.date_from, sel.date_to);
-    const row = rowFor(e, sel.id, byCed.get(e.cedula), sel.only_validated, sel.mode);
+    const row = {
+      ...rowFor(e, sel.id, byCed.get(e.cedula), sel.only_validated, sel.mode),
+      // Si se agrega manualmente un desincorporado, se marca overridden=true para que
+      // la depuración automática de borradores sepa que fue incluido a propósito.
+      overridden: esDesincorporado(e.status),
+    };
     const { error } = await supabase.from('staff_pay_items').insert(row);
     if (error) { setBusy(false); return toast.error(error.message); }
     await loadDetail(sel);
@@ -496,6 +617,50 @@ export default function PagoPersonalScreen() {
     await recomputeTotal(sel.id, (fresh ?? []) as StaffPayItem[], sel.mode);
     setBusy(false);
     toast.success(`${`${e.first_name} ${e.last_name}`.trim()} agregado al período.`);
+  };
+
+  // ── 🔄 Sincronizar el período abierto con Nómina / Empleados ────────────────
+  // Quita del borrador a quienes fueron pasados a Inactivo/Suspendido/Otro (sin abonos
+  // ni soportes), agrega a los Activos nuevos y actualiza cargos, áreas y tarifas.
+  const sincronizarConNomina = async () => {
+    if (!sel || sel.status !== 'borrador') return;
+    setBusy(true);
+    const { data: allEmps } = await supabase
+      .from('employees')
+      .select('id, first_name, last_name, cedula, status, cargo, department, grupo, payroll_company_id, precio_hora, precio_dia, precio_noche, precio_semana');
+    const empById = new Map<string, any>((allEmps ?? []).map((e: any) => [e.id, e]));
+    const paidSet = new Set(pays.map((p) => p.item_id));
+    const sopsSet = new Set(soportes.map((s) => s.itemId));
+
+    const idsQuitar: string[] = [];
+    for (const it of items) {
+      if (!it.employee_id) continue;
+      const emp = empById.get(it.employee_id);
+      const st = String(emp?.status ?? '').trim().toLowerCase();
+      if ((!emp || esDesincorporado(st) || st === 'otro') && !paidSet.has(it.id) && !sopsSet.has(it.id)) {
+        idsQuitar.push(it.id);
+      }
+    }
+    if (idsQuitar.length > 0) {
+      await supabase.from('staff_pay_items').delete().in('id', idsQuitar);
+    }
+
+    const haveIds = new Set(items.filter((it) => !idsQuitar.includes(it.id)).map((it) => it.employee_id));
+    const byCed = await buildAuto(sel.date_from, sel.date_to);
+    const nuevos = (allEmps ?? [])
+      .filter((e: any) => e.status === 'activo' && !haveIds.has(e.id) && (!soloOperadoresSi(sel.mode) || esOperador(e.cargo)))
+      .map((e: any) => rowFor(e, sel.id, byCed.get(e.cedula), sel.only_validated, sel.mode));
+    if (nuevos.length > 0) {
+      await supabase.from('staff_pay_items').insert(nuevos);
+    }
+
+    await loadDetail(sel);
+    const { data: fresh } = await supabase.from('staff_pay_items').select('*').eq('period_id', sel.id);
+    await recomputeTotal(sel.id, (fresh ?? []) as StaffPayItem[], sel.mode);
+    setBusy(false);
+    toast.success(
+      `✅ Nómina sincronizada${idsQuitar.length ? ` · ${idsQuitar.length} inactivo(s) retirado(s)` : ''}${nuevos.length ? ` · ${nuevos.length} activo(s) incluido(s)` : ''} · áreas y cargos al día.`
+    );
   };
 
   // ── Editor de renglón ───────────────────────────────────────────────────────
@@ -899,36 +1064,75 @@ export default function PagoPersonalScreen() {
   const totalPagado = useMemo(() => (sel ? round2(items.reduce((s, it) => s + paidOf(it.id), 0)) : 0), [items, pays, sel]);
   const totalSaldo = useMemo(() => (sel ? round2(items.reduce((s, it) => s + saldoOf(it), 0)) : 0), [items, pays, sel]);
 
-  // Cargos presentes en el período (para el filtro) y personal ya filtrado.
+  // Renglones que pasan la pestaña de estado/grupo activa (Activos, Plantilla, Carbozulia, CDT, etc.)
+  const itemsPorEstado = useMemo(
+    () => items.filter((it) => pasaFiltroEstado(it.employee_id, estadoSel, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo)),
+    [items, estadoSel, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo],
+  );
+
+  // Conteos por pestaña de estado/grupo para mostrar en cada chip.
+  const estadoCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      activos: 0,
+      plantilla: 0,
+      todos: items.length,
+      inactivos: 0,
+      carbozulia: 0,
+      seguridad: 0,
+    };
+    gruposConfig.forEach((g) => { counts[g.id] = 0; });
+    items.forEach((it) => {
+      if (pasaFiltroEstado(it.employee_id, 'activos', itemEmployeeStatus, statusLoaded, itemEmployeeGrupo)) counts.activos++;
+      if (pasaFiltroEstado(it.employee_id, 'plantilla', itemEmployeeStatus, statusLoaded, itemEmployeeGrupo)) counts.plantilla++;
+      if (pasaFiltroEstado(it.employee_id, 'inactivos', itemEmployeeStatus, statusLoaded, itemEmployeeGrupo)) counts.inactivos++;
+      gruposConfig.forEach((g) => {
+        if (pasaFiltroEstado(it.employee_id, g.id, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo)) {
+          counts[g.id] = (counts[g.id] ?? 0) + 1;
+        }
+      });
+    });
+    return counts;
+  }, [items, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo, gruposConfig]);
+
+  // Cargos presentes en la pestaña activa del período (para el filtro) y personal ya filtrado.
   const cargosDisponibles = useMemo(() => {
     const m = new Map<string, number>();
-    items.forEach((it) => { const d = cargoOf(it.cargo); m.set(d, (m.get(d) ?? 0) + 1); });
+    itemsPorEstado.forEach((it) => { const d = cargoOf(it.cargo); m.set(d, (m.get(d) ?? 0) + 1); });
     return [...m.entries()].map(([cargo, count]) => ({ cargo, count })).sort((a, b) => cmpText(a.cargo, b.cargo));
-  }, [items, cargoOf]);
+  }, [itemsPorEstado, cargoOf]);
 
-  // DEPARTAMENTO de un renglón. El renglón NO lo guarda: `staff_pay_items` congela el
-  // cargo y el precio del día que se cargó la nómina, pero no el departamento. Se
-  // resuelve en vivo con el tabulador (por cargo) y la ficha (por persona).
+  // DEPARTAMENTO de un renglón. Se resuelve en vivo con el tabulador (por cargo) y la
+  // ficha (por persona). Si en la ficha del empleado se asignó explícitamente un área/departamento
+  // distinto al inferido por defecto de su cargo, se respeta ese cambio de área unificándolo
+  // con las etiquetas del tabulador.
   const deptoDe = useCallback(
-    (it: StaffPayItem) => depts.de(it.cargo, it.employee_id ? itemEmployeeDepto.get(it.employee_id) : null),
-    [depts, itemEmployeeDepto],
+    (it: StaffPayItem) => {
+      const deptFicha = it.employee_id ? itemEmployeeDepto.get(it.employee_id) : null;
+      if (deptFicha && deptFicha.trim()) {
+        const inferidoCargo = deptsSinTab.de(it.cargo, null);
+        const canonFicha = deptsSinTab.de(null, deptFicha);
+        if (canonFicha !== SIN_DEPARTAMENTO && canonFicha !== inferidoCargo) {
+          return depts.de(null, deptFicha);
+        }
+      }
+      return depts.de(it.cargo, deptFicha);
+    },
+    [depts, deptsSinTab, itemEmployeeDepto],
   );
-  // Departamentos presentes en el período, en el ORDEN de la jerarquía (no A→Z) para
-  // que el filtro y el Excel se lean igual. El conteo sale de `items` completos, no de
-  // los visibles: un contador que cambia al escribir en el buscador confunde más de lo
-  // que ayuda, porque deja de decir cuánta gente hay en ese departamento.
+  // Departamentos presentes en la pestaña activa del período, en el ORDEN de la jerarquía (no A→Z) para
+  // que el filtro y el Excel se lean igual.
   const deptosDisponibles = useMemo(() => {
     const m = new Map<string, number>();
-    items.forEach((it) => { const d = deptoDe(it); m.set(d, (m.get(d) ?? 0) + 1); });
+    itemsPorEstado.forEach((it) => { const d = deptoDe(it); m.set(d, (m.get(d) ?? 0) + 1); });
     return depts.orden(m.keys()).map((depto) => ({ depto, count: m.get(depto) ?? 0 }));
-  }, [items, deptoDe, depts]);
+  }, [itemsPorEstado, deptoDe, depts]);
 
   const itemsShown = useMemo(() => {
     const nq = norm(personaQuery);
     return items
       .filter((it) => !cargoSel.size || cargoSel.has(cargoOf(it.cargo)))
       .filter((it) => !deptoSel.size || deptoSel.has(deptoDe(it)))
-      .filter((it) => !nq || norm(it.person_name).includes(nq))
+      .filter((it) => !nq || norm(it.person_name).includes(nq) || norm(it.cedula ?? '').includes(nq) || norm(it.cargo ?? '').includes(nq))
       // ⚠️ La regla vive en src/lib/staffPayEstado.ts (función pura, con test propio).
       //    NO la reimplementes aquí: el bug del 20-ago-2026 fue exactamente eso —
       //    "sin estado" se trataba como "pasa todos los filtros", así que los renglones
@@ -936,19 +1140,22 @@ export default function PagoPersonalScreen() {
       .filter((it) => pasaFiltroEstado(it.employee_id, estadoSel, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo));
   }, [items, cargoSel, deptoSel, deptoDe, cargoOf, personaQuery, estadoSel, itemEmployeeStatus, itemEmployeeGrupo, statusLoaded]);
 
+  const totalMostrado = useMemo(
+    () => (sel ? round2(itemsShown.reduce((s, it) => s + Number(it.total || 0), 0)) : 0),
+    [itemsShown, sel],
+  );
+
   // Personal que sale en los DOCUMENTOS (Excel y reporte PDF): si hay selección manual
-  // (checkbox), solo esos; si no, lo que dejen pasar los filtros de departamento y de
-  // cargo, que se combinan con Y. Vive en un solo sitio a propósito: esta regla estaba
-  // copiada palabra por palabra en el PDF y en el Excel, y con dos copias un filtro
-  // nuevo llega a uno y se olvida en el otro, que es exactamente lo que pasaría ahora
-  // con el de departamento.
+  // (checkbox), solo esos; si no, lo que dejen pasar el filtro de estado/grupo, el de
+  // departamento y el de cargo, que se combinan con Y.
   const baseDocumentos = useCallback(() => (
     itemSelIds.size
       ? items.filter((it) => itemSelIds.has(it.id))
       : items
+        .filter((it) => pasaFiltroEstado(it.employee_id, estadoSel, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo))
         .filter((it) => !deptoSel.size || deptoSel.has(deptoDe(it)))
         .filter((it) => !cargoSel.size || cargoSel.has(cargoOf(it.cargo)))
-  ), [items, itemSelIds, deptoSel, cargoSel, deptoDe, cargoOf]);
+  ), [items, itemSelIds, estadoSel, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo, deptoSel, cargoSel, deptoDe, cargoOf]);
 
   // Qué filtro se aplicó, escrito al pie del documento. Sin esta nota, una nómina
   // filtrada y una completa salen idénticas en papel, y no hay cómo saber que falta
@@ -956,10 +1163,14 @@ export default function PagoPersonalScreen() {
   const notaFiltro = useCallback(() => {
     if (itemSelIds.size) return ` · Selección manual (${itemSelIds.size})`;
     const partes: string[] = [];
+    if (estadoSel !== 'todos' && estadoSel !== 'activos') {
+      const grpLbl = estadoSel === 'plantilla' ? 'Plantilla base' : estadoSel === 'inactivos' ? 'Inactivos/Desincorporados' : (gruposConfig.find((g) => g.id === estadoSel)?.label ?? estadoSel);
+      partes.push(`Grupo/Estado: ${grpLbl}`);
+    }
     if (deptoSel.size) partes.push(`Departamento(s): ${depts.orden(deptoSel).join(', ')}`);
     if (cargoSel.size) partes.push(`Cargo(s): ${[...cargoSel].sort((a, b) => cmpText(a, b)).join(', ')}`);
     return partes.length ? ` · ${partes.join(' · ')}` : '';
-  }, [itemSelIds, deptoSel, cargoSel, depts]);
+  }, [itemSelIds, estadoSel, gruposConfig, deptoSel, cargoSel, depts]);
 
   const chip = (on: boolean) => ({ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs } as const);
   const chipTxt = (on: boolean) => ({ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 } as const);
@@ -1180,8 +1391,18 @@ export default function PagoPersonalScreen() {
                   <Badge label={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).label} tone={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).tone} />
                 </View>
                 <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.xs }}>
-                  <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 11, letterSpacing: 0.5 }}>TOTAL DEL PERÍODO</Text>
-                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 28, fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>{usd(sel.total_amount)}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.xs }}>
+                    <View>
+                      <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 11, letterSpacing: 0.5 }}>TOTAL DEL PERÍODO ({items.length})</Text>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 28, fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>{usd(sel.total_amount)}</Text>
+                    </View>
+                    {itemsShown.length !== items.length ? (
+                      <View style={{ alignItems: 'flex-end', backgroundColor: 'rgba(255,255,255,0.14)', paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.sm }}>
+                        <Text style={{ color: colors.brandContrast, opacity: 0.9, fontWeight: '800', fontSize: 10, letterSpacing: 0.5 }}>TOTAL EN VISTA ({itemsShown.length})</Text>
+                        <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(totalMostrado)}</Text>
+                      </View>
+                    ) : null}
+                  </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' }}>
                     <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 13, fontWeight: '800' }}>Pagada {usd(totalPagado)}</Text>
                     {totalSaldo > 0 ? <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}</Text> : null}
@@ -1197,6 +1418,9 @@ export default function PagoPersonalScreen() {
                         que caería en el parámetro del rango. */}
                     <TouchableOpacity onPress={() => recalcularAuto()} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{busy ? '…' : '🔄 Recalcular jornadas'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={sincronizarConNomina} disabled={busy} style={{ flexGrow: 1, flexBasis: 145, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary + '22', borderWidth: 1, borderColor: colors.primary }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{busy ? '…' : '🔄 Sincronizar con Nómina'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={agregarFaltantes} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>＋ Personal faltante</Text>
@@ -1326,6 +1550,7 @@ export default function PagoPersonalScreen() {
                     atajos para ver y exportar a esa gente aparte sin descontarlos del total del período. */}
                 {([
                   { k: 'activos', t: 'Activos' },
+                  { k: 'plantilla', t: 'Plantilla base' },
                   { k: 'todos', t: 'Todos' },
                   { k: 'inactivos', t: 'Inactivos/Desincorporados' },
                   { k: 'carbozulia', t: 'Carbozulia' },
@@ -1333,11 +1558,14 @@ export default function PagoPersonalScreen() {
                   ...gruposConfig
                     .filter((g) => g.id !== 'carbozulia' && g.id !== 'seguridad')
                     .map((g) => ({ k: g.id as EstadoFiltro, t: g.label })),
-                ] as const).map((o) => (
-                  <TouchableOpacity key={o.k} onPress={() => setEstadoSel(o.k)} style={chip(estadoSel === o.k)}>
-                    <Text style={chipTxt(estadoSel === o.k)}>{o.t}</Text>
-                  </TouchableOpacity>
-                ))}
+                ] as const).map((o) => {
+                  const cnt = estadoCounts[o.k] ?? 0;
+                  return (
+                    <TouchableOpacity key={o.k} onPress={() => setEstadoSel(o.k)} style={chip(estadoSel === o.k)}>
+                      <Text style={chipTxt(estadoSel === o.k)}>{o.t} ({cnt})</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
 
               {/* Filtro por DEPARTAMENTO: mismo desplegable que el de cargo, y se
@@ -1492,6 +1720,8 @@ export default function PagoPersonalScreen() {
                   // no afecta el pago ya cargado).
                   const empStatusNow = it.employee_id ? itemEmployeeStatus.get(it.employee_id) : undefined;
                   const desincorporado = esDesincorporado(empStatusNow);
+                  const areaDepto = deptoDe(it);
+                  const empNominaName = it.employee_id ? itemEmployeeEmpresaNomina.get(it.employee_id) : undefined;
                   const itSel = itemSelIds.has(it.id);
                   return (
                     <Card key={it.id}>
@@ -1502,14 +1732,29 @@ export default function PagoPersonalScreen() {
                           </View>
                         </TouchableOpacity>
                         <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{it.person_name}</Text>
                             {desincorporado ? <Badge label="Desincorporado" tone="danger" /> : null}
                           </View>
                           <Text style={{ color: colors.muted, fontSize: 12 }}>
                             {[it.cargo, it.source === 'auto' ? '⚙️ operador (auto)' : '✍️ manual'].filter(Boolean).join(' · ')}
                           </Text>
-                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                            {areaDepto && areaDepto !== SIN_DEPARTAMENTO ? (
+                              <TouchableOpacity
+                                onPress={() => { if (!deptoSel.has(areaDepto)) toggleDepto(areaDepto); }}
+                                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}
+                              >
+                                <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '700' }}>🏛️ {areaDepto}</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {empNominaName ? (
+                              <View style={{ backgroundColor: colors.primary + '18', borderWidth: 1, borderColor: colors.primary + '55', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                                <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '800' }}>🏢 {empNominaName}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}>
                             {devDesc(it, sel.mode)} = {usd(devengadoOf(it, sel.mode))}
                             {sumLines(it.bonos) ? ` · +${usd(sumLines(it.bonos))}` : ''}{sumLines(it.deducciones) ? ` · −${usd(sumLines(it.deducciones))}` : ''}
                           </Text>
@@ -1535,27 +1780,32 @@ export default function PagoPersonalScreen() {
                           ))}
                         </View>
                       ) : null}
-                      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
-                        <TouchableOpacity onPress={() => openItem(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: readOnly ? colors.surfaceAlt : colors.primary, borderWidth: readOnly ? 1 : 0, borderColor: colors.border }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+                        <TouchableOpacity onPress={() => openItem(it)} style={{ flex: 1, minWidth: 80, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: readOnly ? colors.surfaceAlt : colors.primary, borderWidth: readOnly ? 1 : 0, borderColor: colors.border }}>
                           <Text style={{ color: readOnly ? colors.text : colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>{readOnly ? '👁 Ver' : '✎ Editar'}</Text>
                         </TouchableOpacity>
                         {saldo > 0 && sel.status !== 'borrador' ? (
-                          <TouchableOpacity onPress={() => openPay(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }}>
+                          <TouchableOpacity onPress={() => openPay(it)} style={{ flex: 1, minWidth: 80, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }}>
                             <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>💵 Abonar</Text>
                           </TouchableOpacity>
                         ) : null}
-                        <TouchableOpacity onPress={() => reciboPdf(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                        <TouchableOpacity onPress={() => reciboPdf(it)} style={{ flex: 1, minWidth: 80, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 Recibo</Text>
                         </TouchableOpacity>
                         {/* 📎 Soportes (19-oct-2026, a pedido): factura o comprobante
                             de ESTA persona en ESTE período. Se abre y cierra acá;
                             el número dice cuántos tiene sin abrirla. */}
                         <TouchableOpacity onPress={() => setSoportesDe((v) => (v === it.id ? null : it.id))}
-                          style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: soportesDe === it.id ? colors.primary : colors.surfaceAlt, borderWidth: soportesDe === it.id ? 0 : 1, borderColor: colors.border }}>
+                          style={{ flex: 1, minWidth: 85, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: soportesDe === it.id ? colors.primary : colors.surfaceAlt, borderWidth: soportesDe === it.id ? 0 : 1, borderColor: colors.border }}>
                           <Text style={{ color: soportesDe === it.id ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
                             📎 {(soportesPorItem.get(it.id) ?? []).length || 'Soportes'}
                           </Text>
                         </TouchableOpacity>
+                        {!readOnly ? (
+                          <TouchableOpacity onPress={() => eliminarItem(it)} disabled={busy} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.danger }}>
+                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️</Text>
+                          </TouchableOpacity>
+                        ) : null}
                       </View>
                       {soportesDe === it.id && sel ? (
                         <SoportesPagoBox
