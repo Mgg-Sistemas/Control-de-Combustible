@@ -69,6 +69,8 @@ import {
 } from '../lib/horometroTrabajo';
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
 import { FrentesReportesCard } from '../components/FrentesReportesCard';
+import { FRENTES_MAQUINARIA, FRENTES_VIAJES, listAsignacionesHasta, listFrentes } from '../lib/camionViajes';
+import { vigentesAlDia } from '../lib/frentesReporte';
 import { ReporteMaquinariaPersonalizadoCard } from '../components/ReporteMaquinariaPersonalizadoCard';
 import { ReporteConsolidadoCard } from '../components/ReporteConsolidadoCard';
 import { cargarFotosHorometroRango } from '../lib/horometroFotosDb';
@@ -665,14 +667,14 @@ export default function ReportsScreen({ route }: any) {
   // con la MISMA regla de los cubos del Catálogo (src/lib/machineLiveStatus.ts).
   // `estado` (activo/inactivo/standby) se queda tal cual: lo usan las tarjetas y
   // el detalle de arriba, y tocarlo cambiaría números que ya se leen todos los días.
-  type MachineDetail = { id: string; code: string; serial: string | null; plate: string | null; company: string; tipo: string; marca: string | null; modelo: string | null; clas: string; estado: 'activo' | 'inactivo' | 'standby'; estadoReal: EstadoConteo; encargado: string | null };
+  type MachineDetail = { id: string; code: string; serial: string | null; plate: string | null; company: string; tipo: string; marca: string | null; modelo: string | null; clas: string; estado: 'activo' | 'inactivo' | 'standby'; estadoReal: EstadoConteo; encargado: string | null; frente: string };
   // Fila activa cruda: ZONA geográfica (GPS) + A DISPOSICIÓN DE (Gobernación/FANB/CVM…),
   // para recalcular el conteo al filtrar y para el cruce disposición×zona, en vivo.
   // `insDia`/`insNoche`: inspector asignado por turno (machine_inspectors). Se cargan
   // SIEMPRE al generar el conteo, pero solo salen en el PDF si se activa el switch
   // "Incluir inspector asignado" — así se puede cambiar de opinión sin regenerar.
-  type ActiveRow = { code: string; serial: string | null; company: string; tipo: string; clas: string; zona: string; dispo: string; tieneHoras: boolean; insDia: string | null; insNoche: string | null };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; ubicados: number; ubicadosGps: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[]; zonaCountsGps: { name: string; count: number }[]; sinGpsByTipo: { name: string; count: number }[]; sinGpsCount: number } | null>(null);
+  type ActiveRow = { code: string; serial: string | null; plate: string | null; company: string; tipo: string; clas: string; zona: string; dispo: string; tieneHoras: boolean; insDia: string | null; insNoche: string | null; frente: string };
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; ubicados: number; ubicadosGps: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[]; zonaCountsGps: { name: string; count: number }[]; sinGpsByTipo: { name: string; count: number }[]; sinGpsCount: number; frentesCatalogo?: string[] } | null>(null);
   const [conteoMap, setConteoMap] = useState(false); // modal del mapa por sectores
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
   // 20-oct-2026: el detalle es por el estado REAL del Catálogo (los 6 cubos), no
@@ -749,6 +751,15 @@ export default function ReportsScreen({ route }: any) {
   const [clasSel, setClasSel] = useState<Set<string>>(new Set());
   const toggleClasSel = (n: string) =>
     setClasSel((prev) => { const x = new Set(prev); x.has(n) ? x.delete(n) : x.add(n); return x; });
+  /** Frentes de trabajo marcados en el conteo. Vacío = todos, igual que empresas y categorías. */
+  const [frentesSel, setFrentesSel] = useState<Set<string>>(new Set());
+  const [frenteQ, setFrenteQ] = useState('');
+  const toggleFrenteSel = (n: string) =>
+    setFrentesSel((prev) => { const x = new Set(prev); x.has(n) ? x.delete(n) : x.add(n); return x; });
+  const frenteEnConteo = useCallback(
+    (frente: string) => frentesSel.size === 0 || frentesSel.has(frente || 'Sin frente'),
+    [frentesSel],
+  );
 
   /** Qué se oculta en el PDF del conteo por tipo. Por defecto, nada. */
   const [conteoOpciones, setConteoOpciones] = useState<OpcionesConteo>(OPCIONES_CONTEO_COMPLETO);
@@ -1002,7 +1013,7 @@ export default function ReportsScreen({ route }: any) {
   const toggleMaquina = (id: string) =>
     setMaqExcluidas((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Al reabrir el conteo se limpia la selección/búsqueda/alcance del buscador por tipo.
-  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); setEstadosSel(new Set()); setMaqExcluidas(new Set()); setMaqOpen(false); setMaqQ(''); } }, [conteoPreview]);
+  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); setEstadosSel(new Set()); setMaqExcluidas(new Set()); setMaqOpen(false); setMaqQ(''); setFrentesSel(new Set()); setFrenteQ(''); setClasSel(new Set()); setConteoEje('empresa'); } }, [conteoPreview]);
   // machinesAll acotado a los ESTADOS marcados (vacío = todos) para el buscador por tipo.
   const machinesPorEstado = useMemo(() => {
     const src = conteo?.machinesAll ?? [];
@@ -1010,8 +1021,9 @@ export default function ReportsScreen({ route }: any) {
     // Vacío = todas. Se aplica acá y en ningún otro lado, así que lo que se ve en
     // pantalla y lo que sale impreso son exactamente lo mismo.
     const porEmpresa = empresasSel.size ? porEstado.filter((m) => empresasSel.has(m.company)) : porEstado;
-    return clasSel.size ? porEmpresa.filter((m) => clasSel.has(m.clas)) : porEmpresa;
-  }, [conteo, estadosSel, empresasSel, clasSel]);
+    const porClas = clasSel.size ? porEmpresa.filter((m) => clasSel.has(m.clas)) : porEmpresa;
+    return frentesSel.size ? porClas.filter((m) => frentesSel.has(m.frente || 'Sin frente')) : porClas;
+  }, [conteo, estadosSel, empresasSel, clasSel, frentesSel]);
 
   /** Las categorías que hay para marcar, con su cantidad. Salen de los datos,
    *  no de una lista fija: así no se ofrece una categoría sin un solo equipo. */
@@ -1028,6 +1040,19 @@ export default function ReportsScreen({ route }: any) {
     const m = new Map<string, number>();
     (conteo?.machinesAll ?? []).forEach((x) => m.set(x.company, (m.get(x.company) ?? 0) + 1));
     return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
+  }, [conteo]);
+
+  /** Los frentes de trabajo disponibles en el conteo (del reporte de frentes + equipos asignados). */
+  const frentesDelConteo = useMemo(() => {
+    const m = new Map<string, number>();
+    (conteo?.frentesCatalogo ?? []).forEach((f) => { if (f) m.set(f, 0); });
+    (conteo?.machinesAll ?? []).forEach((x) => {
+      const f = x.frente || 'Sin frente';
+      m.set(f, (m.get(f) ?? 0) + 1);
+    });
+    return [...m.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => (a.name === 'Sin frente' ? 1 : b.name === 'Sin frente' ? -1 : cmpText(a.name, b.name)));
   }, [conteo]);
   // Mapa de TIPOS unificados: la clave normaliza el código (mayúsculas, sin acentos y
   // con los espacios colapsados) para que "CAMION VOLTEO TORONTO" y "CAMION  VOLTEO
@@ -1093,11 +1118,11 @@ export default function ReportsScreen({ route }: any) {
     //    El campo se sigue llamando `company` por historia: agrupando por
     //    categoría, cada uno de estos grupos es una CLASIFICACIÓN. Renombrarlo
     //    obligaría a tocar la pantalla, el HTML del PDF y el test sin ganar nada.
-    const ejeDe = (it: MachineDetail) => (conteoEje === 'clasificacion' ? (it.clas || 'Sin clasificación') : it.company);
+    const ejeDe = (it: MachineDetail) => (conteoEje === 'clasificacion' ? (it.clas || 'Sin clasificación') : (conteoEje as string) === 'frente' ? (it.frente || 'Sin frente') : it.company);
     match.forEach((it) => { const k = ejeDe(it); const l = byCo.get(k) ?? []; l.push(it); byCo.set(k, l); });
     const empresas = [...byCo.entries()]
       .map(([company, items]) => ({ company, count: items.length, items: items.slice().sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || '')) }))
-      .sort((a, b) => cmpText(a.company, b.company));
+      .sort((a, b) => (a.company === 'Sin frente' ? 1 : b.company === 'Sin frente' ? -1 : cmpText(a.company, b.company)));
     return { total: match.length, empresas };
     // ⚠️ `maquinasDeTipos` y `maqFuera` TIENEN que estar acá. Hasta el 19-sep-2026
     //    faltaban: al destildar una máquina el rótulo decía «15 de 18» (ese sí se
@@ -2133,6 +2158,43 @@ export default function ReportsScreen({ route }: any) {
         insByMachine.set(r.machinery_id, g);
       });
     } catch { /* sin asignaciones: el PDF mostrará "—" en las columnas de inspector */ }
+    // ⛏️ Frente de trabajo vigente por máquina, traído en modo 100% lectura desde el
+    // reporte de Frentes de maquinaria (y Frentes de viajes como respaldo si un camión
+    // solo tiene asignación allá). Si las tablas no existen o hay fallo de red, el
+    // conteo sigue intacto con 'Sin frente'.
+    const frenteByMachine = new Map<string, string>();
+    const frentesCatMap = new Map<string, string>();
+    try {
+      const hoyFrente = caracasBusinessToday();
+      const [fRes, asigMaq, asigViajes] = await Promise.all([
+        listFrentes(FRENTES_MAQUINARIA).catch(() => ({ frentes: [] })),
+        listAsignacionesHasta(hoyFrente, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [] })),
+        listAsignacionesHasta(hoyFrente, FRENTES_VIAJES).catch(() => ({ asignaciones: [] })),
+      ]);
+      (fRes.frentes ?? []).filter((f) => f.activo).forEach((f) => {
+        const nom = String(f.nombre ?? '').trim();
+        if (nom && !frentesCatMap.has(nom.toLowerCase())) frentesCatMap.set(nom.toLowerCase(), nom);
+      });
+      for (const a of vigentesAlDia(asigMaq.asignaciones ?? [], hoyFrente)) {
+        const nom = String(a.frenteNombre ?? '').trim();
+        if (a.machineryId && nom) {
+          const canon = frentesCatMap.get(nom.toLowerCase()) ?? nom;
+          frenteByMachine.set(String(a.machineryId), canon);
+          if (!frentesCatMap.has(nom.toLowerCase())) frentesCatMap.set(nom.toLowerCase(), canon);
+        }
+      }
+      for (const a of vigentesAlDia(asigViajes.asignaciones ?? [], hoyFrente)) {
+        const id = String(a.machineryId ?? '');
+        const nom = String(a.frenteNombre ?? '').trim();
+        if (id && nom && !frenteByMachine.has(id)) {
+          const canon = frentesCatMap.get(nom.toLowerCase()) ?? nom;
+          frenteByMachine.set(id, canon);
+          if (!frentesCatMap.has(nom.toLowerCase())) frentesCatMap.set(nom.toLowerCase(), canon);
+        }
+      }
+    } catch { /* sin frentes: todas quedan como 'Sin frente' */ }
+    const frenteOf = (m: any) => frenteByMachine.get(String(m.id)) || 'Sin frente';
+    const frentesCatalogo = [...frentesCatMap.values()].sort((a, b) => cmpText(a, b));
     const clasMap = new Map<string, ConteoRow>();
     const tipoMap = new Map<string, ConteoRow>();
     const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
@@ -2162,7 +2224,7 @@ export default function ReportsScreen({ route }: any) {
     // Detalle de TODAS las máquinas con su estado (para ver el detalle al tocar una tarjeta).
     const estadoOf = (m: any): 'activo' | 'inactivo' | 'standby' => m.en_espera === true ? 'standby' : (m.active === false || m.operational === false) ? 'inactivo' : 'activo';
     const machinesAll: MachineDetail[] = all
-      .map((m) => ({ id: String(m.id), code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m), tipo: equipCategory(m.code), marca: (m.marca && String(m.marca).trim()) || null, modelo: (m.tipo && String(m.tipo).trim()) || null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), estadoReal: estadoRealDe(m), encargado: (m.encargado && String(m.encargado).trim()) || null }))
+      .map((m) => ({ id: String(m.id), code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m), tipo: equipCategory(m.code), marca: (m.marca && String(m.marca).trim()) || null, modelo: (m.tipo && String(m.tipo).trim()) || null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), estadoReal: estadoRealDe(m), encargado: (m.encargado && String(m.encargado).trim()) || null, frente: frenteOf(m) }))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     // Sector MACRO por máquina para el REPORTE: si tiene GPS, su sector real (Este/Oeste);
     // si NO tiene ubicación, se reparte 50/50 entre Este y Oeste. Esto es SOLO para el
@@ -2179,13 +2241,14 @@ export default function ReportsScreen({ route }: any) {
     // El conteo cuenta TODAS las máquinas activas (el total es como antes). Cada una lleva
     // su zona del reporte (Este/Oeste), sin ninguna "Sin zona".
     const activeRows: ActiveRow[] = list.map((m) => ({
-      code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m),
+      code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m),
       tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación',
       zona: zonaR(m),
       dispo: (m.zona && String(m.zona).trim()) || 'Propias',
       tieneHoras: workedSet.has(m.id),
       insDia: insByMachine.get(m.id)?.day ?? null,
       insNoche: insByMachine.get(m.id)?.night ?? null,
+      frente: frenteOf(m),
     }));
     // Puntos del mapa (solo las ubicadas), coloreados por empresa como el mapa general.
     const mapPins: MapPin[] = list
@@ -2235,7 +2298,7 @@ export default function ReportsScreen({ route }: any) {
     });
     const dispoDetail = [...dispoMap.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => cmpText(a.name, b.name));
     // total = TODAS las activas; ubicados = todas (las sin GPS repartidas 50/50); ubicadosGps = solo GPS.
-    setConteo({ byClas, byTipo, machinesAll, total: list.length, ubicados, ubicadosGps, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts, dispoDetail, mapPins, zonaCountsGps, sinGpsByTipo, sinGpsCount });
+    setConteo({ byClas, byTipo, machinesAll, total: list.length, ubicados, ubicadosGps, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts, dispoDetail, mapPins, zonaCountsGps, sinGpsByTipo, sinGpsCount, frentesCatalogo });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -2244,19 +2307,23 @@ export default function ReportsScreen({ route }: any) {
     if (!conteo) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     // Respeta la ZONA elegida en el filtro: recalcula las tablas con esas máquinas.
-    // Filtro por ZONA y por EMPRESA. `rowsZona` es el embudo del que salen TODAS las
-    // tablas del conteo (byClas, byTipo, totales, desglose por inspector), así que
-    // filtrar acá deja todo consistente de una sola vez. Sin empresas marcadas = todas.
+    // Filtro por ZONA, EMPRESA y FRENTE. `rowsZona` es el embudo del que salen TODAS las
+    // tablas del conteo (byClas, byTipo, byFrente, totales, desglose por inspector), así que
+    // filtrar acá deja todo consistente de una sola vez. Sin empresas/frentes marcados = todos.
     const rowsZona = conteo.activeRows
       .filter((r) => conteoZona === '__all__' || r.zona === conteoZona)
-      .filter((r) => empresaEnConteo(r.company));
-    const aggregate = (key: 'clas' | 'tipo') => {
+      .filter((r) => empresaEnConteo(r.company))
+      .filter((r) => frenteEnConteo(r.frente));
+    const aggregate = (key: 'clas' | 'tipo' | 'frente') => {
       const m = new Map<string, number>();
       rowsZona.forEach((r) => m.set(r[key], (m.get(r[key]) ?? 0) + 1));
-      return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
+      return [...m.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => (a.name === 'Sin frente' ? 1 : b.name === 'Sin frente' ? -1 : cmpText(a.name, b.name)));
     };
     const byClas = aggregate('clas');
     const byTipo = aggregate('tipo');
+    const byFrente = aggregate('frente');
     const totalCnt = rowsZona.length;
     const zonaTxt = conteoZona === '__all__' ? 'todas las zonas' : conteoZona;
     const rowsFor = (arr: { name: string; count: number }[]) => arr.map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${r.count}</td></tr>`).join('');
@@ -2321,7 +2388,7 @@ export default function ReportsScreen({ route }: any) {
       const detalleRows = rowsZona
         .slice()
         .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code))
-        .map((r) => `<tr><td>${esc(r.code)}</td><td>${esc(r.serial || '—')}</td><td>${esc(r.company)}</td><td>${esc(r.insDia || '—')}</td><td>${esc(r.insNoche || '—')}</td></tr>`)
+        .map((r) => `<tr><td>${esc(r.code)}</td><td>${esc([r.plate, r.serial].filter(Boolean).join(' · ') || '—')}</td><td>${esc(r.company)}</td><td>${esc(r.frente || 'Sin frente')}</td><td>${esc(r.insDia || '—')}</td><td>${esc(r.insNoche || '—')}</td></tr>`)
         .join('');
       inspectorHtml = `
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Equipos por inspector · ${esc(zonaTxt)}</h2>
@@ -2329,11 +2396,17 @@ export default function ReportsScreen({ route }: any) {
         <tbody>${insRows || '<tr><td colspan="4" style="text-align:center">Sin inspectores asignados</td></tr>'}</tbody></table>
       ${sinAsignar ? `<p style="font-size:11px;color:#6B7280;margin:-10px 0 12px">${sinAsignar} equipo(s) sin ningún inspector asignado.</p>` : ''}
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Detalle: equipo e inspector asignado</h2>
-      <table class="cnt"><thead><tr><th>Equipo</th><th>Serial</th><th>Empresa</th><th>☀️ Día</th><th>🌙 Noche</th></tr></thead>
+      <table class="cnt"><thead><tr><th>Equipo</th><th>Placa / Serial</th><th>Empresa</th><th>Frente</th><th>☀️ Día</th><th>🌙 Noche</th></tr></thead>
         <tbody>${detalleRows}</tbody>
-        <tfoot><tr><td colspan="4">TOTAL EQUIPOS</td><td style="text-align:right">${rowsZona.length}</td></tr></tfoot></table>`;
+        <tfoot><tr><td colspan="5">TOTAL EQUIPOS</td><td style="text-align:right">${rowsZona.length}</td></tr></tfoot></table>`;
     }
+    const frenteHtml = byFrente.some((f) => f.name !== 'Sin frente') || frentesSel.size > 0 ? `
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por frente de trabajo · ${esc(zonaTxt)}</h2>
+      <table class="cnt"><thead><tr><th>Frente de trabajo</th><th style="text-align:right">Cantidad</th></tr></thead>
+        <tbody>${rowsFor(byFrente)}</tbody>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>` : '';
     const tablasHtml = `${zonaSummary}
+      ${frenteHtml}
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación · ${esc(zonaTxt)}</h2>
       <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
         <tbody>${rowsFor(byClas)}</tbody>
@@ -2875,14 +2948,14 @@ export default function ReportsScreen({ route }: any) {
     const items = kind === 'flota' ? conteo.machinesAll : conteo.machinesAll.filter((m) => m.estadoReal === kind);
     const estLbl = (e: EstadoConteo) => ESTADO_CONTEO_INFO[e].label.toUpperCase();
     const showEstado = kind === 'flota';
-    const rows = items.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.tipo)}</td><td>${esc(m.modelo ?? '—')}</td><td>${esc(m.encargado ?? '—')}</td>${showEstado ? `<td>${estLbl(m.estadoReal)}</td>` : ''}</tr>`).join('');
+    const rows = items.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc([m.plate, m.serial].filter(Boolean).join(' · ') || '—')}</td><td>${esc(m.tipo)}</td><td>${esc(m.modelo ?? '—')}</td><td>${esc(m.frente || 'Sin frente')}</td><td>${esc(m.encargado ?? '—')}</td>${showEstado ? `<td>${estLbl(m.estadoReal)}</td>` : ''}</tr>`).join('');
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
         table.cnt th,table.cnt td{border:1px solid #ccc;padding:6px 10px;text-align:left}
         table.cnt th{background:#1E3A5F;color:#fff}
       </style>
-      <table class="cnt"><thead><tr><th style="width:30px">#</th><th>Empresa</th><th>Máquina</th><th>Serial</th><th>Tipo de equipo</th><th>Marca/Modelo</th><th>Encargado</th>${showEstado ? '<th>Estado</th>' : ''}</tr></thead>
+      <table class="cnt"><thead><tr><th style="width:30px">#</th><th>Empresa</th><th>Máquina</th><th>Placa / Serial</th><th>Tipo de equipo</th><th>Marca/Modelo</th><th>Frente</th><th>Encargado</th>${showEstado ? '<th>Estado</th>' : ''}</tr></thead>
         <tbody>${rows}</tbody></table>`;
     await exportPdf(pdfShell(titulo.toUpperCase(), `${items.length} equipos`, body), `Reportes - ${titulo}`);
   };
@@ -3104,10 +3177,11 @@ export default function ReportsScreen({ route }: any) {
       : ESTADO_CONTEO_ORDER.filter((k) => estadosSel.has(k)).map((k) => `${ESTADO_CONTEO_INFO[k].icon} ${ESTADO_CONTEO_INFO[k].label}`).join(' · ');
     // (20-oct-2026) empLbl/clasLbl ya no existen: el membrete no delata el alcance.
     // Cómo se nombra el grupo, según el eje. Es lo ÚNICO que cambia entre los
-    // dos: el HTML es el mismo, y por eso los totales no pueden diferir.
+    // ejes: el HTML es el mismo, y por eso los totales no pueden diferir.
     const porCategoria = conteoEje === 'clasificacion';
-    const icoGrupo = porCategoria ? '\ud83d\udd36' : '\ud83c\udfe2';
-    const tituloListado = porCategoria ? 'Listado por categoría' : 'Listado por empresa';
+    const porFrente = (conteoEje as string) === 'frente';
+    const icoGrupo = porCategoria ? '\ud83d\udd36' : porFrente ? '\u26cf\ufe0f' : '\ud83c\udfe2';
+    const tituloListado = porCategoria ? 'Listado por categoría' : porFrente ? 'Listado por frente' : 'Listado por empresa';
 
     // ── Los cuadros de conteo ────────────────────────────────────────────
     const cuadro = (titulo: string, filas: [string, number][]) => `
@@ -3136,14 +3210,20 @@ export default function ReportsScreen({ route }: any) {
     const menorM3 = volumenes.length ? Math.min(...volumenes) : 0;
 
     const porClasif = new Map<string, number>();
+    const porFrenteMap = new Map<string, number>();
     empresas.forEach((e) => e.items.forEach((m) => {
       const k = (m.clas && String(m.clas).trim()) || 'Sin clasificación';
       porClasif.set(k, (porClasif.get(k) ?? 0) + 1);
+      const fk = (m.frente && String(m.frente).trim()) || 'Sin frente';
+      porFrenteMap.set(fk, (porFrenteMap.get(fk) ?? 0) + 1);
     }));
 
     const bloqueTipos = o.sinTipos ? '' : cuadro('Cantidad por tipo de equipo', sel.map((t) => [t.name, t.count] as [string, number]));
     const bloqueClasif = o.sinClasificacion ? '' : cuadro('Cantidad por clasificación',
       [...porClasif.entries()].sort((a, b) => cmpText(a[0], b[0])));
+    const hayFrenteReal = [...porFrenteMap.keys()].some((k) => k !== 'Sin frente') || porFrente || frentesSel.size > 0;
+    const bloqueFrentes = o.sinClasificacion || !hayFrenteReal ? '' : cuadro('Cantidad por frente de trabajo',
+      [...porFrenteMap.entries()].sort((a, b) => (a[0] === 'Sin frente' ? 1 : b[0] === 'Sin frente' ? -1 : cmpText(a[0], b[0]))));
 
     // ── El listado, columna por columna ──────────────────────────────────
     const cols = columnasConteo(o);
@@ -3159,7 +3239,7 @@ export default function ReportsScreen({ route }: any) {
         case 'n': return String(i + 1);
         case 'equipo': return m.code;
         case 'marcaModelo': return marcaModeloConteo(m, o) || '\u2014';
-        case 'placa': return m.serial || m.plate || '\u2014';
+        case 'placa': return [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ') || '\u2014';
         case 'encargado': return m.encargado || '\u2014';
         case 'alto': return med ? dec(med.alto) : '';
         case 'largo': return med ? dec(med.largo) : '';
@@ -3191,7 +3271,7 @@ export default function ReportsScreen({ route }: any) {
       ? filasDe(empresas.flatMap((e) => e.items).slice()
           .sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || '')))
       : empresas.map((e) => `
-          <tr><td colspan="${cols.length}" style="background:#eef2f7;font-weight:800;color:${RENACE_NAVY}">${icoGrupo} ${esc(e.company)}${!porCategoria && companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
+          <tr><td colspan="${cols.length}" style="background:#eef2f7;font-weight:800;color:${RENACE_NAVY}">${icoGrupo} ${esc(e.company)}${!porCategoria && !porFrente && companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
           ${filasDe(e.items)}`).join('');
 
     const bloqueListado = o.sinListado ? '' : `
@@ -3212,8 +3292,10 @@ export default function ReportsScreen({ route }: any) {
       <table><tbody>
         <tr><td style="width:38%"><b>Tipos de equipo</b></td><td>${sel.length ? esc(sel.map((t) => t.name).join(' · ')) : '\u2014'}</td></tr>
         <tr><td><b>Estado</b></td><td>${esc(estadoLbl)}</td></tr>
-        <tr><td><b>${porCategoria ? 'Categorías' : 'Empresas'}</b></td><td>${o.sinEmpresas ? `${empresas.length} grupo(s)` : esc(empresas.map((e) => e.company).join(' · ')) || '\u2014'}</td></tr>
+        <tr><td><b>${porCategoria ? 'Categorías' : porFrente ? 'Frentes' : 'Empresas'}</b></td><td>${o.sinEmpresas ? `${empresas.length} grupo(s)` : esc(empresas.map((e) => e.company).join(' · ')) || '\u2014'}</td></tr>
+        ${empresasSel.size && (porCategoria || porFrente) ? `<tr><td><b>Empresas filtradas</b></td><td>${esc([...empresasSel].join(' · '))}</td></tr>` : ''}
         ${clasSel.size ? `<tr><td><b>Categorías filtradas</b></td><td>${esc([...clasSel].join(' · '))}</td></tr>` : ''}
+        ${frentesSel.size ? `<tr><td><b>Frentes filtrados</b></td><td>${esc([...frentesSel].join(' · '))}</td></tr>` : ''}
         ${maqFuera.size ? `<tr><td><b>Equipos excluidos</b></td><td>${esc(textoExclusiones(maquinasDeTipos.length, maqFuera.size))}</td></tr>` : ''}
         <tr><td><b>Se ocultó</b></td><td>${esc(ocultosConteoEnPalabras(o))}</td></tr>
         ${o.sinCubicaje ? '' : `<tr><td><b>Medidas de tolva</b></td><td>${esc(NOTA_ORIGEN)}</td></tr>`}
@@ -3234,7 +3316,7 @@ export default function ReportsScreen({ route }: any) {
       <div class="summary">
         <div><span class="k">TOTAL DE EQUIPOS</span><b>${total}</b></div>
         <div><span class="k">TIPOS</span><b>${sel.length}</b></div>
-        ${o.sinEmpresas ? '' : `<div><span class="k">${porCategoria ? 'CATEGORÍAS' : 'EMPRESAS'}</span><b>${empresas.length}</b></div>`}
+        ${o.sinEmpresas ? '' : `<div><span class="k">${porCategoria ? 'CATEGORÍAS' : porFrente ? 'FRENTES' : 'EMPRESAS'}</span><b>${empresas.length}</b></div>`}
       </div>
       ${o.sinCubicaje || !volumenes.length ? '' : `
       <div class="summary">
@@ -3250,6 +3332,7 @@ export default function ReportsScreen({ route }: any) {
       </p>`}
       ${bloqueTipos}
       ${bloqueClasif}
+      ${bloqueFrentes}
       ${bloqueListado}
       ${bloqueAlcance}`;
 
@@ -3262,12 +3345,15 @@ export default function ReportsScreen({ route }: any) {
     //    EXCLUIDOS a mano: las pastillas esconden columnas, no pueden esconder
     //    que el número es de una selección y no de la flota.
     const exclLbl = maqFuera.size ? `${maqFuera.size} equipo(s) excluido(s)` : '';
+    const frentesArchivo = frentesSel.size
+      ? ` (${frentesSel.size <= 2 ? [...frentesSel].map((f) => f.replace(/[\\/:*?"<>|]/g, ' ').trim().toLowerCase()).join(' + ') : `${frentesSel.size} frentes`})`
+      : '';
     const estadosArchivo = estadosSel.size
       ? ` (${ESTADO_CONTEO_ORDER.filter((k) => estadosSel.has(k)).map((k) => ESTADO_CONTEO_INFO[k].label.toLowerCase()).join(' + ')})`
       : '';
     await exportPdf(
       renaceShell('CONTEO DE EQUIPOS', exclLbl, body, { sinFirmas: o.sinFirmas }, conteoLogos),
-      `Conteo de equipos${porCategoria ? ' por categoria' : ''}${estadosArchivo}${maqFuera.size ? ' seleccion' : ''}${sufijoArchivoConteo(o)}`,
+      `Conteo de equipos${porCategoria ? ' por categoria' : ''}${porFrente ? ' por frente' : ''}${frentesArchivo}${estadosArchivo}${maqFuera.size ? ' seleccion' : ''}${sufijoArchivoConteo(o)}`,
     );
   };
 
@@ -4612,6 +4698,87 @@ export default function ReportsScreen({ route }: any) {
                     );
                   })}
                 </View>
+
+                {/* ⭐ Alcance por FRENTE DE TRABAJO (traído en solo lectura del reporte de Frentes):
+                    permite elegir uno o varios frentes para ver qué equipos hay en ese frente y
+                    agruparlos por Empresa, Categoría o Frente. */}
+                {frentesDelConteo.length > 0 ? (() => {
+                  const fq = norm(frenteQ.trim());
+                  const frentesVistos = fq
+                    ? frentesDelConteo.filter((f) => norm(f.name).includes(fq))
+                    : frentesDelConteo;
+                  const conFrenteNames = frentesDelConteo.filter((f) => f.name !== 'Sin frente' && f.count > 0).map((f) => f.name);
+                  const soloConFrenteOn = conFrenteNames.length > 0 && frentesSel.size === conFrenteNames.length && conFrenteNames.every((n) => frentesSel.has(n));
+                  return (
+                    <View style={{ marginBottom: spacing.xs }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: spacing.xs }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                          ⛏️ FRENTE DE TRABAJO {frentesSel.size ? `(${frentesSel.size} marcado(s))` : '(sin marcar: todos)'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                          {conFrenteNames.length > 0 ? (
+                            <TouchableOpacity
+                              onPress={() => setFrentesSel(soloConFrenteOn ? new Set() : new Set(conFrenteNames))}
+                            >
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                                {soloConFrenteOn ? '✓ Solo con frente' : '⛏️ Solo con frente'}
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          {frentesSel.size > 0 ? (
+                            <TouchableOpacity onPress={() => setFrentesSel(new Set())}>
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>✕ Todos ({frentesSel.size})</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      </View>
+                      {frentesDelConteo.length > 6 ? (
+                        <TextInput
+                          value={frenteQ}
+                          onChangeText={setFrenteQ}
+                          placeholder="🔎 Buscar frente de trabajo…"
+                          placeholderTextColor={colors.muted}
+                          style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 6, color: colors.text, fontSize: 12, marginBottom: spacing.xs }}
+                        />
+                      ) : null}
+                      <ScrollView style={{ maxHeight: 115 }} nestedScrollEnabled>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                          <TouchableOpacity
+                            onPress={() => setFrentesSel(new Set())}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: frentesSel.size === 0 ? colors.brand : colors.border, backgroundColor: frentesSel.size === 0 ? colors.brand : colors.surfaceAlt }}
+                          >
+                            <Text style={{ color: frentesSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>⬛ Todos</Text>
+                          </TouchableOpacity>
+                          {frentesVistos.map((f) => {
+                            const on = frentesSel.has(f.name);
+                            return (
+                              <TouchableOpacity
+                                key={f.name}
+                                onPress={() => toggleFrenteSel(f.name)}
+                                style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}
+                              >
+                                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                                  {on ? '☑️' : '⬜'} ⛏️ {f.name} · {f.count}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </ScrollView>
+                      {frentesSel.size > 0 && tiposSel.size === 0 && tipoOpcionesBase.length > 0 ? (
+                        <TouchableOpacity
+                          onPress={() => setTiposSel(new Set(tipoOpcionesBase.map((o) => o.key)))}
+                          style={{ marginTop: spacing.xs, backgroundColor: colors.brand + '18', borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: 6, paddingHorizontal: spacing.sm, alignItems: 'center' }}
+                        >
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                            ⚡ Ver reporte completo de {frentesSel.size === 1 ? `«${[...frentesSel][0]}»` : `los ${frentesSel.size} frentes marcados`} ({machinesPorEstado.length} máquina(s))
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  );
+                })() : null}
+
                 <TextInput
                   value={tipoQ}
                   onChangeText={setTipoQ}
@@ -4658,7 +4825,7 @@ export default function ReportsScreen({ route }: any) {
                 {maquinasDeTipos.length > 0 ? (() => {
                   const q = norm(maqQ.trim());
                   const vistas = q
-                    ? maquinasDeTipos.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''} ${m.company} ${m.clas}`).includes(q))
+                    ? maquinasDeTipos.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''} ${m.company} ${m.clas} ${m.frente ?? ''}`).includes(q))
                     : maquinasDeTipos;
                   return (
                     <View style={{ marginTop: spacing.sm }}>
@@ -4679,7 +4846,7 @@ export default function ReportsScreen({ route }: any) {
                           <TextInput
                             value={maqQ}
                             onChangeText={setMaqQ}
-                            placeholder="🔎 Buscar por código, placa, serial o empresa…"
+                            placeholder="🔎 Buscar por código, placa, serial, empresa o frente…"
                             placeholderTextColor={colors.muted}
                             style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text }}
                           />
@@ -4715,7 +4882,7 @@ export default function ReportsScreen({ route }: any) {
                                           cuál se está destildando. */}
                                       <Text style={{ color: on ? colors.text : colors.muted, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{machineLabel(m) || m.code}</Text>
                                       <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
-                                        {m.company}{m.estado === 'activo' ? '' : m.estado === 'inactivo' ? '  ·  INACTIVA' : '  ·  STAND BY'}
+                                        🪪 Placa: {m.plate || '—'}{m.serial ? ` · Serial: ${m.serial}` : ''} · 🏢 {m.company} · ⛏️ {m.frente || 'Sin frente'}{m.estado === 'activo' ? '' : m.estado === 'inactivo' ? '  ·  INACTIVA' : '  ·  STAND BY'}
                                       </Text>
                                     </View>
                                   </TouchableOpacity>
@@ -4739,7 +4906,7 @@ export default function ReportsScreen({ route }: any) {
                     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
                       <Text style={{ color: colors.brandText, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{tipoResultado.total}</Text>
                       <Text style={{ color: colors.muted, fontSize: 13 }}>
-                        equipo(s) · {tipoResultado.empresas.length} {conteoEje === 'clasificacion' ? 'categoría(s)' : 'empresa(s)'}
+                        equipo(s) · {tipoResultado.empresas.length} {conteoEje === 'clasificacion' ? 'categoría(s)' : (conteoEje as string) === 'frente' ? 'frente(s)' : 'empresa(s)'}
                       </Text>
                     </View>
 
@@ -4768,26 +4935,103 @@ export default function ReportsScreen({ route }: any) {
                         </Text>
                       </View>
                     ) : null}
-                    {/* ── AGRUPAR POR (09-sep-2026) ────────────────────────
-                        Pedido del cliente: poder sacarlo por categoría («remoción
-                        de escombros» y las demás), no solo por empresa.
-                        ⚠️ AGRUPAR NO FILTRA: el total es el mismo por los dos ejes,
+                    {/* ── AGRUPAR POR (09-sep-2026 + Frente) ────────────────────────
+                        Pedido del cliente: poder sacarlo por empresa, categoría o frente,
+                        y combinar cualquier eje con cualquier filtro (ej. agrupado por
+                        Empresa pero solo con la maquinaria de un Frente en específico).
+                        ⚠️ AGRUPAR NO FILTRA: el total es el mismo en los tres ejes,
                            solo cambia por dónde se parte el papel. */}
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>AGRUPAR POR</Text>
-                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
-                      {([['empresa', '\ud83c\udfe2 Empresa'], ['clasificacion', '\ud83d\udd36 Categoría']] as const).map(([k, label]) => {
-                        const on = conteoEje === k;
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+                      {([['empresa', '\ud83c\udfe2 Empresa'], ['clasificacion', '\ud83d\udd36 Categoría'], ['frente', '⛏️ Frente']] as const).map(([k, label]) => {
+                        const on = (conteoEje as string) === k;
                         return (
-                          <TouchableOpacity key={k} onPress={() => setConteoEje(k)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
+                          <TouchableOpacity key={k} onPress={() => setConteoEje(k as any)} style={{ flex: 1, minWidth: 96, alignItems: 'center', paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
                             <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
                           </TouchableOpacity>
                         );
                       })}
                     </View>
                     <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
-                      No saca ni agrega ningún equipo: solo cambia si el papel viene partido por empresa o por categoría.
-                      El total es el mismo en los dos.
+                      No saca ni agrega ningún equipo: solo cambia si el papel viene partido por empresa, por categoría o por frente de trabajo.
+                      El total es el mismo en los tres.
                     </Text>
+
+                    {/* Filtro rápido por FRENTE dentro del resultado: ideal para agrupar por
+                        🏢 Empresa y dejar solo la maquinaria de 1 o varios frentes específicos. */}
+                    {frentesDelConteo.length > 0 ? (
+                      <>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs, flexWrap: 'wrap' }}>
+                          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>
+                            ⛏️ ¿ALGÚN FRENTE EN ESPECÍFICO? ({frentesDelConteo.length})
+                          </Text>
+                          {frentesSel.size > 0 ? (
+                            <TouchableOpacity onPress={() => setFrentesSel(new Set())}>
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>✕ Todos ({frentesSel.size} marcado/s)</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                        <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                            {frentesDelConteo.map((f) => {
+                              const on = frentesSel.has(f.name);
+                              return (
+                                <TouchableOpacity
+                                  key={f.name}
+                                  onPress={() => toggleFrenteSel(f.name)}
+                                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                                >
+                                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>⛏️ {f.name} · {f.count}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </ScrollView>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, marginBottom: spacing.xs }}>
+                          {frentesSel.size === 0
+                            ? 'Sin marcar ninguno salen TODOS los frentes. Marca uno o varios para ver el reporte (ej. por Empresa) solo de ese frente.'
+                            : `Solo saldrán equipos del frente: ${[...frentesSel].join(' · ')}.`}
+                        </Text>
+                      </>
+                    ) : null}
+
+                    {/* Filtro por EMPRESA directo aquí (además del de arriba), para combinar
+                        fácilmente Agrupar por Frente con 1 o varias empresas específicas. */}
+                    {empresasDelConteo.length > 1 ? (
+                      <>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs, flexWrap: 'wrap' }}>
+                          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>
+                            🏢 ¿ALGUNA EMPRESA EN ESPECÍFICO? ({empresasDelConteo.length})
+                          </Text>
+                          {empresasSel.size > 0 ? (
+                            <TouchableOpacity onPress={() => setEmpresasSel(new Set())}>
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>✕ Todas ({empresasSel.size} marcada/s)</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                        <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                            {empresasDelConteo.map((e) => {
+                              const on = empresasSel.has(e.name);
+                              return (
+                                <TouchableOpacity
+                                  key={e.name}
+                                  onPress={() => toggleEmpresaSel(e.name)}
+                                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                                >
+                                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{e.name} · {e.count}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </ScrollView>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, marginBottom: spacing.xs }}>
+                          {empresasSel.size === 0
+                            ? 'Sin marcar ninguna salen TODAS las empresas.'
+                            : `Solo saldrán: ${[...empresasSel].join(' · ')}.`}
+                        </Text>
+                      </>
+                    ) : null}
 
                     {/* Filtro por CATEGORÍA. Vacío = todas, igual que el de empresas. */}
                     {clasDelConteo.length > 0 ? (
@@ -4892,7 +5136,7 @@ export default function ReportsScreen({ route }: any) {
                       <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
                     </TouchableOpacity>
                     <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>
-                      {conteoEje === 'clasificacion' ? 'Listado por categoría' : 'Listado por empresa'}
+                      {conteoEje === 'clasificacion' ? 'Listado por categoría' : (conteoEje as string) === 'frente' ? 'Listado por frente de trabajo' : 'Listado por empresa'}
                     </Text>
                     {/* De dónde sale el alto/largo/ancho y dónde se cambia. Se dice acá
                         para que nadie lo busque en esta pantalla: se maneja en Viajes de
@@ -4905,7 +5149,7 @@ export default function ReportsScreen({ route }: any) {
                     {tipoResultado.empresas.map((e) => (
                       <View key={e.company} style={{ marginBottom: spacing.xs }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                          <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800', flex: 1 }} numberOfLines={1}>{conteoEje === 'clasificacion' ? '\ud83d\udd36' : '\ud83c\udfe2'} {e.company}</Text>
+                          <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800', flex: 1 }} numberOfLines={1}>{conteoEje === 'clasificacion' ? '\ud83d\udd36' : (conteoEje as string) === 'frente' ? '⛏️' : '\ud83c\udfe2'} {e.company}</Text>
                           <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800' }}>{e.count}</Text>
                         </View>
                         {e.items.map((m, i) => (
@@ -4915,7 +5159,7 @@ export default function ReportsScreen({ route }: any) {
                               <Text numberOfLines={1} style={{ color: colors.text, fontSize: 12.5, fontWeight: '700' }}>{m.code}</Text>
                               {m.modelo ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>🏷️ {m.modelo}</Text> : null}
                               <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>
-                                🔖 {m.serial || m.plate || 'Sin serial/placa'}{m.encargado ? `  ·  👤 ${m.encargado}` : ''}
+                                🪪 Placa: {m.plate || '—'}{m.serial ? `  ·  🔖 Serial: ${m.serial}` : ''}{(conteoEje as string) === 'frente' ? `  ·  🏢 ${m.company}` : `  ·  ⛏️ ${m.frente || 'Sin frente'}`}{m.encargado ? `  ·  👤 ${m.encargado}` : ''}
                               </Text>
                             </View>
                             <Text style={{ color: m.estado === 'activo' ? colors.success : m.estado === 'inactivo' ? colors.danger : colors.warning, fontSize: 10, fontWeight: '800' }}>{m.estado === 'activo' ? 'ACTIVO' : m.estado === 'inactivo' ? 'INACTIVO' : 'STAND BY'}</Text>
@@ -4964,6 +5208,48 @@ export default function ReportsScreen({ route }: any) {
                       {conteoEmpresas.size === 0
                         ? 'Ninguna marcada = TODAS las empresas. Toca las que quieras para dejar solo esas.'
                         : `Mostrando ${conteoEmpresas.size} empresa(s). Las tablas de abajo y el PDF salen solo con esas.`}
+                    </Text>
+                  </Card>
+                );
+              })()}
+
+              {/* Filtro por FRENTE DE TRABAJO en el Conteo general (afecta las tablas inferiores y el PDF general). */}
+              {(() => {
+                const cnt = new Map<string, number>();
+                (conteo.frentesCatalogo ?? []).forEach((f) => { if (f) cnt.set(f, 0); });
+                conteo.activeRows.forEach((r) => {
+                  const f = r.frente || 'Sin frente';
+                  cnt.set(f, (cnt.get(f) ?? 0) + 1);
+                });
+                const frentes = [...cnt.entries()]
+                  .map(([name, count]) => ({ name, count }))
+                  .sort((a, b) => (a.name === 'Sin frente' ? 1 : b.name === 'Sin frente' ? -1 : cmpText(a.name, b.name)));
+                if (frentes.length === 0) return null;
+                return (
+                  <Card>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, flex: 1 }}>⛏️ Filtrar por frente de trabajo</Text>
+                      {frentesSel.size > 0 ? (
+                        <TouchableOpacity onPress={() => setFrentesSel(new Set())}>
+                          <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Limpiar ({frentesSel.size})</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {frentes.map((f) => {
+                        const on = frentesSel.has(f.name);
+                        return (
+                          <TouchableOpacity key={f.name} onPress={() => toggleFrenteSel(f.name)}
+                            style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{on ? '✓ ' : ''}⛏️ {f.name} · {f.count}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+                      {frentesSel.size === 0
+                        ? 'Ningún frente marcado = TODOS los frentes. Toca uno o varios para filtrar las tablas y el PDF.'
+                        : `Mostrando ${frentesSel.size} frente(s): ${[...frentesSel].join(' · ')}.`}
                     </Text>
                   </Card>
                 );
@@ -5071,19 +5357,21 @@ export default function ReportsScreen({ route }: any) {
                 );
               })() : null}
 
-              {/* Tablas del conteo (recalculadas según la zona elegida). */}
+              {/* Tablas del conteo (recalculadas según la zona, empresa y frente elegidos). */}
               {(() => {
-                // Filtro por ZONA y por EMPRESA. `rowsZona` es el embudo del que salen TODAS las
-    // tablas del conteo (byClas, byTipo, totales, desglose por inspector), así que
-    // filtrar acá deja todo consistente de una sola vez. Sin empresas marcadas = todas.
+                // Filtro por ZONA, EMPRESA y FRENTE. `rowsZona` es el embudo del que salen TODAS las
+    // tablas del conteo (byFrente, byClas, byTipo, totales, desglose por inspector), así que
+    // filtrar acá deja todo consistente de una sola vez. Sin empresas/frentes marcados = todos.
     const rowsZona = conteo.activeRows
       .filter((r) => conteoZona === '__all__' || r.zona === conteoZona)
-      .filter((r) => empresaEnConteo(r.company));
-                const aggregate = (key: 'clas' | 'tipo'): ConteoRow[] => {
+      .filter((r) => empresaEnConteo(r.company))
+      .filter((r) => frenteEnConteo(r.frente));
+                const aggregate = (key: 'clas' | 'tipo' | 'frente'): ConteoRow[] => {
                   const m = new Map<string, ConteoRow>();
-                  rowsZona.forEach((r) => { const k = r[key]; const a = m.get(k) ?? { name: k, count: 0, conHoras: 0, sinHoras: 0 }; a.count += 1; if (r.tieneHoras) a.conHoras += 1; else a.sinHoras += 1; m.set(k, a); });
-                  return [...m.values()].sort((a, b) => cmpText(a.name, b.name));
+                  rowsZona.forEach((r) => { const k = r[key] || (key === 'frente' ? 'Sin frente' : ''); const a = m.get(k) ?? { name: k, count: 0, conHoras: 0, sinHoras: 0 }; a.count += 1; if (r.tieneHoras) a.conHoras += 1; else a.sinHoras += 1; m.set(k, a); });
+                  return [...m.values()].sort((a, b) => (a.name === 'Sin frente' ? 1 : b.name === 'Sin frente' ? -1 : cmpText(a.name, b.name)));
                 };
+                const byFrente = aggregate('frente');
                 const byClas = aggregate('clas');
                 const byTipo = aggregate('tipo');
                 const totalCnt = rowsZona.length;
@@ -5108,6 +5396,7 @@ export default function ReportsScreen({ route }: any) {
                 );
                 return (
                   <>
+                    {tableCard('Por frente de trabajo', byFrente)}
                     {tableCard('Por clasificación', byClas)}
                     {tableCard('Por tipo de equipo', byTipo)}
                   </>
@@ -5151,7 +5440,7 @@ export default function ReportsScreen({ route }: any) {
                             <View style={{ flex: 1 }}>
                               <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{m.code}</Text>
                               {m.modelo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {m.modelo}</Text> : null}
-                              <Text style={{ color: colors.muted, fontSize: 11 }}>🏢 {m.company}{m.serial ? ` · Serial ${m.serial}` : ''} · {m.tipo}</Text>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>🪪 Placa: {m.plate || '—'}{m.serial ? ` · Serial ${m.serial}` : ''} · 🏢 {m.company} · ⛏️ {m.frente || 'Sin frente'} · {m.tipo}</Text>
                               {m.encargado ? <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                             </View>
                             {conteoDetail === 'flota' ? (
