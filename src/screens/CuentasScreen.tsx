@@ -70,11 +70,18 @@ import {
   toggleChipCondicionPago,
   inyectarCondicionesPagoEnNota,
   resolverCondicionesYNotaCuenta,
+  resolverInfoMetodoPagoPorPagar,
   type ReciboPagoInfo,
   type AprobacionCxpInfo,
   type ArchivoSoporte,
   type FacturaData,
+  type InfoMetodoPagoPorPagar,
 } from '../lib/cuentasPago';
+import {
+  extraerCapturaPago,
+  limpiarNotasUsuario,
+  empaquetarNotasConCaptura,
+} from '../lib/proveedorPago';
 import {
   extraerReciboPago,
   inyectarReciboPagoEnObservaciones,
@@ -195,6 +202,7 @@ type CuentaCalc = Cuenta & {
   aprobacionInfo: AprobacionCxpInfo | null;
   esMayorAMil: boolean;
   traza: TrazabilidadPorPagar;
+  infoPago: InfoMetodoPagoPorPagar;
 };
 
 /** Calcula saldo y situación de una cuenta a partir de sus abonos.
@@ -209,6 +217,7 @@ function calcular(
   empresaInfo: InfoEmpresaCuenta,
   condYNota: { condicionesPago: string; notaLimpia: string },
   traza: TrazabilidadPorPagar,
+  infoPago: InfoMetodoPagoPorPagar,
   aprobacionEstado: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica' = 'no_aplica',
   aprobacionInfo: AprobacionCxpInfo | null = null
 ): CuentaCalc {
@@ -241,6 +250,7 @@ function calcular(
     aprobacionInfo,
     esMayorAMil: monto >= 1000,
     traza,
+    infoPago,
   };
 }
 
@@ -274,7 +284,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const { data: todas, loading, refetch } = useTable<Cuenta>('cuentas', { orderBy: 'fecha_vencimiento' });
   const { data: abonos, refetch: refetchAbonos } = useTable<CuentaAbono>('cuenta_abonos', { orderBy: 'fecha', ascending: false });
-  const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
+  const { data: suppliers, refetch: refetchSuppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: orders } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: requirements, refetch: refetchRequirements } = useTable<InventoryRequirement>('inventory_requirements');
@@ -1688,7 +1698,21 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             apEstado = 'esperando_aprobacion';
           }
         }
-        return calcular(c, porCuenta.get(c.id) ?? [], hoy, nombreDe(c), empInfo, condYNota, traza, apEstado, apInfo);
+        const abonosCta = porCuenta.get(c.id) ?? [];
+        const abonadoCta = abonosCta.reduce((s, a) => s + (Number(a.monto) || 0), 0);
+        const saldoCta = Math.max(0, Math.round(((Number(c.monto) || 0) - abonadoCta) * 100) / 100);
+        const nomContraparte = nombreDe(c);
+        const infoPago = resolverInfoMetodoPagoPorPagar(c, {
+          suppliers,
+          requirements,
+          orders,
+          contraparteNombre: nomContraparte,
+          condicionesPago: condYNota.condicionesPago,
+          notaLimpia: condYNota.notaLimpia,
+          tasaBcv,
+          saldoUsd: saldoCta,
+        });
+        return calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, apEstado, apInfo);
       });
 
     // Conteo y saldo por empresa (para las fichas / chips del filtro)
@@ -1775,7 +1799,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           c.traza.enviadoPorPagarPor,
           c.traza.destinoTexto,
           c.traza.areaTexto,
-          c.traza.reqCode
+          c.traza.reqCode,
+          c.infoPago.resumenCopiable
         )
       )
       // Orden: lo más urgente arriba (ver `ordenUrgencia`).
@@ -1788,7 +1813,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const uni = ord.filter(pasaVerPagadas);
 
     return { lista: vis, tot: t, empresaCounts: arrEmpresas, ordenadas: ord, universo: uni, porEmpresasCounts: countsCxp };
-  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, companies, requirements, orders, machinery, vehicles, empresaSel, configAprobacion, filtroEstadoCxp, modoFechaCxp, campoFechaCxp, fechaDesdeCxp, fechaHastaCxp]);
+  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, suppliers, tasaBcv, companies, requirements, orders, machinery, vehicles, empresaSel, configAprobacion, filtroEstadoCxp, modoFechaCxp, campoFechaCxp, fechaDesdeCxp, fechaHastaCxp]);
 
   // Contador de marcas: solo las que existen en esta pestaña; y cuántas no se ven ahora.
   const nMarcadas = useMemo(() => ordenadas.filter((c) => marcadas.has(c.id)).length, [ordenadas, marcadas]);
@@ -1796,6 +1821,248 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const visibles = new Set(lista.map((c) => c.id));
     return ordenadas.filter((c) => marcadas.has(c.id) && !visibles.has(c.id)).length;
   }, [ordenadas, lista, marcadas]);
+
+  // ── Portapapeles y Modal Rápido de Métodos y Datos de Pago en Por Pagar ────
+  const copiarTextoPortapapeles = async (texto: string, msgExito = '📋 Datos de pago copiados al portapapeles.') => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(texto);
+        toast.success(msgExito);
+        return;
+      }
+      if (typeof document !== 'undefined') {
+        const ta = document.createElement('textarea');
+        ta.value = texto;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        toast.success(msgExito);
+        return;
+      }
+      toast.success(msgExito);
+    } catch {
+      toast.error('No se pudo copiar automáticamente.');
+    }
+  };
+
+  const [pagoModalCuenta, setPagoModalCuenta] = useState<CuentaCalc | null>(null);
+  const [pmCondiciones, setPmCondiciones] = useState('');
+  const [pmNotaCuenta, setPmNotaCuenta] = useState('');
+  const [pmVence, setPmVence] = useState('');
+  // Campos financieros del proveedor en el modal rápido
+  const [pmSupId, setPmSupId] = useState<string | null>(null);
+  const [pmSupNombre, setPmSupNombre] = useState('');
+  const [pmSupRif, setPmSupRif] = useState('');
+  const [pmSupPhone, setPmSupPhone] = useState('');
+  const [pmBankName, setPmBankName] = useState('');
+  const [pmAccountNumber, setPmAccountNumber] = useState('');
+  const [pmAccountType, setPmAccountType] = useState('Corriente');
+  const [pmAccountHolder, setPmAccountHolder] = useState('');
+  const [pmAccountIdDoc, setPmAccountIdDoc] = useState('');
+  const [pmPagoMovilBank, setPmPagoMovilBank] = useState('');
+  const [pmPagoMovilPhone, setPmPagoMovilPhone] = useState('');
+  const [pmPagoMovilId, setPmPagoMovilId] = useState('');
+  const [pmBinanceId, setPmBinanceId] = useState('');
+  const [pmPaymentNotes, setPmPaymentNotes] = useState('');
+  const [pmCapturaUrl, setPmCapturaUrl] = useState<string | null>(null);
+  const [pmCapturaName, setPmCapturaName] = useState<string | null>(null);
+  const [pmSubiendoCaptura, setPmSubiendoCaptura] = useState(false);
+  const [pmGuardando, setPmGuardando] = useState(false);
+
+  const abrirEditorPagoCxp = (c: CuentaCalc) => {
+    const db = c.infoPago.datosBancarios;
+    const supObj = db.proveedorId ? suppliers.find((s) => s.id === db.proveedorId) : null;
+    const cap = extraerCapturaPago(supObj);
+    setPagoModalCuenta(c);
+    setPmCondiciones(c.condicionesPago || '');
+    setPmNotaCuenta(c.notaLimpia || '');
+    setPmVence(c.fecha_vencimiento || '');
+    setPmSupId(db.proveedorId || c.supplier_id || null);
+    setPmSupNombre(supObj?.name || db.proveedorNombre || c.contraparte || '');
+    setPmSupRif(supObj?.rif || db.proveedorRif || '');
+    setPmSupPhone(supObj?.phone || db.proveedorTelefono || '');
+    setPmBankName(supObj?.bank_name || db.banco || '');
+    setPmAccountNumber(supObj?.account_number || db.numeroCuenta || '');
+    setPmAccountType(supObj?.account_type || db.tipoCuenta || 'Corriente');
+    setPmAccountHolder(supObj?.account_holder || db.titular || '');
+    setPmAccountIdDoc(supObj?.account_id_doc || db.rifTitular || '');
+    setPmPagoMovilBank(supObj?.pago_movil_bank || db.pagoMovilBanco || '');
+    setPmPagoMovilPhone(supObj?.pago_movil_phone || db.pagoMovilTelefono || '');
+    setPmPagoMovilId(supObj?.pago_movil_id || db.pagoMovilCedulaRif || '');
+    setPmBinanceId(supObj?.binance_id || db.binanceId || '');
+    setPmPaymentNotes(limpiarNotasUsuario(supObj?.payment_notes) || db.instruccionesPago || '');
+    setPmCapturaUrl(cap?.url || db.capturaPago?.url || null);
+    setPmCapturaName(cap?.name || db.capturaPago?.name || null);
+  };
+
+  const subirCapturaPagoProvCxp = async (modo: 'camara' | 'archivo') => {
+    setPmSubiendoCaptura(true);
+    try {
+      if (modo === 'camara') {
+        const res = await takePhotoAndUpload('proveedores-pago', `prov-${Date.now()}`);
+        if (res.ok && res.url) {
+          setPmCapturaUrl(res.url);
+          setPmCapturaName('Foto de datos de pago');
+          toast.success('Foto de datos de pago adjuntada.');
+        } else if (res.error) {
+          toast.error(res.error);
+        }
+      } else {
+        const res = await pickAndUploadDocFile('proveedores-pago', `prov-${Date.now()}`);
+        if (res?.url) {
+          setPmCapturaUrl(res.url);
+          setPmCapturaName(res.name || 'Captura de pago');
+          toast.success('Captura de pago adjuntada.');
+        }
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'No se pudo subir la captura.');
+    } finally {
+      setPmSubiendoCaptura(false);
+    }
+  };
+
+  const guardarEditorPagoCxp = async () => {
+    if (!pagoModalCuenta) return;
+    if (pmVence.trim() && !fechaValida(pmVence.trim())) {
+      return toast.error('La fecha de vencimiento debe tener formato AAAA-MM-DD.');
+    }
+    setPmGuardando(true);
+    try {
+      let supplierIdFinal = pmSupId;
+      const finalPaymentNotes = empaquetarNotasConCaptura(pmPaymentNotes, pmCapturaUrl, pmCapturaName);
+      const payloadSupplier = {
+        rif: pmSupRif.trim() || null,
+        phone: pmSupPhone.trim() || null,
+        bank_name: pmBankName.trim() || null,
+        account_number: pmAccountNumber.trim() || null,
+        account_type: pmAccountType.trim() || null,
+        account_holder: pmAccountHolder.trim() || null,
+        account_id_doc: pmAccountIdDoc.trim() || null,
+        pago_movil_bank: pmPagoMovilBank.trim() || null,
+        pago_movil_phone: pmPagoMovilPhone.trim() || null,
+        pago_movil_id: pmPagoMovilId.trim() || null,
+        binance_id: pmBinanceId.trim() || null,
+        payment_notes: finalPaymentNotes,
+      };
+
+      const tieneAlgunDatoSup = Boolean(
+        payloadSupplier.rif ||
+          payloadSupplier.phone ||
+          payloadSupplier.bank_name ||
+          payloadSupplier.account_number ||
+          payloadSupplier.pago_movil_phone ||
+          payloadSupplier.pago_movil_bank ||
+          payloadSupplier.binance_id ||
+          payloadSupplier.payment_notes,
+      );
+
+      if (supplierIdFinal) {
+        const { error: errSup } = await supabase
+          .from('suppliers')
+          .update(payloadSupplier)
+          .eq('id', supplierIdFinal);
+        if (errSup) {
+          toast.error('Error al actualizar ficha del proveedor: ' + errSup.message);
+          setPmGuardando(false);
+          return;
+        }
+      } else if (tieneAlgunDatoSup && pmSupNombre.trim() && pmSupNombre.trim().toUpperCase() !== 'SIN CONTRAPARTE') {
+        const { data: nuevoSup, error: errInsSup } = await supabase
+          .from('suppliers')
+          .insert({
+            name: pmSupNombre.trim().toUpperCase(),
+            ...payloadSupplier,
+          })
+          .select('id')
+          .single();
+        if (!errInsSup && nuevoSup?.id) {
+          supplierIdFinal = nuevoSup.id;
+        }
+      }
+
+      // Conservar todos los tags internos de `pagoModalCuenta.nota` y actualizar texto libre + [CONDICIONES_PAGO]
+      const reciboExist = extraerReciboPagoCuenta(pagoModalCuenta);
+      const facturaExist = extraerFacturaCuenta(pagoModalCuenta);
+      const empExist = extraerEmpresaDeNota(pagoModalCuenta.nota);
+      const empIdExist = empExist?.id || null;
+      const empNameExist = empExist?.name || (empIdExist ? companies.find((co) => co.id === empIdExist)?.name : null);
+      const aprobExist = extraerAprobacionCxp(pagoModalCuenta.nota);
+
+      let notaCompuesta: string | null = pmNotaCuenta.trim() || null;
+      notaCompuesta = inyectarEmpresaEnNota(notaCompuesta, empIdExist, empNameExist);
+      notaCompuesta = inyectarCondicionesPagoEnNota(notaCompuesta, pmCondiciones.trim() || null);
+      notaCompuesta = inyectarFacturaEnCuentaNota(notaCompuesta, facturaExist);
+      notaCompuesta = inyectarReciboPagoEnNota(notaCompuesta, reciboExist);
+      notaCompuesta = inyectarAprobacionCxpEnNota(notaCompuesta, aprobExist);
+      notaCompuesta = preservarHistorialYEnvioEnTexto(pagoModalCuenta.nota, notaCompuesta);
+
+      const autorCambio = miPerfil?.full_name || fullName || session?.user?.email || 'Administración';
+      notaCompuesta = anexarEventoHistorial(notaCompuesta, {
+        tipo: 'condicion_actualizada',
+        fecha: nowISO(),
+        usuarioNombre: autorCambio,
+        usuarioId: uid,
+        origen: 'por_pagar',
+        titulo: 'Métodos, condiciones y datos de pago actualizados en Por Pagar',
+        detalle: [
+          pmCondiciones.trim() ? `Condiciones/Método: ${pmCondiciones.trim()}` : null,
+          pmBankName.trim() || pmAccountNumber.trim() ? `Banco: ${pmBankName.trim()} ${pmAccountNumber.trim()}` : null,
+          pmPagoMovilPhone.trim() ? `Pago Móvil: ${pmPagoMovilBank.trim()} ${pmPagoMovilPhone.trim()}` : null,
+          pmBinanceId.trim() ? `Binance/Zelle: ${pmBinanceId.trim()}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'Actualización de instrucciones de pago',
+      });
+
+      const updateCuentaPayload: Record<string, any> = {
+        nota: notaCompuesta,
+        fecha_vencimiento: pmVence.trim() || null,
+        updated_at: nowISO(),
+      };
+      if (supplierIdFinal && supplierIdFinal !== pagoModalCuenta.supplier_id) {
+        updateCuentaPayload.supplier_id = supplierIdFinal;
+      }
+
+      const { error: errCta } = await supabase
+        .from('cuentas')
+        .update(updateCuentaPayload)
+        .eq('id', pagoModalCuenta.id);
+
+      if (errCta) {
+        toast.error(errCta.message);
+        setPmGuardando(false);
+        return;
+      }
+
+      // Si está vinculada a un requerimiento, sincronizar las condiciones de pago en observaciones
+      const reqIdVinc = pagoModalCuenta.inventory_requirement_id || pagoModalCuenta.traza.reqVinculado?.id;
+      if (reqIdVinc) {
+        try {
+          const { data: reqRows } = await supabase
+            .from('inventory_requirements')
+            .select('id, observaciones')
+            .eq('id', reqIdVinc)
+            .limit(1);
+          if (reqRows && reqRows[0]) {
+            const obsNueva = inyectarCondicionesPagoEnNota(reqRows[0].observaciones, pmCondiciones.trim() || null);
+            await supabase
+              .from('inventory_requirements')
+              .update({ observaciones: obsNueva })
+              .eq('id', reqIdVinc);
+            refetchRequirements();
+          }
+        } catch {}
+      }
+
+      await Promise.all([refetch(), refetchSuppliers()]);
+      setPagoModalCuenta(null);
+      toast.success('💳 Métodos y datos de pago guardados correctamente.');
+    } finally {
+      setPmGuardando(false);
+    }
+  };
 
   const inputStyle = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -2610,15 +2877,396 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </View>
                 ) : null}
 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                   <Text style={{ color: vencida ? colors.dangerSoftText : colors.text, fontSize: 12, fontWeight: '700' }}>
                     Vence: {fmtFecha(c.fecha_vencimiento)}
                     {dias != null && abiertas ? (dias < 0 ? ` · hace ${Math.abs(dias)} día(s)` : dias === 0 ? ' · HOY' : ` · en ${dias} día(s)`) : ''}
                   </Text>
-                  <Text style={{ color: colors.brandText, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{usd(c.saldo)}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: colors.brandText, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
+                      {usd(c.saldo)}
+                    </Text>
+                    {tasaBcv && c.saldo > 0 ? (
+                      <Text selectable style={{ color: colors.muted, fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] as any }}>
+                        ≈ {fmtBs(bsFromUsd(c.saldo, tasaBcv))} (BCV: Bs {tasaBcv.toLocaleString('es-VE')}/$)
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
-                {/* 💳 Condiciones de pago y 📝 Nota visibles DIRECTO en la tarjeta cerrada para Pagos */}
-                {c.condicionesPago || c.notaLimpia ? (
+
+                {/* 💳 BLOQUE COMPLETO DE MÉTODOS, CONDICIONES Y DATOS BANCARIOS DE PAGO (visible en Por Pagar en Móvil y PC) */}
+                {tipo === 'por_pagar' ? (
+                  (() => {
+                    const ip = c.infoPago;
+                    const db = ip.datosBancarios;
+                    const rpResumen = extraerReciboPagoCuenta(c);
+                    const abonosCuenta = abonos.filter((a) => a.cuenta_id === c.id);
+                    const tieneTransferencia = Boolean(db.banco || db.numeroCuenta);
+                    const tienePagoMovil = Boolean(db.pagoMovilTelefono || db.pagoMovilBanco);
+                    const tieneDigital = Boolean(db.binanceId || db.instruccionesPago || db.capturaPago?.url);
+
+                    return (
+                      <View
+                        style={{
+                          marginTop: 6,
+                          padding: 9,
+                          borderRadius: radius.md,
+                          backgroundColor: colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: ip.alertaTasaEspecial ? colors.warningSoftBorder : colors.border,
+                          borderLeftWidth: 3,
+                          borderLeftColor: ip.alertaTasaEspecial
+                            ? colors.warning
+                            : ip.tieneDatosBancarios || c.condicionesPago
+                              ? colors.accent
+                              : colors.brand,
+                          gap: 6,
+                        }}
+                      >
+                        {/* Cabecera del bloque con botones rápidos de Copiar y Configurar/Editar */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                              💳 MÉTODOS, CONDICIONES Y DATOS DE PAGO
+                            </Text>
+                            {ip.alertaTasaEspecial ? (
+                              <View
+                                style={{
+                                  backgroundColor: colors.warningSoftBg,
+                                  borderWidth: 1,
+                                  borderColor: colors.warningSoftBorder,
+                                  borderRadius: radius.pill,
+                                  paddingHorizontal: 7,
+                                  paddingVertical: 1,
+                                }}
+                              >
+                                <Text style={{ color: colors.warningSoftText, fontSize: 10.5, fontWeight: '900' }}>
+                                  {ip.alertaTasaEspecial}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                            <TouchableOpacity
+                              onPress={() => copiarTextoPortapapeles(ip.resumenCopiable)}
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                              style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.brand,
+                                borderRadius: radius.pill,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                              }}
+                            >
+                              <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '800' }}>
+                                📋 Copiar datos de pago
+                              </Text>
+                            </TouchableOpacity>
+                            {puedeOperarCxp ? (
+                              <TouchableOpacity
+                                onPress={() => abrirEditorPagoCxp(c)}
+                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                style={{
+                                  backgroundColor: colors.infoSoftBg,
+                                  borderWidth: 1,
+                                  borderColor: colors.infoSoftBorder,
+                                  borderRadius: radius.pill,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 3,
+                                }}
+                              >
+                                <Text style={{ color: colors.infoSoftText, fontSize: 10.5, fontWeight: '900' }}>
+                                  💳 {ip.tieneDatosBancarios || c.condicionesPago ? 'Editar métodos / datos' : '+ Cargar métodos de pago'}
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+                        </View>
+
+                        {/* Fila de Chips de Métodos de Pago y Condiciones */}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+                          {c.condicionesPago ? (
+                            <View
+                              style={{
+                                backgroundColor: colors.infoSoftBg,
+                                borderWidth: 1,
+                                borderColor: colors.infoSoftBorder,
+                                borderRadius: radius.pill,
+                                paddingHorizontal: 8,
+                                paddingVertical: 2,
+                              }}
+                            >
+                              <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>
+                                ⏱️ {c.condicionesPago}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {ip.metodosActivos.map((met) => (
+                            <View
+                              key={met}
+                              style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.brand,
+                                borderRadius: radius.pill,
+                                paddingHorizontal: 8,
+                                paddingVertical: 2,
+                              }}
+                            >
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                                {met}
+                              </Text>
+                            </View>
+                          ))}
+                          {!c.condicionesPago && ip.metodosActivos.length === 0 ? (
+                            <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic' }}>
+                              Sin método o condición especificada aún
+                            </Text>
+                          ) : null}
+                        </View>
+
+                        {/* RIF y Teléfono del Proveedor si están disponibles */}
+                        {db.proveedorRif || db.proveedorTelefono ? (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                            {db.proveedorRif ? (
+                              <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
+                                🪪 <Text style={{ color: colors.muted, fontWeight: '700' }}>RIF / C.I.:</Text>{' '}
+                                <Text style={{ fontWeight: '800' }}>{db.proveedorRif}</Text>
+                              </Text>
+                            ) : null}
+                            {db.proveedorTelefono ? (
+                              <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
+                                📞 <Text style={{ color: colors.muted, fontWeight: '700' }}>Tel:</Text>{' '}
+                                <Text style={{ fontWeight: '800' }}>{db.proveedorTelefono}</Text>
+                              </Text>
+                            ) : null}
+                          </View>
+                        ) : null}
+
+                        {/* Grilla Responsiva (Móvil 1 columna / PC 2-3 columnas) de Coordenadas Bancarias */}
+                        {tieneTransferencia || tienePagoMovil || tieneDigital ? (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                            {tieneTransferencia ? (
+                              <View
+                                style={{
+                                  flexGrow: 1,
+                                  flexBasis: 220,
+                                  minWidth: 200,
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  borderRadius: radius.sm,
+                                  padding: 7,
+                                  gap: 2,
+                                }}
+                              >
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                                    🏦 TRANSFERENCIA {db.tipoCuenta ? `(${db.tipoCuenta.toUpperCase()})` : ''}
+                                  </Text>
+                                  {db.numeroCuenta ? (
+                                    <TouchableOpacity
+                                      onPress={() => copiarTextoPortapapeles(db.numeroCuenta!, '📋 N° de cuenta copiado.')}
+                                    >
+                                      <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>📋 Copiar Cta</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                </View>
+                                {db.banco ? (
+                                  <Text selectable style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
+                                    {db.banco}
+                                  </Text>
+                                ) : null}
+                                {db.numeroCuenta ? (
+                                  <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
+                                    Cta: {db.numeroCuenta}
+                                  </Text>
+                                ) : null}
+                                {db.titular || db.rifTitular ? (
+                                  <Text selectable style={{ color: colors.muted, fontSize: 11 }}>
+                                    Titular: <Text style={{ color: colors.text, fontWeight: '700' }}>{db.titular || db.proveedorNombre}</Text>
+                                    {db.rifTitular ? ` · ${db.rifTitular}` : ''}
+                                  </Text>
+                                ) : null}
+                              </View>
+                            ) : null}
+
+                            {tienePagoMovil ? (
+                              <View
+                                style={{
+                                  flexGrow: 1,
+                                  flexBasis: 210,
+                                  minWidth: 190,
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  borderRadius: radius.sm,
+                                  padding: 7,
+                                  gap: 2,
+                                }}
+                              >
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                                  <Text style={{ color: colors.successSoftText, fontSize: 11, fontWeight: '900' }}>
+                                    📲 PAGO MÓVIL
+                                  </Text>
+                                  <TouchableOpacity
+                                    onPress={() =>
+                                      copiarTextoPortapapeles(
+                                        [db.pagoMovilBanco, db.pagoMovilTelefono, db.pagoMovilCedulaRif].filter(Boolean).join(' '),
+                                        '📋 Datos de Pago Móvil copiados.',
+                                      )
+                                    }
+                                  >
+                                    <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>📋 Copiar PM</Text>
+                                  </TouchableOpacity>
+                                </View>
+                                <Text selectable style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
+                                  Banco: {db.pagoMovilBanco || db.banco || 'Por definir'}
+                                </Text>
+                                <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '900' }}>
+                                  Tel: {db.pagoMovilTelefono || '—'} · C.I./RIF: {db.pagoMovilCedulaRif || db.proveedorRif || '—'}
+                                </Text>
+                              </View>
+                            ) : null}
+
+                            {tieneDigital ? (
+                              <View
+                                style={{
+                                  flexGrow: 1,
+                                  flexBasis: 210,
+                                  minWidth: 190,
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  borderRadius: radius.sm,
+                                  padding: 7,
+                                  gap: 3,
+                                }}
+                              >
+                                <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '900' }}>
+                                  🪙 BINANCE / ZELLE / OTROS DATOS
+                                </Text>
+                                {db.binanceId ? (
+                                  <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+                                    ID / Correo: {db.binanceId}
+                                  </Text>
+                                ) : null}
+                                {db.instruccionesPago ? (
+                                  <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
+                                    {db.instruccionesPago}
+                                  </Text>
+                                ) : null}
+                                {db.capturaPago?.url ? (
+                                  <TouchableOpacity
+                                    onPress={() => Linking.openURL(db.capturaPago!.url)}
+                                    style={{
+                                      alignSelf: 'flex-start',
+                                      backgroundColor: colors.infoSoftBg,
+                                      borderWidth: 1,
+                                      borderColor: colors.infoSoftBorder,
+                                      borderRadius: radius.sm,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 3,
+                                      marginTop: 2,
+                                    }}
+                                  >
+                                    <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>
+                                      📸 Ver Captura / QR de pago{db.capturaPago.name ? ` (${db.capturaPago.name})` : ''}
+                                    </Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                              </View>
+                            ) : null}
+                          </View>
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                            <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                              ℹ️ Sin cuenta bancaria, Pago Móvil o Zelle cargado aún en la ficha de este proveedor.
+                            </Text>
+                          </View>
+                        )}
+
+                        {/* Proveedores secundarios si el requerimiento tiene compras multi-proveedor */}
+                        {ip.proveedoresSecundarios.length > 0 ? (
+                          <View style={{ gap: 3, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 4 }}>
+                            <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '800' }}>
+                              👥 Otros proveedores en los ítems de este requerimiento:
+                            </Text>
+                            {ip.proveedoresSecundarios.map((sec, idxSec) => (
+                              <Text key={`sec-sup-${idxSec}`} selectable style={{ color: colors.text, fontSize: 11 }}>
+                                • <Text style={{ fontWeight: '800' }}>{sec.proveedorNombre}:</Text>{' '}
+                                {[
+                                  sec.banco && sec.numeroCuenta ? `🏦 ${sec.banco} ${sec.numeroCuenta}` : null,
+                                  sec.pagoMovilTelefono ? `📲 PM: ${sec.pagoMovilBanco || ''} ${sec.pagoMovilTelefono} (${sec.pagoMovilCedulaRif || ''})` : null,
+                                  sec.binanceId ? `🪙 ${sec.binanceId}` : null,
+                                  sec.instruccionesPago ? sec.instruccionesPago : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </Text>
+                            ))}
+                          </View>
+                        ) : null}
+
+                        {/* Nota / Instrucciones específicas de la cuenta */}
+                        {c.notaLimpia ? (
+                          <View
+                            style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              borderRadius: radius.sm,
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                            }}
+                          >
+                            <Text selectable style={{ color: colors.text, fontSize: 12, lineHeight: 16 }}>
+                              <Text style={{ color: colors.brandText, fontWeight: '900' }}>📝 Nota / Instrucción: </Text>
+                              {c.notaLimpia}
+                            </Text>
+                          </View>
+                        ) : null}
+
+                        {/* Resumen si ya tiene Abonos o Comprobante de Pago */}
+                        {c.abonado > 0 || rpResumen?.metodo || rpResumen?.referencia ? (
+                          <View
+                            style={{
+                              backgroundColor: colors.successSoftBg,
+                              borderWidth: 1,
+                              borderColor: colors.successSoftBorder,
+                              borderRadius: radius.sm,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              flexDirection: 'row',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                              gap: 6,
+                            }}
+                          >
+                            <Text style={{ color: colors.successSoftText, fontSize: 11.5, fontWeight: '800', flex: 1 }}>
+                              ✅ {c.situacion === 'pagada' ? 'Pagado' : `Abonado ${usd(c.abonado)}`}
+                              {rpResumen?.metodo ? ` vía ${rpResumen.metodo}` : ''}
+                              {rpResumen?.referencia ? ` · Ref: ${rpResumen.referencia}` : ''}
+                              {abonosCuenta.length > 0
+                                ? ` (${abonosCuenta.map((a) => `${usd(Number(a.monto) || 0)}${a.metodo ? ` ${a.metodo}` : ''}`).join(', ')})`
+                                : ''}
+                            </Text>
+                            {rpResumen?.url ? (
+                              <TouchableOpacity onPress={() => Linking.openURL(rpResumen.url!)}>
+                                <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                                  👁️ Ver comprobante
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })()
+                ) : c.condicionesPago || c.notaLimpia ? (
                   <View
                     style={{
                       marginTop: 6,
@@ -3168,14 +3816,71 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 <Card>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{abonoDe.contraparte}</Text>
                   <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{abonoDe.concepto}</Text>
-                  <Text style={{ color: colors.brandText, fontWeight: '800', marginTop: spacing.xs, fontVariant: ['tabular-nums'] as any }}>Saldo actual: {usd(abonoDe.saldo)}</Text>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', marginTop: spacing.xs, fontVariant: ['tabular-nums'] as any }}>
+                    Saldo actual: {usd(abonoDe.saldo)}
+                    {tasaBcv && abonoDe.saldo > 0 ? ` · ≈ ${fmtBs(bsFromUsd(abonoDe.saldo, tasaBcv))} (BCV: Bs ${tasaBcv.toLocaleString('es-VE')}/$)` : ''}
+                  </Text>
+                  {abonoDe.infoPago.tieneDatosBancarios || abonoDe.condicionesPago ? (
+                    <View style={{ marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, gap: 3 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>💳 DATOS DE PAGO DEL PROVEEDOR</Text>
+                        <TouchableOpacity onPress={() => copiarTextoPortapapeles(abonoDe.infoPago.resumenCopiable)}>
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>📋 Copiar datos</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {abonoDe.condicionesPago ? (
+                        <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>⏱️ Condiciones: {abonoDe.condicionesPago}</Text>
+                      ) : null}
+                      {abonoDe.infoPago.datosBancarios.banco || abonoDe.infoPago.datosBancarios.numeroCuenta ? (
+                        <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
+                          🏦 {abonoDe.infoPago.datosBancarios.banco || 'Banco'} · Cta: {abonoDe.infoPago.datosBancarios.numeroCuenta || '—'} · RIF/CI: {abonoDe.infoPago.datosBancarios.rifTitular || abonoDe.infoPago.datosBancarios.proveedorRif || '—'}
+                        </Text>
+                      ) : null}
+                      {abonoDe.infoPago.datosBancarios.pagoMovilTelefono ? (
+                        <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
+                          📲 Pago Móvil: {abonoDe.infoPago.datosBancarios.pagoMovilBanco || ''} · Tel: {abonoDe.infoPago.datosBancarios.pagoMovilTelefono} · RIF/CI: {abonoDe.infoPago.datosBancarios.pagoMovilCedulaRif || abonoDe.infoPago.datosBancarios.proveedorRif || '—'}
+                        </Text>
+                      ) : null}
+                      {abonoDe.infoPago.datosBancarios.binanceId ? (
+                        <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
+                          🪙 Binance / Zelle: {abonoDe.infoPago.datosBancarios.binanceId}
+                        </Text>
+                      ) : null}
+                      {abonoDe.infoPago.datosBancarios.instruccionesPago ? (
+                        <Text selectable style={{ color: colors.muted, fontSize: 11 }}>
+                          📝 {abonoDe.infoPago.datosBancarios.instruccionesPago}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </Card>
                 <Card>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Monto del abono (USD)</Text>
                   <TextInput value={abMonto} onChangeText={setAbMonto} keyboardType="numeric" placeholder="0.00" placeholderTextColor={colors.muted} style={inputStyle} />
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Fecha (AAAA-MM-DD)</Text>
                   <TextInput value={abFecha} onChangeText={setAbFecha} placeholder={hoy} placeholderTextColor={colors.muted} style={inputStyle} />
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Método (opcional)</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Método de pago (toca o escribe)</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                    {(['Transferencia Bs (BCV)', 'Pago Móvil', 'Efectivo / Divisas $', 'Zelle', 'Binance / USDT', 'Tasa Euro', 'Punto / Débito'] as const).map((m) => {
+                      const on = abMetodo === m;
+                      return (
+                        <TouchableOpacity
+                          key={m}
+                          onPress={() => setAbMetodo(on ? '' : m)}
+                          style={{
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: on ? colors.brand : colors.border,
+                            backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                            paddingHorizontal: spacing.sm,
+                            paddingVertical: 5,
+                          }}
+                        >
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{m}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                   <TextInput value={abMetodo} onChangeText={setAbMetodo} autoCapitalize="words" placeholder="Efectivo / Transferencia / Pago Móvil / Binance / Zelle" placeholderTextColor={colors.muted} style={inputStyle} />
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Referencia (opcional)</Text>
                   <TextInput value={abRef} onChangeText={setAbRef} autoCapitalize="none" placeholder="Nº de transferencia / hash / correo" placeholderTextColor={colors.muted} style={inputStyle} />
@@ -3886,6 +4591,429 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               >
                 <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>
                   {guardandoItemsCxp ? '⏳ Sincronizando…' : '💾 Guardar y Sincronizar Requerimiento'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Configurar Métodos de Pago, Condiciones y Datos Bancarios del Proveedor desde Por Pagar ── */}
+      <Modal visible={!!pagoModalCuenta} animationType="slide" onRequestClose={() => setPagoModalCuenta(null)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>💳 Configurar Métodos y Datos de Pago</SectionTitle>
+            {pagoModalCuenta ? (
+              <>
+                <Card>
+                  <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15 }}>
+                    {pagoModalCuenta.contraparte}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                    {pagoModalCuenta.concepto}
+                  </Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', marginTop: 4 }}>
+                    Saldo por pagar: {usd(pagoModalCuenta.saldo)}
+                    {tasaBcv && pagoModalCuenta.saldo > 0
+                      ? ` · ≈ ${fmtBs(bsFromUsd(pagoModalCuenta.saldo, tasaBcv))} (BCV: Bs ${tasaBcv.toLocaleString('es-VE')}/$)`
+                      : ''}
+                  </Text>
+                </Card>
+
+                {/* 1. Condiciones y Métodos de Pago de esta Cuenta */}
+                <Card>
+                  <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '900', marginBottom: 4 }}>
+                    1. Método(s) de Pago, Tasa y Condiciones de esta cuenta
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 8 }}>
+                    Toca uno o varios chips (ej. Contado, Pago Móvil, Transferencia Bancaria, Tasa BCV, Tasa Euro, Divisas…) o escríbelo abajo:
+                  </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                    {CONDICIONES_PAGO_CHIPS.map((chipLabel) => {
+                      const activo = pmCondiciones.toUpperCase().includes(chipLabel.toUpperCase());
+                      return (
+                        <TouchableOpacity
+                          key={chipLabel}
+                          onPress={() => {
+                            const next = toggleChipCondicionPago(pmCondiciones, chipLabel);
+                            setPmCondiciones(next);
+                            const diasCred = detectarDiasCreditoChip(chipLabel);
+                            if (diasCred !== null && !activo) {
+                              setPmVence(
+                                masDias(
+                                  fechaValida(pagoModalCuenta.fecha_emision || '') ? pagoModalCuenta.fecha_emision! : hoy,
+                                  diasCred,
+                                ),
+                              );
+                            }
+                          }}
+                          style={{
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: activo ? colors.brand : colors.border,
+                            backgroundColor: activo ? colors.brand : colors.surfaceAlt,
+                            paddingHorizontal: spacing.sm,
+                            paddingVertical: 5,
+                          }}
+                        >
+                          <Text style={{ color: activo ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                            {activo ? `✓ ${chipLabel}` : chipLabel}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <TextInput
+                    value={pmCondiciones}
+                    onChangeText={setPmCondiciones}
+                    placeholder="Ej. CONTADO · PAGO MÓVIL · TASA BCV / TASA EURO…"
+                    placeholderTextColor={colors.muted}
+                    style={inputStyle}
+                  />
+
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
+                    📝 Nota / Instrucción de pago de esta cuenta (opcional)
+                  </Text>
+                  <TextInput
+                    value={pmNotaCuenta}
+                    onChangeText={setPmNotaCuenta}
+                    multiline
+                    placeholder="Ej. Pagar a tasa Euro, enviar capture a administración…"
+                    placeholderTextColor={colors.muted}
+                    style={[inputStyle, { minHeight: 54, textAlignVertical: 'top' }]}
+                  />
+
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
+                    📅 Fecha de vencimiento (AAAA-MM-DD, opcional)
+                  </Text>
+                  <TextInput
+                    value={pmVence}
+                    onChangeText={setPmVence}
+                    placeholder="Sin fecha = no vence"
+                    placeholderTextColor={colors.muted}
+                    style={inputStyle}
+                  />
+                </Card>
+
+                {/* 2. Ficha Bancaria y de Pago del Proveedor (se guarda en Proveedores para todas sus cuentas) */}
+                <Card>
+                  <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '900', marginBottom: 2 }}>
+                    2. Coordenadas Bancarias y Métodos del Proveedor ({pmSupNombre || pagoModalCuenta.contraparte})
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 8 }}>
+                    Lo que guardes aquí actualiza automáticamente la ficha del proveedor para todas sus compras y cuentas por pagar.
+                  </Text>
+
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>🪪 RIF / Cédula del Proveedor</Text>
+                      <TextInput
+                        value={pmSupRif}
+                        onChangeText={(t) => setPmSupRif(t.toUpperCase())}
+                        placeholder="Ej. J-50123456-7 o V-12345678"
+                        placeholderTextColor={colors.muted}
+                        style={inputStyle}
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>📞 Teléfono de contacto</Text>
+                      <TextInput
+                        value={pmSupPhone}
+                        onChangeText={setPmSupPhone}
+                        placeholder="Ej. 0414-1234567"
+                        placeholderTextColor={colors.muted}
+                        style={inputStyle}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Sub-bloque: Transferencia Bancaria */}
+                  <View
+                    style={{
+                      marginTop: spacing.sm,
+                      padding: spacing.sm,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '900' }}>
+                      🏦 Transferencia Bancaria Nacional
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      <View style={{ flex: 1.4, minWidth: 150 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Banco</Text>
+                        <TextInput
+                          value={pmBankName}
+                          onChangeText={setPmBankName}
+                          placeholder="Ej. Banesco, Mercantil, Provincial, BDV…"
+                          placeholderTextColor={colors.muted}
+                          style={inputStyle}
+                        />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 120 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Tipo de cuenta</Text>
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          {(['Corriente', 'Ahorro'] as const).map((tc) => {
+                            const on = pmAccountType.toLowerCase() === tc.toLowerCase();
+                            return (
+                              <TouchableOpacity
+                                key={tc}
+                                onPress={() => setPmAccountType(tc)}
+                                style={{
+                                  flex: 1,
+                                  borderRadius: radius.md,
+                                  borderWidth: 1,
+                                  borderColor: on ? colors.brand : colors.border,
+                                  backgroundColor: on ? colors.brand : colors.surface,
+                                  paddingVertical: 8,
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+                                  {tc}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    </View>
+
+                    <View>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Número de cuenta (20 dígitos)</Text>
+                      <TextInput
+                        value={pmAccountNumber}
+                        onChangeText={setPmAccountNumber}
+                        keyboardType="numeric"
+                        placeholder="0134-0000-00-0000000000"
+                        placeholderTextColor={colors.muted}
+                        style={inputStyle}
+                      />
+                    </View>
+
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      <View style={{ flex: 1.3, minWidth: 150 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Titular de la cuenta</Text>
+                        <TextInput
+                          value={pmAccountHolder}
+                          onChangeText={setPmAccountHolder}
+                          placeholder="Nombre o razón social del titular"
+                          placeholderTextColor={colors.muted}
+                          style={inputStyle}
+                        />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 130 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>RIF / C.I. del titular</Text>
+                        <TextInput
+                          value={pmAccountIdDoc}
+                          onChangeText={(t) => setPmAccountIdDoc(t.toUpperCase())}
+                          placeholder="J-00000000-0 / V-00000000"
+                          placeholderTextColor={colors.muted}
+                          style={inputStyle}
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Sub-bloque: Pago Móvil */}
+                  <View
+                    style={{
+                      marginTop: spacing.sm,
+                      padding: spacing.sm,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={{ color: colors.successSoftText, fontSize: 12, fontWeight: '900' }}>
+                      📲 Pago Móvil
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      <View style={{ flex: 1, minWidth: 130 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Banco Pago Móvil</Text>
+                        <TextInput
+                          value={pmPagoMovilBank}
+                          onChangeText={setPmPagoMovilBank}
+                          placeholder="Ej. 0134 Banesco"
+                          placeholderTextColor={colors.muted}
+                          style={inputStyle}
+                        />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 130 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Teléfono Pago Móvil</Text>
+                        <TextInput
+                          value={pmPagoMovilPhone}
+                          onChangeText={setPmPagoMovilPhone}
+                          keyboardType="phone-pad"
+                          placeholder="0412-0000000"
+                          placeholderTextColor={colors.muted}
+                          style={inputStyle}
+                        />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 130 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>C.I. / RIF Pago Móvil</Text>
+                        <TextInput
+                          value={pmPagoMovilId}
+                          onChangeText={(t) => setPmPagoMovilId(t.toUpperCase())}
+                          placeholder="V-12345678 / J-50000000"
+                          placeholderTextColor={colors.muted}
+                          style={inputStyle}
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Sub-bloque: Binance / Zelle / Divisas / Captura QR */}
+                  <View
+                    style={{
+                      marginTop: spacing.sm,
+                      padding: spacing.sm,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={{ color: colors.warningSoftText, fontSize: 12, fontWeight: '900' }}>
+                      🪙 Binance / 💸 Zelle / 💵 Divisas y Captura QR
+                    </Text>
+                    <View>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>
+                        Binance Pay ID / Correo Zelle / Billetera USDT
+                      </Text>
+                      <TextInput
+                        value={pmBinanceId}
+                        onChangeText={setPmBinanceId}
+                        autoCapitalize="none"
+                        placeholder="Correo, Pay ID o dirección USDT…"
+                        placeholderTextColor={colors.muted}
+                        style={inputStyle}
+                      />
+                    </View>
+                    <View>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>
+                        Notas de pago adicionales del proveedor (Zelle, Efectivo, Cuenta Internacional…)
+                      </Text>
+                      <TextInput
+                        value={pmPaymentNotes}
+                        onChangeText={setPmPaymentNotes}
+                        multiline
+                        placeholder="Ej. Zelle a nombre de…, o acepta efectivo USD en tienda…"
+                        placeholderTextColor={colors.muted}
+                        style={[inputStyle, { minHeight: 50, textAlignVertical: 'top' }]}
+                      />
+                    </View>
+
+                    {/* Captura / QR de datos de pago */}
+                    {pmCapturaUrl ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                        <TouchableOpacity
+                          onPress={() => Linking.openURL(pmCapturaUrl)}
+                          style={{
+                            flex: 1,
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: colors.brand,
+                            borderRadius: radius.md,
+                            paddingVertical: spacing.xs,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                            📸 Ver captura / QR ({pmCapturaName || 'Imagen'})
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setPmCapturaUrl(null);
+                            setPmCapturaName(null);
+                          }}
+                          style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}
+                        >
+                          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>Quitar ✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                        <TouchableOpacity
+                          onPress={() => subirCapturaPagoProvCxp('camara')}
+                          disabled={pmSubiendoCaptura}
+                          style={{
+                            flex: 1,
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            borderRadius: radius.md,
+                            paddingVertical: spacing.sm,
+                            alignItems: 'center',
+                            opacity: pmSubiendoCaptura ? 0.6 : 1,
+                          }}
+                        >
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                            {pmSubiendoCaptura ? '⏳ Subiendo…' : '📷 Foto de QR / Datos'}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => subirCapturaPagoProvCxp('archivo')}
+                          disabled={pmSubiendoCaptura}
+                          style={{
+                            flex: 1,
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            borderRadius: radius.md,
+                            paddingVertical: spacing.sm,
+                            alignItems: 'center',
+                            opacity: pmSubiendoCaptura ? 0.6 : 1,
+                          }}
+                        >
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                            {pmSubiendoCaptura ? '⏳ Subiendo…' : '📎 Adjuntar QR / Captura'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                </Card>
+              </>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity
+                onPress={() => setPagoModalCuenta(null)}
+                disabled={pmGuardando}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.md,
+                  paddingVertical: spacing.md,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={guardarEditorPagoCxp}
+                disabled={pmGuardando || pmSubiendoCaptura}
+                style={{
+                  flex: 1.3,
+                  backgroundColor: colors.accent,
+                  borderRadius: radius.md,
+                  paddingVertical: spacing.md,
+                  alignItems: 'center',
+                  opacity: pmGuardando || pmSubiendoCaptura ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>
+                  {pmGuardando ? '⏳ Guardando…' : '💾 Guardar Métodos y Datos de Pago'}
                 </Text>
               </TouchableOpacity>
             </View>

@@ -1,8 +1,8 @@
 // ============================================================================
-// ❄️ AIRES ACONDICIONADOS — Control Riguroso de las 37 Unidades de la Base
+// ❄️ AIRES ACONDICIONADOS — Control Riguroso y Preventivo (Base, Carbozulia y Flota/Maquinaria)
 // ============================================================================
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Linking, Platform, Image } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
-import { Company, Supplier, ServicioRecord, ServicioItem } from '../types/database';
+import { Company, Supplier, ServicioRecord, ServicioItem, Machinery, Vehicle } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { pickAndUploadDocFile } from '../lib/photo';
 import { exportPdf } from '../lib/pdf';
@@ -30,8 +30,11 @@ import {
   AC_CATEGORIA_SERVICIO,
   AC_AREAS_SUGERIDAS,
   AC_BTU_OPCIONES,
+  AC_CAPACIDAD_MAQUINARIA_OPCIONES,
   AC_TIPOS_EQUIPO,
   AC_FRECUENCIAS_DIAS,
+  AC_FRECUENCIAS_PREVENTIVO_DIAS,
+  AC_RESPONSABLES_PREVENTIVO,
   AC_TIPOS_INTERVENCION,
   AC_CHECKLIST_RIGUROSO,
   AcUnit,
@@ -39,6 +42,7 @@ import {
   AcSemaforo,
   AcTipoEquipo,
   AcEstadoOperativo,
+  esEquipoMovilAc,
   extraerCatalogoAiresDeServicios,
   serializarCatalogoAiresParaServicios,
   calcularSemaforoAires,
@@ -56,6 +60,16 @@ const usd = (n: number) =>
 
 type Inv = { id: string; name: string; unit: string | null };
 
+const NOMBRES_REFERENCIA_SUGERIDOS = [
+  'CARBOZULIA',
+  'CAMIÓN ROQUERO',
+  'PALA LIEBHERR',
+  'CAMIONETA / FLOTA',
+  'COCINA Y CONTENEDOR',
+  'OFICINA GERENCIA',
+  'CONSOLA PRINCIPAL',
+] as const;
+
 export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
@@ -71,26 +85,38 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: suppliers, refetch: refetchSuppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: invItems } = useTable<Inv>('inventory_items', { select: 'id, name, unit', orderBy: 'name' });
+  const { data: machineryList } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  const { data: vehiclesList } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
 
   const companyName = (id: string | null) =>
     id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa';
   const supplierName = (id: string | null) =>
     id ? suppliers.find((s) => s.id === id)?.name ?? '—' : '—';
 
-  // Catálogo de las 37 unidades extraído de Supabase (con fallback automático a las 37 unidades base)
+  // Catálogo de unidades extraído de Supabase
   const unidadesCatalogo = useMemo(
     () => extraerCatalogoAiresDeServicios(serviciosRaw),
     [serviciosRaw],
   );
 
-  // Semáforo riguroso calculado en tiempo real cruzando las 37 unidades con sus servicios
-  const unidadesCalc = useMemo(
-    () => calcularSemaforoAires(unidadesCatalogo, serviciosRaw, hoy),
-    [unidadesCatalogo, serviciosRaw, hoy],
-  );
+  // Semáforo riguroso y preventivo calculado en tiempo real
+  const unidadesCalc = useMemo(() => {
+    const rawCalc = calcularSemaforoAires(unidadesCatalogo, serviciosRaw, hoy);
+    // Si una unidad está vinculada a maquinaria o es de tipo móvil, asegurar que siempre resuelva su placa
+    return rawCalc.map((u) => {
+      if (u.placa) return u;
+      if (u.machinery_id) {
+        const m = machineryList.find((x) => x.id === u.machinery_id);
+        if (m) return { ...u, placa: (m.plate || m.serial || 'SIN PLACA').toUpperCase() };
+        const v = vehiclesList.find((x) => x.id === u.machinery_id);
+        if (v) return { ...u, placa: (v.plate || v.serial || 'SIN PLACA').toUpperCase() };
+      }
+      return u;
+    });
+  }, [unidadesCatalogo, serviciosRaw, hoy, machineryList, vehiclesList]);
 
   // Filtros de pantalla
-  const [filtroSemaforo, setFiltroSemaforo] = useState<'todos' | AcSemaforo>('todos');
+  const [filtroSemaforo, setFiltroSemaforo] = useState<'todos' | AcSemaforo | 'lavado_pendiente'>('todos');
   const [filtroArea, setFiltroArea] = useState<string>('TODAS');
   const [q, setQ] = useState('');
   const [selCodes, setSelCodes] = useState<Set<string>>(new Set());
@@ -103,21 +129,25 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       return next;
     });
 
-  // KPIs del Semáforo Riguroso
+  // KPIs del Semáforo Riguroso + Preventivo (Camión de Lavado)
   const kpis = useMemo(() => {
     let alDia = 0;
     let proximo = 0;
     let vencido = 0;
     let sinRegistro = 0;
+    let lavadoPendiente = 0;
     let gastoTotal = 0;
     for (const u of unidadesCalc) {
       if (u.semaforo === 'al_dia') alDia++;
       else if (u.semaforo === 'proximo') proximo++;
       else if (u.semaforo === 'vencido') vencido++;
       else sinRegistro++;
+      if (u.semaforoPrev === 'vencido' || u.semaforoPrev === 'proximo') {
+        lavadoPendiente++;
+      }
       gastoTotal += u.gastoAcumuladoUsd || 0;
     }
-    return { total: unidadesCalc.length, alDia, proximo, vencido, sinRegistro, gastoTotal };
+    return { total: unidadesCalc.length, alDia, proximo, vencido, sinRegistro, lavadoPendiente, gastoTotal };
   }, [unidadesCalc]);
 
   // Áreas disponibles con conteo
@@ -134,11 +164,27 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   const lista = useMemo(() => {
     const nq = norm(q);
     return unidadesCalc.filter((u) => {
-      if (filtroSemaforo !== 'todos' && u.semaforo !== filtroSemaforo) return false;
+      if (filtroSemaforo === 'lavado_pendiente') {
+        if (u.semaforoPrev !== 'vencido' && u.semaforoPrev !== 'proximo') return false;
+      } else if (filtroSemaforo !== 'todos' && u.semaforo !== filtroSemaforo) {
+        return false;
+      }
       if (filtroArea !== 'TODAS' && (u.area || 'BASE GENERAL').trim().toUpperCase() !== filtroArea) return false;
       if (nq) {
         const hay = norm(
-          [u.code, u.name, u.area, u.tipo_equipo, u.btu, u.marca, u.serial, u.notes, companyName(u.company_id)].join(' '),
+          [
+            u.code,
+            u.name,
+            u.area,
+            u.tipo_equipo,
+            u.btu,
+            u.marca,
+            u.serial,
+            u.placa,
+            u.prev_responsable,
+            u.notes,
+            companyName(u.company_id),
+          ].join(' '),
         );
         if (!hay.includes(nq)) return false;
       }
@@ -146,7 +192,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     });
   }, [unidadesCalc, filtroSemaforo, filtroArea, q, companies]);
 
-  // ── Persistencia del Catálogo de las 37 Unidades en `public.servicios` ──────
+  // ── Persistencia del Catálogo de Unidades en `public.servicios` ────────────
   const [savingCatalog, setSavingCatalog] = useState(false);
 
   const guardarCatalogoEnSupabase = async (nuevasUnidades: AcUnit[], msgExito?: string) => {
@@ -162,7 +208,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
         service_date: hoy,
         items: itemsJson,
         total: 0,
-        note: 'CATÁLOGO MAESTRO DE LAS 37 UNIDADES DE AIRE ACONDICIONADO',
+        note: 'CATÁLOGO MAESTRO DE UNIDADES DE AIRE ACONDICIONADO (BASE Y FLOTA)',
       };
       const { error } = masterExistente
         ? await supabase
@@ -184,6 +230,24 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
+  // Registro rápido (1 toque) de lavado preventivo por Camión de Lavado
+  const registrarLavadoPreventivoRapido = async (u: AcUnitCalc) => {
+    const nuevas = unidadesCatalogo.map((item) =>
+      item.code === u.code
+        ? {
+            ...item,
+            freq_prev_days: Number(item.freq_prev_days) > 0 ? Number(item.freq_prev_days) : 2,
+            prev_responsable: item.prev_responsable || 'CAMIÓN DE LAVADO',
+            last_prev_manual: hoy,
+          }
+        : item,
+    );
+    await guardarCatalogoEnSupabase(
+      nuevas,
+      `🚿 Lavado preventivo (${u.prev_responsable || 'CAMIÓN DE LAVADO'}) de ${u.code} actualizado al día de hoy (${fmtFechaAc(hoy)}).`,
+    );
+  };
+
   // ── Modal de Edición de Ficha de 1 Unidad (o Lote de Unidades) ──────────────
   const [editUnitModal, setEditUnitModal] = useState(false);
   const [editBatchMode, setEditBatchMode] = useState(false);
@@ -194,11 +258,111 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   const [editBtu, setEditBtu] = useState('18.000 BTU');
   const [editMarca, setEditMarca] = useState('');
   const [editSerial, setEditSerial] = useState('');
+  const [editPlaca, setEditPlaca] = useState('');
+  const [editMachineryId, setEditMachineryId] = useState<string | null>(null);
   const [editCompany, setEditCompany] = useState<string>('');
   const [editFreq, setEditFreq] = useState('30');
-  const [editEstadoOp, setEditEstadoOp] = useState<AcEstadoOperativo>('operativo');
   const [editLastMaint, setEditLastMaint] = useState('');
+  // Nuevos campos para Frecuencia de Mantenimiento Preventivo (Camión de Lavado)
+  const [editFreqPrev, setEditFreqPrev] = useState('');
+  const [editPrevResp, setEditPrevResp] = useState('CAMIÓN DE LAVADO');
+  const [editLastPrev, setEditLastPrev] = useState('');
+  const [editEstadoOp, setEditEstadoOp] = useState<AcEstadoOperativo>('operativo');
   const [editNotes, setEditNotes] = useState('');
+
+  // Buscador de Maquinaria / Camión / Vehículo (con Placa obligatoria)
+  const [machPickerOpen, setMachPickerOpen] = useState(false);
+  const [machQ, setMachQ] = useState('');
+
+  const catalogoFlotaUnificado = useMemo(() => {
+    const items: {
+      id: string;
+      code: string;
+      plate: string;
+      description: string;
+      tipoSugerido: AcTipoEquipo;
+      companyId: string | null;
+      origen: 'MAQUINARIA' | 'VEHÍCULO';
+    }[] = [];
+
+    for (const m of machineryList) {
+      if (m.active === false) continue;
+      const desc = `${m.machinery_type || ''} ${m.description || ''} ${m.code || ''}`.toUpperCase();
+      let tipoSugerido: AcTipoEquipo = 'MAQUINARIA';
+      if (desc.includes('ROQUERO') || desc.includes('ROCKERO') || desc.includes('CAMION') || desc.includes('CAMIÓN') || desc.includes('VOLQUETA') || desc.includes('CISTERNA')) {
+        tipoSugerido = 'CAMIÓN / ROQUERO';
+      } else if (desc.includes('PALA') || desc.includes('EXCAVADORA') || desc.includes('LIEBHERR') || desc.includes('JUMBO')) {
+        tipoSugerido = 'PALA / EXCAVADORA';
+      } else if (desc.includes('CHUTO') || desc.includes('GANDOLA') || desc.includes('BATEA')) {
+        tipoSugerido = 'CHUTO / GANDOLA';
+      }
+      items.push({
+        id: m.id,
+        code: (m.code || 'MAQ').toUpperCase(),
+        plate: (m.plate || m.serial || 'SIN PLACA').toUpperCase(),
+        description: (m.description || m.machinery_type || 'MAQUINARIA').toUpperCase(),
+        tipoSugerido,
+        companyId: m.company_id || null,
+        origen: 'MAQUINARIA',
+      });
+    }
+
+    for (const v of vehiclesList) {
+      if (v.active === false) continue;
+      items.push({
+        id: v.id,
+        code: (v.name || v.plate || 'VEH').toUpperCase(),
+        plate: (v.plate || v.serial || 'SIN PLACA').toUpperCase(),
+        description: [v.brand, v.model, v.vehicle_type].filter(Boolean).join(' ').toUpperCase() || 'VEHÍCULO / CAMIONETA',
+        tipoSugerido: 'CAMIONETA / VEHÍCULO',
+        companyId: v.company_id || null,
+        origen: 'VEHÍCULO',
+      });
+    }
+
+    return items;
+  }, [machineryList, vehiclesList]);
+
+  const seleccionarEquipoDeFlota = (item: (typeof catalogoFlotaUnificado)[number]) => {
+    setEditCode(item.code);
+    setEditName(`${item.description} · PLACA ${item.plate}`);
+    setEditPlaca(item.plate);
+    setEditMachineryId(item.id);
+    setEditTipo(item.tipoSugerido);
+    if (!editBtu || editBtu.includes('BTU')) {
+      setEditBtu('COMPRESOR 508');
+    }
+    if (item.companyId) {
+      setEditCompany(item.companyId);
+    }
+    if (!editFreq || editFreq === '30') {
+      setEditFreq('45');
+    }
+    if (!editFreqPrev || editFreqPrev === '0') {
+      setEditFreqPrev('2');
+    }
+    setEditPrevResp('CAMIÓN DE LAVADO');
+    setMachPickerOpen(false);
+    toast.success(`Vinculado: ${item.code} (Placa: ${item.plate})`);
+  };
+
+  const cambiarTipoEquipo = (tp: AcTipoEquipo) => {
+    setEditTipo(tp);
+    if (esEquipoMovilAc(tp)) {
+      if (!editBtu || editBtu === '18.000 BTU') {
+        setEditBtu('COMPRESOR 508');
+      }
+      if (!editFreqPrev || editFreqPrev === '0') {
+        setEditFreqPrev('2');
+      }
+      if (editFreq === '30' && !editBatchMode) {
+        setEditFreq('45');
+      }
+      if (!editPrevResp) {
+        setEditPrevResp('CAMIÓN DE LAVADO');
+      }
+    }
+  };
 
   const abrirEditarUnidad = (u: AcUnitCalc) => {
     setEditBatchMode(false);
@@ -209,10 +373,15 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     setEditBtu(u.btu || '18.000 BTU');
     setEditMarca(u.marca || '');
     setEditSerial(u.serial || '');
+    setEditPlaca(u.placa || '');
+    setEditMachineryId(u.machinery_id || null);
     setEditCompany(u.company_id ?? '');
     setEditFreq(String(u.freq_days || 30));
-    setEditEstadoOp(u.estado_operativo || 'operativo');
     setEditLastMaint(u.last_maint_manual || '');
+    setEditFreqPrev(u.freq_prev_days && u.freq_prev_days > 0 ? String(u.freq_prev_days) : '');
+    setEditPrevResp(u.prev_responsable || 'CAMIÓN DE LAVADO');
+    setEditLastPrev(u.last_prev_manual || '');
+    setEditEstadoOp(u.estado_operativo || 'operativo');
     setEditNotes(u.notes || '');
     setEditUnitModal(true);
   };
@@ -227,19 +396,31 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     setEditArea('');
     setEditBtu('');
     setEditMarca('');
+    setEditPlaca('');
+    setEditMachineryId(null);
     setEditCompany('');
     setEditFreq('30');
-    setEditEstadoOp('operativo');
     setEditLastMaint('');
+    setEditFreqPrev('');
+    setEditPrevResp('CAMIÓN DE LAVADO');
+    setEditLastPrev('');
+    setEditEstadoOp('operativo');
     setEditNotes('');
     setEditUnitModal(true);
   };
 
   const guardarFichaUnidad = async () => {
     const freqNum = Math.max(1, Math.round(leerNumero(editFreq) || 30));
+    const freqPrevNumRaw = Math.round(leerNumero(editFreqPrev) || 0);
+    const freqPrevNum = freqPrevNumRaw > 0 ? freqPrevNumRaw : null;
+
     if (editLastMaint.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(editLastMaint.trim())) {
-      return toast.error('La fecha de último mantenimiento debe tener formato AAAA-MM-DD.');
+      return toast.error('La fecha de último mantenimiento riguroso debe tener formato AAAA-MM-DD.');
     }
+    if (editLastPrev.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(editLastPrev.trim())) {
+      return toast.error('La fecha de último mantenimiento preventivo debe tener formato AAAA-MM-DD.');
+    }
+
     if (editBatchMode) {
       const nuevas = unidadesCatalogo.map((u) => {
         if (!selCodes.has(u.code)) return u;
@@ -251,8 +432,11 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
           marca: editMarca.trim() ? editMarca.trim().toUpperCase() : u.marca,
           company_id: editCompany ? editCompany : u.company_id,
           freq_days: freqNum,
+          freq_prev_days: editFreqPrev.trim() !== '' ? freqPrevNum : u.freq_prev_days,
+          prev_responsable: editPrevResp.trim() ? editPrevResp.trim().toUpperCase() : u.prev_responsable,
           estado_operativo: editEstadoOp,
           last_maint_manual: editLastMaint.trim() || u.last_maint_manual,
+          last_prev_manual: editLastPrev.trim() || u.last_prev_manual,
         };
       });
       const ok = await guardarCatalogoEnSupabase(nuevas, `${selCodes.size} unidad(es) actualizadas.`);
@@ -262,6 +446,9 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
 
     const codeClean = editCode.trim().toUpperCase();
     if (!codeClean) return toast.error('El código de la unidad es obligatorio.');
+    const esMovil = esEquipoMovilAc(editTipo) || Boolean(editMachineryId);
+    const placaFinal = editPlaca.trim().toUpperCase() || (esMovil ? 'SIN PLACA' : '');
+
     const existe = unidadesCatalogo.some((u) => u.code === codeClean);
     const unidadActualizada: AcUnit = {
       id: codeClean,
@@ -269,13 +456,18 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       name: editName.trim().toUpperCase() || `UNIDAD ${codeClean}`,
       area: editArea.trim().toUpperCase() || 'BASE GENERAL',
       tipo_equipo: editTipo,
-      btu: editBtu.trim().toUpperCase() || '18.000 BTU',
+      btu: editBtu.trim().toUpperCase() || (esMovil ? 'COMPRESOR 508' : '18.000 BTU'),
       marca: editMarca.trim().toUpperCase(),
       serial: editSerial.trim().toUpperCase(),
+      placa: placaFinal,
+      machinery_id: editMachineryId || null,
       company_id: editCompany || null,
       freq_days: freqNum,
+      freq_prev_days: freqPrevNum,
+      prev_responsable: (editPrevResp.trim() || 'CAMIÓN DE LAVADO').toUpperCase(),
       estado_operativo: editEstadoOp,
       last_maint_manual: editLastMaint.trim() || null,
+      last_prev_manual: editLastPrev.trim() || null,
       notes: editNotes.trim().toUpperCase(),
       active: true,
     };
@@ -286,8 +478,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     if (ok) setEditUnitModal(false);
   };
 
-  // 🗑️ Eliminar unidades del catálogo (29-oct-2026). Solo se quitan de la lista: los
-  // mantenimientos ya registrados (servicios y sus cuentas por pagar) NO se tocan.
+  // 🗑️ Eliminar unidades del catálogo. Los mantenimientos ya registrados NO se tocan.
   const eliminarUnidades = async (codes: string[]) => {
     if (!canWrite) return toast.error('No tienes permiso de escritura en Compras.');
     const set = new Set(codes);
@@ -296,13 +487,16 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     const conHistorial = afectadas.filter((u) => u.mantenimientosCount > 0).length;
     const ok = await confirm({
       title: afectadas.length === 1 ? `Eliminar ${afectadas[0].code}` : `Eliminar ${afectadas.length} unidades`,
-      message: (afectadas.length === 1
-        ? `¿Eliminar el aire ${afectadas[0].code} (${afectadas[0].area}) de la lista?`
-        : `¿Eliminar estas ${afectadas.length} unidades de la lista?
-${afectadas.slice(0, 12).map((u) => u.code).join(', ')}${afectadas.length > 12 ? '…' : ''}`) +
-        (conHistorial > 0 ? `
-
-${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas por pagar se conservan.` : ''),
+      message:
+        (afectadas.length === 1
+          ? `¿Eliminar el aire ${afectadas[0].code} (${afectadas[0].area}) de la lista?`
+          : `¿Eliminar estas ${afectadas.length} unidades de la lista?\n${afectadas
+              .slice(0, 12)
+              .map((u) => u.code)
+              .join(', ')}${afectadas.length > 12 ? '…' : ''}`) +
+        (conHistorial > 0
+          ? `\n\n${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas por pagar se conservan.`
+          : ''),
       confirmText: 'Eliminar',
       danger: true,
     });
@@ -316,11 +510,11 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
   };
 
   const abrirNuevaUnidadExtra = () => {
-    // Siguiente número libre (con unidades eliminadas, «cantidad + 1» repetiría un código).
-    const nextNum = unidadesCatalogo.reduce((max, u) => {
-      const n = Number((u.code.match(/(\d+)\s*$/) || [])[1]);
-      return Number.isFinite(n) && n > max ? n : max;
-    }, 0) + 1;
+    const nextNum =
+      unidadesCatalogo.reduce((max, u) => {
+        const n = Number((u.code.match(/(\d+)\s*$/) || [])[1]);
+        return Number.isFinite(n) && n > max ? n : max;
+      }, 0) + 1;
     const nextCode = `AA-${String(nextNum).padStart(2, '0')}`;
     setEditBatchMode(false);
     setEditCode(nextCode);
@@ -330,15 +524,20 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
     setEditBtu('18.000 BTU');
     setEditMarca('');
     setEditSerial('');
+    setEditPlaca('');
+    setEditMachineryId(null);
     setEditCompany(generalCompanies(companies)[0]?.id ?? '');
     setEditFreq('30');
-    setEditEstadoOp('operativo');
     setEditLastMaint('');
+    setEditFreqPrev('');
+    setEditPrevResp('CAMIÓN DE LAVADO');
+    setEditLastPrev('');
+    setEditEstadoOp('operativo');
     setEditNotes('');
     setEditUnitModal(true);
   };
 
-  // ── Modal de Registro de Mantenimiento Riguroso (1 o Varias Unidades) ──────
+  // ── Modal de Registro de Mantenimiento (Riguroso o Preventivo) ──────────────
   const [maintOpen, setMaintOpen] = useState(false);
   const [maintUnits, setMaintUnits] = useState<string[]>([]);
   const [maintCompany, setMaintCompany] = useState('');
@@ -365,7 +564,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
   const [nuevoProv, setNuevoProv] = useState('');
   const [creandoProv, setCreandoProv] = useState(false);
 
-  const abrirMantenimiento = (codesIniciales?: string[]) => {
+  const abrirMantenimiento = (codesIniciales?: string[], tipoInicial?: string) => {
     const elegidos =
       codesIniciales && codesIniciales.length > 0
         ? codesIniciales
@@ -377,8 +576,12 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
     setMaintCompany(primeraUnidad?.company_id || generalCompanies(companies)[0]?.id || '');
     setMaintSupplier('');
     setMaintDate(hoy);
-    setMaintTipo(AC_TIPOS_INTERVENCION[0]);
-    setMaintChecklist([...AC_CHECKLIST_RIGUROSO.slice(0, 6)]);
+    setMaintTipo(tipoInicial || AC_TIPOS_INTERVENCION[0]);
+    setMaintChecklist(
+      tipoInicial && tipoInicial.includes('CAMIÓN DE LAVADO')
+        ? [AC_CHECKLIST_RIGUROSO[0], AC_CHECKLIST_RIGUROSO[1]]
+        : [...AC_CHECKLIST_RIGUROSO.slice(0, 6)],
+    );
     setModoPrecio('unitario');
     setPrecioTexto('');
     setUsaInv(false);
@@ -440,7 +643,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
 
   const guardarMantenimiento = async () => {
     if (!maintCompany) return toast.error('Elige la empresa.');
-    if (maintUnits.length === 0) return toast.error('Selecciona al menos una unidad de aire acondicionado (ej. AA-01).');
+    if (maintUnits.length === 0) return toast.error('Selecciona al menos una unidad de aire acondicionado.');
     if (usaInv && !invItemId) return toast.error('Elige el repuesto del inventario o desmarca la casilla de repuesto.');
     if (maintEnviarCxp && !maintSupplier) {
       return toast.error('Para enviar a Cuentas por Pagar debes elegir el Proveedor.');
@@ -451,16 +654,17 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
 
     const checklistResumen = maintChecklist.length > 0 ? `[${maintChecklist.join(', ')}]` : '';
     const detalleCombinado = [checklistResumen, maintDetalle.trim()].filter(Boolean).join(' · ');
+    const esPreventivoLavado = maintTipo.toUpperCase().includes('CAMIÓN DE LAVADO');
 
     const renglones: (ServicioItem & Record<string, any>)[] = maintUnits.map((code, idx) => {
-      const u = unidadesCatalogo.find((x) => x.code === code);
-      const label = u ? `❄️ ${u.code} · ${u.area} · ${u.tipo_equipo} ${u.btu}` : `❄️ ${code}`;
-      // Solo descontar repuesto en el primer renglón o en cada uno según corresponda
+      const u = unidadesCalc.find((x) => x.code === code) || unidadesCatalogo.find((x) => x.code === code);
+      const placaTxt = u?.placa ? ` [PLACA: ${u.placa}]` : '';
+      const label = u ? `❄️ ${u.code}${placaTxt} · ${u.area} · ${u.tipo_equipo} ${u.btu}` : `❄️ ${code}`;
       const descuentaAqui = usaInv && idx === 0;
       return {
         categoria: AC_CATEGORIA_SERVICIO,
         tipo: maintTipo,
-        machinery_id: null,
+        machinery_id: u?.machinery_id || null,
         machine_label: label,
         qty: 1,
         price: precioUnitarioCalc,
@@ -472,6 +676,8 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
         ac_unit_code: code,
         ac_unit_area: u?.area || 'BASE GENERAL',
         ac_unit_btu: u?.btu || '18.000 BTU',
+        ac_unit_placa: u?.placa || '',
+        ac_es_preventivo_lavado: esPreventivoLavado,
         ac_checklist: maintChecklist,
       };
     });
@@ -507,10 +713,14 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
     // Si marcó Enviar a Cuentas por Pagar, creamos la deuda con sus Condiciones de Pago y Nota
     if (maintEnviarCxp && maintSupplier && totalMaintCalc > 0) {
       const srvCode = srvIns?.code || 'SRV-AC';
+      const codigosConPlaca = maintUnits.map((c) => {
+        const u = unidadesCalc.find((x) => x.code === c);
+        return u?.placa ? `${c} (PLACA ${u.placa})` : c;
+      });
       const codigosTxt =
-        maintUnits.length <= 6
-          ? maintUnits.join(', ')
-          : `${maintUnits.slice(0, 6).join(', ')} y ${maintUnits.length - 6} más`;
+        codigosConPlaca.length <= 5
+          ? codigosConPlaca.join(', ')
+          : `${codigosConPlaca.slice(0, 5).join(', ')} y ${codigosConPlaca.length - 5} más`;
       const conceptoCxp = `MANTENIMIENTO AIRES (${codigosTxt}) · ${maintTipo} · ${srvCode}`.slice(0, 220);
       let notaCxp = maintNota.trim().toUpperCase() || `MANTENIMIENTO DE ${maintUnits.length} UNIDAD(ES): ${codigosTxt}`;
       notaCxp = inyectarEmpresaEnNota(notaCxp, maintCompany, companyName(maintCompany)) || '';
@@ -549,7 +759,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
     );
   };
 
-  // Exportar Reporte PDF del Control Riguroso de Aires Acondicionados
+  // Exportar Reporte PDF
   const exportarReportePdf = async () => {
     try {
       const partesFiltro: string[] = [];
@@ -596,7 +806,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
     </TouchableOpacity>
   );
 
-  const semaforoColors = (sem: AcSemaforo) => {
+  const semaforoColors = (sem: AcSemaforo | 'no_aplica') => {
     switch (sem) {
       case 'al_dia':
         return { bg: colors.successSoftBg, border: colors.successSoftBorder, text: colors.successSoftText, bar: colors.success };
@@ -643,7 +853,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
                   borderRadius: radius.pill,
                 }}
               >
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>+ Unidad</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>+ Unidad / Maquinaria / Camión</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => abrirMantenimiento()}
@@ -664,18 +874,21 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
       </View>
 
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Control riguroso de las {kpis.total} unidades de aire acondicionado cargadas: ubicación, BTU, ciclo de mantenimiento, checklist técnico y envío directo a Cuentas por Pagar.
+        Control riguroso y preventivo (camión de lavado) de aires acondicionados de la base, Carbozulia, maquinarias, camiones roqueros, palas y camionetas.
       </Text>
 
-      {/* Tarjetas KPI interactivas del Semáforo Riguroso (responsivas en móvil y PC) */}
+      {/* Tarjetas KPI interactivas del Semáforo Riguroso y Preventivo */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
-        {([
-          { key: 'todos', label: '❄️ TOTAL BASE', val: kpis.total, color: colors.brandText, border: colors.brand },
-          { key: 'al_dia', label: '🟢 AL DÍA', val: kpis.alDia, color: colors.successSoftText, border: colors.success },
-          { key: 'proximo', label: '🟠 PRÓXIMOS', val: kpis.proximo, color: colors.warningSoftText, border: colors.warning },
-          { key: 'vencido', label: '🔴 VENCIDOS / DAÑADOS', val: kpis.vencido, color: colors.dangerSoftText, border: colors.danger },
-          { key: 'sin_registro', label: '⚪ SIN REGISTRO', val: kpis.sinRegistro, color: colors.muted, border: colors.border },
-        ] as const).map((k) => {
+        {(
+          [
+            { key: 'todos', label: '❄️ TOTAL UNIDADES', val: kpis.total, color: colors.brandText, border: colors.brand },
+            { key: 'al_dia', label: '🟢 AL DÍA', val: kpis.alDia, color: colors.successSoftText, border: colors.success },
+            { key: 'proximo', label: '🟠 PRÓXIMOS', val: kpis.proximo, color: colors.warningSoftText, border: colors.warning },
+            { key: 'vencido', label: '🔴 VENCIDOS / DAÑADOS', val: kpis.vencido, color: colors.dangerSoftText, border: colors.danger },
+            { key: 'lavado_pendiente', label: '🚿 LAVADO PREVENTIVO HOY/VENC.', val: kpis.lavadoPendiente, color: colors.infoSoftText, border: colors.brand },
+            { key: 'sin_registro', label: '⚪ SIN REGISTRO', val: kpis.sinRegistro, color: colors.muted, border: colors.border },
+          ] as const
+        ).map((k) => {
           const active = filtroSemaforo === k.key;
           return (
             <TouchableOpacity
@@ -683,7 +896,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
               onPress={() => setFiltroSemaforo(active && k.key !== 'todos' ? 'todos' : k.key)}
               style={{
                 flexGrow: 1,
-                minWidth: 100,
+                minWidth: 105,
                 backgroundColor: active ? colors.surfaceAlt : colors.surface,
                 borderWidth: active ? 2 : 1,
                 borderColor: active ? k.border : colors.border,
@@ -699,7 +912,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
         })}
       </View>
 
-      {/* Filtro rápido por Área / Ubicación */}
+      {/* Filtro rápido por Área / Ubicación / Frente */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -717,7 +930,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
       <TextInput
         value={q}
         onChangeText={setQ}
-        placeholder="🔎 Buscar por código (AA-01), área (Oficina, Carpa, Comedor), BTU o marca…"
+        placeholder="🔎 Buscar por código (AA-01, ROCKERO-18), placa, área (Carbozulia, Oficina), compresor 508, BTU o marca…"
         placeholderTextColor={colors.muted}
         style={[inputStyle, { marginBottom: spacing.xs }]}
       />
@@ -737,7 +950,9 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => {
-              const urg = unidadesCalc.filter((u) => u.semaforo === 'vencido' || u.semaforo === 'proximo').map((u) => u.code);
+              const urg = unidadesCalc
+                .filter((u) => u.semaforo === 'vencido' || u.semaforo === 'proximo' || u.semaforoPrev === 'vencido' || u.semaforoPrev === 'proximo')
+                .map((u) => u.code);
               setSelCodes(new Set(urg));
             }}
             style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
@@ -751,7 +966,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
                 style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
               >
                 <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>
-                  ⚙️ Configurar área/BTU en lote ({selCodes.size})
+                  ⚙️ Configurar área/ciclos en lote ({selCodes.size})
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -780,19 +995,21 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
         </View>
       ) : null}
 
-      {/* Listado de las 37 Unidades con Semáforo Riguroso */}
+      {/* Listado de Unidades con Semáforo Riguroso y Preventivo */}
       {loading ? (
         <Loading />
       ) : lista.length === 0 ? (
         unidadesCatalogo.length === 0 ? (
-          <EmptyState title="Sin aires cargados" subtitle="Usa «+ Unidad» para cargar cada aire acondicionado." />
+          <EmptyState title="Sin aires cargados" subtitle="Usa «+ Unidad / Maquinaria / Camión» para cargar cada aire acondicionado." />
         ) : (
           <EmptyState title="Sin unidades en este filtro" subtitle="Cambia el filtro del semáforo o el texto de búsqueda." />
         )
       ) : (
         lista.map((u) => {
           const sc = semaforoColors(u.semaforo);
+          const scPrev = semaforoColors(u.semaforoPrev);
           const checked = selCodes.has(u.code);
+          const tienePrev = Boolean(u.freq_prev_days && u.freq_prev_days > 0);
           return (
             <ExpandableCard
               key={u.code}
@@ -811,8 +1028,17 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
                       </TouchableOpacity>
                     ) : null}
                     <View style={{ backgroundColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: 7, paddingVertical: 2 }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>❄️ {u.code}</Text>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>
+                        {esEquipoMovilAc(u.tipo_equipo) ? '🚜' : '❄️'} {u.code}
+                      </Text>
                     </View>
+                    {u.placa ? (
+                      <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 11 }}>
+                          🏷️ PLACA: {u.placa}
+                        </Text>
+                      </View>
+                    ) : null}
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
                       📍 {u.area}{u.name && u.name !== `UNIDAD ${u.code}` ? ` · ${u.name}` : ''}
                     </Text>
@@ -823,18 +1049,42 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
 
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, flexWrap: 'wrap', gap: 6 }}>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>
-                      {u.tipo_equipo} · {u.btu}{u.marca ? ` · ${u.marca}` : ''} · Ciclo: cada {u.freq_days}d
+                      {u.tipo_equipo} · {u.btu}{u.marca ? ` · ${u.marca}` : ''} · Riguroso: cada {u.freq_days}d
                     </Text>
                     <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
-                      Último: {fmtFechaAc(u.ultimaFecha)} · Próximo: {fmtFechaAc(u.proximaFecha)}
+                      Último rig.: {fmtFechaAc(u.ultimaFecha)} · Próximo: {fmtFechaAc(u.proximaFecha)}
                     </Text>
                   </View>
+
+                  {tienePrev ? (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginTop: 5,
+                        paddingTop: 4,
+                        borderTopWidth: 1,
+                        borderTopColor: colors.border,
+                        flexWrap: 'wrap',
+                        gap: 6,
+                      }}
+                    >
+                      <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '800' }}>
+                        🚿 Preventivo ({u.prev_responsable || 'CAMIÓN DE LAVADO'}): cada {u.freq_prev_days} día(s) · Últ: {fmtFechaAc(u.ultimaFechaPrev)} → Próx: {fmtFechaAc(u.proximaFechaPrev)}
+                      </Text>
+                      <View style={{ backgroundColor: scPrev.bg, borderWidth: 1, borderColor: scPrev.border, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 1 }}>
+                        <Text style={{ color: scPrev.text, fontWeight: '800', fontSize: 10.5 }}>{u.semaforoPrevLabel}</Text>
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
               }
               detail={
                 <View style={{ gap: 6 }}>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     🏢 Empresa: <Text style={{ color: colors.text, fontWeight: '700' }}>{companyName(u.company_id)}</Text>
+                    {u.placa ? ` · 🏷️ Placa: ${u.placa}` : ''}
                     {u.serial ? ` · Serial: ${u.serial}` : ''}
                     {u.mantenimientosCount > 0 ? ` · ${u.mantenimientosCount} servicio(s) (${usd(u.gastoAcumuladoUsd)})` : ''}
                   </Text>
@@ -872,6 +1122,26 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
 
                   {canWrite ? (
                     <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4, flexWrap: 'wrap' }}>
+                      {tienePrev || esEquipoMovilAc(u.tipo_equipo) ? (
+                        <TouchableOpacity
+                          onPress={() => registrarLavadoPreventivoRapido(u)}
+                          disabled={savingCatalog}
+                          style={{
+                            flexGrow: 1,
+                            backgroundColor: colors.infoSoftBg,
+                            borderWidth: 1,
+                            borderColor: colors.infoSoftBorder,
+                            borderRadius: radius.md,
+                            paddingVertical: spacing.sm,
+                            paddingHorizontal: spacing.md,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 12 }}>
+                            🚿 Marcar lavado preventivo HOY ({u.prev_responsable || 'Camión de lavado'})
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
                       <TouchableOpacity
                         onPress={() => abrirMantenimiento([u.code])}
                         style={{
@@ -901,7 +1171,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
                         }}
                       >
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
-                          ✏️ Editar ubicación / BTU / ciclo
+                          ✏️ Editar ubicación / equipo / ciclos
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -938,21 +1208,97 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
 
             {!editBatchMode ? (
               <Card>
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Código de la unidad</Text>
+                {/* Selector rápido de Maquinaria / Camión / Vehículo con Buscador y PLACA */}
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    padding: spacing.sm,
+                    marginBottom: spacing.sm,
+                  }}
+                >
+                  <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginBottom: 4 }}>
+                    🚜 ¿Es el aire acondicionado de una Maquinaria, Camión, Pala o Camioneta?
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 8 }}>
+                    Puedes vincularlo del catálogo (con su Placa) o escribir directamente abajo el código (ej. ROCKERO-18, PALA LIEBHERR) y su placa.
+                  </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setMachQ('');
+                        setMachPickerOpen(true);
+                      }}
+                      style={{
+                        backgroundColor: colors.brand,
+                        borderRadius: radius.md,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.xs,
+                      }}
+                    >
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                        🔎 Buscar Maquinaria / Camión / Vehículo (con Placa)
+                      </Text>
+                    </TouchableOpacity>
+                    {editMachineryId ? (
+                      <TouchableOpacity
+                        onPress={() => setEditMachineryId(null)}
+                        style={{
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radius.md,
+                          paddingHorizontal: spacing.sm,
+                          paddingVertical: spacing.xs,
+                        }}
+                      >
+                        <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 11 }}>✕ Quitar vínculo</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                  Código de la unidad (ej. AA-01, ROCKERO-18, PALA-LIEBHERR, CAMIONETA-01)
+                </Text>
                 <TextInput
                   value={editCode}
                   onChangeText={(t) => setEditCode(t.toUpperCase())}
-                  placeholder="AA-01"
+                  placeholder="AA-01 o ROCKERO-18"
                   placeholderTextColor={colors.muted}
                   style={inputStyle}
                 />
+
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
-                  Nombre o referencia específica (ej. Oficina Gerencia, Consola 1)
+                  🏷️ Placa de la Maquinaria / Camión / Camioneta (si aplica)
                 </Text>
+                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                  <TextInput
+                    value={editPlaca}
+                    onChangeText={(t) => setEditPlaca(t.toUpperCase())}
+                    placeholder="EJ. A12BC3D o SIN PLACA (dejar vacío si es aire de oficina)"
+                    placeholderTextColor={colors.muted}
+                    style={[inputStyle, { flex: 1 }]}
+                  />
+                  {chip('SIN PLACA', editPlaca === 'SIN PLACA', () =>
+                    setEditPlaca(editPlaca === 'SIN PLACA' ? '' : 'SIN PLACA'),
+                  )}
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
+                  Nombre o referencia específica (ej. Carbozulia, Camión Roquero #18, Oficina Gerencia)
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                  {NOMBRES_REFERENCIA_SUGERIDOS.map((nom) =>
+                    chip(nom, editName.toUpperCase() === nom, () => setEditName(nom)),
+                  )}
+                </View>
                 <TextInput
                   value={editName}
                   onChangeText={(t) => setEditName(t.toUpperCase())}
-                  placeholder="EJ. OFICINA GERENCIA"
+                  placeholder="EJ. CARBOZULIA, CAMIÓN ROQUERO #18, OFICINA GERENCIA…"
                   placeholderTextColor={colors.muted}
                   style={inputStyle}
                 />
@@ -961,7 +1307,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
 
             <Card>
               <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginBottom: 4 }}>
-                📍 Área / Ubicación en la base
+                📍 Área / Ubicación / Frente de Trabajo (Base, Carbozulia, Flota…)
               </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                 {AC_AREAS_SUGERIDAS.map((ar) =>
@@ -971,35 +1317,11 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
               <TextInput
                 value={editArea}
                 onChangeText={(t) => setEditArea(t.toUpperCase())}
-                placeholder={editBatchMode ? 'Dejar vacío para no cambiar el área…' : 'Escribe o elige el área (ej. CARPA NUEVA)…'}
-                placeholderTextColor={colors.muted}
-                style={inputStyle}
-              />
-            </Card>
-
-            <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Tipo de equipo</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm }}>
-                {AC_TIPOS_EQUIPO.map((tp) => chip(tp, editTipo === tp, () => setEditTipo(tp)))}
-              </View>
-
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Capacidad (BTU / Toneladas)</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                {AC_BTU_OPCIONES.map((b) => chip(b, editBtu === b, () => setEditBtu(b)))}
-              </View>
-              <TextInput
-                value={editBtu}
-                onChangeText={(t) => setEditBtu(t.toUpperCase())}
-                placeholder="18.000 BTU"
-                placeholderTextColor={colors.muted}
-                style={inputStyle}
-              />
-
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Marca (opcional)</Text>
-              <TextInput
-                value={editMarca}
-                onChangeText={(t) => setEditMarca(t.toUpperCase())}
-                placeholder="EJ. LG, SAMSUNG, CARRIER, FRIGILUX…"
+                placeholder={
+                  editBatchMode
+                    ? 'Dejar vacío para no cambiar el área…'
+                    : 'Escribe o elige el área / frente (ej. CARBOZULIA, PATIO, OFICINA)…'
+                }
                 placeholderTextColor={colors.muted}
                 style={inputStyle}
               />
@@ -1007,7 +1329,53 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
 
             <Card>
               <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginBottom: 4 }}>
+                ❄️🚜 Tipo de equipo (Instalación de Base o Maquinaria / Camión / Vehículo)
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm }}>
+                {AC_TIPOS_EQUIPO.map((tp) => chip(tp, editTipo === tp, () => cambiarTipoEquipo(tp)))}
+              </View>
+
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                Capacidad (BTU / Toneladas) — Aires de instalación
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {AC_BTU_OPCIONES.map((b) => chip(b, editBtu === b, () => setEditBtu(b)))}
+              </View>
+
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+                🚜 Compresor / Sistema A/A — Maquinaria, Camiones y Camionetas
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {AC_CAPACIDAD_MAQUINARIA_OPCIONES.map((c) => chip(c, editBtu === c, () => setEditBtu(c)))}
+              </View>
+
+              <TextInput
+                value={editBtu}
+                onChangeText={(t) => setEditBtu(t.toUpperCase())}
+                placeholder="EJ. 18.000 BTU o COMPRESOR 508"
+                placeholderTextColor={colors.muted}
+                style={inputStyle}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
+                Marca (opcional)
+              </Text>
+              <TextInput
+                value={editMarca}
+                onChangeText={(t) => setEditMarca(t.toUpperCase())}
+                placeholder="EJ. SANDEN, CATERPILLAR, LIEBHERR, LG, SAMSUNG, CARRIER…"
+                placeholderTextColor={colors.muted}
+                style={inputStyle}
+              />
+            </Card>
+
+            {/* Ciclo 1: Frecuencia de Mantenimiento Riguroso */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800', marginBottom: 4 }}>
                 ⏱️ Frecuencia de mantenimiento riguroso (cada cuántos días)
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+                Intervención técnica completa (desarme, lavado químico, revisión de gas PSI, electricidad y compresor).
               </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                 {AC_FRECUENCIAS_DIAS.map((d) =>
@@ -1018,18 +1386,82 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
                 value={editFreq}
                 onChangeText={(t) => setEditFreq(onlyDecimal(t))}
                 keyboardType="numeric"
-                placeholder="30"
+                placeholder="45"
+                placeholderTextColor={colors.muted}
+                style={inputStyle}
+              />
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, marginBottom: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  Fecha de último mantenimiento riguroso previo (AAAA-MM-DD, opcional)
+                </Text>
+                <TouchableOpacity onPress={() => setEditLastMaint(hoy)}>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>📅 Hoy ({hoy})</Text>
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                value={editLastMaint}
+                onChangeText={setEditLastMaint}
+                placeholder={`Ej. ${hoy}`}
+                placeholderTextColor={colors.muted}
+                style={inputStyle}
+              />
+            </Card>
+
+            {/* Ciclo 2: NUEVA Frecuencia de Mantenimiento Preventivo (Camión de Lavado) */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800', marginBottom: 4 }}>
+                🚿 Frecuencia de mantenimiento preventivo — Camión de lavado (cada cuántos días)
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+                Lavado preventivo frecuente del condensador / soplado de filtros (ej. cada 2 días por el camión de lavado en maquinaria, camiones roqueros y camionetas).
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {AC_FRECUENCIAS_PREVENTIVO_DIAS.map((d) =>
+                  chip(
+                    d === 0 ? 'No aplica' : d === 1 ? 'Cada 1 día (Diario)' : `Cada ${d} días`,
+                    d === 0 ? !editFreqPrev || Number(editFreqPrev) === 0 : Number(editFreqPrev) === d,
+                    () => setEditFreqPrev(d === 0 ? '' : String(d)),
+                  ),
+                )}
+              </View>
+              <TextInput
+                value={editFreqPrev}
+                onChangeText={(t) => setEditFreqPrev(onlyDecimal(t))}
+                keyboardType="numeric"
+                placeholder="Ej. 2 (para cada 2 días con el camión de lavado; vacío = no aplica)"
                 placeholderTextColor={colors.muted}
                 style={inputStyle}
               />
 
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
-                Fecha de último mantenimiento previo (AAAA-MM-DD, opcional)
+                Responsable del mantenimiento preventivo frecuente
               </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                {AC_RESPONSABLES_PREVENTIVO.map((resp) =>
+                  chip(`🚛 ${resp}`, editPrevResp.toUpperCase() === resp, () => setEditPrevResp(resp)),
+                )}
+              </View>
               <TextInput
-                value={editLastMaint}
-                onChangeText={setEditLastMaint}
-                placeholder="Ej. 2026-10-15"
+                value={editPrevResp}
+                onChangeText={(t) => setEditPrevResp(t.toUpperCase())}
+                placeholder="CAMIÓN DE LAVADO"
+                placeholderTextColor={colors.muted}
+                style={inputStyle}
+              />
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, marginBottom: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  Fecha de último mantenimiento preventivo / lavado (AAAA-MM-DD, opcional)
+                </Text>
+                <TouchableOpacity onPress={() => setEditLastPrev(hoy)}>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>📅 Hoy ({hoy})</Text>
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                value={editLastPrev}
+                onChangeText={setEditLastPrev}
+                placeholder={`Ej. ${hoy}`}
                 placeholderTextColor={colors.muted}
                 style={inputStyle}
               />
@@ -1070,10 +1502,77 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
               </TouchableOpacity>
             </View>
           </ScrollView>
+
+          {/* Sub-Modal: Buscador de Maquinaria / Camión / Vehículo con Placa */}
+          <Modal visible={machPickerOpen} animationType="slide" onRequestClose={() => setMachPickerOpen(false)}>
+            <Screen>
+              <SectionTitle>🚜 Elegir Maquinaria, Camión o Vehículo</SectionTitle>
+              <TextInput
+                value={machQ}
+                onChangeText={setMachQ}
+                placeholder="🔎 Buscar por código, nombre, tipo o PLACA…"
+                placeholderTextColor={colors.muted}
+                style={inputStyle}
+              />
+              <ScrollView style={{ marginTop: spacing.sm }} keyboardShouldPersistTaps="handled">
+                {catalogoFlotaUnificado
+                  .filter((it) => {
+                    if (!machQ.trim()) return true;
+                    return norm(`${it.code} ${it.plate} ${it.description} ${it.origen}`).includes(norm(machQ));
+                  })
+                  .map((it) => (
+                    <TouchableOpacity
+                      key={`${it.origen}-${it.id}`}
+                      onPress={() => seleccionarEquipoDeFlota(it)}
+                      style={{
+                        paddingVertical: spacing.sm,
+                        paddingHorizontal: spacing.xs,
+                        borderBottomWidth: 1,
+                        borderBottomColor: colors.border,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13.5 }}>
+                          {it.origen === 'MAQUINARIA' ? '🚜' : '🛻'} {it.code} · {it.description}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                          Tipo A/A sugerido: {it.tipoSugerido}
+                          {it.companyId ? ` · 🏢 ${companyName(it.companyId)}` : ''}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          backgroundColor: colors.infoSoftBg,
+                          borderWidth: 1,
+                          borderColor: colors.infoSoftBorder,
+                          borderRadius: radius.sm,
+                          paddingHorizontal: 8,
+                          paddingVertical: 4,
+                        }}
+                      >
+                        <Text style={{ color: colors.infoSoftText, fontWeight: '900', fontSize: 11.5 }}>
+                          🏷️ PLACA: {it.plate}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+              </ScrollView>
+              <TouchableOpacity
+                onPress={() => setMachPickerOpen(false)}
+                style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+              </TouchableOpacity>
+            </Screen>
+          </Modal>
         </Screen>
       </Modal>
 
-      {/* ── MODAL 2: Registrar Mantenimiento Riguroso (1 o Varias Unidades) ── */}
+      {/* ── MODAL 2: Registrar Mantenimiento (1 o Varias Unidades) ── */}
       <Modal visible={maintOpen} animationType="slide" onRequestClose={() => setMaintOpen(false)}>
         <Screen>
           <ScrollView keyboardShouldPersistTaps="handled">
@@ -1119,7 +1618,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
                       }}
                     >
                       <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
-                        {on ? '✓ ' : ''}{u.code} ({u.area})
+                        {on ? '✓ ' : ''}{u.code}{u.placa ? ` [Placa: ${u.placa}]` : ''} ({u.area})
                       </Text>
                     </TouchableOpacity>
                   );
@@ -1137,7 +1636,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
               </View>
 
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: 4 }}>
-                ☑️ Checklist de mantenimiento riguroso realizado
+                ☑️ Checklist de mantenimiento realizado
               </Text>
               <View style={{ gap: 5 }}>
                 {AC_CHECKLIST_RIGUROSO.map((item) => {
@@ -1171,7 +1670,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
               <TextInput
                 value={maintDetalle}
                 onChangeText={setMaintDetalle}
-                placeholder="Ej. Presión 65 PSI, amperaje 7.8A, se limpió serpentín y drenaje…"
+                placeholder="Ej. Presión 65 PSI, compresor 508, se limpió serpentín y drenaje…"
                 placeholderTextColor={colors.muted}
                 style={inputStyle}
               />
@@ -1197,7 +1696,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
                 style={[inputStyle, { marginBottom: 6 }]}
               />
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {chip('— Ninguno', !maintSupplier, () => setMaintSupplier(''))}
+                {chip('— Ninguno / Interno (Camión de lavado)', !maintSupplier, () => setMaintSupplier(''))}
                 {suppliers
                   .filter((s) => !provQ.trim() || s.name.toLowerCase().includes(provQ.trim().toLowerCase()) || maintSupplier === s.id)
                   .map((s) => chip(s.name, maintSupplier === s.id, () => setMaintSupplier(s.id)))}
@@ -1251,7 +1750,7 @@ ${conHistorial} tiene(n) mantenimientos registrados: ese historial y sus cuentas
               >
                 <Text style={{ fontSize: 15 }}>{usaInv ? '☑️' : '⬜'}</Text>
                 <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', flex: 1 }}>
-                  📦 Descontar repuesto del inventario (capacitor, contactor, gas…)
+                  📦 Descontar repuesto del inventario (compresor, filtro, capacitor, gas…)
                 </Text>
               </TouchableOpacity>
               {usaInv ? (

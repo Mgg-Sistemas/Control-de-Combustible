@@ -2,10 +2,11 @@
 // Permite adjuntar y visualizar soportes de pago (transferencias bancarias, recibos de caja, capture)
 // con total resiliencia y compatibilidad sin romper esquemas de base de datos.
 
-import type { Cuenta, CuentaAbono } from '../types/database.ts';
+import type { Cuenta, CuentaAbono, Supplier } from '../types/database.ts';
 import type { ArchivoSoporte, FacturaData } from './requerimientoExpediente.ts';
+import { extraerCapturaPago, limpiarNotasUsuario, type CapturaPagoInfo } from './proveedorPago';
 
-export type { ArchivoSoporte, FacturaData };
+export type { ArchivoSoporte, FacturaData, CapturaPagoInfo };
 
 export interface ReciboPagoInfo {
   url: string | null;
@@ -327,7 +328,7 @@ export function limpiarNotaCuentasVisual(nota?: string | null): string {
     .trim();
 }
 
-// ── Condiciones de pago (chips rápidos + empaquetado resiliente) ─────────────
+// ── Condiciones y Métodos de pago (chips rápidos + resolución integral) ──────
 
 export const CONDICIONES_PAGO_CHIPS = [
   'CONTADO',
@@ -336,8 +337,24 @@ export const CONDICIONES_PAGO_CHIPS = [
   'CRÉDITO 7 DÍAS',
   'CRÉDITO 15 DÍAS',
   'CRÉDITO 30 DÍAS',
-  'ZELLE / DIVISAS',
-  'TRANSFERENCIA BS (BCV)',
+  '🏦 TRANSFERENCIA BANCARIA',
+  '📲 PAGO MÓVIL',
+  '💵 EFECTIVO / DIVISAS $',
+  '💸 ZELLE',
+  '🪙 BINANCE / USDT',
+  '🏛️ TASA BCV',
+  '💶 TASA EURO',
+] as const;
+
+export const METODOS_PAGO_SOLO_CHIPS = [
+  '🏦 TRANSFERENCIA BANCARIA',
+  '📲 PAGO MÓVIL',
+  '💵 EFECTIVO / DIVISAS $',
+  '💸 ZELLE',
+  '🪙 BINANCE / USDT',
+  '💳 PUNTO / DÉBITO',
+  '🏛️ TASA BCV',
+  '💶 TASA EURO',
 ] as const;
 
 const CHIPS_PLAZO = new Set([
@@ -518,4 +535,311 @@ export function resolverCondicionesYNotaCuenta(
   }
 
   return { condicionesPago, notaLimpia };
+}
+
+// ── Resolución integral de Métodos de Pago, Tasa y Datos Bancarios en Por Pagar ──
+
+export interface DatosBancariosResumen {
+  proveedorId: string | null;
+  proveedorNombre: string;
+  proveedorRif: string | null;
+  proveedorTelefono: string | null;
+  // Transferencia Bancaria Nacional
+  banco: string | null;
+  numeroCuenta: string | null;
+  tipoCuenta: string | null;
+  titular: string | null;
+  rifTitular: string | null;
+  // Pago Móvil
+  pagoMovilBanco: string | null;
+  pagoMovilTelefono: string | null;
+  pagoMovilCedulaRif: string | null;
+  // Digital / Cripto / Divisas / Zelle
+  binanceId: string | null;
+  instruccionesPago: string | null;
+  capturaPago: CapturaPagoInfo | null;
+}
+
+export interface InfoMetodoPagoPorPagar {
+  /** Chips de métodos de pago y tasas activas o detectadas */
+  metodosActivos: string[];
+  /** Condiciones comerciales (ej. CONTADO, CRÉDITO 15 DÍAS, 50% ADELANTO) */
+  condicionesPago: string;
+  /** Etiqueta destacada de tasa o moneda (ej. '💶 TASA EURO', '🏛️ TASA BCV', '💵 DIVISAS / USD') */
+  tasaMonedaTexto: string | null;
+  /** Alerta especial si exige pago a Tasa Euro u otra instrucción crítica */
+  alertaTasaEspecial: string | null;
+  /** Datos bancarios consolidados del proveedor principal */
+  datosBancarios: DatosBancariosResumen;
+  /** Proveedores adicionales si el requerimiento tiene ítems con distintos proveedores */
+  proveedoresSecundarios: DatosBancariosResumen[];
+  /** Indica si hay algún dato bancario o método registrado para pagar */
+  tieneDatosBancarios: boolean;
+  /** Texto formateado listo para copiar al portapapeles en 1 toque */
+  resumenCopiable: string;
+}
+
+const MAP_METODO_ITEM_LABEL: Record<string, string> = {
+  efectivo_usd: '💵 Efectivo / Divisas $',
+  pago_movil: '📲 Pago Móvil / Transf. Bs',
+  zelle: '💸 Zelle',
+  transferencia_usd: '🏦 Transferencia $',
+  transferencia: '🏦 Transferencia Bancaria',
+  debito: '💳 Punto / Débito',
+  binance: '🪙 Binance / USDT',
+  credito: '⏳ Crédito',
+};
+
+function normNameKey(s?: string | null): string {
+  return String(s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function construirDatosBancariosDeSupplier(
+  sup: Supplier | null | undefined,
+  fallbackNombre?: string | null,
+): DatosBancariosResumen {
+  const captura = extraerCapturaPago(sup);
+  const notasLimpias = limpiarNotasUsuario(sup?.payment_notes);
+  return {
+    proveedorId: sup?.id ?? null,
+    proveedorNombre: (sup?.name || fallbackNombre || 'Proveedor').trim(),
+    proveedorRif: sup?.rif?.trim() || null,
+    proveedorTelefono: sup?.phone?.trim() || null,
+    banco: sup?.bank_name?.trim() || null,
+    numeroCuenta: sup?.account_number?.trim() || null,
+    tipoCuenta: sup?.account_type?.trim() || null,
+    titular: sup?.account_holder?.trim() || null,
+    rifTitular: sup?.account_id_doc?.trim() || sup?.rif?.trim() || null,
+    pagoMovilBanco: sup?.pago_movil_bank?.trim() || null,
+    pagoMovilTelefono: sup?.pago_movil_phone?.trim() || null,
+    pagoMovilCedulaRif: sup?.pago_movil_id?.trim() || sup?.rif?.trim() || null,
+    binanceId: sup?.binance_id?.trim() || null,
+    instruccionesPago: notasLimpias || null,
+    capturaPago: captura,
+  };
+}
+
+export function tieneCoordenadasBancarias(d: DatosBancariosResumen): boolean {
+  return Boolean(
+    d.banco ||
+      d.numeroCuenta ||
+      d.pagoMovilTelefono ||
+      d.pagoMovilBanco ||
+      d.binanceId ||
+      d.instruccionesPago ||
+      d.capturaPago?.url,
+  );
+}
+
+/**
+ * Resuelve TODA la información de métodos de pago, condiciones, tasa/moneda y
+ * datos bancarios del proveedor para mostrarla directamente en Por Pagar.
+ */
+export function resolverInfoMetodoPagoPorPagar(
+  c: Partial<Cuenta> | null | undefined,
+  contexto: {
+    suppliers?: readonly Supplier[];
+    requirements?: readonly any[];
+    orders?: readonly any[];
+    contraparteNombre?: string;
+    condicionesPago?: string;
+    notaLimpia?: string;
+    tasaBcv?: number | null;
+    saldoUsd?: number;
+  },
+): InfoMetodoPagoPorPagar {
+  const suppliers = contexto.suppliers ?? [];
+  const requirements = contexto.requirements ?? [];
+  const contraparte = (contexto.contraparteNombre || c?.contraparte || 'Proveedor').trim();
+
+  // 1. Localizar requerimiento vinculado
+  let req: any = null;
+  if (c && requirements.length > 0) {
+    if (c.inventory_requirement_id) {
+      req = requirements.find((r) => r.id === c.inventory_requirement_id) || null;
+    }
+    if (!req && c.order_id) {
+      req = requirements.find((r) => r.id === c.order_id) || null;
+    }
+    if (!req) {
+      const textoBusqueda = `${c.documento || ''} ${c.concepto || ''} ${c.nota || ''}`;
+      const matchReq = textoBusqueda.match(/\b(REQ-\d+)\b/i);
+      if (matchReq) {
+        const codeUpper = matchReq[1].toUpperCase();
+        req = requirements.find((r) => String(r.code || '').toUpperCase() === codeUpper) || null;
+      }
+    }
+  }
+
+  // 2. Localizar proveedor principal en `suppliers` (por ID o por nombre normalizado)
+  let supplierPrincipal: Supplier | undefined;
+  const supIdCandidato = c?.supplier_id || req?.supplier_id || null;
+  if (supIdCandidato) {
+    supplierPrincipal = suppliers.find((s) => s.id === supIdCandidato);
+  }
+  if (!supplierPrincipal && contraparte) {
+    const keyTarget = normNameKey(contraparte);
+    if (keyTarget && keyTarget !== 'SIN CONTRAPARTE' && keyTarget !== 'PROVEEDOR') {
+      supplierPrincipal = suppliers.find((s) => normNameKey(s.name) === keyTarget);
+    }
+  }
+
+  const datosBancarios = construirDatosBancariosDeSupplier(supplierPrincipal, contraparte);
+
+  // 3. Detectar proveedores secundarios en ítems del requerimiento (si aplica)
+  const proveedoresSecundarios: DatosBancariosResumen[] = [];
+  const seenSupIds = new Set<string>();
+  if (supplierPrincipal?.id) seenSupIds.add(supplierPrincipal.id);
+
+  const reqItems: any[] = Array.isArray(req?.items) ? req.items : [];
+  const metodosSet = new Set<string>();
+
+  for (const it of reqItems) {
+    const mpRaw = String(it?.metodo_pago || '').trim().toLowerCase();
+    if (mpRaw && MAP_METODO_ITEM_LABEL[mpRaw]) {
+      metodosSet.add(MAP_METODO_ITEM_LABEL[mpRaw]);
+    } else if (mpRaw) {
+      metodosSet.add(mpRaw.toUpperCase());
+    }
+    // Revisar cotizaciones del ítem si existen
+    if (Array.isArray(it?.cotizaciones)) {
+      for (const cot of it.cotizaciones) {
+        const cotMp = String(cot?.metodo_pago || '').trim().toLowerCase();
+        if (cotMp && MAP_METODO_ITEM_LABEL[cotMp]) {
+          metodosSet.add(MAP_METODO_ITEM_LABEL[cotMp]);
+        }
+      }
+    }
+    const itSupId = it?.supplier_id ? String(it.supplier_id) : null;
+    if (itSupId && !seenSupIds.has(itSupId)) {
+      const secSup = suppliers.find((s) => s.id === itSupId);
+      if (secSup) {
+        seenSupIds.add(itSupId);
+        const secDatos = construirDatosBancariosDeSupplier(secSup, secSup.name);
+        if (tieneCoordenadasBancarias(secDatos)) {
+          proveedoresSecundarios.push(secDatos);
+        }
+      }
+    }
+  }
+
+  // 4. Detectar métodos disponibles según los campos cargados del proveedor
+  if (datosBancarios.banco || datosBancarios.numeroCuenta) {
+    metodosSet.add('🏦 Transferencia Bancaria');
+  }
+  if (datosBancarios.pagoMovilTelefono || datosBancarios.pagoMovilBanco) {
+    metodosSet.add('📲 Pago Móvil');
+  }
+  if (datosBancarios.binanceId) {
+    metodosSet.add('🪙 Binance / USDT');
+  }
+
+  // 5. Analizar condicionesPago, notaLimpia y notas del proveedor para detectar métodos y tasas
+  const condStr = (contexto.condicionesPago || '').trim();
+  const notaStr = (contexto.notaLimpia || '').trim();
+  const textoCombinado = [
+    condStr,
+    notaStr,
+    datosBancarios.instruccionesPago || '',
+    c?.concepto || '',
+    req?.note || '',
+  ]
+    .join(' ')
+    .toUpperCase();
+
+  if (/PAGO\s*M[OÓ]VIL/i.test(textoCombinado)) metodosSet.add('📲 Pago Móvil');
+  if (/TRANSFERENCIA/i.test(textoCombinado)) metodosSet.add('🏦 Transferencia Bancaria');
+  if (/ZELLE|BOFA/i.test(textoCombinado)) metodosSet.add('💸 Zelle');
+  if (/BINANCE|USDT|TRX|TRON/i.test(textoCombinado)) metodosSet.add('🪙 Binance / USDT');
+  if (/EFECTIVO|DIVISA|CASH/i.test(textoCombinado)) metodosSet.add('💵 Efectivo / Divisas $');
+  if (/PUNTO|D[EÉ]BITO|BIOPAGO/i.test(textoCombinado)) metodosSet.add('💳 Punto / Débito');
+
+  let tasaMonedaTexto: string | null = null;
+  let alertaTasaEspecial: string | null = null;
+
+  if (/TASA\s*EURO|BCV\s*EURO|EN\s*EUROS|\bEURO(S)?\b|\bEUR\b/i.test(textoCombinado)) {
+    tasaMonedaTexto = '💶 TASA EURO';
+    alertaTasaEspecial = '💶 PAGO A TASA EURO';
+    metodosSet.add('💶 Tasa Euro');
+  } else if (/TASA\s*BCV|A\s*BCV|BANCO\s*CENTRAL|\bBCV\b/i.test(textoCombinado)) {
+    tasaMonedaTexto = '🏛️ TASA BCV';
+    metodosSet.add('🏛️ Tasa BCV');
+  } else if (/DIVISA|EFECTIVO\s*\$|USD\s*EFECTIVO/i.test(textoCombinado)) {
+    tasaMonedaTexto = '💵 DIVISAS $ USD';
+  }
+
+  // Si en la nota escribieron un Pago Móvil o Cuenta en texto libre y el proveedor no lo tenía en sus campos
+  if (!datosBancarios.pagoMovilTelefono) {
+    const matchTel = notaStr.match(/\b(04(?:12|14|24|16|26)[-\s]?\d{7})\b/);
+    if (matchTel) {
+      datosBancarios.pagoMovilTelefono = matchTel[1];
+    }
+  }
+  if (!datosBancarios.proveedorRif) {
+    const matchRif = notaStr.match(/\b([JVEGP][-\s]?\d{6,10}(?:[-\s]?\d)?)\b/i);
+    if (matchRif) {
+      datosBancarios.proveedorRif = matchRif[1].toUpperCase();
+    }
+  }
+  if (!datosBancarios.numeroCuenta) {
+    const matchCta = notaStr.match(/\b(\d{4}[-\s]?\d{4}[-\s]?\d{2}[-\s]?\d{10}|\d{20})\b/);
+    if (matchCta) {
+      datosBancarios.numeroCuenta = matchCta[1];
+    }
+  }
+
+  const tieneDatos = tieneCoordenadasBancarias(datosBancarios) || proveedoresSecundarios.length > 0;
+  const metodosActivos = Array.from(metodosSet);
+
+  // 6. Construir bloque de texto listo para copiar al portapapeles (Tesorería / WhatsApp / Banco)
+  const lineasCopia: string[] = [];
+  lineasCopia.push(`💳 DATOS DE PAGO — ${datosBancarios.proveedorNombre}`);
+  if (datosBancarios.proveedorRif) lineasCopia.push(`RIF / C.I.: ${datosBancarios.proveedorRif}`);
+  if (datosBancarios.proveedorTelefono) lineasCopia.push(`Teléfono: ${datosBancarios.proveedorTelefono}`);
+  if (typeof contexto.saldoUsd === 'number' && contexto.saldoUsd > 0) {
+    const bsTxt =
+      contexto.tasaBcv && contexto.tasaBcv > 0
+        ? ` (≈ Bs. ${(Math.round(contexto.saldoUsd * contexto.tasaBcv * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} a tasa BCV Bs ${contexto.tasaBcv.toLocaleString('es-VE')})`
+        : '';
+    lineasCopia.push(`Monto a pagar: $${contexto.saldoUsd.toFixed(2)} USD${bsTxt}`);
+  }
+  if (condStr) lineasCopia.push(`Condiciones: ${condStr}`);
+  if (tasaMonedaTexto) lineasCopia.push(`Tasa / Moneda: ${tasaMonedaTexto}`);
+  if (metodosActivos.length > 0) lineasCopia.push(`Métodos: ${metodosActivos.join(' · ')}`);
+  if (datosBancarios.banco || datosBancarios.numeroCuenta) {
+    lineasCopia.push(
+      `🏦 Transferencia: ${[datosBancarios.banco, datosBancarios.tipoCuenta, datosBancarios.numeroCuenta].filter(Boolean).join(' · ')}${datosBancarios.titular ? ` | Titular: ${datosBancarios.titular}` : ''}${datosBancarios.rifTitular ? ` (${datosBancarios.rifTitular})` : ''}`,
+    );
+  }
+  if (datosBancarios.pagoMovilTelefono || datosBancarios.pagoMovilBanco) {
+    lineasCopia.push(
+      `📲 Pago Móvil: ${[datosBancarios.pagoMovilBanco, datosBancarios.pagoMovilTelefono, datosBancarios.pagoMovilCedulaRif].filter(Boolean).join(' · ')}`,
+    );
+  }
+  if (datosBancarios.binanceId) {
+    lineasCopia.push(`🪙 Binance / Zelle / ID: ${datosBancarios.binanceId}`);
+  }
+  if (datosBancarios.instruccionesPago) {
+    lineasCopia.push(`📝 Datos de pago proveedor: ${datosBancarios.instruccionesPago}`);
+  }
+  if (notaStr) {
+    lineasCopia.push(`📝 Nota de la cuenta: ${notaStr}`);
+  }
+
+  return {
+    metodosActivos,
+    condicionesPago: condStr,
+    tasaMonedaTexto,
+    alertaTasaEspecial,
+    datosBancarios,
+    proveedoresSecundarios,
+    tieneDatosBancarios: tieneDatos,
+    resumenCopiable: lineasCopia.join('\n'),
+  };
 }

@@ -32,6 +32,10 @@ function limpiarNotaInterna(nota?: string | null): string {
   if (!nota) return '';
   return String(nota)
     .replace(/\[RECIBO_PAGO:[^\]]+\]/gi, '')
+    .replace(/\[FACTURA_CUENTA:[^\]]+\]/gi, '')
+    .replace(/\[APROBADO_CXP:[^\]]*\]/gi, '')
+    .replace(/\[ENVIADO_CXP:[^\]]*\]/gi, '')
+    .replace(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi, '')
     .replace(/\[COMPROBANTE_ABONO:[^\]]+\]/gi, '')
     .replace(/\[EMPRESA:[^\]]+\]/gi, '')
     .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
