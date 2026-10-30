@@ -233,23 +233,47 @@ export function ExpandableCard({
   summary,
   detail,
   defaultOpen = false,
+  open: controlledOpen,
+  onToggle,
   style,
 }: {
   summary: React.ReactNode;
   detail?: React.ReactNode;
   defaultOpen?: boolean;
+  open?: boolean;
+  onToggle?: () => void;
   style?: ViewStyle;
 }) {
   const { colors } = useTheme();
-  const [open, setOpen] = React.useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = React.useState(defaultOpen);
+  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const handleToggle = () => {
+    if (onToggle) onToggle();
+    else setInternalOpen((o) => !o);
+  };
   const hasDetail = !!detail;
   return (
     <Card style={style}>
-      <TouchableOpacity activeOpacity={hasDetail ? 0.7 : 1} onPress={() => hasDetail && setOpen((o) => !o)}>
+      <TouchableOpacity activeOpacity={hasDetail ? 0.7 : 1} onPress={() => hasDetail && handleToggle()}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <View style={{ flex: 1 }}>{summary}</View>
           {hasDetail ? (
-            <Text style={{ color: colors.muted, fontSize: 16, fontWeight: '900' }}>{open ? '▴' : '▾'}</Text>
+            <View
+              style={{
+                backgroundColor: open ? colors.brand : colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: open ? colors.brand : colors.border,
+                borderRadius: radius.pill,
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ color: open ? colors.brandContrast : colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                {open ? '▴ Plegar' : '▾ Desplegar'}
+              </Text>
+            </View>
           ) : null}
         </View>
       </TouchableOpacity>

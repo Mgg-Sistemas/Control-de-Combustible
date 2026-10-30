@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { coincideEmpleado } from '../lib/empleadosBuscar';
 import { canonicalCargo } from '../lib/cargos';
-import { grupoApartado, pasaFiltroEstado, toggleFiltroEstado, etiquetaFiltrosEstado, GrupoApartadoConfig, DEFAULT_GRUPOS_APARTADOS } from '../lib/nominaGrupos';
+import { grupoApartado, pasaFiltroEstado, toggleFiltroEstado, etiquetaFiltrosEstado, esInactivoEstado, GrupoApartadoConfig, DEFAULT_GRUPOS_APARTADOS } from '../lib/nominaGrupos';
 import { leerGruposApartados, guardarGruposApartados } from '../lib/nominaGruposStorage';
 import { leerHabilidadesEmpleado, extraerMapaHabilidadesDeEmpresas, MapaHabilidades } from '../lib/empleadosHabilidades';
 import { leerMapaHabilidades } from '../lib/empleadosHabilidadesStorage';
@@ -101,7 +101,7 @@ const FIELDS: Field[] = [
 /** Clave de los empleados SIN contratista asignado: son de SOS LA GUAIRA. */
 const SIN_EMPRESA = '__none__';
 
-export default function EmpleadosScreen({ navigation }: any) {
+export default function EmpleadosScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
   const toast = useToast();
@@ -117,8 +117,21 @@ export default function EmpleadosScreen({ navigation }: any) {
   );
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
-  const [statusFilter, setStatusFilter] = useState<Set<string>>(() => new Set(['todos'])); // multi-selección de estados y pestañas aparte
-  const toggleStatus = (key: string) => setStatusFilter((prev) => toggleFiltroEstado(prev, key));
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(() =>
+    route?.params?.initialFilter === 'inactivo' ? new Set(['inactivo']) : new Set(['todos'])
+  ); // multi-selección de estados vigentes y pestañas aparte, o apartado exclusivo 'inactivo'
+  const [inactivoGrupoSel, setInactivoGrupoSel] = useState<string>('todos'); // dentro de 🚫 Inactivos: 'todos' | '__ninguno__' | id de grupo aparte
+  const enVistaInactivos = statusFilter.has('inactivo');
+  const toggleStatus = (key: string) => {
+    setInactivoGrupoSel('todos');
+    setStatusFilter((prev) => toggleFiltroEstado(prev, key));
+  };
+  useEffect(() => {
+    if (route?.params?.initialFilter === 'inactivo') {
+      setInactivoGrupoSel('todos');
+      setStatusFilter(new Set(['inactivo']));
+    }
+  }, [route?.params?.initialFilter]);
   const [gruposConfig, setGruposConfig] = useState<GrupoApartadoConfig[]>(DEFAULT_GRUPOS_APARTADOS);
   const [modalGruposOpen, setModalGruposOpen] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState('');
@@ -199,15 +212,25 @@ export default function EmpleadosScreen({ navigation }: any) {
 
   const q = norm(query.trim());
   const estadoDe = (e: Employee) => (e.status || '').toLowerCase();
-  const esActivo = (e: Employee) => estadoDe(e) === 'activo';
+  const esActivo = (e: Employee) => estadoDe(e) === 'activo' || estadoDe(e) === '';
   const esOtro = (e: Employee) => estadoDe(e) === 'otro';
+  const esInactivo = (e: Employee) => esInactivoEstado(e.status);
   // GRUPO APARTADO del empleado (Carbozulia, Seguridad o personalizados) o null si va en las
   // pestañas normales. Se evalúan según la configuración activa.
   const grupoDe = (e: Employee) => grupoApartado(nominaName((e as any).payroll_company_id), e.cargo, (e as any).department, gruposConfig);
-  // ¿El empleado pasa el filtro de estado elegido? "Inactivos" = ni activo ni "otro"
-  // (inactivo/suspendido); "Otro" tiene su propio chip. Los apartados NO salen en
-  // ninguna de esas cuatro: cada uno solo en SU pestaña.
-  const pasaEstado = (e: Employee) => pasaFiltroEstado(statusFilter, grupoDe(e), e.status);
+  const grupoLabelDe = (id: string | null) => (id ? gruposConfig.find((g) => g.id === id)?.label ?? id : null);
+  // ¿El empleado pasa el filtro de estado elegido?
+  // Los INACTIVOS viven únicamente en el apartado "🚫 Inactivos" y NUNCA se mezclan
+  // en Todos, Activos, Otro ni en las pestañas APARTE (CDT, Carbozulia, Seguridad, etc.).
+  const pasaEstado = (e: Employee) => {
+    if (!pasaFiltroEstado(statusFilter, grupoDe(e), e.status)) return false;
+    if (enVistaInactivos && inactivoGrupoSel !== 'todos') {
+      const g = grupoDe(e);
+      if (inactivoGrupoSel === '__ninguno__') return !g;
+      return g === inactivoGrupoSel;
+    }
+    return true;
+  };
   // Clave de empresa de un empleado: su `company_id`, o SIN_EMPRESA si no tiene
   // contratista asignado (esos son de SOS LA GUAIRA, ver `companyName`).
   // Agrupa por la EMPRESA FILTRO NÓMINA, no por la empresa real: es exactamente el
@@ -226,8 +249,21 @@ export default function EmpleadosScreen({ navigation }: any) {
       // solo se le pasan los dos nombres de empresa ya resueltos y sus habilidades.
       coincideEmpleado({ ...(e as any), habilidades: habilidadesDe(e) }, query, [companyName(e.company_id), nominaName((e as any).payroll_company_id)])
     ),
-    [employees, q, statusFilter, companies, payrollCompanies, mapaHabilidades]
+    [employees, q, statusFilter, inactivoGrupoSel, enVistaInactivos, companies, payrollCompanies, mapaHabilidades, gruposConfig]
   );
+
+  // Coincidencias en el Apartado de Inactivos cuando el usuario busca un nombre/cédula desde las listas activas
+  const coincidenciasEnInactivos = useMemo(() => {
+    if (!query.trim() || enVistaInactivos) return 0;
+    return employees.filter(
+      (e) =>
+        esInactivo(e) &&
+        coincideEmpleado({ ...(e as any), habilidades: habilidadesDe(e) }, query, [
+          companyName(e.company_id),
+          nominaName((e as any).payroll_company_id),
+        ])
+    ).length;
+  }, [employees, query, enVistaInactivos, companies, payrollCompanies, mapaHabilidades]);
 
   // Conteo por empresa (para los chips-filtro): [clave, nombre, cantidad].
   const empresaCounts = useMemo(() => {
@@ -260,16 +296,31 @@ export default function EmpleadosScreen({ navigation }: any) {
   );
 
   // Conteo total por estado (independiente del filtro, para las etiquetas de los chips).
-  // Los APARTADOS se cuentan aparte y se descuentan del resto: "Todos" ya no es
-  // la plantilla entera, es la plantilla MENOS Carbozulia y Seguridad. Así el
-  // número del chip cuadra con lo que después se lista.
+  // REGLA DE AISLAMIENTO: Los empleados INACTIVOS se descuentan SIEMPRE primero
+  // (tanto si eran de la plantilla general como si pertenecían a una pestaña APARTE
+  // como Carbozulia, Seguridad, CDT, Operadores, Alimentación, etc.). Así NUNCA inflan
+  // los contadores de Todos, Activos ni de las pestañas APARTE, y viven todos en `inactivo`.
   const statusCounts = useMemo(() => {
-    let act = 0, otr = 0, carb = 0, seg = 0, base = 0;
+    let act = 0, otr = 0, inact = 0, carb = 0, seg = 0, base = 0;
     const porGrupo: Record<string, number> = {};
-    gruposConfig.forEach((g) => { porGrupo[g.id] = 0; });
+    const inactivoPorGrupo: Record<string, number> = {};
+    let inactivoSinGrupo = 0;
+    gruposConfig.forEach((g) => {
+      porGrupo[g.id] = 0;
+      inactivoPorGrupo[g.id] = 0;
+    });
 
     employees.forEach((e) => {
       const g = grupoDe(e);
+      if (esInactivo(e)) {
+        inact++;
+        if (g && inactivoPorGrupo[g] !== undefined) {
+          inactivoPorGrupo[g]++;
+        } else {
+          inactivoSinGrupo++;
+        }
+        return;
+      }
       if (g && porGrupo[g] !== undefined) {
         porGrupo[g]++;
         if (g === 'carbozulia') carb++;
@@ -282,11 +333,13 @@ export default function EmpleadosScreen({ navigation }: any) {
     return {
       activo: act,
       otro: otr,
-      inactivo: base - act - otr,
+      inactivo: inact,
       todos: base,
       carbozulia: carb,
       seguridad: seg,
       porGrupo,
+      inactivoPorGrupo,
+      inactivoSinGrupo,
     };
   }, [employees, payrollCompanies, gruposConfig]);
 
@@ -333,6 +386,37 @@ export default function EmpleadosScreen({ navigation }: any) {
     const r = await removePhoto('employees', e.id);
     if (!r.ok && r.error) toast.error(r.error); else refetch();
     setBusy(null);
+  };
+
+  // Cambio rápido de estado (Activo <-> Inactivo) desde la tarjeta del empleado.
+  // Al pasar a INACTIVO, el empleado sale de inmediato de todas las listas activas y pestañas aparte,
+  // y pasa a vivir únicamente en el Apartado de Inactivos (🚫 Inactivos).
+  const cambiarEstadoEmpleado = async (e: Employee, nuevoEstado: 'activo' | 'inactivo') => {
+    const pasarAInactivo = nuevoEstado === 'inactivo';
+    const grpLbl = grupoLabelDe(grupoDe(e));
+    const ok = await confirm({
+      title: pasarAInactivo ? 'Pasar empleado a Inactivo' : 'Reactivar empleado a Activo',
+      message: pasarAInactivo
+        ? `¿Pasar a ${fullName(e)} a estado INACTIVO?\n\nSe quitará inmediatamente de las listas operativas${grpLbl ? ` (incluyendo ${grpLbl})` : ''} y pasará al 🚫 Apartado de Inactivos.`
+        : `¿Reactivar a ${fullName(e)} como ACTIVO?\n\nSaldrá del Apartado de Inactivos y volverá a su lista activa${grpLbl ? ` (${grpLbl})` : ''}.`,
+      confirmText: pasarAInactivo ? '🚫 Pasar a Inactivo' : '✅ Reactivar',
+      cancelText: 'Cancelar',
+      danger: pasarAInactivo,
+    });
+    if (!ok) return;
+    setBusy(e.id + '-status');
+    const { error } = await supabase.from('employees').update({ status: nuevoEstado }).eq('id', e.id);
+    setBusy(null);
+    if (error) {
+      toast.error(`No se pudo cambiar el estado: ${error.message}`);
+      return;
+    }
+    await refetch();
+    toast.success(
+      pasarAInactivo
+        ? `🚫 ${fullName(e)} se movió al Apartado de Inactivos.`
+        : `✅ ${fullName(e)} reactivado en nómina activa${grpLbl ? ` (${grpLbl})` : ''}.`
+    );
   };
 
   const imprimirCarnet = async (e: Employee) => {
@@ -617,11 +701,28 @@ export default function EmpleadosScreen({ navigation }: any) {
   return (
     <Screen>
       <ConfigBanner />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <SectionTitle>Empleados</SectionTitle>
-        <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-          <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>+ Nuevo</Text>
-        </TouchableOpacity>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+        <SectionTitle>{enVistaInactivos ? '🚫 Empleados — Apartado de Inactivos' : 'Empleados'}</SectionTitle>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+          <TouchableOpacity
+            onPress={() => toggleStatus('inactivo')}
+            style={{
+              backgroundColor: enVistaInactivos ? (EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger) : 'rgba(220,38,38,0.1)',
+              borderWidth: 1.5,
+              borderColor: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger,
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.xs,
+              borderRadius: radius.pill,
+            }}
+          >
+            <Text style={{ color: enVistaInactivos ? '#fff' : (EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger), fontWeight: '900', fontSize: 12 }}>
+              {enVistaInactivos ? '← Volver a Nómina Activa' : `🚫 Apartado de Inactivos · ${statusCounts.inactivo}`}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>+ Nuevo</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <TextInput
@@ -632,10 +733,41 @@ export default function EmpleadosScreen({ navigation }: any) {
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
 
-      {/* Filtro por ESTADO (activos / inactivos) y pestañas APARTE — permite seleccionar UNO o VARIOS */}
+      {/* Aviso inteligente si el usuario busca desde las listas activas y hay coincidencias en el Apartado de Inactivos */}
+      {coincidenciasEnInactivos > 0 && !enVistaInactivos ? (
+        <TouchableOpacity
+          onPress={() => {
+            setInactivoGrupoSel('todos');
+            setStatusFilter(new Set(['inactivo']));
+          }}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: spacing.xs,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.xs,
+            marginBottom: spacing.sm,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger,
+            backgroundColor: 'rgba(220,38,38,0.08)',
+          }}
+        >
+          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', flex: 1 }}>
+            💡 Hay <Text style={{ color: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger, fontWeight: '900' }}>{coincidenciasEnInactivos} coincidencia(s)</Text> para "{query.trim()}" en el <Text style={{ fontWeight: '900' }}>🚫 Apartado de Inactivos</Text>.
+          </Text>
+          <Text style={{ color: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger, fontSize: 12, fontWeight: '900' }}>
+            Ver en Inactivos →
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {/* Filtro por ESTADO (solo personal vigente: Todos / Activos / Otro) y pestañas APARTE — libres al 100% de inactivos */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Estado:</Text>
-        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro]] as const).map(([key, label, n]) => {
+        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['otro', 'Otro', statusCounts.otro]] as const).map(([key, label, n]) => {
           const on = statusFilter.has(key);
           const tint = key === 'todos' ? colors.brand : (EMPLOYEE_STATUS_COLOR[key] ?? colors.brand);
           return (
@@ -678,9 +810,9 @@ export default function EmpleadosScreen({ navigation }: any) {
           );
         })}
 
-        {!(statusFilter.size === 1 && statusFilter.has('todos')) ? (
+        {!(statusFilter.size === 1 && statusFilter.has('todos')) && !enVistaInactivos ? (
           <TouchableOpacity
-            onPress={() => setStatusFilter(new Set(['todos']))}
+            onPress={() => { setInactivoGrupoSel('todos'); setStatusFilter(new Set(['todos'])); }}
             style={{
               paddingHorizontal: spacing.sm,
               paddingVertical: 5,
@@ -714,7 +846,76 @@ export default function EmpleadosScreen({ navigation }: any) {
         >
           <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>⚙️ + Pestaña aparte</Text>
         </TouchableOpacity>
+
+        {/* APARTADO SEPARADO DE INACTIVOS (🚫 Inactivos) */}
+        <TouchableOpacity
+          onPress={() => toggleStatus('inactivo')}
+          style={{
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.xs,
+            borderRadius: radius.pill,
+            borderWidth: 1.5,
+            borderColor: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger,
+            backgroundColor: enVistaInactivos ? (EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger) : 'rgba(220,38,38,0.08)',
+            marginLeft: spacing.xs,
+          }}
+        >
+          <Text style={{ color: enVistaInactivos ? '#fff' : (EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger), fontWeight: '900', fontSize: 12 }}>
+            🚫 Inactivos · {statusCounts.inactivo}
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Banner y sub-filtros exclusivos cuando se está dentro del Apartado de Inactivos */}
+      {enVistaInactivos ? (
+        <Card style={{ borderColor: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger, borderWidth: 1.5, marginBottom: spacing.sm }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+            <View style={{ flex: 1, minWidth: 200 }}>
+              <Text style={{ color: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger, fontWeight: '900', fontSize: 14 }}>
+                🚫 Apartado de Personal Inactivo ({statusCounts.inactivo})
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                Los empleados inactivos se quitan automáticamente de todas las listas activas (Todos, Activos, CDT, Carbozulia, Seguridad, etc.) y se concentran únicamente en este apartado. Puedes filtrarlos por su pestaña/empresa de origen o reactivarlos con 1 toque.
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => { setInactivoGrupoSel('todos'); setStatusFilter(new Set(['todos'])); }}
+              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.brand }}
+            >
+              <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>← Volver a personal activo</Text>
+            </TouchableOpacity>
+          </View>
+          {/* Sub-filtro por grupo/pestaña original dentro de Inactivos */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>Pestaña / grupo de origen:</Text>
+            {([
+              { id: 'todos', label: 'Todos los inactivos', count: statusCounts.inactivo },
+              { id: '__ninguno__', label: 'Plantilla general', count: statusCounts.inactivoSinGrupo },
+              ...gruposConfig.map((g) => ({ id: g.id, label: g.label, count: statusCounts.inactivoPorGrupo?.[g.id] ?? 0 })),
+            ]).filter((item) => item.id === 'todos' || item.count > 0).map((item) => {
+              const on = inactivoGrupoSel === item.id;
+              return (
+                <TouchableOpacity
+                  key={'inact-grp-' + item.id}
+                  onPress={() => setInactivoGrupoSel(item.id)}
+                  style={{
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: 4,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: on ? colors.danger : colors.border,
+                    backgroundColor: on ? colors.danger : colors.surface,
+                  }}
+                >
+                  <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 11 }}>
+                    {on ? '✓ ' : ''}{item.label} · {item.count}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Card>
+      ) : null}
 
       {/* Filtro por EMPRESA (pedido del cliente 20-ago-2026). Va plegado y ocupa una
           línea, para no empujar el listado hacia abajo; se despliega al tocarlo.
@@ -1112,13 +1313,26 @@ export default function EmpleadosScreen({ navigation }: any) {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
+                          {esInactivo(e) ? (
+                            <TouchableOpacity
+                              onPress={() => cambiarEstadoEmpleado(e, 'activo')}
+                              style={{
+                                backgroundColor: '#16A34A',
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: radius.pill,
+                              }}
+                            >
+                              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '900' }}>✅ Reactivar</Text>
+                            </TouchableOpacity>
+                          ) : null}
                           <Badge label={e.status} tone={employeeStatusTone(e.status)} />
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cargo ? canonicalCargo(e.cargo) : '', e.ficha_number ? `Ficha ${e.ficha_number}` : ''].filter(Boolean).join(' · ')}</Text>
-                        {/* La EMPRESA FILTRO NÓMINA, a la vista en cada tarjeta. Antes solo
-                            se veía abriendo el filtro o sacando el PDF, así que asignarla
-                            se sentía como que no había pasado nada. */}
-                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }} numberOfLines={1}>🏢 {nominaName((e as any).payroll_company_id)}</Text>
+                        {/* La EMPRESA FILTRO NÓMINA y la pestaña APARTE a la vista en cada tarjeta. */}
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }} numberOfLines={1}>
+                          🏢 {nominaName((e as any).payroll_company_id)}{grupoDe(e) ? ` · 📌 ${grupoLabelDe(grupoDe(e))}` : ''}
+                        </Text>
                         {habsEmp.length > 0 ? (
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                             {habsEmp.slice(0, 3).map((hab, idx) => (
@@ -1187,6 +1401,21 @@ export default function EmpleadosScreen({ navigation }: any) {
                       ) : null}
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                         <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
+                        {esInactivo(e) ? (
+                          <Btn
+                            label={busy === e.id + '-status' ? 'Reactivando…' : '✅ Reactivar (Pasar a Activo)'}
+                            color="#16A34A"
+                            disabled={busy === e.id + '-status'}
+                            onPress={() => cambiarEstadoEmpleado(e, 'activo')}
+                          />
+                        ) : (
+                          <Btn
+                            label={busy === e.id + '-status' ? 'Moviendo…' : '🚫 Pasar a Inactivo'}
+                            color="#DC2626"
+                            disabled={busy === e.id + '-status'}
+                            onPress={() => cambiarEstadoEmpleado(e, 'inactivo')}
+                          />
+                        )}
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
                         <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); }} />

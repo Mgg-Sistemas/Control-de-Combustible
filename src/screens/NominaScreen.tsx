@@ -295,18 +295,45 @@ export default function NominaScreen({ navigation }: any) {
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Crea una nómina por empresa y período. Se precargan los empleados activos con su salario.</Text>
 
-      {/* Acceso a la ficha de EMPLEADOS (RRHH) desde Nómina. */}
-      <TouchableOpacity
-        onPress={() => navigation?.navigate('Empleados')}
-        style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md }}
+      {/* Acceso a la ficha de EMPLEADOS (RRHH) y al Apartado de Inactivos desde Nómina. */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          backgroundColor: colors.surfaceAlt,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: radius.md,
+          padding: spacing.md,
+          marginBottom: spacing.md,
+          flexWrap: 'wrap',
+        }}
       >
-        <Text style={{ fontSize: 20 }}>🪪</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Empleados</Text>
-          <Text style={{ color: colors.muted, fontSize: 11 }}>Fichas del personal (foto, cédula, cargo) y carnet con QR</Text>
-        </View>
-        <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => navigation?.navigate('Empleados', { initialFilter: 'todos' })}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1, minWidth: 200 }}
+        >
+          <Text style={{ fontSize: 20 }}>🪪</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Empleados (Personal Vigente)</Text>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>Fichas del personal activo, pestañas aparte (CDT, Carbozulia, etc.) y carnet con QR</Text>
+          </View>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => navigation?.navigate('Empleados', { initialFilter: 'inactivo' })}
+          style={{
+            backgroundColor: 'rgba(220,38,38,0.1)',
+            borderWidth: 1,
+            borderColor: colors.danger,
+            borderRadius: radius.pill,
+            paddingHorizontal: spacing.md,
+            paddingVertical: 6,
+          }}
+        >
+          <Text style={{ color: colors.danger, fontWeight: '900', fontSize: 11.5 }}>🚫 Apartado de Inactivos ›</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Control de asistencia por carnet (entrada/salida) — solo quien tenga el módulo. */}
       {canSee('asistencia') ? (

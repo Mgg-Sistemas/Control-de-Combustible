@@ -94,7 +94,9 @@ eq('normal NO en taller', pasaFiltroEstado('taller', null, 'activo'), false);
 const selMulti = new Set(['activo', 'carbozulia', 'taller']);
 eq('multi-select incluye activo general', pasaFiltroEstado(selMulti, null, 'activo'), true);
 eq('multi-select excluye inactivo general', pasaFiltroEstado(selMulti, null, 'inactivo'), false);
-eq('multi-select incluye carbozulia', pasaFiltroEstado(selMulti, 'carbozulia', 'inactivo'), true);
+eq('multi-select incluye carbozulia activo', pasaFiltroEstado(selMulti, 'carbozulia', 'activo'), true);
+eq('multi-select excluye carbozulia inactivo (va a apartado inactivos)', pasaFiltroEstado(selMulti, 'carbozulia', 'inactivo'), false);
+eq('inactivo de carbozulia entra en apartado inactivo', pasaFiltroEstado('inactivo', 'carbozulia', 'inactivo'), true);
 eq('multi-select incluye taller', pasaFiltroEstado(selMulti, 'taller', 'activo'), true);
 eq('multi-select excluye seguridad', pasaFiltroEstado(selMulti, 'seguridad', 'activo'), false);
 

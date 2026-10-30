@@ -478,6 +478,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [fechaDesdeCxp, setFechaDesdeCxp] = useState('');
   const [fechaHastaCxp, setFechaHastaCxp] = useState('');
 
+  // Tarjetas desplegadas (plegable / desplegable individual y en lote)
+  const [tarjetasAbiertasIds, setTarjetasAbiertasIds] = useState<Set<string>>(new Set());
+  const toggleTarjetaCuenta = (id: string) => {
+    setTarjetasAbiertasIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   // Renglones expandidos por cuenta en la tarjeta
   const [renglonesAbiertosIds, setRenglonesAbiertosIds] = useState<Set<string>>(new Set());
   const toggleRenglonesCuenta = (id: string) => {
@@ -2571,6 +2582,48 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>☐ Quitar marcas</Text>
             </TouchableOpacity>
           ) : null}
+          {lista.length > 0 ? (
+            <>
+              <TouchableOpacity
+                onPress={() =>
+                  setTarjetasAbiertasIds((prev) => {
+                    const next = new Set(prev);
+                    lista.forEach((c) => next.add(c.id));
+                    return next;
+                  })
+                }
+                style={{
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: colors.brand,
+                  backgroundColor: colors.surfaceAlt,
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 4,
+                }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                  ▾ Desplegar todas ({lista.length})
+                </Text>
+              </TouchableOpacity>
+              {tarjetasAbiertasIds.size > 0 ? (
+                <TouchableOpacity
+                  onPress={() => setTarjetasAbiertasIds(new Set())}
+                  style={{
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surfaceAlt,
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: 4,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11 }}>
+                    ▴ Plegar todas
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
+          ) : null}
           {tipo === 'por_pagar' && nMarcadas > 0 && (puedeAprobarPagos || role === 'admin') ? (
             (() => {
               const pendientesAprob = ordenadas.filter(
@@ -2615,6 +2668,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         return (
           <ExpandableCard
             key={c.id}
+            open={tarjetasAbiertasIds.has(c.id)}
+            onToggle={() => toggleTarjetaCuenta(c.id)}
             // Marca visual de lo VENCIDO: borde rojo grueso a la izquierda —
             // se ve de un vistazo sin tener que leer el badge.
             style={vencida ? { borderLeftWidth: 4, borderLeftColor: colors.danger } : undefined}
@@ -2697,7 +2752,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     ) : null}
                   </View>
                 ) : null}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
                   <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 1 }}>
                     <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>
                       🏢 {c.empresaNombre}
@@ -2708,11 +2763,60 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </Text>
                 </View>
 
-                {/* 📋 Ficha de Trazabilidad Completa en Por Pagar (Quién lo solicitó, Para quién es + Placa, Fecha/Hora solicitud, Quién lo marcó para Por Pagar y Fecha/Hora) */}
+                {/* Resumen compacto en vista plegada: Solicitante + Destino + Chips de Método de Pago + Vencimiento y Monto */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  <View style={{ flex: 1, minWidth: 200, gap: 2 }}>
+                    {tipo === 'por_pagar' ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <Text style={{ color: colors.text, fontSize: 11 }} numberOfLines={1}>
+                          👤 <Text style={{ color: colors.muted, fontWeight: '700' }}>Solicitó:</Text>{' '}
+                          <Text style={{ fontWeight: '800' }}>{c.traza.solicitadoPor || '—'}</Text>
+                          {c.traza.destinoTexto ? (
+                            <Text style={{ color: colors.brandText, fontWeight: '800' }}> · 🚜 {c.traza.destinoTexto}</Text>
+                          ) : null}
+                        </Text>
+                        {c.condicionesPago ? (
+                          <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
+                            <Text style={{ color: colors.infoSoftText, fontSize: 10, fontWeight: '800' }}>⏱️ {c.condicionesPago}</Text>
+                          </View>
+                        ) : null}
+                        {c.infoPago.metodosActivos.slice(0, 2).map((met) => (
+                          <View key={met} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
+                            <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>{met}</Text>
+                          </View>
+                        ))}
+                        {c.infoPago.alertaTasaEspecial ? (
+                          <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
+                            <Text style={{ color: colors.warningSoftText, fontSize: 10, fontWeight: '900' }}>{c.infoPago.alertaTasaEspecial}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
+                    <Text style={{ color: vencida ? colors.dangerSoftText : colors.muted, fontSize: 11.5, fontWeight: '700' }}>
+                      Vence: {fmtFecha(c.fecha_vencimiento)}
+                      {dias != null && abiertas ? (dias < 0 ? ` · hace ${Math.abs(dias)} día(s)` : dias === 0 ? ' · HOY' : ` · en ${dias} día(s)`) : ''}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: colors.brandText, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
+                      {usd(c.saldo)}
+                    </Text>
+                    {tasaBcv && c.saldo > 0 ? (
+                      <Text selectable style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700', fontVariant: ['tabular-nums'] as any }}>
+                        ≈ {fmtBs(bsFromUsd(c.saldo, tasaBcv))}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            }
+            detail={
+              <>
+                {/* 📋 Ficha de Trazabilidad Completa en Por Pagar (visible al desplegar la tarjeta) */}
                 {tipo === 'por_pagar' ? (
                   <View
                     style={{
-                      marginTop: 6,
+                      marginBottom: 8,
                       padding: 8,
                       borderRadius: radius.md,
                       backgroundColor: colors.surfaceAlt,
@@ -2877,24 +2981,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </View>
                 ) : null}
 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                  <Text style={{ color: vencida ? colors.dangerSoftText : colors.text, fontSize: 12, fontWeight: '700' }}>
-                    Vence: {fmtFecha(c.fecha_vencimiento)}
-                    {dias != null && abiertas ? (dias < 0 ? ` · hace ${Math.abs(dias)} día(s)` : dias === 0 ? ' · HOY' : ` · en ${dias} día(s)`) : ''}
-                  </Text>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ color: colors.brandText, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
-                      {usd(c.saldo)}
-                    </Text>
-                    {tasaBcv && c.saldo > 0 ? (
-                      <Text selectable style={{ color: colors.muted, fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] as any }}>
-                        ≈ {fmtBs(bsFromUsd(c.saldo, tasaBcv))} (BCV: Bs {tasaBcv.toLocaleString('es-VE')}/$)
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-
-                {/* 💳 BLOQUE COMPLETO DE MÉTODOS, CONDICIONES Y DATOS BANCARIOS DE PAGO (visible en Por Pagar en Móvil y PC) */}
+                {/* 💳 BLOQUE COMPLETO DE MÉTODOS, CONDICIONES Y DATOS BANCARIOS DE PAGO (visible al desplegar) */}
                 {tipo === 'por_pagar' ? (
                   (() => {
                     const ip = c.infoPago;
@@ -2908,7 +2995,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     return (
                       <View
                         style={{
-                          marginTop: 6,
+                          marginBottom: 8,
                           padding: 9,
                           borderRadius: radius.md,
                           backgroundColor: colors.surfaceAlt,
@@ -3266,39 +3353,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       </View>
                     );
                   })()
-                ) : c.condicionesPago || c.notaLimpia ? (
-                  <View
-                    style={{
-                      marginTop: 6,
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: radius.md,
-                      backgroundColor: colors.surfaceAlt,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderLeftWidth: 3,
-                      borderLeftColor: c.condicionesPago ? colors.accent : colors.brand,
-                      gap: 3,
-                    }}
-                  >
-                    {c.condicionesPago ? (
-                      <Text style={{ color: colors.text, fontSize: 12, lineHeight: 16 }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>💳 Condiciones de pago: </Text>
-                        <Text style={{ fontWeight: '700' }}>{c.condicionesPago}</Text>
-                      </Text>
-                    ) : null}
-                    {c.notaLimpia ? (
-                      <Text style={{ color: colors.text, fontSize: 12, lineHeight: 16 }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>📝 Nota: </Text>
-                        {c.notaLimpia}
-                      </Text>
-                    ) : null}
-                  </View>
                 ) : null}
-              </View>
-            }
-            detail={
-              <>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Monto original: {usd(Number(c.monto) || 0)} {c.moneda}</Text>
                 {/* 💱 Los dos montos: el de la cuenta es en US$; su equivalente en Bs con la tasa BCV de hoy. */}
                 {tasaBcv ? (

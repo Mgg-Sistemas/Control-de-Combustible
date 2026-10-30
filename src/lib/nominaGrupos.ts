@@ -94,14 +94,28 @@ export function grupoApartado(
 export type FiltroEstado = 'todos' | 'activo' | 'inactivo' | 'otro' | GrupoApartado;
 
 /**
- * ¿Este empleado se ve con la pestaña `filtro` puesta? Es LA regla completa:
+ * ¿El estado corresponde a un empleado INACTIVO / DESINCORPORADO?
+ * Cualquier estado distinto de vacío, 'activo' y 'otro' (ej. 'inactivo', 'suspendido',
+ * 'retirado', 'egresado', 'baja') vive exclusivamente en el Apartado de Inactivos.
+ */
+export function esInactivoEstado(estado?: string | null): boolean {
+  const st = String(estado ?? '').trim().toLowerCase();
+  if (!st) return false;
+  return st !== 'activo' && st !== 'otro';
+}
+
+/**
+ * ¿Este empleado se ve con la pestaña `filtro` puesta?
  *
- * - Las pestañas de grupo muestran SOLO a los suyos.
- * - Las pestañas normales (Todos / Activos / Inactivos / Otro) EXCLUYEN a los
- *   apartados — ese es el punto del pedido: que no aparezcan en «Todos» ni en
- *   «Activos».
- * - «Inactivos» sigue siendo "ni activo ni otro" (inactivo/suspendido), igual
- *   que antes.
+ * REGLA DE AISLAMIENTO TOTAL DE INACTIVOS:
+ * - Si el empleado está INACTIVO (`esInactivoEstado(estado)`), NUNCA aparece en
+ *   «Todos», «Activos», «Otro» ni en ninguna pestaña APARTE (`carbozulia`,
+ *   `seguridad`, `cdt`, `operadores`, `alimentacion`, etc.).
+ * - Los empleados inactivos (incluidos los que pertenecían a grupos apartados)
+ *   aparecen ÚNICAMENTE en el apartado `'inactivo'` («🚫 Inactivos»).
+ * - Las pestañas normales («Todos», «Activos», «Otro») muestran solo personal
+ *   NO inactivo y que NO pertenece a un grupo apartado (`!grupo`).
+ * - Las pestañas APARTE muestran solo a los de su grupo que NO están inactivos.
  */
 export function pasaFiltroEstado(
   filtro: string | Iterable<string>,
@@ -110,28 +124,41 @@ export function pasaFiltroEstado(
 ): boolean {
   if (typeof filtro !== 'string') {
     const lista = Array.from(filtro || []).filter(Boolean);
-    if (lista.length === 0) return !grupo;
+    if (lista.length === 0) return !grupo && !esInactivoEstado(estado);
     return lista.some((f) => pasaFiltroEstado(f, grupo, estado));
   }
+  const inactivo = esInactivoEstado(estado);
+  if (filtro === 'inactivo') return inactivo;
+  if (inactivo) return false;
+
+  const st = String(estado ?? '').trim().toLowerCase() || 'activo';
   if (filtro === 'todos') return !grupo;
-  if (filtro === 'activo') return !grupo && String(estado ?? '').toLowerCase() === 'activo';
-  if (filtro === 'otro') return !grupo && String(estado ?? '').toLowerCase() === 'otro';
-  if (filtro === 'inactivo') return !grupo && String(estado ?? '').toLowerCase() !== 'activo' && String(estado ?? '').toLowerCase() !== 'otro';
+  if (filtro === 'activo') return !grupo && st === 'activo';
+  if (filtro === 'otro') return !grupo && st === 'otro';
   return grupo === filtro;
 }
 
 /**
- * Alterna un chip en la selección múltiple de `Estado / Aparte`:
+ * Alterna un chip en la selección de `Estado / Aparte`:
+ * - `'inactivo'` («🚫 Inactivos») funciona como un APARTADO SEPARADO y exclusivo:
+ *   tocarlo abre únicamente `Set(['inactivo'])` (y si ya estaba activo, vuelve a `Set(['todos'])`).
  * - Tocar `'todos'` restablece la selección a `Set(['todos'])`.
- * - Tocar cualquier otro chip (`'activo'`, `'inactivo'`, `'otro'` o un grupo aparte)
- *   quita `'todos'` y activa/desactiva ese chip en el conjunto.
+ * - Tocar cualquier otro chip (`'activo'`, `'otro'` o un grupo aparte) quita
+ *   `'todos'` e `'inactivo'` y activa/desactiva ese chip en el conjunto.
  * - Si se desmarcan todos los chips, vuelve automáticamente a `Set(['todos'])`.
  */
 export function toggleFiltroEstado(actual: Iterable<string>, key: string): Set<string> {
   if (key === 'todos') {
     return new Set(['todos']);
   }
-  const next = new Set(Array.from(actual || []).filter((k) => k && k !== 'todos'));
+  const actualSet = new Set(Array.from(actual || []).filter(Boolean));
+  if (key === 'inactivo') {
+    if (actualSet.size === 1 && actualSet.has('inactivo')) {
+      return new Set(['todos']);
+    }
+    return new Set(['inactivo']);
+  }
+  const next = new Set(Array.from(actualSet).filter((k) => k !== 'todos' && k !== 'inactivo'));
   if (next.has(key)) {
     next.delete(key);
   } else {
