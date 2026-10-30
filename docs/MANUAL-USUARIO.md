@@ -8220,6 +8220,11 @@ Proveedores y Resumen.
 > las 37 unidades de relleno: muestra solo los aires que se carguen con **«+ Unidad»**. Cada aire tiene
 > **🗑️ Eliminar**, y marcando varios (☑) sale **«🗑️ Eliminar los N marcados»**; siempre pide confirmar.
 > Eliminar quita el aire de la lista, pero sus mantenimientos ya registrados y sus cuentas por pagar se conservan.
+> **🔒 Aprobación de pagos: la decide el sistema, no el nombre** *(30/10/2026)*. Solo pueden **aprobar** un pago
+> los administradores y las personas designadas en la configuración del aprobador; si otra persona lo intenta,
+> el sistema lo rechaza con un aviso. Una cuenta **«Esperando aprobación»** no se puede marcar pagada (ni con
+> el comprobante) hasta que la aprueben. La configuración de quién aprueba solo la cambian los responsables de
+> sistemas. Cada aprobación queda registrada con quién la hizo y cuándo.
 
 **Dos pestañas arriba:**
 - **💸 Por pagar** — lo que la empresa le debe a sus **proveedores**.

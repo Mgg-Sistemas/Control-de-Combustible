@@ -22,6 +22,7 @@ import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } 
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { usePermisosAprobacion } from '../lib/permisosAprobacion';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
@@ -105,8 +106,6 @@ import {
 import {
   obtenerConfigAprobacionMonto,
   guardarConfigAprobacionMonto,
-  esUsuarioAutorizadoConfigAprobacion,
-  puedeUsuarioAprobarRequerimiento,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
 import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
@@ -460,33 +459,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     [usuariosSistema, uid]
   );
 
-  const puedeVerConfigAprobacion = useMemo(
-    () =>
-      esUsuarioAutorizadoConfigAprobacion({
-        fullName: miPerfil?.full_name || fullName,
-        username: miPerfil?.username,
-        cedula: miPerfil?.cedula,
-        email: session?.user?.email,
-      }),
-    [miPerfil, fullName, session?.user?.email]
-  );
+  // 🔒 Quién configura al aprobador y quién aprueba lo decide la BASE por la cuenta
+  //    conectada (30-oct-2026), no el nombre: ver src/lib/permisosAprobacion.ts.
+  const permisosAprob = usePermisosAprobacion(uid);
+  const puedeVerConfigAprobacion = permisosAprob.puedeConfigurar;
+  const puedeAprobarPagos = permisosAprob.puedeAprobar;
 
-  const puedeAprobarPagos = useMemo(
-    () =>
-      puedeUsuarioAprobarRequerimiento({
-        userId: uid,
-        fullName: miPerfil?.full_name || fullName,
-        username: miPerfil?.username,
-        cedula: miPerfil?.cedula,
-        email: session?.user?.email,
-        role,
-        appRoleName: appRole?.name || miPerfil?.app_role_name,
-        config: configAprobacion,
-      }),
-    [uid, miPerfil, fullName, session?.user?.email, role, appRole?.name, configAprobacion]
-  );
-
-  // El aprobador designado (ej. Jesús Lozada / lozcheli15 · C.I. 18162307) o admin siempre puede operar y modificar peticiones en Por Pagar
+  // El aprobador designado o un admin siempre puede operar y modificar peticiones en Por Pagar
   const puedeOperarCxp = canWrite || puedeAprobarPagos || role === 'admin';
 
   const aprobadoresLabel = useMemo(
@@ -499,7 +478,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const abrirConfigAprobadorModal = () => {
     if (!puedeVerConfigAprobacion) {
-      toast.error('Solo Anthony Mansilla y Angelica Solis están autorizados para abrir esta configuración.');
+      toast.error('Solo los responsables de sistemas pueden abrir esta configuración.');
       return;
     }
     const cur = configAprobacion || obtenerConfigAprobacionMonto();
@@ -532,7 +511,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const guardarConfigAprobadorModal = async () => {
     if (!puedeVerConfigAprobacion) {
-      toast.error('Solo Anthony Mansilla y Angelica Solis pueden guardar esta configuración.');
+      toast.error('Solo los responsables de sistemas pueden guardar esta configuración.');
       return;
     }
     const m = cfgExigirEnTodos ? 0 : parseNum(cfgMonto);
@@ -550,17 +529,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       aprobadoresNombres: nombresFinales,
       activo: cfgActivo,
     };
+    // Primero la base (que valida quién puede); solo si acepta se guarda en el equipo.
+    const { error: errCfg } = await supabase.from('feature_toggles').upsert({
+      key: 'compras_req_aprobacion',
+      enabled: cfgActivo,
+      extra_user_ids: cfgAprobadoresIds,
+      updated_at: nowISO(),
+      updated_by: uid,
+    });
+    if (errCfg) return toast.error(errCfg.message);
     guardarConfigAprobacionMonto(nuevaRegla);
     setConfigAprobacion(nuevaRegla);
-    try {
-      await supabase.from('feature_toggles').upsert({
-        key: 'compras_req_aprobacion',
-        enabled: cfgActivo,
-        extra_user_ids: cfgAprobadoresIds,
-        updated_at: nowISO(),
-        updated_by: uid,
-      });
-    } catch {}
     setConfigModalOpen(false);
     toast.success(
       cfgActivo
@@ -1115,6 +1094,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const guardarComprobanteDirecto = async () => {
     if (!comprobanteDe) return;
+    // 🔒 Una cuenta que espera aprobación no se da por pagada (30-oct-2026).
+    if (compMarcarPagada && (comprobanteDe as any).aprobacionEstado === 'esperando_aprobacion' && !puedeAprobarPagos) {
+      return toast.error('Esta cuenta espera aprobación: el aprobador designado debe aprobarla antes de marcarla pagada.');
+    }
     if (compArchivos.length === 0 && !compRef.trim() && !compNota.trim()) {
       return toast.error('Adjunta al menos una foto/PDF del comprobante o escribe el número de referencia.');
     }
@@ -1534,6 +1517,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   };
 
   const marcarPagada = async (c: CuentaCalc) => {
+    // 🔒 Una cuenta que espera aprobación no se da por pagada (30-oct-2026).
+    if (c.aprobacionEstado === 'esperando_aprobacion' && !puedeAprobarPagos) {
+      return toast.error('Esta cuenta espera aprobación: el aprobador designado debe aprobarla antes de marcarla pagada.');
+    }
     const ok = await confirm({
       title: 'Marcar como pagada',
       message: c.saldo > 0

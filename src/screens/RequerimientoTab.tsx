@@ -12,6 +12,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { usePermisosAprobacion } from '../lib/permisosAprobacion';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
@@ -68,8 +69,6 @@ import {
   obtenerProveedorDeLinea,
   obtenerConfigAprobacionMonto,
   guardarConfigAprobacionMonto,
-  esUsuarioAutorizadoConfigAprobacion,
-  puedeUsuarioAprobarRequerimiento,
   ID_SIN_EMPRESA_REQ,
   resolverEmpresaRequerimiento,
   pasaFiltroEmpresasReq,
@@ -512,7 +511,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     return reqs.filter((r) => pasaFiltroEmpresasReq(r, empresaSel, companies));
   }, [reqs, empresaSel, companies]);
 
-  // ⚙️ Regla de Aprobación de Requerimientos (solo visible para Anthony Mansilla y Angelica Solis)
+  // ⚙️ Regla de Aprobación de Requerimientos (solo visible para los responsables de sistemas)
   const [configAprobacion, setConfigAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [cfgActivo, setCfgActivo] = useState(true);
@@ -582,30 +581,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     [usuariosSistema, uid]
   );
 
-  // 🔒 Solo Anthony Mansilla y Angelica Solis pueden ver y abrir la configuración de quién aprueba
-  const puedeVerConfigAprobacion = useMemo(
-    () =>
-      esUsuarioAutorizadoConfigAprobacion({
-        fullName: miPerfil?.full_name || fullName,
-        username: miPerfil?.username,
-        cedula: miPerfil?.cedula,
-        email: session?.user?.email,
-      }),
-    [miPerfil, fullName, session?.user?.email]
-  );
-
-  // 👔 Verifica si el usuario actual es el designado para aprobar requerimientos
-  const puedeAprobarRequerimientos = useMemo(
-    () =>
-      puedeUsuarioAprobarRequerimiento({
-        userId: uid,
-        fullName: miPerfil?.full_name || fullName,
-        role,
-        appRoleName: appRole?.name || miPerfil?.app_role_name,
-        config: configAprobacion,
-      }),
-    [uid, miPerfil, fullName, role, appRole?.name, configAprobacion]
-  );
+  // 🔒 Quién ve y abre la configuración del aprobador
+  // y 👔 quién aprueba: lo decide la BASE por la cuenta conectada (30-oct-2026),
+  //    no el nombre: ver src/lib/permisosAprobacion.ts.
+  const permisosAprob = usePermisosAprobacion(uid);
+  const puedeVerConfigAprobacion = permisosAprob.puedeConfigurar;
+  const puedeAprobarRequerimientos = permisosAprob.puedeAprobar;
 
   // 👁️ Visor de Factura / Recibo Modal
   const [facturaViewerOpen, setFacturaViewerOpen] = useState(false);
@@ -1652,10 +1633,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
-  // ── Configuración de Usuario Designado para Aprobar Requerimientos (solo Anthony Mansilla y Angelica Solis) ──
+  // ── Configuración de Usuario Designado para Aprobar Requerimientos (solo responsables de sistemas) ──
   const abrirConfigModal = () => {
     if (!puedeVerConfigAprobacion) {
-      toast.error('Solo Anthony Mansilla y Angelica Solis están autorizados para abrir esta configuración.');
+      toast.error('Solo los responsables de sistemas pueden abrir esta configuración.');
       return;
     }
     const cur = configAprobacion || obtenerConfigAprobacionMonto();
@@ -1688,7 +1669,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   const guardarConfigModal = async () => {
     if (!puedeVerConfigAprobacion) {
-      toast.error('Solo Anthony Mansilla y Angelica Solis pueden guardar esta configuración.');
+      toast.error('Solo los responsables de sistemas pueden guardar esta configuración.');
       return;
     }
     const m = cfgExigirEnTodos ? 0 : parseNum(cfgMonto);
@@ -1706,20 +1687,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       aprobadoresNombres: nombresFinales,
       activo: cfgActivo,
     };
+    // Primero la base (que valida quién puede); solo si acepta se guarda en el equipo.
+    const { error: errCfg } = await supabase.from('feature_toggles').upsert({
+      key: 'compras_req_aprobacion',
+      enabled: cfgActivo,
+      extra_user_ids: cfgAprobadoresIds,
+      updated_at: nowISO(),
+      updated_by: uid,
+    });
+    if (errCfg) return toast.error(errCfg.message);
     guardarConfigAprobacionMonto(nuevaRegla);
     setConfigAprobacion(nuevaRegla);
-
-    try {
-      await supabase.from('feature_toggles').upsert({
-        key: 'compras_req_aprobacion',
-        enabled: cfgActivo,
-        extra_user_ids: cfgAprobadoresIds,
-        updated_at: nowISO(),
-        updated_by: uid,
-      });
-    } catch {
-      // Silencioso si no hay red
-    }
 
     setConfigModalOpen(false);
     toast.success(
@@ -6288,7 +6266,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         </View>
       </Modal>
 
-      {/* ── Modal: Configuración de Usuario Designado para Aprobar Requerimientos (Solo Anthony Mansilla y Angelica Solis) ── */}
+      {/* ── Modal: Configuración de Usuario Designado para Aprobar Requerimientos (solo responsables de sistemas) ── */}
       <Modal visible={configModalOpen && puedeVerConfigAprobacion} animationType="fade" transparent onRequestClose={() => setConfigModalOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: spacing.md }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, maxHeight: '92%' }}>
@@ -6304,7 +6282,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </TouchableOpacity>
             </View>
             <Text style={{ fontSize: 11.5, color: colors.muted, marginBottom: spacing.sm }}>
-              🔒 Configuración exclusiva (visible únicamente para Anthony Mansilla y Angelica Solis). Elige qué usuario(s) (ej. Gerente General) deben aprobar primero los requerimientos de compra.
+              🔒 Configuración exclusiva de los responsables de sistemas. Elige qué usuario(s) (ej. Gerente General) deben aprobar primero los requerimientos de compra.
             </Text>
 
             <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled">
@@ -6452,7 +6430,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               <TextInput
                 value={cfgAprobadoresNombres.join(', ')}
                 onChangeText={(t) => setCfgAprobadoresNombres(t.split(',').map((x) => x.trim()).filter(Boolean))}
-                placeholder="Ej. Gerente General, Anthony Mansilla"
+                placeholder="Ej. Gerente General"
                 placeholderTextColor={colors.muted}
                 style={[inp, { marginBottom: spacing.sm }]}
               />

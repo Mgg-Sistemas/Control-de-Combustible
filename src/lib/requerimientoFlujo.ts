@@ -57,62 +57,10 @@ function normClean(s?: string | null): string {
     .trim();
 }
 
-/**
- * Verifica de forma estricta si el usuario conectado es Anthony Mansilla o Angelica Solis.
- * Solo ellos dos pueden ver y abrir la configuración de quién aprueba los requerimientos.
- */
-export function esUsuarioAutorizadoConfigAprobacion(params: {
-  fullName?: string | null;
-  username?: string | null;
-  cedula?: string | null;
-  email?: string | null;
-}): boolean {
-  const fn = normClean(params.fullName);
-  const un = normClean(params.username);
-  const ci = normClean(params.cedula).replace(/\D/g, '');
-  const em = normClean(params.email);
-
-  const esAnthony =
-    (fn.includes('anthony') && fn.includes('mansilla')) ||
-    un === 'sistemas2' ||
-    (un.includes('anthony') && un.includes('mansilla')) ||
-    (em.includes('anthony') && em.includes('mansilla')) ||
-    em.startsWith('sistemas2@');
-
-  const esAngelica =
-    (fn.includes('angelica') && fn.includes('solis')) ||
-    un === '27514385' ||
-    ci === '27514385' ||
-    (un.includes('angelica') && un.includes('solis')) ||
-    (em.includes('angelica') && em.includes('solis')) ||
-    em.startsWith('27514385@');
-
-  return esAnthony || esAngelica;
-}
-
-/**
- * Identifica explícitamente al aprobador designado Jesús Lozada (lozcheli15 · C.I. 18162307).
- */
-export function esUsuarioJesusLozada(params: {
-  fullName?: string | null;
-  username?: string | null;
-  cedula?: string | null;
-  email?: string | null;
-}): boolean {
-  const fn = normClean(params.fullName);
-  const un = normClean(params.username);
-  const ci = normClean(params.cedula).replace(/\D/g, '');
-  const em = normClean(params.email);
-
-  return (
-    un === 'lozcheli15' ||
-    ci === '18162307' ||
-    un === '18162307' ||
-    (fn.includes('jesus') && fn.includes('lozada')) ||
-    em.startsWith('lozcheli15@') ||
-    em.startsWith('18162307@')
-  );
-}
+// 🔒 30-oct-2026: quién configura al aprobador y quién aprueba ya NO se decide aquí
+// comparando nombres, usuarios, cédulas o correos (se podía suplantar y dejaba datos
+// personales en el código público). Lo decide la base por la cuenta conectada:
+// ver src/lib/permisosAprobacion.ts (es_admin_config_aprobacion / es_aprobador_cxp).
 
 /**
  * Evalúa si el usuario actual está designado para aprobar requerimientos según la configuración activa.
@@ -128,66 +76,21 @@ export function puedeUsuarioAprobarRequerimiento(params: {
   config?: ReglaAprobacionMonto | null;
 }): boolean {
   const cfg = params.config || obtenerConfigAprobacionMonto();
-  if (cfg.activo === false) {
-    return params.role === 'admin' || esUsuarioJesusLozada(params);
-  }
-
-  // Jesús Lozada (lozcheli15 · C.I. 18162307) siempre está autorizado para aprobar y modificar en Por Pagar
-  if (esUsuarioJesusLozada(params)) {
-    return true;
-  }
+  // Solo orientativo para la pantalla: la base es la que decide (es_aprobador_cxp).
+  if (params.role === 'admin') return true;
+  if (cfg.activo === false) return false;
 
   const uid = String(params.userId ?? '').trim();
-  const fn = normClean(params.fullName);
   const ar = normClean(params.appRoleName);
   const ids = Array.isArray(cfg.aprobadoresIds) ? cfg.aprobadoresIds.filter(Boolean) : [];
-  const nombres = Array.isArray(cfg.aprobadoresNombres)
-    ? cfg.aprobadoresNombres.map((n) => normClean(n)).filter(Boolean)
-    : [];
 
-  // 1. Si hay usuarios específicos seleccionados por ID, validar contra esa lista (o coincidencia exacta de nombre)
+  // 1. Si hay usuarios designados, solo ellos (por su cuenta, nunca por el nombre)
   if (ids.length > 0) {
-    if (uid && ids.includes(uid)) return true;
-    if (fn && nombres.some((nom) => nom === fn || (nom.length > 4 && fn.includes(nom)))) return true;
-    return false;
+    return Boolean(uid && ids.includes(uid));
   }
 
-  // 2. Si solo hay nombres o cargos configurados (ej. "Gerente General" o el nombre de una persona)
-  if (nombres.length > 0) {
-    const matchNombre = Boolean(
-      fn &&
-        nombres.some(
-          (nom) =>
-            nom === fn ||
-            (nom.length >= 4 && !nom.includes('geren') && (fn.includes(nom) || nom.includes(fn)))
-        )
-    );
-    if (matchNombre) return true;
-
-    const matchCargo = Boolean(
-      ar &&
-        nombres.some(
-          (nom) =>
-            nom === ar ||
-            (nom.includes('gerente') && ar.includes('gerente')) ||
-            (nom.includes('gerencia') && ar.includes('geren'))
-        )
-    );
-    if (matchCargo) return true;
-
-    // Si solo dice el genérico "Gerente General" / "Gerencia General" sin un nombre de persona específico,
-    // cualquier usuario con rol admin o rol Gerente General puede aprobar hasta que se designe un usuario puntual.
-    const soloGenericoGerente = nombres.every(
-      (nom) => nom === 'gerente general' || nom === 'gerencia general' || nom === 'gerente'
-    );
-    if (soloGenericoGerente) {
-      return params.role === 'admin' || ar.includes('gerente');
-    }
-
-    return false;
-  }
-
-  return params.role === 'admin';
+  // 2. Sin usuarios designados: el rol de gerencia (asignado en la base, no un nombre).
+  return ar.includes('geren');
 }
 
 export const ID_SIN_EMPRESA_REQ = '__sin_empresa__';

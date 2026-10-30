@@ -14,7 +14,7 @@ import { SolicitudesCompraTab } from './SolicitudesCompraTab';
 import { ServiciosTab } from './ServiciosTab';
 import { AiresAcondicionadosTab } from './AiresAcondicionadosTab';
 import { HistoricoComprasTab } from './HistoricoComprasTab';
-import { esUsuarioJesusLozada } from '../lib/requerimientoFlujo';
+import { usePermisosAprobacion } from '../lib/permisosAprobacion';
 import {
   CONDICIONES_PAGO_CHIPS,
   toggleChipCondicionPago,
@@ -2246,10 +2246,9 @@ const MOSTRAR_ORDENES = false;
 export default function ComprasScreen() {
   const { colors } = useTheme();
   const { moduleLevel, fullName, session } = useAuth();
-  const esLozada = esUsuarioJesusLozada({
-    fullName,
-    email: session?.user?.email,
-  });
+  // El aprobador designado ve Compras y Por pagar aunque no tenga el módulo: lo
+  // decide la base por su cuenta (30-oct-2026), no su nombre.
+  const esLozada = usePermisosAprobacion(session?.user?.id).puedeAprobar;
   const canWrite = levelMeets(moduleLevel('compras'), 'escritura') || esLozada;
 
   // Cuentas por pagar / por cobrar viven ACÁ dentro (pedido del cliente,
