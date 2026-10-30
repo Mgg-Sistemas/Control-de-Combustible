@@ -763,6 +763,10 @@ export default function ReportsScreen({ route }: any) {
 
   /** Qué se oculta en el PDF del conteo por tipo. Por defecto, nada. */
   const [conteoOpciones, setConteoOpciones] = useState<OpcionesConteo>(OPCIONES_CONTEO_COMPLETO);
+  /** Cuadros de volumen (m³) ocultos en el conteo (total, promedio, mayor, menor, nota). */
+  const [cajasVolOcultas, setCajasVolOcultas] = useState<Set<string>>(new Set());
+  const toggleCajaVol = (k: string) =>
+    setCajasVolOcultas((prev) => { const x = new Set(prev); x.has(k) ? x.delete(k) : x.add(k); return x; });
   /**
    * Medidas de tolva cargadas en «Cubicaje y volumen», por id de máquina.
    *
@@ -3318,18 +3322,24 @@ export default function ReportsScreen({ route }: any) {
         <div><span class="k">TIPOS</span><b>${sel.length}</b></div>
         ${o.sinEmpresas ? '' : `<div><span class="k">${porCategoria ? 'CATEGORÍAS' : porFrente ? 'FRENTES' : 'EMPRESAS'}</span><b>${empresas.length}</b></div>`}
       </div>
-      ${o.sinCubicaje || !volumenes.length ? '' : `
-      <div class="summary">
-        <div><span class="k">VOLUMEN TOTAL</span><b>${sumaM3.toFixed(2)}</b><span class="k">m³</span></div>
-        <div><span class="k">PROMEDIO POR UNIDAD</span><b>${promM3.toFixed(2)}</b><span class="k">m³</span></div>
-        <div><span class="k">MAYOR</span><b>${mayorM3.toFixed(2)}</b><span class="k">m³</span></div>
-        <div><span class="k">MENOR</span><b>${menorM3.toFixed(2)}</b><span class="k">m³</span></div>
-      </div>
+      ${o.sinCubicaje || !volumenes.length ? '' : (() => {
+        const cVol = [
+          !cajasVolOcultas.has('total') ? `<div><span class="k">VOLUMEN TOTAL</span><b>${sumaM3.toFixed(2)}</b><span class="k">m³</span></div>` : '',
+          !cajasVolOcultas.has('promedio') ? `<div><span class="k">PROMEDIO POR UNIDAD</span><b>${promM3.toFixed(2)}</b><span class="k">m³</span></div>` : '',
+          !cajasVolOcultas.has('mayor') ? `<div><span class="k">MAYOR</span><b>${mayorM3.toFixed(2)}</b><span class="k">m³</span></div>` : '',
+          !cajasVolOcultas.has('menor') ? `<div><span class="k">MENOR</span><b>${menorM3.toFixed(2)}</b><span class="k">m³</span></div>` : '',
+        ].filter(Boolean);
+        const notaHtml = !cajasVolOcultas.has('nota') && cVol.length > 0 ? `
       <p style="margin:2px 0 8px;font-size:10px;color:#68757F">
         Promedio y totales calculados sobre <b>${volumenes.length}</b> unidad(es) con medida de tolva, de
         <b>${total}</b> seleccionada(s). Las que no tienen medida quedan fuera de la cuenta: contarlas como
         cero hundiría el promedio.
-      </p>`}
+      </p>` : '';
+        return cVol.length === 0 ? '' : `
+      <div class="summary">
+        ${cVol.join('\n        ')}
+      </div>${notaHtml}`;
+      })()}
       ${bloqueTipos}
       ${bloqueClasif}
       ${bloqueFrentes}
@@ -4911,30 +4921,116 @@ export default function ReportsScreen({ route }: any) {
                     </View>
 
                     {/* El promedio se ve ANTES de imprimir: si el número no cuadra,
-                        se corrige la medida y no se gasta una impresión. */}
-                    {volumenSeleccion.medidos > 0 ? (
-                      <View style={{ marginTop: spacing.xs }}>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                          {([
-                            ['📦 TOTAL', volumenSeleccion.suma],
-                            ['➗ PROMEDIO', volumenSeleccion.promedio],
-                            ['⬆️ MAYOR', volumenSeleccion.mayor],
-                            ['⬇️ MENOR', volumenSeleccion.menor],
-                          ] as const).map(([lab, val]) => (
-                            <View key={lab} style={{ flex: 1, minWidth: 84, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
-                              <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>{lab}</Text>
-                              <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 16 }}>{val.toFixed(2)}</Text>
-                              <Text style={{ color: colors.muted, fontSize: 10 }}>m³</Text>
+                        se corrige la medida y no se gasta una impresión. Se puede
+                        quitar entero o cuadro por cuadro tanto en pantalla como en el PDF. */}
+                    {volumenSeleccion.medidos > 0 ? (() => {
+                      const itemsVol = [
+                        { k: 'total', lab: '📦 TOTAL', val: volumenSeleccion.suma },
+                        { k: 'promedio', lab: '➗ PROMEDIO', val: volumenSeleccion.promedio },
+                        { k: 'mayor', lab: '⬆️ MAYOR', val: volumenSeleccion.mayor },
+                        { k: 'menor', lab: '⬇️ MENOR', val: volumenSeleccion.menor },
+                      ] as const;
+                      const visibles = conteoOpciones.sinCubicaje ? [] : itemsVol.filter((it) => !cajasVolOcultas.has(it.k));
+                      const todosOcultos = conteoOpciones.sinCubicaje || visibles.length === 0;
+                      const hayAlgoOculto = conteoOpciones.sinCubicaje || cajasVolOcultas.size > 0;
+                      return (
+                        <View style={{ marginTop: spacing.xs }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs, marginBottom: 4 }}>
+                            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                              📐 VOLUMEN / CUBICAJE (M³)
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+                              {!todosOcultos ? (
+                                <TouchableOpacity
+                                  onPress={() => setCajasVolOcultas(new Set(['total', 'promedio', 'mayor', 'menor', 'nota']))}
+                                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                                >
+                                  <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>🚫 Quitar cuadros de m³</Text>
+                                </TouchableOpacity>
+                              ) : null}
+                              <TouchableOpacity
+                                onPress={() => {
+                                  if (conteoOpciones.sinCubicaje) {
+                                    setConteoOpciones((x) => ({ ...x, sinCubicaje: false }));
+                                    setCajasVolOcultas(new Set());
+                                  } else {
+                                    setConteoOpciones((x) => ({ ...x, sinCubicaje: true }));
+                                  }
+                                }}
+                                style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: conteoOpciones.sinCubicaje ? colors.warning : colors.border, backgroundColor: conteoOpciones.sinCubicaje ? colors.warning : colors.surfaceAlt }}
+                              >
+                                <Text style={{ color: conteoOpciones.sinCubicaje ? '#FFFFFF' : colors.text, fontSize: 11, fontWeight: '700' }}>
+                                  {conteoOpciones.sinCubicaje ? '✓ Todo m³ oculto (toca para mostrar)' : '🚫 Quitar todo m³ (cuadros y columnas)'}
+                                </Text>
+                              </TouchableOpacity>
+                              {hayAlgoOculto ? (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    setCajasVolOcultas(new Set());
+                                    if (conteoOpciones.sinCubicaje) setConteoOpciones((x) => ({ ...x, sinCubicaje: false }));
+                                  }}
+                                >
+                                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>↺ Mostrar todo m³</Text>
+                                </TouchableOpacity>
+                              ) : null}
                             </View>
-                          ))}
+                          </View>
+
+                          {!todosOcultos ? (
+                            <>
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                                {visibles.map(({ k, lab, val }) => (
+                                  <View key={k} style={{ flex: 1, minWidth: 84, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>{lab}</Text>
+                                      <TouchableOpacity onPress={() => toggleCajaVol(k)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                                        <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '900' }}>✕</Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                    <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 16 }}>{val.toFixed(2)}</Text>
+                                    <Text style={{ color: colors.muted, fontSize: 10 }}>m³</Text>
+                                  </View>
+                                ))}
+                              </View>
+                              {!cajasVolOcultas.has('nota') ? (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs, gap: spacing.xs }}>
+                                  <Text style={{ color: colors.muted, fontSize: 11, flex: 1 }}>
+                                    Sobre <Text style={{ fontWeight: '800' }}>{volumenSeleccion.medidos}</Text> unidad(es) con medida, de{' '}
+                                    {volumenSeleccion.total} seleccionada(s). Las que no tienen medida quedan fuera: contarlas como
+                                    cero hundiría el promedio.
+                                  </Text>
+                                  <TouchableOpacity onPress={() => toggleCajaVol('nota')}>
+                                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>✕ Quitar nota</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              ) : null}
+                            </>
+                          ) : null}
+
+                          {!conteoOpciones.sinCubicaje && cajasVolOcultas.size > 0 ? (
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                              {itemsVol.filter((it) => cajasVolOcultas.has(it.k)).map((it) => (
+                                <TouchableOpacity
+                                  key={it.k}
+                                  onPress={() => toggleCajaVol(it.k)}
+                                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                                >
+                                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>+ {it.lab}</Text>
+                                </TouchableOpacity>
+                              ))}
+                              {cajasVolOcultas.has('nota') && visibles.length > 0 ? (
+                                <TouchableOpacity
+                                  onPress={() => toggleCajaVol('nota')}
+                                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                                >
+                                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>+ Nota de unidades medidas</Text>
+                                </TouchableOpacity>
+                              ) : null}
+                            </View>
+                          ) : null}
                         </View>
-                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
-                          Sobre <Text style={{ fontWeight: '800' }}>{volumenSeleccion.medidos}</Text> unidad(es) con medida, de{' '}
-                          {volumenSeleccion.total} seleccionada(s). Las que no tienen medida quedan fuera: contarlas como
-                          cero hundiría el promedio.
-                        </Text>
-                      </View>
-                    ) : null}
+                      );
+                    })() : null}
                     {/* ── AGRUPAR POR (09-sep-2026 + Frente) ────────────────────────
                         Pedido del cliente: poder sacarlo por empresa, categoría o frente,
                         y combinar cualquier eje con cualquier filtro (ej. agrupado por
