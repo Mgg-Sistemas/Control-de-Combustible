@@ -2,8 +2,8 @@
 // Permite adjuntar y visualizar soportes de pago (transferencias bancarias, recibos de caja, capture)
 // con total resiliencia y compatibilidad sin romper esquemas de base de datos.
 
-import type { Cuenta, CuentaAbono, Supplier } from '../types/database.ts';
-import type { ArchivoSoporte, FacturaData } from './requerimientoExpediente.ts';
+import type { Cuenta, CuentaAbono, Supplier } from '../types/database';
+import type { ArchivoSoporte, FacturaData } from './requerimientoExpediente';
 import { extraerCapturaPago, limpiarNotasUsuario, type CapturaPagoInfo } from './proveedorPago';
 
 export type { ArchivoSoporte, FacturaData, CapturaPagoInfo };

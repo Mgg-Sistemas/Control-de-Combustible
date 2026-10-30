@@ -12,26 +12,26 @@ import type {
   Vehicle,
   Company,
   Supplier,
-} from '../types/database.ts';
-import { machineLabel } from './machineLabel.ts';
+} from '../types/database';
+import { machineLabel } from './machineLabel';
 import {
   extraerFactura,
   extraerReciboPago,
   extraerDespacho,
   extraerProveedorSugerido,
-} from './requerimientoExpediente.ts';
+} from './requerimientoExpediente';
 import {
   extraerAprobacionCxp,
   extraerFacturaCuenta,
   extraerReciboPagoCuenta,
-} from './cuentasPago.ts';
+} from './cuentasPago';
 import {
   esSolicitudDeCompra,
   estaSolicitudConvertidaEnRequerimiento,
   resolverEmpresaRequerimiento,
   ID_SIN_EMPRESA_REQ,
-} from './requerimientoFlujo.ts';
-import { resolverEmpresaDeCuenta } from './cuentasEmpresa.ts';
+} from './requerimientoFlujo';
+import { resolverEmpresaDeCuenta } from './cuentasEmpresa';
 
 export type ModuloEventoCompra = 'Solicitudes' | 'Requerimientos' | 'Por Pagar' | 'Almacén';
 
@@ -46,10 +46,14 @@ export type TipoEventoCompra =
   | 'cotizacion_registrada'
   | 'enviado_por_pagar'
   | 'aprobado_gerencia_cxp'
+  | 'aprobacion_gerencial'
   | 'items_modificados'
   | 'factura_registrada'
+  | 'factura_adjuntada'
   | 'abono_registrado'
+  | 'pago_registrado'
   | 'pago_completado'
+  | 'pagado_completo'
   | 'recepcion_almacen'
   | 'despacho_almacen'
   | 'rechazado_o_anulado'
@@ -102,7 +106,7 @@ export interface EventoHistorialCompra {
 }
 
 export interface EnvioCxpInfo {
-  enviadoPor: string;
+  enviadoPor: string | null;
   enviadoPorId?: string | null;
   fecha: string; // ISO timestamp
   origen?: string | null;
@@ -172,7 +176,7 @@ export function inyectarEnvioCxpEnTexto(
 ): string | null {
   const base = String(textoActual ?? '').replace(REGEX_REMOVE_ENVIADO_CXP, '').trim();
   if (!info) return base || null;
-  const tag = `[ENVIADO_CXP: Por: ${cleanTagVal(info.enviadoPor)} | Id: ${cleanTagVal(info.enviadoPorId)} | Fecha: ${cleanTagVal(info.fecha || new Date().toISOString())} | Origen: ${cleanTagVal(info.origen || 'requerimiento')}]`;
+  const tag = `[ENVIADO_CXP: Por: ${cleanTagVal(info.enviadoPor || 'Compras')} | Id: ${cleanTagVal(info.enviadoPorId)} | Fecha: ${cleanTagVal(info.fecha || new Date().toISOString())} | Origen: ${cleanTagVal(info.origen || 'requerimiento')}]`;
   return base ? `${base}\n${tag}` : tag;
 }
 
@@ -221,13 +225,55 @@ export function empaquetarEventosHistorialEnTexto(
   }
 }
 
+export interface EntradaEventoHistorialCompra {
+  id?: string;
+  at?: string;
+  fecha?: string;
+  by?: string | null;
+  usuarioNombre?: string | null;
+  byId?: string | null;
+  usuarioId?: string | null;
+  modulo?: ModuloEventoCompra;
+  origen?: 'por_pagar' | 'requerimientos' | 'solicitudes' | 'almacen' | string;
+  tipo: TipoEventoCompra;
+  titulo: string;
+  detalle: string;
+  motivo?: string | null;
+  montoAntesUsd?: number | null;
+  montoAntes?: number | null;
+  montoDespuesUsd?: number | null;
+  montoDespues?: number | null;
+  cambiosItems?: CambioItemDetalle[];
+  reqId?: string | null;
+  reqCode?: string | null;
+  cuentaId?: string | null;
+  empresaNombre?: string | null;
+  proveedorNombre?: string | null;
+  solicitanteNombre?: string | null;
+  destinoTexto?: string | null;
+  areaTexto?: string | null;
+}
+
 export function anexarEventoHistorial(
   textoActual: string | null | undefined,
-  nuevo: Omit<EventoHistorialCompra, 'id' | 'at'> & { id?: string; at?: string }
+  nuevo: EntradaEventoHistorialCompra
 ): string {
   const actuales = extraerEventosHistorial(textoActual);
-  const ahoraIso = nuevo.at || new Date().toISOString();
+  const ahoraIso = nuevo.at || nuevo.fecha || new Date().toISOString();
   const id = nuevo.id || `ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const byNorm = (nuevo.by || nuevo.usuarioNombre || 'Usuario').trim() || 'Usuario';
+  const byIdNorm = nuevo.byId ?? nuevo.usuarioId ?? null;
+  const moduloNorm: ModuloEventoCompra =
+    nuevo.modulo ||
+    (nuevo.origen === 'por_pagar'
+      ? 'Por Pagar'
+      : nuevo.origen === 'solicitudes'
+        ? 'Solicitudes'
+        : nuevo.origen === 'almacen'
+          ? 'Almacén'
+          : 'Requerimientos');
+  const montoAntesUsd = nuevo.montoAntesUsd ?? nuevo.montoAntes ?? null;
+  const montoDespuesUsd = nuevo.montoDespuesUsd ?? nuevo.montoDespues ?? null;
 
   // Evitar duplicados exactos en menos de 3 segundos
   const ultimo = actuales[actuales.length - 1];
@@ -240,14 +286,30 @@ export function anexarEventoHistorial(
     return empaquetarEventosHistorialEnTexto(textoActual, actuales) || '';
   }
 
-  const lista = [
-    ...actuales,
-    {
-      ...nuevo,
-      id,
-      at: ahoraIso,
-    },
-  ];
+  const eventoNorm: EventoHistorialCompra = {
+    id,
+    at: ahoraIso,
+    by: byNorm,
+    byId: byIdNorm,
+    modulo: moduloNorm,
+    tipo: nuevo.tipo,
+    titulo: nuevo.titulo,
+    detalle: nuevo.detalle,
+    ...(nuevo.motivo != null ? { motivo: nuevo.motivo } : {}),
+    ...(montoAntesUsd != null ? { montoAntesUsd } : {}),
+    ...(montoDespuesUsd != null ? { montoDespuesUsd } : {}),
+    ...(nuevo.cambiosItems ? { cambiosItems: nuevo.cambiosItems } : {}),
+    ...(nuevo.reqId != null ? { reqId: nuevo.reqId } : {}),
+    ...(nuevo.reqCode != null ? { reqCode: nuevo.reqCode } : {}),
+    ...(nuevo.cuentaId != null ? { cuentaId: nuevo.cuentaId } : {}),
+    ...(nuevo.empresaNombre != null ? { empresaNombre: nuevo.empresaNombre } : {}),
+    ...(nuevo.proveedorNombre != null ? { proveedorNombre: nuevo.proveedorNombre } : {}),
+    ...(nuevo.solicitanteNombre != null ? { solicitanteNombre: nuevo.solicitanteNombre } : {}),
+    ...(nuevo.destinoTexto != null ? { destinoTexto: nuevo.destinoTexto } : {}),
+    ...(nuevo.areaTexto != null ? { areaTexto: nuevo.areaTexto } : {}),
+  };
+
+  const lista = [...actuales, eventoNorm];
   return empaquetarEventosHistorialEnTexto(textoActual, lista) || '';
 }
 
@@ -305,23 +367,61 @@ export function calcularTotalConIvaUsd(items: RequirementLine[], alicuotaIva?: n
   return Math.round((sub + iva) * 100) / 100;
 }
 
-export function calcularDiffItemsCompra(params: {
-  itemsAntes: RequirementLine[];
-  itemsDespues: RequirementLine[];
-  autor: string;
-  modulo: ModuloEventoCompra;
-  motivo?: string | null;
-  ivaAntes?: number | null;
-  ivaDespues?: number | null;
-}): {
+export interface ResultadoDiffItemsCompra {
   hayCambios: boolean;
+  huboCambios: boolean;
   cambiosItems: CambioItemDetalle[];
+  cambios: CambioItemDetalle[];
   montoAntesUsd: number;
+  montoAntes: number;
   montoDespuesUsd: number;
+  montoDespues: number;
   resumenDetalle: string;
-} {
-  const antes = Array.isArray(params.itemsAntes) ? params.itemsAntes : [];
-  const despues = Array.isArray(params.itemsDespues) ? params.itemsDespues : [];
+  resumenTexto: string;
+}
+
+export function calcularDiffItemsCompra(
+  arg1:
+    | RequirementLine[]
+    | {
+        itemsAntes: RequirementLine[];
+        itemsDespues: RequirementLine[];
+        autor?: string | null;
+        modulo?: ModuloEventoCompra;
+        motivo?: string | null;
+        ivaAntes?: number | null;
+        ivaDespues?: number | null;
+      },
+  arg2?: RequirementLine[],
+  arg3?: {
+    autor?: string | null;
+    modulo?: ModuloEventoCompra;
+    motivo?: string | null;
+    ivaAntes?: number | null;
+    ivaDespues?: number | null;
+  }
+): ResultadoDiffItemsCompra {
+  const params = Array.isArray(arg1)
+    ? {
+        itemsAntes: arg1,
+        itemsDespues: Array.isArray(arg2) ? arg2 : [],
+        autor: arg3?.autor || 'Usuario autorizado',
+        modulo: arg3?.modulo || ('Por Pagar' as ModuloEventoCompra),
+        motivo: arg3?.motivo ?? null,
+        ivaAntes: arg3?.ivaAntes ?? null,
+        ivaDespues: arg3?.ivaDespues ?? null,
+      }
+    : {
+        itemsAntes: Array.isArray(arg1?.itemsAntes) ? arg1.itemsAntes : [],
+        itemsDespues: Array.isArray(arg1?.itemsDespues) ? arg1.itemsDespues : [],
+        autor: arg1?.autor || 'Usuario autorizado',
+        modulo: arg1?.modulo || ('Por Pagar' as ModuloEventoCompra),
+        motivo: arg1?.motivo ?? null,
+        ivaAntes: arg1?.ivaAntes ?? null,
+        ivaDespues: arg1?.ivaDespues ?? null,
+      };
+  const antes = params.itemsAntes;
+  const despues = params.itemsDespues;
   const montoAntesUsd = calcularTotalConIvaUsd(antes, params.ivaAntes);
   const montoDespuesUsd = calcularTotalConIvaUsd(despues, params.ivaDespues ?? params.ivaAntes);
 
@@ -436,10 +536,15 @@ export function calcularDiffItemsCompra(params: {
 
   return {
     hayCambios,
+    huboCambios: hayCambios,
     cambiosItems: cambios,
+    cambios,
     montoAntesUsd,
+    montoAntes: montoAntesUsd,
     montoDespuesUsd,
+    montoDespues: montoDespuesUsd,
     resumenDetalle,
+    resumenTexto: resumenDetalle,
   };
 }
 
@@ -447,6 +552,8 @@ export function calcularDiffItemsCompra(params: {
 
 export interface TrazabilidadPorPagar {
   req: InventoryRequirement | null;
+  reqVinculado: InventoryRequirement | null;
+  items: RequirementLine[];
   reqCode: string | null;
   tituloReq: string | null;
   solicitadoPor: string;
@@ -455,6 +562,7 @@ export interface TrazabilidadPorPagar {
   responsableAlmacen: string | null;
   motorizadoNombre: string | null;
   fechaSolicitudIso: string | null;
+  fechaSolicitudSoloDia: string | null;
   fechaHoraSolicitudTexto: string;
   destinoTexto: string | null; // SIEMPRE incluye código + nombre + PLACA si es maquinaria/vehículo
   areaTexto: string | null;
@@ -464,6 +572,7 @@ export interface TrazabilidadPorPagar {
   proveedorNombre: string;
   enviadoPorPagarPor: string;
   fechaEnviadoPorPagarIso: string | null;
+  fechaEnvioSoloDia: string | null;
   fechaHoraEnviadoPorPagarTexto: string;
   aprobadoGerenciaPor: string | null;
   fechaHoraAprobadoGerenciaTexto: string | null;
@@ -589,21 +698,39 @@ export function resolverRequerimientoVinculadoACuenta(
   return null;
 }
 
-export function resolverTrazabilidadPorPagar(params: {
-  cuenta: Partial<Cuenta>;
+export interface OpcionesTrazabilidadPorPagar {
+  cuenta?: Partial<Cuenta>;
   requirements?: readonly InventoryRequirement[] | null;
   orders?: readonly PurchaseOrder[] | null;
   companies?: readonly Company[] | null;
   suppliers?: readonly Supplier[] | null;
   machines?: readonly Machinery[] | null;
+  machinery?: readonly Machinery[] | null;
   vehicles?: readonly Vehicle[] | null;
   usuariosMap?: ReadonlyMap<string, string> | null;
   contraparteFallback?: string;
   empresaNombreFallback?: string;
-}): TrazabilidadPorPagar {
-  const { cuenta, requirements, orders, companies, suppliers, machines, vehicles, usuariosMap } = params;
+}
+
+export function resolverTrazabilidadPorPagar(
+  arg1: Partial<Cuenta> | OpcionesTrazabilidadPorPagar,
+  arg2?: OpcionesTrazabilidadPorPagar
+): TrazabilidadPorPagar {
+  const esFirmaDosArgs =
+    arg2 !== undefined ||
+    (arg1 && typeof arg1 === 'object' && !('cuenta' in arg1));
+  const cuenta: Partial<Cuenta> = esFirmaDosArgs
+    ? ((arg1 as Partial<Cuenta>) || {})
+    : ((arg1 as OpcionesTrazabilidadPorPagar)?.cuenta || {});
+  const params: OpcionesTrazabilidadPorPagar = esFirmaDosArgs
+    ? (arg2 || {})
+    : ((arg1 as OpcionesTrazabilidadPorPagar) || {});
+
+  const { requirements, orders, companies, suppliers, vehicles, usuariosMap } = params;
+  const machines = params.machines || params.machinery || null;
+
   const req = resolverRequerimientoVinculadoACuenta(cuenta, requirements, orders);
-  const ord = cuenta.order_id && Array.isArray(orders) ? orders.find((o) => o.id === cuenta.order_id) || null : null;
+  const ord = cuenta?.order_id && Array.isArray(orders) ? orders.find((o) => o.id === cuenta.order_id) || null : null;
 
   const userFromId = (id?: string | null) => (id && usuariosMap ? usuariosMap.get(String(id)) || null : null);
 
@@ -612,13 +739,13 @@ export function resolverTrazabilidadPorPagar(params: {
     req?.solicitante_nombre?.trim() ||
     req?.requested_by_name?.trim() ||
     userFromId(req?.requested_by) ||
-    userFromId(cuenta.created_by) ||
+    userFromId(cuenta?.created_by) ||
     'Departamento de Compras';
 
   const registradoPorRaw =
     req?.requested_by_name?.trim() ||
     userFromId(req?.requested_by) ||
-    userFromId(cuenta.created_by) ||
+    userFromId(cuenta?.created_by) ||
     null;
 
   const registradoPor =
@@ -627,12 +754,13 @@ export function resolverTrazabilidadPorPagar(params: {
       : registradoPorRaw;
 
   // 2. Fecha y hora de solicitud
-  const fechaSolicitudIso = req?.created_at || ord?.created_at || cuenta.created_at || cuenta.fecha_emision || null;
+  const fechaSolicitudIso = req?.created_at || ord?.created_at || cuenta?.created_at || cuenta?.fecha_emision || null;
+  const fechaSolicitudSoloDia = toLocalYMD(fechaSolicitudIso) || null;
   const fechaHoraSolicitudTexto = fmtFechaHora(fechaSolicitudIso);
 
   // 3. Destino (para quién es) + Área + Empresa
   let destinoTexto = extraerDestinoDeRequerimiento(req, machines, vehicles);
-  if (!destinoTexto && cuenta.concepto && cuenta.concepto.includes('para ')) {
+  if (!destinoTexto && cuenta?.concepto && cuenta.concepto.includes('para ')) {
     destinoTexto = enriquecerDestinoConPlaca(
       cuenta.concepto.split('para ').slice(1).join('para ').trim(),
       machines,
@@ -641,16 +769,16 @@ export function resolverTrazabilidadPorPagar(params: {
   }
 
   const areaTexto = req?.area?.trim() || null;
-  const frenteTexto = req?.frente_nombre?.trim() || null;
+  const frenteTexto = (req as any)?.frente_nombre?.trim() || null;
 
   let empresaNombre = params.empresaNombreFallback || '';
-  if (!empresaNombre && companies && companies.length > 0) {
+  if (!empresaNombre && companies && companies.length > 0 && cuenta) {
     const empCta = resolverEmpresaDeCuenta(cuenta as Cuenta, {
       companies: companies as Company[],
       requirements: (requirements as InventoryRequirement[]) || [],
       orders: (orders as PurchaseOrder[]) || [],
     });
-    empresaNombre = empCta.nombre;
+    empresaNombre = empCta.name;
   }
   if (!empresaNombre && req && companies) {
     const empReq = resolverEmpresaRequerimiento(req, companies as Company[]);
@@ -660,16 +788,16 @@ export function resolverTrazabilidadPorPagar(params: {
 
   const proveedorNombre =
     params.contraparteFallback ||
-    (cuenta.supplier_id && suppliers ? suppliers.find((s) => s.id === cuenta.supplier_id)?.name : null) ||
+    (cuenta?.supplier_id && suppliers ? suppliers.find((s) => s.id === cuenta.supplier_id)?.name : null) ||
     (req?.supplier_id && suppliers ? suppliers.find((s) => s.id === req.supplier_id)?.name : null) ||
-    cuenta.contraparte ||
+    cuenta?.contraparte ||
     'Proveedor';
 
   // 4. Quién lo envió a Por Pagar y en qué fecha/hora
-  const envioCta = extraerEnvioCxp(cuenta.nota);
+  const envioCta = extraerEnvioCxp(cuenta?.nota);
   const envioReq = extraerEnvioCxp(req?.observaciones);
   const envioInfo = envioCta || envioReq;
-  const apCta = extraerAprobacionCxp(cuenta.nota);
+  const apCta = extraerAprobacionCxp(cuenta?.nota);
   const apReq = extraerAprobacionCxp(req?.observaciones);
   const apInfo = apCta?.estado === 'aprobado' ? apCta : apReq?.estado === 'aprobado' ? apReq : apCta || apReq || null;
 
@@ -677,7 +805,7 @@ export function resolverTrazabilidadPorPagar(params: {
     envioInfo?.enviadoPor ||
     req?.decided_by_name?.trim() ||
     userFromId(req?.decided_by) ||
-    userFromId(cuenta.created_by) ||
+    userFromId(cuenta?.created_by) ||
     'Compras / Administración';
 
   const fechaEnviadoPorPagarIso =
@@ -685,10 +813,11 @@ export function resolverTrazabilidadPorPagar(params: {
     req?.decided_at ||
     (apCta?.estado === 'pendiente' ? apCta.fecha : null) ||
     (apReq?.estado === 'pendiente' ? apReq.fecha : null) ||
-    cuenta.created_at ||
-    cuenta.fecha_emision ||
+    cuenta?.created_at ||
+    cuenta?.fecha_emision ||
     null;
 
+  const fechaEnvioSoloDia = toLocalYMD(fechaEnviadoPorPagarIso) || null;
   const fechaHoraEnviadoPorPagarTexto = fmtFechaHora(fechaEnviadoPorPagarIso);
 
   const aprobadoGerenciaPor =
@@ -697,22 +826,32 @@ export function resolverTrazabilidadPorPagar(params: {
     apInfo?.estado === 'aprobado' && apInfo.fecha ? fmtFechaHora(apInfo.fecha) : null;
 
   const evReq = extraerEventosHistorial(req?.observaciones);
-  const evCta = extraerEventosHistorial(cuenta.nota);
+  const evCta = extraerEventosHistorial(cuenta?.nota);
   const modsIds = new Set<string>();
   [...evReq, ...evCta].forEach((ev) => {
     if (ev.tipo === 'items_modificados') modsIds.add(ev.id);
   });
 
+  const itemsResueltos: RequirementLine[] =
+    req && Array.isArray(req.items)
+      ? req.items
+      : ord && Array.isArray((ord as any).items)
+        ? (ord as any).items
+        : [];
+
   return {
     req,
-    reqCode: req?.code || (cuenta.documento?.startsWith('REQ-') ? cuenta.documento : null),
-    tituloReq: req?.title || cuenta.concepto || null,
+    reqVinculado: req,
+    items: itemsResueltos,
+    reqCode: req?.code || (cuenta?.documento?.startsWith('REQ-') ? cuenta.documento : null),
+    tituloReq: req?.title || cuenta?.concepto || null,
     solicitadoPor,
     registradoPor,
     autorizadoPor: req?.autorizado_nombre?.trim() || null,
     responsableAlmacen: req?.responsable_nombre?.trim() || null,
     motorizadoNombre: req?.motorizado_nombre?.trim() || null,
     fechaSolicitudIso,
+    fechaSolicitudSoloDia,
     fechaHoraSolicitudTexto,
     destinoTexto,
     areaTexto,
@@ -722,6 +861,7 @@ export function resolverTrazabilidadPorPagar(params: {
     proveedorNombre,
     enviadoPorPagarPor,
     fechaEnviadoPorPagarIso,
+    fechaEnvioSoloDia,
     fechaHoraEnviadoPorPagarTexto,
     aprobadoGerenciaPor,
     fechaHoraAprobadoGerenciaTexto,
@@ -738,10 +878,12 @@ export function construirTimelineExpediente(params: {
   companies?: readonly Company[] | null;
   suppliers?: readonly Supplier[] | null;
   machines?: readonly Machinery[] | null;
+  machinery?: readonly Machinery[] | null;
   vehicles?: readonly Vehicle[] | null;
   usuariosMap?: ReadonlyMap<string, string> | null;
 }): EventoHistorialCompra[] {
-  const { req, cuenta, abonos, companies, suppliers, machines, vehicles, usuariosMap } = params;
+  const { req, cuenta, abonos, companies, suppliers, vehicles, usuariosMap } = params;
+  const machines = params.machines || params.machinery || null;
   const mapaEventos = new Map<string, EventoHistorialCompra>();
 
   const reqCode = req?.code || (cuenta?.documento?.startsWith('REQ-') ? cuenta.documento : null);
@@ -761,7 +903,7 @@ export function construirTimelineExpediente(params: {
       requirements: req ? [req] : [],
       orders: [],
     });
-    empresaNombre = empCta.nombre;
+    empresaNombre = empCta.name;
   }
 
   const proveedorNombre =
@@ -1051,7 +1193,7 @@ export function construirTimelineExpediente(params: {
     mapaEventos.set(idRec, {
       id: idRec,
       at: req.received_at,
-      by: req.received_by_name || 'Almacén',
+      by: (req as any).received_by_name || req.decided_by_name || 'Almacén',
       modulo: 'Almacén',
       tipo: 'recepcion_almacen',
       titulo: 'Recibido en Almacén',
