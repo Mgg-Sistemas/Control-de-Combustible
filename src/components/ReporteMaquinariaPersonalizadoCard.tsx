@@ -15,7 +15,13 @@
 // - La fecha de emisión del papel es elegible (interruptor `emitida` de
 //   pdfDocument); el título, el subtítulo, la nota, las columnas y los logos
 //   también.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+//
+// ⛽🧭 Rango, combustible y Este/Oeste (30-oct-2026): con el rango de fechas, la
+// tarjeta TRAE (solo lectura) los litros despachados a cada máquina — la misma
+// `loadFuelByMachine` de Control de Maquinaria y Supervisión — y su Este/Oeste
+// con la regla del reporte 📍 Ubicaciones. Las dos columnas nacen apagadas, se
+// ponen y se quitan con sus pastillas, y lo corregido a mano no se pisa.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { DateField } from './DateField';
 import { Toggle } from './CubicajeTab';
@@ -25,12 +31,16 @@ import { selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { caracasToday } from '../lib/caracasDay';
 import { norm } from '../lib/text';
+import { loadFuelByMachine } from '../lib/fuelPerMachine';
+import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
+import { armarUbicaciones, cardinalPorMaquina } from '../lib/ubicacionesReporte';
 import {
   CSS_REPORTE_PERSONALIZADO, ESTADOS_PERSONALIZADO, FilaPersonalizada, OpcionesPersonalizado,
   OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO,
   alternarPersonalizado, cuerpoReportePersonalizado, dmyPersonalizado, emitidaTexto, filaVacia,
   ocultosPersonalizadoEnPalabras, sufijoArchivoPersonalizado,
   empresasCatalogoPersonalizado, estadosCatalogoPersonalizado, filtrarCatalogoPersonalizado,
+  aplicarDatosDelRango, cardinalTexto, litrosTexto, rangoOrdenado, totalLitrosPersonalizado, usaRangoPersonalizado,
 } from '../lib/reporteMaquinariaPersonalizado';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -85,6 +95,17 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const [confirmaVaciar, setConfirmaVaciar] = useState(false);
   const [descargando, setDescargando] = useState(false);
 
+  // ⛽🧭 Lo que el sistema trae para el rango (null = no cargado / columna apagada).
+  const [litrosRango, setLitrosRango] = useState<Record<string, number> | null>(null);
+  const [cardinalRango, setCardinalRango] = useState<Record<string, string> | null>(null);
+  const [cargandoLitros, setCargandoLitros] = useState(false);
+  const [cargandoCardinal, setCargandoCardinal] = useState(false);
+  const [errorRango, setErrorRango] = useState<string | null>(null);
+  // Celdas corregidas a mano («id|campo»): recargar el rango no las pisa.
+  const editados = useRef<Set<string>>(new Set());
+  const pedidoLitros = useRef(0);
+  const pedidoCardinal = useRef(0);
+
   const cargar = useCallback(async () => {
     setCargando(true); setError(null);
     try {
@@ -130,6 +151,9 @@ export function ReporteMaquinariaPersonalizadoCard() {
         peso: Number.isFinite(Number(m.weight_ton)) && Number(m.weight_ton) > 0 ? `${n2(m.weight_ton)} t` : '',
         medidas: medidasFicha(m.height_m, m.length_m, m.width_m),
         nota: '',
+        // Los pone el rango (al agregar la fila o al cambiar las fechas).
+        litros: '',
+        cardinal: '',
       })) as FilaPersonalizada[]).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
       // El vehículo entra con el prefijo «veh-» en su clave local: así la
       // tarjeta sabe pintarle el 🚗 sin agregarle campos a la fila (que sigue
@@ -151,6 +175,9 @@ export function ReporteMaquinariaPersonalizadoCard() {
         peso: '',
         medidas: '',
         nota: '',
+        // Los despachos son de maquinaria: el vehículo no trae litros ni cardinal (se escriben a mano).
+        litros: '',
+        cardinal: '',
       })) as FilaPersonalizada[])).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
       setCatalogo([...filasMaq, ...filasVeh]);
     } catch (e: any) {
@@ -161,6 +188,57 @@ export function ReporteMaquinariaPersonalizadoCard() {
   }, []);
 
   useEffect(() => { void cargar(); }, [cargar]);
+
+  // ⛽🧭 El rango manda: con alguna de las dos columnas encendida, las fechas salen
+  //    en el subtítulo (unos litros sin su período no dicen nada).
+  const rango = useMemo(() => rangoOrdenado(desde, hasta), [desde, hasta]);
+  const usaRango = usaRangoPersonalizado(opciones);
+  const rangoEnPapel = conRango || usaRango;
+
+  // ⛽ Litros del rango: SOLO si la columna está encendida (si no, ni se pregunta).
+  useEffect(() => {
+    if (opciones.sinConsumo || !rango.desde) { setLitrosRango(null); return; }
+    const n = ++pedidoLitros.current;
+    setCargandoLitros(true); setErrorRango(null);
+    loadFuelByMachine(rango.desde, rango.hasta)
+      .then((agg) => {
+        if (n !== pedidoLitros.current) return; // llegó tarde: ya se pidió otro rango
+        const m: Record<string, number> = {};
+        Object.entries(agg).forEach(([id, a]) => { m[id] = a.liters; });
+        setLitrosRango(m);
+      })
+      .catch((e: any) => { if (n === pedidoLitros.current) { setLitrosRango(null); setErrorRango(`No se pudo leer el combustible: ${String(e?.message ?? e)}`); } })
+      .finally(() => { if (n === pedidoLitros.current) setCargandoLitros(false); });
+  }, [opciones.sinConsumo, rango.desde, rango.hasta]);
+
+  // 🧭 Este/Oeste del rango: la regla del reporte 📍 Ubicaciones, sobre TODO el
+  //    catálogo (así el resultado es el mismo que en ese papel).
+  useEffect(() => {
+    if (opciones.sinCardinal || !rango.desde) { setCardinalRango(null); return; }
+    const n = ++pedidoCardinal.current;
+    setCargandoCardinal(true); setErrorRango(null);
+    cargarDatosUbicaciones(rango.desde, rango.hasta)
+      .then((d) => {
+        if (n !== pedidoCardinal.current) return;
+        const filasUbic = armarUbicaciones({ ...d, desde: rango.desde, hasta: rango.hasta });
+        const m: Record<string, string> = {};
+        cardinalPorMaquina(d.maquinas, filasUbic).forEach((c, id) => { m[id] = cardinalTexto(c.cardinal, c.area); });
+        setCardinalRango(m);
+      })
+      .catch((e: any) => { if (n === pedidoCardinal.current) { setCardinalRango(null); setErrorRango(`No se pudo leer la ubicación Este/Oeste: ${String(e?.message ?? e)}`); } })
+      .finally(() => { if (n === pedidoCardinal.current) setCargandoCardinal(false); });
+  }, [opciones.sinCardinal, rango.desde, rango.hasta]);
+
+  // Lo que llega del rango se pone en las filas que ya están en el papel.
+  const datosRango = useMemo(() => ({ litros: litrosRango, cardinal: cardinalRango }), [litrosRango, cardinalRango]);
+  useEffect(() => {
+    setFilas((prev) => {
+      let cambio = false;
+      const next = prev.map((f) => { const g = aplicarDatosDelRango(f, datosRango, editados.current); if (g !== f) cambio = true; return g; });
+      return cambio ? next : prev;
+    });
+  }, [datosRango]);
+  const totalLitros = useMemo(() => totalLitrosPersonalizado(filas), [filas]);
 
   const enPapel = useMemo(() => new Set(filas.map((f) => f.id)), [filas]);
   const esVehiculo = (id: string) => id.startsWith('veh-');
@@ -192,16 +270,26 @@ export function ReporteMaquinariaPersonalizadoCard() {
     setEstadosSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
 
   // Quitar y reordenar: SIN tocar nada fuera de la tarjeta (es puro estado local).
-  const agregar = (m: FilaPersonalizada) => setFilas((prev) => (prev.some((f) => f.id === m.id) ? prev : [...prev, { ...m }]));
+  // Una fila que entra al papel llega con los datos del rango ya cargados.
+  const conRangoAplicado = (m: FilaPersonalizada) => aplicarDatosDelRango({ ...m }, datosRango, editados.current);
+  // Al sacar una fila se olvida lo que se le corrigió: si vuelve, vuelve limpia.
+  //    (Se rehace el Set filtrado en vez de borrarle llaves: el candado de la suite
+  //    no admite en esta tarjeta ni un método con nombre de escritura a la base.)
+  const olvidarEditados = (ids: Iterable<string>) => {
+    const fuera = new Set(ids);
+    editados.current = new Set(Array.from(editados.current).filter((k) => !fuera.has(k.slice(0, k.lastIndexOf('|')))));
+  };
+  const agregar = (m: FilaPersonalizada) => setFilas((prev) => (prev.some((f) => f.id === m.id) ? prev : [...prev, conRangoAplicado(m)]));
   const agregarVarias = (lista: FilaPersonalizada[]) =>
     setFilas((prev) => {
       const ya = new Set(prev.map((f) => f.id));
-      const nuevas = lista.filter((m) => !ya.has(m.id)).map((m) => ({ ...m }));
+      const nuevas = lista.filter((m) => !ya.has(m.id)).map(conRangoAplicado);
       return nuevas.length === 0 ? prev : [...prev, ...nuevas];
     });
-  const quitar = (id: string) => setFilas((prev) => prev.filter((f) => f.id !== id));
+  const quitar = (id: string) => { olvidarEditados([id]); setFilas((prev) => prev.filter((f) => f.id !== id)); };
   const quitarVarias = (lista: FilaPersonalizada[]) => {
     const idsQuitar = new Set(lista.map((m) => m.id));
+    olvidarEditados(idsQuitar);
     setFilas((prev) => prev.filter((f) => !idsQuitar.has(f.id)));
   };
   const mover = (i: number, dir: -1 | 1) => setFilas((prev) => {
@@ -211,18 +299,20 @@ export function ReporteMaquinariaPersonalizadoCard() {
     [copia[i], copia[j]] = [copia[j], copia[i]];
     return copia;
   });
-  const editar = (id: string, campo: keyof FilaPersonalizada, valor: string) =>
+  const editar = (id: string, campo: keyof FilaPersonalizada, valor: string) => {
+    if (campo === 'litros' || campo === 'cardinal') editados.current.add(`${id}|${campo}`);
     setFilas((prev) => prev.map((f) => (f.id === id ? { ...f, [campo]: valor } : f)));
+  };
   const agregarManual = () => { setManuales((n) => n + 1); setFilas((prev) => [...prev, filaVacia(`manual-${manuales + 1}`)]); };
   const vaciar = () => {
     if (!confirmaVaciar) { setConfirmaVaciar(true); setTimeout(() => setConfirmaVaciar(false), 3000); return; }
-    setConfirmaVaciar(false); setFilas([]);
+    setConfirmaVaciar(false); editados.current.clear(); setFilas([]);
   };
 
   const subtituloPapel = useMemo(() => {
-    const partes = [conRango ? `Del ${dmyPersonalizado(desde)} al ${dmyPersonalizado(hasta)}` : '', limpio(subtitulo)].filter(Boolean);
+    const partes = [rangoEnPapel ? `Del ${dmyPersonalizado(rango.desde)} al ${dmyPersonalizado(rango.hasta)}` : '', limpio(subtitulo)].filter(Boolean);
     return partes.join(' · ');
-  }, [conRango, desde, hasta, subtitulo]);
+  }, [rangoEnPapel, rango.desde, rango.hasta, subtitulo]);
 
   const descargarPdf = async () => {
     setDescargando(true);
@@ -299,13 +389,36 @@ export function ReporteMaquinariaPersonalizadoCard() {
           <DateField value={fechaEmision} onChange={setFechaEmision} />
         </View>
       </View>
-      <Toggle on={conRango} label={conRango ? 'Con rango de fechas en el subtítulo' : 'Sin rango de fechas (solo el subtítulo)'} onPress={() => setConRango((v) => !v)} />
-      {conRango ? (
+      {rotulo('📅 RANGO DE FECHAS Y DATOS DEL RANGO')}
+      {/* ⛽🧭 Atajos: las mismas llaves que las pastillas de «¿Qué se oculta?». */}
+      <Toggle on={!opciones.sinConsumo} label="⛽ Traer el consumo de combustible del rango (litros por máquina)"
+        onPress={() => setOpciones((o) => alternarPersonalizado(o, 'sinConsumo'))} />
+      <Toggle on={!opciones.sinCardinal} label="🧭 Traer la ubicación Este / Oeste del rango"
+        onPress={() => setOpciones((o) => alternarPersonalizado(o, 'sinCardinal'))} />
+      {usaRango ? (
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+          El rango sale en el subtítulo del papel: los litros y la ubicación son de esas fechas.
+        </Text>
+      ) : (
+        <Toggle on={conRango} label={conRango ? 'Con rango de fechas en el subtítulo' : 'Sin rango de fechas (solo el subtítulo)'} onPress={() => setConRango((v) => !v)} />
+      )}
+      {rangoEnPapel ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
           <View><Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>Desde</Text><DateField value={desde} onChange={setDesde} /></View>
           <View><Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>Hasta</Text><DateField value={hasta} onChange={setHasta} /></View>
         </View>
       ) : null}
+      {usaRango ? (
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+          {cargandoLitros || cargandoCardinal
+            ? 'Leyendo los datos del rango…'
+            : [
+                !opciones.sinConsumo && litrosRango ? `⛽ ${litrosTexto(totalLitros) || '0'} L en las ${filas.length} fila(s) del papel (despachos por fecha del surtido, ambos días incluidos).` : '',
+                !opciones.sinCardinal && cardinalRango ? '🧭 Este / Oeste: la última ubicación de la máquina en el rango (la regla del reporte 📍 Ubicaciones); sin actividad en el rango, la de su ficha.' : '',
+              ].filter(Boolean).join(' ')}
+        </Text>
+      ) : null}
+      {errorRango ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>⚠️ {errorRango}</Text> : null}
 
       {rotulo('🚜 AGREGAR MÁQUINAS Y VEHÍCULOS DEL CATÁLOGO (toca para meter o sacar)')}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
@@ -469,6 +582,8 @@ export function ReporteMaquinariaPersonalizadoCard() {
             {campo(f, 'plate', 'Placa')}
             {campo(f, 'empresa', 'Empresa')}
             {campo(f, 'zona', 'Zona / ubicación')}
+            {!opciones.sinCardinal ? campo(f, 'cardinal', '🧭 Este / Oeste') : null}
+            {!opciones.sinConsumo ? campo(f, 'litros', '⛽ Combustible (L)') : null}
             {campo(f, 'encargado', 'Encargado')}
             {campo(f, 'horometro', 'Horómetro')}
             {campo(f, 'peso', 'Peso')}
@@ -489,7 +604,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         {PASTILLAS_PERSONALIZADO.map((p) => pastilla('p' + p.key, p.chip, opciones[p.key], () => setOpciones((o) => alternarPersonalizado(o, p.key))))}
       </View>
       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-        Encendida = NO sale (encargado, horómetro, peso, medidas, notas y el cuadro por empresa nacen ocultos: tócalos para INCLUIRLOS). {ocultosPersonalizadoEnPalabras(opciones)}
+        Encendida = NO sale (encargado, horómetro, peso, medidas, notas, consumo de combustible, Este / Oeste y el cuadro por empresa nacen ocultos: tócalos para INCLUIRLOS). {ocultosPersonalizadoEnPalabras(opciones)}
       </Text>
 
       {rotulo('🏷️ QUÉ LOGOS LLEVA EL MEMBRETE')}
@@ -499,10 +614,10 @@ export function ReporteMaquinariaPersonalizadoCard() {
       <Toggle on={marcaTexto} label="Marca en texto «BCV / SOS La Guaira» (línea y pie)" onPress={() => setMarcaTexto((v) => !v)} />
 
       <TouchableOpacity
-        disabled={descargando || cargando || filas.length === 0}
+        disabled={descargando || cargando || cargandoLitros || cargandoCardinal || filas.length === 0}
         onPress={descargarPdf}
-        style={{ marginTop: spacing.sm, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', backgroundColor: descargando || cargando || filas.length === 0 ? colors.border : colors.brand }}>
-        <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{descargando ? 'Armando el papel…' : '📄 Descargar el reporte (PDF)'}</Text>
+        style={{ marginTop: spacing.sm, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', backgroundColor: descargando || cargando || cargandoLitros || cargandoCardinal || filas.length === 0 ? colors.border : colors.brand }}>
+        <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{descargando ? 'Armando el papel…' : cargandoLitros || cargandoCardinal ? 'Leyendo los datos del rango…' : '📄 Descargar el reporte (PDF)'}</Text>
       </TouchableOpacity>
     </View>
   );

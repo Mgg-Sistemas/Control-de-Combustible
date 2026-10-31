@@ -4341,6 +4341,36 @@ insert/update/delete.
 ⚠️ **Por lo mismo que es libre**, el papel dice lo que tú escribiste: si cambias un estado o una
 empresa, eso es lo que sale — el sistema no lo valida ni lo recuerda.
 
+##### ⛽ 🧭 Consumo de combustible y Este / Oeste del rango (30/10/2026)
+
+Pedido: «que tome información de rango, que se traiga el consumo de combustible y la ubicación Este
+u Oeste, y poder colocarlo o quitarlo del reporte».
+
+- **Dónde:** en la misma pestaña, bloque **«📅 Rango de fechas y datos del rango»**: dos
+  interruptores, **⛽ Traer el consumo de combustible del rango** y **🧭 Traer la ubicación Este /
+  Oeste del rango**. Son las mismas llaves que las pastillas **🚫 Consumo de combustible**,
+  **🚫 Este / Oeste** y **🚫 Total de litros** de «¿Qué se oculta en el papel?». Las dos columnas
+  **nacen apagadas**: el papel de siempre no cambia hasta que las enciendas.
+- **El rango manda:** con cualquiera de las dos encendida aparecen **Desde / Hasta** y el rango sale
+  en el subtítulo del papel (unos litros sin su período no dicen nada). Si las fechas están al
+  revés, se enderezan.
+- **⛽ Litros:** la suma de los **despachos de combustible** a cada máquina en el rango, ambos días
+  incluidos — el mismo cálculo que el combustible de Control de Maquinaria y Supervisión. El día es
+  la **fecha del surtido** que se registró (la jornada que eligió quien lo cargó), no la hora en que
+  se tecleó. Una máquina sin surtidos en el rango sale con **0**. Al pie de la columna va el
+  **total de litros**, y en el resumen un cuadro «Litros de combustible» (los dos se apagan con
+  «🚫 Total de litros»).
+- **🧭 Este / Oeste:** sale con la regla del reporte 📍 Ubicaciones — la última ubicación de la
+  máquina en el rango (GPS, obra del inspector…), con su área («Este · Macuto»). Si la máquina no
+  tuvo actividad en el rango, se usa su ficha de hoy (GPS, obra o la columna Este/Oeste); si nada
+  de eso lo dice, la celda queda vacía para que la escribas.
+- **Todo sigue siendo editable:** las dos celdas se corrigen a mano en cada fila, y lo que corriges
+  **no se pisa** al cambiar las fechas. El total suma lo que quedó escrito.
+- Los **vehículos** y las **filas manuales** no traen litros ni Este/Oeste (los despachos son de
+  maquinaria): se escriben a mano si hace falta.
+- Lo apagado **no deja rastro** en el papel; lo encendido va solo al **nombre del archivo**
+  («con combustible», «con este-oeste»).
+
 #### 🧭 Punto cardinal (Este / Oeste) en la Lista completa (03/10/2026)
 
 En «🖨️ Qué sale en el reporte» hay un interruptor nuevo **«🧭 Punto cardinal (Este / Oeste)»**,

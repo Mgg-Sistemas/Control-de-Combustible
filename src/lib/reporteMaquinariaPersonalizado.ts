@@ -34,6 +34,11 @@ export type FilaPersonalizada = {
   peso: string;
   medidas: string;
   nota: string;
+  /** ⛽ Litros de combustible despachados EN EL RANGO (texto editable; lo trae
+   *  el sistema al encender la columna). */
+  litros: string;
+  /** 🧭 Este / Oeste (con el área: «Este · Macuto»), según el rango. Editable. */
+  cardinal: string;
 };
 
 /** Estados sugeridos (los mismos rótulos que usa el sistema). El campo acepta
@@ -52,6 +57,7 @@ export function filaVacia(id: string): FilaPersonalizada {
   return {
     id, code: '', marca: '', modelo: '', clasificacion: '', serial: '', plate: '',
     empresa: '', zona: '', encargado: '', estado: '', horometro: '', peso: '', medidas: '', nota: '',
+    litros: '', cardinal: '',
   };
 }
 
@@ -76,6 +82,12 @@ export type OpcionesPersonalizado = {
   sinPeso: boolean;
   sinMedidas: boolean;
   sinNotas: boolean;
+  /** ⛽ Columna de consumo de combustible del rango (30-oct-2026). */
+  sinConsumo: boolean;
+  /** ⛽ Total de litros (al pie de la tabla y en el resumen). Solo aplica con la columna. */
+  sinTotalConsumo: boolean;
+  /** 🧭 Columna Este / Oeste del rango (30-oct-2026). */
+  sinCardinal: boolean;
 };
 
 /** Cómo nace el papel: lo esencial encendido, los extras apagados
@@ -85,6 +97,8 @@ export const OPCIONES_PERSONALIZADO_INICIAL: OpcionesPersonalizado = {
   sinMarcaModelo: false, sinClasificacion: false, sinSerial: false, sinPlaca: false,
   sinEmpresa: false, sinZona: false, sinEstado: false,
   sinEncargado: true, sinHorometro: true, sinPeso: true, sinMedidas: true, sinNotas: true,
+  // Lo nuevo nace apagado: el papel de siempre no cambia hasta que se pida.
+  sinConsumo: true, sinTotalConsumo: false, sinCardinal: true,
 };
 
 export const PASTILLAS_PERSONALIZADO: { key: keyof OpcionesPersonalizado; chip: string; largo: string; archivo: string }[] = [
@@ -103,7 +117,124 @@ export const PASTILLAS_PERSONALIZADO: { key: keyof OpcionesPersonalizado; chip: 
   { key: 'sinPeso', chip: '🚫 Peso', largo: 'peso', archivo: 'con peso' },
   { key: 'sinMedidas', chip: '🚫 Medidas', largo: 'medidas', archivo: 'con medidas' },
   { key: 'sinNotas', chip: '🚫 Notas', largo: 'columna de notas', archivo: 'con notas' },
+  { key: 'sinConsumo', chip: '🚫 Consumo de combustible', largo: 'consumo de combustible', archivo: 'con combustible' },
+  { key: 'sinTotalConsumo', chip: '🚫 Total de litros', largo: 'total de litros', archivo: 'sin total de litros' },
+  { key: 'sinCardinal', chip: '🚫 Este / Oeste', largo: 'Este / Oeste', archivo: 'con este-oeste' },
 ];
+
+/** ¿Alguna columna depende del rango de fechas? Entonces el rango tiene que salir
+ *  en el subtítulo: unos litros sin su período no dicen nada. */
+export function usaRangoPersonalizado(o: OpcionesPersonalizado): boolean {
+  return !o.sinConsumo || !o.sinCardinal;
+}
+
+// ——— ⛽ Consumo de combustible y 🧭 Este / Oeste del rango (30-oct-2026) ———
+//
+// Pedido: «que tome información de rango, que se traiga el consumo de combustible
+// y la ubicación Este u Oeste, y poder colocarlo o quitarlo del reporte».
+// - Los litros salen de los DESPACHOS (`dispatches`) con la MISMA consulta que
+//   Control de Maquinaria, Supervisión e Inspecciones (`loadFuelByMachine`):
+//   por `dispatch_date`, que es una FECHA sin hora — la jornada que eligió quien
+//   registró el surtido. No hay corte de las 7am que aplicar: el día ya viene
+//   puesto, y cortar por la hora de registro descuadraría con esas pantallas.
+//   Este archivo repite la suma solo para poder probarla sin red.
+// - El Este/Oeste sale de la regla del reporte 📍 Ubicaciones (`zonaCardinal`,
+//   `armarUbicaciones`, en ubicacionesReporte.ts). Aquí solo se pinta.
+// - Lo que el usuario corrige a mano en una celda NO se pisa al recargar.
+
+/** "AAAA-MM-DD" válido o ''. */
+const fechaOk = (v: unknown) => { const t = String(v ?? '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : ''; };
+
+/** Rango derecho: si viene al revés, se endereza (mismo criterio que Ubicaciones). */
+export function rangoOrdenado(desde: string, hasta: string): { desde: string; hasta: string } {
+  const a = fechaOk(desde) || fechaOk(hasta), b = fechaOk(hasta) || a;
+  return a <= b ? { desde: a, hasta: b } : { desde: b, hasta: a };
+}
+
+/** Un despacho tal como lo lee `loadFuelByMachine`. */
+export type DespachoLitros = { machinery_id: string | null; liters: unknown; dispatch_date: string | null };
+
+/** Litros por máquina dentro de [desde, hasta] (ambos incluidos), por `dispatch_date`.
+ *  Es la suma de `loadFuelByMachine`, sin red. */
+export function sumarLitrosPorMaquina(despachos: readonly DespachoLitros[], desde: string, hasta: string): Record<string, number> {
+  const r = rangoOrdenado(desde, hasta);
+  const acc: Record<string, number> = {};
+  if (!r.desde) return acc;
+  despachos.forEach((d) => {
+    const id = String(d.machinery_id ?? '');
+    const f = fechaOk(d.dispatch_date);
+    if (!id || !f || f < r.desde || f > r.hasta) return;
+    acc[id] = (acc[id] ?? 0) + (Number(d.liters) || 0);
+  });
+  return acc;
+}
+
+/** Litros en formato venezolano: «1.234,5». Sin dato → ''. */
+export function litrosTexto(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(Number(n))) return '';
+  const v = Math.round(Number(n) * 100) / 100;
+  const [ent, dec] = Math.abs(v).toFixed(2).split('.');
+  const miles = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const d = dec.replace(/0+$/, '');
+  return `${v < 0 ? '-' : ''}${miles}${d ? ',' + d : ''}`;
+}
+
+/** Lee lo que haya en la celda de litros (lo puso el sistema o una persona):
+ *  «1.234,5», «1234.5», «1,5», «800 L». Ilegible o vacío → 0. */
+export function leerLitros(texto: unknown): number {
+  let t = String(texto ?? '').replace(/[^\d.,-]/g, '');
+  if (!/\d/.test(t)) return 0;
+  const coma = t.lastIndexOf(','), punto = t.lastIndexOf('.');
+  if (coma >= 0 && punto >= 0) {
+    // El último separador es el decimal; el otro, de miles.
+    t = coma > punto ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+  } else if (coma >= 0) {
+    t = t.slice(0, coma).replace(/,/g, '') + '.' + t.slice(coma + 1);
+  } else if (punto >= 0 && /^-?\d{1,3}(\.\d{3})+$/.test(t)) {
+    t = t.replace(/\./g, ''); // «1.234» = mil doscientos treinta y cuatro (formato venezolano)
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Suma de la columna de litros, tal como quedó en el papel (con lo corregido a mano). */
+export function totalLitrosPersonalizado(filas: readonly FilaPersonalizada[]): number {
+  return Math.round(filas.reduce((a, f) => a + leerLitros(f.litros), 0) * 100) / 100;
+}
+
+/** «ESTE» + «Macuto» → «Este · Macuto». Sin cardinal → ''. */
+export function cardinalTexto(cardinal: string, area?: string | null): string {
+  const c = String(cardinal ?? '').trim().toUpperCase();
+  const lado = c === 'ESTE' ? 'Este' : c === 'OESTE' ? 'Oeste' : '';
+  if (!lado) return '';
+  const a = String(area ?? '').trim();
+  return a ? `${lado} · ${a}` : lado;
+}
+
+/** Lo que trae el sistema para el rango. `null` = esa fuente no está cargada (no se toca). */
+export type DatosDelRango = {
+  litros: Record<string, number> | null;
+  cardinal: Record<string, string> | null;
+};
+
+/** Pone en la fila los datos del rango SIN pisar lo corregido a mano (`editados`
+ *  guarda «id|campo»). Las filas manuales y los vehículos no tienen despachos de
+ *  maquinaria: se quedan como estén. Una máquina sin surtidos en el rango sale con
+ *  «0» (es un dato, no un hueco). */
+export function aplicarDatosDelRango(f: FilaPersonalizada, d: DatosDelRango, editados?: ReadonlySet<string>): FilaPersonalizada {
+  const id = String(f.id ?? '');
+  if (!id || id.startsWith('manual-') || id.startsWith('veh-')) return f;
+  let out = f;
+  if (d.litros && !editados?.has(`${id}|litros`)) {
+    const t = litrosTexto(d.litros[id] ?? 0);
+    if (t !== out.litros) out = { ...out, litros: t };
+  }
+  if (d.cardinal && !editados?.has(`${id}|cardinal`)) {
+    const t = d.cardinal[id] ?? '';
+    if (t !== out.cardinal) out = { ...out, cardinal: t };
+  }
+  return out;
+}
 
 export function alternarPersonalizado(o: OpcionesPersonalizado, key: keyof OpcionesPersonalizado): OpcionesPersonalizado {
   return { ...o, [key]: !o[key] };
@@ -313,6 +444,9 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
       `<div class="tile"><div class="t">${r.total}</div><div class="s">Equipos en el reporte</div></div>`,
       ...r.porEstado.map(([label, n]) => `<div class="tile"><div class="t">${n}</div><div class="s">${esc(label)}</div></div>`),
     ];
+    if (!o.sinConsumo && !o.sinTotalConsumo) {
+      tiles.push(`<div class="tile"><div class="t">${esc(litrosTexto(totalLitrosPersonalizado(d.filas)) || '0')}</div><div class="s">Litros de combustible</div></div>`);
+    }
     partes.push(`<div class="tiles">${tiles.join('')}</div>`);
   }
 
@@ -327,11 +461,15 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
     if (!o.sinPlaca) cab.push('<th>Placa</th>');
     if (!o.sinEmpresa) cab.push('<th>Empresa</th>');
     if (!o.sinZona) cab.push('<th>Zona / ubicación</th>');
+    if (!o.sinCardinal) cab.push('<th>Este / Oeste</th>');
     if (!o.sinEncargado) cab.push('<th>Encargado</th>');
     if (!o.sinEstado) cab.push('<th>Estado</th>');
     if (!o.sinHorometro) cab.push('<th>Horómetro</th>');
     if (!o.sinPeso) cab.push('<th>Peso</th>');
     if (!o.sinMedidas) cab.push('<th>Medidas</th>');
+    // Dónde cae la columna de litros (para poner el total justo debajo).
+    const colLitros = o.sinConsumo ? -1 : cab.length;
+    if (!o.sinConsumo) cab.push('<th>Combustible (L)</th>');
     if (!o.sinNotas) cab.push('<th>Notas</th>');
     const filas = d.filas.map((f) => {
       const c: string[] = [`<td class="b">${celda(f.code)}</td>`];
@@ -341,15 +479,25 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
       if (!o.sinPlaca) c.push(`<td>${celda(f.plate)}</td>`);
       if (!o.sinEmpresa) c.push(`<td>${celda(f.empresa)}</td>`);
       if (!o.sinZona) c.push(`<td>${celda(f.zona)}</td>`);
+      if (!o.sinCardinal) c.push(`<td>${celda(f.cardinal)}</td>`);
       if (!o.sinEncargado) c.push(`<td>${celda(f.encargado)}</td>`);
       if (!o.sinEstado) c.push(`<td>${celda(f.estado)}</td>`);
       if (!o.sinHorometro) c.push(`<td class="c">${celda(f.horometro)}</td>`);
       if (!o.sinPeso) c.push(`<td class="c">${celda(f.peso)}</td>`);
       if (!o.sinMedidas) c.push(`<td>${celda(f.medidas)}</td>`);
+      if (!o.sinConsumo) c.push(`<td class="c">${celda(f.litros)}</td>`);
       if (!o.sinNotas) c.push(`<td>${celda(f.nota)}</td>`);
       return `<tr>${c.join('')}</tr>`;
     });
-    const total = `<tr class="total"><td colspan="${cab.length}">TOTAL: ${d.filas.length} equipo(s)</td></tr>`;
+    const rotuloTotal = `TOTAL: ${d.filas.length} equipo(s)`;
+    let total = `<tr class="total"><td colspan="${cab.length}">${rotuloTotal}</td></tr>`;
+    if (colLitros > 0 && !o.sinTotalConsumo) {
+      // El total de litros cae debajo de su columna; el rótulo ocupa las de antes.
+      const despues = cab.length - colLitros - 1;
+      total = `<tr class="total"><td colspan="${colLitros}">${rotuloTotal}</td>`
+        + `<td class="c">${esc(litrosTexto(totalLitrosPersonalizado(d.filas)) || '0')} L</td>`
+        + (despues > 0 ? `<td colspan="${despues}"></td>` : '') + '</tr>';
+    }
     partes.push(`<table><thead><tr>${cab.join('')}</tr></thead><tbody>${filas.join('')}</tbody><tfoot>${total}</tfoot></table>`);
   }
 
