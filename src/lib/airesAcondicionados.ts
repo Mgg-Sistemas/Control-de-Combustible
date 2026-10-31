@@ -466,12 +466,33 @@ export function limpiarNotaInterna(nota?: string | null): string {
 }
 
 /**
+ * ¿El renglón de `servicios` es un mantenimiento de AIRE? (31-oct-2026)
+ * Solo cuentan los que se registraron desde este módulo: categoría de aires o
+ * con el código de la unidad guardado. Un servicio de taller de la MISMA máquina
+ * (p. ej. reparación del gato hidráulico) NO es un mantenimiento del aire.
+ */
+export function esRenglonDeAire(item: (ServicioItem & Record<string, any>) | null | undefined): boolean {
+  if (!item) return false;
+  if (String(item.ac_unit_code || '').trim() || String(item.ac_unit_id || '').trim()) return true;
+  return String(item.categoria || '').trim().toUpperCase() === AC_CATEGORIA_SERVICIO;
+}
+
+/**
  * Determina si un renglón de `servicios` corresponde a una unidad `AcUnit`
+ *
+ * 31-oct-2026: antes cruzaba CUALQUIER servicio por la máquina vinculada o por
+ * el código dentro de la etiqueta («JUMBO 320 · …»), y el historial de un aire
+ * recién creado se llenaba con los servicios de taller de esa máquina. Ahora:
+ *  - renglón que no es de aires → nunca;
+ *  - renglón con código de unidad → solo si es ESE código (exacto);
+ *  - renglón viejo de aires sin código → por máquina o por el código en el texto.
  */
 export function itemCorrespondeAUnidadAc(item: ServicioItem & Record<string, any>, unit: AcUnit): boolean {
+  if (!esRenglonDeAire(item)) return false;
   const codeUpper = unit.code.toUpperCase();
-  if (String(item.ac_unit_id || '').toUpperCase() === codeUpper) return true;
-  if (String(item.ac_unit_code || '').toUpperCase() === codeUpper) return true;
+  const idItem = String(item.ac_unit_id || '').trim().toUpperCase();
+  const codeItem = String(item.ac_unit_code || '').trim().toUpperCase();
+  if (idItem || codeItem) return idItem === codeUpper || codeItem === codeUpper;
   if (unit.machinery_id && item.machinery_id && String(item.machinery_id) === String(unit.machinery_id)) return true;
   const labelUpper = String(item.machine_label || '').toUpperCase();
   const detUpper = String(item.detalle || '').toUpperCase();
@@ -787,4 +808,92 @@ export function reporteAiresHtml(args: {
     extraCss: CSS_PDF_AIRES,
     body,
   });
+}
+
+// ── 31-oct-2026: crear un aire nuevo NUNCA pisa a otro ─────────────────────────
+// La ficha se guardaba con «si el código ya existe, reemplázalo». Al vincular un
+// aire a una máquina el código se copia de la máquina, así que el segundo aire de
+// esa máquina (o uno con el mismo código) reemplazaba la ficha del primero.
+export type ResultadoFichaAc = { ok: true; unidades: AcUnit[] } | { ok: false; error: string };
+
+export function aplicarFichaUnidadAc(
+  base: AcUnit[],
+  unidad: AcUnit,
+  codigoOriginal: string | null,
+  historialOriginal = 0,
+): ResultadoFichaAc {
+  const code = String(unidad.code || '').trim().toUpperCase();
+  if (!code) return { ok: false, error: 'El código de la unidad es obligatorio.' };
+  const lista = Array.isArray(base) ? base : [];
+  const existe = (c: string) => lista.some((u) => String(u.code || '').toUpperCase() === c);
+
+  // Unidad NUEVA: el código no puede estar ocupado.
+  if (!codigoOriginal) {
+    if (existe(code)) {
+      return {
+        ok: false,
+        error: `Ya existe un aire con el código ${code}. Ponle otro código (por ejemplo ${code}-2) para no reemplazar al que ya está.`,
+      };
+    }
+    return { ok: true, unidades: [...lista, { ...unidad, id: code, code }] };
+  }
+
+  // EDICIÓN: se reemplaza solo la ficha que se abrió.
+  const orig = codigoOriginal.trim().toUpperCase();
+  if (!existe(orig)) {
+    return { ok: false, error: `La unidad ${orig} ya no está en la lista (otra persona la eliminó). Recarga la pantalla.` };
+  }
+  if (code !== orig) {
+    if (existe(code)) {
+      return { ok: false, error: `Ya existe otro aire con el código ${code}. Elige un código distinto.` };
+    }
+    if (historialOriginal > 0) {
+      return {
+        ok: false,
+        error: `${orig} tiene mantenimientos registrados y su historial va enlazado por el código: no se puede cambiar el código.`,
+      };
+    }
+  }
+  return {
+    ok: true,
+    unidades: lista.map((u) => (String(u.code || '').toUpperCase() === orig ? { ...unidad, id: code, code } : u)),
+  };
+}
+
+// ── 31-oct-2026: ¿esta cuenta por pagar es la de ESE mantenimiento? ────────────
+// Antes bastaba con que el concepto «contuviera» el código; ahora el código debe
+// estar completo (SRV-0003 no es la cuenta de SRV-00031).
+export function cuentaEsDelServicioAc(
+  c: { tipo?: string | null; documento?: string | null; concepto?: string | null } | null | undefined,
+  srvCode: string | null | undefined,
+): boolean {
+  const code = String(srvCode || '').trim().toUpperCase();
+  if (!c || !code || c.tipo !== 'por_pagar') return false;
+  if (String(c.documento || '').trim().toUpperCase() === code) return true;
+  const esc = code.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  return new RegExp(`(^|[^A-Z0-9-])${esc}($|[^A-Z0-9-])`).test(String(c.concepto || '').toUpperCase());
+}
+
+// ── 31-oct-2026: solo se abren adjuntos del Storage del proyecto ────────────────
+// La vista previa ponía la URL guardada directo en un <iframe>, window.open y
+// Linking.openURL. Una URL «javascript:», «data:» o de otro sitio no se abre.
+export function urlAdjuntoAcSegura(url: string | null | undefined, supabaseUrl?: string | null): string | null {
+  const raw = String(url || '').trim();
+  if (!raw) return null;
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  let hostPermitido = '';
+  try {
+    hostPermitido = supabaseUrl ? new URL(String(supabaseUrl)).host.toLowerCase() : '';
+  } catch {
+    hostPermitido = '';
+  }
+  if (hostPermitido) return u.host.toLowerCase() === hostPermitido ? u.toString() : null;
+  // Sin la URL del proyecto a mano, al menos exigimos https.
+  return u.protocol === 'https:' ? u.toString() : null;
 }

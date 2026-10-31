@@ -65,7 +65,13 @@ import {
   sumarDiasAc,
   fmtFechaAc,
   reporteAiresHtml,
+  aplicarFichaUnidadAc,
+  cuentaEsDelServicioAc,
+  urlAdjuntoAcSegura,
 } from '../lib/airesAcondicionados';
+
+// 31-oct-2026: host del Storage del proyecto; solo se abren adjuntos de ahí.
+const SUPABASE_URL_AC = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
 const usd = (n: number) =>
   `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, {
@@ -222,11 +228,36 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   // ── Persistencia del Catálogo de Unidades en `public.servicios` ────────────
   const [savingCatalog, setSavingCatalog] = useState(false);
 
-  const guardarCatalogoEnSupabase = async (nuevasUnidades: AcUnit[], msgExito?: string) => {
-    if (!canWrite) return toast.error('No tienes permiso de escritura en Compras.');
+  // 31-oct-2026: recibe un CAMBIO (base → nueva lista) en vez de la lista ya armada.
+  // El catálogo se lee fresco de la base justo antes de guardar: si otra persona
+  // agregó un aire mientras esta pantalla estaba abierta, ya no se borra al guardar.
+  // Si el cambio devuelve un texto, es un error y no se guarda nada.
+  const guardarCatalogoEnSupabase = async (
+    cambio: (base: AcUnit[]) => AcUnit[] | string,
+    msgExito?: string,
+  ) => {
+    if (!canWrite) {
+      toast.error('No tienes permiso de escritura en Compras.');
+      return false;
+    }
     setSavingCatalog(true);
     try {
-      const masterExistente = serviciosRaw.find((s) => s.code === AC_MASTER_CODE);
+      const { data: masterFresco, error: errLeer } = await supabase
+        .from('servicios')
+        .select('id, code, items')
+        .eq('code', AC_MASTER_CODE)
+        .maybeSingle();
+      if (errLeer) {
+        toast.error(errLeer.message);
+        return false;
+      }
+      const masterExistente = masterFresco as { id: string; code: string; items: any[] } | null;
+      const base = masterExistente ? extraerCatalogoAiresDeServicios([masterExistente as any]) : [];
+      const nuevasUnidades = cambio(base);
+      if (typeof nuevasUnidades === 'string') {
+        toast.error(nuevasUnidades);
+        return false;
+      }
       const itemsJson = serializarCatalogoAiresParaServicios(nuevasUnidades);
       const payload = {
         code: AC_MASTER_CODE,
@@ -237,16 +268,23 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
         total: 0,
         note: 'CATÁLOGO MAESTRO DE UNIDADES DE AIRE ACONDICIONADO (BASE Y FLOTA)',
       };
-      const { error } = masterExistente
+      const { data: filas, error } = masterExistente
         ? await supabase
             .from('servicios')
             .update({ items: itemsJson, updated_at: new Date().toISOString() })
             .eq('id', masterExistente.id)
+            .select('id')
         : await supabase
             .from('servicios')
-            .insert({ ...payload, created_by: session?.user?.id ?? null });
+            .insert({ ...payload, created_by: session?.user?.id ?? null })
+            .select('id');
       if (error) {
         toast.error(error.message);
+        return false;
+      }
+      // La RLS rechaza sin error y con 0 filas: eso NO es un guardado.
+      if (!filas || filas.length === 0) {
+        toast.error('No se guardó el catálogo de aires: la base no aceptó el cambio (revisa tu permiso en Compras).');
         return false;
       }
       await refetch();
@@ -259,7 +297,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
 
   // Registro rápido (1 toque) de lavado preventivo por Camión de Lavado
   const registrarLavadoPreventivoRapido = async (u: AcUnitCalc) => {
-    const nuevas = unidadesCatalogo.map((item) =>
+    const cambio = (base: AcUnit[]) => base.map((item) =>
       item.code === u.code
         ? {
             ...item,
@@ -270,7 +308,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
         : item,
     );
     await guardarCatalogoEnSupabase(
-      nuevas,
+      cambio,
       `🚿 Lavado preventivo (${u.prev_responsable || 'CAMIÓN DE LAVADO'}) de ${u.code} actualizado al día de hoy (${fmtFechaAc(hoy)}).`,
     );
   };
@@ -279,6 +317,8 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   const [editUnitModal, setEditUnitModal] = useState(false);
   const [editBatchMode, setEditBatchMode] = useState(false);
   const [editCode, setEditCode] = useState('');
+  // 31-oct-2026: código con el que se ABRIÓ la ficha; null = aire nuevo.
+  const [editOriginalCode, setEditOriginalCode] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editArea, setEditArea] = useState('OFICINA PRINCIPAL');
   const [editTipo, setEditTipo] = useState<AcTipoEquipo>('SPLIT');
@@ -351,7 +391,12 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   }, [machineryList, vehiclesList]);
 
   const seleccionarEquipoDeFlota = (item: (typeof catalogoFlotaUnificado)[number]) => {
-    setEditCode(item.code);
+    // 31-oct-2026: el código se copia de la máquina; si ya lo usa OTRO aire, se
+    // propone el siguiente libre (CÓDIGO-2, CÓDIGO-3…) para no reemplazar su ficha.
+    const ocupado = (c: string) => unidadesCatalogo.some((u) => u.code === c && u.code !== editOriginalCode);
+    let codigoLibre = item.code;
+    for (let n = 2; ocupado(codigoLibre) && n < 100; n++) codigoLibre = `${item.code}-${n}`;
+    setEditCode(codigoLibre);
     setEditName(`${item.description} · PLACA ${item.plate}`);
     setEditPlaca(item.plate);
     setEditMachineryId(item.id);
@@ -392,6 +437,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const abrirEditarUnidad = (u: AcUnitCalc) => {
+    setEditOriginalCode(u.code);
     setEditBatchMode(false);
     setEditCode(u.code);
     setEditName(u.name);
@@ -418,6 +464,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       return toast.error('Marca primero (☑) las unidades que deseas configurar en lote.');
     }
     setEditBatchMode(true);
+    setEditOriginalCode(null);
     setEditCode(`${selCodes.size} unidad(es)`);
     setEditName('');
     setEditArea('');
@@ -449,7 +496,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     }
 
     if (editBatchMode) {
-      const nuevas = unidadesCatalogo.map((u) => {
+      const cambioLote = (base: AcUnit[]) => base.map((u) => {
         if (!selCodes.has(u.code)) return u;
         return {
           ...u,
@@ -466,7 +513,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
           last_prev_manual: editLastPrev.trim() || u.last_prev_manual,
         };
       });
-      const ok = await guardarCatalogoEnSupabase(nuevas, `${selCodes.size} unidad(es) actualizadas.`);
+      const ok = await guardarCatalogoEnSupabase(cambioLote, `${selCodes.size} unidad(es) actualizadas.`);
       if (ok) setEditUnitModal(false);
       return;
     }
@@ -476,7 +523,6 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     const esMovil = esEquipoMovilAc(editTipo) || Boolean(editMachineryId);
     const placaFinal = editPlaca.trim().toUpperCase() || (esMovil ? 'SIN PLACA' : '');
 
-    const existe = unidadesCatalogo.some((u) => u.code === codeClean);
     const unidadActualizada: AcUnit = {
       id: codeClean,
       code: codeClean,
@@ -498,10 +544,17 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       notes: editNotes.trim().toUpperCase(),
       active: true,
     };
-    const nuevas = existe
-      ? unidadesCatalogo.map((u) => (u.code === codeClean ? unidadActualizada : u))
-      : [...unidadesCatalogo, unidadActualizada];
-    const ok = await guardarCatalogoEnSupabase(nuevas, `Ficha de ${codeClean} guardada.`);
+    // 31-oct-2026: antes «si el código existe, reemplázalo»: crear un aire con un
+    // código ya usado borraba la ficha del otro. Nuevo = agrega; editar = solo el abierto.
+    const historialOriginal = editOriginalCode
+      ? unidadesCalc.find((u) => u.code === editOriginalCode)?.mantenimientosCount || 0
+      : 0;
+    const previa = aplicarFichaUnidadAc(unidadesCatalogo, unidadActualizada, editOriginalCode, historialOriginal);
+    if (!previa.ok) return toast.error(previa.error);
+    const ok = await guardarCatalogoEnSupabase((base) => {
+      const r = aplicarFichaUnidadAc(base, unidadActualizada, editOriginalCode, historialOriginal);
+      return r.ok ? r.unidades : r.error;
+    }, `Ficha de ${codeClean} guardada.`);
     if (ok) setEditUnitModal(false);
   };
 
@@ -528,9 +581,8 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       danger: true,
     });
     if (!ok) return;
-    const restantes = unidadesCatalogo.filter((u) => !set.has(u.code));
     const guardado = await guardarCatalogoEnSupabase(
-      restantes,
+      (base) => base.filter((u) => !set.has(u.code)),
       afectadas.length === 1 ? `${afectadas[0].code} eliminado.` : `${afectadas.length} unidades eliminadas.`,
     );
     if (guardado) setSelCodes(new Set());
@@ -543,6 +595,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     }, 0) + 1;
     const nextCode = `AA-${String(nextNum).padStart(2, '0')}`;
     setEditBatchMode(false);
+    setEditOriginalCode(null);
     setEditCode(nextCode);
     setEditName(`UNIDAD ${nextCode}`);
     setEditArea('BASE GENERAL');
@@ -592,6 +645,28 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   const [subiendoFactura, setSubiendoFactura] = useState(false);
   const [subiendoHistId, setSubiendoHistId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
+  // 31-oct-2026: la URL guardada no se pone directo en el <iframe> / window.open /
+  // Linking: solo pasan las del Storage del proyecto (https). Si no, se avisa.
+  const previewUrlSegura = previewDoc ? urlAdjuntoAcSegura(previewDoc.url, SUPABASE_URL_AC) : null;
+  const abrirVistaPreviaAdjunto = (doc: { url: string; kind: 'image' | 'pdf'; name: string }) => {
+    const segura = urlAdjuntoAcSegura(doc.url, SUPABASE_URL_AC);
+    if (!segura) {
+      toast.error('Ese adjunto tiene una dirección no permitida (no es del almacenamiento del sistema). No se abre.');
+      return;
+    }
+    setPreviewDoc({ ...doc, url: segura });
+  };
+  const abrirAdjuntoFuera = () => {
+    if (!previewUrlSegura) {
+      toast.error('Ese adjunto tiene una dirección no permitida. No se abre.');
+      return;
+    }
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.open(previewUrlSegura, '_blank', 'noopener,noreferrer');
+    } else {
+      Linking.openURL(previewUrlSegura);
+    }
+  };
   const [savingMaint, setSavingMaint] = useState(false);
   const [provQ, setProvQ] = useState('');
   const [nuevoProv, setNuevoProv] = useState('');
@@ -601,14 +676,8 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   const buscarCuentaPorServicio = (srvCode?: string | null): Cuenta | null => {
     const codeUpper = String(srvCode || '').trim().toUpperCase();
     if (!codeUpper) return null;
-    return (
-      cuentas.find(
-        (c) =>
-          c.tipo === 'por_pagar' &&
-          (String(c.documento || '').trim().toUpperCase() === codeUpper ||
-            String(c.concepto || '').toUpperCase().includes(codeUpper)),
-      ) ?? null
-    );
+    // 31-oct-2026: el código debe estar completo (no basta con «contenerlo»).
+    return cuentas.find((c) => cuentaEsDelServicioAc(c, codeUpper)) ?? null;
   };
 
   // Resuelve o crea un supplier_id válido (requerido por CHECK constraint `cuentas_contraparte_segun_tipo`)
@@ -630,6 +699,10 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     }
     return null;
   };
+
+  // 31-oct-2026: la RLS de `cuentas` niega sin error (0 filas): se avisa en vez de dar éxito.
+  const SIN_PERMISO_CXP =
+    'La cuenta por pagar no se guardó: tu usuario no tiene permiso de escritura en Cuentas por Pagar. Pide a quien lo tenga que pulse «💸 Enviar a Por Pagar».';
 
   // Sincroniza de forma idempotente un servicio de Aire Acondicionado con `public.cuentas` (`por_pagar`)
   const sincronizarServicioConCuentaPorPagar = async (
@@ -743,18 +816,21 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     if (cuentaExistente) {
       if (cuentaExistente.estado === 'pagada') {
         // Si ya fue pagada en tesorería, actualizamos solo metadatos/soportes sin alterar el monto liquidado
-        const { error } = await supabase
+        const { data: filasPag, error } = await supabase
           .from('cuentas')
           .update({
             concepto: conceptoCxp,
             factura_url: facturaPrincipalUrl,
             nota: notaCxp || null,
           })
-          .eq('id', cuentaExistente.id);
-        return { ok: !error, error: error?.message, estadoCuenta: 'pagada' };
+          .eq('id', cuentaExistente.id)
+          .select('id');
+        if (error) return { ok: false, error: error.message };
+        if (!filasPag || filasPag.length === 0) return { ok: false, error: SIN_PERMISO_CXP };
+        return { ok: true, estadoCuenta: 'pagada' };
       }
 
-      const { error } = await supabase
+      const { data: filasUpd, error } = await supabase
         .from('cuentas')
         .update({
           supplier_id: supId,
@@ -767,11 +843,14 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
           fecha_vencimiento: venceFinal,
           nota: notaCxp || null,
         })
-        .eq('id', cuentaExistente.id);
-      return { ok: !error, error: error?.message, estadoCuenta: cuentaExistente.estado };
+        .eq('id', cuentaExistente.id)
+        .select('id');
+      if (error) return { ok: false, error: error.message };
+      if (!filasUpd || filasUpd.length === 0) return { ok: false, error: SIN_PERMISO_CXP };
+      return { ok: true, estadoCuenta: cuentaExistente.estado };
     }
 
-    const { error } = await supabase.from('cuentas').insert({
+    const { data: filasIns, error } = await supabase.from('cuentas').insert({
       tipo: 'por_pagar',
       supplier_id: supId,
       company_id: null,
@@ -784,8 +863,10 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       estado: 'pendiente',
       nota: notaCxp || null,
       created_by: session?.user?.id ?? null,
-    });
-    return { ok: !error, error: error?.message, estadoCuenta: 'pendiente' };
+    }).select('id');
+    if (error) return { ok: false, error: error.message };
+    if (!filasIns || filasIns.length === 0) return { ok: false, error: SIN_PERMISO_CXP };
+    return { ok: true, estadoCuenta: 'pendiente' };
   };
 
   // Auto-sincronización retroactiva e idempotente: asegura que mantenimientos de Aires como SRV-0029 ($69,60)
@@ -822,6 +903,8 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     let cancelado = false;
     (async () => {
       let creadas = 0;
+      const fallidas: string[] = [];
+      let primerError = '';
       for (const s of faltantes) {
         if (cancelado) break;
         const code = String(s.code || '').trim().toUpperCase();
@@ -840,9 +923,19 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
           note: s.note,
         });
         if (res.ok) creadas++;
+        else {
+          fallidas.push(code);
+          if (!primerError) primerError = res.error || '';
+        }
       }
       if (creadas > 0 && !cancelado) {
         await refetchCuentas();
+      }
+      // 31-oct-2026: antes el fallo se tragaba y el mantenimiento quedaba sin cuenta.
+      if (fallidas.length > 0 && !cancelado) {
+        toast.error(
+          `${fallidas.length} mantenimiento(s) de aires sin cuenta por pagar (${fallidas.slice(0, 4).join(', ')}${fallidas.length > 4 ? '…' : ''}): ${primerError}`,
+        );
       }
     })();
 
@@ -1765,7 +1858,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                               {presupuestosHist.map((doc, dIdx) => (
                                 <TouchableOpacity
                                   key={`${doc.id}-${dIdx}`}
-                                  onPress={() => setPreviewDoc({ url: doc.url, kind: doc.kind, name: doc.name })}
+                                  onPress={() => abrirVistaPreviaAdjunto({ url: doc.url, kind: doc.kind, name: doc.name })}
                                   style={{
                                     backgroundColor: colors.infoSoftBg,
                                     borderWidth: 1,
@@ -2705,7 +2798,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                         }}
                       >
                         <TouchableOpacity
-                          onPress={() => setPreviewDoc({ url: doc.url, kind: doc.kind, name: doc.name })}
+                          onPress={() => abrirVistaPreviaAdjunto({ url: doc.url, kind: doc.kind, name: doc.name })}
                           style={{ flex: 1 }}
                         >
                           <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '800' }} numberOfLines={1}>
@@ -2876,15 +2969,9 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
               {previewDoc?.kind === 'pdf' ? '📄 Presupuesto / Soporte PDF' : '🖼️ Presupuesto / Soporte'}
             </SectionTitle>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {previewDoc?.url ? (
+              {previewUrlSegura ? (
                 <TouchableOpacity
-                  onPress={() => {
-                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                      window.open(previewDoc.url, '_blank', 'noopener,noreferrer');
-                    } else {
-                      Linking.openURL(previewDoc.url);
-                    }
-                  }}
+                  onPress={abrirAdjuntoFuera}
                   style={{
                     backgroundColor: colors.brand,
                     borderRadius: radius.md,
@@ -2915,12 +3002,19 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
             {previewDoc?.name}
           </Text>
-          {previewDoc ? (
+          {previewDoc && !previewUrlSegura ? (
+            <Card>
+              <Text style={{ color: colors.text, fontSize: 13 }}>
+                Este adjunto tiene una dirección no permitida (no es del almacenamiento del sistema) y no se muestra.
+              </Text>
+            </Card>
+          ) : null}
+          {previewDoc && previewUrlSegura ? (
             previewDoc.kind === 'pdf' ? (
               Platform.OS === 'web' ? (
                 <View style={{ flex: 1, minHeight: 520, borderRadius: radius.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.border }}>
                   {React.createElement('iframe', {
-                    src: previewDoc.url,
+                    src: previewUrlSegura,
                     style: { width: '100%', height: 560, border: 'none' },
                     title: previewDoc.name,
                   })}
@@ -2931,7 +3025,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                     Este presupuesto está en formato PDF ({previewDoc.name}). Toca el botón para abrirlo en el visor de tu teléfono.
                   </Text>
                   <TouchableOpacity
-                    onPress={() => Linking.openURL(previewDoc.url)}
+                    onPress={abrirAdjuntoFuera}
                     style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
                   >
                     <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>📄 Abrir PDF</Text>
@@ -2941,7 +3035,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
             ) : (
               <ScrollView contentContainerStyle={{ alignItems: 'center', paddingBottom: spacing.xl }}>
                 <Image
-                  source={{ uri: previewDoc.url }}
+                  source={{ uri: previewUrlSegura }}
                   style={{ width: '100%', height: 520, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }}
                   resizeMode="contain"
                 />
