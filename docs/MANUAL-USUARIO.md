@@ -2278,6 +2278,14 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > quedan como la factura del requerimiento. Antes, si el requerimiento ya tenía una foto adjunta (la del
 > producto), esa salía como «factura»: ya no pasa, y en los recibidos viejos se muestra la factura de Por Pagar.
 
+> **❄️ Aires acondicionados: historial, fichas y Por Pagar** *(31/10/2026)*. El historial de un aire muestra
+> **solo sus mantenimientos**: antes se le colaban los servicios de taller de la máquina vinculada (por eso un aire
+> recién creado aparecía con varios mantenimientos que nadie le registró; esos servicios siguen intactos en
+> Servicios). **Crear un aire nunca reemplaza a otro**: si el código ya existe avisa y propone otro (CÓDIGO-2), y
+> un aire con historial no cambia de código. Si la cuenta por pagar de un mantenimiento no se pudo crear (por
+> ejemplo, sin permiso en Cuentas por Pagar) ahora **lo dice** en vez de fingir que se creó. Los adjuntos solo se
+> abren si son del almacenamiento del sistema.
+
 > **🔓 El coordinador de inspectores ya puede guardar** *(31/10/2026)*. Antes la base solo dejaba registrar
 > visitas, cambiar el estado de las máquinas y resolver autorizaciones a un administrador o a un inspector;
 > con el rol «coordinador de inspectores» salía «no tienes permiso» al guardar. Ahora ese rol pasa por los
