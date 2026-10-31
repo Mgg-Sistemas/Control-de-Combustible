@@ -368,7 +368,8 @@ export function preservarMarcadoresSolicitudEnObservaciones(
 //    con el destino y se comía las que preservarMarcadoresSolicitudEnObservaciones no
 //    conocía (formatos adjuntos, condiciones de pago, IVA, aprobación de CxP).
 const REGEX_MARCA_BLOQUE = /\[\[[A-Z_]+:[\s\S]*?:FIN_[A-Z_]+\]\]/g;
-const REGEX_MARCA_SUELTA = /\[[A-Z][A-Z0-9_]+(?::[^\[\]]*)?\]/g;
+// Admite espacios y acentos: [FACTURA PROVEEDOR: …], [RECIBO PAGO: …], [RECEPCIÓN ALMACÉN: …].
+const REGEX_MARCA_SUELTA = /\[[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ0-9_ ]+(?::[^\[\]]*)?\]/g;
 
 /** Todas las marcas de la casa que trae un texto de observaciones, en su orden. */
 export function extraerTodasLasMarcas(texto?: string | null): string[] {

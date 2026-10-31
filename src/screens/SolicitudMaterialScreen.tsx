@@ -929,7 +929,16 @@ export default function SolicitudMaterialScreen() {
 
         if (error) throw error;
         if (!upd || upd.length === 0) {
-          throw new Error('No se pudo quitar el renglón: la solicitud ya cambió de estado o no tienes permiso de actualización.');
+          // 31-oct-2026: quien solo tiene «Pedir Material» no pasa la RLS de Compras; para SU
+          // solicitud no convertida va por la función de la base (solo quita ese renglón).
+          const { data: okRpc, error: eRpc } = await supabase.rpc('solicitud_propia_quitar_renglon', {
+            p_id: reqActual.id,
+            p_idx: cancelTarget.renglonIdx,
+            p_traza: trazaRenglon,
+          });
+          if (eRpc || okRpc !== true) {
+            throw new Error('No se pudo quitar el renglón: la solicitud ya cambió de estado o no tienes permiso de actualización.');
+          }
         }
 
         toast.success(`Renglón "${eliminado?.name || ''}" quitado de ${reqActual.code}.`);
@@ -953,7 +962,16 @@ export default function SolicitudMaterialScreen() {
 
         if (error) throw error;
         if (!upd || upd.length === 0) {
-          throw new Error('No se pudo cancelar: la solicitud ya fue procesada por Compras o no tienes permiso de actualización.');
+          // 31-oct-2026: el solicitante sin permiso de Compras cancela SU solicitud (no
+          // convertida) por la función de la base, que solo cambia el estado.
+          const { data: okRpc, error: eRpc } = await supabase.rpc('solicitud_propia_cancelar', {
+            p_id: reqId,
+            p_nota: notaEstructurada,
+            p_autor: autorNombre,
+          });
+          if (eRpc || okRpc !== true) {
+            throw new Error('No se pudo cancelar: la solicitud ya fue procesada por Compras o no tienes permiso de actualización.');
+          }
         }
 
         toast.success(`Solicitud de compra ${cancelTarget.codigo} cancelada correctamente.`);

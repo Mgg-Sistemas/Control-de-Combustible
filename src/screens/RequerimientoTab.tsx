@@ -106,6 +106,7 @@ import {
   fmtFechaHora,
   inyectarEnvioCxpEnTexto,
   preservarHistorialYEnvioEnTexto,
+  resumirCambiosCabeceraCompra,
 } from '../lib/comprasHistorico';
 import { TimelineExpedienteBox } from './HistoricoComprasTab';
 import { spacing, radius } from '../theme';
@@ -2269,6 +2270,31 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           montoAntesUsd: diffItems.montoAntesUsd,
           montoDespuesUsd: diffItems.montoDespuesUsd,
           cambiosItems: diffItems.cambiosItems,
+          reqId: reqAnterior.id,
+          reqCode: reqAnterior.code,
+        });
+      }
+      // 📜 31-oct-2026: cambios de cabecera (título, nota, proveedor…) también quedan en el
+      //    Histórico; antes solo se anotaba cuando cambiaban los renglones.
+      const provNombreDe = (id?: string | null) => (id ? suppliers.find((sp) => sp.id === id)?.name || '' : '');
+      const cambiosCab = resumirCambiosCabeceraCompra([
+        { etiqueta: 'Título', antes: reqAnterior.title, despues: title },
+        { etiqueta: 'Nota', antes: reqAnterior.note, despues: note },
+        { etiqueta: 'Proveedor', antes: provNombreDe(reqAnterior.supplier_id), despues: provNombreDe(supplierId || items.find((it) => it.supplier_id)?.supplier_id || null) },
+        { etiqueta: 'Empresa pagadora', antes: reqAnterior.empresa_pagadora_nombre, despues: empresaPagadoraNombre },
+        { etiqueta: 'Responsable', antes: reqAnterior.responsable_nombre, despues: respNombre },
+        { etiqueta: 'Área', antes: reqAnterior.area, despues: area },
+        { etiqueta: 'Condiciones de pago', antes: extraerCondicionesPago(reqAnterior.observaciones), despues: condicionesPago },
+        { etiqueta: 'Observaciones', antes: limpiarObservacionesUsuario(reqAnterior.observaciones), despues: observaciones },
+      ]);
+      if (cambiosCab.length > 0) {
+        obsCompuesta = anexarEventoHistorial(obsCompuesta, {
+          by: autorEdicion,
+          byId: uid,
+          modulo: 'Requerimientos',
+          tipo: 'solicitud_editada',
+          titulo: 'Requerimiento editado',
+          detalle: `${autorEdicion || 'Compras'} desde Requerimientos: ${cambiosCab.join(' · ')}`,
           reqId: reqAnterior.id,
           reqCode: reqAnterior.code,
         });

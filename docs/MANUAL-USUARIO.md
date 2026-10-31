@@ -2286,6 +2286,14 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > ejemplo, sin permiso en Cuentas por Pagar) ahora **lo dice** en vez de fingir que se creó. Los adjuntos solo se
 > abren si son del almacenamiento del sistema.
 
+> **📜 Solicitudes, cancelar y Histórico** *(31/10/2026)*. Quien pide material ya puede **cancelar su solicitud** o
+> **quitarle un renglón** desde 🛒 Pedir Material aunque no tenga permiso de Compras, mientras no haya pasado a
+> requerimiento (antes la base lo rechazaba). En **Compras → Solicitudes**, quien escribe en Compras tiene
+> **🗑️ Eliminar** en las solicitudes que no avanzaron (ni requerimiento, ni aprobación, ni pago); lo demás se
+> rechaza y queda en el histórico. **Editar una solicitud o un requerimiento queda en el Histórico**: renglones
+> (qué se agregó, quitó o cambió) y cabecera (título, nota, proveedor, área, condiciones de pago…). Editar el
+> destino de una solicitud ya no borra los adjuntos, las condiciones de pago ni el IVA.
+
 > **🔓 El coordinador de inspectores ya puede guardar** *(31/10/2026)*. Antes la base solo dejaba registrar
 > visitas, cambiar el estado de las máquinas y resolver autorizaciones a un administrador o a un inspector;
 > con el rol «coordinador de inspectores» salía «no tienes permiso» al guardar. Ahora ese rol pasa por los
