@@ -1,10 +1,16 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { View } from 'react-native';
 import { RList, RRow, RAmount, RPill } from '../../components/redesign/RList';
 import { FuelIntake, Tank } from '../../types/database';
 import { useAuth } from '../../context/AuthContext';
 import { useTable } from '../../hooks/useTable';
 import { norm } from '../../lib/text';
+import { supabase } from '../../lib/supabase';
+import {
+  MARCADOR_AJUSTE_TANQUE,
+  esAjusteManualVisibleLegado,
+  esRegistroAjusteTanque,
+} from '../../lib/fuelRules';
 import type { Field } from '../../components/RecordForm';
 
 const FUEL_OPTIONS = [
@@ -53,6 +59,27 @@ export default function IntakesPilot() {
     { key: 'tank_id', label: 'Tanque destino', type: 'lookup', table: 'tanks', labelCol: 'name', subLabelCols: ['location', 'responsable'], dropdown: true, required: true, ...(miTanqueId ? { defaultValue: miTanqueId } : {}) },
   ]), [miTanqueId]);
 
+  const cleanedRef = useRef<Set<string>>(new Set());
+  const limpiarAjustesIngresos = useCallback(async (rows: FuelIntake[], refetch: () => void) => {
+    const legados = (rows || []).filter(
+      (r) => esAjusteManualVisibleLegado(r) && !cleanedRef.current.has(r.id)
+    );
+    if (legados.length === 0) return;
+    let changed = false;
+    for (const r of legados) {
+      cleanedRef.current.add(r.id);
+      const prev = String(r.supplier || '').trim();
+      const { error } = await supabase
+        .from('fuel_intakes')
+        .update({ supplier: `${MARCADOR_AJUSTE_TANQUE} ${prev || 'Ajuste de nivel en tanque'}` })
+        .eq('id', r.id);
+      if (!error) changed = true;
+    }
+    if (changed) refetch();
+  }, []);
+
+  const filtrarIngresosReales = useCallback((i: FuelIntake) => !esRegistroAjusteTanque(i), []);
+
   return (
     <RList<FuelIntake>
       title="Ingresos"
@@ -60,6 +87,8 @@ export default function IntakesPilot() {
       orderBy="intake_date"
       editable
       dateField="intake_date"
+      baseFilter={filtrarIngresosReales}
+      onDataLoaded={limpiarAjustesIngresos}
       emptyIcon="⬇️"
       emptyTitle="Sin ingresos"
       emptySubtitle="Registra la recepción/compra de combustible."

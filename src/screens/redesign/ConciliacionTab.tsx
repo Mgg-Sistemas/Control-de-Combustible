@@ -7,6 +7,7 @@ import { useTable } from '../../hooks/useTable';
 import { Tank, TankLevel, FuelIntake, Dispatch, Transfer } from '../../types/database';
 import { exportarConciliacionPdf, FilaConciliacionCombustible } from '../../lib/combustiblePdf';
 import { exportarConciliacionExcel } from '../../lib/combustibleExcel';
+import { esRegistroAjusteTanque } from '../../lib/fuelRules';
 import { useToast } from '../../components/ToastProvider';
 
 const fmtNum = (n: number | null | undefined) =>
@@ -70,14 +71,14 @@ export default function ConciliacionTab() {
       const lvl = (tankLevels || []).find((l) => l.id === t.id);
       const cap = t.capacity_l || 0;
 
-      // Entradas al tanque en el período
+      // Entradas al tanque en el período (excluyendo ajustes internos de tanque)
       const ent = (intakes || [])
-        .filter((i) => i.tank_id === t.id && i.intake_date >= desde && i.intake_date <= hasta)
+        .filter((i) => i.tank_id === t.id && i.intake_date >= desde && i.intake_date <= hasta && !esRegistroAjusteTanque(i))
         .reduce((s, i) => s + (Number(i.liters) || 0), 0);
 
-      // Despachos desde el tanque en el período
+      // Despachos desde el tanque en el período (excluyendo ajustes internos de tanque)
       const desp = (dispatches || [])
-        .filter((d) => d.tank_id === t.id && d.dispatch_date >= desde && d.dispatch_date <= hasta)
+        .filter((d) => d.tank_id === t.id && d.dispatch_date >= desde && d.dispatch_date <= hasta && !esRegistroAjusteTanque(d))
         .reduce((s, d) => s + (Number(d.liters) || 0), 0);
 
       // Traslados: entradas (+ destino) y salidas (- origen)

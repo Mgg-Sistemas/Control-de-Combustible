@@ -21,8 +21,8 @@ const ASSET_OPTIONS = [
 const FIELDS: Field[] = [
   { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
   // Sin las que están "Esperando instrucciones" — no se decide aún si se van a usar.
-  { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
-  { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate'], createColumn: 'code', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
+  { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', subLabelCols: ['name', 'serial', 'identifier'], createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
+  { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['plate', 'serial', 'identifier'], createColumn: 'code', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
   { key: 'tank_id', label: 'Tanque de origen', type: 'lookup', table: 'tanks', labelCol: 'name', required: true },
   { key: 'liters', label: 'Litros solicitados', type: 'number', required: true },
   { key: 'reason', label: 'Motivo', type: 'text' },
@@ -84,7 +84,21 @@ export default function AuthorizationsPilot() {
   const vehOf = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles]);
   const companyName = useMemo(() => { const m = new Map(companies.map((c) => [c.id, c.name])); return (id: string | null) => (id ? m.get(id) ?? '—' : '—'); }, [companies]);
 
-  const assetLabel = (a: Authorization) => a.asset_kind === 'maquinaria' ? (machOf.get(a.machinery_id ?? '')?.code ?? '—') : (vehOf.get(a.vehicle_id ?? '')?.plate ?? '—');
+  const assetLabel = (a: Authorization) => {
+    if (a.asset_kind === 'maquinaria') {
+      const m: any = machOf.get(a.machinery_id ?? '');
+      if (!m) return '—';
+      const p = String(m.plate || '').trim() || 'S/P';
+      const sn = String(m.serial || m.identifier || '').trim();
+      return `${m.code || '—'} · 🚗 PLACA: ${p}${sn ? ` · 🔢 S/N: ${sn}` : ''}`;
+    }
+    const v: any = vehOf.get(a.vehicle_id ?? '');
+    if (!v) return '—';
+    const p = String(v.plate || '').trim() || 'S/P';
+    const sn = String(v.serial || v.identifier || '').trim();
+    const nm = String(v.name || v.model || '').trim();
+    return `${nm ? `${nm} · ` : ''}🚗 PLACA: ${p}${sn ? ` · 🔢 S/N: ${sn}` : ''}`;
+  };
   const companyIdOf = (a: Authorization) => a.asset_kind === 'maquinaria' ? (machOf.get(a.machinery_id ?? '')?.company_id ?? null) : null;
   const companyLabel = (a: Authorization) => companyName(companyIdOf(a));
 

@@ -200,8 +200,17 @@ export function RecordForm({
         // Columnas extra para DISTINGUIR opciones con el mismo nombre (p. ej. dos tanques
         // "TANQUE DE COMBUSTIBLE"): se agregan al label como " · valor" (ubicación,
         // responsable…). Solo se muestran las que tengan valor.
-        const subCols = f.subLabelCols ?? (f.table === 'machinery' ? ['plate'] : []);
-        const queryCols = Array.from(new Set([f.activeCol, ...subCols, ...(f.table === 'machinery' ? ['plate'] : [])].filter(Boolean))).join(', ');
+        const subCols = f.subLabelCols ?? (f.table === 'machinery' ? ['plate', 'serial', 'identifier'] : f.table === 'vehicles' ? ['name', 'serial', 'identifier'] : []);
+        const queryCols = Array.from(
+          new Set(
+            [
+              f.activeCol,
+              ...subCols,
+              ...(f.table === 'machinery' ? ['plate', 'serial', 'identifier'] : []),
+              ...(f.table === 'vehicles' ? ['name', 'serial', 'identifier'] : []),
+            ].filter(Boolean)
+          )
+        ).join(', ');
         let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}${queryCols ? `, ${queryCols}` : ''}`);
         if (f.filter) Object.entries(f.filter).forEach(([col, val]) => { qb = qb.eq(col, val); });
         const { data } = await qb;
@@ -215,13 +224,18 @@ export function RecordForm({
                   const val = String(r[c] ?? '').trim();
                   if (!val) return '';
                   if (c === 'plate' || c === 'placa') return `🚗 Placa: ${val}`;
-                  if (c === 'serial') return `Serial: ${val}`;
+                  if (c === 'serial') return `🔢 Serial: ${val}`;
+                  if (c === 'identifier') return `🔢 ID: ${val}`;
                   return val;
                 })
                 .filter(Boolean);
               if (f.table === 'machinery' && !subItems.some((s) => s.includes('Placa'))) {
                 const p = String(r.plate ?? '').trim();
                 subItems.push(p ? `🚗 Placa: ${p}` : '🚗 Placa: S/P');
+              }
+              if (f.table === 'machinery' && !subItems.some((s) => s.includes('Serial') || s.includes('ID:'))) {
+                const sn = String(r.serial || r.identifier || '').trim();
+                if (sn) subItems.push(`🔢 Serial: ${sn}`);
               }
               const sub = subItems.join(' · ');
               const base = String(r[f.labelCol]);
@@ -413,6 +427,29 @@ export function RecordForm({
     onClose();
   };
 
+  const removeWithoutRestoringTank = async () => {
+    if (!record || table !== 'dispatches') return;
+    setAskDelete(false);
+    setError(null);
+    setDeleting(true);
+    const prevDriver = String(record.driver_operator ?? '')
+      .replace(/\[AJUSTE_TANQUE_OCULTO\]\s*/g, '')
+      .trim();
+    const { error } = await supabase
+      .from('dispatches')
+      .update({
+        driver_operator: `[AJUSTE_TANQUE_OCULTO] ${prevDriver || 'Consumo eliminado sin reponer al tanque'}`,
+      })
+      .eq('id', record.id);
+    setDeleting(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    onSaved();
+    onClose();
+  };
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -578,26 +615,58 @@ export function RecordForm({
                   Eliminar
                 </Text>
                 <Text style={{ color: colors.text, textAlign: 'center', marginBottom: spacing.md }}>
-                  ¿Desea eliminar este registro? Esta acción no se puede deshacer.
+                  {table === 'dispatches'
+                    ? '¿Cómo desea eliminar este registro de combustible?'
+                    : '¿Desea eliminar este registro? Esta acción no se puede deshacer.'}
                 </Text>
-                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnGhost]}
-                    onPress={() => setAskDelete(false)}
-                    disabled={deleting}
-                  >
-                    <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, { backgroundColor: colors.danger }]}
-                    onPress={remove}
-                    disabled={deleting}
-                  >
-                    <Text style={{ color: '#fff', fontWeight: '700' }}>
-                      {deleting ? 'Eliminando…' : 'Aceptar'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                {table === 'dispatches' ? (
+                  <View style={{ gap: spacing.xs }}>
+                    <TouchableOpacity
+                      style={[styles.btn, { backgroundColor: colors.danger, paddingVertical: 11 }]}
+                      onPress={removeWithoutRestoringTank}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center', fontSize: 13 }}>
+                        {deleting ? 'Procesando…' : '🔒 Eliminar SIN reponer en el tanque'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, { backgroundColor: colors.primary, paddingVertical: 11 }]}
+                      onPress={remove}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', textAlign: 'center', fontSize: 13 }}>
+                        {deleting ? 'Procesando…' : '🔄 Eliminar y reponer litros al tanque'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnGhost]}
+                      onPress={() => setAskDelete(false)}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnGhost]}
+                      onPress={() => setAskDelete(false)}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, { backgroundColor: colors.danger }]}
+                      onPress={remove}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '700' }}>
+                        {deleting ? 'Eliminando…' : 'Aceptar'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             </View>
           ) : null}
@@ -631,8 +700,8 @@ function SearchSelect({
   const q = norm(query.trim());
   const filtered = q ? options.filter((o) => norm(o.label).includes(q)) : options;
   const exactExists = options.some((o) => norm(o.label) === q);
-  // El buscador solo aparece si hay muchas opciones o si se pueden crear nuevas.
-  const showSearch = !!createColumn || options.length > 8;
+  // El buscador aparece siempre en maquinaria/vehículos o si hay muchas opciones / creación.
+  const showSearch = !!createColumn || table === 'machinery' || table === 'vehicles' || options.length > 8;
 
   const create = async () => {
     if (!createColumn || !query.trim()) return;

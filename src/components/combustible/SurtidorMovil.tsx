@@ -26,6 +26,7 @@ import {
   mermaDeRecepcion,
   compartirPorWhatsapp,
   DatosMensajeCombustible,
+  esRegistroAjusteTanque,
 } from '../../lib/fuelRules';
 import { exportarJornadaSurtidorPdf, FilaDespachoSurtidorPdf } from '../../lib/combustiblePdf';
 import { useToast } from '../ToastProvider';
@@ -100,7 +101,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
   const tankDispatches = useMemo(() => {
     if (!selectedTank) return [];
     return (dispatches || [])
-      .filter((d) => d.tank_id === selectedTank.id)
+      .filter((d) => d.tank_id === selectedTank.id && !esRegistroAjusteTanque(d))
       .slice(0, 10);
   }, [dispatches, selectedTank]);
 
@@ -198,15 +199,17 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
     }
   }, [cfPropuesto, cf]);
 
-  // Lista filtrada de maquinarias (Código + PLACA siempre visible)
+  // Lista filtrada de maquinarias (Código + PLACA + SERIAL siempre visible)
   const filteredMachinery = useMemo(() => {
     const q = norm(searchEquipQuery);
     if (!q) return (machineryList || []).slice(0, 15);
     return (machineryList || [])
-      .filter((m) => {
+      .filter((m: any) => {
         return (
           norm(m.code).includes(q) ||
           norm(m.plate || '').includes(q) ||
+          norm(m.serial || '').includes(q) ||
+          norm(m.identifier || '').includes(q) ||
           norm(m.tipo || '').includes(q) ||
           norm(m.marca || '').includes(q) ||
           norm(m.modelo || '').includes(q)
@@ -219,10 +222,12 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
     const q = norm(searchEquipQuery);
     if (!q) return (vehiclesList || []).slice(0, 15);
     return (vehiclesList || [])
-      .filter((v) => {
+      .filter((v: any) => {
         return (
           norm(v.plate).includes(q) ||
           norm(v.name || '').includes(q) ||
+          norm(v.serial || '').includes(q) ||
+          norm(v.identifier || '').includes(q) ||
           norm(v.brand || '').includes(q) ||
           norm(v.model || '').includes(q)
         );
@@ -324,6 +329,9 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         tanqueNombre: selectedTank.name,
         equipoCodigo: selectedMachine ? selectedMachine.code : selectedVehicle?.name || 'Vehículo',
         equipoPlaca: selectedMachine ? selectedMachine.plate : selectedVehicle?.plate,
+        equipoSerial: selectedMachine
+          ? (selectedMachine as any).serial || (selectedMachine as any).identifier || null
+          : (selectedVehicle as any)?.serial || (selectedVehicle as any)?.identifier || null,
         litros: litrosNum,
         contadorIni: ciNum,
         contadorFin: contadorFinalEfectivo,
@@ -472,7 +480,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
     setGeneratingReport(true);
     try {
       const dayDispatches = (dispatches || []).filter(
-        (d) => String(d.dispatch_date).slice(0, 10) === reportDate
+        (d) => String(d.dispatch_date).slice(0, 10) === reportDate && !esRegistroAjusteTanque(d)
       );
 
       if (dayDispatches.length === 0) {
@@ -481,8 +489,8 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
       }
 
       const rows: FilaDespachoSurtidorPdf[] = dayDispatches.map((d: any) => {
-        const m = (machineryList || []).find((x) => x.id === d.machinery_id);
-        const v = (vehiclesList || []).find((x) => x.id === d.vehicle_id);
+        const m: any = (machineryList || []).find((x) => x.id === d.machinery_id);
+        const v: any = (vehiclesList || []).find((x) => x.id === d.vehicle_id);
         const t = (activeTanks || []).find((x) => x.id === d.tank_id);
         const horas =
           d.fuel_start != null && d.fuel_end != null
@@ -494,6 +502,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
           hora: d.created_at ? new Date(d.created_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }) : '',
           equipoCodigo: m ? m.code : v ? v.name || 'Vehículo' : 'General',
           equipoPlaca: m ? m.plate || '' : v ? v.plate || '' : '',
+          equipoSerial: m ? m.serial || m.identifier || '' : v ? v.serial || v.identifier || '' : '',
           tanqueNombre: t ? t.name : 'Bomba directa',
           litros: Number(d.liters) || 0,
           contadorIni: d.fuel_start,
@@ -969,10 +978,11 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
           ) : (
             <View style={{ gap: spacing.xs }}>
               {tankDispatches.map((m: any) => {
-                const maq = (machineryList || []).find((x) => x.id === m.machinery_id);
-                const veh = (vehiclesList || []).find((x) => x.id === m.vehicle_id);
+                const maq: any = (machineryList || []).find((x) => x.id === m.machinery_id);
+                const veh: any = (vehiclesList || []).find((x) => x.id === m.vehicle_id);
                 const codeLabel = maq ? maq.code : veh ? veh.name || 'Vehículo' : 'Surtido directo';
-                const placaLabel = maq?.plate || veh?.plate || '';
+                const placaLabel = maq?.plate || veh?.plate || 'S/P';
+                const serialLabel = String(maq?.serial || maq?.identifier || veh?.serial || veh?.identifier || '').trim();
                 const timeStr = m.created_at
                   ? new Date(m.created_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })
                   : '';
@@ -1011,19 +1021,33 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                           <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }}>
                             {codeLabel}
                           </Text>
-                          {placaLabel ? (
+                          <View
+                            style={{
+                              backgroundColor: colors.dangerSoftBg,
+                              paddingHorizontal: 6,
+                              paddingVertical: 1,
+                              borderRadius: radius.sm,
+                              borderWidth: 0.5,
+                              borderColor: colors.danger,
+                            }}
+                          >
+                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.danger }}>
+                              PLACA: {placaLabel}
+                            </Text>
+                          </View>
+                          {serialLabel ? (
                             <View
                               style={{
-                                backgroundColor: colors.dangerSoftBg,
+                                backgroundColor: colors.surfaceAlt,
                                 paddingHorizontal: 6,
                                 paddingVertical: 1,
                                 borderRadius: radius.sm,
                                 borderWidth: 0.5,
-                                borderColor: colors.danger,
+                                borderColor: colors.border,
                               }}
                             >
-                              <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.danger }}>
-                                PLACA: {placaLabel}
+                              <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.text }}>
+                                🔢 S/N: {serialLabel}
                               </Text>
                             </View>
                           ) : null}
@@ -1144,15 +1168,15 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
               </TouchableOpacity>
             </View>
 
-            {/* Selector con Buscador Obligatorio de Maquinaria (Código + PLACA) */}
+            {/* Selector con Buscador Obligatorio de Maquinaria (Código + PLACA + SERIAL) */}
             <View>
               <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text, marginBottom: 4 }}>
-                {targetType === 'maquinaria' ? 'Seleccionar Maquinaria (Buscador por Código o Placa)' : 'Seleccionar Vehículo (Buscador por Placa o Nombre)'}
+                {targetType === 'maquinaria' ? 'Seleccionar Maquinaria (Buscador por Código, Placa o Serial)' : 'Seleccionar Vehículo (Buscador por Placa, Nombre o Serial)'}
               </Text>
               <TextInput
                 value={searchEquipQuery}
                 onChangeText={setSearchEquipQuery}
-                placeholder={targetType === 'maquinaria' ? 'Buscar por código, placa, tipo...' : 'Buscar por placa o marca...'}
+                placeholder={targetType === 'maquinaria' ? 'Buscar por código, placa, serial o tipo...' : 'Buscar por placa, marca o serial...'}
                 placeholderTextColor={colors.muted}
                 style={{
                   backgroundColor: colors.surface,
@@ -1182,13 +1206,29 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                       <Text style={{ fontSize: 15, fontWeight: '900', color: colors.text }}>
                         {selectedMachine ? selectedMachine.code : selectedVehicle?.name || 'Vehículo'}
                       </Text>
-                      {/* REGLA DEL PROYECTO: MOSTRAR SIEMPRE LA PLACA */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                      {/* REGLA DEL PROYECTO: MOSTRAR SIEMPRE LA PLACA Y EL SERIAL */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 3 }}>
                         <View style={{ backgroundColor: colors.danger, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 3 }}>
                           <Text style={{ fontSize: 11, fontWeight: '900', color: '#fff' }}>
-                            PLACA: {selectedMachine?.plate || selectedVehicle?.plate || 'SIN PLACA'}
+                            PLACA: {selectedMachine?.plate || selectedVehicle?.plate || 'S/P'}
                           </Text>
                         </View>
+                        {(() => {
+                          const sn = String(
+                            (selectedMachine as any)?.serial ||
+                            (selectedMachine as any)?.identifier ||
+                            (selectedVehicle as any)?.serial ||
+                            (selectedVehicle as any)?.identifier ||
+                            ''
+                          ).trim();
+                          return sn ? (
+                            <View style={{ backgroundColor: colors.surface, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 3, borderWidth: 1, borderColor: colors.border }}>
+                              <Text style={{ fontSize: 11, fontWeight: '900', color: colors.text }}>
+                                🔢 SERIAL: {sn}
+                              </Text>
+                            </View>
+                          ) : null;
+                        })()}
                         {selectedMachine?.tipo ? (
                           <Text style={{ fontSize: 11.5, color: colors.muted }}>{selectedMachine.tipo}</Text>
                         ) : null}
@@ -1226,30 +1266,36 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                           No se encontraron maquinarias
                         </Text>
                       ) : (
-                        filteredMachinery.map((m) => (
-                          <TouchableOpacity
-                            key={m.id}
-                            onPress={() => handleSelectMachine(m)}
-                            style={{
-                              padding: spacing.sm,
-                              borderBottomWidth: 1,
-                              borderBottomColor: colors.border,
-                              flexDirection: 'row',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                            }}
-                          >
-                            <View>
-                              <Text style={{ fontWeight: '800', color: colors.text, fontSize: 13.5 }}>{m.code}</Text>
-                              <Text style={{ fontSize: 11, color: colors.muted }}>{m.tipo || 'Sin tipo'}</Text>
-                            </View>
-                            <View style={{ backgroundColor: colors.dangerSoftBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3 }}>
-                              <Text style={{ fontSize: 11, fontWeight: '800', color: colors.danger }}>
-                                PLACA: {m.plate || 'S/P'}
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                        ))
+                        filteredMachinery.map((m: any) => {
+                          const sn = String(m.serial || m.identifier || '').trim();
+                          return (
+                            <TouchableOpacity
+                              key={m.id}
+                              onPress={() => handleSelectMachine(m)}
+                              style={{
+                                padding: spacing.sm,
+                                borderBottomWidth: 1,
+                                borderBottomColor: colors.border,
+                                flexDirection: 'row',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontWeight: '800', color: colors.text, fontSize: 13.5 }}>{m.code}</Text>
+                                <Text style={{ fontSize: 11, color: colors.muted }}>
+                                  {m.tipo || 'Sin tipo'}{sn ? ` · 🔢 S/N: ${sn}` : ''}
+                                </Text>
+                              </View>
+                              <View style={{ backgroundColor: colors.dangerSoftBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3 }}>
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.danger }}>
+                                  PLACA: {m.plate || 'S/P'}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })
                       )
                     ) : (
                       filteredVehicles.length === 0 ? (
@@ -1257,25 +1303,31 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                           No se encontraron vehículos
                         </Text>
                       ) : (
-                        filteredVehicles.map((v) => (
-                          <TouchableOpacity
-                            key={v.id}
-                            onPress={() => handleSelectVehicle(v)}
-                            style={{
-                              padding: spacing.sm,
-                              borderBottomWidth: 1,
-                              borderBottomColor: colors.border,
-                              flexDirection: 'row',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                            }}
-                          >
-                            <View>
-                              <Text style={{ fontWeight: '800', color: colors.text, fontSize: 13.5 }}>{v.plate}</Text>
-                              <Text style={{ fontSize: 11, color: colors.muted }}>{v.name || v.brand || 'Vehículo'}</Text>
-                            </View>
-                          </TouchableOpacity>
-                        ))
+                        filteredVehicles.map((v: any) => {
+                          const sn = String(v.serial || v.identifier || '').trim();
+                          return (
+                            <TouchableOpacity
+                              key={v.id}
+                              onPress={() => handleSelectVehicle(v)}
+                              style={{
+                                padding: spacing.sm,
+                                borderBottomWidth: 1,
+                                borderBottomColor: colors.border,
+                                flexDirection: 'row',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontWeight: '800', color: colors.text, fontSize: 13.5 }}>{v.plate}</Text>
+                                <Text style={{ fontSize: 11, color: colors.muted }}>
+                                  {v.name || v.brand || 'Vehículo'}{sn ? ` · 🔢 S/N: ${sn}` : ''}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })
                       )
                     )}
                   </ScrollView>

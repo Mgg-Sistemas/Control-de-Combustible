@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Modal, TextInput, Pressable, Platform } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
@@ -10,6 +10,11 @@ import { family, useBrandFonts } from '../../components/redesign/fonts';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../components/ToastProvider';
 import { useAuth } from '../../context/AuthContext';
+import {
+  MARCADOR_AJUSTE_TANQUE,
+  calcularDiferenciaAjusteTanque,
+  esAjusteManualVisibleLegado,
+} from '../../lib/fuelRules';
 
 // Umbral mínimo por defecto (la vista tank_levels aún no expone umbral por tanque).
 const LOW_PCT = 20;
@@ -62,7 +67,35 @@ export default function TanksShowcase() {
   const { data: fullTanks, refetch: refetchFullTanks } = useTable<Tank>('tanks', { realtimeFrom: ['tanks'] });
   const { data: machineryList } = useTable<Machinery>('machinery', { orderBy: 'code' });
 
-  // Modal para Crear / Editar Tanque
+  // Limpieza automática del registro colocado como "ajuste manual visible" o "ajuste visible"
+  // SIN borrar la fila de `dispatches` (así el trigger NO repone los litros en el tanque),
+  // marcándola como ajuste interno de tanque para que desaparezca de Consumos.
+  const cleanedLegacyRef = useRef(false);
+  useEffect(() => {
+    if (cleanedLegacyRef.current) return;
+    cleanedLegacyRef.current = true;
+    (async () => {
+      try {
+        const { data: dispRows } = await supabase
+          .from('dispatches')
+          .select('id, driver_operator');
+        const legados = (dispRows || []).filter((r: any) => esAjusteManualVisibleLegado(r));
+        for (const r of legados) {
+          const prev = String((r as any).driver_operator || '').trim();
+          await supabase
+            .from('dispatches')
+            .update({
+              driver_operator: `${MARCADOR_AJUSTE_TANQUE} ${prev || 'Ajuste directo de tanque'}`,
+            })
+            .eq('id', (r as any).id);
+        }
+      } catch {
+        // Silencioso si no hay sesión o red
+      }
+    })();
+  }, []);
+
+  // Modal para Crear / Editar Tanque y Ajustar Litros en el Tanque
   const [tankModalOpen, setTankModalOpen] = useState(false);
   const [editingTankId, setEditingTankId] = useState<string | null>(null);
 
@@ -75,6 +108,9 @@ export default function TanksShowcase() {
   const [tankChofer, setTankChofer] = useState('');
   const [tankMachineryId, setTankMachineryId] = useState<string | null>(null);
   const [tankSaldoInicial, setTankSaldoInicial] = useState('');
+  const [tankOriginalLiters, setTankOriginalLiters] = useState<number>(0);
+  const [tankNuevoNivelLiters, setTankNuevoNivelLiters] = useState('');
+  const [tankAjusteMotivo, setTankAjusteMotivo] = useState('');
   const [searchMachineryQuery, setSearchMachineryQuery] = useState('');
   const [savingTank, setSavingTank] = useState(false);
 
@@ -82,10 +118,12 @@ export default function TanksShowcase() {
     const q = norm(searchMachineryQuery);
     if (!q) return (machineryList || []).slice(0, 15);
     return (machineryList || [])
-      .filter((m) => {
+      .filter((m: any) => {
         return (
           norm(m.code).includes(q) ||
           norm(m.plate || '').includes(q) ||
+          norm(m.serial || '').includes(q) ||
+          norm(m.identifier || '').includes(q) ||
           norm(m.tipo || '').includes(q)
         );
       })
@@ -103,25 +141,172 @@ export default function TanksShowcase() {
     setTankChofer('');
     setTankMachineryId(null);
     setTankSaldoInicial('');
+    setTankOriginalLiters(0);
+    setTankNuevoNivelLiters('');
+    setTankAjusteMotivo('');
     setSearchMachineryQuery('');
     setTankModalOpen(true);
   };
 
   const openEditFullTank = (tankId: string) => {
     const full = (fullTanks || []).find((t) => t.id === tankId);
-    if (!full) return;
-    setEditingTankId(full.id);
-    setTankName(full.name);
-    setTankFuel(full.fuel);
-    setTankCapacity(String(full.capacity_l));
-    setTankIsMobile(!!full.is_mobile);
-    setTankLocation(full.location || '');
-    setTankResponsable(full.responsable || '');
-    setTankChofer(full.chofer || '');
-    setTankMachineryId(full.machinery_id || null);
+    const lvl = (data || []).find((t) => t.id === tankId);
+    const base = full || (lvl as any);
+    if (!base) return;
+    const curL = Math.round((Number(lvl?.current_l ?? 0) || 0) * 100) / 100;
+    setEditingTankId(base.id);
+    setTankName(base.name || '');
+    setTankFuel((base.fuel as 'diesel' | 'gasolina') || 'diesel');
+    setTankCapacity(String(base.capacity_l ?? ''));
+    setTankIsMobile(!!base.is_mobile);
+    setTankLocation(base.location || '');
+    setTankResponsable(base.responsable || '');
+    setTankChofer(base.chofer || '');
+    setTankMachineryId(base.machinery_id || null);
     setTankSaldoInicial('');
+    setTankOriginalLiters(curL);
+    setTankNuevoNivelLiters(String(curL));
+    setTankAjusteMotivo('');
     setSearchMachineryQuery('');
     setTankModalOpen(true);
+  };
+
+  /**
+   * Ajusta el nivel de litros (`current_l`) de un tanque al valor exacto indicado por el usuario,
+   * sin ensuciar la pestaña de Consumos ni Ingresos.
+   */
+  const aplicarAjusteNivelTanque = async (
+    tankId: string,
+    fuelType: 'diesel' | 'gasolina',
+    litrosActuales: number,
+    nuevoNivel: number,
+    motivo: string
+  ) => {
+    const calc = calcularDiferenciaAjusteTanque(litrosActuales, nuevoNivel);
+    if (calc.sinCambio) return;
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const notaEtiqueta = `${MARCADOR_AJUSTE_TANQUE} ${motivo.trim() || `Ajuste directo en tanque (${calc.litrosActuales} L -> ${calc.nuevoNivel} L)`}`;
+
+    if (calc.delta > 0) {
+      let restanteMas = calc.delta;
+      // 1. Si existen ajustes negativos internos en dispatches para este tanque, reducirlos o quitarlos primero
+      const { data: adjDispatches } = await supabase
+        .from('dispatches')
+        .select('id, liters, driver_operator')
+        .eq('tank_id', tankId);
+
+      const ocultosDisp = (adjDispatches || []).filter((d: any) =>
+        String(d.driver_operator || '').includes(MARCADOR_AJUSTE_TANQUE)
+      );
+
+      for (const d of ocultosDisp) {
+        if (restanteMas <= 0.009) break;
+        const lDisp = Number((d as any).liters) || 0;
+        if (lDisp <= restanteMas + 0.009) {
+          const { error: delErr } = await supabase.from('dispatches').delete().eq('id', (d as any).id);
+          if (!delErr) restanteMas = Math.round((restanteMas - lDisp) * 100) / 100;
+        } else {
+          const nuevoLDisp = Math.round((lDisp - restanteMas) * 100) / 100;
+          const { error: upErr } = await supabase
+            .from('dispatches')
+            .update({ liters: nuevoLDisp, driver_operator: notaEtiqueta })
+            .eq('id', (d as any).id);
+          if (!upErr) restanteMas = 0;
+        }
+      }
+
+      // 2. Si aún falta sumar litros al tanque, insertar ingreso de ajuste oculto
+      if (restanteMas > 0.009) {
+        const { error: inErr } = await supabase.from('fuel_intakes').insert({
+          tank_id: tankId,
+          intake_date: todayStr,
+          supplier: notaEtiqueta,
+          fuel: fuelType,
+          liters: restanteMas,
+          unit_cost: 0,
+          total_cost: 0,
+          created_by: session?.user?.id || null,
+        });
+        if (inErr) throw new Error(inErr.message);
+      }
+    } else {
+      // calc.delta < 0: rebajar litros del tanque sin mostrarlo en Consumos
+      let restanteMenos = Math.abs(calc.delta);
+
+      // 1. Primero intentar rebajar de ingresos de apertura o ajustes internos de este tanque
+      const { data: intakesTank } = await supabase
+        .from('fuel_intakes')
+        .select('id, liters, supplier')
+        .eq('tank_id', tankId)
+        .order('created_at', { ascending: false });
+
+      const intakesAjustables = (intakesTank || []).filter((i: any) => {
+        const sup = String(i.supplier || '');
+        return sup.includes(MARCADOR_AJUSTE_TANQUE) || /saldo inicial|apertura/i.test(sup);
+      });
+
+      for (const ing of intakesAjustables) {
+        if (restanteMenos <= 0.009) break;
+        const lIng = Number((ing as any).liters) || 0;
+        if (lIng > restanteMenos + 0.009) {
+          const nuevoLIng = Math.round((lIng - restanteMenos) * 100) / 100;
+          const { error: upErr } = await supabase
+            .from('fuel_intakes')
+            .update({ liters: nuevoLIng })
+            .eq('id', (ing as any).id);
+          if (!upErr) restanteMenos = 0;
+        } else if (lIng > 0) {
+          const { error: delErr } = await supabase.from('fuel_intakes').delete().eq('id', (ing as any).id);
+          if (!delErr) restanteMenos = Math.round((restanteMenos - lIng) * 100) / 100;
+        }
+      }
+
+      // 2. Si aún falta rebajar litros, actualizar un dispatch oculto existente o crear uno nuevo oculto
+      if (restanteMenos > 0.009) {
+        const { data: adjDispatches } = await supabase
+          .from('dispatches')
+          .select('id, liters, driver_operator')
+          .eq('tank_id', tankId);
+
+        const existenteOculto = (adjDispatches || []).find((d: any) =>
+          String(d.driver_operator || '').includes(MARCADOR_AJUSTE_TANQUE)
+        );
+
+        if (existenteOculto) {
+          const sumado = Math.round(((Number((existenteOculto as any).liters) || 0) + restanteMenos) * 100) / 100;
+          const { error: upErr } = await supabase
+            .from('dispatches')
+            .update({ liters: sumado, driver_operator: notaEtiqueta })
+            .eq('id', (existenteOculto as any).id);
+          if (upErr) throw new Error(upErr.message);
+        } else {
+          // Buscar cualquier vehículo existente para cumplir el CHECK de dispatches sin activar el bloqueo diario de maquinaria
+          const { data: vehs } = await supabase.from('vehicles').select('id').limit(1);
+          let vehId = (vehs && vehs[0] ? (vehs[0] as any).id : null) as string | null;
+          if (!vehId) {
+            const { data: newVeh } = await supabase
+              .from('vehicles')
+              .insert({ plate: 'AJUSTE-TANQUE', name: 'AJUSTE INTERNO TANQUE', en_espera: true } as any)
+              .select('id')
+              .single();
+            vehId = (newVeh as any)?.id || null;
+          }
+          if (vehId) {
+            const { error: insErr } = await supabase.from('dispatches').insert({
+              dispatch_date: todayStr,
+              asset_kind: 'vehiculo',
+              vehicle_id: vehId,
+              tank_id: tankId,
+              liters: restanteMenos,
+              driver_operator: notaEtiqueta,
+              created_by: session?.user?.id || null,
+            });
+            if (insErr) throw new Error(insErr.message);
+          }
+        }
+      }
+    }
   };
 
   const handleSaveTank = async () => {
@@ -133,6 +318,13 @@ export default function TanksShowcase() {
     }
     if (!cap || cap <= 0) {
       toast.error('Indica una capacidad válida en litros (mayor a 0).');
+      return;
+    }
+
+    const tieneNuevoNivel = editingTankId && tankNuevoNivelLiters.trim() !== '';
+    const nuevoNivelNum = tieneNuevoNivel ? Number(tankNuevoNivelLiters.replace(',', '.')) : tankOriginalLiters;
+    if (editingTankId && (!Number.isFinite(nuevoNivelNum) || nuevoNivelNum < 0)) {
+      toast.error('El nivel actual en litros no puede ser negativo.');
       return;
     }
 
@@ -151,7 +343,19 @@ export default function TanksShowcase() {
         }).eq('id', editingTankId);
 
         if (error) throw new Error(error.message);
-        toast.success('Tanque actualizado con éxito.');
+
+        if (tieneNuevoNivel && Math.abs(nuevoNivelNum - tankOriginalLiters) >= 0.01) {
+          await aplicarAjusteNivelTanque(
+            editingTankId,
+            tankFuel,
+            tankOriginalLiters,
+            nuevoNivelNum,
+            tankAjusteMotivo
+          );
+          toast.success(`Tanque actualizado y nivel ajustado a ${nuevoNivelNum.toLocaleString()} L.`);
+        } else {
+          toast.success('Tanque actualizado con éxito.');
+        }
       } else {
         const { data: newTank, error } = await supabase.from('tanks').insert({
           name: cleanName,
@@ -303,19 +507,17 @@ export default function TanksShowcase() {
                   <View style={{ flex: 1, padding: spacing.md }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm }}>
                       <Text numberOfLines={1} style={[{ color: colors.text, fontSize: 17, flex: 1, fontWeight: '900' }, f(family.displayBold)]}>{t.name}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                         <TouchableOpacity
                           onPress={() => openEditFullTank(t.id)}
                           style={{
-                            backgroundColor: colors.surfaceAlt,
-                            paddingHorizontal: 8,
-                            paddingVertical: 3,
+                            backgroundColor: colors.primary,
+                            paddingHorizontal: 9,
+                            paddingVertical: 4,
                             borderRadius: radius.pill,
-                            borderWidth: 1,
-                            borderColor: colors.border,
                           }}
                         >
-                          <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary }}>✏️ Editar</Text>
+                          <Text style={{ fontSize: 11, fontWeight: '900', color: colors.primaryContrast }}>⚖️ Ajustar Litros / ✏️ Editar</Text>
                         </TouchableOpacity>
                         <View style={{ backgroundColor: tone.bg, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
                           <Text style={[{ color: tone.fg, fontSize: 10, letterSpacing: 0.5 }, f(family.bodySemi)]}>{st.label.toUpperCase()}</Text>
@@ -480,8 +682,8 @@ export default function TanksShowcase() {
                 />
               </View>
 
-              {/* Saldo Inicial (solo al crear) */}
-              {!editingTankId && (
+              {/* Saldo Inicial (solo al crear) o Edición Directa de Litros Actuales (al editar) */}
+              {!editingTankId ? (
                 <View style={{ backgroundColor: colors.surfaceAlt, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
                   <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 2 }}>Saldo Inicial de Apertura (Litros)</Text>
                   <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 4 }}>Litros actuales en el tanque al momento de registrarlo (opcional).</Text>
@@ -493,6 +695,108 @@ export default function TanksShowcase() {
                     placeholderTextColor={colors.muted}
                     style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.primary, fontSize: 15, fontWeight: '800' }}
                   />
+                </View>
+              ) : (
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    padding: spacing.md,
+                    borderRadius: radius.md,
+                    borderWidth: 1.5,
+                    borderColor: colors.primary,
+                    gap: spacing.xs,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '900', color: colors.primary }}>
+                    ⚖️ Modificar / Editar Litros Actuales en el Tanque
+                  </Text>
+                  <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                    Cambia directamente el saldo actual del tanque sin generar consumos visibles en la pestaña de Consumos.
+                  </Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                    <Text style={{ fontSize: 12, color: colors.muted, fontWeight: '700' }}>Saldo actual registrado:</Text>
+                    <Text style={{ fontSize: 14, color: colors.text, fontWeight: '900' }}>
+                      {tankOriginalLiters.toLocaleString()} L
+                    </Text>
+                  </View>
+                  <View style={{ marginTop: 4 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 3 }}>
+                      Nuevo nivel real en el tanque (Litros) *
+                    </Text>
+                    <TextInput
+                      value={tankNuevoNivelLiters}
+                      onChangeText={setTankNuevoNivelLiters}
+                      keyboardType="numeric"
+                      placeholder={String(tankOriginalLiters)}
+                      placeholderTextColor={colors.muted}
+                      style={{
+                        backgroundColor: colors.surface,
+                        borderWidth: 1.5,
+                        borderColor: colors.primary,
+                        borderRadius: radius.sm,
+                        padding: spacing.sm,
+                        color: colors.text,
+                        fontSize: 17,
+                        fontWeight: '900',
+                      }}
+                    />
+                  </View>
+                  {(() => {
+                    const nvoNum =
+                      tankNuevoNivelLiters.trim() !== ''
+                        ? Number(tankNuevoNivelLiters.replace(',', '.'))
+                        : tankOriginalLiters;
+                    const capNum = Number(tankCapacity.replace(',', '.')) || 0;
+                    const info = calcularDiferenciaAjusteTanque(tankOriginalLiters, nvoNum, capNum);
+                    if (info.sinCambio) {
+                      return (
+                        <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
+                          El nivel del tanque se mantiene en {tankOriginalLiters.toLocaleString()} L.
+                        </Text>
+                      );
+                    }
+                    return (
+                      <View
+                        style={{
+                          backgroundColor: colors.surface,
+                          borderRadius: radius.sm,
+                          padding: spacing.sm,
+                          borderWidth: 1,
+                          borderColor: info.delta > 0 ? colors.success : colors.accent,
+                          marginTop: 4,
+                          gap: 3,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: '900',
+                            color: info.delta > 0 ? colors.success : colors.accent,
+                          }}
+                        >
+                          {info.delta > 0 ? `➕ Se sumarán +${info.delta.toLocaleString()} L` : `➖ Se descontarán ${info.delta.toLocaleString()} L`}{' '}
+                          en el tanque ({info.pctNuevo}% de capacidad)
+                        </Text>
+                        <TextInput
+                          value={tankAjusteMotivo}
+                          onChangeText={setTankAjusteMotivo}
+                          placeholder="Motivo u observación del ajuste (opcional)…"
+                          placeholderTextColor={colors.muted}
+                          style={{
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            borderRadius: radius.sm,
+                            paddingHorizontal: spacing.sm,
+                            paddingVertical: 6,
+                            fontSize: 12,
+                            color: colors.text,
+                            marginTop: 2,
+                          }}
+                        />
+                      </View>
+                    );
+                  })()}
                 </View>
               )}
 
@@ -535,13 +839,13 @@ export default function TanksShowcase() {
                     />
                   </View>
 
-                  {/* Selector con Buscador de Maquinaria vinculada (REGLA DEL PROYECTO: Código + PLACA) */}
+                  {/* Selector con Buscador de Maquinaria vinculada (REGLA DEL PROYECTO: Código + PLACA + SERIAL) */}
                   <View>
                     <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 2 }}>Vincular a Maquinaria del Catálogo (Chuto / Cisterna)</Text>
                     <TextInput
                       value={searchMachineryQuery}
                       onChangeText={setSearchMachineryQuery}
-                      placeholder="Buscar por código, placa o tipo…"
+                      placeholder="Buscar por código, placa, serial o tipo…"
                       placeholderTextColor={colors.muted}
                       style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, fontSize: 13, color: colors.text }}
                     />
@@ -549,11 +853,14 @@ export default function TanksShowcase() {
                     {tankMachineryId && (
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, marginTop: 4, borderWidth: 1, borderColor: colors.primary }}>
                         {(() => {
-                          const m = (machineryList || []).find((x) => x.id === tankMachineryId);
+                          const m: any = (machineryList || []).find((x) => x.id === tankMachineryId);
+                          const sn = String(m?.serial || m?.identifier || '').trim();
                           return (
                             <View style={{ flex: 1 }}>
                               <Text style={{ fontWeight: '800', color: colors.text, fontSize: 12 }}>{m?.code || 'Maquinaria vinculada'}</Text>
-                              <Text style={{ fontSize: 11, fontWeight: '800', color: colors.danger }}>PLACA: {m?.plate || 'SIN PLACA'}</Text>
+                              <Text style={{ fontSize: 11, fontWeight: '800', color: colors.danger }}>
+                                🚗 PLACA: {m?.plate || 'S/P'}{sn ? ` · 🔢 SERIAL: ${sn}` : ''}
+                              </Text>
                             </View>
                           );
                         })()}
@@ -564,21 +871,26 @@ export default function TanksShowcase() {
                     )}
 
                     {!tankMachineryId && searchMachineryQuery.trim() !== '' && (
-                      <View style={{ maxHeight: 120, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, marginTop: 2 }}>
+                      <View style={{ maxHeight: 140, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, marginTop: 2 }}>
                         <ScrollView nestedScrollEnabled>
-                          {filteredMachinery.map((m) => (
-                            <TouchableOpacity
-                              key={m.id}
-                              onPress={() => {
-                                setTankMachineryId(m.id);
-                                setSearchMachineryQuery('');
-                              }}
-                              style={{ padding: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', justifyContent: 'space-between' }}
-                            >
-                              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text }}>{m.code}</Text>
-                              <Text style={{ fontSize: 11, fontWeight: '800', color: colors.danger }}>PLACA: {m.plate || 'S/P'}</Text>
-                            </TouchableOpacity>
-                          ))}
+                          {filteredMachinery.map((m: any) => {
+                            const sn = String(m?.serial || m?.identifier || '').trim();
+                            return (
+                              <TouchableOpacity
+                                key={m.id}
+                                onPress={() => {
+                                  setTankMachineryId(m.id);
+                                  setSearchMachineryQuery('');
+                                }}
+                                style={{ padding: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}
+                              >
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text, flex: 1 }}>{m.code}</Text>
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.danger }}>
+                                  🚗 {m.plate || 'S/P'}{sn ? ` · 🔢 ${sn}` : ''}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
                         </ScrollView>
                       </View>
                     )}

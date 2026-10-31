@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, Modal, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { RList, RRow, RAmount, RPill, RBarChart } from '../../components/redesign/RList';
 import { useTheme } from '../../theme/ThemeContext';
@@ -10,6 +10,13 @@ import { useAuth } from '../../context/AuthContext';
 import { useTable } from '../../hooks/useTable';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../components/ToastProvider';
+import {
+  MARCADOR_AJUSTE_TANQUE,
+  agruparLitrosPorMaquinaTop,
+  esAjusteManualVisibleLegado,
+  esRegistroAjusteTanque,
+  etiquetaEquipoCombustible,
+} from '../../lib/fuelRules';
 
 const ASSET_OPTIONS = [
   { label: 'Vehículo', value: 'vehiculo' },
@@ -22,8 +29,9 @@ const fmtMonto = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLoc
 function TodayTotal({ rows }: { rows: Dispatch[] }) {
   const { colors } = useTheme();
   const today = caracasParts(new Date()).iso;
-  const total = rows.reduce((s, d: any) => (String(d.dispatch_date).slice(0, 10) === today ? s + (Number(d.liters) || 0) : s), 0);
-  const n = rows.filter((d: any) => String(d.dispatch_date).slice(0, 10) === today).length;
+  const validRows = rows.filter((d: any) => !esRegistroAjusteTanque(d));
+  const total = validRows.reduce((s, d: any) => (String(d.dispatch_date).slice(0, 10) === today ? s + (Number(d.liters) || 0) : s), 0);
+  const n = validRows.filter((d: any) => String(d.dispatch_date).slice(0, 10) === today).length;
   return (
     <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
       <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 12, letterSpacing: 0.5 }}>⛽ CONSUMIDO HOY</Text>
@@ -41,20 +49,15 @@ function TodayTotal({ rows }: { rows: Dispatch[] }) {
  *  (sobre las filas visibles = respeta búsqueda y rango de fecha). */
 function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
   const { colors } = useTheme();
-  const maq = rows.filter((d: any) => d.asset_kind === 'maquinaria');
+  const maq = rows.filter((d: any) => d.asset_kind === 'maquinaria' && !esRegistroAjusteTanque(d));
   if (maq.length === 0) return null;
   const byDay = new Map<string, number>();
-  const byMachine = new Map<string, number>();
   maq.forEach((d: any) => {
     const day = String(d.dispatch_date).slice(0, 10);
     byDay.set(day, (byDay.get(day) || 0) + (Number(d.liters) || 0));
-    const code = d.machine?.code || '—';
-    const plate = d.machine?.plate ? ` · 🚗 ${d.machine.plate}` : '';
-    const label = `${code}${plate}`;
-    byMachine.set(label, (byMachine.get(label) || 0) + (Number(d.liters) || 0));
   });
   const days = Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  const machines = Array.from(byMachine.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
+  const machines = agruparLitrosPorMaquinaTop(maq);
   const total = maq.reduce((s, d: any) => s + (Number(d.liters) || 0), 0);
   const box = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm } as const;
   const head = { color: colors.brandText, fontWeight: '900' as const, fontSize: 13, marginBottom: spacing.sm, letterSpacing: 0.3 };
@@ -71,7 +74,7 @@ function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
       </View>
       <View style={box}>
         <Text style={head}>🚜 LITROS POR MÁQUINA (TOP)</Text>
-        <RBarChart data={machines.slice(0, 12).map(([label, value]) => ({ label, value }))} fmt={fmtL} />
+        <RBarChart data={machines.slice(0, 12).map((m) => ({ label: m.label, value: m.value }))} fmt={fmtL} />
         {machines.length > 12 ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>+{machines.length - 12} máquina(s) más…</Text> : null}
       </View>
     </>
@@ -200,6 +203,36 @@ export default function DispatchesPilot() {
     }
   };
 
+  const cleanedIdsRef = useRef<Set<string>>(new Set());
+
+  // Convierte automáticamente cualquier registro legado con "ajuste manual visible" o
+  // "ajuste visible" a un ajuste interno de tanque SIN borrarlo de la tabla (para que
+  // el trigger NO reponga los litros en el tanque), ocultándolo de Consumos.
+  const limpiarAjustesVisiblesLegados = useCallback(
+    async (rows: Dispatch[], refetch: () => void) => {
+      const legados = (rows || []).filter(
+        (r) => esAjusteManualVisibleLegado(r) && !cleanedIdsRef.current.has(r.id)
+      );
+      if (legados.length === 0) return;
+      let changed = false;
+      for (const r of legados) {
+        cleanedIdsRef.current.add(r.id);
+        const prev = String(r.driver_operator || '').trim();
+        const { error } = await supabase
+          .from('dispatches')
+          .update({
+            driver_operator: `${MARCADOR_AJUSTE_TANQUE} ${prev || 'Ajuste de nivel en tanque'}`,
+          })
+          .eq('id', r.id);
+        if (!error) changed = true;
+      }
+      if (changed) refetch();
+    },
+    []
+  );
+
+  const filtrarConsumosReales = useCallback((d: Dispatch) => !esRegistroAjusteTanque(d), []);
+
   return (
     <>
       <RList<Dispatch>
@@ -207,10 +240,12 @@ export default function DispatchesPilot() {
         table="dispatches"
         orderBy="dispatch_date"
         ascending={false}
-        select="*, machine:machinery_id(code, plate, serial, tipo), vehicle:vehicle_id(plate, name, model), tank:tank_id(id, name, fuel, is_mobile, responsable, chofer)"
+        select="*, machine:machinery_id(code, plate, serial, identifier, tipo), vehicle:vehicle_id(plate, name, model, serial, identifier), tank:tank_id(id, name, fuel, is_mobile, responsable, chofer)"
         editable
         dateField="dispatch_date"
         defaultToday
+        baseFilter={filtrarConsumosReales}
+        onDataLoaded={limpiarAjustesVisiblesLegados}
         emptyIcon="⛽"
         emptyTitle="Sin consumos"
         emptySubtitle="Registra los despachos a vehículos o maquinaria."
@@ -221,10 +256,13 @@ export default function DispatchesPilot() {
           d.machine?.code,
           d.machine?.plate,
           d.machine?.serial,
+          d.machine?.identifier,
           d.machine?.tipo,
           d.vehicle?.plate,
           d.vehicle?.name,
           d.vehicle?.model,
+          d.vehicle?.serial,
+          d.vehicle?.identifier,
           d.tank?.name,
           d.tank?.responsable,
           d.tank?.chofer,
@@ -312,8 +350,8 @@ export default function DispatchesPilot() {
           // decidir) — no deben poder recibir combustible hasta que se les dé de alta
           // de verdad. Uno CREADO aquí mismo (createColumn) no entra en esta regla:
           // nace con en_espera=false (default de la columna), porque se está usando ya.
-          { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
-          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate'], filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
+          { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', subLabelCols: ['name', 'serial', 'identifier'], createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
+          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['plate', 'serial', 'identifier'], filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
           { key: 'liters', label: 'Litros despachados *', type: 'number', required: true },
           { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
           { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },
@@ -326,12 +364,30 @@ export default function DispatchesPilot() {
           const tank = (d as any).tank;
           const suggestedTank = !tank ? findTankForDriver(d.driver_operator) : null;
           const isRowBusy = assigningRowId === d.id;
+          const infoEquipo = etiquetaEquipoCombustible(d);
 
           return (
             <>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <RAmount tone="brand">{Number(d.liters).toLocaleString()} L</RAmount>
                 <RPill label={String(d.asset_kind).toUpperCase()} tone="neutral" />
+              </View>
+              {/* Encabezado destacado del equipo con Código + Placa + Serial */}
+              <View
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.sm,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  marginTop: 6,
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                  {d.asset_kind === 'maquinaria' ? '🚜 ' : '🚗 '}
+                  {infoEquipo.etiquetaGrafica}
+                </Text>
               </View>
               <View style={{ marginTop: 6 }}>
                 <RRow label="Fecha" value={d.dispatch_date} />
@@ -399,7 +455,13 @@ export default function DispatchesPilot() {
                     />
                     <RRow
                       label="🔢 Serial"
-                      value={mach.serial ? String(mach.serial).trim() : 'S/S (Sin serial)'}
+                      value={
+                        mach.serial
+                          ? String(mach.serial).trim()
+                          : mach.identifier
+                          ? String(mach.identifier).trim()
+                          : 'S/S (Sin serial)'
+                      }
                       mono
                     />
                     {mach.tipo ? <RRow label="Tipo" value={mach.tipo} /> : null}
@@ -417,6 +479,13 @@ export default function DispatchesPilot() {
                       value={veh.plate ? String(veh.plate).trim() : 'S/P (Sin placa)'}
                       mono
                     />
+                    {veh.serial || veh.identifier ? (
+                      <RRow
+                        label="🔢 Serial"
+                        value={String(veh.serial || veh.identifier).trim()}
+                        mono
+                      />
+                    ) : null}
                   </>
                 ) : null}
                 {d.driver_operator ? <RRow label="Conductor/Operador" value={d.driver_operator} /> : null}

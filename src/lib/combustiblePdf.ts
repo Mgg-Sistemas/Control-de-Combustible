@@ -189,6 +189,7 @@ export interface FilaDespachoSurtidorPdf {
   hora: string;
   equipoCodigo: string;
   equipoPlaca: string;
+  equipoSerial?: string | null;
   tanqueNombre: string;
   litros: number;
   contadorIni?: number | null;
@@ -211,7 +212,13 @@ export async function exportarJornadaSurtidorPdf(datos: DatosJornadaSurtidorPdf)
   const rows = datos.despachos
     .map((d, idx) => {
       const bg = idx % 2 === 0 ? '#ffffff' : '#f9fafb';
-      const maqLabel = [d.equipoCodigo, d.equipoPlaca ? `<span style="color:#b91c1c; font-weight:800;">[PLACA: ${esc(d.equipoPlaca)}]</span>` : ''].filter(Boolean).join(' ');
+      const maqLabel = [
+        esc(d.equipoCodigo),
+        `<span style="color:#b91c1c; font-weight:800;">[PLACA: ${esc(d.equipoPlaca || 'S/P')}]</span>`,
+        d.equipoSerial ? `<span style="color:#1e3a5f; font-weight:700;">[SERIAL: ${esc(d.equipoSerial)}]</span>` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
       const contadores = d.contadorIni != null && d.contadorFin != null ? `${fmtNum(d.contadorIni)} ➔ ${fmtNum(d.contadorFin)}` : '—';
       const horometros = d.horometroIni != null && d.horometroFin != null ? `${fmtNum(d.horometroIni)} ➔ ${fmtNum(d.horometroFin)} (${fmtNum(d.horasTrabajadas)}h)` : '—';
 

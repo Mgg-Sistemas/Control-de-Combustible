@@ -146,6 +146,7 @@ export interface DatosMensajeCombustible {
   tanqueDestinoNombre?: string | null;
   equipoCodigo?: string | null;
   equipoPlaca?: string | null;
+  equipoSerial?: string | null;
   litros: number;
   contadorIni?: number | null;
   contadorFin?: number | null;
@@ -169,7 +170,13 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
     lineas.push('⛽ *COMPROBANTE DE SURTIDO - COMBUSTIBLE*');
     lineas.push('');
     lineas.push(`🛢️ *Tanque origen:* ${d.tanqueNombre}`);
-    const eqLabel = [d.equipoCodigo, d.equipoPlaca ? `(Placa: ${d.equipoPlaca})` : ''].filter(Boolean).join(' ');
+    const eqLabel = [
+      d.equipoCodigo,
+      `(Placa: ${d.equipoPlaca || 'S/P'})`,
+      d.equipoSerial ? `(Serial: ${d.equipoSerial})` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     lineas.push(`🚜 *Equipo / Maquinaria:* ${eqLabel || 'Vehículo general'}`);
     lineas.push(`💧 *Litros surtidos:* ${d.litros.toLocaleString('es-VE')} L`);
     if (d.contadorIni != null || d.contadorFin != null) {
@@ -228,4 +235,222 @@ export async function compartirPorWhatsapp(d: DatosMensajeCombustible): Promise<
   } catch (err) {
     console.warn('No se pudo abrir WhatsApp:', err);
   }
+}
+
+/* ============================================================
+   Identificación de Maquinaria / Vehículo con Placa y Serial
+   y Ajustes Internos de Nivel de Tanque
+   ============================================================ */
+
+export const MARCADOR_AJUSTE_TANQUE = '[AJUSTE_TANQUE_OCULTO]';
+
+const normTxt = (s: any): string =>
+  String(s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * Detecta el registro legado colocado como "ajuste manual visible" o "ajuste visible"
+ * para convertirlo/ocultarlo de Consumos SIN reponer los litros al tanque.
+ */
+export function esAjusteManualVisibleLegado(row: any): boolean {
+  if (!row || typeof row !== 'object') return false;
+  const raw = [
+    row.driver_operator,
+    row.justification,
+    row.authorized_by,
+    row.area,
+    row.station,
+    row.supplier,
+    row.notes,
+    row.invoice_no,
+    row.reason,
+    row.machine?.code,
+    row.vehicle?.name,
+    row.vehicle?.plate,
+  ]
+    .map((v) => String(v ?? ''))
+    .join(' | ');
+  if (raw.includes(MARCADOR_AJUSTE_TANQUE)) return false;
+  const n = normTxt(raw);
+  return (
+    /ajuste\s+manual\s+visible/.test(n) ||
+    /ajuste\s+visible/.test(n) ||
+    /ajuste\s+manual\s+de\s+tanque/.test(n)
+  );
+}
+
+/**
+ * Indica si una fila de `dispatches` o `fuel_intakes` corresponde a un ajuste directo
+ * de nivel de tanque (o un consumo eliminado sin reponer al tanque) y NO debe mostrarse
+ * como consumo de maquinaria ni ingreso regular.
+ */
+export function esRegistroAjusteTanque(row: any): boolean {
+  if (!row || typeof row !== 'object') return false;
+  const raw = [
+    row.driver_operator,
+    row.justification,
+    row.authorized_by,
+    row.area,
+    row.station,
+    row.supplier,
+    row.notes,
+    row.invoice_no,
+    row.reason,
+  ]
+    .map((v) => String(v ?? ''))
+    .join(' | ');
+  if (raw.includes(MARCADOR_AJUSTE_TANQUE) || /\[AJUSTE_TANQUE/i.test(raw)) {
+    return true;
+  }
+  return esAjusteManualVisibleLegado(row);
+}
+
+export interface EtiquetaEquipoCombustible {
+  clave: string;
+  codigo: string;
+  placa: string;
+  serial: string;
+  etiquetaGrafica: string;
+  etiquetaCompleta: string;
+}
+
+/**
+ * Formatea siempre el equipo (maquinaria o vehículo) mostrando Código + Placa + Serial.
+ * En maquinaria pesada sin placa (S/P), muestra siempre su Serial o Identificador para
+ * distinguir unidades homónimas (ej. dos JUMBO CON MARTILLO distintos).
+ */
+export function etiquetaEquipoCombustible(d: any): EtiquetaEquipoCombustible {
+  const mach = d?.machine;
+  const veh = d?.vehicle;
+
+  if (mach || d?.asset_kind === 'maquinaria' || d?.machinery_id) {
+    const codigo = String(mach?.code || 'MAQUINARIA').trim();
+    const placaReal = String(mach?.plate || '').trim();
+    const placa = placaReal || 'S/P';
+    const serial = String(mach?.serial || mach?.identifier || '').trim();
+
+    let etiquetaGrafica = `${codigo} · 🚗 ${placa}`;
+    if (serial) {
+      etiquetaGrafica =
+        placaReal
+          ? `${codigo} · 🚗 ${placaReal} · 🔢 ${serial}`
+          : `${codigo} · 🚗 S/P · 🔢 ${serial}`;
+    }
+
+    const etiquetaCompleta = `${codigo} · 🚗 PLACA: ${placa} · 🔢 SERIAL: ${serial || 'S/S'}`;
+    const clave = d?.machinery_id
+      ? `maq:${d.machinery_id}`
+      : `maq_lbl:${codigo}|${placa}|${serial}`;
+
+    return {
+      clave,
+      codigo,
+      placa,
+      serial: serial || 'S/S',
+      etiquetaGrafica,
+      etiquetaCompleta,
+    };
+  }
+
+  if (veh || d?.asset_kind === 'vehiculo' || d?.vehicle_id) {
+    const nombre = String(veh?.name || veh?.model || 'VEHÍCULO').trim();
+    const placaReal = String(veh?.plate || '').trim();
+    const placa = placaReal || 'S/P';
+    const serial = String(veh?.serial || veh?.identifier || '').trim();
+
+    const etiquetaGrafica = serial
+      ? `${nombre} · 🚗 ${placa} · 🔢 ${serial}`
+      : `${nombre} · 🚗 ${placa}`;
+    const etiquetaCompleta = `${nombre} · 🚗 PLACA: ${placa}${serial ? ` · 🔢 SERIAL: ${serial}` : ''}`;
+    const clave = d?.vehicle_id
+      ? `veh:${d.vehicle_id}`
+      : `veh_lbl:${nombre}|${placa}|${serial}`;
+
+    return {
+      clave,
+      codigo: nombre,
+      placa,
+      serial: serial || 'S/S',
+      etiquetaGrafica,
+      etiquetaCompleta,
+    };
+  }
+
+  return {
+    clave: 'sin_equipo',
+    codigo: '—',
+    placa: 'S/P',
+    serial: 'S/S',
+    etiquetaGrafica: '— · 🚗 S/P',
+    etiquetaCompleta: '— · 🚗 PLACA: S/P · 🔢 SERIAL: S/S',
+  };
+}
+
+/**
+ * Agrupa los consumos por unidad física (machinery_id / vehicle_id) mostrando siempre
+ * su Placa y/o Serial en la gráfica "🚜 LITROS POR MÁQUINA (TOP)".
+ */
+export function agruparLitrosPorMaquinaTop(
+  rows: any[]
+): { key: string; label: string; value: number }[] {
+  const map = new Map<string, { key: string; label: string; value: number }>();
+  for (const r of rows || []) {
+    if (esRegistroAjusteTanque(r)) continue;
+    // En la gráfica de Litros por Máquina, priorizar maquinarias; si no tiene machine ni vehicle, ignorar ajustes
+    if (!r?.machine && !r?.machinery_id && !r?.vehicle && !r?.vehicle_id) continue;
+    // Si tiene machine o es maquinaria (o vehículo cuando no hay machine):
+    if (!r?.machine && r?.asset_kind !== 'maquinaria' && !r?.machinery_id) continue;
+
+    const info = etiquetaEquipoCombustible(r);
+    const prev = map.get(info.clave);
+    const litros = Number(r?.liters) || 0;
+    if (prev) {
+      prev.value = r2(prev.value + litros);
+    } else {
+      map.set(info.clave, {
+        key: info.clave,
+        label: info.etiquetaGrafica,
+        value: r2(litros),
+      });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.value - a.value);
+}
+
+export interface ResultadoCalculoAjusteTanque {
+  litrosActuales: number;
+  nuevoNivel: number;
+  delta: number;
+  pctNuevo: number;
+  excedeCapacidad: boolean;
+  esNegativo: boolean;
+  sinCambio: boolean;
+}
+
+/**
+ * Calcula la diferencia exacta (delta) para ajustar el nivel actual de un tanque.
+ */
+export function calcularDiferenciaAjusteTanque(
+  litrosActuales: number | null | undefined,
+  nuevoNivel: number | null | undefined,
+  capacidadLitros?: number | null
+): ResultadoCalculoAjusteTanque {
+  const act = r2(Math.max(0, Number(litrosActuales) || 0));
+  const nvo = r2(Number(nuevoNivel) || 0);
+  const delta = r2(nvo - act);
+  const cap = Number(capacidadLitros) || 0;
+  const pctNuevo = cap > 0 ? Math.round((nvo / cap) * 1000) / 10 : 0;
+  return {
+    litrosActuales: act,
+    nuevoNivel: nvo,
+    delta,
+    pctNuevo,
+    excedeCapacidad: cap > 0 && nvo > cap + 0.01,
+    esNegativo: nvo < 0,
+    sinCambio: Math.abs(delta) < 0.01,
+  };
 }
