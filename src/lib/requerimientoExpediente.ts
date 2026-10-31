@@ -12,6 +12,7 @@ import { GOLDEN_TOUCH_LOGO_DATA_URI } from './logoGoldenTouchData';
 import { LOGO_DATA_URI } from './logoData';
 import { FIRMA_DATA_URI, FIRMA2_DATA_URI } from './firmaData';
 import type { InventoryRequirement, RequirementLine } from '../types/database';
+import { precioUnitarioUsdLinea, totalUsdLinea } from './requerimientoFlujo';
 
 export type EmpresaFactura = string;
 
@@ -96,6 +97,9 @@ export interface ExpedienteCompletoPdfData {
     unit?: string | null;
     qty: number;
     est_price: number;
+    price_usd?: number;
+    total_usd?: number;
+    modo_precio?: 'unidad' | 'total';
     currency: string;
     note?: string | null;
     image_url?: string | null;
@@ -526,13 +530,16 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
     unit: it.unit,
     qty: it.qty,
     est_price: it.est_price,
+    price_usd: it.price_usd,
+    total_usd: it.total_usd,
+    modo_precio: it.modo_precio,
     currency: it.currency || 'USD',
     note: it.note,
     image_url: it.image_url,
     supplier_name: it.supplier_name,
   }));
 
-  const totalUsd = items.reduce((sum, it) => sum + (Number(it.est_price) || 0) * (Number(it.qty) || 0), 0);
+  const totalUsd = items.reduce((sum, it) => sum + totalUsdLinea(it), 0);
 
   // 1. Sección Requerimiento y Destino
   const obsLimpias = limpiarObservacionesUsuario(r.observaciones);
@@ -590,7 +597,7 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
   const fotosItems = items.filter((it) => it.image_url);
   const rowsItemsHtml = items
     .map((it, idx) => {
-      const subtotal = (Number(it.est_price) || 0) * (Number(it.qty) || 0);
+      const subtotal = totalUsdLinea(it);
       return `
         <tr>
           <td style="text-align:center;font-weight:800">${idx + 1}</td>
@@ -600,7 +607,7 @@ export function expedienteCompletoHtml(d: ExpedienteCompletoPdfData): string {
             ${it.supplier_name ? `<div style="font-size:9px;color:#059669;font-weight:700;">🏢 Proveedor del ítem: ${esc(it.supplier_name)}</div>` : ''}
           </td>
           <td style="text-align:center">${it.qty} ${esc(it.unit || 'UND')}</td>
-          <td style="text-align:right">$${money(it.est_price)}</td>
+          <td style="text-align:right">$${money(precioUnitarioUsdLinea(it))}</td>
           <td style="text-align:right;font-weight:800">$${money(subtotal)}</td>
         </tr>
       `;

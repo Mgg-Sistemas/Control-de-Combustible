@@ -404,6 +404,36 @@ export interface InfoEstadoRequerimiento {
 }
 
 /**
+ * PRECIO UNITARIO EN US$ DE UN RENGLÓN — la regla única (30-oct-2026).
+ * Un renglón guarda el precio en dos campos: `est_price` (el de siempre) y
+ * `price_usd` (el explícito en dólares que muestra la tarjeta del requerimiento).
+ * Si quedan distintos manda `price_usd`, igual que en la tarjeta; antes Por pagar
+ * sumaba `est_price` y salía otro monto (REQ-0185: $204,12 contra $343).
+ * La base calcula lo mismo en req_sync_compra.
+ */
+export function precioUnitarioUsdLinea(
+  it: { qty?: number | string | null; est_price?: number | string | null; price_usd?: number | string | null;
+        total_usd?: number | string | null; modo_precio?: string | null; currency?: string | null },
+  rateBcv?: number | null
+): number {
+  const qty = Number(it.qty) || 0;
+  if (it.modo_precio === 'total' && Number(it.total_usd) > 0 && qty > 0) return Number(it.total_usd) / qty;
+  if (Number(it.price_usd) > 0) return Number(it.price_usd);
+  const est = Number(it.est_price) || 0;
+  const rate = Number(rateBcv) || 1;
+  return !it.currency || it.currency === 'USD' ? est : est / rate;
+}
+
+/** Total de la línea en US$ con la misma regla. */
+export function totalUsdLinea(
+  it: Parameters<typeof precioUnitarioUsdLinea>[0],
+  rateBcv?: number | null
+): number {
+  if (it.modo_precio === 'total' && Number(it.total_usd) > 0) return Number(it.total_usd);
+  return precioUnitarioUsdLinea(it, rateBcv) * (Number(it.qty) || 0);
+}
+
+/**
  * Calcula el monto total en USD de una lista de renglones de requerimiento,
  * considerando ítems exentos y alícuota de IVA si aplica.
  */
@@ -413,16 +443,7 @@ export function calcularTotalReqUsd(
   alicuotaIva?: number | null
 ): number {
   if (!items || items.length === 0) return 0;
-  const rate = Number(rateBcv) || 1;
-  const lineTotalUsd = (it: RequirementLine) => {
-    if (it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0) {
-      return Number(it.total_usd);
-    }
-    const qty = Number(it.qty) || 0;
-    const estPrice = Number(it.est_price) || 0;
-    const priceUsd = it.currency === 'USD' ? estPrice : estPrice / rate;
-    return priceUsd * qty;
-  };
+  const lineTotalUsd = (it: RequirementLine) => totalUsdLinea(it, rateBcv);
   const subtotal = items.reduce((sum, it) => sum + lineTotalUsd(it), 0);
 
   let alicFinal = alicuotaIva;

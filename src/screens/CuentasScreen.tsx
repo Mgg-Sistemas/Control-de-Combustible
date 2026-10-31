@@ -106,6 +106,8 @@ import {
 import {
   obtenerConfigAprobacionMonto,
   guardarConfigAprobacionMonto,
+  precioUnitarioUsdLinea,
+  totalUsdLinea,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
 import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
@@ -218,16 +220,7 @@ export function resolverDesgloseIvaCuenta(
 ): DesgloseIvaCuenta {
   const montoCuenta = Number(c.monto) || 0;
   if (reqVinc && Array.isArray(reqVinc.items) && reqVinc.items.length > 0) {
-    const rate = Number(tasaBcv) || 1;
-    const lineTotalUsd = (it: RequirementLine) => {
-      if (it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0) {
-        return Number(it.total_usd);
-      }
-      const q = Number(it.qty) || 0;
-      const estPrice = Number(it.est_price) || 0;
-      const priceUsd = it.currency === 'USD' ? estPrice : estPrice / rate;
-      return priceUsd * q;
-    };
+    const lineTotalUsd = (it: RequirementLine) => totalUsdLinea(it, tasaBcv);
     const subtotal = Math.round(reqVinc.items.reduce((s, it) => s + lineTotalUsd(it), 0) * 100) / 100;
     const exento = Math.round(reqVinc.items.reduce((s, it) => it.exento ? s + lineTotalUsd(it) : s, 0) * 100) / 100;
     const baseImponible = Math.max(0, Math.round((subtotal - exento) * 100) / 100);
@@ -629,7 +622,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         name: String(it.name || ''),
         qty: String(Number(it.qty) || 1),
         unit: String(it.unit || 'und'),
-        unitUsd: String(Number(it.est_price ?? it.price_usd) || 0),
+        unitUsd: String(Math.round(precioUnitarioUsdLinea(it, tasaBcv) * 10000) / 10000),
         note: String(it.note || ''),
         exento: Boolean(it.exento),
         item_id: (it as any).item_id ?? it.product_id ?? null,
@@ -3154,8 +3147,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           : [{ item_id: null, name: c.concepto, qty: 1, unit: 'und', est_price: Number(c.monto) || 0, note: null }]
                         ).map((it, idx) => {
                           const qty = Number(it.qty) || 0;
-                          const unitP = Number(it.est_price) || 0;
-                          const sub = Math.round(qty * unitP * 100) / 100;
+                          const unitP = precioUnitarioUsdLinea(it as RequirementLine, tasaBcv);
+                          const sub = Math.round(totalUsdLinea(it as RequirementLine, tasaBcv) * 100) / 100;
                           return (
                             <View
                               key={`item-${c.id}-${idx}`}
@@ -3986,13 +3979,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   {(() => {
                     const reqObj = reqAtado || (edit ? requirements.find((r) => r.id === edit.inventory_requirement_id) : null);
                     if (!reqObj || !Array.isArray(reqObj.items) || reqObj.items.length === 0) return null;
-                    const rate = Number(tasaBcv) || 1;
-                    const lineTot = (it: RequirementLine) => {
-                      if (it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0) return Number(it.total_usd);
-                      const q = Number(it.qty) || 0;
-                      const p = it.currency === 'USD' ? (Number(it.est_price) || 0) : ((Number(it.est_price) || 0) / rate);
-                      return q * p;
-                    };
+                    const lineTot = (it: RequirementLine) => totalUsdLinea(it, tasaBcv);
                     const sub = Math.round(reqObj.items.reduce((s, it) => s + lineTot(it), 0) * 100) / 100;
                     const exe = Math.round(reqObj.items.reduce((s, it) => it.exento ? s + lineTot(it) : s, 0) * 100) / 100;
                     const base = Math.max(0, Math.round((sub - exe) * 100) / 100);

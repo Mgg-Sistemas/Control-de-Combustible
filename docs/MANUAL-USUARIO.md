@@ -8220,6 +8220,12 @@ Proveedores y Resumen.
 > **🧾 La pestaña Órdenes se ocultó** *(29/10/2026)*: repetía lo del requerimiento y Por pagar (cada
 > requerimiento aprobado genera su orden solo, por dentro). El proveedor, la recepción y la anulación se
 > hacen en el requerimiento o en Por pagar. Nada se borró: el 📊 Resumen de gasto sigue contando las órdenes.
+> **💲 Por pagar cobra lo mismo que dice el requerimiento** *(30/10/2026)*. Cada renglón guarda su precio
+> dos veces (el estimado y el precio en US$). Si alguna vez quedaban distintos, la tarjeta del requerimiento
+> mostraba el precio en US$ y Por pagar sumaba el estimado viejo, así que el monto no cuadraba (un caso real:
+> $343 más IVA en el requerimiento y $204,12 en Por pagar). Ahora **todo usa la misma regla**: la tarjeta,
+> Por pagar, el editor de ítems de Por pagar, la orden y los PDF. Si un monto no te cuadra, abre
+> ✏️ Editar en el requerimiento y vuelve a guardar: la cuenta se recalcula sola (salvo que ya esté pagada).
 > **❄️ Aires acondicionados: se cargan a mano y se pueden eliminar** *(29/10/2026)*. La lista ya no inventa
 > las 37 unidades de relleno: muestra solo los aires que se carguen con **«+ Unidad»**. Cada aire tiene
 > **🗑️ Eliminar**, y marcando varios (☑) sale **«🗑️ Eliminar los N marcados»**; siempre pide confirmar.

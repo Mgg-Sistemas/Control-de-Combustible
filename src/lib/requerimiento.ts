@@ -154,7 +154,8 @@ function reqTableHtml(d: ReqPdfData): {
 
   const rows = d.items.map((it, i) => {
     const qty = Number(it.qty) || 0;
-    const rawUnitUsd = toUsd(Number(it.est_price) || 0, it.currency, d.rate);
+    // Si el renglón trae su precio explícito en US$ manda ese (misma regla que la tarjeta y Por pagar).
+    const rawUnitUsd = Number(it.price_usd) > 0 ? Number(it.price_usd) : toUsd(Number(it.est_price) || 0, it.currency, d.rate);
     const esModoTotal = it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0;
     const lineUsd = esModoTotal ? Number(it.total_usd) : rawUnitUsd * qty;
     const uUsd = esModoTotal ? (qty > 0 ? lineUsd / qty : lineUsd) : rawUnitUsd;
