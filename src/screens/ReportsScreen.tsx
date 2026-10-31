@@ -89,7 +89,7 @@ import { normalizeDept } from '../lib/personal';
 // El PDF del conteo por tipo: qué se oculta, y las medidas de tolva.
 import {
   OPCIONES_CONTEO_COMPLETO, PASTILLAS_CONTEO, alternarConteo, columnasConteo,
-  ocultosConteoEnPalabras, sufijoArchivoConteo, tituloMarcaModeloConteo, marcaModeloConteo,
+  ocultosConteoEnPalabras, ocultosConteoLista, sufijoArchivoConteo, tituloMarcaModeloConteo, marcaModeloConteo,
   conteoSinContenido, TITULO_COLUMNA, COLUMNA_NUMERICA,
   type OpcionesConteo, type ColumnaConteo,
 } from '../lib/conteoTipoOpciones';
@@ -767,6 +767,10 @@ export default function ReportsScreen({ route }: any) {
   const [cajasVolOcultas, setCajasVolOcultas] = useState<Set<string>>(new Set());
   const toggleCajaVol = (k: string) =>
     setCajasVolOcultas((prev) => { const x = new Set(prev); x.has(k) ? x.delete(k) : x.add(k); return x; });
+  /** Ocultar o colocar el Frente de trabajo y el Estado de la maquinaria en el reporte de conteo. */
+  const [sinFrenteConteo, setSinFrenteConteo] = useState(false);
+  const [sinCuadroFrenteConteo, setSinCuadroFrenteConteo] = useState(false);
+  const [sinEstadoConteo, setSinEstadoConteo] = useState(false);
   /**
    * Medidas de tolva cargadas en «Cubicaje y volumen», por id de máquina.
    *
@@ -3226,18 +3230,33 @@ export default function ReportsScreen({ route }: any) {
     const bloqueClasif = o.sinClasificacion ? '' : cuadro('Cantidad por clasificación',
       [...porClasif.entries()].sort((a, b) => cmpText(a[0], b[0])));
     const hayFrenteReal = [...porFrenteMap.keys()].some((k) => k !== 'Sin frente') || porFrente || frentesSel.size > 0;
-    const bloqueFrentes = o.sinClasificacion || !hayFrenteReal ? '' : cuadro('Cantidad por frente de trabajo',
+    const bloqueFrentes = sinCuadroFrenteConteo || sinFrenteConteo || !hayFrenteReal ? '' : cuadro('Cantidad por frente de trabajo',
       [...porFrenteMap.entries()].sort((a, b) => (a[0] === 'Sin frente' ? 1 : b[0] === 'Sin frente' ? -1 : cmpText(a[0], b[0]))));
 
     // ── El listado, columna por columna ──────────────────────────────────
-    const cols = columnasConteo(o);
-    const titulo = (c: ColumnaConteo) => (c === 'marcaModelo' ? (tituloMarcaModeloConteo(o) ?? '') : TITULO_COLUMNA[c]);
-    const al = (c: ColumnaConteo) => (COLUMNA_NUMERICA[c] ? ' style="text-align:right"' : '');
+    const cols = columnasConteo(o) as (ColumnaConteo | 'frente' | 'estado')[];
+    if (!sinFrenteConteo) {
+      const idxCub = cols.indexOf('alto');
+      if (idxCub >= 0) cols.splice(idxCub, 0, 'frente');
+      else cols.push('frente');
+    }
+    if (!sinEstadoConteo) {
+      const idxCub = cols.indexOf('alto');
+      if (idxCub >= 0) cols.splice(idxCub, 0, 'estado');
+      else cols.push('estado');
+    }
+    const titulo = (c: ColumnaConteo | 'frente' | 'estado') => (
+      c === 'marcaModelo' ? (tituloMarcaModeloConteo(o) ?? '')
+      : c === 'frente' ? 'Frente de trabajo'
+      : c === 'estado' ? 'Estado'
+      : TITULO_COLUMNA[c]
+    );
+    const al = (c: ColumnaConteo | 'frente' | 'estado') => (c !== 'frente' && c !== 'estado' && COLUMNA_NUMERICA[c] ? ' style="text-align:right"' : '');
     const dec = (n: number) => (Number.isFinite(n) && n > 0 ? n.toFixed(2) : '');
 
     /** Una celda. `medida` puede ser null: ahí las cuatro del cubicaje van EN
      *  BLANCO. Poner un cero diría que esa tolva no carga nada. */
-    const celda = (c: ColumnaConteo, m: MachineDetail, i: number): string => {
+    const celda = (c: ColumnaConteo | 'frente' | 'estado', m: MachineDetail, i: number): string => {
       const med = o.sinCubicaje ? null : medidaDeMaquina(m);
       switch (c) {
         case 'n': return String(i + 1);
@@ -3245,6 +3264,8 @@ export default function ReportsScreen({ route }: any) {
         case 'marcaModelo': return marcaModeloConteo(m, o) || '\u2014';
         case 'placa': return [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ') || '\u2014';
         case 'encargado': return m.encargado || '\u2014';
+        case 'frente': return m.frente || 'Sin frente';
+        case 'estado': return ESTADO_CONTEO_INFO[m.estadoReal]?.label ?? (m.estado === 'activo' ? 'Operativa' : m.estado === 'inactivo' ? 'Inactiva' : 'En espera');
         case 'alto': return med ? dec(med.alto) : '';
         case 'largo': return med ? dec(med.largo) : '';
         case 'ancho': return med ? dec(med.ancho) : '';
@@ -3289,19 +3310,30 @@ export default function ReportsScreen({ route }: any) {
         )).join('')}</tr></tfoot>`
       }</table>`;
 
+    const ocultosExtras = [
+      sinFrenteConteo ? 'frente de trabajo' : '',
+      !sinFrenteConteo && sinCuadroFrenteConteo ? 'cantidad por frente' : '',
+      sinEstadoConteo ? 'estado de la máquina' : '',
+    ].filter(Boolean);
+    const ocultosBase = ocultosConteoLista(o);
+    const todosOcultos = [...ocultosBase, ...ocultosExtras];
+    const textoOcultosFinal = todosOcultos.length
+      ? `Se oculta: ${todosOcultos.join(' · ')}. Los totales no cambian.`
+      : ocultosConteoEnPalabras(o);
+
     // El cuadro del final: de dónde salió cada cosa. Un reporte que esconde algo
     // sin decirlo miente por omisión.
     const bloqueAlcance = o.sinAlcance ? '' : `
       <h2 style="font-size:14px;color:${RENACE_NAVY};margin:14px 0 4px">Alcance de este informe</h2>
       <table><tbody>
         <tr><td style="width:38%"><b>Tipos de equipo</b></td><td>${sel.length ? esc(sel.map((t) => t.name).join(' · ')) : '\u2014'}</td></tr>
-        <tr><td><b>Estado</b></td><td>${esc(estadoLbl)}</td></tr>
+        ${sinEstadoConteo ? '' : `<tr><td><b>Estado</b></td><td>${esc(estadoLbl)}</td></tr>`}
         <tr><td><b>${porCategoria ? 'Categorías' : porFrente ? 'Frentes' : 'Empresas'}</b></td><td>${o.sinEmpresas ? `${empresas.length} grupo(s)` : esc(empresas.map((e) => e.company).join(' · ')) || '\u2014'}</td></tr>
         ${empresasSel.size && (porCategoria || porFrente) ? `<tr><td><b>Empresas filtradas</b></td><td>${esc([...empresasSel].join(' · '))}</td></tr>` : ''}
         ${clasSel.size ? `<tr><td><b>Categorías filtradas</b></td><td>${esc([...clasSel].join(' · '))}</td></tr>` : ''}
-        ${frentesSel.size ? `<tr><td><b>Frentes filtrados</b></td><td>${esc([...frentesSel].join(' · '))}</td></tr>` : ''}
+        ${frentesSel.size && !sinFrenteConteo ? `<tr><td><b>Frentes filtrados</b></td><td>${esc([...frentesSel].join(' · '))}</td></tr>` : ''}
         ${maqFuera.size ? `<tr><td><b>Equipos excluidos</b></td><td>${esc(textoExclusiones(maquinasDeTipos.length, maqFuera.size))}</td></tr>` : ''}
-        <tr><td><b>Se ocultó</b></td><td>${esc(ocultosConteoEnPalabras(o))}</td></tr>
+        <tr><td><b>Se ocultó</b></td><td>${esc(textoOcultosFinal)}</td></tr>
         ${o.sinCubicaje ? '' : `<tr><td><b>Medidas de tolva</b></td><td>${esc(NOTA_ORIGEN)}</td></tr>`}
       </tbody></table>`;
 
@@ -5186,9 +5218,37 @@ export default function ReportsScreen({ route }: any) {
                           </TouchableOpacity>
                         );
                       })}
+                      {/* Ocultar o colocar el Frente de trabajo y el Estado de la maquinaria */}
+                      <TouchableOpacity
+                        onPress={() => setSinFrenteConteo((v) => !v)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: sinFrenteConteo ? colors.warning : colors.border, backgroundColor: sinFrenteConteo ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                      >
+                        <Text style={{ color: sinFrenteConteo ? '#FFFFFF' : colors.text, fontSize: 12, fontWeight: '700' }}>🚫 Frente de trabajo</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setSinCuadroFrenteConteo((v) => !v)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: sinCuadroFrenteConteo ? colors.warning : colors.border, backgroundColor: sinCuadroFrenteConteo ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                      >
+                        <Text style={{ color: sinCuadroFrenteConteo ? '#FFFFFF' : colors.text, fontSize: 12, fontWeight: '700' }}>🚫 Cantidad por frente</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setSinEstadoConteo((v) => !v)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: sinEstadoConteo ? colors.warning : colors.border, backgroundColor: sinEstadoConteo ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                      >
+                        <Text style={{ color: sinEstadoConteo ? '#FFFFFF' : colors.text, fontSize: 12, fontWeight: '700' }}>🚫 Estado de la máquina</Text>
+                      </TouchableOpacity>
                     </View>
                     <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
-                      {ocultosConteoEnPalabras(conteoOpciones)}
+                      {(() => {
+                        const extras = [
+                          sinFrenteConteo ? 'frente de trabajo' : '',
+                          !sinFrenteConteo && sinCuadroFrenteConteo ? 'cantidad por frente' : '',
+                          sinEstadoConteo ? 'estado de la máquina' : '',
+                        ].filter(Boolean);
+                        const base = ocultosConteoLista(conteoOpciones);
+                        const todos = [...base, ...extras];
+                        return todos.length ? `Se oculta: ${todos.join(' · ')}. Los totales no cambian.` : ocultosConteoEnPalabras(conteoOpciones);
+                      })()}
                       {conteoOpciones.sinCubicaje ? '' : ' El alto, el largo y el ancho salen de Cubicaje y volumen; lo que no esté medido ni se reconozca queda EN BLANCO.'}
                     </Text>
                     {conteoSinContenido(conteoOpciones) ? (
@@ -5231,9 +5291,29 @@ export default function ReportsScreen({ route }: any) {
                     >
                       <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
                     </TouchableOpacity>
-                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>
-                      {conteoEje === 'clasificacion' ? 'Listado por categoría' : (conteoEje as string) === 'frente' ? 'Listado por frente de trabajo' : 'Listado por empresa'}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs, marginBottom: 4 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>
+                        {conteoEje === 'clasificacion' ? 'Listado por categoría' : (conteoEje as string) === 'frente' ? 'Listado por frente de trabajo' : 'Listado por empresa'}
+                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+                        <TouchableOpacity
+                          onPress={() => setSinFrenteConteo((v) => !v)}
+                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: !sinFrenteConteo ? colors.brand : colors.border, backgroundColor: !sinFrenteConteo ? colors.brand + '20' : colors.surfaceAlt }}
+                        >
+                          <Text style={{ color: !sinFrenteConteo ? colors.brandText : colors.muted, fontSize: 11, fontWeight: '700' }}>
+                            {!sinFrenteConteo ? '✓ ⛏️ Frente: Visible' : '🚫 ⛏️ Frente: Oculto'}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => setSinEstadoConteo((v) => !v)}
+                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: !sinEstadoConteo ? colors.brand : colors.border, backgroundColor: !sinEstadoConteo ? colors.brand + '20' : colors.surfaceAlt }}
+                        >
+                          <Text style={{ color: !sinEstadoConteo ? colors.brandText : colors.muted, fontSize: 11, fontWeight: '700' }}>
+                            {!sinEstadoConteo ? '✓ ⚙️ Estado: Visible' : '🚫 ⚙️ Estado: Oculto'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                     {/* De dónde sale el alto/largo/ancho y dónde se cambia. Se dice acá
                         para que nadie lo busque en esta pantalla: se maneja en Viajes de
                         camiones → Cubicaje, y esa es la ÚNICA lista de medidas. */}
@@ -5255,10 +5335,14 @@ export default function ReportsScreen({ route }: any) {
                               <Text numberOfLines={1} style={{ color: colors.text, fontSize: 12.5, fontWeight: '700' }}>{m.code}</Text>
                               {m.modelo ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>🏷️ {m.modelo}</Text> : null}
                               <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>
-                                🪪 Placa: {m.plate || '—'}{m.serial ? `  ·  🔖 Serial: ${m.serial}` : ''}{(conteoEje as string) === 'frente' ? `  ·  🏢 ${m.company}` : `  ·  ⛏️ ${m.frente || 'Sin frente'}`}{m.encargado ? `  ·  👤 ${m.encargado}` : ''}
+                                🪪 Placa: {m.plate || '—'}{m.serial ? `  ·  🔖 Serial: ${m.serial}` : ''}{(conteoEje as string) === 'frente' ? `  ·  🏢 ${m.company}` : (!sinFrenteConteo ? `  ·  ⛏️ ${m.frente || 'Sin frente'}` : '')}{m.encargado ? `  ·  👤 ${m.encargado}` : ''}
                               </Text>
                             </View>
-                            <Text style={{ color: m.estado === 'activo' ? colors.success : m.estado === 'inactivo' ? colors.danger : colors.warning, fontSize: 10, fontWeight: '800' }}>{m.estado === 'activo' ? 'ACTIVO' : m.estado === 'inactivo' ? 'INACTIVO' : 'STAND BY'}</Text>
+                            {!sinEstadoConteo ? (
+                              <Text style={{ color: ESTADO_CONTEO_INFO[m.estadoReal]?.hex ?? (m.estado === 'activo' ? colors.success : m.estado === 'inactivo' ? colors.danger : colors.warning), fontSize: 10, fontWeight: '800' }}>
+                                {(ESTADO_CONTEO_INFO[m.estadoReal]?.label ?? (m.estado === 'activo' ? 'ACTIVO' : m.estado === 'inactivo' ? 'INACTIVO' : 'STAND BY')).toUpperCase()}
+                              </Text>
+                            ) : null}
                           </View>
                         ))}
                       </View>
