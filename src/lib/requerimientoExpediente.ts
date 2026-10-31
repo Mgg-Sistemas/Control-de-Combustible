@@ -292,18 +292,25 @@ export function extraerFactura(r: Partial<InventoryRequirement>): FacturaData | 
   }
 
   // 3. Respaldo histórico: si venía en [RECEPCIÓN ALMACÉN: · Factura N° XXXXX (con soporte adjunto)]
+  //    ⚠️ 31-oct-2026: el adjunto del requerimiento NO es la factura si es la foto
+  //    de un producto (al recibir, la factura solo caía ahí si no había adjunto; si
+  //    ya lo había, se mostraba la foto del producto como «factura»).
   const matchHist = obs.match(/Factura N°\s*([^\s·\]]+)/i);
   if (matchHist && matchHist[1]) {
-    const archivos = r.attachment_url
-      ? [{ url: r.attachment_url, tipo: (r.attachment_type === 'pdf' ? 'pdf' : 'image') as 'image' | 'pdf', nombre: r.attachment_name || null }]
+    const adjEsFotoProducto = Boolean(
+      r.attachment_url && (r.items || []).some((it: any) => it?.image_url && it.image_url === r.attachment_url)
+    );
+    const adjUrl = adjEsFotoProducto ? null : r.attachment_url || null;
+    const archivos = adjUrl
+      ? [{ url: adjUrl, tipo: (r.attachment_type === 'pdf' ? 'pdf' : 'image') as 'image' | 'pdf', nombre: r.attachment_name || null }]
       : [];
     return {
       numero: matchHist[1].trim(),
       empresa: '',
       fecha: r.received_at ? dmyOf(r.received_at) : null,
-      url: r.attachment_url || null,
+      url: adjUrl,
       tipo: r.attachment_type === 'pdf' ? 'pdf' : 'image',
-      nombre: r.attachment_name || null,
+      nombre: adjUrl ? r.attachment_name || null : null,
       subidaPor: 'Almacén',
       subidaAt: r.received_at || null,
       nota: null,

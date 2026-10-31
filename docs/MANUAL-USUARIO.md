@@ -2270,6 +2270,14 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > no se dan por rol, solo persona por persona. Al guardar avisa a cuántas personas afecta, y si la base no acepta
 > el cambio lo dice. Una ficha sin tocar deja todo como estaba.
 
+> **🧾 Factura y comprobante: editar y varias fotos** *(31/10/2026)*. En **Compras → Requerimientos**, la tarjeta
+> trae **✏️ Editar / + Fotos Factura** y **✏️ Editar / + Fotos Comprobante** (para quien escribe en Compras). Ahí se
+> quita la foto equivocada (✕), se agregan una o varias (📷 cámara o 🖼️ galería/PDF) y se corrige el N°, la fecha y
+> la nota. Se guarda también en Por Pagar; **el estado y el monto no cambian**. Quitar una foto solo la desvincula:
+> el archivo no se borra. Al **recibir en almacén** también se pueden subir varias fotos de la factura, y ahora
+> quedan como la factura del requerimiento. Antes, si el requerimiento ya tenía una foto adjunta (la del
+> producto), esa salía como «factura»: ya no pasa, y en los recibidos viejos se muestra la factura de Por Pagar.
+
 > **🔓 El coordinador de inspectores ya puede guardar** *(31/10/2026)*. Antes la base solo dejaba registrar
 > visitas, cambiar el estado de las máquinas y resolver autorizaciones a un administrador o a un inspector;
 > con el rol «coordinador de inspectores» salía «no tienes permiso» al guardar. Ahora ese rol pasa por los

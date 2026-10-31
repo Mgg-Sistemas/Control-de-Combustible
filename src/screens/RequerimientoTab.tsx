@@ -51,7 +51,9 @@ import {
   type ReciboPagoData,
   type DespachoAlmacenData,
   type EmpresaFactura,
+  type ArchivoSoporte,
 } from '../lib/requerimientoExpediente';
+import { EditarSoporteReqModal, type TipoSoporteReq } from '../components/EditarSoporteReqModal';
 import { machineLabel, machineMatches } from '../lib/machineLabel';
 // 👤 Quién solicitó / quién autorizó, para qué (vehículo o maquinaria), a qué
 //    área, y las observaciones del final (20-oct-2026, a pedido).
@@ -81,6 +83,8 @@ import {
 } from '../lib/requerimientoFlujo';
 import {
   inyectarReciboPagoEnNota,
+  extraerFacturaCuenta,
+  inyectarFacturaEnCuentaNota,
   CONDICIONES_PAGO_CHIPS,
   toggleChipCondicionPago,
   extraerCondicionesPago,
@@ -752,10 +756,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [recvBusy, setRecvBusy] = useState(false);
   // 🧾 Factura y Nota al recibir en Almacén (sincronizada con Cuentas por Pagar)
   const [recvFacturaNumero, setRecvFacturaNumero] = useState('');
-  const [recvFacturaUrl, setRecvFacturaUrl] = useState<string | null>(null);
-  const [recvFacturaTipo, setRecvFacturaTipo] = useState<'image' | 'pdf' | null>(null);
-  const [recvFacturaNombre, setRecvFacturaNombre] = useState<string | null>(null);
+  // 31-oct-2026: una o VARIAS fotos/PDF de la factura (antes solo una).
+  const [recvFacturaArchivos, setRecvFacturaArchivos] = useState<ArchivoSoporte[]>([]);
+  const recvFacturaUrl = recvFacturaArchivos[0]?.url ?? null;
+  const recvFacturaTipo = recvFacturaArchivos[0]?.tipo ?? null;
+  const recvFacturaNombre = recvFacturaArchivos[0]?.nombre ?? null;
   const [recvSubiendoFactura, setRecvSubiendoFactura] = useState(false);
+  // ✏️ Editor de factura / comprobante ya subidos (desde la tarjeta del requerimiento)
+  const [soporteEdit, setSoporteEdit] = useState<{ req: InventoryRequirement; tipo: TipoSoporteReq; archivos: ArchivoSoporte[] } | null>(null);
   const [recvNota, setRecvNota] = useState('');
 
   // 📋 Modal de Cotizaciones Múltiples y Multi-Moneda
@@ -867,20 +875,19 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       if (origen === 'camara') {
         const r = await captureAndUploadPhoto('requerimientos');
         if (r.ok && r.url) {
-          setRecvFacturaUrl(r.url);
-          setRecvFacturaTipo('image');
-          setRecvFacturaNombre('Foto Factura.jpg');
-          toast.success('Foto de factura cargada.');
+          setRecvFacturaArchivos((prev) => [...prev, { url: r.url!, tipo: 'image', nombre: `Foto Factura #${prev.length + 1}.jpg` }]);
+          toast.success('Foto de factura agregada.');
         } else if (r.error) {
           toast.error(r.error);
         }
       } else {
-        const r = await pickAndUploadRequirementFile('requerimientos');
-        if (r.ok && r.url) {
-          setRecvFacturaUrl(r.url);
-          setRecvFacturaTipo(r.kind === 'pdf' ? 'pdf' : 'image');
-          setRecvFacturaNombre(r.name || 'Factura');
-          toast.success('Archivo de factura cargado.');
+        const r = await pickAndUploadRequirementFiles('requerimientos');
+        if (r.ok && r.files?.length) {
+          setRecvFacturaArchivos((prev) => [
+            ...prev,
+            ...r.files!.map((f) => ({ url: f.url, tipo: f.kind === 'pdf' ? ('pdf' as const) : ('image' as const), nombre: f.name || 'Factura' })),
+          ]);
+          toast.success(`${r.files.length} archivo(s) de factura agregado(s).`);
         } else if (r.error) {
           toast.error(r.error);
         }
@@ -2926,9 +2933,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       note: it.note ?? '',
     })));
     setRecvFacturaNumero('');
-    setRecvFacturaUrl(null);
-    setRecvFacturaTipo(null);
-    setRecvFacturaNombre(null);
+    setRecvFacturaArchivos([]);
     setRecvNota('');
   };
 
@@ -2983,7 +2988,30 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         recvFacturaNumero.trim() ? `Factura N° ${recvFacturaNumero.trim()}${recvFacturaUrl ? ' (con soporte adjunto)' : ''}` : '',
         notaGenTrim ? `Nota: ${notaGenTrim}` : '',
       ].filter(Boolean).join(' · ');
-      const obsConTagRecv = `${recvFor.observaciones || ''}${partesRecepcion ? `\n[RECEPCIÓN ALMACÉN: ${partesRecepcion}]` : ''}`.trim() || null;
+      let obsConTagRecv = `${recvFor.observaciones || ''}${partesRecepcion ? `\n[RECEPCIÓN ALMACÉN: ${partesRecepcion}]` : ''}`.trim() || null;
+      // 🧾 31-oct-2026: la factura recibida queda COMO factura del requerimiento (con
+      //    todas sus fotos). Antes solo caía en el adjunto si estaba vacío; si no, la
+      //    tarjeta mostraba la foto del producto como «factura».
+      const proveedorRecv = suppliers.find((s) => s.id === recvFor.supplier_id)?.name || '';
+      let dataFacRecv: FacturaData | null = null;
+      if (recvFacturaArchivos.length > 0) {
+        const facPrevia = extraerFactura(recvFor);
+        const archivosFac = [...(facPrevia?.archivos || [])];
+        recvFacturaArchivos.forEach((a) => { if (!archivosFac.some((x) => x.url === a.url)) archivosFac.push(a); });
+        dataFacRecv = {
+          numero: recvFacturaNumero.trim() || facPrevia?.numero || 'ADJ-FACT',
+          empresa: facPrevia?.empresa || proveedorRecv,
+          fecha: facPrevia?.fecha || ahoraRecv.slice(0, 10),
+          url: archivosFac[0]?.url || null,
+          tipo: archivosFac[0]?.tipo || 'image',
+          nombre: archivosFac[0]?.nombre || null,
+          archivos: archivosFac,
+          nota: facPrevia?.nota || null,
+          subidaPor: autorRecv,
+          subidaAt: ahoraRecv,
+        };
+        obsConTagRecv = inyectarFacturaEnObservaciones(obsConTagRecv, dataFacRecv);
+      }
       const obsFinal = anexarEventoHistorial(obsConTagRecv, {
         at: ahoraRecv,
         by: autorRecv,
@@ -3035,9 +3063,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
           if (existCxp && existCxp.length > 0) {
             const prevNota = (existCxp[0] as any).nota || '';
-            const nuevaNotaCxp = notaGenTrim
+            let nuevaNotaCxp = notaGenTrim
               ? `${prevNota ? prevNota + '\n' : ''}Nota recepción almacén: ${notaGenTrim}`
               : undefined;
+            // Las fotos de la factura también quedan en Por Pagar (todas, no solo la primera).
+            if (dataFacRecv) nuevaNotaCxp = inyectarFacturaEnCuentaNota(nuevaNotaCxp ?? prevNota, dataFacRecv) ?? undefined;
             // Sin `monto`: en la cuenta atada lo pone la base desde los renglones del
             // requerimiento (la guardia trg_cxp_req_guardia lo conserva aunque llegue).
             const { error: cxpUpdErr } = await supabase
@@ -3062,7 +3092,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               moneda: 'USD',
               fecha_emision: nowISO().slice(0, 10),
               estado: 'pendiente',
-              nota: `Factura cargada por Almacén al recibir requerimiento ${recvFor.code}.${notaGenTrim ? ` Nota: ${notaGenTrim}` : ''}`,
+              nota: (() => {
+                const txt = `Factura cargada por Almacén al recibir requerimiento ${recvFor.code}.${notaGenTrim ? ` Nota: ${notaGenTrim}` : ''}`;
+                return dataFacRecv ? inyectarFacturaEnCuentaNota(txt, dataFacRecv) : txt;
+              })(),
               created_by: uid,
             });
             if (cxpInsErr) console.warn('Sync cxp error:', cxpInsErr.message);
@@ -3962,11 +3995,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                 const fac = extraerFactura(r);
                                 const tieneFac = Boolean(fac && (fac.numero || fac.url || fac.nota || (fac.archivos && fac.archivos.length > 0)));
                                 if (!tieneFac) return null;
-                                const archivosFac = fac?.archivos && fac.archivos.length > 0
+                                // Si el requerimiento no guardó la foto (recepciones viejas), se muestra
+                                // la que quedó en la cuenta por pagar atada (31-oct-2026).
+                                const facCtaVinc = !fac?.archivos?.length && !fac?.url
+                                  ? extraerFacturaCuenta((cuentasData || []).find((c) => c.inventory_requirement_id === r.id))
+                                  : null;
+                                const archivosFac: ArchivoSoporte[] = fac?.archivos && fac.archivos.length > 0
                                   ? fac.archivos
                                   : fac?.url
                                     ? [{ url: fac.url, tipo: (fac.tipo === 'pdf' ? 'pdf' : 'image') as 'image' | 'pdf', nombre: fac.nombre || 'Factura' }]
-                                    : [];
+                                    : facCtaVinc?.archivos?.length
+                                      ? facCtaVinc.archivos
+                                      : [];
                                 return (
                                   <View
                                     style={{
@@ -4044,6 +4084,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                           </TouchableOpacity>
                                         ))}
                                       </View>
+                                    ) : null}
+                                    {canWrite ? (
+                                      <TouchableOpacity
+                                        onPress={() => setSoporteEdit({ req: r, tipo: 'factura', archivos: archivosFac })}
+                                        style={{ alignSelf: 'flex-start', marginTop: 2, borderWidth: 1, borderColor: '#6366F1', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                                      >
+                                        <Text style={{ color: '#6366F1', fontWeight: '800', fontSize: 11.5 }}>✏️ Editar / + Fotos Factura</Text>
+                                      </TouchableOpacity>
                                     ) : null}
                                   </View>
                                 );
@@ -4154,6 +4202,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                             </TouchableOpacity>
                                           ))}
                                         </View>
+                                      ) : null}
+                                      {canWrite && tieneRec ? (
+                                        <TouchableOpacity
+                                          onPress={() => setSoporteEdit({ req: r, tipo: 'comprobante', archivos: archivosRec })}
+                                          style={{ alignSelf: 'flex-start', marginTop: 2, borderWidth: 1, borderColor: '#10B981', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                                        >
+                                          <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11.5 }}>✏️ Editar / + Fotos Comprobante</Text>
+                                        </TouchableOpacity>
                                       ) : null}
                                     </View>
                                   </View>
@@ -5688,15 +5744,20 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               <Text style={{ color: '#0C4A6E', fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
                 Foto o Documento PDF de la Factura:
               </Text>
-              {recvFacturaUrl ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', padding: 8, borderRadius: radius.md, borderWidth: 1, borderColor: '#BAE6FD', marginBottom: spacing.xs }}>
-                  <Text style={{ fontSize: 20 }}>{recvFacturaTipo === 'pdf' ? '📄' : '🖼️'}</Text>
-                  <Text style={{ flex: 1, fontSize: 12, color: colors.text }} numberOfLines={1}>{recvFacturaNombre || 'Factura adjunta'}</Text>
-                  <TouchableOpacity onPress={() => { setRecvFacturaUrl(null); setRecvFacturaTipo(null); setRecvFacturaNombre(null); }}>
-                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text>
+              {recvFacturaArchivos.map((a, i) => (
+                <View key={`${a.url}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', padding: 8, borderRadius: radius.md, borderWidth: 1, borderColor: '#BAE6FD', marginBottom: spacing.xs }}>
+                  {a.tipo === 'pdf' ? (
+                    <Text style={{ fontSize: 20 }}>📄</Text>
+                  ) : (
+                    <Image source={{ uri: a.url }} style={{ width: 40, height: 40, borderRadius: 4 }} resizeMode="cover" />
+                  )}
+                  <Text style={{ flex: 1, fontSize: 12, color: '#0F172A' }} numberOfLines={1}>#{i + 1} {a.nombre || 'Factura adjunta'}</Text>
+                  <TouchableOpacity onPress={() => setRecvFacturaArchivos((prev) => prev.filter((_, j) => j !== i))}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar</Text>
                   </TouchableOpacity>
                 </View>
-              ) : (
+              ))}
+              {(
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
                   <TouchableOpacity
                     onPress={() => subirFacturaRecibir('camara')}
@@ -5704,7 +5765,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#0284C7', paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', opacity: recvSubiendoFactura ? 0.6 : 1 }}
                   >
                     <Text style={{ color: '#0284C7', fontWeight: '700', fontSize: 12 }}>
-                      {recvSubiendoFactura ? '⏳ Subiendo…' : '📷 Tomar Foto'}
+                      {recvSubiendoFactura ? '⏳ Subiendo…' : recvFacturaArchivos.length ? '📷 + Otra foto' : '📷 Tomar Foto'}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -5713,7 +5774,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#0284C7', paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', opacity: recvSubiendoFactura ? 0.6 : 1 }}
                   >
                     <Text style={{ color: '#0284C7', fontWeight: '700', fontSize: 12 }}>
-                      {recvSubiendoFactura ? '⏳ Subiendo…' : '📎 Subir Archivo/PDF'}
+                      {recvSubiendoFactura ? '⏳ Subiendo…' : '🖼️ Galería / PDF (varias)'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -6806,6 +6867,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         canEdit={canWrite}
         onSaveCotizaciones={guardarCotizacionesReq}
       />
+
+      {/* ✏️ Editar factura / comprobante ya subidos (al final: en web gana el último montado) */}
+      {soporteEdit ? (
+        <EditarSoporteReqModal
+          req={soporteEdit.req}
+          tipo={soporteEdit.tipo}
+          archivosIniciales={soporteEdit.archivos}
+          proveedorNombre={suppliers.find((s) => s.id === soporteEdit.req.supplier_id)?.name || null}
+          onClose={() => setSoporteEdit(null)}
+          onSaved={() => { refetch(); refetchCuentas(); }}
+        />
+      ) : null}
     </Screen>
   );
 }
