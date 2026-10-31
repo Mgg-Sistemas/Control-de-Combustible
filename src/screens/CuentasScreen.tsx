@@ -1105,9 +1105,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     try {
       const autor = miPerfil?.full_name || fullName || session?.user?.email || 'Tesorería';
       const primerArch = compArchivos[0] || null;
+      const ahoraComp = nowISO();
       const evComp = {
+        id: `ev-comp-${Date.now()}`,
         tipo: compMarcarPagada ? ('pagado_completo' as const) : ('pago_registrado' as const),
-        fecha: nowISO(),
+        fecha: ahoraComp,
         usuarioNombre: autor,
         usuarioId: uid,
         origen: 'por_pagar' as const,
@@ -1126,6 +1128,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           metodo: compMetodo.trim() || null,
           nota: compNota.trim() || null,
           subidoPor: autor,
+          subidoAt: ahoraComp,
           fecha: compFecha || hoy,
         }),
         evComp
@@ -1530,18 +1533,37 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     });
     if (!ok) return;
     const autorPago = miPerfil?.full_name || fullName || session?.user?.email || 'Tesorería';
+    const ahoraPago = nowISO();
     const evPag = {
+      id: `ev-pag-${Date.now()}`,
       tipo: 'pagado_completo' as const,
-      fecha: nowISO(),
+      fecha: ahoraPago,
       usuarioNombre: autorPago,
       usuarioId: uid,
       origen: 'por_pagar' as const,
       titulo: `Cuenta marcada como PAGADA por ${autorPago}`,
       detalle: `Monto: ${usd(Number(c.monto) || 0)} · Proveedor: ${c.contraparte}`,
     };
-    const notaConPag = anexarEventoHistorial(c.nota, evPag);
+    const rpPrev = extraerReciboPagoCuenta(c);
+    const notaConRecibo = rpPrev
+      ? inyectarReciboPagoEnNota(c.nota, {
+          ...rpPrev,
+          subidoPor: rpPrev.subidoPor || autorPago,
+          subidoAt: rpPrev.subidoAt || ahoraPago,
+        })
+      : inyectarReciboPagoEnNota(c.nota, {
+          url: null,
+          tipo: 'image',
+          nombre: 'Liquidación Cuentas por Pagar',
+          referencia: c.documento || 'CXP-PAGADA',
+          metodo: 'Cuentas por Pagar',
+          fecha: ahoraPago.slice(0, 10),
+          subidoPor: autorPago,
+          subidoAt: ahoraPago,
+        });
+    const notaConPag = anexarEventoHistorial(notaConRecibo, evPag);
     const { error } = await supabase.from('cuentas')
-      .update({ estado: 'pagada', settled_by: session?.user?.id ?? null, settled_at: nowISO(), nota: notaConPag, updated_at: nowISO() })
+      .update({ estado: 'pagada', settled_by: session?.user?.id ?? null, settled_at: ahoraPago, nota: notaConPag, updated_at: ahoraPago })
       .eq('id', c.id);
     if (error) return toast.error(error.message);
 

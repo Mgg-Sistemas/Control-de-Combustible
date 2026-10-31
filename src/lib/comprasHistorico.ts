@@ -12,6 +12,7 @@ import type {
   Vehicle,
   Company,
   Supplier,
+  AuditLog,
 } from '../types/database';
 import { machineLabel } from './machineLabel';
 import {
@@ -139,6 +140,32 @@ export function fmtFechaHora(iso?: string | null): string {
   const ampm = h24 >= 12 ? 'p. m.' : 'a. m.';
   const h12 = h24 % 12 || 12;
   return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()} ${p(h12)}:${p(dt.getMinutes())} ${ampm}`;
+}
+
+export function fmtFechaCorta(iso?: string | null): string {
+  if (!iso) return '—';
+  const raw = String(iso).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  const dt = new Date(raw);
+  if (isNaN(dt.getTime())) return raw.slice(0, 10);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+}
+
+export function fmtSoloHora(iso?: string | null): string | null {
+  if (!iso) return null;
+  const raw = String(iso).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const dt = new Date(raw);
+  if (isNaN(dt.getTime())) return null;
+  const p = (n: number) => String(n).padStart(2, '0');
+  const h24 = dt.getHours();
+  const ampm = h24 >= 12 ? 'p. m.' : 'a. m.';
+  const h12 = h24 % 12 || 12;
+  return `${p(h12)}:${p(dt.getMinutes())} ${ampm}`;
 }
 
 export function toLocalYMD(isoOrDate?: string | Date | null): string {
@@ -871,6 +898,69 @@ export function resolverTrazabilidadPorPagar(
 
 // ── 5. Reconstrucción de la Línea de Tiempo de un Expediente ─────────────────
 
+const NOMBRES_AUTOR_GENERICOS = new Set([
+  '',
+  'usuario',
+  'usuario autorizado',
+  'tesoreria',
+  'tesorería',
+  'tesoreria / por pagar',
+  'tesorería / por pagar',
+  'por pagar',
+  'cuentas por pagar',
+  'analista de compras',
+  'compras / administracion',
+  'compras / administración',
+  'departamento de compras',
+  'compras',
+  'administracion',
+  'administración',
+  'gerencia general',
+  'gerencia / compras',
+  'gerencia',
+  'almacen',
+  'almacén',
+  'solicitante',
+  'personal de campo',
+  'requerimientos',
+  'solicitudes',
+  'sin usuario',
+  'sin usuario (registro antiguo)',
+]);
+
+export function esAutorGenericoCompra(nombre?: string | null): boolean {
+  const limpio = String(nombre ?? '')
+    .trim()
+    .toLowerCase();
+  if (!limpio) return true;
+  return NOMBRES_AUTOR_GENERICOS.has(limpio);
+}
+
+function grupoEquivalenteTipo(t: TipoEventoCompra): string {
+  switch (t) {
+    case 'pago_completado':
+    case 'pagado_completo':
+      return 'G_PAGO_COMPLETO';
+    case 'abono_registrado':
+    case 'pago_registrado':
+      return 'G_ABONO';
+    case 'aprobado_gerencia_cxp':
+    case 'aprobacion_gerencial':
+      return 'G_APROB_CXP';
+    case 'factura_registrada':
+    case 'factura_adjuntada':
+      return 'G_FACTURA';
+    case 'reabierto':
+    case 'reabierto_pendiente':
+      return 'G_REABIERTO';
+    case 'solicitud_creada':
+    case 'req_creado':
+      return 'G_CREADO';
+    default:
+      return t;
+  }
+}
+
 export function construirTimelineExpediente(params: {
   req?: InventoryRequirement | null;
   cuenta?: Partial<Cuenta> | null;
@@ -881,16 +971,60 @@ export function construirTimelineExpediente(params: {
   machinery?: readonly Machinery[] | null;
   vehicles?: readonly Vehicle[] | null;
   usuariosMap?: ReadonlyMap<string, string> | null;
+  auditLogs?: readonly AuditLog[] | null;
 }): EventoHistorialCompra[] {
-  const { req, cuenta, abonos, companies, suppliers, vehicles, usuariosMap } = params;
+  const { req, cuenta, abonos, companies, suppliers, vehicles, usuariosMap, auditLogs } = params;
   const machines = params.machines || params.machinery || null;
   const mapaEventos = new Map<string, EventoHistorialCompra>();
+
+  const resolverAutor = (id?: string | null, nombreCandidato?: string | null): string | null => {
+    const idTrim = id ? String(id).trim() : '';
+    const deMapa = idTrim && usuariosMap ? usuariosMap.get(idTrim)?.trim() || null : null;
+    const cand = String(nombreCandidato ?? '').trim();
+    if (deMapa && (esAutorGenericoCompra(cand) || cand.includes('@'))) {
+      return deMapa;
+    }
+    if (cand && !esAutorGenericoCompra(cand)) {
+      return cand;
+    }
+    return deMapa || null;
+  };
+
+  // Filtrar filas de auditoría (`audit_log`) pertenecientes a este expediente (ordenadas cronológicamente)
+  const abonoIds = new Set((abonos || []).map((a) => String(a.id)));
+  const logsOrdenados = Array.isArray(auditLogs)
+    ? auditLogs
+        .filter(
+          (l) =>
+            (req?.id && l.table_name === 'inventory_requirements' && l.row_id === req.id) ||
+            (cuenta?.id && l.table_name === 'cuentas' && l.row_id === cuenta.id) ||
+            (l.table_name === 'cuenta_abonos' && l.row_id && abonoIds.has(String(l.row_id)))
+        )
+        .slice()
+        .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+    : [];
+
+  const logsReq = logsOrdenados.filter((l) => l.table_name === 'inventory_requirements');
+  const logsCta = logsOrdenados.filter((l) => l.table_name === 'cuentas');
+  const logsAbonos = logsOrdenados.filter((l) => l.table_name === 'cuenta_abonos');
+
+  const autorDeLog = (log?: AuditLog | null): string | null => {
+    if (!log) return null;
+    return resolverAutor(log.user_id, log.user_name);
+  };
+
+  const tieneHoraExacta = (iso?: string | null): boolean => {
+    if (!iso) return false;
+    return /T\d{2}:\d{2}/.test(String(iso).trim()) || /\s\d{2}:\d{2}/.test(String(iso).trim());
+  };
 
   const reqCode = req?.code || (cuenta?.documento?.startsWith('REQ-') ? cuenta.documento : null);
   const destinoTexto = extraerDestinoDeRequerimiento(req, machines, vehicles);
   const areaTexto = req?.area || null;
   const solicitanteNombre =
-    req?.solicitante_nombre || req?.requested_by_name || 'Personal de Campo';
+    req?.solicitante_nombre ||
+    resolverAutor(req?.requested_by, req?.requested_by_name) ||
+    'Personal de Campo';
 
   let empresaNombre = '';
   if (req && companies) {
@@ -914,13 +1048,22 @@ export function construirTimelineExpediente(params: {
     null;
 
   // 1. Cargar eventos explícitos guardados en [[HISTORIAL_COMPRA:...:FIN_HISTORIAL]]
+  //    Deduplicando los que se guardan simultáneamente en `req.observaciones` y `cuenta.nota`.
   const explicitos = [
     ...extraerEventosHistorial(req?.observaciones),
     ...extraerEventosHistorial(cuenta?.nota),
   ];
+  const llavesExplicitas = new Set<string>();
   explicitos.forEach((ev) => {
+    const grp = grupoEquivalenteTipo(ev.tipo);
+    const bucketTs = Math.floor((new Date(ev.at).getTime() || 0) / 5000);
+    const dedupKey = `${grp}|${bucketTs}|${(ev.titulo || '').slice(0, 24)}`;
+    if (mapaEventos.has(ev.id) || (bucketTs > 0 && llavesExplicitas.has(dedupKey))) return;
+    llavesExplicitas.add(dedupKey);
+    const byResuelto = resolverAutor(ev.byId, ev.by) || ev.by;
     mapaEventos.set(ev.id, {
       ...ev,
+      by: byResuelto,
       reqId: ev.reqId || req?.id || cuenta?.inventory_requirement_id || null,
       reqCode: ev.reqCode || reqCode,
       cuentaId: ev.cuentaId || cuenta?.id || null,
@@ -932,13 +1075,76 @@ export function construirTimelineExpediente(params: {
     });
   });
 
-  const tieneTipo = (t: TipoEventoCompra) =>
-    Array.from(mapaEventos.values()).some((e) => e.tipo === t);
+  const tieneTipo = (...tipos: TipoEventoCompra[]) => {
+    const gruposBuscados = new Set(tipos.map(grupoEquivalenteTipo));
+    return Array.from(mapaEventos.values()).some(
+      (e) => tipos.includes(e.tipo) || gruposBuscados.has(grupoEquivalenteTipo(e.tipo))
+    );
+  };
+
+  // 1.b Reconstruir modificaciones de ítems históricas desde `audit_log` si no estaban en [[HISTORIAL_COMPRA]]
+  logsReq.forEach((l) => {
+    if (l.action !== 'UPDATE' || !l.changes?.items) return;
+    const itemsDe = l.changes.items.de;
+    const itemsA = l.changes.items.a;
+    if (!Array.isArray(itemsDe) || !Array.isArray(itemsA)) return;
+    const tsLog = new Date(l.at).getTime();
+    const yaRegistrado = Array.from(mapaEventos.values()).some(
+      (e) => e.tipo === 'items_modificados' && Math.abs(new Date(e.at).getTime() - tsLog) < 60000
+    );
+    if (yaRegistrado) return;
+    const autorMod =
+      autorDeLog(l) ||
+      resolverAutor(req?.decided_by, req?.decided_by_name) ||
+      resolverAutor(req?.requested_by, req?.requested_by_name) ||
+      'Usuario';
+    const diff = calcularDiffItemsCompra({
+      itemsAntes: itemsDe,
+      itemsDespues: itemsA,
+      autor: autorMod,
+      modulo: 'Requerimientos',
+      ivaAntes: l.changes?.iva_alicuota?.de ?? req?.iva_alicuota ?? null,
+      ivaDespues: l.changes?.iva_alicuota?.a ?? req?.iva_alicuota ?? null,
+    });
+    if (!diff.hayCambios || diff.cambiosItems.length === 0) return;
+    const idAuditMod = `audit-items-${l.id}`;
+    mapaEventos.set(idAuditMod, {
+      id: idAuditMod,
+      at: l.at,
+      by: autorMod,
+      byId: l.user_id,
+      modulo: 'Requerimientos',
+      tipo: 'items_modificados',
+      titulo: `Modificación de ítems (${diff.cambiosItems.length} cambio${diff.cambiosItems.length === 1 ? '' : 's'})`,
+      detalle: diff.resumenDetalle,
+      montoAntesUsd: diff.montoAntesUsd,
+      montoDespuesUsd: diff.montoDespuesUsd,
+      cambiosItems: diff.cambiosItems,
+      reqId: req?.id || null,
+      reqCode,
+      cuentaId: cuenta?.id || null,
+      empresaNombre: empresaNombre || null,
+      proveedorNombre,
+      solicitanteNombre,
+      destinoTexto,
+      areaTexto,
+    });
+  });
 
   // 2. Síntesis automática de hitos para todos los registros (históricos y actuales)
   if (req) {
     const esSol = esSolicitudDeCompra(req);
-    if (!tieneTipo('solicitud_creada') && !tieneTipo('req_creado')) {
+    if (!tieneTipo('solicitud_creada', 'req_creado')) {
+      const logCreate = logsReq.find((l) => l.action === 'INSERT') || null;
+      const autorCreate =
+        resolverAutor(req.requested_by, req.requested_by_name) ||
+        autorDeLog(logCreate) ||
+        req.solicitante_nombre ||
+        'Solicitante';
+      const fechaCreate =
+        (tieneHoraExacta(req.created_at) ? req.created_at : null) ||
+        logCreate?.at ||
+        req.created_at;
       const itemsResumen = (req.items || [])
         .slice(0, 4)
         .map((it) => `${it.qty} ${it.unit || 'UND'} ${it.name}`)
@@ -947,12 +1153,13 @@ export function construirTimelineExpediente(params: {
       const idCreacion = `syn-create-${req.id}`;
       mapaEventos.set(idCreacion, {
         id: idCreacion,
-        at: req.created_at,
-        by: req.requested_by_name || req.solicitante_nombre || 'Solicitante',
+        at: fechaCreate,
+        by: autorCreate,
+        byId: req.requested_by || logCreate?.user_id || null,
         modulo: esSol ? 'Solicitudes' : 'Requerimientos',
         tipo: esSol ? 'solicitud_creada' : 'req_creado',
         titulo: esSol ? 'Solicitud de compra creada' : 'Requerimiento de compra registrado',
-        detalle: `Solicitado por ${solicitanteNombre}${req.requested_by_name && req.requested_by_name !== solicitanteNombre ? ` (registró: ${req.requested_by_name})` : ''}${destinoTexto ? ` · Para: ${destinoTexto}` : ''}${areaTexto ? ` · Área: ${areaTexto}` : ''}. Renglones (${req.items?.length || 0}): ${itemsResumen}${masItems}.`,
+        detalle: `Solicitado por ${solicitanteNombre}${autorCreate && autorCreate !== solicitanteNombre ? ` (registró: ${autorCreate})` : ''}${destinoTexto ? ` · Para: ${destinoTexto}` : ''}${areaTexto ? ` · Área: ${areaTexto}` : ''}. Renglones (${req.items?.length || 0}): ${itemsResumen}${masItems}.`,
         reqId: req.id,
         reqCode,
         cuentaId: cuenta?.id || null,
@@ -965,16 +1172,34 @@ export function construirTimelineExpediente(params: {
     }
 
     if (esSol && estaSolicitudConvertidaEnRequerimiento(req) && !tieneTipo('convertido_req')) {
+      const logConv =
+        logsReq.find(
+          (l) =>
+            l.action === 'UPDATE' &&
+            (String(l.changes?.observaciones?.a || '').includes('CONVERTIDA_REQ') ||
+              (Array.isArray(l.changes?.items?.a) &&
+                l.changes.items.a.some((it: any) => Number(it?.price_usd || it?.est_price) > 0)))
+        ) || null;
       const idConv = `syn-conv-${req.id}`;
-      const fechaConv = new Date(new Date(req.created_at).getTime() + 1000).toISOString();
+      const fechaConv =
+        logConv?.at ||
+        req.decided_at ||
+        new Date(new Date(req.created_at).getTime() + 1000).toISOString();
+      const autorConv =
+        autorDeLog(logConv) ||
+        resolverAutor(req.decided_by, req.decided_by_name) ||
+        resolverAutor(req.requested_by, req.requested_by_name) ||
+        req.solicitante_nombre ||
+        'Compras';
       mapaEventos.set(idConv, {
         id: idConv,
         at: fechaConv,
-        by: 'Analista de Compras',
+        by: autorConv,
+        byId: logConv?.user_id || req.decided_by || null,
         modulo: 'Requerimientos',
         tipo: 'convertido_req',
         titulo: 'Convertida en Requerimiento oficial',
-        detalle: `La solicitud ${reqCode || ''} pasó a la bandeja de Requerimientos para gestión de proveedor y precios.`,
+        detalle: `La solicitud ${reqCode || ''} pasó a la bandeja de Requerimientos para gestión de proveedor y precios (por ${autorConv}).`,
         reqId: req.id,
         reqCode,
         cuentaId: cuenta?.id || null,
@@ -987,11 +1212,18 @@ export function construirTimelineExpediente(params: {
     }
 
     if (req.aclaratoria_motivo && req.aclaratoria_fecha_solicitud && !tieneTipo('aclaratoria_pedida')) {
+      const logAcl =
+        logsReq.find((l) => l.action === 'UPDATE' && l.changes?.aclaratoria_motivo?.a) || null;
+      const autorAcl =
+        resolverAutor(null, req.aclaratoria_solicitada_por) ||
+        autorDeLog(logAcl) ||
+        resolverAutor(req.decided_by, req.decided_by_name) ||
+        'Compras';
       const idAcl = `syn-acl-ask-${req.id}`;
       mapaEventos.set(idAcl, {
         id: idAcl,
-        at: req.aclaratoria_fecha_solicitud,
-        by: req.aclaratoria_solicitada_por || 'Compras',
+        at: req.aclaratoria_fecha_solicitud || logAcl?.at || req.created_at,
+        by: autorAcl,
         modulo: 'Requerimientos',
         tipo: 'aclaratoria_pedida',
         titulo: 'Aclaratoria técnica solicitada',
@@ -1008,11 +1240,14 @@ export function construirTimelineExpediente(params: {
     }
 
     if (req.aclaratoria_respuesta && req.aclaratoria_fecha_respuesta && !tieneTipo('aclaratoria_respondida')) {
+      const logAclRes =
+        logsReq.find((l) => l.action === 'UPDATE' && l.changes?.aclaratoria_respuesta?.a) || null;
+      const autorAclRes = autorDeLog(logAclRes) || solicitanteNombre;
       const idAclRes = `syn-acl-ans-${req.id}`;
       mapaEventos.set(idAclRes, {
         id: idAclRes,
-        at: req.aclaratoria_fecha_respuesta,
-        by: solicitanteNombre,
+        at: req.aclaratoria_fecha_respuesta || logAclRes?.at || req.created_at,
+        by: autorAclRes,
         modulo: 'Solicitudes',
         tipo: 'aclaratoria_respondida',
         titulo: 'Respuesta técnica registrada',
@@ -1035,108 +1270,213 @@ export function construirTimelineExpediente(params: {
     !tieneTipo('enviado_por_pagar') &&
     (envInfo || (req && (req.status === 'aprobado' || req.status === 'esperando_recepcion' || req.status === 'recibido')) || cuenta)
   ) {
+    const logEnvCta = logsCta.find((l) => l.action === 'INSERT') || null;
+    const logEnvReq =
+      logsReq.find(
+        (l) =>
+          l.action === 'UPDATE' &&
+          (l.changes?.status?.a === 'aprobado' ||
+            String(l.changes?.observaciones?.a || '').includes('ENVIADO_CXP'))
+      ) || null;
     const fechaEnv =
+      (tieneHoraExacta(envInfo?.fecha) ? envInfo?.fecha : null) ||
+      logEnvReq?.at ||
+      logEnvCta?.at ||
+      (tieneHoraExacta(req?.decided_at) ? req?.decided_at : null) ||
+      (tieneHoraExacta(cuenta?.created_at) ? cuenta?.created_at : null) ||
       envInfo?.fecha ||
       req?.decided_at ||
       cuenta?.created_at ||
-      cuenta?.fecha_emision ||
       req?.created_at ||
-      new Date().toISOString();
+      cuenta?.fecha_emision ||
+      '';
     const enviadoPor =
-      envInfo?.enviadoPor ||
-      req?.decided_by_name ||
-      (req?.decided_by && usuariosMap ? usuariosMap.get(req.decided_by) : null) ||
-      (cuenta?.created_by && usuariosMap ? usuariosMap.get(String(cuenta.created_by)) : null) ||
+      resolverAutor(envInfo?.enviadoPorId, envInfo?.enviadoPor) ||
+      autorDeLog(logEnvReq) ||
+      autorDeLog(logEnvCta) ||
+      resolverAutor(req?.decided_by, req?.decided_by_name) ||
+      resolverAutor(cuenta?.created_by, null) ||
+      resolverAutor(req?.requested_by, req?.requested_by_name) ||
+      req?.solicitante_nombre ||
       'Analista de Compras';
     const montoTotal =
       cuenta?.monto != null && Number(cuenta.monto) > 0
         ? Number(cuenta.monto)
         : req
-          ? calcularTotalConIvaUsd(req.items || [], req.iva_alicuota)
+          ? calcularTotalConIvaUsd(req.items || [], (req as any).iva_alicuota)
           : 0;
-    const idEnv = `syn-env-cxp-${req?.id || cuenta?.id}`;
-    mapaEventos.set(idEnv, {
-      id: idEnv,
-      at: fechaEnv,
-      by: enviadoPor,
-      modulo: 'Por Pagar',
-      tipo: 'enviado_por_pagar',
-      titulo: 'Enviado a Cuentas por Pagar',
-      detalle: `Marcado para Por Pagar por ${enviadoPor}${proveedorNombre ? ` · Proveedor: ${proveedorNombre}` : ''}${montoTotal > 0 ? ` · Monto: ${fmtUsd(montoTotal)} USD` : ''}.`,
-      montoDespuesUsd: montoTotal > 0 ? montoTotal : null,
-      reqId: req?.id || cuenta?.inventory_requirement_id || null,
-      reqCode,
-      cuentaId: cuenta?.id || null,
-      empresaNombre: empresaNombre || null,
-      proveedorNombre,
-      solicitanteNombre,
-      destinoTexto,
-      areaTexto,
-    });
+    if (fechaEnv) {
+      const idEnv = `syn-env-cxp-${req?.id || cuenta?.id}`;
+      mapaEventos.set(idEnv, {
+        id: idEnv,
+        at: fechaEnv,
+        by: enviadoPor,
+        byId: envInfo?.enviadoPorId || logEnvReq?.user_id || logEnvCta?.user_id || req?.decided_by || cuenta?.created_by || null,
+        modulo: 'Por Pagar',
+        tipo: 'enviado_por_pagar',
+        titulo: 'Enviado a Cuentas por Pagar',
+        detalle: `Marcado para Por Pagar por ${enviadoPor}${proveedorNombre ? ` · Proveedor: ${proveedorNombre}` : ''}${montoTotal > 0 ? ` · Monto: ${fmtUsd(montoTotal)} USD` : ''}.`,
+        montoDespuesUsd: montoTotal > 0 ? montoTotal : null,
+        reqId: req?.id || cuenta?.inventory_requirement_id || null,
+        reqCode,
+        cuentaId: cuenta?.id || null,
+        empresaNombre: empresaNombre || null,
+        proveedorNombre,
+        solicitanteNombre,
+        destinoTexto,
+        areaTexto,
+      });
+    }
   }
 
   // 4. Autorización Gerencial en Por Pagar
   const apCta = extraerAprobacionCxp(cuenta?.nota);
   const apReq = extraerAprobacionCxp(req?.observaciones);
   const apOk = apCta?.estado === 'aprobado' ? apCta : apReq?.estado === 'aprobado' ? apReq : null;
-  if (apOk && !tieneTipo('aprobado_gerencia_cxp')) {
-    const idAp = `syn-ap-cxp-${req?.id || cuenta?.id}`;
-    mapaEventos.set(idAp, {
-      id: idAp,
-      at: apOk.fecha || cuenta?.updated_at || new Date().toISOString(),
-      by: apOk.aprobadoPor || 'Gerencia General',
-      modulo: 'Por Pagar',
-      tipo: 'aprobado_gerencia_cxp',
-      titulo: 'Pago autorizado por Gerencia / Aprobador',
-      detalle: `Autorizado para pago por ${apOk.aprobadoPor || 'Gerencia General'}. Estado: Esperando Pago.`,
-      reqId: req?.id || cuenta?.inventory_requirement_id || null,
-      reqCode,
-      cuentaId: cuenta?.id || null,
-      empresaNombre: empresaNombre || null,
-      proveedorNombre,
-      solicitanteNombre,
-      destinoTexto,
-      areaTexto,
-    });
+  if (apOk && !tieneTipo('aprobado_gerencia_cxp', 'aprobacion_gerencial')) {
+    const logAp =
+      [...logsCta, ...logsReq]
+        .reverse()
+        .find(
+          (l) =>
+            l.action === 'UPDATE' &&
+            (String(l.changes?.nota?.a || l.changes?.observaciones?.a || '').includes('"estado":"aprobado"') ||
+              String(l.changes?.nota?.a || l.changes?.observaciones?.a || '').includes('Estado: aprobado') ||
+              l.changes?.gerente_aprobado?.a === true)
+        ) || null;
+    const fechaAp =
+      (tieneHoraExacta(apOk.fecha) ? apOk.fecha : null) ||
+      (tieneHoraExacta(req?.gerente_aprobado_at) ? req?.gerente_aprobado_at : null) ||
+      logAp?.at ||
+      apOk.fecha ||
+      cuenta?.updated_at ||
+      req?.decided_at ||
+      cuenta?.created_at ||
+      req?.created_at ||
+      '';
+    const autorAp =
+      resolverAutor(apOk.aprobadoPorId, apOk.aprobadoPor) ||
+      resolverAutor(null, req?.gerente_aprobado_por) ||
+      autorDeLog(logAp) ||
+      resolverAutor(req?.decided_by, req?.decided_by_name) ||
+      'Gerencia General';
+    if (fechaAp) {
+      const idAp = `syn-ap-cxp-${req?.id || cuenta?.id}`;
+      mapaEventos.set(idAp, {
+        id: idAp,
+        at: fechaAp,
+        by: autorAp,
+        byId: apOk.aprobadoPorId || logAp?.user_id || null,
+        modulo: 'Por Pagar',
+        tipo: 'aprobado_gerencia_cxp',
+        titulo: 'Pago autorizado por Gerencia / Aprobador',
+        detalle: `Autorizado para pago por ${autorAp}. Estado: Esperando Pago.`,
+        reqId: req?.id || cuenta?.inventory_requirement_id || null,
+        reqCode,
+        cuentaId: cuenta?.id || null,
+        empresaNombre: empresaNombre || null,
+        proveedorNombre,
+        solicitanteNombre,
+        destinoTexto,
+        areaTexto,
+      });
+    }
   }
 
   // 5. Factura registrada
   const fac = extraerFacturaCuenta(cuenta) || (req ? extraerFactura(req) : null);
-  if (fac && (fac.url || fac.numero || (fac.archivos && fac.archivos.length > 0)) && !tieneTipo('factura_registrada')) {
-    const idFac = `syn-fac-${req?.id || cuenta?.id}`;
-    const nFotos = fac.archivos?.length || (fac.url ? 1 : 0);
-    mapaEventos.set(idFac, {
-      id: idFac,
-      at: fac.subidaAt || fac.fecha || cuenta?.updated_at || req?.created_at || new Date().toISOString(),
-      by: fac.subidaPor || 'Tesorería / Por Pagar',
-      modulo: 'Por Pagar',
-      tipo: 'factura_registrada',
-      titulo: 'Factura fiscal / comercial cargada',
-      detalle: `Factura N° ${fac.numero || 'S/N'}${fac.empresa ? ` (${fac.empresa})` : ''}${nFotos > 0 ? ` · ${nFotos} archivo(s)/foto(s) adjunto(s)` : ''}${fac.nota ? ` · Nota: ${fac.nota}` : ''}.`,
-      reqId: req?.id || cuenta?.inventory_requirement_id || null,
-      reqCode,
-      cuentaId: cuenta?.id || null,
-      empresaNombre: empresaNombre || null,
-      proveedorNombre,
-      solicitanteNombre,
-      destinoTexto,
-      areaTexto,
-    });
+  if (
+    fac &&
+    (fac.url || fac.numero || (fac.archivos && fac.archivos.length > 0)) &&
+    !tieneTipo('factura_registrada', 'factura_adjuntada')
+  ) {
+    const logFac =
+      [...logsCta, ...logsReq]
+        .reverse()
+        .find(
+          (l) =>
+            (l.action === 'UPDATE' || l.action === 'INSERT') &&
+            (l.changes?.factura_url?.a ||
+              l.changes?.documento?.a ||
+              String(l.changes?.nota?.a || l.changes?.observaciones?.a || '').includes('FACTURA_'))
+        ) || null;
+    const fechaFac =
+      (tieneHoraExacta(fac.subidaAt) ? fac.subidaAt : null) ||
+      logFac?.at ||
+      (tieneHoraExacta(cuenta?.updated_at) ? cuenta?.updated_at : null) ||
+      (tieneHoraExacta(req?.decided_at) ? req?.decided_at : null) ||
+      (tieneHoraExacta(cuenta?.created_at) ? cuenta?.created_at : null) ||
+      (tieneHoraExacta(req?.created_at) ? req?.created_at : null) ||
+      fac.subidaAt ||
+      fac.fecha ||
+      cuenta?.created_at ||
+      req?.created_at ||
+      '';
+    const autorFac =
+      resolverAutor(null, fac.subidaPor) ||
+      autorDeLog(logFac) ||
+      resolverAutor(cuenta?.settled_by, null) ||
+      resolverAutor(req?.decided_by, req?.decided_by_name) ||
+      resolverAutor(cuenta?.created_by, null) ||
+      resolverAutor(req?.requested_by, req?.requested_by_name) ||
+      'Por Pagar';
+    if (fechaFac) {
+      const idFac = `syn-fac-${req?.id || cuenta?.id}`;
+      const nFotos = fac.archivos?.length || (fac.url ? 1 : 0);
+      mapaEventos.set(idFac, {
+        id: idFac,
+        at: fechaFac,
+        by: autorFac,
+        byId: logFac?.user_id || null,
+        modulo: 'Por Pagar',
+        tipo: 'factura_registrada',
+        titulo: 'Factura fiscal / comercial cargada',
+        detalle: `Factura N° ${fac.numero || 'S/N'}${fac.empresa ? ` (${fac.empresa})` : ''}${nFotos > 0 ? ` · ${nFotos} archivo(s)/foto(s) adjunto(s)` : ''}${fac.nota ? ` · Nota: ${fac.nota}` : ''}.`,
+        reqId: req?.id || cuenta?.inventory_requirement_id || null,
+        reqCode,
+        cuentaId: cuenta?.id || null,
+        empresaNombre: empresaNombre || null,
+        proveedorNombre,
+        solicitanteNombre,
+        destinoTexto,
+        areaTexto,
+      });
+    }
   }
 
   // 6. Abonos registrados
   if (Array.isArray(abonos) && abonos.length > 0) {
     abonos.forEach((ab) => {
       const idAb = `syn-abono-${ab.id}`;
-      if (!mapaEventos.has(idAb)) {
+      const logAb = logsAbonos.find((l) => String(l.row_id) === String(ab.id) && l.action === 'INSERT') || null;
+      const fechaAb =
+        (tieneHoraExacta(ab.created_at) ? ab.created_at : null) ||
+        logAb?.at ||
+        ab.created_at ||
+        ab.fecha;
+      const tsAb = new Date(fechaAb).getTime();
+      const yaTieneAbonoExplicito = Array.from(mapaEventos.values()).some(
+        (e) =>
+          (e.tipo === 'abono_registrado' || e.tipo === 'pago_registrado' || e.tipo === 'pagado_completo') &&
+          Math.abs(new Date(e.at).getTime() - tsAb) < 60000
+      );
+      if (!mapaEventos.has(idAb) && !yaTieneAbonoExplicito) {
+        const autorAb =
+          resolverAutor(ab.created_by, null) ||
+          autorDeLog(logAb) ||
+          resolverAutor(cuenta?.settled_by, null) ||
+          resolverAutor(cuenta?.created_by, null) ||
+          resolverAutor(req?.decided_by, req?.decided_by_name) ||
+          'Tesorería';
         mapaEventos.set(idAb, {
           id: idAb,
-          at: ab.created_at || ab.fecha,
-          by: (ab.created_by && usuariosMap ? usuariosMap.get(ab.created_by) : null) || 'Tesorería',
+          at: fechaAb,
+          by: autorAb,
+          byId: ab.created_by || logAb?.user_id || null,
           modulo: 'Por Pagar',
           tipo: 'abono_registrado',
-          titulo: `Abono parcial registrado (${fmtUsd(Number(ab.monto) || 0)})`,
-          detalle: `Abono de ${fmtUsd(Number(ab.monto) || 0)} USD${ab.metodo ? ` vía ${ab.metodo}` : ''}${ab.referencia ? ` · Ref: ${ab.referencia}` : ''}.`,
+          titulo: `Abono registrado (${fmtUsd(Number(ab.monto) || 0)})`,
+          detalle: `Abono de ${fmtUsd(Number(ab.monto) || 0)} USD por ${autorAb}${ab.metodo ? ` vía ${ab.metodo}` : ''}${ab.referencia ? ` · Ref: ${ab.referencia}` : ''}.`,
           montoDespuesUsd: Number(ab.monto) || 0,
           reqId: req?.id || cuenta?.inventory_requirement_id || null,
           reqCode,
@@ -1153,74 +1493,201 @@ export function construirTimelineExpediente(params: {
 
   // 7. Comprobante de pago / Cuenta pagada
   const rec = extraerReciboPagoCuenta(cuenta) || (req ? extraerReciboPago(req) : null);
-  const estaPagada = cuenta?.estado === 'pagada' || req?.status === 'esperando_recepcion' || req?.status === 'recibido';
-  if ((rec || estaPagada) && !tieneTipo('pago_completado')) {
-    const idPago = `syn-pago-${req?.id || cuenta?.id}`;
-    const nComp = rec?.archivos?.length || (rec?.url ? 1 : 0);
+  const estaPagada = cuenta
+    ? cuenta.estado === 'pagada' || Boolean(rec)
+    : Boolean(rec) ||
+      (req?.status as string) === 'pagado' ||
+      (req as any)?.pagado === true ||
+      req?.status === 'esperando_recepcion';
+
+  if ((rec || estaPagada) && !tieneTipo('pago_completado', 'pagado_completo')) {
+    const ultimoAbono =
+      Array.isArray(abonos) && abonos.length > 0
+        ? abonos
+            .slice()
+            .sort((a, b) => new Date(a.created_at || a.fecha).getTime() - new Date(b.created_at || b.fecha).getTime())[
+            abonos.length - 1
+          ]
+        : null;
+    const logPagoCta =
+      logsCta
+        .slice()
+        .reverse()
+        .find(
+          (l) =>
+            (l.action === 'UPDATE' || l.action === 'INSERT') &&
+            (l.changes?.estado?.a === 'pagada' ||
+              l.changes?.estado === 'pagada' ||
+              l.changes?.settled_at?.a ||
+              l.changes?.settled_by?.a ||
+              String(l.changes?.nota?.a || '').includes('RECIBO_PAGO') ||
+              String(l.changes?.nota?.a || '').includes('pagado_completo'))
+        ) || null;
+    const logPagoReq =
+      logsReq
+        .slice()
+        .reverse()
+        .find(
+          (l) =>
+            l.action === 'UPDATE' &&
+            (l.changes?.status?.a === 'esperando_recepcion' ||
+              l.changes?.status?.a === 'pagado' ||
+              String(l.changes?.observaciones?.a || '').includes('RECIBO_PAGO') ||
+              String(l.changes?.observaciones?.a || '').includes('pagado_completo'))
+        ) || null;
+    const logUltimoMov =
+      logPagoCta ||
+      logPagoReq ||
+      (ultimoAbono ? logsAbonos.find((l) => String(l.row_id) === String(ultimoAbono.id)) : null) ||
+      logsCta[logsCta.length - 1] ||
+      logsReq[logsReq.length - 1] ||
+      null;
+
     const fechaPago =
+      (tieneHoraExacta(rec?.subidoAt) ? rec?.subidoAt : null) ||
+      (tieneHoraExacta(cuenta?.settled_at) ? cuenta?.settled_at : null) ||
+      logPagoCta?.at ||
+      logPagoReq?.at ||
+      (tieneHoraExacta(ultimoAbono?.created_at) ? ultimoAbono?.created_at : null) ||
+      logUltimoMov?.at ||
+      (tieneHoraExacta(cuenta?.updated_at) ? cuenta?.updated_at : null) ||
+      (tieneHoraExacta(apOk?.fecha) ? apOk?.fecha : null) ||
+      (tieneHoraExacta(envInfo?.fecha) ? envInfo?.fecha : null) ||
+      (tieneHoraExacta(req?.decided_at) ? req?.decided_at : null) ||
+      (tieneHoraExacta(req?.received_at) ? req?.received_at : null) ||
+      (tieneHoraExacta(cuenta?.created_at) ? cuenta?.created_at : null) ||
+      (tieneHoraExacta(req?.created_at) ? req?.created_at : null) ||
       rec?.subidoAt ||
       cuenta?.settled_at ||
       rec?.fecha ||
       cuenta?.updated_at ||
-      new Date().toISOString();
+      req?.decided_at ||
+      cuenta?.created_at ||
+      req?.created_at ||
+      '';
+
     const pagadoPor =
-      rec?.subidoPor ||
-      (cuenta?.settled_by && usuariosMap ? usuariosMap.get(String(cuenta.settled_by)) : null) ||
-      'Tesorería / Por Pagar';
-    mapaEventos.set(idPago, {
-      id: idPago,
-      at: fechaPago,
-      by: pagadoPor,
-      modulo: 'Por Pagar',
-      tipo: 'pago_completado',
-      titulo: estaPagada ? 'Pago liquidado en Por Pagar' : 'Comprobante de pago adjuntado',
-      detalle: `${estaPagada ? 'Cuenta marcada como PAGADA' : 'Comprobante cargado'}${rec?.metodo ? ` · Método: ${rec.metodo}` : ''}${rec?.referencia ? ` · Ref: ${rec.referencia}` : ''}${nComp > 0 ? ` · ${nComp} comprobante(s) adjunto(s)` : ''}.`,
-      montoDespuesUsd: Number(cuenta?.monto || rec?.monto || 0) || null,
-      reqId: req?.id || cuenta?.inventory_requirement_id || null,
-      reqCode,
-      cuentaId: cuenta?.id || null,
-      empresaNombre: empresaNombre || null,
-      proveedorNombre,
-      solicitanteNombre,
-      destinoTexto,
-      areaTexto,
-    });
+      resolverAutor(null, rec?.subidoPor) ||
+      resolverAutor(cuenta?.settled_by, null) ||
+      autorDeLog(logPagoCta) ||
+      autorDeLog(logPagoReq) ||
+      resolverAutor(ultimoAbono?.created_by, null) ||
+      autorDeLog(logUltimoMov) ||
+      resolverAutor(apOk?.aprobadoPorId, apOk?.aprobadoPor) ||
+      resolverAutor(envInfo?.enviadoPorId, envInfo?.enviadoPor) ||
+      resolverAutor(req?.decided_by, req?.decided_by_name) ||
+      resolverAutor(cuenta?.created_by, null) ||
+      resolverAutor(req?.requested_by, req?.requested_by_name) ||
+      req?.solicitante_nombre ||
+      'Por Pagar';
+
+    if (fechaPago) {
+      const idPago = `syn-pago-${req?.id || cuenta?.id}`;
+      const nComp = rec?.archivos?.length || (rec?.url ? 1 : 0);
+      mapaEventos.set(idPago, {
+        id: idPago,
+        at: fechaPago,
+        by: pagadoPor,
+        byId:
+          cuenta?.settled_by ||
+          logPagoCta?.user_id ||
+          logPagoReq?.user_id ||
+          ultimoAbono?.created_by ||
+          req?.decided_by ||
+          cuenta?.created_by ||
+          null,
+        modulo: 'Por Pagar',
+        tipo: 'pago_completado',
+        titulo: estaPagada ? 'Pago liquidado en Por Pagar' : 'Comprobante de pago adjuntado',
+        detalle: `${estaPagada ? `Cuenta marcada como PAGADA por ${pagadoPor}` : `Comprobante cargado por ${pagadoPor}`}${rec?.metodo ? ` · Método: ${rec.metodo}` : ''}${rec?.referencia ? ` · Ref: ${rec.referencia}` : ''}${nComp > 0 ? ` · ${nComp} comprobante(s) adjunto(s)` : ''}.`,
+        montoDespuesUsd: Number(cuenta?.monto || rec?.monto || 0) || null,
+        reqId: req?.id || cuenta?.inventory_requirement_id || null,
+        reqCode,
+        cuentaId: cuenta?.id || null,
+        empresaNombre: empresaNombre || null,
+        proveedorNombre,
+        solicitanteNombre,
+        destinoTexto,
+        areaTexto,
+      });
+    }
   }
 
   // 8. Recepción y Despacho en Almacén
-  if (req?.status === 'recibido' && req.received_at && !tieneTipo('recepcion_almacen')) {
-    const idRec = `syn-rec-${req.id}`;
-    mapaEventos.set(idRec, {
-      id: idRec,
-      at: req.received_at,
-      by: (req as any).received_by_name || req.decided_by_name || 'Almacén',
-      modulo: 'Almacén',
-      tipo: 'recepcion_almacen',
-      titulo: 'Recibido en Almacén',
-      detalle: `Mercancía ingresada al inventario de almacén.`,
-      reqId: req.id,
-      reqCode,
-      cuentaId: cuenta?.id || null,
-      empresaNombre: empresaNombre || null,
-      proveedorNombre,
-      solicitanteNombre,
-      destinoTexto,
-      areaTexto,
-    });
+  if (req?.status === 'recibido' && !tieneTipo('recepcion_almacen')) {
+    const logRec =
+      logsReq
+        .slice()
+        .reverse()
+        .find((l) => l.action === 'UPDATE' && (l.changes?.status?.a === 'recibido' || l.changes?.received_at?.a)) ||
+      null;
+    const fechaRec =
+      (tieneHoraExacta(req.received_at) ? req.received_at : null) ||
+      logRec?.at ||
+      req.received_at ||
+      req.decided_at ||
+      req.created_at;
+    const autorRec =
+      resolverAutor(null, (req as any).received_by_name) ||
+      autorDeLog(logRec) ||
+      resolverAutor(req.responsable_id, req.responsable_nombre) ||
+      resolverAutor(req.decided_by, req.decided_by_name) ||
+      resolverAutor(req.requested_by, req.requested_by_name) ||
+      'Almacén';
+    if (fechaRec) {
+      const idRec = `syn-rec-${req.id}`;
+      mapaEventos.set(idRec, {
+        id: idRec,
+        at: fechaRec,
+        by: autorRec,
+        byId: logRec?.user_id || req.responsable_id || req.decided_by || null,
+        modulo: 'Almacén',
+        tipo: 'recepcion_almacen',
+        titulo: 'Recibido en Almacén',
+        detalle: `Mercancía ingresada al inventario de almacén por ${autorRec}.`,
+        reqId: req.id,
+        reqCode,
+        cuentaId: cuenta?.id || null,
+        empresaNombre: empresaNombre || null,
+        proveedorNombre,
+        solicitanteNombre,
+        destinoTexto,
+        areaTexto,
+      });
+    }
   }
 
   if (req) {
     const desp = extraerDespacho(req);
     if (desp && desp.estado === 'retirado' && !tieneTipo('despacho_almacen')) {
+      const logDesp =
+        logsReq
+          .slice()
+          .reverse()
+          .find((l) => l.action === 'UPDATE' && String(l.changes?.observaciones?.a || '').includes('DESPACHO_ALMACEN')) ||
+        null;
+      const fechaDesp =
+        (tieneHoraExacta(desp.fecha) ? desp.fecha : null) ||
+        logDesp?.at ||
+        desp.fecha ||
+        req.received_at ||
+        req.created_at;
+      const autorDesp =
+        resolverAutor(null, desp.despachadoPor) ||
+        autorDeLog(logDesp) ||
+        resolverAutor(req.responsable_id, req.responsable_nombre) ||
+        resolverAutor(req.decided_by, req.decided_by_name) ||
+        'Almacén';
       const idDesp = `syn-desp-${req.id}`;
       mapaEventos.set(idDesp, {
         id: idDesp,
-        at: desp.fecha || req.received_at || req.created_at,
-        by: desp.despachadoPor || 'Almacén',
+        at: fechaDesp,
+        by: autorDesp,
+        byId: logDesp?.user_id || req.responsable_id || null,
         modulo: 'Almacén',
         tipo: 'despacho_almacen',
         titulo: 'Retirado de Almacén / Entregado',
-        detalle: `Retirado por ${desp.retiradoPor || 'Personal'}${desp.retiradoCedula ? ` (C.I. ${desp.retiradoCedula})` : ''}${desp.maquinariaCodigo ? ` · Máquina: ${desp.maquinariaCodigo}${desp.maquinariaPlaca ? ` [Placa: ${desp.maquinariaPlaca}]` : ''}` : ''}.`,
+        detalle: `Despachado por ${autorDesp} · Retirado por ${desp.retiradoPor || 'Personal'}${desp.retiradoCedula ? ` (C.I. ${desp.retiradoCedula})` : ''}${desp.maquinariaCodigo ? ` · Máquina: ${desp.maquinariaCodigo}${desp.maquinariaPlaca ? ` [Placa: ${desp.maquinariaPlaca}]` : ''}` : ''}.`,
         reqId: req.id,
         reqCode,
         cuentaId: cuenta?.id || null,
@@ -1235,24 +1702,110 @@ export function construirTimelineExpediente(params: {
 
   // 9. Rechazo / Anulación
   if ((req?.status === 'rechazado' || cuenta?.estado === 'anulada') && !tieneTipo('rechazado_o_anulado')) {
-    const idRech = `syn-rech-${req?.id || cuenta?.id}`;
-    mapaEventos.set(idRech, {
-      id: idRech,
-      at: req?.decided_at || cuenta?.updated_at || req?.created_at || new Date().toISOString(),
-      by: req?.decided_by_name || 'Gerencia / Compras',
-      modulo: cuenta?.estado === 'anulada' ? 'Por Pagar' : 'Requerimientos',
-      tipo: 'rechazado_o_anulado',
-      titulo: cuenta?.estado === 'anulada' ? 'Cuenta por Pagar anulada' : 'Requerimiento rechazado',
-      detalle: req?.decision_note || 'Marcado como anulado / rechazado.',
-      reqId: req?.id || cuenta?.inventory_requirement_id || null,
-      reqCode,
-      cuentaId: cuenta?.id || null,
-      empresaNombre: empresaNombre || null,
-      proveedorNombre,
-      solicitanteNombre,
-      destinoTexto,
-      areaTexto,
-    });
+    const logRech =
+      [...logsCta, ...logsReq]
+        .reverse()
+        .find(
+          (l) =>
+            l.action === 'UPDATE' &&
+            (l.changes?.estado?.a === 'anulada' || l.changes?.status?.a === 'rechazado')
+        ) || null;
+    const fechaRech =
+      logRech?.at ||
+      (tieneHoraExacta(req?.decided_at) ? req?.decided_at : null) ||
+      (tieneHoraExacta(cuenta?.updated_at) ? cuenta?.updated_at : null) ||
+      req?.decided_at ||
+      cuenta?.updated_at ||
+      cuenta?.created_at ||
+      req?.created_at ||
+      '';
+    const autorRech =
+      autorDeLog(logRech) ||
+      resolverAutor(req?.decided_by, req?.decided_by_name) ||
+      resolverAutor(cuenta?.created_by, null) ||
+      resolverAutor(req?.requested_by, req?.requested_by_name) ||
+      'Gerencia / Compras';
+    if (fechaRech) {
+      const idRech = `syn-rech-${req?.id || cuenta?.id}`;
+      mapaEventos.set(idRech, {
+        id: idRech,
+        at: fechaRech,
+        by: autorRech,
+        byId: logRech?.user_id || req?.decided_by || null,
+        modulo: cuenta?.estado === 'anulada' ? 'Por Pagar' : 'Requerimientos',
+        tipo: 'rechazado_o_anulado',
+        titulo: cuenta?.estado === 'anulada' ? 'Cuenta por Pagar anulada' : 'Requerimiento rechazado',
+        detalle: req?.decision_note || `Marcado como anulado / rechazado por ${autorRech}.`,
+        reqId: req?.id || cuenta?.inventory_requirement_id || null,
+        reqCode,
+        cuentaId: cuenta?.id || null,
+        empresaNombre: empresaNombre || null,
+        proveedorNombre,
+        solicitanteNombre,
+        destinoTexto,
+        areaTexto,
+      });
+    }
+  }
+
+  // 10. Pase final de enriquecimiento: si algún evento explícito tenía un autor genérico
+  //     (ej. "Tesorería / Por Pagar", "Usuario") o una fecha sin hora (YYYY-MM-DD),
+  //     lo enriquecemos con el usuario y timestamp exacto del expediente / audit_log.
+  const autorFallbackExpediente =
+    resolverAutor(cuenta?.settled_by, null) ||
+    resolverAutor(null, rec?.subidoPor) ||
+    resolverAutor(apOk?.aprobadoPorId, apOk?.aprobadoPor) ||
+    resolverAutor(envInfo?.enviadoPorId, envInfo?.enviadoPor) ||
+    resolverAutor(req?.decided_by, req?.decided_by_name) ||
+    resolverAutor(cuenta?.created_by, null) ||
+    resolverAutor(req?.requested_by, req?.requested_by_name) ||
+    autorDeLog(logsOrdenados[logsOrdenados.length - 1]) ||
+    req?.solicitante_nombre ||
+    null;
+
+  const horaFallbackExpediente =
+    (tieneHoraExacta(cuenta?.settled_at) ? cuenta?.settled_at : null) ||
+    (tieneHoraExacta(rec?.subidoAt) ? rec?.subidoAt : null) ||
+    logsOrdenados[logsOrdenados.length - 1]?.at ||
+    (tieneHoraExacta(cuenta?.updated_at) ? cuenta?.updated_at : null) ||
+    (tieneHoraExacta(req?.decided_at) ? req?.decided_at : null) ||
+    (tieneHoraExacta(cuenta?.created_at) ? cuenta?.created_at : null) ||
+    (tieneHoraExacta(req?.created_at) ? req?.created_at : null) ||
+    null;
+
+  for (const [k, ev] of mapaEventos.entries()) {
+    let byFinal = ev.by;
+    let atFinal = ev.at;
+
+    if (esAutorGenericoCompra(byFinal) || byFinal.includes('@')) {
+      const porId = resolverAutor(ev.byId, null);
+      const tsEv = new Date(ev.at).getTime();
+      const logCercano =
+        !isNaN(tsEv) && logsOrdenados.length > 0
+          ? logsOrdenados.reduce((best: AuditLog | null, cur) => {
+              const distCur = Math.abs(new Date(cur.at).getTime() - tsEv);
+              const distBest = best ? Math.abs(new Date(best.at).getTime() - tsEv) : Infinity;
+              return distCur < distBest ? cur : best;
+            }, null)
+          : null;
+      byFinal = porId || autorDeLog(logCercano) || autorFallbackExpediente || byFinal;
+    }
+
+    if (!tieneHoraExacta(atFinal) && horaFallbackExpediente) {
+      const ymdEv = toLocalYMD(atFinal);
+      const logMismoDia = logsOrdenados.find((l) => toLocalYMD(l.at) === ymdEv);
+      if (logMismoDia?.at) {
+        atFinal = logMismoDia.at;
+      } else if (toLocalYMD(horaFallbackExpediente) === ymdEv) {
+        atFinal = horaFallbackExpediente;
+      } else {
+        atFinal = horaFallbackExpediente;
+      }
+    }
+
+    if (byFinal !== ev.by || atFinal !== ev.at) {
+      mapaEventos.set(k, { ...ev, by: byFinal, at: atFinal });
+    }
   }
 
   return Array.from(mapaEventos.values()).sort(

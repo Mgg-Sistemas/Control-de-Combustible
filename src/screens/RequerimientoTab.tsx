@@ -1727,19 +1727,37 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         suppliers.find((s) => s.id === facturaTarget.supplier_id)?.name || 'Proveedor';
 
       let dataFac: FacturaData | null = null;
+      const ahoraExp = nowISO();
+      const autorExp = userName || session?.user?.email || 'Administración';
+      let evHistFac: any = null;
+      let evHistRec: any = null;
+
       if (facturaNumero.trim() || facturaUrl || facturaNota.trim()) {
         dataFac = {
           numero: facturaNumero.trim() || (facturaUrl ? 'ADJ-FACT' : 'S/N'),
           empresa: facturaEmpresa.trim() || provDefault,
-          fecha: facturaFecha || new Date().toISOString().slice(0, 10),
+          fecha: facturaFecha || ahoraExp.slice(0, 10),
           url: facturaUrl || null,
           tipo: facturaTipo || 'image',
           nombre: facturaNombre || null,
           nota: facturaNota.trim() || null,
-          subidaPor: userName || session?.user?.email || 'Administración',
-          subidaAt: nowISO(),
+          subidaPor: autorExp,
+          subidaAt: ahoraExp,
         };
         nuevaObs = inyectarFacturaEnObservaciones(nuevaObs, dataFac);
+        evHistFac = {
+          id: `ev-fac-${Date.now()}`,
+          at: ahoraExp,
+          by: autorExp,
+          byId: uid,
+          modulo: 'Requerimientos' as const,
+          tipo: 'factura_registrada' as const,
+          titulo: `Factura N° ${dataFac.numero} cargada por ${autorExp}`,
+          detalle: `Proveedor: ${dataFac.empresa}${dataFac.nota ? ` · Nota: ${dataFac.nota}` : ''}`,
+          reqId: facturaTarget.id,
+          reqCode: facturaTarget.code,
+        };
+        nuevaObs = anexarEventoHistorial(nuevaObs, evHistFac);
       }
 
       if (hayDatosRecibo) {
@@ -1748,13 +1766,26 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           tipo: reciboPagoTipo || 'image',
           nombre: reciboPagoNombre || (reciboPagoUrl ? 'Recibo de pago' : null),
           referencia: reciboPagoRef.trim() || null,
-          fecha: reciboPagoFecha || new Date().toISOString().slice(0, 10),
+          fecha: reciboPagoFecha || ahoraExp.slice(0, 10),
           metodo: reciboPagoMetodo.trim() || null,
           nota: reciboPagoNota.trim() || null,
-          subidoPor: userName || session?.user?.email || 'Administración',
-          subidoAt: nowISO(),
+          subidoPor: autorExp,
+          subidoAt: ahoraExp,
         };
         nuevaObs = inyectarReciboPagoEnObservaciones(nuevaObs, dataRec);
+        evHistRec = {
+          id: `ev-rec-${Date.now()}`,
+          at: ahoraExp,
+          by: autorExp,
+          byId: uid,
+          modulo: 'Requerimientos' as const,
+          tipo: 'pagado_completo' as const,
+          titulo: `Comprobante de pago registrado por ${autorExp}`,
+          detalle: `${dataRec.metodo ? `Método: ${dataRec.metodo}` : 'Pago registrado'}${dataRec.referencia ? ` · Ref: ${dataRec.referencia}` : ''}${dataRec.nota ? ` · Nota: ${dataRec.nota}` : ''}`,
+          reqId: facturaTarget.id,
+          reqCode: facturaTarget.code,
+        };
+        nuevaObs = anexarEventoHistorial(nuevaObs, evHistRec);
       }
 
       const patchPayload: Record<string, any> = {
@@ -1788,18 +1819,30 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             .limit(1);
           if (ctas && ctas.length > 0) {
             const targetCta = ctas[0] as any;
-            const notaCta = reciboPagoUrl
-              ? inyectarReciboPagoEnNota(targetCta.nota, { url: reciboPagoUrl, tipo: reciboPagoTipo || 'image', nombre: 'Recibo de pago', subidoPor: userName || 'Requerimientos' })
+            let notaCta = reciboPagoUrl || reciboPagoRef.trim()
+              ? inyectarReciboPagoEnNota(targetCta.nota, {
+                  url: reciboPagoUrl || null,
+                  tipo: reciboPagoTipo || 'image',
+                  nombre: 'Recibo de pago',
+                  referencia: reciboPagoRef.trim() || null,
+                  metodo: reciboPagoMetodo.trim() || null,
+                  nota: reciboPagoNota.trim() || null,
+                  fecha: reciboPagoFecha || ahoraExp.slice(0, 10),
+                  subidoPor: autorExp,
+                  subidoAt: ahoraExp,
+                })
               : targetCta.nota;
+            if (evHistFac) notaCta = anexarEventoHistorial(notaCta, evHistFac);
+            if (evHistRec) notaCta = anexarEventoHistorial(notaCta, evHistRec);
             const tienePagoRegistrado = Boolean(reciboPagoUrl || reciboPagoRef.trim());
             await supabase.from('cuentas').update({
               nota: notaCta,
               factura_url: dataFac?.url || targetCta.factura_url,
               ...(dataFac?.numero ? { documento: dataFac.numero } : {}),
               ...(tienePagoRegistrado && targetCta.estado !== 'pagada'
-                ? { estado: 'pagada', settled_by: uid, settled_at: nowISO() }
+                ? { estado: 'pagada', settled_by: uid, settled_at: ahoraExp }
                 : {}),
-              updated_at: nowISO(),
+              updated_at: ahoraExp,
             }).eq('id', targetCta.id);
           }
         }
@@ -2831,8 +2874,35 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       confirmText: 'Cambiar', cancelText: 'Cancelar',
     });
     if (!ok) return;
-    const patch: Record<string, any> = { status };
-    if (status === 'recibido' && !r.received_at) patch.received_at = nowISO();
+    const ahoraEst = nowISO();
+    const autorEst = (await perfilNombre()) || session?.user?.email || 'Usuario';
+    const tipoEvEst =
+      status === 'esperando_recepcion' || status === 'pagado'
+        ? ('pagado_completo' as const)
+        : status === 'recibido'
+          ? ('recepcion_almacen' as const)
+          : status === 'rechazado'
+            ? ('rechazado_o_anulado' as const)
+            : ('estado_flujo' as const);
+    const obsConHistEst = anexarEventoHistorial(r.observaciones, {
+      at: ahoraEst,
+      by: autorEst,
+      byId: uid,
+      modulo: 'Requerimientos',
+      tipo: tipoEvEst,
+      titulo:
+        status === 'esperando_recepcion' || status === 'pagado'
+          ? `Marcado como Pagado / Esperando Recepción por ${autorEst}`
+          : `Estado cambiado a "${REQ_STATUS[status]?.short || status}" por ${autorEst}`,
+      detalle: `Cambio manual de estado en Requerimientos (${REQ_STATUS[r.status]?.short || r.status} ➔ ${REQ_STATUS[status]?.short || status}) ejecutado por ${autorEst}.`,
+      reqId: r.id,
+      reqCode: r.code,
+    });
+    const patch: Record<string, any> = { status, observaciones: obsConHistEst };
+    if (status === 'recibido' && !r.received_at) patch.received_at = ahoraEst;
+    if (!r.decided_by && uid) patch.decided_by = uid;
+    if (!r.decided_by_name && autorEst) patch.decided_by_name = autorEst;
+    if (!r.decided_at) patch.decided_at = ahoraEst;
     const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
     if (error) return toast.error(error.message);
     setStatusPickerId(null);
@@ -2904,15 +2974,28 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         const nextNote = rowMatch?.note != null && rowMatch.note.trim() ? rowMatch.note.trim() : it.note;
         return { ...it, note: nextNote, received: true };
       });
+      const ahoraRecv = nowISO();
+      const autorRecv = (await perfilNombre()) || session?.user?.email || 'Almacén';
       const partesRecepcion = [
         recvFacturaNumero.trim() ? `Factura N° ${recvFacturaNumero.trim()}${recvFacturaUrl ? ' (con soporte adjunto)' : ''}` : '',
         notaGenTrim ? `Nota: ${notaGenTrim}` : '',
       ].filter(Boolean).join(' · ');
-      const obsFinal = `${recvFor.observaciones || ''}${partesRecepcion ? `\n[RECEPCIÓN ALMACÉN: ${partesRecepcion}]` : ''}`.trim() || null;
+      const obsConTagRecv = `${recvFor.observaciones || ''}${partesRecepcion ? `\n[RECEPCIÓN ALMACÉN: ${partesRecepcion}]` : ''}`.trim() || null;
+      const obsFinal = anexarEventoHistorial(obsConTagRecv, {
+        at: ahoraRecv,
+        by: autorRecv,
+        byId: uid,
+        modulo: 'Almacén',
+        tipo: 'recepcion_almacen',
+        titulo: `Recibido en Almacén por ${autorRecv}`,
+        detalle: `Mercancía ingresada al inventario de almacén por ${autorRecv}${partesRecepcion ? ` · ${partesRecepcion}` : ''}.`,
+        reqId: recvFor.id,
+        reqCode: recvFor.code,
+      });
 
       const reqPatch: Record<string, any> = {
         status: 'recibido',
-        received_at: nowISO(),
+        received_at: ahoraRecv,
         items: items2,
         observaciones: obsFinal,
       };

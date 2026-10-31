@@ -11,14 +11,19 @@ import type {
   InventoryRequirement,
   Cuenta,
   CuentaAbono,
+  PurchaseOrder,
   Company,
   Supplier,
   Machinery,
   Vehicle,
+  AuditLog,
 } from '../types/database';
 import {
   construirTimelineExpediente,
+  resolverRequerimientoVinculadoACuenta,
   fmtFechaHora,
+  fmtFechaCorta,
+  fmtSoloHora,
   toLocalYMD,
   type EventoHistorialCompra,
   type TipoEventoCompra,
@@ -262,14 +267,20 @@ export function TimelineExpedienteBox({
                       {ev.titulo}
                     </Text>
                   </View>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>
-                    🕒 {fmtFechaHora(ev.at)}
+                  <Text style={{ color: colors.text, fontSize: 11, fontWeight: '800' }}>
+                    📅 {fmtFechaCorta(ev.at)}
+                    {fmtSoloHora(ev.at) ? (
+                      <Text style={{ color: colors.brandText, fontWeight: '900' }}> · 🕒 {fmtSoloHora(ev.at)}</Text>
+                    ) : null}
                   </Text>
                 </View>
 
                 <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                  👤 <Text style={{ fontWeight: '800' }}>Ejecutado por:</Text>{' '}
-                  <Text style={{ color: colors.brandText, fontWeight: '800' }}>{ev.by}</Text>
+                  👤 <Text style={{ fontWeight: '800' }}>Lo hizo:</Text>{' '}
+                  <Text style={{ color: colors.brandText, fontWeight: '900' }}>{ev.by}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>
+                    {' · '}🕒 Hora: {fmtSoloHora(ev.at) || fmtFechaHora(ev.at)}
+                  </Text>
                   <Text style={{ color: colors.muted }}> · Módulo: {ev.modulo}</Text>
                 </Text>
 
@@ -358,30 +369,58 @@ export function HistoricoComprasTab() {
     orderBy: 'fecha',
     ascending: false,
   });
+  const { data: orders } = useTable<PurchaseOrder>('purchase_orders', {
+    orderBy: 'created_at',
+    ascending: false,
+  });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
 
   const [usuariosMap, setUsuariosMap] = useState<Map<string, string>>(new Map());
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      try {
-        const { data } = await supabase.from('profiles').select('id, full_name, username');
-        if (cancel || !data) return;
-        const m = new Map<string, string>();
-        (data as any[]).forEach((p) => {
-          const n = String(p.full_name || p.username || '').trim();
-          if (p.id && n) m.set(String(p.id), n);
-        });
-        setUsuariosMap(m);
-      } catch {}
-    })();
-    return () => {
-      cancel = true;
-    };
+  const [auditLogsCompra, setAuditLogsCompra] = useState<AuditLog[]>([]);
+
+  const cargarPerfilesYAuditoria = React.useCallback(async () => {
+    try {
+      const [resProf, resAudit] = await Promise.all([
+        supabase.from('profiles').select('id, full_name, username'),
+        supabase
+          .from('audit_log')
+          .select('id, at, user_id, user_name, action, table_name, row_id, changes')
+          .in('table_name', ['inventory_requirements', 'cuentas', 'cuenta_abonos'])
+          .in('action', ['INSERT', 'UPDATE', 'DELETE'])
+          .order('at', { ascending: true })
+          .limit(4000),
+      ]);
+
+      const m = new Map<string, string>();
+      let profRows = resProf.data as any[] | null;
+      if (!profRows && resProf.error) {
+        const fallbackProf = await supabase.from('profiles').select('id, full_name');
+        profRows = fallbackProf.data as any[] | null;
+      }
+      (profRows || []).forEach((p) => {
+        const n = String(p.full_name || p.username || '').trim();
+        if (p.id && n) m.set(String(p.id), n);
+      });
+
+      const logs = (resAudit.data as AuditLog[] | null) || [];
+      logs.forEach((l) => {
+        const n = String(l.user_name || '').trim();
+        if (l.user_id && n && !m.has(String(l.user_id))) {
+          m.set(String(l.user_id), n);
+        }
+      });
+
+      setUsuariosMap(m);
+      setAuditLogsCompra(logs);
+    } catch {}
   }, []);
+
+  useEffect(() => {
+    cargarPerfilesYAuditoria();
+  }, [cargarPerfilesYAuditoria]);
 
   const [vistaModo, setVistaModo] = useState<'bitacora' | 'expedientes'>('bitacora');
   const [q, setQ] = useState('');
@@ -392,6 +431,33 @@ export function HistoricoComprasTab() {
 
   // Construir todos los expedientes y el feed global de eventos
   const { todosEventos, expedientes } = useMemo(() => {
+    // Mapa enriquecido de usuarios (perfiles + audit_log + nombres guardados en requerimientos)
+    const mapaUsuariosCompleto = new Map<string, string>(usuariosMap);
+    (requirements || []).forEach((r) => {
+      if (r.requested_by && r.requested_by_name && !mapaUsuariosCompleto.has(String(r.requested_by))) {
+        mapaUsuariosCompleto.set(String(r.requested_by), r.requested_by_name.trim());
+      }
+      if (r.decided_by && r.decided_by_name && !mapaUsuariosCompleto.has(String(r.decided_by))) {
+        mapaUsuariosCompleto.set(String(r.decided_by), r.decided_by_name.trim());
+      }
+      if (r.responsable_id && r.responsable_nombre && !mapaUsuariosCompleto.has(String(r.responsable_id))) {
+        mapaUsuariosCompleto.set(String(r.responsable_id), r.responsable_nombre.trim());
+      }
+      if (r.motorizado_user_id && r.motorizado_nombre && !mapaUsuariosCompleto.has(String(r.motorizado_user_id))) {
+        mapaUsuariosCompleto.set(String(r.motorizado_user_id), r.motorizado_nombre.trim());
+      }
+    });
+
+    // Índice de audit_log por row_id para acceso O(1)
+    const logsPorRowId = new Map<string, AuditLog[]>();
+    (auditLogsCompra || []).forEach((l) => {
+      if (!l.row_id) return;
+      const k = String(l.row_id);
+      const arr = logsPorRowId.get(k) ?? [];
+      arr.push(l);
+      logsPorRowId.set(k, arr);
+    });
+
     const abonosPorCuenta = new Map<string, CuentaAbono[]>();
     (abonos || []).forEach((ab) => {
       const arr = abonosPorCuenta.get(ab.cuenta_id) ?? [];
@@ -404,8 +470,14 @@ export function HistoricoComprasTab() {
     (cuentas || [])
       .filter((c) => c.tipo === 'por_pagar')
       .forEach((c) => {
-        if (c.inventory_requirement_id) {
-          cuentaPorReqId.set(c.inventory_requirement_id, c);
+        const reqVinc = resolverRequerimientoVinculadoACuenta(c, requirements, orders);
+        const targetReqId = c.inventory_requirement_id || reqVinc?.id || null;
+        if (targetReqId) {
+          const existente = cuentaPorReqId.get(targetReqId);
+          // Si hubiera más de una cuenta ligada al mismo req, priorizar la pagada o la más reciente
+          if (!existente || (c.estado === 'pagada' && existente.estado !== 'pagada')) {
+            cuentaPorReqId.set(targetReqId, c);
+          }
         } else {
           cuentasSinReq.push(c);
         }
@@ -428,6 +500,11 @@ export function HistoricoComprasTab() {
     (requirements || []).forEach((req) => {
       const cta = cuentaPorReqId.get(req.id) || null;
       const abs = cta ? abonosPorCuenta.get(cta.id) || [] : [];
+      const logsExp: AuditLog[] = [
+        ...(logsPorRowId.get(req.id) || []),
+        ...(cta ? logsPorRowId.get(cta.id) || [] : []),
+        ...abs.flatMap((a) => logsPorRowId.get(a.id) || []),
+      ];
       const evs = construirTimelineExpediente({
         req,
         cuenta: cta,
@@ -436,7 +513,8 @@ export function HistoricoComprasTab() {
         suppliers,
         machines,
         vehicles,
-        usuariosMap,
+        usuariosMap: mapaUsuariosCompleto,
+        auditLogs: logsExp,
       });
       if (evs.length > 0) {
         listaEv.push(...evs);
@@ -458,6 +536,10 @@ export function HistoricoComprasTab() {
 
     cuentasSinReq.forEach((cta) => {
       const abs = abonosPorCuenta.get(cta.id) || [];
+      const logsExp: AuditLog[] = [
+        ...(logsPorRowId.get(cta.id) || []),
+        ...abs.flatMap((a) => logsPorRowId.get(a.id) || []),
+      ];
       const evs = construirTimelineExpediente({
         req: null,
         cuenta: cta,
@@ -466,7 +548,8 @@ export function HistoricoComprasTab() {
         suppliers,
         machines,
         vehicles,
-        usuariosMap,
+        usuariosMap: mapaUsuariosCompleto,
+        auditLogs: logsExp,
       });
       if (evs.length > 0) {
         listaEv.push(...evs);
@@ -490,7 +573,7 @@ export function HistoricoComprasTab() {
     listaExp.sort((a, b) => new Date(b.ultimaFecha).getTime() - new Date(a.ultimaFecha).getTime());
 
     return { todosEventos: listaEv, expedientes: listaExp };
-  }, [requirements, cuentas, abonos, companies, suppliers, machines, vehicles, usuariosMap]);
+  }, [requirements, cuentas, abonos, orders, companies, suppliers, machines, vehicles, usuariosMap, auditLogsCompra]);
 
   // Rango de fechas efectivo
   const rangoFecha = useMemo(() => {
@@ -519,9 +602,17 @@ export function HistoricoComprasTab() {
     if (filtroTipo === 'todos') return true;
     if (filtroTipo === 'items_modificados') return t === 'items_modificados';
     if (filtroTipo === 'enviado_por_pagar') return t === 'enviado_por_pagar';
-    if (filtroTipo === 'aprobado_gerencia_cxp') return t === 'aprobado_gerencia_cxp';
+    if (filtroTipo === 'aprobado_gerencia_cxp')
+      return t === 'aprobado_gerencia_cxp' || t === 'aprobacion_gerencial';
     if (filtroTipo === 'pagos_y_facturas')
-      return t === 'pago_completado' || t === 'abono_registrado' || t === 'factura_registrada';
+      return (
+        t === 'pago_completado' ||
+        t === 'pagado_completo' ||
+        t === 'abono_registrado' ||
+        t === 'pago_registrado' ||
+        t === 'factura_registrada' ||
+        t === 'factura_adjuntada'
+      );
     if (filtroTipo === 'solicitudes_y_req')
       return (
         t === 'solicitud_creada' ||
@@ -587,7 +678,13 @@ export function HistoricoComprasTab() {
       totalMovs: eventosFiltrados.length,
       modsItems: eventosFiltrados.filter((e) => e.tipo === 'items_modificados').length,
       enviadosCxp: eventosFiltrados.filter((e) => e.tipo === 'enviado_por_pagar').length,
-      pagosYAb: eventosFiltrados.filter((e) => e.tipo === 'pago_completado' || e.tipo === 'abono_registrado').length,
+      pagosYAb: eventosFiltrados.filter(
+        (e) =>
+          e.tipo === 'pago_completado' ||
+          e.tipo === 'pagado_completo' ||
+          e.tipo === 'abono_registrado' ||
+          e.tipo === 'pago_registrado'
+      ).length,
     };
   }, [eventosFiltrados]);
 
@@ -595,6 +692,7 @@ export function HistoricoComprasTab() {
     refetchReqs();
     refetchCuentas();
     refetchAbonos();
+    cargarPerfilesYAuditoria();
   };
 
   if (loadingReqs && loadingCuentas) {
@@ -950,9 +1048,25 @@ export function HistoricoComprasTab() {
                     <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>{ev.titulo}</Text>
                   </View>
 
-                  <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '800' }}>
-                    🕒 {fmtFechaHora(ev.at)}
-                  </Text>
+                  <View
+                    style={{
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.pill,
+                      paddingHorizontal: 9,
+                      paddingVertical: 3,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
+                      📅 {fmtFechaCorta(ev.at)}
+                      {fmtSoloHora(ev.at) ? (
+                        <Text style={{ color: colors.brandText, fontWeight: '900' }}>
+                          {' · '}🕒 {fmtSoloHora(ev.at)}
+                        </Text>
+                      ) : null}
+                    </Text>
+                  </View>
                 </View>
 
                 {/* Contexto del expediente */}
@@ -969,8 +1083,16 @@ export function HistoricoComprasTab() {
                   }}
                 >
                   <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                    👤 <Text style={{ fontWeight: '700' }}>Ejecutó:</Text>{' '}
+                    👤 <Text style={{ fontWeight: '700' }}>Lo hizo:</Text>{' '}
                     <Text style={{ color: colors.brandText, fontWeight: '900' }}>{ev.by}</Text>
+                  </Text>
+                  <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                    🕒 <Text style={{ fontWeight: '700' }}>Hora:</Text>{' '}
+                    <Text style={{ color: colors.text, fontWeight: '900' }}>
+                      {fmtSoloHora(ev.at)
+                        ? `${fmtSoloHora(ev.at)} (${fmtFechaCorta(ev.at)})`
+                        : fmtFechaHora(ev.at)}
+                    </Text>
                   </Text>
                   {ev.solicitanteNombre ? (
                     <Text style={{ color: colors.text, fontSize: 11.5 }}>
