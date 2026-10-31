@@ -2482,9 +2482,15 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setAlicuotaIva(alicEditar);
     setFormatos(extraerFormatosAdjuntos(r));
     let s = 0;
+    // ⚠️ 31-oct-2026: una línea en Bs sin precio en $ se pasa a $ con la tasa con la que
+    //    se registró la compra (la que la base anotó en la cuenta), no con la de hoy. Con
+    //    la de hoy, borrar o editar un renglón le movía el precio a todas las demás.
+    const ctaDelReq = (cuentasData || []).find((c) => c.inventory_requirement_id === r.id);
+    const mTasaCta = String(ctaDelReq?.nota || '').match(/\(Bs\s*([\d.]+)\s*por \$\)/);
+    const tasaDelReq = mTasaCta && Number(mTasaCta[1]) > 0 ? Number(mTasaCta[1]) : (rate || 0);
     setRows(r.items.map((it) => {
       const q = Math.max(0.0001, Number(it.qty) || 1);
-      const pUsdNum = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
+      const pUsdNum = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, tasaDelReq));
       const pBsNum = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdNum * rate * 100) / 100 : 0));
       const totUsdNum = it.total_usd != null && Number(it.total_usd) > 0 ? Number(it.total_usd) : Math.round(pUsdNum * q * 100) / 100;
       const totBsNum = it.total_bs != null && Number(it.total_bs) > 0 ? Number(it.total_bs) : Math.round(pBsNum * q * 100) / 100;

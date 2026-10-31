@@ -617,12 +617,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       c.desgloseIva?.alicuota ??
       (reqVinc?.iva_alicuota != null ? Number(reqVinc.iva_alicuota) : (c.alicuota_iva != null ? Number(c.alicuota_iva) : resolverAlicuotaIvaRequerimiento(reqVinc, c.nota)))
     );
+    // ⚠️ 31-oct-2026: las líneas en Bs se pasan a $ con la tasa con que se registró la
+    //    cuenta (la anota la base en la nota), no con la de hoy: si no, quitar un renglón
+    //    le cambiaba el precio a los demás.
+    const mTasaCta = String(c.nota || '').match(/\(Bs\s*([\d.]+)\s*por \$\)/);
+    const tasaCta = mTasaCta && Number(mTasaCta[1]) > 0 ? Number(mTasaCta[1]) : tasaBcv;
     setEditItemsDraft(
       baseItems.map((it) => ({
         name: String(it.name || ''),
         qty: String(Number(it.qty) || 1),
         unit: String(it.unit || 'und'),
-        unitUsd: String(Math.round(precioUnitarioUsdLinea(it, tasaBcv) * 10000) / 10000),
+        unitUsd: String(Math.round(precioUnitarioUsdLinea(it, tasaCta) * 10000) / 10000),
         note: String(it.note || ''),
         exento: Boolean(it.exento),
         item_id: (it as any).item_id ?? it.product_id ?? null,

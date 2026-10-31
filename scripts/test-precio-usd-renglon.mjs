@@ -37,7 +37,7 @@ ok('la regla vive en requerimientoFlujo', /export function precioUnitarioUsdLine
 ok('la copia del test coincide con la regla', /if \(Number\(it\.price_usd\) > 0\) return Number\(it\.price_usd\);/.test(lib));
 ok('el total del requerimiento usa la regla', /const lineTotalUsd = \(it: RequirementLine\) => totalUsdLinea\(it, rateBcv\);/.test(lib));
 ok('el desglose de Por pagar usa la regla', /const lineTotalUsd = \(it: RequirementLine\) => totalUsdLinea\(it, tasaBcv\);/.test(cxp));
-ok('el editor de ítems de Por pagar carga el precio de la regla', /unitUsd: String\(Math\.round\(precioUnitarioUsdLinea\(it, tasaBcv\)/.test(cxp));
+ok('el editor de ítems de Por pagar carga el precio de la regla', /unitUsd: String\(Math\.round\(precioUnitarioUsdLinea\(it, (tasaBcv|tasaCta)\)/.test(cxp));
 ok('Por pagar ya no suma est_price a mano', !/Number\(it\.est_price\) \|\| 0\) \/ rate/.test(cxp) && !/const estPrice = Number\(it\.est_price\)/.test(cxp));
 ok('el expediente usa la regla', /totalUsdLinea\(it\)/.test(exp) && /precioUnitarioUsdLinea\(it\)/.test(exp));
 ok('el PDF del requerimiento prefiere price_usd', /Number\(it\.price_usd\) > 0 \? Number\(it\.price_usd\)/.test(pdf));

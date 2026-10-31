@@ -399,6 +399,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     currency: 'USD' | 'VES';
     supplier_id?: string | null;
     supplier_name?: string | null;
+    /** La línea tal como estaba guardada: al guardar se conserva todo lo que este
+     *  editor no muestra (precio en $, totales, cotizaciones, exento…). */
+    orig?: RequirementLine;
   }>>([]);
   const [editBusy, setEditBusy] = useState(false);
   const [subiendoFotoKey, setSubiendoFotoKey] = useState<string | null>(null);
@@ -607,8 +610,10 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     setConvertPrioridad(esPrioridadCompra(r.prioridad) ? r.prioridad : null);
     setConvertSupQ('');
     setConvertSupOpen(false);
+    // ⚠️ 31-oct-2026: ya no se precarga con el precio de la PRIMERA línea (se aplicaba a
+    //    todas al convertir y pisaba los precios de las demás).
     const primerItem = r.items[0];
-    setConvertPrice(primerItem && Number(primerItem.est_price) > 0 ? String(primerItem.est_price) : '');
+    setConvertPrice('');
     setConvertCurrency((primerItem?.currency as 'USD' | 'VES') || 'USD');
     setConvertNote(r.note || '');
 
@@ -629,8 +634,14 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       const updatedItems = convertTarget.items.map((it, idx) => {
         const supId = convertItemSuppliers[idx] !== undefined ? convertItemSuppliers[idx] : convertSupplierId;
         const supObj = supId ? suppliers.find((s) => s.id === supId) : null;
-        const rawPrice = priceNum > 0 ? priceNum : Number(it.est_price) || 0;
-        const curr = priceNum > 0 ? convertCurrency : (it.currency || 'USD');
+        // El precio general solo llena las líneas SIN precio: la que ya tiene el suyo lo conserva.
+        const yaTienePrecio = Number(it.price_usd) > 0 || Number(it.est_price) > 0;
+        if (yaTienePrecio && Number(it.price_usd) > 0) {
+          return { ...it, supplier_id: supId || null, supplier_name: supObj?.name || it.supplier_name || null };
+        }
+        const usarGeneral = priceNum > 0 && !yaTienePrecio;
+        const rawPrice = usarGeneral ? priceNum : Number(it.est_price) || 0;
+        const curr = usarGeneral ? convertCurrency : (it.currency || 'USD');
         const pUsd =
           curr === 'VES'
             ? rate && rate > 0
@@ -829,6 +840,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         currency: (it.currency as 'USD' | 'VES') || 'USD',
         supplier_id: it.supplier_id || null,
         supplier_name: it.supplier_name || null,
+        orig: it,
       }))
     );
   };
@@ -906,18 +918,37 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
 
     setEditBusy(true);
     try {
-      const finalItems: RequirementLine[] = editItems.map((it) => ({
-        product_id: it.product_id || null,
-        name: it.name.trim(),
-        qty: parseNum(it.qty),
-        unit: (it.unit || 'UND').trim().toUpperCase(),
-        est_price: it.est_price ? parseNum(it.est_price) : 0,
-        currency: it.currency || 'USD',
-        note: it.note.trim() || null,
-        image_url: it.image_url.trim() || null,
-        supplier_id: it.supplier_id || null,
-        supplier_name: it.supplier_name || null,
-      }));
+      // ⚠️ 31-oct-2026: cada línea parte de la guardada (`orig`). Antes se rearmaba solo
+      //    con estos campos y se perdían price_usd, totales y cotizaciones: al borrar o
+      //    editar un renglón, los precios de TODO el requerimiento cambiaban.
+      const finalItems: RequirementLine[] = editItems.map((it) => {
+        const qty = parseNum(it.qty);
+        const linea: RequirementLine = {
+          ...(it.orig || {}),
+          product_id: it.product_id || null,
+          name: it.name.trim(),
+          qty,
+          unit: (it.unit || 'UND').trim().toUpperCase(),
+          est_price: it.est_price ? parseNum(it.est_price) : 0,
+          currency: it.currency || 'USD',
+          note: it.note.trim() || null,
+          image_url: it.image_url.trim() || null,
+          supplier_id: it.supplier_id || null,
+          supplier_name: it.supplier_name || null,
+        } as RequirementLine;
+        // Si cambió la cantidad, los totales se recalculan con la misma regla del requerimiento.
+        if (it.orig && Number(it.orig.qty) !== qty && qty > 0) {
+          const l = linea as any;
+          if ((l.modo_precio || 'unidad') === 'total') {
+            if (Number(l.total_usd) > 0) l.price_usd = Math.round((Number(l.total_usd) / qty) * 10000) / 10000;
+            if (Number(l.total_bs) > 0) l.price_bs = Math.round((Number(l.total_bs) / qty) * 100) / 100;
+          } else {
+            if (Number(l.price_usd) > 0) l.total_usd = Math.round(Number(l.price_usd) * qty * 100) / 100;
+            if (Number(l.price_bs) > 0) l.total_bs = Math.round(Number(l.price_bs) * qty * 100) / 100;
+          }
+        }
+        return linea;
+      });
 
       // 📷 La foto de un renglón es SOLO de ese renglón (28-oct-2026): con UN renglón su foto
       //    sirve también como foto de la solicitud; con varios no se copia a la solicitud.
@@ -2543,7 +2574,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               {/* Precio estimado / cotizado */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
                 <View style={{ flex: 2 }}>
-                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Precio Unitario Estimado:</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Precio unitario para las líneas SIN precio:</Text>
                   <TextInput
                     value={convertPrice}
                     onChangeText={(t) => setConvertPrice(onlyDecimal(t))}
