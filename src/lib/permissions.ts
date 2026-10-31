@@ -12,6 +12,17 @@ export const ROLE_LABEL: Record<string, string> = {
   coordinador_inspectores: 'coordinador de inspectores',
 };
 export const roleLabel = (r?: string | null) => (r ? (ROLE_LABEL[r] ?? r) : '');
+/** Una línea por rol del sistema para que en Usuarios se entienda qué da cada uno. */
+export const ROLE_DESC: Record<string, string> = {
+  admin: 'Todo el sistema, sin restricciones.',
+  supervisor: 'Vista de inspector: revisa sus máquinas, registra visitas, jornadas y paradas.',
+  coordinador_inspectores: 'Lo mismo que un inspector, y además opera las máquinas de cualquier inspector (👥 Inspectores).',
+  analista: 'Lo que le den los permisos por módulo.',
+  operador: 'Lo que le den los permisos por módulo.',
+  conductor: 'Panel de conductor (surtir, camiones, asistencia).',
+  cocina: 'Módulo de comida.',
+  coordinador_patio: 'Panel del coordinador de patio.',
+};
 
 export const LEVELS: { value: PermLevel; label: string; short: string }[] = [
   { value: 'none', label: 'Sin acceso', short: '—' },

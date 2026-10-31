@@ -2257,6 +2257,12 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > Este botón **solo lee**: genera el PDF y no cambia nada en el sistema. Se puede pedir las veces
 > que haga falta.
 
+> **🔓 El coordinador de inspectores ya puede guardar** *(31/10/2026)*. Antes la base solo dejaba registrar
+> visitas, cambiar el estado de las máquinas y resolver autorizaciones a un administrador o a un inspector;
+> con el rol «coordinador de inspectores» salía «no tienes permiso» al guardar. Ahora ese rol pasa por los
+> mismos candados que el inspector, más lo de coordinar. En **Usuarios**, debajo de cada rol del sistema sale
+> una línea que dice qué da.
+
 > **📱 Teléfono vs 💻 PC:** cada rol entra a **su propia pantalla**, igual en teléfono que en PC
 > (ver 4.25 "Enrutamiento por rol al iniciar sesión" para el mapa completo) — el **inspector**
 > (rol `supervisor`) es quien realmente cae aquí, en 🪖 Revisar. El **coordinador de patio** ve su

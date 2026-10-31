@@ -73,7 +73,8 @@ export default function AuthorizationsScreen() {
   const openNew = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (a: Authorization) => { setEditing(a); setFormOpen(true); };
 
-  const canResolve = role === 'admin' || role === 'supervisor';
+  // El coordinador de inspectores resuelve igual que el inspector (la base también lo deja, 31-oct-2026).
+  const canResolve = role === 'admin' || role === 'supervisor' || role === 'coordinador_inspectores';
   const nameOf = useMemo(() => { const m = new Map(profiles.map((p) => [p.id, p.full_name ?? '—'])); return (id: string | null) => (id ? m.get(id) ?? '—' : '—'); }, [profiles]);
   const tankOf = useMemo(() => { const m = new Map(tanks.map((t) => [t.id, t.name])); return (id: string | null) => (id ? m.get(id) ?? '—' : '—'); }, [tanks]);
   const machOf = useMemo(() => new Map(machinery.map((m) => [m.id, m])), [machinery]);

@@ -15,7 +15,7 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { supabase } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { Profile, UserRole, AppRole } from '../types/database';
-import { MODULES, PermLevel, defaultLevel, maxLevel, roleLabel } from '../lib/permissions';
+import { MODULES, PermLevel, defaultLevel, maxLevel, roleLabel, ROLE_DESC } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -529,6 +529,7 @@ function UnifiedRolePicker({ visible, roles, current, onPick, onClose }: {
               return (
                 <TouchableOpacity key={r} onPress={() => onPick({ kind: 'base', role: r })} style={rowStyle(on)}>
                   <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800' }}>{roleLabel(r)}</Text>
+                  {ROLE_DESC[r] ? <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>{ROLE_DESC[r]}</Text> : null}
                 </TouchableOpacity>
               );
             })}
@@ -1561,6 +1562,10 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
     padding: spacing.lg,
+    // En PC la hoja no se estira a todo el ancho; en teléfono no cambia nada.
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
   },
   input: {
     backgroundColor: colors.surface,

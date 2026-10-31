@@ -1813,7 +1813,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Bloqueo: un inspector NO puede escanear/abrir/marcar la máquina de OTRO inspector.
     if (!puedeMarcar(m)) {
       setScanOpen(false);
-      setNotice(`🔒 "${m.code}" está asignada a ${otroInspectorNombre(m)}. No puedes escanearla ni marcarla (solo su inspector o un administrador).`);
+      setNotice(`🔒 "${m.code}" está asignada a ${otroInspectorNombre(m)}. No puedes escanearla ni marcarla (solo su inspector, un coordinador de inspectores o un administrador).`);
       return;
     }
     // Bloqueo: "Esperando instrucciones" = congelada por completo (pedido del cliente
