@@ -1107,8 +1107,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         usuarioId: uid,
         origen: 'por_pagar' as const,
         titulo: compMarcarPagada
-          ? `Cuenta marcada como PAGADA con comprobante (${compRef.trim() || 'S/Ref'})`
-          : `Comprobante de pago adjuntado (${compRef.trim() || 'S/Ref'})`,
+          ? `Cuenta marcada como PAGADA por ${autor} con comprobante (${compRef.trim() || 'S/Ref'})`
+          : `Comprobante de pago adjuntado por ${autor} (${compRef.trim() || 'S/Ref'})`,
         detalle: `Método: ${compMetodo.trim() || 'Cuentas por Pagar'} · Monto: ${usd(Number(comprobanteDe.monto) || 0)}${compNota.trim() ? ` · ${compNota.trim()}` : ''}`,
       };
       const notaActualizada = anexarEventoHistorial(

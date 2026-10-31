@@ -626,6 +626,10 @@ export function enriquecerDestinoConPlaca(
       .trim();
 
   const rawNorm = normStr(raw);
+  // Si el texto ya trae explícitamente una placa ("placa: ..."), no agregar otra placa distinta encima
+  if (rawNorm.includes('placa:') || rawNorm.includes('[placa')) {
+    return raw;
+  }
 
   if (Array.isArray(machines) && machines.length > 0) {
     for (const m of machines) {

@@ -50,12 +50,13 @@ function sumarDiasYMD(ymd: string, dias: number): string {
 export function metaVisualEventoCompra(
   tipo: TipoEventoCompra,
   colors: any
-): { icon: string; badge: string; bg: string; border: string; text: string } {
+): { icon: string; badge: string; accionPorLabel: string; bg: string; border: string; text: string } {
   switch (tipo) {
     case 'items_modificados':
       return {
         icon: '✏️',
         badge: 'ÍTEMS MODIFICADOS',
+        accionPorLabel: 'Ítems modificados por:',
         bg: colors.warningSoftBg,
         border: colors.warningSoftBorder,
         text: colors.warningSoftText,
@@ -64,6 +65,7 @@ export function metaVisualEventoCompra(
       return {
         icon: '📤',
         badge: 'ENVIADO A POR PAGAR',
+        accionPorLabel: 'Enviado a Por Pagar por:',
         bg: colors.infoSoftBg,
         border: colors.infoSoftBorder,
         text: colors.infoSoftText,
@@ -73,6 +75,7 @@ export function metaVisualEventoCompra(
       return {
         icon: '👔',
         badge: 'AUTORIZADO POR APROBADOR',
+        accionPorLabel: 'Autorizado para pago por:',
         bg: colors.successSoftBg,
         border: colors.successSoftBorder,
         text: colors.successSoftText,
@@ -82,6 +85,7 @@ export function metaVisualEventoCompra(
       return {
         icon: '✅',
         badge: 'PAGO LIQUIDADO',
+        accionPorLabel: 'Marcado como pagada por:',
         bg: colors.successSoftBg,
         border: colors.successSoftBorder,
         text: colors.successSoftText,
@@ -91,6 +95,7 @@ export function metaVisualEventoCompra(
       return {
         icon: '💵',
         badge: 'ABONO REGISTRADO',
+        accionPorLabel: 'Abono registrado por:',
         bg: colors.infoSoftBg,
         border: colors.infoSoftBorder,
         text: colors.infoSoftText,
@@ -100,6 +105,7 @@ export function metaVisualEventoCompra(
       return {
         icon: '🧾',
         badge: 'FACTURA CARGADA',
+        accionPorLabel: 'Factura cargada por:',
         bg: colors.surfaceAlt,
         border: colors.brand,
         text: colors.brandText,
@@ -108,6 +114,7 @@ export function metaVisualEventoCompra(
       return {
         icon: '⛔',
         badge: 'RECHAZADO / ANULADO',
+        accionPorLabel: 'Rechazado / Anulado por:',
         bg: colors.dangerSoftBg,
         border: colors.dangerSoftBorder,
         text: colors.dangerSoftText,
@@ -117,6 +124,7 @@ export function metaVisualEventoCompra(
       return {
         icon: '💬',
         badge: tipo === 'aclaratoria_pedida' ? 'ACLARATORIA PEDIDA' : 'ACLARATORIA RESPONDIDA',
+        accionPorLabel: tipo === 'aclaratoria_pedida' ? 'Aclaratoria pedida por:' : 'Respondido por:',
         bg: colors.warningSoftBg,
         border: colors.warningSoftBorder,
         text: colors.warningSoftText,
@@ -126,6 +134,7 @@ export function metaVisualEventoCompra(
       return {
         icon: '📦',
         badge: tipo === 'recepcion_almacen' ? 'RECIBIDO EN ALMACÉN' : 'DESPACHADO DE ALMACÉN',
+        accionPorLabel: tipo === 'recepcion_almacen' ? 'Recibido en almacén por:' : 'Despachado por:',
         bg: colors.successSoftBg,
         border: colors.successSoftBorder,
         text: colors.successSoftText,
@@ -134,6 +143,7 @@ export function metaVisualEventoCompra(
       return {
         icon: '📝',
         badge: tipo === 'convertido_req' ? 'CONVERTIDO A REQ.' : 'SOLICITUD / REQUERIMIENTO',
+        accionPorLabel: tipo === 'convertido_req' ? 'Convertido a Req. por:' : 'Registrado por:',
         bg: colors.surfaceAlt,
         border: colors.border,
         text: colors.text,
@@ -265,6 +275,9 @@ export function TimelineExpedienteBox({
                     </View>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
                       {ev.titulo}
+                      {ev.by && !ev.titulo.toLowerCase().includes(ev.by.toLowerCase()) ? (
+                        <Text style={{ color: colors.brandText, fontWeight: '900' }}> · por {ev.by}</Text>
+                      ) : null}
                     </Text>
                   </View>
                   <Text style={{ color: colors.text, fontSize: 11, fontWeight: '800' }}>
@@ -276,7 +289,7 @@ export function TimelineExpedienteBox({
                 </View>
 
                 <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                  👤 <Text style={{ fontWeight: '800' }}>Lo hizo:</Text>{' '}
+                  👤 <Text style={{ fontWeight: '800' }}>{meta.accionPorLabel}</Text>{' '}
                   <Text style={{ color: colors.brandText, fontWeight: '900' }}>{ev.by}</Text>
                   <Text style={{ color: colors.text, fontWeight: '700' }}>
                     {' · '}🕒 Hora: {fmtSoloHora(ev.at) || fmtFechaHora(ev.at)}
@@ -1045,7 +1058,12 @@ export function HistoricoComprasTab() {
                         </Text>
                       </View>
                     ) : null}
-                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>{ev.titulo}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                      {ev.titulo}
+                      {ev.by && !ev.titulo.toLowerCase().includes(ev.by.toLowerCase()) ? (
+                        <Text style={{ color: colors.brandText, fontWeight: '900' }}> · por {ev.by}</Text>
+                      ) : null}
+                    </Text>
                   </View>
 
                   <View
@@ -1083,7 +1101,7 @@ export function HistoricoComprasTab() {
                   }}
                 >
                   <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                    👤 <Text style={{ fontWeight: '700' }}>Lo hizo:</Text>{' '}
+                    👤 <Text style={{ fontWeight: '700' }}>{meta.accionPorLabel}</Text>{' '}
                     <Text style={{ color: colors.brandText, fontWeight: '900' }}>{ev.by}</Text>
                   </Text>
                   <Text style={{ color: colors.text, fontSize: 11.5 }}>
