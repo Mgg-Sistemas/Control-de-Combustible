@@ -84,6 +84,35 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'centro_operaciones', label: 'Centro de Operaciones' },
 ];
 
+// ── FICHAS DE ROL (31-oct-2026) ─────────────────────────────────────────────
+// El admin configura en Usuarios → 🎭 Roles, por ROL DEL SISTEMA, los accesos por
+// defecto y la vista al entrar en teléfono (tabla role_templates). Orden, igual en
+// la app y en la base (module_level / can_write_module):
+//   persona (module_permissions) > rol personalizado > ficha del rol > fábrica.
+// Los módulos de abajo NUNCA salen de la ficha: un clic los abriría a todo un rol.
+export const MODULOS_SOLO_POR_PERSONA = ['control_pagos', 'margen_ganancia', 'usuarios', 'nomina'];
+/** Roles del sistema que tienen ficha (admin no: siempre tiene todo). */
+export const ROLES_CON_FICHA = ['supervisor', 'coordinador_inspectores', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio'] as const;
+export type VistaTelefono = 'auto' | 'completa' | 'propia_sistema';
+/** Roles cuya vista propia admite el botón SISTEMA (la vista de inspector). */
+export const ROLES_CON_VISTA_SISTEMA = ['supervisor', 'coordinador_inspectores'];
+export type FichaRol = { modules: Record<string, PermLevel>; vista_telefono: VistaTelefono };
+const NIVELES_VALIDOS = ['none', 'lectura', 'escritura', 'full'];
+
+export function fichaDesdeFila(row: any): FichaRol {
+  const modules: Record<string, PermLevel> = {};
+  const src = row?.modules && typeof row.modules === 'object' ? row.modules : {};
+  Object.keys(src).forEach((k) => { if (NIVELES_VALIDOS.includes(src[k])) modules[k] = src[k] as PermLevel; });
+  const v = row?.vista_telefono;
+  return { modules, vista_telefono: v === 'completa' || v === 'propia_sistema' ? v : 'auto' };
+}
+
+/** Nivel que da la ficha del rol para un módulo, o undefined si no dice nada. */
+export function nivelDeFicha(ficha: FichaRol | null | undefined, moduleKey: string): PermLevel | undefined {
+  if (!ficha || MODULOS_SOLO_POR_PERSONA.includes(moduleKey)) return undefined;
+  return ficha.modules[moduleKey];
+}
+
 /** Nivel por defecto para un usuario no-admin sin fila explícita.
  *  Control de Pagos y Usuarios quedan restringidos; el resto abierto (compat.). */
 export function defaultLevel(moduleKey: string): PermLevel {

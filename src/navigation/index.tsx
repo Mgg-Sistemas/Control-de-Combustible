@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../context/AuthContext';
+import { ROLES_CON_VISTA_SISTEMA, type VistaTelefono } from '../lib/permissions';
 import { AppRole, UserRole } from '../types/database';
 import { esRolListero } from '../lib/rolListero';
 import { useTheme } from '../theme/ThemeContext';
@@ -1031,8 +1032,12 @@ function pickTree(ctx: {
   isJesusLozada: boolean;
   sistemaMode: boolean;
   goSistema: () => void;
+  /** Vista al entrar en teléfono de la ficha del rol (🎭 Roles), congelada al iniciar. */
+  vistaTelefono?: VistaTelefono;
 }): { key: TreeKey; node: React.ReactNode } {
   const { phone, role, appRole, isJesusLozada, sistemaMode, goSistema } = ctx;
+  // Ficha del rol del sistema: solo en teléfono, sin rol personalizado y nunca admin.
+  const vistaFicha: VistaTelefono = phone && !appRole && role && role !== 'admin' ? (ctx.vistaTelefono ?? 'auto') : 'auto';
   if (appRole && role !== 'admin' && appRole.panel_type === 'chofer_combustible') return { key: 'fuelDriver', node: <FuelDriverStack /> };
   // Rol personalizado con panel_type 'conductor': mismo panel de 3 pestañas del
   // conductor fijo (Surtir · Camiones · Asistencia), pero para un rol que además
@@ -1056,6 +1061,12 @@ function pickTree(ctx: {
   // LAVADO DE MAQUINARIA: su propia vista (tablero de lavado, lm_* aislado). Va
   // temprano por la misma razón que obras públicas — base role 'conductor' + appRole.
   if (appRole && role !== 'admin' && esRolLavado(appRole)) return { key: 'lavadoMaquinaria', node: <LavadoStack /> };
+  // 🎭 Vista al entrar configurada para el rol (31-oct-2026). 'auto' = el camino de siempre.
+  if (vistaFicha === 'completa') return { key: 'tabs', node: <Tabs /> };
+  if (vistaFicha === 'propia_sistema' && role && ROLES_CON_VISTA_SISTEMA.includes(role)) {
+    if (sistemaMode) return { key: 'tabs', node: <Tabs /> };
+    return { key: 'supervisorTabs', node: <SupervisorTabs onSistema={goSistema} /> };
+  }
   if (role === 'coordinador_patio') return { key: 'patio', node: <PatioStack /> };
   // El admin (rol genérico) SIEMPRE arranca en la app completa en teléfono — el
   // cliente pidió explícitamente que el/los administrador(es) no inicien en la
@@ -1121,7 +1132,7 @@ function useQrParam(name: string): [string | null, () => void] {
 }
 
 export default function RootNavigator() {
-  const { session, configured, locked, role, appRole, roleReady, fullName, signOut, loading, canSee } = useAuth();
+  const { session, configured, locked, role, appRole, roleReady, fullName, signOut, loading, canSee, vistaTelefono } = useAuth();
   // Excepción puntual: Jesús Lozada entra a la Vista de Inspector como cualquier
   // otro rol en teléfono (no se toca su enrutamiento), pero además ve el botón
   // "SISTEMA" para saltar al módulo administrativo general (Tabs), igual que el
@@ -1191,6 +1202,15 @@ export default function RootNavigator() {
   // cada pocos segundos (perdía el modal de CHECK, el scroll y recargaba). Con
   // useCallback la referencia es fija y la pestaña ya no se remonta.
   const goSistema = React.useCallback(() => setSistemaMode(true), []);
+  // Vista al entrar de la ficha del rol: se toma UNA vez por sesión, cuando el rol
+  // ya cargó. Si el admin la cambia en vivo no se remonta la app (sacaría al
+  // inspector de una ronda a mitad): aplica la próxima vez que entre.
+  const vistaRef = React.useRef<{ uid: string | null; vista: VistaTelefono } | null>(null);
+  const uidSesion = session?.user?.id ?? null;
+  if (roleReady && (!vistaRef.current || vistaRef.current.uid !== uidSesion)) {
+    vistaRef.current = { uid: uidSesion, vista: vistaTelefono };
+  }
+  const vistaCongelada: VistaTelefono = vistaRef.current?.uid === uidSesion ? vistaRef.current.vista : 'auto';
   // PERSISTENCIA DE NAVEGACIÓN (web): la maneja `linking` (se arma más abajo,
   // según el árbol). La URL refleja la pantalla activa (soslaguaira.com/inventario)
   // y al RECARGAR React Navigation restaura la vista DIRECTO desde la URL —
@@ -1227,7 +1247,7 @@ export default function RootNavigator() {
   // Sin el filtro `phone &&`: en PC el enrutamiento también depende de `appRole`
   // (combustible, coordinador QR…), así que también debe esperar a `roleReady`.
   const treePick = !inQrFlow && showApp && !locked && !roleLoading
-    ? pickTree({ phone, role, appRole, isJesusLozada, sistemaMode, goSistema })
+    ? pickTree({ phone, role, appRole, isJesusLozada, sistemaMode, goSistema, vistaTelefono: vistaCongelada })
     : null;
   const treeKey = treePick?.key ?? null;
   const linking = React.useMemo<LinkingOptions<any>>(() => ({

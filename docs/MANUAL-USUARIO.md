@@ -2257,6 +2257,19 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > Este botón **solo lee**: genera el PDF y no cambia nada en el sistema. Se puede pedir las veces
 > que haga falta.
 
+> **🎭 Accesos por rol** *(31/10/2026)*. En **Usuarios → 🎭 Accesos por rol** el administrador elige un rol del
+> sistema (inspector, coordinador de inspectores, analista, operador, conductor, cocina, coordinador de patio) y
+> configura dos cosas, sin tocar código:
+> 1. **Vista al entrar en teléfono:** la de siempre · su vista + botón SISTEMA (solo inspector y coordinador de
+>    inspectores) · app completa. Se aplica la próxima vez que la persona abre la app; en PC no cambia.
+> 2. **Accesos por defecto** de cada módulo (Sin · Lectura · Escritura · Full). Cada módulo dice si está «de
+>    fábrica» o «configurado»; «↺ Todo de fábrica» lo devuelve todo.
+>
+> **Qué manda:** el permiso propio de la persona → su rol personalizado (si tiene, la ficha no le aplica) → esta
+> ficha → lo de fábrica. La app y la base respetan el mismo orden. **Control de Pagos, Margen, Usuarios y Nómina**
+> no se dan por rol, solo persona por persona. Al guardar avisa a cuántas personas afecta, y si la base no acepta
+> el cambio lo dice. Una ficha sin tocar deja todo como estaba.
+
 > **🔓 El coordinador de inspectores ya puede guardar** *(31/10/2026)*. Antes la base solo dejaba registrar
 > visitas, cambiar el estado de las máquinas y resolver autorizaciones a un administrador o a un inspector;
 > con el rol «coordinador de inspectores» salía «no tienes permiso» al guardar. Ahora ese rol pasa por los

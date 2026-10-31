@@ -5,7 +5,7 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { consumeSoftReload } from '../lib/version';
 import { nameToEmail, validateName } from '../lib/username';
 import { UserRole, AppRole } from '../types/database';
-import { PermLevel, defaultLevel, maxLevel, MODULE_HEREDA_DE } from '../lib/permissions';
+import { PermLevel, defaultLevel, maxLevel, MODULE_HEREDA_DE, nivelDeFicha, fichaDesdeFila, type FichaRol, type VistaTelefono } from '../lib/permissions';
 import { logAudit } from '../lib/audit';
 import { clavesAProbar } from '../lib/password';
 import {
@@ -31,6 +31,9 @@ type AuthState = {
   roleReady: boolean;
   /** ¿el usuario puede ver el módulo de Auditoría (bitácora de todos)? */
   canAudit: boolean;
+  /** Vista al entrar en teléfono que el admin le configuró a su ROL DEL SISTEMA en
+   *  🎭 Roles ('auto' = la de siempre). Solo aplica sin rol personalizado. */
+  vistaTelefono: VistaTelefono;
   /** Nombre completo del usuario autenticado (profiles.full_name). */
   fullName: string | null;
   /** IDs de usuarios conectados ahora mismo (Realtime Presence). */
@@ -77,6 +80,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // primera decisión puede dejarlo "atascado" ahí. `roleReady` deja esperar a que
   // los DOS estén resueltos antes de elegir el árbol.
   const [roleReady, setRoleReady] = useState(false);
+  // Ficha del ROL DEL SISTEMA (tabla role_templates, 31-oct-2026): accesos por defecto
+  // y vista al entrar que el admin configura en Usuarios → 🎭 Roles. Solo aplica a
+  // quien NO tiene rol personalizado. Sin ficha (o si falla) = lo de fábrica.
+  const [roleTemplate, setRoleTemplate] = useState<FichaRol | null>(null);
   const [canAudit, setCanAudit] = useState(false);
   const [fullName, setFullName] = useState<string | null>(null);
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
@@ -181,9 +188,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!arId) {
         setAppRole(null);
         if (roleCh) { supabase.removeChannel(roleCh); roleCh = null; roleChId = null; }
+        rolActual = (data?.role as string) ?? null;
+        await loadFicha();
+        if (!active) return;
         setRoleReady(true);
         return;
       }
+      rolActual = null;
+      setRoleTemplate(null);
       // Intenta con panel_type; si la columna no existe todavía, cae al query sin ella.
       let ar = await supabase.from('app_roles').select('id, name, modules, panel_type, created_at').eq('id', arId).single();
       if (ar.error) ar = await supabase.from('app_roles').select('id, name, modules, created_at').eq('id', arId).single();
@@ -209,7 +221,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         roleChId = arId;
       }
     };
+    // Ficha del rol del sistema. Con tope de 3 s y sin romper nada si la tabla no
+    // existe o no hay red: en ese caso queda null y manda lo de fábrica.
+    let rolActual: string | null = null;
+    async function loadFicha() {
+      if (!rolActual || rolActual === 'admin') { setRoleTemplate(null); return; }
+      try {
+        const r: any = await Promise.race([
+          supabase.from('role_templates').select('modules, vista_telefono').eq('rol', rolActual).maybeSingle(),
+          new Promise((res) => setTimeout(() => res({ data: null, error: 'timeout' }), 3000)),
+        ]);
+        if (!active) return;
+        setRoleTemplate(r?.error || !r?.data ? null : fichaDesdeFila(r.data));
+      } catch {
+        if (active) setRoleTemplate(null);
+      }
+    }
     loadRole();
+
+    // Realtime: si un admin edita la ficha de un rol, los accesos se aplican en vivo.
+    // (La VISTA al entrar no: la navegación la congela al iniciar, ver navigation.)
+    const fichaTopic = `ficharol-${uid}`;
+    supabase
+      .getChannels()
+      .filter((c) => c.topic === fichaTopic || c.topic === `realtime:${fichaTopic}`)
+      .forEach((c) => supabase.removeChannel(c));
+    let fichaCh: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      fichaCh = supabase
+        .channel(fichaTopic)
+        .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'role_templates' }, () => { loadFicha(); })
+        .subscribe();
+    } catch (e) {
+      console.warn('ficha de rol realtime no disponible:', e);
+    }
 
     // Permisos por módulo del usuario.
     const loadPerms = () =>
@@ -288,6 +333,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
       if (permCh) supabase.removeChannel(permCh);
+      if (fichaCh) supabase.removeChannel(fichaCh);
       if (profileCh) supabase.removeChannel(profileCh);
       if (roleCh) supabase.removeChannel(roleCh);
       supabase.removeChannel(channel);
@@ -472,7 +518,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // por usuario ni por rol— toma el del módulo del que salió, para que la
     // división no le regale ni le quite el acceso a nadie.
     const padre = MODULE_HEREDA_DE[moduleKey];
-    if (padre && !explicit && !appRole?.modules?.[moduleKey]) return moduleLevel(padre);
+    if (padre && !explicit && !appRole?.modules?.[moduleKey] && !nivelDeFicha(roleTemplate, moduleKey)) return moduleLevel(padre);
     // Rol personalizado: ve los módulos de su rol, PERO el permiso EXPLÍCITO que el
     // admin le puso a esa persona MANDA sobre el rol — para arriba y para abajo.
     //
@@ -491,6 +537,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const roleLvl = (appRole.modules?.[moduleKey] as PermLevel) ?? 'none';
       return explicit ?? roleLvl;
     }
+    // Ficha del rol del sistema (🎭 Roles): va entre la persona y lo de fábrica, igual
+    // que en la base (module_level / can_write_module). Los módulos sensibles nunca
+    // salen de la ficha: esos se dan persona por persona.
+    const deFicha = nivelDeFicha(roleTemplate, moduleKey);
+    if (deFicha) return explicit ?? deFicha;
     // El rol FIJO 'analista' tiene acceso mínimo de escritura a Control de
     // Asistencia aunque no tenga una fila explícita en module_permissions
     // (si el admin le dio explícitamente un nivel mayor, ese gana).
@@ -510,6 +561,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role,
         appRole,
         roleReady,
+        vistaTelefono: roleTemplate?.vista_telefono ?? 'auto',
         canAudit,
         fullName,
         onlineIds,
