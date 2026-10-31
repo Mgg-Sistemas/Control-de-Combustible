@@ -39,7 +39,7 @@ import {
   OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO,
   alternarPersonalizado, cuerpoReportePersonalizado, dmyPersonalizado, emitidaTexto, filaVacia,
   ocultosPersonalizadoEnPalabras, sufijoArchivoPersonalizado,
-  empresasCatalogoPersonalizado, estadosCatalogoPersonalizado, filtrarCatalogoPersonalizado,
+  empresasCatalogoPersonalizado, categoriasCatalogoPersonalizado, estadosCatalogoPersonalizado, filtrarCatalogoPersonalizado,
   aplicarDatosDelRango, cardinalTexto, litrosTexto, rangoOrdenado, totalLitrosPersonalizado, usaRangoPersonalizado,
 } from '../lib/reporteMaquinariaPersonalizado';
 
@@ -88,8 +88,10 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const [busca, setBusca] = useState('');
   const [fuente, setFuente] = useState<'todos' | 'maq' | 'veh'>('todos');
   const [empresasSel, setEmpresasSel] = useState<string[]>([]);
+  const [categoriasSel, setCategoriasSel] = useState<string[]>([]);
   const [estadosSel, setEstadosSel] = useState<string[]>([]);
   const [empresaBusca, setEmpresaBusca] = useState('');
+  const [categoriaBusca, setCategoriaBusca] = useState('');
   const [mostrarTodasPastillas, setMostrarTodasPastillas] = useState(false);
   const [manuales, setManuales] = useState(0);
   const [confirmaVaciar, setConfirmaVaciar] = useState(false);
@@ -253,18 +255,31 @@ export function ReporteMaquinariaPersonalizadoCard() {
     return empresasDisponibles.filter((e) => norm(e.nombre).includes(qEmp));
   }, [empresasDisponibles, empresaBusca]);
 
-  const estadosDisponibles = useMemo(
-    () => estadosCatalogoPersonalizado(catalogo, fuente, empresasSel),
+  const categoriasDisponibles = useMemo(
+    () => categoriasCatalogoPersonalizado(catalogo, fuente, empresasSel),
     [catalogo, fuente, empresasSel],
+  );
+  const categoriasVisibles = useMemo(() => {
+    const qCat = norm(categoriaBusca);
+    if (!qCat) return categoriasDisponibles;
+    return categoriasDisponibles.filter((c) => norm(c.nombre).includes(qCat));
+  }, [categoriasDisponibles, categoriaBusca]);
+
+  const estadosDisponibles = useMemo(
+    () => estadosCatalogoPersonalizado(catalogo, fuente, empresasSel, categoriasSel),
+    [catalogo, fuente, empresasSel, categoriasSel],
   );
 
   const coincidentes = useMemo(
-    () => filtrarCatalogoPersonalizado({ catalogo, fuente, empresasSel, estadosSel, busca }),
-    [catalogo, fuente, empresasSel, estadosSel, busca],
+    () => filtrarCatalogoPersonalizado({ catalogo, fuente, empresasSel, categoriasSel, estadosSel, busca }),
+    [catalogo, fuente, empresasSel, categoriasSel, estadosSel, busca],
   );
 
   const toggleEmpresaFiltro = (nombre: string) =>
     setEmpresasSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
+
+  const toggleCategoriaFiltro = (nombre: string) =>
+    setCategoriasSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
 
   const toggleEstadoFiltro = (nombre: string) =>
     setEstadosSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
@@ -476,6 +491,55 @@ export function ReporteMaquinariaPersonalizadoCard() {
         </View>
       ) : null}
 
+      {/* 🔶 Filtro por una o varias Categorías de la maquinaria */}
+      {categoriasDisponibles.length > 0 ? (
+        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+              🔶 Filtrar por categoría de la maquinaria ({categoriasSel.length === 0 ? `Todas · ${categoriasDisponibles.length}` : `${categoriasSel.length} seleccionada(s)`})
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {categoriasSel.length < categoriasDisponibles.length ? (
+                <TouchableOpacity onPress={() => setCategoriasSel(categoriasDisponibles.map((c) => c.nombre))}>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>☑ Marcar todas</Text>
+                </TouchableOpacity>
+              ) : null}
+              {categoriasSel.length > 0 ? (
+                <TouchableOpacity onPress={() => setCategoriasSel([])}>
+                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Limpiar categorías ({categoriasSel.length})</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+          {categoriasDisponibles.length > 4 ? (
+            <TextInput
+              value={categoriaBusca}
+              onChangeText={setCategoriaBusca}
+              placeholder="🔎 Buscar categoría (ej. Remoción y excavación, Transporte de escombros…)"
+              placeholderTextColor={colors.muted}
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4, color: colors.text, fontSize: 12, backgroundColor: colors.surface, marginBottom: 6 }}
+            />
+          ) : null}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            {pastilla('cat-todas', `🔶 Todas (${categoriasDisponibles.reduce((acc, c) => acc + c.count, 0)})`, categoriasSel.length === 0, () => setCategoriasSel([]))}
+            {categoriasVisibles.map((cat) => {
+              const activa = categoriasSel.includes(cat.nombre);
+              return pastilla(
+                `cat-${cat.nombre}`,
+                `${activa ? '✓ ' : ''}${cat.nombre} · ${cat.count}`,
+                activa,
+                () => toggleCategoriaFiltro(cat.nombre),
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+            {categoriasSel.length === 0
+              ? 'Toca una o varias categorías para ver y seleccionar solo esas máquinas (ej. Remoción y excavación, Transporte de escombros, Manejo de carga…).'
+              : `Mostrando categoría(s): ${categoriasSel.join(' · ')}. Puedes seleccionarlas todas en bloque o escoger una por una abajo.`}
+          </Text>
+        </View>
+      ) : null}
+
       {/* 🚦 Filtro por Estado Actual de las máquinas */}
       <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
@@ -502,7 +566,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         </View>
       </View>
 
-      <TextInput value={busca} onChangeText={setBusca} placeholder="🔎 Buscar por código, placa, serial, marca o empresa…" placeholderTextColor={colors.muted}
+      <TextInput value={busca} onChangeText={setBusca} placeholder="🔎 Buscar por código, placa, serial, marca, categoría o empresa…" placeholderTextColor={colors.muted}
         style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 6, color: colors.text, fontSize: 13, backgroundColor: colors.surface }} />
 
       {/* Botones rápidos para seleccionar o des-seleccionar en bloque las máquinas filtradas */}
@@ -535,11 +599,12 @@ export function ReporteMaquinariaPersonalizadoCard() {
         {(mostrarTodasPastillas ? coincidentes : coincidentes.slice(0, MAX_PASTILLAS_CATALOGO)).map((m) => {
           const baseCode = m.code || m.plate || m.serial || '—';
           const placaTxt = m.plate && m.plate !== baseCode ? ` · Placa: ${m.plate}` : (!m.plate ? ' · S/P' : '');
+          const catTxt = m.clasificacion ? ` · ${m.clasificacion}` : '';
           const empTxt = m.empresa ? ` · ${m.empresa}` : '';
           const estTxt = m.estado && m.estado !== 'Operativa' ? ` [${m.estado}]` : '';
           return pastilla(
             m.id,
-            `${enPapel.has(m.id) ? '✓ ' : ''}${esVehiculo(m.id) ? '🚗 ' : ''}${baseCode}${placaTxt}${empTxt}${estTxt}`,
+            `${enPapel.has(m.id) ? '✓ ' : ''}${esVehiculo(m.id) ? '🚗 ' : ''}${baseCode}${placaTxt}${catTxt}${empTxt}${estTxt}`,
             enPapel.has(m.id),
             () => (enPapel.has(m.id) ? quitar(m.id) : agregar(m)),
           );

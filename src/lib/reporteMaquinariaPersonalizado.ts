@@ -303,6 +303,11 @@ export function nombreEmpresaCatalogo(empresa?: string | null): string {
   return String(empresa ?? '').trim() || 'Sin empresa';
 }
 
+/** Clave normalizada de categoría / clasificación de maquinaria (vacía → 'Sin categoría'). */
+export function nombreCategoriaCatalogo(clasificacion?: string | null): string {
+  return String(clasificacion ?? '').trim() || 'Sin categoría';
+}
+
 /** Clave normalizada de estado (vacía → 'Sin estado'). */
 export function nombreEstadoCatalogo(estado?: string | null): string {
   return String(estado ?? '').trim() || 'Sin estado';
@@ -330,14 +335,48 @@ export function empresasCatalogoPersonalizado(
   });
 }
 
-/** Lista ordenada de estados actuales del catálogo con su cantidad de equipos. */
-export function estadosCatalogoPersonalizado(
+/** Lista ordenada de categorías (clasificaciones) del catálogo con su cantidad de equipos. */
+export function categoriasCatalogoPersonalizado(
   catalogo: FilaPersonalizada[],
   fuente: 'todos' | 'maq' | 'veh' = 'todos',
   empresasSel?: ReadonlySet<string> | readonly string[],
 ): { nombre: string; count: number }[] {
   const empSet = empresasSel
-    ? new Set(Array.from(empresasSel).map((e) => String(e).trim().toLowerCase()))
+    ? new Set(Array.from(empresasSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
+    : null;
+  const m = new Map<string, { nombre: string; count: number }>();
+  catalogo.forEach((f) => {
+    const esVeh = String(f.id ?? '').startsWith('veh-');
+    if (fuente !== 'todos' && (fuente === 'veh') !== esVeh) return;
+    if (empSet && empSet.size > 0) {
+      const empKey = nombreEmpresaCatalogo(f.empresa).toLowerCase();
+      if (!empSet.has(empKey)) return;
+    }
+    const nombre = nombreCategoriaCatalogo(f.clasificacion);
+    const k = nombre.toLowerCase();
+    const prev = m.get(k);
+    if (prev) prev.count += 1;
+    else m.set(k, { nombre, count: 1 });
+  });
+  return Array.from(m.values()).sort((a, b) => {
+    if (a.nombre === 'Sin categoría') return 1;
+    if (b.nombre === 'Sin categoría') return -1;
+    return a.nombre.localeCompare(b.nombre, 'es');
+  });
+}
+
+/** Lista ordenada de estados actuales del catálogo con su cantidad de equipos. */
+export function estadosCatalogoPersonalizado(
+  catalogo: FilaPersonalizada[],
+  fuente: 'todos' | 'maq' | 'veh' = 'todos',
+  empresasSel?: ReadonlySet<string> | readonly string[],
+  categoriasSel?: ReadonlySet<string> | readonly string[],
+): { nombre: string; count: number }[] {
+  const empSet = empresasSel
+    ? new Set(Array.from(empresasSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
+    : null;
+  const catSet = categoriasSel
+    ? new Set(Array.from(categoriasSel).map((c) => String(c).trim().toLowerCase()).filter(Boolean))
     : null;
   const m = new Map<string, { nombre: string; count: number }>();
   // Pre-seed con los 6 estados del sistema para que siempre estén visibles aunque tengan 0
@@ -350,6 +389,10 @@ export function estadosCatalogoPersonalizado(
     if (empSet && empSet.size > 0) {
       const empKey = nombreEmpresaCatalogo(f.empresa).toLowerCase();
       if (!empSet.has(empKey)) return;
+    }
+    if (catSet && catSet.size > 0) {
+      const catKey = nombreCategoriaCatalogo(f.clasificacion).toLowerCase();
+      if (!catSet.has(catKey)) return;
     }
     const nombre = nombreEstadoCatalogo(f.estado);
     const k = nombre.toLowerCase();
@@ -368,17 +411,21 @@ export function estadosCatalogoPersonalizado(
     });
 }
 
-/** Filtra el catálogo por tipo (Todos/Máquinas/Vehículos), empresas seleccionadas, estados actuales y búsqueda. */
+/** Filtra el catálogo por tipo (Todos/Máquinas/Vehículos), empresas, categorías, estados actuales y búsqueda. */
 export function filtrarCatalogoPersonalizado(params: {
   catalogo: FilaPersonalizada[];
   fuente?: 'todos' | 'maq' | 'veh';
   empresasSel?: ReadonlySet<string> | readonly string[];
+  categoriasSel?: ReadonlySet<string> | readonly string[];
   estadosSel?: ReadonlySet<string> | readonly string[];
   busca?: string;
 }): FilaPersonalizada[] {
   const fuente = params.fuente ?? 'todos';
   const empSet = params.empresasSel
     ? new Set(Array.from(params.empresasSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
+    : null;
+  const catSet = params.categoriasSel
+    ? new Set(Array.from(params.categoriasSel).map((c) => String(c).trim().toLowerCase()).filter(Boolean))
     : null;
   const estSet = params.estadosSel
     ? new Set(Array.from(params.estadosSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
@@ -395,6 +442,10 @@ export function filtrarCatalogoPersonalizado(params: {
     if (empSet && empSet.size > 0) {
       const empKey = nombreEmpresaCatalogo(m.empresa).toLowerCase();
       if (!empSet.has(empKey)) return false;
+    }
+    if (catSet && catSet.size > 0) {
+      const catKey = nombreCategoriaCatalogo(m.clasificacion).toLowerCase();
+      if (!catSet.has(catKey)) return false;
     }
     if (estSet && estSet.size > 0) {
       const estKey = nombreEstadoCatalogo(m.estado).toLowerCase();
