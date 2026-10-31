@@ -39,8 +39,11 @@ import {
   marcarObservacionesComoConvertidaEnReq,
   preservarMarcadoresSolicitudEnObservaciones,
   limpiarMarcadoresSolicitudDeTexto,
+  preservarTodasLasMarcasEnObservaciones,
+  quitarTodasLasMarcasDeTexto,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
+import { anexarEventoHistorial, calcularDiffItemsCompra, resumirCambiosCabeceraCompra } from '../lib/comprasHistorico';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -384,6 +387,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const [editArea, setEditArea] = useState('');
   const [editDestinoTipo, setEditDestinoTipo] = useState<'maquinaria' | 'vehiculo' | 'area' | 'otro'>('maquinaria');
   const [editDestinoTexto, setEditDestinoTexto] = useState('');
+  // 31-oct-2026: el destino tal como se abrió el editor; si no se tocó, las observaciones
+  // se guardan igual que estaban (no se reescriben ni pierden marcas).
+  const [editDestinoOrig, setEditDestinoOrig] = useState('');
   const [editMachineSearch, setEditMachineSearch] = useState('');
   const [editVehicleSearch, setEditVehicleSearch] = useState('');
   const [editNote, setEditNote] = useState('');
@@ -782,7 +788,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     setRechazoBusy(true);
 
     try {
-      const { error } = await supabase
+      const { data: upd, error } = await supabase
         .from('inventory_requirements')
         .update({
           status: 'rechazado',
@@ -791,9 +797,14 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           decided_by_name: fullName || 'Compras',
           decided_at: nowISO(),
         })
-        .eq('id', rechazoTarget.id);
+        .eq('id', rechazoTarget.id)
+        .select('id');
 
       if (error) throw error;
+      // 31-oct-2026: 0 filas = la base no dejó (permiso). Se dice; no se finge el éxito.
+      if (!upd || upd.length === 0) {
+        throw new Error(`No se rechazó ${rechazoTarget.code}: la base no lo permitió (falta permiso de escritura en Compras).`);
+      }
 
       toast.success(`Solicitud ${rechazoTarget.code} rechazada.`);
       setRechazoTarget(null);
@@ -803,6 +814,41 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     } finally {
       setRechazoBusy(false);
     }
+  };
+
+  // 🗑️ Eliminar (31-oct-2026): solo una solicitud que NO pasó a Requerimiento, sin pago
+  //    ni factura. Lo convertido se gestiona desde 📝 Requerimiento. Se verifica que la
+  //    base de verdad borró (la RLS rechaza con 0 filas y sin error).
+  const puedeEliminarSolicitud = (r: InventoryRequirement) =>
+    canWrite &&
+    !estaSolicitudConvertidaEnRequerimiento(r) &&
+    !['recibido', 'pagado', 'esperando_recepcion', 'aprobado'].includes(String(r.status)) &&
+    !(r as any).pagado &&
+    !(r as any).factura_numero;
+
+  const eliminarSolicitud = async (r: InventoryRequirement) => {
+    if (!puedeEliminarSolicitud(r)) {
+      return toast.error('Esta solicitud ya avanzó (requerimiento, aprobación o pago): recházala en vez de borrarla.');
+    }
+    const ok = await confirm({
+      title: 'Eliminar solicitud',
+      message: `¿Eliminar la solicitud ${r.code ?? ''}? Esta acción no se puede deshacer.\n\nSi solo quieres que no siga, usa «✕ Rechazar»: queda en el histórico.`,
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    const { data: borradas, error } = await supabase
+      .from('inventory_requirements')
+      .delete()
+      .eq('id', r.id)
+      .select('id');
+    if (error) return toast.error(error.message);
+    if (!borradas || borradas.length === 0) {
+      return toast.error(`No se eliminó ${r.code ?? 'la solicitud'}: la base no lo permitió (falta permiso de escritura en Compras).`);
+    }
+    toast.success(`Solicitud ${r.code ?? ''} eliminada.`);
+    refetch();
   };
 
   // ── EDICIÓN DE SOLICITUD DE COMPRA ─────────────────────────────────────────
@@ -822,7 +868,10 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     } else if (obsLimpia) {
       destText = obsLimpia;
     }
+    // 31-oct-2026: sin [CONDICIONES_PAGO…], [[FORMATOS_ADJUNTOS…]] ni otras marcas en la caja.
+    destText = quitarTodasLasMarcasDeTexto(destText);
     setEditDestinoTexto(destText);
+    setEditDestinoOrig(destText);
     setEditMachineSearch('');
     setEditVehicleSearch('');
     setEditNote(r.note || '');
@@ -954,15 +1003,67 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       //    sirve también como foto de la solicitud; con varios no se copia a la solicitud.
       const firstPhoto = finalItems.length === 1 ? (finalItems[0].image_url || null) : null;
 
+      // 🧷 31-oct-2026: si el destino no se tocó, las observaciones quedan como estaban. Si se
+      //    tocó, se reescriben conservando TODAS las marcas (antes se perdían los formatos
+      //    adjuntos, las condiciones de pago, el IVA y la aprobación de CxP).
+      const destinoCambio = editDestinoTexto.trim() !== editDestinoOrig.trim();
+      let obsNueva: string | null = destinoCambio
+        ? preservarTodasLasMarcasEnObservaciones(
+            editTarget.observaciones,
+            editDestinoTexto.trim() ? editDestinoTexto.trim() : limpiarMarcadoresSolicitudDeTexto(editTarget.observaciones)
+          )
+        : editTarget.observaciones ?? null;
+
+      // 📜 31-oct-2026: la edición queda en el Histórico. Antes este guardado no anotaba
+      //    nada y en el expediente solo se veía «Solicitud creada» y «Convertida».
+      const autorEd = fullName || session?.user?.email || 'Compras';
+      const diffItems = calcularDiffItemsCompra({
+        itemsAntes: editTarget.items || [],
+        itemsDespues: finalItems,
+        autor: autorEd,
+        modulo: 'Solicitudes',
+      });
+      const cambiosCab = resumirCambiosCabeceraCompra([
+        { etiqueta: 'Título', antes: editTarget.title, despues: editTitle },
+        { etiqueta: 'Solicitante', antes: editTarget.solicitante_nombre || editTarget.requested_by_name, despues: editSolicitante },
+        { etiqueta: 'Área', antes: editTarget.area, despues: editArea },
+        { etiqueta: 'Tipo de destino', antes: editTarget.destino_tipo, despues: editDestinoTipo },
+        { etiqueta: 'Destino', antes: editDestinoOrig, despues: editDestinoTexto },
+        { etiqueta: 'Nota', antes: editTarget.note, despues: editNote },
+      ]);
+      const baseEv = {
+        by: autorEd,
+        byId: session?.user?.id || null,
+        modulo: 'Solicitudes' as const,
+        reqId: editTarget.id,
+        reqCode: editTarget.code,
+      };
+      if (diffItems.hayCambios) {
+        obsNueva = anexarEventoHistorial(obsNueva, {
+          ...baseEv,
+          tipo: 'items_modificados',
+          titulo: 'Modificación de ítems en Solicitud',
+          detalle: diffItems.resumenDetalle,
+          montoAntesUsd: diffItems.montoAntesUsd,
+          montoDespuesUsd: diffItems.montoDespuesUsd,
+          cambiosItems: diffItems.cambiosItems,
+        });
+      }
+      if (cambiosCab.length > 0) {
+        obsNueva = anexarEventoHistorial(obsNueva, {
+          ...baseEv,
+          tipo: 'solicitud_editada',
+          titulo: 'Solicitud editada',
+          detalle: `${autorEd} desde Solicitudes: ${cambiosCab.join(' · ')}`,
+        });
+      }
+
       const payload: Record<string, any> = {
         title: editTitle.trim(),
         solicitante_nombre: editSolicitante.trim() || null,
         area: editArea.trim() || null,
         destino_tipo: editDestinoTipo,
-        observaciones: preservarMarcadoresSolicitudEnObservaciones(
-          editTarget.observaciones,
-          editDestinoTexto.trim() ? editDestinoTexto.trim() : limpiarMarcadoresSolicitudDeTexto(editTarget.observaciones)
-        ),
+        observaciones: obsNueva,
         note: editNote.trim() || null,
         items: finalItems,
         // Sin `updated_at`: inventory_requirements NO tiene esa columna y mandarla hacía
@@ -2386,6 +2487,21 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>
                       ✕ Rechazar
                     </Text>
+                  </TouchableOpacity>
+                )}
+
+                {puedeEliminarSolicitud(r) && (
+                  <TouchableOpacity
+                    onPress={() => eliminarSolicitud(r)}
+                    style={{
+                      paddingVertical: 9,
+                      paddingHorizontal: spacing.md,
+                      backgroundColor: colors.danger,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
                   </TouchableOpacity>
                 )}
               </View>

@@ -357,6 +357,39 @@ export function preservarHistorialYEnvioEnTexto(
   return res || null;
 }
 
+// ── 2.b Cambios de la cabecera (título, nota, proveedor, destino…) ──────────
+// 📜 31-oct-2026: editar una solicitud o un requerimiento SIN tocar renglones no dejaba
+//    rastro en el Histórico (solo se anotaba el diff de ítems). Esto arma el «qué cambió»
+//    legible de los campos de cabecera: una línea por campo que de verdad cambió.
+export interface CampoCabeceraCompra {
+  etiqueta: string;
+  antes?: string | number | null;
+  despues?: string | number | null;
+}
+
+function textoCampoCabecera(v?: string | number | null): string {
+  return String(v ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function recortarCampoCabecera(s: string): string {
+  if (!s) return '—';
+  return s.length > 80 ? `${s.slice(0, 77)}…` : s;
+}
+
+export function resumirCambiosCabeceraCompra(campos: readonly CampoCabeceraCompra[]): string[] {
+  const out: string[] = [];
+  for (const c of campos || []) {
+    const a = textoCampoCabecera(c.antes);
+    const d = textoCampoCabecera(c.despues);
+    // Mayúsculas/minúsculas y espacios no cuentan como cambio (el formulario normaliza).
+    if (a.toLowerCase() === d.toLowerCase()) continue;
+    out.push(`${c.etiqueta}: «${recortarCampoCabecera(a)}» → «${recortarCampoCabecera(d)}»`);
+  }
+  return out;
+}
+
 // ── 3. Cálculo de Diff Detallado de Ítems (Quitar / Agregar / Modificar) ────
 
 function precioUnitarioUsdDeItem(it: RequirementLine): number {

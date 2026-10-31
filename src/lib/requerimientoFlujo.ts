@@ -361,6 +361,48 @@ export function preservarMarcadoresSolicitudEnObservaciones(
   return res || null;
 }
 
+// 🧷 31-oct-2026: marcas de la casa en `observaciones`. Las de bloque van entre
+//    corchetes dobles ([[FORMATOS_ADJUNTOS:…:FIN_FORMATOS]], [[HISTORIAL_COMPRA:…]]…) y
+//    las sueltas son [ETIQUETA] o [ETIQUETA: valor] en MAYÚSCULA ([CONDICIONES_PAGO: …],
+//    [IVA_CUENTA: 16], [APROBADO_CXP: …]…). El editor de Solicitudes reescribía el texto
+//    con el destino y se comía las que preservarMarcadoresSolicitudEnObservaciones no
+//    conocía (formatos adjuntos, condiciones de pago, IVA, aprobación de CxP).
+const REGEX_MARCA_BLOQUE = /\[\[[A-Z_]+:[\s\S]*?:FIN_[A-Z_]+\]\]/g;
+const REGEX_MARCA_SUELTA = /\[[A-Z][A-Z0-9_]+(?::[^\[\]]*)?\]/g;
+
+/** Todas las marcas de la casa que trae un texto de observaciones, en su orden. */
+export function extraerTodasLasMarcas(texto?: string | null): string[] {
+  const t = String(texto ?? '');
+  const bloques = t.match(REGEX_MARCA_BLOQUE) || [];
+  const sueltas = t.replace(REGEX_MARCA_BLOQUE, '').match(REGEX_MARCA_SUELTA) || [];
+  return [...sueltas, ...bloques];
+}
+
+/** El texto que escribió la persona, sin ninguna marca de la casa. */
+export function quitarTodasLasMarcasDeTexto(texto?: string | null): string {
+  return String(texto ?? '')
+    .replace(REGEX_MARCA_BLOQUE, '')
+    .replace(REGEX_MARCA_SUELTA, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Como preservarMarcadoresSolicitudEnObservaciones, pero conserva TODAS las marcas del
+ * original que el texto nuevo no traiga (31-oct-2026). Las de origen/convertido van
+ * delante, igual que antes; el resto se agrega al final.
+ */
+export function preservarTodasLasMarcasEnObservaciones(
+  observacionesOriginal?: string | null,
+  nuevasObservaciones?: string | null
+): string | null {
+  let res = preservarMarcadoresSolicitudEnObservaciones(observacionesOriginal, nuevasObservaciones) || '';
+  const faltan = extraerTodasLasMarcas(observacionesOriginal).filter((m) => !res.includes(m));
+  if (faltan.length > 0) res = [res, ...faltan].filter(Boolean).join('\n');
+  return res.trim() || null;
+}
+
 /**
  * Limpia los marcadores internos de Solicitud para mostrar texto limpio en pantalla o PDF.
  */
