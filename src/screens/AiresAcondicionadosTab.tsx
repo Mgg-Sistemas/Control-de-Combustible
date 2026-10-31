@@ -1,8 +1,8 @@
 // ============================================================================
 // ❄️ AIRES ACONDICIONADOS — Control Riguroso y Preventivo (Base, Carbozulia y Flota/Maquinaria)
 // ============================================================================
-import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Platform, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
@@ -10,21 +10,30 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
-import { Company, Supplier, ServicioRecord, ServicioItem, Machinery, Vehicle } from '../types/database';
+import { Company, Supplier, ServicioRecord, ServicioItem, Machinery, Vehicle, Cuenta } from '../types/database';
 import { generalCompanies } from '../lib/companies';
-import { pickAndUploadDocFile } from '../lib/photo';
+import { pickAndUploadDocFile, pickAndUploadDocFiles, takeAndUploadDocPhoto } from '../lib/photo';
 import { exportPdf } from '../lib/pdf';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { norm, onlyDecimal } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
+import { useBcvRate } from '../lib/bcv';
 import {
   CONDICIONES_PAGO_CHIPS,
   detectarDiasCreditoChip,
   toggleChipCondicionPago,
   inyectarCondicionesPagoEnNota,
+  extraerCondicionesPago,
+  extraerIvaCuenta,
+  inyectarIvaEnCuentaNota,
+  extraerAprobacionCxp,
 } from '../lib/cuentasPago';
 import { inyectarEmpresaEnNota } from '../lib/cuentasEmpresa';
+import {
+  FormatoAdjunto,
+  empaquetarFormatosEnObservaciones as inyectarFormatosEnNota,
+} from '../lib/formatosAdjuntos';
 import {
   AC_MASTER_CODE,
   AC_CATEGORIA_SERVICIO,
@@ -42,10 +51,16 @@ import {
   AcSemaforo,
   AcTipoEquipo,
   AcEstadoOperativo,
+  AcModoIva,
+  AcMaintHistoryEntry,
+  AcPresupuestoAdjunto,
   esEquipoMovilAc,
   extraerCatalogoAiresDeServicios,
   serializarCatalogoAiresParaServicios,
   calcularSemaforoAires,
+  extraerPresupuestosDeServicioAc,
+  separarDetalleLibreDeChecklist,
+  limpiarNotaInterna,
   hoyAcISO,
   sumarDiasAc,
   fmtFechaAc,
@@ -54,6 +69,12 @@ import {
 
 const usd = (n: number) =>
   `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+const ves = (n: number) =>
+  `Bs ${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('es-VE', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -76,14 +97,20 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   const toast = useToast();
   const confirm = useConfirm();
   const hoy = hoyAcISO();
+  const bcv = useBcvRate();
 
   const { data: serviciosRaw, loading, refetch } = useTable<ServicioRecord>('servicios', {
     orderBy: 'created_at',
     ascending: false,
     realtimeFrom: 'servicios',
   });
+  const { data: cuentas, loading: loadingCuentas, refetch: refetchCuentas } = useTable<Cuenta>('cuentas', {
+    orderBy: 'created_at',
+    ascending: false,
+    realtimeFrom: 'cuentas',
+  });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
-  const { data: suppliers, refetch: refetchSuppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
+  const { data: suppliers, loading: loadingSuppliers, refetch: refetchSuppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: invItems } = useTable<Inv>('inventory_items', { select: 'id, name, unit', orderBy: 'name' });
   const { data: machineryList } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: vehiclesList } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
@@ -510,11 +537,10 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const abrirNuevaUnidadExtra = () => {
-    const nextNum =
-      unidadesCatalogo.reduce((max, u) => {
-        const n = Number((u.code.match(/(\d+)\s*$/) || [])[1]);
-        return Number.isFinite(n) && n > max ? n : max;
-      }, 0) + 1;
+    const nextNum = unidadesCatalogo.reduce((max, u) => {
+      const n = Number((u.code.match(/(\d+)\s*$/) || [])[1]);
+      return Number.isFinite(n) && n > max ? n : max;
+    }, 0) + 1;
     const nextCode = `AA-${String(nextNum).padStart(2, '0')}`;
     setEditBatchMode(false);
     setEditCode(nextCode);
@@ -537,15 +563,20 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     setEditUnitModal(true);
   };
 
-  // ── Modal de Registro de Mantenimiento (Riguroso o Preventivo) ──────────────
+  // ── Modal de Registro / Edición de Mantenimiento (Riguroso o Preventivo) ────
   const [maintOpen, setMaintOpen] = useState(false);
+  const [editingMaintId, setEditingMaintId] = useState<string | null>(null);
+  const [editingMaintCode, setEditingMaintCode] = useState<string | null>(null);
   const [maintUnits, setMaintUnits] = useState<string[]>([]);
+  const [maintUnitQ, setMaintUnitQ] = useState('');
   const [maintCompany, setMaintCompany] = useState('');
   const [maintSupplier, setMaintSupplier] = useState('');
   const [maintDate, setMaintDate] = useState(hoy);
   const [maintTipo, setMaintTipo] = useState<string>(AC_TIPOS_INTERVENCION[0]);
   const [maintChecklist, setMaintChecklist] = useState<string[]>([...AC_CHECKLIST_RIGUROSO.slice(0, 6)]);
+  const [maintMoneda, setMaintMoneda] = useState<'USD' | 'VES'>('USD');
   const [modoPrecio, setModoPrecio] = useState<'unitario' | 'total'>('unitario');
+  const [maintIvaModo, setMaintIvaModo] = useState<AcModoIva>('incluye_iva');
   const [precioTexto, setPrecioTexto] = useState('');
   const [usaInv, setUsaInv] = useState(false);
   const [invItemId, setInvItemId] = useState<string | null>(null);
@@ -557,12 +588,268 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
   const [maintNota, setMaintNota] = useState('');
   const [maintEnviarCxp, setMaintEnviarCxp] = useState(true);
   const [maintVenceCxp, setMaintVenceCxp] = useState('');
-  const [maintFactura, setMaintFactura] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
+  const [maintPresupuestos, setMaintPresupuestos] = useState<FormatoAdjunto[]>([]);
   const [subiendoFactura, setSubiendoFactura] = useState(false);
+  const [subiendoHistId, setSubiendoHistId] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
   const [savingMaint, setSavingMaint] = useState(false);
   const [provQ, setProvQ] = useState('');
   const [nuevoProv, setNuevoProv] = useState('');
   const [creandoProv, setCreandoProv] = useState(false);
+
+  // Busca si ya existe una Cuenta por Pagar asociada al servicio (en cualquier estado: pendiente, pagada o anulada)
+  const buscarCuentaPorServicio = (srvCode?: string | null): Cuenta | null => {
+    const codeUpper = String(srvCode || '').trim().toUpperCase();
+    if (!codeUpper) return null;
+    return (
+      cuentas.find(
+        (c) =>
+          c.tipo === 'por_pagar' &&
+          (String(c.documento || '').trim().toUpperCase() === codeUpper ||
+            String(c.concepto || '').toUpperCase().includes(codeUpper)),
+      ) ?? null
+    );
+  };
+
+  // Resuelve o crea un supplier_id válido (requerido por CHECK constraint `cuentas_contraparte_segun_tipo`)
+  const resolverSupplierParaCxp = async (supplierId: string | null, companyId: string | null): Promise<string | null> => {
+    if (supplierId) return supplierId;
+    if (companyId) {
+      const compName = companyName(companyId).trim().toUpperCase();
+      const matchComp = suppliers.find((s) => s.name.trim().toUpperCase() === compName);
+      if (matchComp) return matchComp.id;
+    }
+    const fallbackName = 'PROVEEDOR / TÉCNICO DE AIRES';
+    const matchFallback = suppliers.find((s) => s.name.trim().toUpperCase() === fallbackName);
+    if (matchFallback) return matchFallback.id;
+    if (suppliers.length > 0) return suppliers[0].id;
+    const { data } = await supabase.from('suppliers').insert({ name: fallbackName }).select('id').single();
+    if (data?.id) {
+      await refetchSuppliers();
+      return data.id;
+    }
+    return null;
+  };
+
+  // Sincroniza de forma idempotente un servicio de Aire Acondicionado con `public.cuentas` (`por_pagar`)
+  const sincronizarServicioConCuentaPorPagar = async (
+    srv: {
+      id: string;
+      code: string;
+      company_id: string | null;
+      supplier_id: string | null;
+      service_date: string;
+      items: any[];
+      total: number;
+      factura_url: string | null;
+      factura_type?: 'image' | 'pdf' | null;
+      factura_name?: string | null;
+      note: string | null;
+    },
+    opts?: { vencimiento?: string | null; presupuestos?: FormatoAdjunto[]; alicuotaIva?: number | null },
+  ): Promise<{ ok: boolean; error?: string; estadoCuenta?: string }> => {
+    const montoTotal = Math.round((Number(srv.total) || 0) * 100) / 100;
+    if (!(montoTotal > 0)) return { ok: true };
+
+    const srvCode = String(srv.code || '').trim().toUpperCase();
+    if (!srvCode || srvCode === AC_MASTER_CODE) return { ok: true };
+
+    const supId = await resolverSupplierParaCxp(srv.supplier_id, srv.company_id);
+    if (!supId) {
+      return { ok: false, error: 'No se pudo determinar el proveedor para Cuentas por Pagar.' };
+    }
+
+    const itemsArr = Array.isArray(srv.items) ? srv.items : [];
+    const primerItem = (itemsArr[0] || {}) as Record<string, any>;
+    const tipoMaint = String(primerItem.tipo || 'MANTENIMIENTO DE AIRE ACONDICIONADO').trim().toUpperCase();
+
+    const codigosConPlaca = itemsArr
+      .map((it: any) => {
+        const c = String(it?.ac_unit_code || it?.ac_unit_id || '').trim().toUpperCase();
+        const p = String(it?.ac_unit_placa || '').trim().toUpperCase();
+        if (c) return p ? `${c} (PLACA ${p})` : c;
+        return String(it?.machine_label || 'AIRE').trim();
+      })
+      .filter(Boolean);
+    const codigosUnicos = Array.from(new Set(codigosConPlaca));
+    const codigosTxt =
+      codigosUnicos.length === 0
+        ? 'AIRE ACONDICIONADO'
+        : codigosUnicos.length <= 5
+          ? codigosUnicos.join(', ')
+          : `${codigosUnicos.slice(0, 5).join(', ')} y ${codigosUnicos.length - 5} más`;
+
+    const conceptoCxp = `MANTENIMIENTO AIRES (${codigosTxt}) · ${tipoMaint} · ${srvCode}`.slice(0, 220);
+
+    // Verificar en memoria y directamente en Supabase para garantizar idempotencia total (0 duplicados)
+    let cuentaExistente = buscarCuentaPorServicio(srvCode);
+    if (!cuentaExistente) {
+      const { data: rem } = await supabase
+        .from('cuentas')
+        .select('*')
+        .eq('tipo', 'por_pagar')
+        .eq('documento', srvCode)
+        .limit(1);
+      if (rem && rem.length > 0) {
+        cuentaExistente = rem[0] as Cuenta;
+      }
+    }
+
+    const condSrv = extraerCondicionesPago(srv.note);
+    const ivaSrv = opts?.alicuotaIva != null ? opts.alicuotaIva : (extraerIvaCuenta(srv.note) ?? 16);
+    const notaHumanaSrv = limpiarNotaInterna(srv.note);
+    const presupuestosSrv: FormatoAdjunto[] =
+      opts?.presupuestos && opts.presupuestos.length > 0
+        ? opts.presupuestos
+        : extraerPresupuestosDeServicioAc(srv as ServicioRecord, primerItem as any).map((p) => ({
+            id: p.id,
+            url: p.url,
+            kind: p.kind,
+            name: p.name,
+          }));
+
+    // Si existe cuenta previa, preservamos sus etiquetas de aprobación/recibo/historial y actualizamos las de AC
+    let baseNota = cuentaExistente?.nota || '';
+    const textoBaseHumana = notaHumanaSrv || `MANTENIMIENTO DE ${ Math.max(1, codigosUnicos.length) } UNIDAD(ES): ${codigosTxt}`;
+    if (baseNota) {
+      // Conservar tags administrativos existentes de Cuentas (APROBADO_CXP, RECIBO_PAGO, FACTURA_CUENTA, HISTORIAL_COMPRA)
+      const tagsConservar: string[] = [];
+      const rxList = [
+        /\[APROBADO_CXP:[^\]]*\]/gi,
+        /\[RECIBO_PAGO:[^\]]*\]/gi,
+        /\[FACTURA_CUENTA:[^\]]*\]/gi,
+        /\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi,
+      ];
+      for (const rx of rxList) {
+        const m = baseNota.match(rx);
+        if (m) tagsConservar.push(...m);
+      }
+      baseNota = [textoBaseHumana, ...tagsConservar].filter(Boolean).join('\n');
+    } else {
+      baseNota = textoBaseHumana;
+    }
+
+    let notaCxp = inyectarEmpresaEnNota(baseNota, srv.company_id, companyName(srv.company_id)) || baseNota;
+    notaCxp = inyectarCondicionesPagoEnNota(notaCxp, condSrv || null) || notaCxp;
+    notaCxp = inyectarIvaEnCuentaNota(notaCxp, ivaSrv) || notaCxp;
+    notaCxp = inyectarFormatosEnNota(notaCxp, presupuestosSrv) || notaCxp;
+
+    const facturaPrincipalUrl = presupuestosSrv[0]?.url || srv.factura_url || cuentaExistente?.factura_url || null;
+    const venceFinal =
+      opts?.vencimiento !== undefined
+        ? opts.vencimiento || null
+        : cuentaExistente?.fecha_vencimiento || null;
+
+    if (cuentaExistente) {
+      if (cuentaExistente.estado === 'pagada') {
+        // Si ya fue pagada en tesorería, actualizamos solo metadatos/soportes sin alterar el monto liquidado
+        const { error } = await supabase
+          .from('cuentas')
+          .update({
+            concepto: conceptoCxp,
+            factura_url: facturaPrincipalUrl,
+            nota: notaCxp || null,
+          })
+          .eq('id', cuentaExistente.id);
+        return { ok: !error, error: error?.message, estadoCuenta: 'pagada' };
+      }
+
+      const { error } = await supabase
+        .from('cuentas')
+        .update({
+          supplier_id: supId,
+          company_id: null,
+          concepto: conceptoCxp,
+          documento: srvCode,
+          factura_url: facturaPrincipalUrl,
+          monto: montoTotal,
+          fecha_emision: srv.service_date || hoy,
+          fecha_vencimiento: venceFinal,
+          nota: notaCxp || null,
+        })
+        .eq('id', cuentaExistente.id);
+      return { ok: !error, error: error?.message, estadoCuenta: cuentaExistente.estado };
+    }
+
+    const { error } = await supabase.from('cuentas').insert({
+      tipo: 'por_pagar',
+      supplier_id: supId,
+      company_id: null,
+      concepto: conceptoCxp,
+      documento: srvCode,
+      factura_url: facturaPrincipalUrl,
+      monto: montoTotal,
+      fecha_emision: srv.service_date || hoy,
+      fecha_vencimiento: venceFinal,
+      estado: 'pendiente',
+      nota: notaCxp || null,
+      created_by: session?.user?.id ?? null,
+    });
+    return { ok: !error, error: error?.message, estadoCuenta: 'pendiente' };
+  };
+
+  // Auto-sincronización retroactiva e idempotente: asegura que mantenimientos de Aires como SRV-0029 ($69,60)
+  // tengan siempre su cuenta en `💳 POR PAGAR` sin duplicar.
+  const sincronizadosRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!canWrite || loading || loadingCuentas || loadingSuppliers) return;
+    const serviciosAcConCosto = serviciosRaw.filter((s) => {
+      if (!s || s.code === AC_MASTER_CODE) return false;
+      if (!(Number(s.total) > 0)) return false;
+      const items = Array.isArray(s.items) ? s.items : [];
+      return items.some(
+        (it: any) =>
+          it &&
+          (it.categoria === AC_CATEGORIA_SERVICIO ||
+            Boolean(it.ac_unit_code) ||
+            Boolean(it.ac_unit_id)),
+      );
+    });
+
+    const faltantes = serviciosAcConCosto.filter((s) => {
+      const code = String(s.code || '').trim().toUpperCase();
+      if (!code || sincronizadosRef.current.has(code)) return false;
+      const yaExiste = buscarCuentaPorServicio(code);
+      if (yaExiste) {
+        sincronizadosRef.current.add(code);
+        return false;
+      }
+      return true;
+    });
+
+    if (faltantes.length === 0) return;
+
+    let cancelado = false;
+    (async () => {
+      let creadas = 0;
+      for (const s of faltantes) {
+        if (cancelado) break;
+        const code = String(s.code || '').trim().toUpperCase();
+        sincronizadosRef.current.add(code);
+        const res = await sincronizarServicioConCuentaPorPagar({
+          id: s.id,
+          code: s.code,
+          company_id: s.company_id,
+          supplier_id: s.supplier_id,
+          service_date: s.service_date,
+          items: Array.isArray(s.items) ? s.items : [],
+          total: Number(s.total) || 0,
+          factura_url: s.factura_url,
+          factura_type: s.factura_type,
+          factura_name: s.factura_name,
+          note: s.note,
+        });
+        if (res.ok) creadas++;
+      }
+      if (creadas > 0 && !cancelado) {
+        await refetchCuentas();
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [canWrite, loading, loadingCuentas, loadingSuppliers, serviciosRaw, cuentas, suppliers]);
 
   const abrirMantenimiento = (codesIniciales?: string[], tipoInicial?: string) => {
     const elegidos =
@@ -572,7 +859,10 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
           ? Array.from(selCodes)
           : [];
     const primeraUnidad = elegidos.length === 1 ? unidadesCatalogo.find((u) => u.code === elegidos[0]) : null;
+    setEditingMaintId(null);
+    setEditingMaintCode(null);
     setMaintUnits(elegidos);
+    setMaintUnitQ('');
     setMaintCompany(primeraUnidad?.company_id || generalCompanies(companies)[0]?.id || '');
     setMaintSupplier('');
     setMaintDate(hoy);
@@ -582,7 +872,9 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
         ? [AC_CHECKLIST_RIGUROSO[0], AC_CHECKLIST_RIGUROSO[1]]
         : [...AC_CHECKLIST_RIGUROSO.slice(0, 6)],
     );
+    setMaintMoneda('USD');
     setModoPrecio('unitario');
+    setMaintIvaModo('incluye_iva');
     setPrecioTexto('');
     setUsaInv(false);
     setInvItemId(null);
@@ -590,9 +882,85 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     setMaintDetalle('');
     setMaintCondicionesPago('');
     setMaintNota('');
-    setMaintEnviarCxp(false);
+    setMaintEnviarCxp(true);
     setMaintVenceCxp('');
-    setMaintFactura(null);
+    setMaintPresupuestos([]);
+    setMaintOpen(true);
+  };
+
+  // Abre el modal en modo EDICIÓN precargando todos los datos del mantenimiento registrado
+  const abrirEditarMantenimiento = (h: AcMaintHistoryEntry, u: AcUnitCalc) => {
+    const srv = serviciosRaw.find((s) => s.id === h.servicioId);
+    const itemsArr = srv && Array.isArray(srv.items) ? (srv.items as (ServicioItem & Record<string, any>)[]) : [];
+    const primerIt = itemsArr[0] || null;
+    const codigos = itemsArr
+      .map((it) => String(it.ac_unit_code || it.ac_unit_id || '').trim().toUpperCase())
+      .filter(Boolean);
+    const unidadesIntervenidas = codigos.length > 0 ? Array.from(new Set(codigos)) : [u.code];
+
+    const checklistActual =
+      primerIt && Array.isArray(primerIt.ac_checklist)
+        ? primerIt.ac_checklist
+        : Array.isArray(h.checklist)
+          ? h.checklist
+          : [];
+    const detalleLibre =
+      primerIt && typeof primerIt.ac_detalle_libre === 'string'
+        ? primerIt.ac_detalle_libre
+        : h.detalleLibre !== undefined
+          ? h.detalleLibre
+          : separarDetalleLibreDeChecklist(h.detalle, checklistActual);
+
+    const ivaTag = extraerIvaCuenta(srv?.note);
+    const ivaModoGuardado: AcModoIva =
+      primerIt?.ac_iva_modo === 'mas_iva' || primerIt?.ac_iva_modo === 'exento' || primerIt?.ac_iva_modo === 'incluye_iva'
+        ? primerIt.ac_iva_modo
+        : ivaTag === 0
+          ? 'exento'
+          : 'incluye_iva';
+
+    const modoPrecioGuardado: 'unitario' | 'total' =
+      primerIt?.ac_modo_precio === 'total' ? 'total' : 'unitario';
+    const totalSrvUsd = Number(srv?.total) || Number(h.costoUsd) * Math.max(1, unidadesIntervenidas.length);
+    const unitarioUsd = Number(primerIt?.price) || Number(h.costoUsd) || 0;
+
+    // Si se guardó como 'mas_iva', el valor base capturado era el subtotal sin IVA
+    let montoMostrar = modoPrecioGuardado === 'total' ? totalSrvUsd : unitarioUsd;
+    if (ivaModoGuardado === 'mas_iva') {
+      montoMostrar = Math.round((montoMostrar / 1.16) * 100) / 100;
+    }
+
+    const presupuestosCargados: FormatoAdjunto[] = extraerPresupuestosDeServicioAc(srv || null, primerIt).map((p) => ({
+      id: p.id,
+      url: p.url,
+      kind: p.kind,
+      name: p.name,
+    }));
+
+    const cuentaVinc = buscarCuentaPorServicio(h.servicioCode);
+
+    setEditingMaintId(h.servicioId);
+    setEditingMaintCode(h.servicioCode);
+    setMaintUnits(unidadesIntervenidas);
+    setMaintUnitQ('');
+    setMaintCompany(srv?.company_id || h.companyId || u.company_id || generalCompanies(companies)[0]?.id || '');
+    setMaintSupplier(srv?.supplier_id || h.supplierId || cuentaVinc?.supplier_id || '');
+    setMaintDate((srv?.service_date || h.fecha || hoy).slice(0, 10));
+    setMaintTipo(primerIt?.tipo || h.tipo || AC_TIPOS_INTERVENCION[0]);
+    setMaintChecklist(checklistActual);
+    setMaintMoneda('USD');
+    setModoPrecio(modoPrecioGuardado);
+    setMaintIvaModo(ivaModoGuardado);
+    setPrecioTexto(montoMostrar > 0 ? String(montoMostrar) : '');
+    setUsaInv(Boolean(primerIt?.usa_inventario));
+    setInvItemId(primerIt?.item_id || null);
+    setInvItemName(primerIt?.item_name || '');
+    setMaintDetalle(detalleLibre);
+    setMaintCondicionesPago(extraerCondicionesPago(srv?.note) || h.condicionesPago || '');
+    setMaintNota(limpiarNotaInterna(srv?.note) || h.notaServicio || '');
+    setMaintEnviarCxp(true);
+    setMaintVenceCxp(cuentaVinc?.fecha_vencimiento ? cuentaVinc.fecha_vencimiento.slice(0, 10) : '');
+    setMaintPresupuestos(presupuestosCargados);
     setMaintOpen(true);
   };
 
@@ -617,43 +985,178 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
     toast.success('Proveedor creado.');
   };
 
-  const adjuntarFacturaMaint = async () => {
+  const adjuntarPresupuestosMaint = async () => {
     setSubiendoFactura(true);
     try {
-      const res = await pickAndUploadDocFile('servicios', `ac-${Date.now()}`);
-      if (res?.url) {
-        setMaintFactura({ url: res.url, kind: (res.kind as any) ?? 'image', name: res.name ?? 'factura' });
-        toast.success('Factura adjuntada.');
+      const res = await pickAndUploadDocFiles('servicios', editingMaintId || `ac-${Date.now()}`);
+      if (res.ok && res.files && res.files.length > 0) {
+        const nuevos: FormatoAdjunto[] = res.files.map((f, i) => ({
+          id: `ac-doc-${Date.now()}-${i}`,
+          url: f.url,
+          kind: f.kind,
+          name: f.name || `Presupuesto_${i + 1}`,
+        }));
+        setMaintPresupuestos((prev) => [...prev, ...nuevos]);
+        toast.success(
+          nuevos.length === 1
+            ? 'Presupuesto / soporte adjuntado.'
+            : `${nuevos.length} archivos adjuntados.`,
+        );
+      } else if (res.error) {
+        toast.error(res.error);
       }
     } finally {
       setSubiendoFactura(false);
     }
   };
 
-  const montoNumerico = leerNumero(precioTexto);
+  const tomarFotoPresupuestoMaint = async () => {
+    setSubiendoFactura(true);
+    try {
+      const res = await takeAndUploadDocPhoto('servicios', editingMaintId || `ac-${Date.now()}`);
+      if (res.ok && res.url) {
+        setMaintPresupuestos((prev) => [
+          ...prev,
+          {
+            id: `ac-cam-${Date.now()}`,
+            url: res.url!,
+            kind: 'image',
+            name: res.name || `Foto_Presupuesto_${prev.length + 1}.jpg`,
+          },
+        ]);
+        toast.success('Foto de presupuesto adjuntada.');
+      } else if (res.error) {
+        toast.error(res.error);
+      }
+    } finally {
+      setSubiendoFactura(false);
+    }
+  };
+
+  const quitarPresupuestoMaint = (idOrUrl: string) => {
+    setMaintPresupuestos((prev) => prev.filter((p) => p.id !== idOrUrl && p.url !== idOrUrl));
+  };
+
+  // Subida rápida de presupuesto directamente desde una fila del Historial de Mantenimientos
+  const subirPresupuestoRapidoHistorial = async (h: AcMaintHistoryEntry) => {
+    if (!canWrite) return toast.error('No tienes permiso de escritura en Compras.');
+    const srv = serviciosRaw.find((s) => s.id === h.servicioId);
+    if (!srv) return toast.error('No se encontró el registro del servicio.');
+
+    setSubiendoHistId(h.servicioId);
+    try {
+      const res = await pickAndUploadDocFiles('servicios', h.servicioId);
+      if (!res.ok || !res.files || res.files.length === 0) {
+        if (res.error) toast.error(res.error);
+        return;
+      }
+      const existentes = extraerPresupuestosDeServicioAc(srv, Array.isArray(srv.items) ? (srv.items[0] as any) : null).map(
+        (p) => ({
+          id: p.id,
+          url: p.url,
+          kind: p.kind,
+          name: p.name,
+        }),
+      );
+      const nuevos: FormatoAdjunto[] = res.files.map((f, i) => ({
+        id: `ac-doc-${Date.now()}-${i}`,
+        url: f.url,
+        kind: f.kind,
+        name: f.name || `Presupuesto_${existentes.length + i + 1}`,
+      }));
+      const todos = [...existentes, ...nuevos];
+      const nuevosItems = (Array.isArray(srv.items) ? srv.items : []).map((it: any) => ({
+        ...it,
+        ac_presupuestos: todos,
+      }));
+      const nuevaNota = inyectarFormatosEnNota(srv.note, todos);
+      const primera = todos[0] || null;
+
+      const { error } = await supabase
+        .from('servicios')
+        .update({
+          items: nuevosItems,
+          factura_url: primera?.url ?? srv.factura_url ?? null,
+          factura_type: primera?.kind ?? srv.factura_type ?? null,
+          factura_name: primera?.name ?? srv.factura_name ?? null,
+          note: nuevaNota,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', srv.id);
+
+      if (error) return toast.error(error.message);
+
+      await sincronizarServicioConCuentaPorPagar(
+        {
+          ...srv,
+          items: nuevosItems,
+          factura_url: primera?.url ?? srv.factura_url ?? null,
+          factura_type: primera?.kind ?? srv.factura_type ?? null,
+          factura_name: primera?.name ?? srv.factura_name ?? null,
+          note: nuevaNota,
+        },
+        { presupuestos: todos },
+      );
+
+      await Promise.all([refetch(), refetchCuentas()]);
+      toast.success('Presupuesto adjuntado al mantenimiento y sincronizado con Cuentas por Pagar.');
+    } finally {
+      setSubiendoHistId(null);
+    }
+  };
+
+  // ── Cálculos de Precio, Moneda ($ USD / Bs BCV) y Desglose de IVA (16%) ─────
+  const tasaBcvActiva = bcv.rate && bcv.rate > 0 ? bcv.rate : 0;
+  const montoDigitado = leerNumero(precioTexto);
+  const montoBaseUsd =
+    maintMoneda === 'VES'
+      ? tasaBcvActiva > 0
+        ? Math.round((montoDigitado / tasaBcvActiva) * 10000) / 10000
+        : 0
+      : montoDigitado;
+
   const cantUnidadesMaint = Math.max(1, maintUnits.length);
-  const precioUnitarioCalc =
+  const montoBrutoTotalUsd =
     modoPrecio === 'unitario'
-      ? montoNumerico
-      : Math.round((montoNumerico / cantUnidadesMaint) * 100) / 100;
+      ? Math.round(montoBaseUsd * cantUnidadesMaint * 100) / 100
+      : Math.round(montoBaseUsd * 100) / 100;
+
+  const alicuotaIvaMaint = maintIvaModo === 'exento' ? 0 : 16;
+  const subtotalMaintUsd =
+    maintIvaModo === 'mas_iva'
+      ? montoBrutoTotalUsd
+      : maintIvaModo === 'incluye_iva'
+        ? Math.round((montoBrutoTotalUsd / 1.16) * 100) / 100
+        : montoBrutoTotalUsd;
+  const ivaMaintUsd =
+    maintIvaModo === 'mas_iva'
+      ? Math.round(montoBrutoTotalUsd * 0.16 * 100) / 100
+      : maintIvaModo === 'incluye_iva'
+        ? Math.round(Math.max(0, montoBrutoTotalUsd - subtotalMaintUsd) * 100) / 100
+        : 0;
   const totalMaintCalc =
-    modoPrecio === 'unitario'
-      ? Math.round(montoNumerico * maintUnits.length * 100) / 100
-      : Math.round(montoNumerico * 100) / 100;
+    maintIvaModo === 'mas_iva'
+      ? Math.round((subtotalMaintUsd + ivaMaintUsd) * 100) / 100
+      : montoBrutoTotalUsd;
+  const precioUnitarioCalc = Math.round((totalMaintCalc / cantUnidadesMaint) * 100) / 100;
+  const subtotalUnitarioUsd = Math.round((subtotalMaintUsd / cantUnidadesMaint) * 100) / 100;
+  const ivaUnitarioUsd = Math.round((ivaMaintUsd / cantUnidadesMaint) * 100) / 100;
+  const equivalenteMaintVes = tasaBcvActiva > 0 ? Math.round(totalMaintCalc * tasaBcvActiva * 100) / 100 : 0;
 
   const guardarMantenimiento = async () => {
     if (!maintCompany) return toast.error('Elige la empresa.');
     if (maintUnits.length === 0) return toast.error('Selecciona al menos una unidad de aire acondicionado.');
-    if (usaInv && !invItemId) return toast.error('Elige el repuesto del inventario o desmarca la casilla de repuesto.');
-    if (maintEnviarCxp && !maintSupplier) {
-      return toast.error('Para enviar a Cuentas por Pagar debes elegir el Proveedor.');
+    if (maintMoneda === 'VES' && !(tasaBcvActiva > 0)) {
+      return toast.error('No hay tasa BCV disponible en este momento; ingresa el monto en dólares ($ USD).');
     }
-    if (maintEnviarCxp && !(totalMaintCalc > 0)) {
-      return toast.error('Para enviar a Cuentas por Pagar coloca el monto del servicio.');
+    if (usaInv && !invItemId) return toast.error('Elige el repuesto del inventario o desmarca la casilla de repuesto.');
+    if (maintEnviarCxp && totalMaintCalc > 0 && !maintSupplier) {
+      return toast.error('Elige o crea el Proveedor para registrar la Cuenta por Pagar.');
     }
 
+    const detalleLibreClean = separarDetalleLibreDeChecklist(maintDetalle, maintChecklist);
     const checklistResumen = maintChecklist.length > 0 ? `[${maintChecklist.join(', ')}]` : '';
-    const detalleCombinado = [checklistResumen, maintDetalle.trim()].filter(Boolean).join(' · ');
+    const detalleCombinado = [checklistResumen, detalleLibreClean].filter(Boolean).join(' · ');
     const esPreventivoLavado = maintTipo.toUpperCase().includes('CAMIÓN DE LAVADO');
 
     const renglones: (ServicioItem & Record<string, any>)[] = maintUnits.map((code, idx) => {
@@ -672,6 +1175,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
         item_id: descuentaAqui ? invItemId : null,
         item_name: descuentaAqui ? invItemName : '',
         detalle: detalleCombinado,
+        ac_detalle_libre: detalleLibreClean,
         ac_unit_id: code,
         ac_unit_code: code,
         ac_unit_area: u?.area || 'BASE GENERAL',
@@ -679,15 +1183,91 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
         ac_unit_placa: u?.placa || '',
         ac_es_preventivo_lavado: esPreventivoLavado,
         ac_checklist: maintChecklist,
+        ac_iva_modo: maintIvaModo,
+        ac_alicuota_iva: alicuotaIvaMaint,
+        ac_subtotal_usd: subtotalUnitarioUsd,
+        ac_iva_usd: ivaUnitarioUsd,
+        ac_moneda: maintMoneda,
+        ac_tasa_bcv: tasaBcvActiva || null,
+        ac_modo_precio: modoPrecio,
+        ac_presupuestos: maintPresupuestos,
       };
     });
 
-    const notaFinalSrv = inyectarCondicionesPagoEnNota(
+    let notaFinalSrv = inyectarCondicionesPagoEnNota(
       maintNota.trim().toUpperCase() || null,
       maintCondicionesPago.trim().toUpperCase() || null,
     );
+    notaFinalSrv = inyectarIvaEnCuentaNota(notaFinalSrv, alicuotaIvaMaint);
+    notaFinalSrv = inyectarFormatosEnNota(notaFinalSrv, maintPresupuestos);
+
+    const primeraFactura = maintPresupuestos[0] || null;
 
     setSavingMaint(true);
+
+    if (editingMaintId) {
+      const { data: srvUpd, error: errUpd } = await supabase
+        .from('servicios')
+        .update({
+          company_id: maintCompany,
+          supplier_id: maintSupplier || null,
+          service_date: maintDate || hoy,
+          items: renglones,
+          total: totalMaintCalc,
+          factura_url: primeraFactura?.url ?? null,
+          factura_type: primeraFactura?.kind ?? null,
+          factura_name: primeraFactura?.name ?? null,
+          note: notaFinalSrv,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingMaintId)
+        .select('id, code')
+        .single();
+
+      if (errUpd) {
+        setSavingMaint(false);
+        return toast.error(errUpd.message);
+      }
+
+      const srvCode = srvUpd?.code || editingMaintCode || 'SRV-AC';
+      if ((maintEnviarCxp || buscarCuentaPorServicio(srvCode)) && totalMaintCalc > 0) {
+        const syncRes = await sincronizarServicioConCuentaPorPagar(
+          {
+            id: editingMaintId,
+            code: srvCode,
+            company_id: maintCompany,
+            supplier_id: maintSupplier || null,
+            service_date: maintDate || hoy,
+            items: renglones,
+            total: totalMaintCalc,
+            factura_url: primeraFactura?.url ?? null,
+            factura_type: primeraFactura?.kind ?? null,
+            factura_name: primeraFactura?.name ?? null,
+            note: notaFinalSrv,
+          },
+          {
+            vencimiento: maintVenceCxp.trim() || null,
+            presupuestos: maintPresupuestos,
+            alicuotaIva: alicuotaIvaMaint,
+          },
+        );
+        if (!syncRes.ok) {
+          setSavingMaint(false);
+          setMaintOpen(false);
+          await Promise.all([refetch(), refetchCuentas()]);
+          return toast.error(`Mantenimiento actualizado, pero falló sincronización con Por Pagar: ${syncRes.error}`);
+        }
+      }
+
+      setSavingMaint(false);
+      setMaintOpen(false);
+      setEditingMaintId(null);
+      setEditingMaintCode(null);
+      await Promise.all([refetch(), refetchCuentas()]);
+      toast.success(`Mantenimiento ${srvCode} actualizado y sincronizado con Cuentas por Pagar.`);
+      return;
+    }
+
     const { data: srvIns, error: errSrv } = await supabase
       .from('servicios')
       .insert({
@@ -696,9 +1276,9 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
         service_date: maintDate || hoy,
         items: renglones,
         total: totalMaintCalc,
-        factura_url: maintFactura?.url ?? null,
-        factura_type: maintFactura?.kind ?? null,
-        factura_name: maintFactura?.name ?? null,
+        factura_url: primeraFactura?.url ?? null,
+        factura_type: primeraFactura?.kind ?? null,
+        factura_name: primeraFactura?.name ?? null,
         note: notaFinalSrv,
         created_by: session?.user?.id ?? null,
       })
@@ -710,52 +1290,45 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       return toast.error(errSrv.message);
     }
 
-    // Si marcó Enviar a Cuentas por Pagar, creamos la deuda con sus Condiciones de Pago y Nota
-    if (maintEnviarCxp && maintSupplier && totalMaintCalc > 0) {
-      const srvCode = srvIns?.code || 'SRV-AC';
-      const codigosConPlaca = maintUnits.map((c) => {
-        const u = unidadesCalc.find((x) => x.code === c);
-        return u?.placa ? `${c} (PLACA ${u.placa})` : c;
-      });
-      const codigosTxt =
-        codigosConPlaca.length <= 5
-          ? codigosConPlaca.join(', ')
-          : `${codigosConPlaca.slice(0, 5).join(', ')} y ${codigosConPlaca.length - 5} más`;
-      const conceptoCxp = `MANTENIMIENTO AIRES (${codigosTxt}) · ${maintTipo} · ${srvCode}`.slice(0, 220);
-      let notaCxp = maintNota.trim().toUpperCase() || `MANTENIMIENTO DE ${maintUnits.length} UNIDAD(ES): ${codigosTxt}`;
-      notaCxp = inyectarEmpresaEnNota(notaCxp, maintCompany, companyName(maintCompany)) || '';
-      notaCxp = inyectarCondicionesPagoEnNota(notaCxp, maintCondicionesPago.trim().toUpperCase()) || '';
-
-      const { error: errCxp } = await supabase.from('cuentas').insert({
-        tipo: 'por_pagar',
-        supplier_id: maintSupplier,
-        company_id: null,
-        concepto: conceptoCxp,
-        documento: srvCode,
-        factura_url: maintFactura?.url ?? null,
-        monto: totalMaintCalc,
-        fecha_emision: maintDate || hoy,
-        fecha_vencimiento: maintVenceCxp.trim() || null,
-        estado: 'pendiente',
-        nota: notaCxp || null,
-        created_by: session?.user?.id ?? null,
-      });
-      if (errCxp) {
+    const srvCode = srvIns?.code || 'SRV-AC';
+    if (maintEnviarCxp && totalMaintCalc > 0) {
+      sincronizadosRef.current.add(srvCode.toUpperCase());
+      const syncRes = await sincronizarServicioConCuentaPorPagar(
+        {
+          id: srvIns?.id || '',
+          code: srvCode,
+          company_id: maintCompany,
+          supplier_id: maintSupplier || null,
+          service_date: maintDate || hoy,
+          items: renglones,
+          total: totalMaintCalc,
+          factura_url: primeraFactura?.url ?? null,
+          factura_type: primeraFactura?.kind ?? null,
+          factura_name: primeraFactura?.name ?? null,
+          note: notaFinalSrv,
+        },
+        {
+          vencimiento: maintVenceCxp.trim() || null,
+          presupuestos: maintPresupuestos,
+          alicuotaIva: alicuotaIvaMaint,
+        },
+      );
+      if (!syncRes.ok) {
         setSavingMaint(false);
         setMaintOpen(false);
-        refetch();
-        return toast.error(`Mantenimiento registrado, pero falló envío a Por Pagar: ${errCxp.message}`);
+        await Promise.all([refetch(), refetchCuentas()]);
+        return toast.error(`Mantenimiento registrado, pero falló envío a Por Pagar: ${syncRes.error}`);
       }
     }
 
     setSavingMaint(false);
     setMaintOpen(false);
     setSelCodes(new Set());
-    await refetch();
+    await Promise.all([refetch(), refetchCuentas()]);
     toast.success(
-      maintEnviarCxp
-        ? `Mantenimiento de ${maintUnits.length} aire(s) registrado y enviado a Cuentas por Pagar.`
-        : `Mantenimiento de ${maintUnits.length} aire(s) registrado. Semáforo actualizado.`,
+      maintEnviarCxp && totalMaintCalc > 0
+        ? `Mantenimiento ${srvCode} registrado y enviado a Cuentas por Pagar.`
+        : `Mantenimiento ${srvCode} registrado. Semáforo actualizado.`,
     );
   };
 
@@ -1094,25 +1667,203 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
 
                   {/* Historial de mantenimientos de esta unidad */}
                   {u.historial.length > 0 ? (
-                    <View style={{ marginTop: 4, padding: 8, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, gap: 4 }}>
+                    <View style={{ marginTop: 4, padding: 8, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, gap: 8 }}>
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>
                         📜 Historial de mantenimientos ({u.historial.length})
                       </Text>
-                      {u.historial.slice(0, 5).map((h, idx) => (
-                        <View key={`${h.servicioId}-${idx}`} style={{ borderTopWidth: idx === 0 ? 0 : 1, borderTopColor: colors.border, paddingTop: idx === 0 ? 0 : 4 }}>
-                          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
-                            • {fmtFechaAc(h.fecha)} · {h.servicioCode} · {h.tipo} — {usd(h.costoUsd)}
-                          </Text>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>
-                            🏭 {supplierName(h.supplierId)}{h.detalle ? ` · ${h.detalle}` : ''}
-                          </Text>
-                          {h.condicionesPago ? (
-                            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
-                              💳 Condiciones: {h.condicionesPago}
+                      {u.historial.slice(0, 10).map((h, idx) => {
+                        const cuentaVinc = buscarCuentaPorServicio(h.servicioCode);
+                        const aprobInfo = cuentaVinc ? extraerAprobacionCxp(cuentaVinc.nota) : null;
+                        const presupuestosHist = h.presupuestos || [];
+                        const tieneIva = (h.alicuotaIva ?? 16) > 0 && h.costoUsd > 0;
+                        const eqVesHist = tasaBcvActiva > 0 && h.costoUsd > 0 ? Math.round(h.costoUsd * tasaBcvActiva * 100) / 100 : 0;
+
+                        return (
+                          <View
+                            key={`${h.servicioId}-${idx}`}
+                            style={{
+                              borderTopWidth: idx === 0 ? 0 : 1,
+                              borderTopColor: colors.border,
+                              paddingTop: idx === 0 ? 0 : 8,
+                              gap: 3,
+                            }}
+                          >
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                              <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', flex: 1 }}>
+                                • {fmtFechaAc(h.fecha)} · {h.servicioCode} · {h.tipo} — {usd(h.costoUsd)}
+                              </Text>
+                              {cuentaVinc ? (
+                                <View
+                                  style={{
+                                    backgroundColor:
+                                      cuentaVinc.estado === 'pagada'
+                                        ? colors.successSoftBg
+                                        : aprobInfo?.estado === 'aprobado'
+                                          ? colors.infoSoftBg
+                                          : colors.warningSoftBg,
+                                    borderWidth: 1,
+                                    borderColor:
+                                      cuentaVinc.estado === 'pagada'
+                                        ? colors.successSoftBorder
+                                        : aprobInfo?.estado === 'aprobado'
+                                          ? colors.infoSoftBorder
+                                          : colors.warningSoftBorder,
+                                    borderRadius: radius.pill,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 2,
+                                  }}
+                                >
+                                  <Text
+                                    style={{
+                                      color:
+                                        cuentaVinc.estado === 'pagada'
+                                          ? colors.successSoftText
+                                          : aprobInfo?.estado === 'aprobado'
+                                            ? colors.infoSoftText
+                                            : colors.warningSoftText,
+                                      fontSize: 10.5,
+                                      fontWeight: '800',
+                                    }}
+                                  >
+                                    {cuentaVinc.estado === 'pagada'
+                                      ? '✅ Pagada en Por Pagar'
+                                      : aprobInfo?.estado === 'aprobado'
+                                        ? '🟢 Aprobada en Por Pagar'
+                                        : '⏳ En Por Pagar (Esperando aprobación)'}
+                                  </Text>
+                                </View>
+                              ) : null}
+                            </View>
+
+                            {h.costoUsd > 0 ? (
+                              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>
+                                💵 {tieneIva
+                                  ? `Base: ${usd(h.subtotalUsd ?? 0)} + IVA (${h.alicuotaIva ?? 16}%): ${usd(h.ivaUsd ?? 0)} = Total: ${usd(h.costoUsd)}`
+                                  : `Exento de IVA · Total: ${usd(h.costoUsd)}`}
+                                {eqVesHist > 0 ? ` · 🇻🇪 ≈ ${ves(eqVesHist)} (BCV)` : ''}
+                              </Text>
+                            ) : null}
+
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>
+                              🏭 {supplierName(h.supplierId)}{h.detalle ? ` · ${h.detalle}` : ''}
                             </Text>
-                          ) : null}
-                        </View>
-                      ))}
+
+                            {h.condicionesPago ? (
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
+                                💳 Condiciones: {h.condicionesPago}
+                              </Text>
+                            ) : null}
+
+                            {h.notaServicio ? (
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>
+                                📝 Nota: {h.notaServicio}
+                              </Text>
+                            ) : null}
+
+                            {/* Presupuestos / Cotizaciones / Facturas adjuntas y botones de edición */}
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                              {presupuestosHist.map((doc, dIdx) => (
+                                <TouchableOpacity
+                                  key={`${doc.id}-${dIdx}`}
+                                  onPress={() => setPreviewDoc({ url: doc.url, kind: doc.kind, name: doc.name })}
+                                  style={{
+                                    backgroundColor: colors.infoSoftBg,
+                                    borderWidth: 1,
+                                    borderColor: colors.infoSoftBorder,
+                                    borderRadius: radius.pill,
+                                    paddingHorizontal: 9,
+                                    paddingVertical: 4,
+                                  }}
+                                >
+                                  <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>
+                                    {doc.kind === 'pdf' ? '📄' : '🖼️'} Ver presupuesto{presupuestosHist.length > 1 ? ` ${dIdx + 1}` : ''}: {doc.name.slice(0, 24)}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+
+                              {canWrite ? (
+                                <>
+                                  <TouchableOpacity
+                                    onPress={() => abrirEditarMantenimiento(h, u)}
+                                    style={{
+                                      backgroundColor: colors.surface,
+                                      borderWidth: 1,
+                                      borderColor: colors.brand,
+                                      borderRadius: radius.pill,
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 4,
+                                    }}
+                                  >
+                                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                                      ✏️ Editar mantenimiento
+                                    </Text>
+                                  </TouchableOpacity>
+
+                                  <TouchableOpacity
+                                    onPress={() => subirPresupuestoRapidoHistorial(h)}
+                                    disabled={subiendoHistId === h.servicioId}
+                                    style={{
+                                      backgroundColor: colors.surface,
+                                      borderWidth: 1,
+                                      borderColor: colors.border,
+                                      borderRadius: radius.pill,
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 4,
+                                      opacity: subiendoHistId === h.servicioId ? 0.6 : 1,
+                                    }}
+                                  >
+                                    <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                                      {subiendoHistId === h.servicioId
+                                        ? '⏳ Subiendo…'
+                                        : presupuestosHist.length > 0
+                                          ? '📎 + Presupuesto'
+                                          : '📎 Subir presupuesto'}
+                                    </Text>
+                                  </TouchableOpacity>
+
+                                  {!cuentaVinc && h.costoUsd > 0 ? (
+                                    <TouchableOpacity
+                                      onPress={async () => {
+                                        const srv = serviciosRaw.find((s) => s.id === h.servicioId);
+                                        if (!srv) return;
+                                        const res = await sincronizarServicioConCuentaPorPagar({
+                                          id: srv.id,
+                                          code: srv.code,
+                                          company_id: srv.company_id,
+                                          supplier_id: srv.supplier_id,
+                                          service_date: srv.service_date,
+                                          items: Array.isArray(srv.items) ? srv.items : [],
+                                          total: Number(srv.total) || h.costoUsd,
+                                          factura_url: srv.factura_url,
+                                          factura_type: srv.factura_type,
+                                          factura_name: srv.factura_name,
+                                          note: srv.note,
+                                        });
+                                        if (res.ok) {
+                                          await refetchCuentas();
+                                          toast.success(`${h.servicioCode} enviado a Cuentas por Pagar.`);
+                                        } else {
+                                          toast.error(res.error || 'No se pudo enviar a Por Pagar.');
+                                        }
+                                      }}
+                                      style={{
+                                        backgroundColor: colors.accent,
+                                        borderRadius: radius.pill,
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 4,
+                                      }}
+                                    >
+                                      <Text style={{ color: colors.accentContrast, fontSize: 11, fontWeight: '800' }}>
+                                        💸 Enviar a Por Pagar
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                </>
+                              ) : null}
+                            </View>
+                          </View>
+                        );
+                      })}
                     </View>
                   ) : (
                     <Text style={{ color: colors.muted, fontSize: 12, fontStyle: 'italic' }}>
@@ -1572,13 +2323,25 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
         </Screen>
       </Modal>
 
-      {/* ── MODAL 2: Registrar Mantenimiento (1 o Varias Unidades) ── */}
-      <Modal visible={maintOpen} animationType="slide" onRequestClose={() => setMaintOpen(false)}>
+      {/* ── MODAL 2: Registrar / Editar Mantenimiento (1 o Varias Unidades) ── */}
+      <Modal
+        visible={maintOpen}
+        animationType="slide"
+        onRequestClose={() => {
+          setMaintOpen(false);
+          setEditingMaintId(null);
+          setEditingMaintCode(null);
+        }}
+      >
         <Screen>
           <ScrollView keyboardShouldPersistTaps="handled">
-            <SectionTitle>🛠️ Registrar Mantenimiento de Aires</SectionTitle>
+            <SectionTitle>
+              {editingMaintId
+                ? `✏️ Editar Mantenimiento ${editingMaintCode || ''}`
+                : '🛠️ Registrar Mantenimiento de Aires'}
+            </SectionTitle>
 
-            {/* 1. Selección de unidades intervenidas */}
+            {/* 1. Selección de unidades intervenidas (con Buscador y Placa obligatoria) */}
             <Card>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
@@ -1601,28 +2364,43 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                   </TouchableOpacity>
                 </View>
               </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, maxHeight: 190 }}>
-                {unidadesCalc.map((u) => {
-                  const on = maintUnits.includes(u.code);
-                  return (
-                    <TouchableOpacity
-                      key={u.code}
-                      onPress={() => toggleMaintUnit(u.code)}
-                      style={{
-                        borderRadius: radius.pill,
-                        borderWidth: 1,
-                        borderColor: on ? colors.brand : colors.border,
-                        backgroundColor: on ? colors.brand : colors.surfaceAlt,
-                        paddingHorizontal: 9,
-                        paddingVertical: 4,
-                      }}
-                    >
-                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
-                        {on ? '✓ ' : ''}{u.code}{u.placa ? ` [Placa: ${u.placa}]` : ''} ({u.area})
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+              <TextInput
+                value={maintUnitQ}
+                onChangeText={setMaintUnitQ}
+                placeholder="🔎 Buscar unidad o maquinaria por código, área o PLACA…"
+                placeholderTextColor={colors.muted}
+                style={[inputStyle, { marginBottom: 8 }]}
+              />
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {unidadesCalc
+                  .filter((u) => {
+                    if (!maintUnitQ.trim()) return true;
+                    const hay = norm(`${u.code} ${u.name} ${u.area} ${u.placa || ''} ${u.tipo_equipo} ${u.btu}`);
+                    return hay.includes(norm(maintUnitQ)) || maintUnits.includes(u.code);
+                  })
+                  .map((u) => {
+                    const on = maintUnits.includes(u.code);
+                    const esMovil = esEquipoMovilAc(u.tipo_equipo) || Boolean(u.machinery_id);
+                    const placaLabel = u.placa ? ` [PLACA: ${u.placa}]` : esMovil ? ' [SIN PLACA]' : '';
+                    return (
+                      <TouchableOpacity
+                        key={u.code}
+                        onPress={() => toggleMaintUnit(u.code)}
+                        style={{
+                          borderRadius: radius.pill,
+                          borderWidth: 1,
+                          borderColor: on ? colors.brand : colors.border,
+                          backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                          paddingHorizontal: 9,
+                          paddingVertical: 4,
+                        }}
+                      >
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
+                          {on ? '✓ ' : ''}{u.code}{placaLabel} ({u.area})
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
               </View>
             </Card>
 
@@ -1676,7 +2454,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
               />
             </Card>
 
-            {/* 3. Empresa, Proveedor, Fecha y Costo */}
+            {/* 3. Empresa, Proveedor, Fecha, Precio / IVA / BCV y Presupuestos */}
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Empresa</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm }}>
@@ -1719,29 +2497,115 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
-                Fecha del mantenimiento (AAAA-MM-DD)
-              </Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, marginBottom: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  Fecha del mantenimiento (AAAA-MM-DD)
+                </Text>
+                <TouchableOpacity onPress={() => setMaintDate(hoy)}>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>📅 Hoy ({hoy})</Text>
+                </TouchableOpacity>
+              </View>
               <TextInput value={maintDate} onChangeText={setMaintDate} placeholder={hoy} placeholderTextColor={colors.muted} style={inputStyle} />
 
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
-                Costo del servicio ($ USD)
-              </Text>
-              <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
-                {chip('💵 Precio por unidad ($)', modoPrecio === 'unitario', () => setModoPrecio('unitario'))}
-                {chip('📦 Monto total global ($)', modoPrecio === 'total', () => setModoPrecio('total'))}
+              {/* Bloque Homologado de Moneda, Modo de Precio e IVA (16%) */}
+              <View
+                style={{
+                  marginTop: spacing.sm,
+                  padding: spacing.sm,
+                  borderRadius: radius.md,
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  gap: 6,
+                }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12.5 }}>
+                  💵 Costo del servicio, Moneda (USD / Bs BCV) y Desglose de IVA
+                </Text>
+
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>Moneda en que ingresas el monto:</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {chip('💵 Dólares ($ USD)', maintMoneda === 'USD', () => setMaintMoneda('USD'))}
+                  {chip(
+                    `🇻🇪 Bolívares (Bs BCV${tasaBcvActiva > 0 ? ` · Tasa ${tasaBcvActiva.toFixed(2)}` : ''})`,
+                    maintMoneda === 'VES',
+                    () => setMaintMoneda('VES'),
+                  )}
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 2 }}>Modo de cálculo:</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {chip('🎯 Precio por unidad (c/u)', modoPrecio === 'unitario', () => setModoPrecio('unitario'))}
+                  {chip('📦 Monto total global', modoPrecio === 'total', () => setModoPrecio('total'))}
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 2 }}>Tratamiento del IVA (16%):</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {chip('✅ Precio ya incluye IVA (16%)', maintIvaModo === 'incluye_iva', () => setMaintIvaModo('incluye_iva'))}
+                  {chip('➕ Más IVA (+16%)', maintIvaModo === 'mas_iva', () => setMaintIvaModo('mas_iva'))}
+                  {chip('⚪ Exento / Sin IVA (0%)', maintIvaModo === 'exento', () => setMaintIvaModo('exento'))}
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 2 }}>
+                  Monto ({maintMoneda === 'VES' ? 'Bs' : '$ USD'}) — {modoPrecio === 'unitario' ? 'por cada aire' : 'total global'}:
+                </Text>
+                <TextInput
+                  value={precioTexto}
+                  onChangeText={(t) => setPrecioTexto(onlyDecimal(t))}
+                  keyboardType="decimal-pad"
+                  placeholder={maintMoneda === 'VES' ? '0.00 Bs' : '0.00 $'}
+                  placeholderTextColor={colors.muted}
+                  style={inputStyle}
+                />
+
+                {/* Tarjeta de Resumen Financiero en Vivo */}
+                <View
+                  style={{
+                    marginTop: 4,
+                    padding: 8,
+                    borderRadius: radius.sm,
+                    backgroundColor: colors.surface,
+                    borderWidth: 1,
+                    borderColor: colors.brand,
+                    gap: 3,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>
+                      Base imponible (Subtotal sin IVA):
+                    </Text>
+                    <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>{usd(subtotalMaintUsd)}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>
+                      IVA ({alicuotaIvaMaint}%{maintIvaModo === 'exento' ? ' · Exento' : ''}):
+                    </Text>
+                    <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>{usd(ivaMaintUsd)}</Text>
+                  </View>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      borderTopWidth: 1,
+                      borderTopColor: colors.border,
+                      paddingTop: 4,
+                      marginTop: 2,
+                    }}
+                  >
+                    <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '900' }}>
+                      TOTAL A PAGAR ({maintUnits.length || 1} u.):
+                    </Text>
+                    <Text style={{ color: colors.brandText, fontSize: 13.5, fontWeight: '900' }}>
+                      {usd(totalMaintCalc)} ({usd(precioUnitarioCalc)} c/u)
+                    </Text>
+                  </View>
+                  {equivalenteMaintVes > 0 ? (
+                    <Text style={{ color: colors.infoSoftText, fontSize: 11.5, fontWeight: '800', textAlign: 'right' }}>
+                      🇻🇪 Equivalente a tasa BCV ({tasaBcvActiva.toFixed(2)} Bs/$): ≈ {ves(equivalenteMaintVes)}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
-              <TextInput
-                value={precioTexto}
-                onChangeText={(t) => setPrecioTexto(onlyDecimal(t))}
-                keyboardType="decimal-pad"
-                placeholder="0.00"
-                placeholderTextColor={colors.muted}
-                style={inputStyle}
-              />
-              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, textAlign: 'right', marginTop: 4 }}>
-                Total por {maintUnits.length} unidad(es): {usd(totalMaintCalc)} ({usd(precioUnitarioCalc)} c/u)
-              </Text>
 
               {/* Repuesto del inventario opcional */}
               <TouchableOpacity
@@ -1764,16 +2628,108 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                 </TouchableOpacity>
               ) : null}
 
-              {/* Factura opcional */}
-              <TouchableOpacity
-                onPress={adjuntarFacturaMaint}
-                disabled={subiendoFactura}
-                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginTop: spacing.sm }}
+              {/* Presupuestos / Cotizaciones / Facturas adjuntas (múltiples PDFs o Fotos) */}
+              <View
+                style={{
+                  marginTop: spacing.sm,
+                  padding: spacing.sm,
+                  borderRadius: radius.md,
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  gap: 6,
+                }}
               >
                 <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12.5 }}>
-                  {subiendoFactura ? '⏳ Subiendo…' : maintFactura ? `📎 ${maintFactura.name} · Cambiar` : '📎 Adjuntar factura / soporte (opcional)'}
+                  📎 Presupuesto / Cotización / Factura ({maintPresupuestos.length})
                 </Text>
-              </TouchableOpacity>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                  Sube el presupuesto, cotización o factura en PDF o foto. Se verá tanto aquí en el historial del aire como en Cuentas por Pagar.
+                </Text>
+
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  <TouchableOpacity
+                    onPress={adjuntarPresupuestosMaint}
+                    disabled={subiendoFactura}
+                    style={{
+                      flexGrow: 1,
+                      backgroundColor: colors.brand,
+                      borderRadius: radius.md,
+                      paddingVertical: spacing.sm,
+                      paddingHorizontal: spacing.md,
+                      alignItems: 'center',
+                      opacity: subiendoFactura ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                      {subiendoFactura ? '⏳ Subiendo…' : '📄 Subir Presupuesto / PDF / Imagen'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={tomarFotoPresupuestoMaint}
+                    disabled={subiendoFactura}
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.brand,
+                      borderRadius: radius.md,
+                      paddingVertical: spacing.sm,
+                      paddingHorizontal: spacing.md,
+                      alignItems: 'center',
+                      opacity: subiendoFactura ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                      📷 Tomar foto
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {maintPresupuestos.length > 0 ? (
+                  <View style={{ gap: 5, marginTop: 4 }}>
+                    {maintPresupuestos.map((doc, idx) => (
+                      <View
+                        key={`${doc.id}-${idx}`}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radius.sm,
+                          paddingHorizontal: 8,
+                          paddingVertical: 5,
+                          gap: 6,
+                        }}
+                      >
+                        <TouchableOpacity
+                          onPress={() => setPreviewDoc({ url: doc.url, kind: doc.kind, name: doc.name })}
+                          style={{ flex: 1 }}
+                        >
+                          <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '800' }} numberOfLines={1}>
+                            {doc.kind === 'pdf' ? '📄 PDF' : '🖼️ Foto'} · {doc.name} (Toca para ver)
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => quitarPresupuestoMaint(doc.id || doc.url)}
+                          style={{
+                            backgroundColor: colors.dangerSoftBg,
+                            borderWidth: 1,
+                            borderColor: colors.dangerSoftBorder,
+                            borderRadius: radius.pill,
+                            paddingHorizontal: 8,
+                            paddingVertical: 2,
+                          }}
+                        >
+                          <Text style={{ color: colors.dangerSoftText, fontSize: 10.5, fontWeight: '800' }}>✕ Quitar</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
             </Card>
 
             {/* 4. Condiciones de Pago y Envío Directo a Cuentas por Pagar */}
@@ -1814,7 +2770,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
               <TextInput
                 value={maintCondicionesPago}
                 onChangeText={(t) => setMaintCondicionesPago(t.toUpperCase())}
-                placeholder="EJ. 50% ADELANTO Y 50% AL ENTREGAR FACTURA…"
+                placeholder="EJ. CONTADO, EL MONTO REFLEJADO YA INCLUYE EL IVA. PAGAR EN BOLIVARES A TASA DOLAR BCV…"
                 placeholderTextColor={colors.muted}
                 style={[inputStyle, { marginBottom: spacing.xs }]}
               />
@@ -1835,10 +2791,10 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                 <Text style={{ fontSize: 16 }}>{maintEnviarCxp ? '☑️' : '⬜'}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '800' }}>
-                    💸 Enviar también a Cuentas por Pagar (con estas condiciones y nota)
+                    💸 Enviar / Sincronizar con Cuentas por Pagar (con presupuesto, IVA y condiciones)
                   </Text>
                   <Text style={{ color: colors.muted, fontSize: 11 }}>
-                    Registra automáticamente la cuenta en «Por pagar» para que la gente de pagos vea las condiciones de inmediato.
+                    Registra o actualiza automáticamente la cuenta en «💳 Por pagar» (Esperando aprobación / Todas) sin duplicar.
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -1852,7 +2808,11 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
               <TouchableOpacity
-                onPress={() => setMaintOpen(false)}
+                onPress={() => {
+                  setMaintOpen(false);
+                  setEditingMaintId(null);
+                  setEditingMaintCode(null);
+                }}
                 style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
               >
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
@@ -1863,7 +2823,11 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                 style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: savingMaint ? 0.6 : 1 }}
               >
                 <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>
-                  {savingMaint ? 'Guardando…' : 'Registrar mantenimiento'}
+                  {savingMaint
+                    ? 'Guardando…'
+                    : editingMaintId
+                      ? 'Guardar cambios'
+                      : 'Registrar mantenimiento'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1901,6 +2865,89 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
               </TouchableOpacity>
             </Screen>
           </Modal>
+        </Screen>
+      </Modal>
+
+      {/* ── MODAL 3: Visor de Presupuesto / Cotización / Factura (Imagen o PDF) ── */}
+      <Modal visible={Boolean(previewDoc)} animationType="fade" onRequestClose={() => setPreviewDoc(null)}>
+        <Screen>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm, flexWrap: 'wrap', gap: 8 }}>
+            <SectionTitle>
+              {previewDoc?.kind === 'pdf' ? '📄 Presupuesto / Soporte PDF' : '🖼️ Presupuesto / Soporte'}
+            </SectionTitle>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {previewDoc?.url ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                      window.open(previewDoc.url, '_blank', 'noopener,noreferrer');
+                    } else {
+                      Linking.openURL(previewDoc.url);
+                    }
+                  }}
+                  style={{
+                    backgroundColor: colors.brand,
+                    borderRadius: radius.md,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: spacing.xs,
+                  }}
+                >
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                    ↗ Abrir / Descargar original
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                onPress={() => setPreviewDoc(null)}
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.md,
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: spacing.xs,
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✕ Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+            {previewDoc?.name}
+          </Text>
+          {previewDoc ? (
+            previewDoc.kind === 'pdf' ? (
+              Platform.OS === 'web' ? (
+                <View style={{ flex: 1, minHeight: 520, borderRadius: radius.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.border }}>
+                  {React.createElement('iframe', {
+                    src: previewDoc.url,
+                    style: { width: '100%', height: 560, border: 'none' },
+                    title: previewDoc.name,
+                  })}
+                </View>
+              ) : (
+                <Card>
+                  <Text style={{ color: colors.text, fontSize: 13, marginBottom: spacing.sm }}>
+                    Este presupuesto está en formato PDF ({previewDoc.name}). Toca el botón para abrirlo en el visor de tu teléfono.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => Linking.openURL(previewDoc.url)}
+                    style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+                  >
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>📄 Abrir PDF</Text>
+                  </TouchableOpacity>
+                </Card>
+              )
+            ) : (
+              <ScrollView contentContainerStyle={{ alignItems: 'center', paddingBottom: spacing.xl }}>
+                <Image
+                  source={{ uri: previewDoc.url }}
+                  style={{ width: '100%', height: 520, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }}
+                  resizeMode="contain"
+                />
+              </ScrollView>
+            )
+          ) : null}
         </Screen>
       </Modal>
     </Screen>

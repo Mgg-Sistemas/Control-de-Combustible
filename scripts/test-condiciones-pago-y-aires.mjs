@@ -256,5 +256,47 @@ test('8. reporteAiresHtml genera el documento HTML con las 37 unidades y KPIs', 
   assert.ok(html.includes('AA-37'));
 });
 
+test('9. extraerPresupuestosDeServicioAc, separarDetalleLibreDeChecklist y desglose de IVA en historial', () => {
+  const base = [{ id: 'AA-COCINA', code: 'AA-COCINA', name: 'COCINA Y CONTENEDOR', area: 'COCINA', tipo_equipo: 'SPLIT', btu: '18.000 BTU', marca: 'LG', serial: '', company_id: 'c1', freq_days: 30, estado_operativo: 'operativo', last_maint_manual: null, notes: '', active: true }];
+  const srv = {
+    id: 'srv-29',
+    code: 'SRV-0029',
+    company_id: 'c1',
+    supplier_id: 'sup1',
+    service_date: '2026-10-28',
+    total: 69.6,
+    factura_url: 'https://example.com/presupuesto.pdf',
+    factura_type: 'pdf',
+    factura_name: 'Presupuesto_Cocina.pdf',
+    note: 'NOTA HUMANA\n[CONDICIONES_PAGO: CONTADO · 🏛️ TASA BCV]\n[IVA_CUENTA: 16]\n[[FORMATOS_ADJUNTOS:[{"id":"p1","url":"https://example.com/presupuesto.pdf","kind":"pdf","name":"Presupuesto_Cocina.pdf"},{"id":"p2","url":"https://example.com/foto.jpg","kind":"image","name":"Foto_Consola.jpg"}]:FIN_FORMATOS]]',
+    items: [
+      {
+        categoria: 'MANTENIMIENTO DE AIRE ACONDICIONADO',
+        tipo: 'MANTENIMIENTO PREVENTIVO RIGUROSO',
+        machine_label: '❄️ AA-COCINA · COCINA',
+        qty: 1,
+        price: 69.6,
+        usa_inventario: false,
+        ac_unit_code: 'AA-COCINA',
+        ac_checklist: ['Lavado de evaporador (consola interna)', 'Revisión eléctrica, amperaje, relés y borneras'],
+        detalle: '[Lavado de evaporador (consola interna), Revisión eléctrica, amperaje, relés y borneras] · Presión 65 PSI',
+      },
+    ],
+  };
+
+  const calc = airesLib.calcularSemaforoAires(base, [srv], '2026-10-31');
+  const h = calc[0].historial[0];
+  assert.equal(h.servicioCode, 'SRV-0029');
+  assert.equal(h.costoUsd, 69.6);
+  assert.equal(h.alicuotaIva, 16);
+  assert.equal(h.subtotalUsd, 60);
+  assert.equal(h.ivaUsd, 9.6);
+  assert.equal(h.detalleLibre, 'Presión 65 PSI');
+  assert.equal(h.notaServicio, 'NOTA HUMANA');
+  assert.equal(h.presupuestos.length, 2);
+  assert.equal(h.presupuestos[0].kind, 'pdf');
+  assert.equal(h.presupuestos[1].kind, 'image');
+});
+
 console.log(`\n✅ Todas las pruebas pasaron: ${passed} OK · 0 FALLOS\n`);
 

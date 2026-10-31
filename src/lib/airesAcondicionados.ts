@@ -50,6 +50,15 @@ export interface AcUnit {
   active: boolean;
 }
 
+export interface AcPresupuestoAdjunto {
+  id: string;
+  url: string;
+  kind: 'image' | 'pdf';
+  name: string;
+}
+
+export type AcModoIva = 'incluye_iva' | 'mas_iva' | 'exento';
+
 export interface AcMaintHistoryEntry {
   servicioId: string;
   servicioCode: string;
@@ -58,9 +67,24 @@ export interface AcMaintHistoryEntry {
   companyId: string | null;
   tipo: string;
   detalle: string;
+  detalleLibre?: string;
   checklist: string[];
   costoUsd: number;
+  totalServicioUsd?: number;
+  ivaModo?: AcModoIva;
+  alicuotaIva?: number;
+  subtotalUsd?: number;
+  ivaUsd?: number;
+  monedaCaptura?: 'USD' | 'VES';
+  tasaBcv?: number | null;
+  modoPrecio?: 'unitario' | 'total';
+  usaInventario?: boolean;
+  itemId?: string | null;
+  itemName?: string;
   facturaUrl: string | null;
+  facturaType?: 'image' | 'pdf' | null;
+  facturaName?: string | null;
+  presupuestos?: AcPresupuestoAdjunto[];
   condicionesPago: string;
   notaServicio: string;
   esPreventivoLavado?: boolean;
@@ -357,9 +381,88 @@ function extraerCondicionesInterna(nota?: string | null): string {
   return m && m[1] ? m[1].trim() : '';
 }
 
-function limpiarNotaInterna(nota?: string | null): string {
+function extraerIvaInterna(nota?: string | null): number | null {
+  if (!nota) return null;
+  const m = String(nota).match(/\[IVA_CUENTA:\s*(\d+(?:[.,]\d+)?)\s*\]/i);
+  if (!m || !m[1]) return null;
+  const val = Number(m[1].replace(',', '.'));
+  return Number.isFinite(val) && val >= 0 ? val : null;
+}
+
+export function extraerPresupuestosDeServicioAc(
+  s?: ServicioRecord | null,
+  it?: (ServicioItem & Record<string, any>) | null,
+): AcPresupuestoAdjunto[] {
+  const out: AcPresupuestoAdjunto[] = [];
+  const seen = new Set<string>();
+  const pushItem = (raw: any, fallbackIdx: number) => {
+    if (!raw || !raw.url) return;
+    const url = String(raw.url).trim();
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    const isPdf = raw.kind === 'pdf' || raw.tipo === 'pdf' || /\.pdf($|\?)/i.test(url);
+    out.push({
+      id: String(raw.id || `pres-${fallbackIdx}`),
+      url,
+      kind: isPdf ? 'pdf' : 'image',
+      name: String(raw.name || raw.nombre || (isPdf ? 'Presupuesto.pdf' : 'Presupuesto')).trim(),
+    });
+  };
+
+  if (it && Array.isArray(it.ac_presupuestos)) {
+    it.ac_presupuestos.forEach((p: any, i: number) => pushItem(p, i));
+  }
+
+  const nota = s?.note || '';
+  const m = String(nota).match(/\[\[FORMATOS_ADJUNTOS:([\s\S]*?):FIN_FORMATOS\]\]/);
+  if (m && m[1]) {
+    try {
+      const parsed = JSON.parse(m[1]);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((p: any, i: number) => pushItem(p, i + 100));
+      }
+    } catch {}
+  }
+
+  if (s?.factura_url) {
+    pushItem(
+      {
+        id: `srv-fac-${s.id || '0'}`,
+        url: s.factura_url,
+        kind: (s as any).factura_type === 'pdf' || /\.pdf($|\?)/i.test(s.factura_url) ? 'pdf' : 'image',
+        name: (s as any).factura_name || 'Presupuesto / Factura',
+      },
+      999,
+    );
+  }
+
+  return out;
+}
+
+export function separarDetalleLibreDeChecklist(detalle?: string | null, checklist?: string[] | null): string {
+  const raw = String(detalle || '').trim();
+  if (!raw) return '';
+  if (Array.isArray(checklist) && checklist.length > 0) {
+    const pref = `[${checklist.join(', ')}]`;
+    if (raw.startsWith(pref)) {
+      return raw.slice(pref.length).replace(/^\s*·\s*/, '').trim();
+    }
+  }
+  return raw.replace(/^\[[^\]]*\]\s*(?:·\s*)?/, '').trim();
+}
+
+export function limpiarNotaInterna(nota?: string | null): string {
   if (!nota) return '';
-  return String(nota).replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '').trim();
+  return String(nota)
+    .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
+    .replace(/\[IVA_CUENTA:[^\]]*\]/gi, '')
+    .replace(/\[EMPRESA:[^\]]*\]/gi, '')
+    .replace(/\[PRESUPUESTO_CUENTA:[^\]]*\]/gi, '')
+    .replace(/\[APROBADO_CXP:[^\]]*\]/gi, '')
+    .replace(/\[ENVIADO_CXP:[^\]]*\]/gi, '')
+    .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
+    .replace(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi, '')
+    .trim();
 }
 
 /**
@@ -400,6 +503,35 @@ export function calcularSemaforoAires(
           const checklist = Array.isArray(it.ac_checklist) ? it.ac_checklist : [];
           const tipoStr = it.tipo || 'MANTENIMIENTO PREVENTIVO RIGUROSO';
           const detStr = it.detalle || '';
+          const detLibre =
+            typeof it.ac_detalle_libre === 'string'
+              ? it.ac_detalle_libre
+              : separarDetalleLibreDeChecklist(detStr, checklist);
+          const ivaTag = extraerIvaInterna(s.note);
+          const alicuotaIva =
+            typeof it.ac_alicuota_iva === 'number'
+              ? it.ac_alicuota_iva
+              : ivaTag != null
+                ? ivaTag
+                : 16;
+          const ivaModo: AcModoIva =
+            it.ac_iva_modo === 'mas_iva' || it.ac_iva_modo === 'exento' || it.ac_iva_modo === 'incluye_iva'
+              ? it.ac_iva_modo
+              : alicuotaIva === 0
+                ? 'exento'
+                : 'incluye_iva';
+          const subtotalUsd =
+            typeof it.ac_subtotal_usd === 'number' && Number.isFinite(it.ac_subtotal_usd)
+              ? it.ac_subtotal_usd
+              : alicuotaIva > 0
+                ? Math.round((costoLinea / (1 + alicuotaIva / 100)) * 100) / 100
+                : costoLinea;
+          const ivaUsd =
+            typeof it.ac_iva_usd === 'number' && Number.isFinite(it.ac_iva_usd)
+              ? it.ac_iva_usd
+              : Math.round(Math.max(0, costoLinea - subtotalUsd) * 100) / 100;
+          const presupuestos = extraerPresupuestosDeServicioAc(s, it);
+
           historial.push({
             servicioId: s.id,
             servicioCode: s.code,
@@ -408,9 +540,24 @@ export function calcularSemaforoAires(
             companyId: s.company_id,
             tipo: tipoStr,
             detalle: detStr,
+            detalleLibre: detLibre,
             checklist,
             costoUsd: costoLinea,
-            facturaUrl: s.factura_url,
+            totalServicioUsd: Number(s.total) || costoLinea,
+            ivaModo,
+            alicuotaIva,
+            subtotalUsd,
+            ivaUsd,
+            monedaCaptura: it.ac_moneda === 'VES' ? 'VES' : 'USD',
+            tasaBcv: typeof it.ac_tasa_bcv === 'number' ? it.ac_tasa_bcv : null,
+            modoPrecio: it.ac_modo_precio === 'total' ? 'total' : 'unitario',
+            usaInventario: Boolean(it.usa_inventario),
+            itemId: it.item_id || null,
+            itemName: it.item_name || '',
+            facturaUrl: s.factura_url || presupuestos[0]?.url || null,
+            facturaType: (s as any).factura_type || presupuestos[0]?.kind || null,
+            facturaName: (s as any).factura_name || presupuestos[0]?.name || null,
+            presupuestos,
             condicionesPago: extraerCondicionesInterna(s.note),
             notaServicio: limpiarNotaInterna(s.note),
             esPreventivoLavado: Boolean(it.ac_es_preventivo_lavado) || esIntervencionPreventivaLavado(tipoStr, detStr),
@@ -635,7 +782,7 @@ export function reporteAiresHtml(args: {
   `;
 
   return pdfDocument({
-    title: 'CONTROL RIGUROSO Y PREVENTIVO DE AIRES ACONDICIONADOS',
+    title: 'CONTROL RIGUROSO DE MANTENIMIENTO DE AIRES ACONDICIONADOS',
     subtitle: `Situación al ${fmtFechaAc(hoyISO)}${filtroLabel ? ` · ${filtroLabel}` : ''}`,
     extraCss: CSS_PDF_AIRES,
     body,
