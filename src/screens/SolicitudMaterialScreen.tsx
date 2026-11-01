@@ -60,6 +60,7 @@ import {
   extraerCancelacionCompra,
   puedeCancelarSolicitudStock,
   puedeCancelarSolicitudCompra,
+  puedeEditarSolicitudCompraPropia,
   parseRejectionNote,
   agruparSolicitudesStock,
   type GrupoSolicitudStock,
@@ -75,6 +76,11 @@ import {
   extraerDespacho,
   expedienteCompletoHtml,
 } from '../lib/requerimientoExpediente';
+import {
+  anexarEventoHistorial,
+  calcularDiffItemsCompra,
+  resumirCambiosCabeceraCompra,
+} from '../lib/comprasHistorico';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
 import { machineLabel } from '../lib/machineLabel';
 import { spacing, radius } from '../theme';
@@ -106,7 +112,9 @@ const nowISO = () => new Date().toISOString();
 const parseFriendlyError = (e: any, fallback: string) => {
   const msg = String(e?.message || '');
   if (/row-level security|policy/i.test(msg)) {
-    return 'Permiso RLS insuficiente en la base de datos para inventory_requirements. Aplica la política RLS para solicitudes_material en Supabase.';
+    // 01-nov-2026: antes decía «…para inventory_requirements» (el nombre de la tabla)
+    // y se leía como si pidiera permiso de Inventario.
+    return 'No tienes permiso para guardar este cambio. Revisa que tengas «Pedir Material / Repuestos» en escritura.';
   }
   return msg || fallback;
 };
@@ -142,6 +150,8 @@ export default function SolicitudMaterialScreen() {
   const confirm = useConfirm();
   const toast = useToast();
   const uid = session?.user?.id ?? null;
+  // Escribir en «Pedir Material / Repuestos»: con esto se hace y se edita la propia solicitud.
+  const puedeEscribirSolicitudes = levelMeets(moduleLevel('solicitudes_material'), 'escritura');
   const esAdmin =
     role === 'admin' ||
     levelMeets(moduleLevel('inventario'), 'escritura') ||
@@ -825,16 +835,21 @@ export default function SolicitudMaterialScreen() {
 
     setAclaratoriaBusy(true);
     try {
-      const { error } = await supabase
+      const { data: upd, error } = await supabase
         .from('inventory_requirements')
         .update({
           status: 'pendiente', // Vuelve a Compras para procesar la cotización
           aclaratoria_respuesta: aclaratoriaRespuesta.trim(),
           aclaratoria_fecha_respuesta: nowISO(),
         })
-        .eq('id', aclaratoriaTarget.id);
+        .eq('id', aclaratoriaTarget.id)
+        .select('id');
 
       if (error) throw error;
+      // 01-nov-2026: si la base no dejó cambiar nada, antes igual decía «enviada».
+      if (!upd || upd.length === 0) {
+        throw new Error('No se pudo enviar la respuesta: la solicitud ya cambió de estado o no tienes permiso.');
+      }
 
       toast.success('Respuesta técnica enviada. El ticket volvió a revisión de compras.');
       setModalAclaratoriaOpen(false);
@@ -985,6 +1000,114 @@ export default function SolicitudMaterialScreen() {
       refetchReqs();
     } finally {
       setCancelBusy(false);
+    }
+  };
+
+  // ── MODAL: Editar MI solicitud de compra técnica (01-nov-2026) ─────────────
+  // Quien pidió el material la corrige mientras sigue en solicitud, con su permiso
+  // de «Pedir Material» (no el de Compras ni el de Inventario). Guarda por la función
+  // `solicitud_propia_editar`, que revisa lo mismo en la base y solo deja cambiar
+  // título, nota, área y renglones; cada edición queda en el Histórico.
+  type RenglonEdicion = { name: string; qty: string; unit: string; note: string; image_url: string | null };
+  const [editTarget, setEditTarget] = useState<InventoryRequirement | null>(null);
+  const [editTitulo, setEditTitulo] = useState('');
+  const [editNota, setEditNota] = useState('');
+  const [editAreaTxt, setEditAreaTxt] = useState('');
+  const [editRenglones, setEditRenglones] = useState<RenglonEdicion[]>([]);
+  const [editBusy, setEditBusy] = useState(false);
+
+  const abrirEditarMiSolicitud = (r: InventoryRequirement) => {
+    const chk = puedeEditarSolicitudCompraPropia(r, uid, puedeEscribirSolicitudes);
+    if (!chk.ok) return toast.error(chk.reason || 'No se puede editar esta solicitud.');
+    setEditTarget(r);
+    setEditTitulo(r.title || '');
+    setEditNota(r.note || '');
+    setEditAreaTxt(r.area || '');
+    setEditRenglones(
+      (Array.isArray(r.items) ? r.items : []).map((it: any) => ({
+        name: String(it?.name ?? ''),
+        qty: String(it?.qty ?? '1'),
+        unit: String(it?.unit ?? 'UND'),
+        note: String(it?.note ?? ''),
+        image_url: it?.image_url ?? null,
+      }))
+    );
+  };
+
+  const cambiarRenglonEdicion = (idx: number, patch: Partial<RenglonEdicion>) =>
+    setEditRenglones((rs) => rs.map((x, i) => (i === idx ? { ...x, ...patch } : x)));
+
+  const guardarEdicionMiSolicitud = async () => {
+    if (!editTarget || editBusy) return;
+    const renglones = editRenglones.map((x) => ({ ...x, name: x.name.trim(), qtyNum: parseNum(x.qty) }));
+    if (renglones.length === 0) return toast.error('La solicitud necesita al menos un renglón.');
+    const malo = renglones.findIndex((x) => !x.name || !(x.qtyNum > 0));
+    if (malo >= 0) return toast.error(`El renglón ${malo + 1} necesita nombre y una cantidad mayor que cero.`);
+
+    setEditBusy(true);
+    try {
+      const itemsAntes: any[] = Array.isArray(editTarget.items) ? editTarget.items : [];
+      const itemsDespues = renglones.map((x, i) => ({
+        ...(itemsAntes[i] ?? { currency: 'USD', est_price: 0 }),
+        name: x.name,
+        qty: x.qtyNum,
+        unit: x.unit.trim().toUpperCase() || 'UND',
+        note: x.note.trim() || null,
+        image_url: x.image_url || null,
+      }));
+
+      // 📜 El Histórico: lo mismo que anota Compras al editar, con el solicitante como autor.
+      const autor = (fullName || '').trim() || session?.user?.email || 'Solicitante';
+      const baseEv = { by: autor, byId: uid, modulo: 'Solicitudes' as const, reqId: editTarget.id, reqCode: editTarget.code };
+      const diff = calcularDiffItemsCompra({ itemsAntes, itemsDespues, autor, modulo: 'Solicitudes' });
+      const cambiosCab = resumirCambiosCabeceraCompra([
+        { etiqueta: 'Título', antes: editTarget.title, despues: editTitulo },
+        { etiqueta: 'Área', antes: editTarget.area, despues: editTarget.destino_tipo ? editTarget.area : editAreaTxt },
+        { etiqueta: 'Nota', antes: editTarget.note, despues: editNota },
+      ]);
+      if (!diff.hayCambios && cambiosCab.length === 0) {
+        toast.info('No hay cambios que guardar.');
+        setEditTarget(null);
+        return;
+      }
+      let obs: string | null = editTarget.observaciones ?? null;
+      if (diff.hayCambios) {
+        obs = anexarEventoHistorial(obs, {
+          ...baseEv,
+          tipo: 'items_modificados',
+          titulo: 'Modificación de ítems en Solicitud',
+          detalle: `${autor} desde Pedir Material: ${diff.resumenDetalle}`,
+          cambiosItems: diff.cambiosItems,
+        });
+      }
+      if (cambiosCab.length > 0) {
+        obs = anexarEventoHistorial(obs, {
+          ...baseEv,
+          tipo: 'solicitud_editada',
+          titulo: 'Solicitud editada por el solicitante',
+          detalle: `${autor} desde Pedir Material: ${cambiosCab.join(' · ')}`,
+        });
+      }
+
+      const { data: ok, error } = await supabase.rpc('solicitud_propia_editar', {
+        p_id: editTarget.id,
+        p_title: editTitulo.trim(),
+        p_note: editNota.trim(),
+        p_area: editAreaTxt.trim(),
+        p_items: itemsDespues.map(({ name, qty, unit, note, image_url }) => ({ name, qty, unit, note, image_url })),
+        p_observaciones: obs ?? '',
+      });
+      if (error) throw new Error(error.message);
+      if (ok !== true) throw new Error('Ya no se puede editar: Compras ya tomó la solicitud.');
+
+      toast.success(`Solicitud ${editTarget.code || ''} actualizada.`);
+      setEditTarget(null);
+      refetchReqs();
+    } catch (e: any) {
+      toast.error(e?.message || 'No se pudo guardar el cambio.');
+      refetchReqs();
+    } finally {
+      setEditBusy(false);
     }
   };
 
@@ -2224,6 +2347,28 @@ export default function SolicitudMaterialScreen() {
                           </Text>
                         </TouchableOpacity>
 
+                        {/* ✏️ 01-nov-2026: el solicitante corrige SU solicitud mientras sigue en revisión */}
+                        {puedeEditarSolicitudCompraPropia(r, uid, puedeEscribirSolicitudes).ok && (
+                          <TouchableOpacity
+                            onPress={() => abrirEditarMiSolicitud(r)}
+                            activeOpacity={0.75}
+                            style={{
+                              flexGrow: Platform.OS === 'web' ? 0 : 1,
+                              minWidth: 150,
+                              backgroundColor: colors.surfaceAlt,
+                              borderWidth: 1.5,
+                              borderColor: colors.border,
+                              paddingVertical: 9,
+                              paddingHorizontal: 14,
+                              borderRadius: radius.sm,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✏️ Editar mi solicitud</Text>
+                          </TouchableOpacity>
+                        )}
+
                         {puedeCancelarSolicitudCompra(r, uid, fullName, esAdmin).ok && (
                           <TouchableOpacity
                             onPress={() =>
@@ -3348,6 +3493,28 @@ export default function SolicitudMaterialScreen() {
                       </Text>
                     </TouchableOpacity>
 
+                        {/* ✏️ 01-nov-2026: el solicitante corrige SU solicitud mientras sigue en revisión */}
+                        {puedeEditarSolicitudCompraPropia(r, uid, puedeEscribirSolicitudes).ok && (
+                          <TouchableOpacity
+                            onPress={() => abrirEditarMiSolicitud(r)}
+                            activeOpacity={0.75}
+                            style={{
+                              flexGrow: Platform.OS === 'web' ? 0 : 1,
+                              minWidth: 150,
+                              backgroundColor: colors.surfaceAlt,
+                              borderWidth: 1.5,
+                              borderColor: colors.border,
+                              paddingVertical: 9,
+                              paddingHorizontal: 14,
+                              borderRadius: radius.sm,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✏️ Editar mi solicitud</Text>
+                          </TouchableOpacity>
+                        )}
+
                     {puedeCancelarSolicitudCompra(r, uid, fullName, esAdmin).ok && (
                       <TouchableOpacity
                         onPress={() =>
@@ -3974,6 +4141,137 @@ export default function SolicitudMaterialScreen() {
       {/* ════════════════════════════════════════════════════════════════════════ */}
       {/* MODAL 3: RESPONDER ACLARATORIA TÉCNICA DE COMPRAS                      */}
       {/* ════════════════════════════════════════════════════════════════════════ */}
+      {/* ✏️ MODAL: Editar MI solicitud de compra técnica (01-nov-2026) */}
+      <Modal visible={!!editTarget} transparent animationType="slide" onRequestClose={() => { if (!editBusy) setEditTarget(null); }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.md }}>
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: radius.lg,
+              padding: spacing.lg,
+              borderWidth: 1,
+              borderColor: colors.border,
+              maxHeight: '90%',
+            }}
+          >
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text style={{ fontSize: 17, fontWeight: '900', color: colors.text, marginBottom: 2 }}>
+                ✏️ Editar mi solicitud {editTarget?.code || ''}
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>
+                Puedes corregirla mientras Compras no la haya tomado. El cambio queda en el Histórico.
+              </Text>
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Título</Text>
+              <TextInput
+                value={editTitulo}
+                onChangeText={setEditTitulo}
+                placeholder="Ej. Pedido técnico: filtro de aceite para JUMBO 320"
+                placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8, color: colors.text, marginBottom: spacing.sm }}
+              />
+
+              {!editTarget?.destino_tipo ? (
+                <>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Área</Text>
+                  <TextInput
+                    value={editAreaTxt}
+                    onChangeText={setEditAreaTxt}
+                    placeholder="Ej. Taller general"
+                    placeholderTextColor={colors.muted}
+                    style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8, color: colors.text, marginBottom: spacing.sm }}
+                  />
+                </>
+              ) : null}
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Motivo y especificaciones</Text>
+              <TextInput
+                value={editNota}
+                onChangeText={setEditNota}
+                multiline
+                placeholder="Motivo, medidas, N° de parte…"
+                placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8, color: colors.text, minHeight: 60, marginBottom: spacing.sm }}
+              />
+
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: 4 }}>Repuestos pedidos</Text>
+              {editRenglones.map((x, idx) => (
+                <View
+                  key={idx}
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8, marginBottom: 6, gap: 4, backgroundColor: colors.background }}
+                >
+                  <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+                    <TextInput
+                      value={x.name}
+                      onChangeText={(t) => cambiarRenglonEdicion(idx, { name: t })}
+                      placeholder="Repuesto o pieza"
+                      placeholderTextColor={colors.muted}
+                      style={{ flex: 2, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, color: colors.text, fontSize: 12 }}
+                    />
+                    <TextInput
+                      value={x.qty}
+                      onChangeText={(t) => cambiarRenglonEdicion(idx, { qty: onlyDecimal(t) })}
+                      keyboardType="decimal-pad"
+                      placeholder="Cant."
+                      placeholderTextColor={colors.muted}
+                      style={{ width: 64, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, color: colors.text, fontSize: 12 }}
+                    />
+                    <TextInput
+                      value={x.unit}
+                      onChangeText={(t) => cambiarRenglonEdicion(idx, { unit: t })}
+                      placeholder="UND"
+                      placeholderTextColor={colors.muted}
+                      autoCapitalize="characters"
+                      style={{ width: 64, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, color: colors.text, fontSize: 12 }}
+                    />
+                    {editRenglones.length > 1 ? (
+                      <TouchableOpacity
+                        onPress={() => setEditRenglones((rs) => rs.filter((_, i) => i !== idx))}
+                        style={{ padding: 6 }}
+                      >
+                        <Text style={{ color: colors.danger, fontWeight: '900' }}>✕</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  <TextInput
+                    value={x.note}
+                    onChangeText={(t) => cambiarRenglonEdicion(idx, { note: t })}
+                    placeholder="Medidas y especificaciones del repuesto"
+                    placeholderTextColor={colors.muted}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, color: colors.text, fontSize: 12 }}
+                  />
+                </View>
+              ))}
+              <TouchableOpacity
+                onPress={() => setEditRenglones((rs) => [...rs, { name: '', qty: '1', unit: 'UND', note: '', image_url: null }])}
+                disabled={editRenglones.length >= 50}
+                style={{ alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 10, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>+ Agregar otro repuesto</Text>
+              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
+                <TouchableOpacity
+                  onPress={() => setEditTarget(null)}
+                  disabled={editBusy}
+                  style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={guardarEdicionMiSolicitud}
+                  disabled={editBusy}
+                  style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.md, backgroundColor: colors.primary, opacity: editBusy ? 0.6 : 1, flexDirection: 'row', gap: 6, alignItems: 'center' }}
+                >
+                  {editBusy ? <ActivityIndicator size="small" color={colors.primaryContrast} /> : null}
+                  <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{editBusy ? 'Guardando…' : 'Guardar cambios'}</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={modalAclaratoriaOpen} transparent animationType="slide">
         <View
           style={{
