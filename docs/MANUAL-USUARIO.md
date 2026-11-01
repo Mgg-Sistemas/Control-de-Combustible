@@ -454,6 +454,38 @@ fecha y de qué turno era. Sin foto subida, la ficha sale sin ella.
 >   Puede guardar fichas quien puede editar el **Catálogo (equipos)** y quien ya podía con **Viajes de camiones**.
 > - Guardar la **configuración del tique** ya no borra las fichas técnicas (comparten el mismo registro en la base).
 
+> **📎 Ficha técnica con el formato de la ficha hecha a mano y anexo por secciones (01/11/2026, segunda vuelta):**
+> el PDF del sistema ahora sale como la ficha de referencia de la excavadora XCMG XE225BR:
+>
+> - **Página 1:** cabecera con el sello (ej. *EQUIPO OPERATIVO*); las tarjetas con el **título arriba y el valor
+>   debajo**; la tabla de especificaciones en una **franja celeste** «ESPECIFICACIONES TÉCNICAS PRINCIPALES (PLACA
+>   DE IDENTIFICACIÓN)», sin rejilla y con filas alternas; las **observaciones en un solo recuadro**, cada una como
+>   «**Estado General:** texto» (el título del recuadro se edita; por defecto *OBSERVACIONES DE INSPECCIÓN*); y la
+>   **foto del equipo a todo lo ancho**. Si el título de la sección de fotos y la leyenda se dejan vacíos, la foto
+>   sale sola, como en la referencia.
+> - **Anexo fotográfico por secciones** (sección «📎 Anexo fotográfico por secciones» del formulario): cada sección
+>   lleva **título** (ej. *VISTAS ESTRUCTURALES Y TREN DE RODAJE*), una **explicación** opcional y sus fotos en **2 o 3
+>   por fila**. Cada foto lleva su **título** (sale en negrita debajo, ej. *FILTRO DE AIRE*) y, si hace falta, **qué se
+>   ve** (ej. *Parte N° 800194923*). En el PDF cada sección empieza en **página nueva** y va **numerada** (1., 2., 3.).
+>   Las fichas nuevas ya traen las tres secciones de la referencia; se agregan más con los botones sugeridos o
+>   «+ Sección en blanco», y se ordenan con ▲ ▼. **La sección sin fotos no sale.**
+> - Las fotos del anexo **se suben a la nube** al tomarlas (Cámara o Galería), así la ficha sale igual desde
+>   cualquier teléfono o computadora. Con **«🔖 Foto de la placa (catálogo)»** y **«⏱️ Última foto del horómetro»** se
+>   ponen en una sección las fotos que ya tiene la máquina; puestas ahí, ya no se repiten en el anexo automático
+>   del final.
+> - **Pie de cada página:** a la izquierda el texto del campo «Pie de cada página» (por defecto *Ficha Técnica -
+>   marca · modelo*) y a la derecha **«Página X de Y»**. Al imprimir desde el navegador, desmarque «Encabezados y
+>   pies de página» del cuadro de impresión para que no salgan también la dirección web y la fecha del navegador.
+> - **«↕ Ordenar como la ficha de referencia»** (en Especificaciones) pone los campos en el orden de la referencia
+>   (Fabricante, Modelo / Serie, Placa…) y deja lo demás después, sin borrar nada. Los renglones que no deben salir
+>   (Código en el sistema, Encargado, Tapa…) se quitan con ✕.
+> - Las «fotos de componentes» de antes, si una ficha las tenía, siguen saliendo como una sección más del anexo
+>   (en el formulario esa sección solo aparece en las fichas que todavía tienen alguna; las fotos nuevas van al anexo).
+> - **Fichas que ya estaban guardadas:** conservan el título «VISTA GENERAL DEL EQUIPO», su etiqueta y la leyenda
+>   de la foto. Para que queden como la referencia, borre esos tres textos en «Fotos de Página 1».
+> - El **número de página** sale al imprimir desde **Chrome o Edge** (computadora) y desde Android con el sistema al
+>   día. En Safari, Firefox o iPhone la ficha sale igual, pero sin el pie de página.
+
 **Los vehículos también:** la tarjeta de cada 🚗 vehículo tiene su mismo botón
 **«📄 Ficha técnica»** — abre el mismo editor y permite exportar con sus datos (marca, modelo, placa, serial, capacidad del
 tanque en L, rendimiento en km/L, empresa, encargado y sus fotos). Lo que un vehículo no
