@@ -81,7 +81,126 @@ export type FichaPersonalizada = {
   fotoSecundariaLeyenda?: string | null;  // Leyenda foto 2
   seccionFotosTitulo?: string | null;     // Título sección fotos P1 (ej. "VISTA GENERAL DEL EQUIPO")
   seccionFotosTag?: string | null;        // Tag lateral (ej. "Insonorizado Heavy-Duty")
+  // 📐 Cómo sale la tabla de especificaciones en el PDF (01-nov-2026):
+  //    'tabla'    → una sola tabla, en el orden del formulario (como las fichas
+  //                 hechas a mano que trajo el equipo). Es lo que sale si no se dice.
+  //    'columnas' → una columna por categoría (Datos Generales / Componentes…),
+  //                 el diseño anterior, que sigue disponible.
+  diseno?: 'tabla' | 'columnas';
+  // 🕒 Cuándo se guardó esta versión (ISO). Sirve para decidir entre la copia
+  //    del teléfono y la de la nube: gana la más reciente, no «la más larga».
+  actualizadoEn?: string | null;
 };
+
+// ── CAMPOS FIJOS DE LA FICHA (01-nov-2026) ─────────────────────────────────
+// Pedido del equipo: los datos que SIEMPRE lleva una ficha técnica van ya
+// puestos en el formulario, en el orden de las fichas de referencia hechas a
+// mano (excavadora XCMG XE225BR y camión taller Sinotruk Howo), en vez de
+// añadirlos uno a uno con «+ Añadir» (de ahí salían filas «Nuevo campo» vacías
+// y columnas mal escritas). Lo que se sabe del catálogo viene precargado; lo
+// demás se teclea. La etiqueta se puede cambiar (un camión dice «Configuración
+// de Ejes» y una excavadora «Tren»). LO QUE QUEDE VACÍO NO SALE EN EL PDF.
+
+/** Un campo fijo de la ficha. `equivalentes`: ids de renglones viejos que ya
+ *  traen ese dato — si una ficha guardada los tiene, el campo fijo no se añade
+ *  para no imprimir el mismo dato dos veces. */
+export type CampoFijoFicha = {
+  id: string;
+  etiqueta: string;
+  ayuda: string;
+  equivalentes?: string[];
+};
+
+export const CAMPOS_FIJOS_FICHA: CampoFijoFicha[] = [
+  { id: 'f-fabricante', etiqueta: 'Fabricante', ayuda: 'Ej. XCMG BRASIL INDÚSTRIA LTDA.', equivalentes: ['r-marca'] },
+  { id: 'f-modelo-serie', etiqueta: 'Modelo / Serie', ayuda: 'Ej. XE225BR / XUG00225CTPA00246', equivalentes: ['r-modelo'] },
+  { id: 'f-placa', etiqueta: 'Número de Placa / Identificación', ayuda: 'Ej. A30CV1J', equivalentes: ['r-placa'] },
+  { id: 'f-tipo-combustible', etiqueta: 'Tipo / Combustible', ayuda: 'Ej. DIÉSEL / EXCAVADORA HIDRÁULICA SOBRE ORUGAS' },
+  { id: 'f-anio', etiqueta: 'Año de Fabricación', ayuda: 'Ej. 2025-11 (Noviembre 2025)' },
+  { id: 'f-ejes', etiqueta: 'Configuración de Ejes / Tren', ayuda: 'Ej. 4x2 (Eje sencillo posterior) u Orugas de servicio pesado' },
+  { id: 'f-capacidad', etiqueta: 'Capacidad Nominal de Carga', ayuda: 'Ej. 22.040 kg (22,0 t) / Balde 1,2 m³' },
+  { id: 'f-equipamiento', etiqueta: 'Equipamiento Integrado', ayuda: 'Ej. Motor 165 kW, cabina climatizada, cuchara para trabajo pesado' },
+  { id: 'f-origen', etiqueta: 'País de Origen', ayuda: 'Ej. Brasil (Made in Brazil)' },
+  { id: 'f-horometro', etiqueta: 'Horómetro', ayuda: 'Ej. 10,7 horas registradas' },
+];
+
+/** Las tres tarjetas de arriba de las fichas de referencia. */
+export const METRICAS_FIJAS_FICHA: { id: string; titulo: string; ayuda: string }[] = [
+  { id: 'm-horas', titulo: 'HORÓMETRO / KILOMETRAJE', ayuda: 'Ej. 10,7 h o 3000 KM' },
+  { id: 'm-peso', titulo: 'CAPACIDAD / PESO OPERATIVO', ayuda: 'Ej. 22,0 TONELADAS' },
+  { id: 'm-estado', titulo: 'ESTADO GENERAL', ayuda: 'Ej. OPERATIVO 100%' },
+];
+
+/** Los tres cuadros de «Observaciones de inspección» de las fichas de referencia. */
+export const OBSERVACIONES_FIJAS_FICHA: { id: string; titulo: string; ayuda: string }[] = [
+  { id: 'o-estado', titulo: 'Estado General', ayuda: 'Ej. Los datos del modelo y la placa fueron verificados con el registro fotográfico de la unidad.' },
+  { id: 'o-componentes', titulo: 'Componentes', ayuda: 'Ej. Cabina, pluma, brazo, balde y tren de rodaje integrados y en condición operativa.' },
+  { id: 'o-anexo', titulo: 'Anexo', ayuda: 'Ej. Consultar el registro fotográfico en las siguientes secciones del informe.' },
+];
+
+/**
+ * Entre la copia del teléfono y la de la nube gana LA MÁS RECIENTE
+ * (`actualizadoEn`), no «la lista más larga»: con la regla vieja un renglón
+ * borrado en otro equipo volvía a aparecer. Si ninguna dice cuándo se guardó
+ * (fichas de antes del 01-nov-2026), manda la nube. Las fotos tomadas en el
+ * teléfono (dataURL) no suben a la nube, así que se conservan de la copia local.
+ */
+export function elegirFichaMasReciente(
+  local: FichaPersonalizada | null,
+  remoto: FichaPersonalizada | null
+): FichaPersonalizada | null {
+  if (!remoto) return local;
+  if (!local) return remoto;
+  const tLocal = Date.parse(String(local.actualizadoEn ?? '')) || 0;
+  const tRemoto = Date.parse(String(remoto.actualizadoEn ?? '')) || 0;
+  const base = tLocal > tRemoto ? local : remoto;
+  return {
+    ...base,
+    fotoPrincipalUrl: base.fotoPrincipalUrl ?? local.fotoPrincipalUrl ?? null,
+    fotoSecundariaUrl: base.fotoSecundariaUrl ?? local.fotoSecundariaUrl ?? null,
+    fotosExtra: (base.fotosExtra && base.fotosExtra.length > 0) ? base.fotosExtra : (local.fotosExtra ?? []),
+  };
+}
+
+/** El texto de ayuda (placeholder) de un campo, métrica u observación fija. */
+export function ayudaCampoFicha(id: string): string | null {
+  return CAMPOS_FIJOS_FICHA.find((c) => c.id === id)?.ayuda
+    ?? METRICAS_FIJAS_FICHA.find((c) => c.id === id)?.ayuda
+    ?? OBSERVACIONES_FIJAS_FICHA.find((c) => c.id === id)?.ayuda
+    ?? null;
+}
+
+/** Vacío para el PDF: nada escrito, o solo el «—» que antes se ponía de relleno. */
+export function vacioEnFicha(v: unknown): boolean {
+  const t = String(v ?? '').trim();
+  return t === '' || t === '—' || t === '-';
+}
+
+/** «✅ Operativa» → «OPERATIVA». El estado en vivo trae su emoji delante. */
+export function estadoSinEmoji(estado: string | null | undefined): string {
+  return String(estado ?? '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+}
+
+/** Los campos fijos con lo que el catálogo ya sabe de la máquina (vacío si no). */
+export function camposFijosDeMaquina(m: MaquinaFichaTecnica): FichaRenglon[] {
+  const marca = String(m.marca ?? '').trim();
+  const modelo = String(m.modelo ?? '').trim();
+  const serial = String(m.serial ?? '').trim();
+  const placa = String(m.plate ?? '').trim() || String(m.identifier ?? '').trim();
+  const horas = m.last_horometro != null ? `${num(Number(m.last_horometro), 1)} h` : '';
+  const precargado: Record<string, string> = {
+    'f-fabricante': marca,
+    'f-modelo-serie': [modelo, serial].filter(Boolean).join(' / '),
+    'f-placa': placa,
+    'f-horometro': horas,
+  };
+  return CAMPOS_FIJOS_FICHA.map((c) => ({
+    id: c.id,
+    categoria: 'Datos Generales',
+    etiqueta: c.etiqueta,
+    valor: precargado[c.id] ?? '',
+  }));
+}
 
 /** Lo que la ficha necesita de la máquina. Todo opcional a propósito: lo que
  *  falte simplemente no se imprime. */
@@ -218,9 +337,11 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
     proximo ? { t: 'PRÓXIMO SERVICIO (250 H)', v: proximo } : null,
   ].filter(Boolean) as { t: string; v: string }[];
 
+  // Lo vacío no sale: una tarjeta sin valor no se imprime (01-nov-2026).
+  const metricasValidas = (p?.metricas ?? []).filter((c) => c && !vacioEnFicha(c.valor));
   let tarjetasHtml = '';
   if (p?.metricas && p.metricas.length > 0) {
-    tarjetasHtml = `<div class="cards">${p.metricas.map((c) =>
+    tarjetasHtml = metricasValidas.length === 0 ? '' : `<div class="cards">${metricasValidas.map((c) =>
       `<div class="card">
         <div class="cv">${esc(c.valor)}</div>
         <div class="ct">${esc(c.titulo)}</div>
@@ -237,10 +358,13 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   const secTagHtml = p?.seccionTag ? `<span class="sec-tag">${esc(p.seccionTag)}</span>` : '';
 
   let specsHtml = '';
-  const renglonesValidos = (p?.renglones ?? []).filter(
-    (r) => r && (String(r.etiqueta ?? '').trim().length > 0 || String(r.valor ?? '').trim().length > 0)
-  );
-  if (renglonesValidos.length > 0) {
+  // Lo vacío no sale (01-nov-2026): un renglón sin valor no se imprime, aunque
+  // tenga etiqueta. Así los campos fijos que no se llenaron y las filas
+  // «Nuevo campo» vacías no aparecen como «—» en el papel.
+  const renglonesValidos = (p?.renglones ?? []).filter((r) => r && !vacioEnFicha(r.valor));
+  if (p?.renglones && p.renglones.length > 0 && renglonesValidos.length === 0) {
+    specsHtml = '<div class="vacia">Esta ficha todavía no tiene especificaciones llenas.</div>';
+  } else if (renglonesValidos.length > 0) {
     // Si tienen categorías, dividirlas en columnas dobles estilo catálogo técnico
     const catsMap = new Map<string, FichaRenglon[]>();
     renglonesValidos.forEach((r) => {
@@ -250,7 +374,9 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
       catsMap.set(c, arr);
     });
 
-    if (catsMap.size > 1) {
+    // Las columnas por categoría solo si la ficha las pide; por defecto, una
+    // sola tabla en el orden del formulario, como las fichas de referencia.
+    if (p?.diseno === 'columnas' && catsMap.size > 1) {
       specsHtml = `<div class="specs-dual">${Array.from(catsMap.entries()).map(([cat, items]) => `
         <div class="specs-col">
           <div class="specs-col-hdr">${esc(cat)}</div>
@@ -295,12 +421,14 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
 
   // Observaciones y cuadros de texto con borde dorado lateral
   let obsHtml = '';
-  if (p?.observaciones && p.observaciones.length > 0) {
+  // Lo vacío no sale: un cuadro sin texto no se imprime (01-nov-2026).
+  const obsValidas = (p?.observaciones ?? []).filter((o) => o && !vacioEnFicha(o.texto));
+  if (obsValidas.length > 0) {
     obsHtml = `
       <div class="sec-hd">
         <div class="sec-title">OBSERVACIONES Y CONDICIONES TÉCNICAS</div>
       </div>
-      ${p.observaciones.map((o) => `
+      ${obsValidas.map((o) => `
         <div class="obs-box">
           ${o.titulo ? `<div class="obs-title">${esc(o.titulo)}</div>` : ''}
           <div class="obs-body">${esc(o.texto)}</div>
@@ -750,8 +878,15 @@ export function sincronizarFichaConCatalogo(
     guardados.map((r) => String(r.etiqueta ?? '').trim().toLowerCase())
   );
 
+  // Un campo fijo no se añade a una ficha vieja que ya trae ese dato con su
+  // renglón de antes (ej. «Fabricante / Marca» = r-marca): saldría dos veces.
+  const equivalenteGuardado = (id: string) =>
+    (CAMPOS_FIJOS_FICHA.find((c) => c.id === id)?.equivalentes ?? [])
+      .some((eqId) => idsGuardados.has(eqId) || ocultos.has(eqId));
+
   for (const rInit of inicial.renglones ?? []) {
     if (ocultos.has(rInit.id)) continue;
+    if (equivalenteGuardado(rInit.id)) continue;
     const etqNorm = String(rInit.etiqueta ?? '').trim().toLowerCase();
     if (!idsGuardados.has(rInit.id) && !etiquetasGuardadas.has(etqNorm)) {
       guardados.push(rInit);
@@ -760,10 +895,19 @@ export function sincronizarFichaConCatalogo(
     }
   }
 
+  // Los tres cuadros fijos de observaciones también llegan a las fichas viejas
+  // (vacíos no se imprimen); los que el usuario ya escribió se conservan.
+  const observaciones = [...(saved.observaciones ?? inicial.observaciones ?? [])];
+  const idsObs = new Set(observaciones.map((o) => o.id));
+  for (const oInit of inicial.observaciones ?? []) {
+    if (!idsObs.has(oInit.id) && !ocultos.has(oInit.id)) observaciones.push(oInit);
+  }
+
   return {
     ...inicial,
     ...saved,
     renglones: guardados,
+    observaciones,
     renglonesOcultos: Array.from(ocultos),
   };
 }

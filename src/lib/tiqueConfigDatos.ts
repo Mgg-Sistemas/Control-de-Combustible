@@ -98,12 +98,16 @@ export async function guardarConfigTique(
   const def = fmtsLimpios.find((f) => f.esDefecto) || fmtsLimpios[0];
   def.config = normalizarConfig(def.config);
 
-  // Preservar datos adicionales en `campos` (como combustibleTarasDia) si ya existen
+  // Preservar TODO lo que otros módulos guardan en `campos` (combustibleTarasDia,
+  // fichasTecnicasCustom, …): abajo solo se sobrescriben las claves del tique.
+  // ⚠️ 01-nov-2026: antes solo se copiaba combustibleTarasDia, y el primer
+  //    «Guardar» de la configuración del tique habría borrado todas las fichas
+  //    técnicas personalizadas de la nube (viven en esta misma fila).
   let extraCampos: Record<string, any> = {};
   try {
     const { data: prev } = await supabase.from(TABLA).select('campos').eq('id', true).maybeSingle();
-    if (prev?.campos && typeof prev.campos === 'object' && (prev.campos as any).combustibleTarasDia) {
-      extraCampos.combustibleTarasDia = (prev.campos as any).combustibleTarasDia;
+    if (prev?.campos && typeof prev.campos === 'object') {
+      extraCampos = { ...(prev.campos as any) };
     }
   } catch { /* ignorar */ }
 
