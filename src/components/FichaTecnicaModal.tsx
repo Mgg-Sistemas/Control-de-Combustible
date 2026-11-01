@@ -8,8 +8,16 @@
 //
 // Todo se almacena localmente vía `AsyncStorage` SIN alterar la base de datos de
 // `machinery` ni romper el flujo de trabajo del catálogo.
+//
+// 01-nov-2026: la ficha arranca con los CAMPOS FIJOS de las fichas de
+// referencia ya puestos (Fabricante, Modelo / Serie, Placa, Tipo / Combustible,
+// Año, Ejes / Tren, Capacidad, Equipamiento, País de origen, Horómetro), las tres
+// tarjetas y los tres cuadros de observaciones, todos editables en su sitio y
+// con un ejemplo en gris. Lo que quede vacío no sale en el PDF. Se guarda un
+// momento después de dejar de escribir (no en cada tecla) y, si la nube no lo
+// acepta, se avisa en vez de callarlo.
 // ============================================================================
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -31,8 +39,10 @@ import {
   FichaFoto,
   MaquinaFichaTecnica,
   OpcionesFichaTecnica,
+  ayudaCampoFicha,
 } from '../lib/fichaTecnicaMaquina';
 import {
+  GuardadoFicha,
   getFichaPersonalizada,
   saveFichaPersonalizada,
   deleteFichaPersonalizada,
@@ -83,6 +93,18 @@ export function FichaTecnicaModal({
   // Estados para foto extra
   const [fotoTomando, setFotoTomando] = useState(false);
   const [nuevaFotoLeyenda, setNuevaFotoLeyenda] = useState('');
+
+  // Guardado diferido: se guarda ~0,8 s después de la última tecla, no en cada
+  // una (cada guardado es una llamada a la base). El aviso de que la nube no lo
+  // aceptó sale una sola vez por apertura, no en cada tecla.
+  const temporizadorGuardado = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const avisoNubeDado = useRef(false);
+  useEffect(() => () => {
+    if (temporizadorGuardado.current) clearTimeout(temporizadorGuardado.current);
+  }, []);
+  useEffect(() => {
+    if (visible) avisoNubeDado.current = false;
+  }, [visible]);
 
   // Cargar personalización previa o inicial
   useEffect(() => {
@@ -144,24 +166,57 @@ export function FichaTecnicaModal({
     return res.data;
   };
 
+  const avisarSiNoLlegoALaNube = (res: GuardadoFicha) => {
+    if (res.nube || avisoNubeDado.current) return;
+    avisoNubeDado.current = true;
+    toast.error(`La ficha quedó guardada solo en este dispositivo: ${res.error ?? 'la nube no la aceptó.'}`);
+  };
+
+  /** Guarda un momento después de dejar de escribir. */
+  const programarGuardado = (next: FichaPersonalizada) => {
+    if (temporizadorGuardado.current) clearTimeout(temporizadorGuardado.current);
+    temporizadorGuardado.current = setTimeout(() => {
+      temporizadorGuardado.current = null;
+      saveFichaPersonalizada(mid, next).then(avisarSiNoLlegoALaNube).catch(() => {});
+    }, 800);
+  };
+
+  const cancelarGuardadoPendiente = () => {
+    if (temporizadorGuardado.current) clearTimeout(temporizadorGuardado.current);
+    temporizadorGuardado.current = null;
+  };
+
   // Guardar personalización
   const guardar = async () => {
     if (!data) return;
+    cancelarGuardadoPendiente();
     const finalData = consolidarDatosActuales(data);
     setData(finalData);
-    await saveFichaPersonalizada(mid, finalData);
-    toast.success('Ficha técnica personalizada guardada.');
+    const res = await saveFichaPersonalizada(mid, finalData);
+    if (res.nube) toast.success('Ficha técnica guardada.');
+    else toast.error(`La ficha quedó guardada solo en este dispositivo: ${res.error ?? 'la nube no la aceptó.'}`);
   };
 
   // Restablecer al catálogo
   const restablecer = async () => {
-    await deleteFichaPersonalizada(mid);
+    cancelarGuardadoPendiente();
+    const res = await deleteFichaPersonalizada(mid);
     const inicial = construirFichaInicial(machine, options);
     setData(inicial);
     setNuevoCampoEtq('');
     setNuevoCampoVal('');
     setNuevoCampoCat('');
-    toast.info('Valores restablecidos a los datos originales del catálogo.');
+    if (res.nube) toast.info('Valores restablecidos a los datos originales del catálogo.');
+    else toast.error(`Se restableció en este dispositivo, pero no en la nube: ${res.error ?? 'sin conexión.'}`);
+  };
+
+  // Cerrar sin perder lo último escrito si el guardado diferido no había salido.
+  const cerrar = () => {
+    if (temporizadorGuardado.current && data) {
+      cancelarGuardadoPendiente();
+      saveFichaPersonalizada(mid, data).then(avisarSiNoLlegoALaNube).catch(() => {});
+    }
+    onClose();
   };
 
   // Exportar PDF (vuelca cualquier campo escrito pendiente y guarda automáticamente)
@@ -169,9 +224,10 @@ export function FichaTecnicaModal({
     if (!data || exporting) return;
     setExporting(true);
     try {
+      cancelarGuardadoPendiente();
       const finalData = consolidarDatosActuales(data);
       setData(finalData);
-      await saveFichaPersonalizada(mid, finalData);
+      avisarSiNoLlegoALaNube(await saveFichaPersonalizada(mid, finalData));
       await onExport(finalData);
     } catch (e: any) {
       toast.error(e?.message ?? 'No se pudo exportar la ficha.');
@@ -246,7 +302,7 @@ export function FichaTecnicaModal({
     setData((d) => {
       if (!d) return null;
       const next: FichaPersonalizada = { ...d, renglones: [...(d.renglones ?? []), nuevo] };
-      saveFichaPersonalizada(mid, next).catch(() => {});
+      programarGuardado(next);
       return next;
     });
     setNuevoCampoEtq('');
@@ -275,7 +331,7 @@ export function FichaTecnicaModal({
         ...d,
         renglones: (d.renglones ?? []).map((r) => (r.id === id ? { ...r, ...patch } : r)),
       };
-      saveFichaPersonalizada(mid, next).catch(() => {});
+      programarGuardado(next);
       return next;
     });
   };
@@ -292,7 +348,7 @@ export function FichaTecnicaModal({
           return { ...r, categoria: nuevaCat };
         }),
       };
-      saveFichaPersonalizada(mid, next).catch(() => {});
+      programarGuardado(next);
       return next;
     });
   };
@@ -307,7 +363,7 @@ export function FichaTecnicaModal({
         renglones: (d.renglones ?? []).filter((r) => r.id !== id),
         renglonesOcultos: Array.from(ocultos),
       };
-      saveFichaPersonalizada(mid, next).catch(() => {});
+      programarGuardado(next);
       return next;
     });
   };
@@ -335,6 +391,29 @@ export function FichaTecnicaModal({
     setData((d) => (d ? { ...d, metricas: (d.metricas ?? []).filter((m) => m.id !== id) } : null));
   };
 
+  // Las tarjetas se editan en su sitio (las tres fijas llegan vacías si el
+  // catálogo no sabe el dato; vacías no salen en el PDF).
+  const actualizarMetrica = (id: string, patch: Partial<FichaMetrica>) => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = {
+        ...d,
+        metricas: (d.metricas ?? []).map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      };
+      programarGuardado(next);
+      return next;
+    });
+  };
+
+  const setDiseno = (diseno: 'tabla' | 'columnas') => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = { ...d, diseno };
+      programarGuardado(next);
+      return next;
+    });
+  };
+
   // Agregar / quitar observación
   const agregarObservacion = () => {
     if (!nuevaObsTxt.trim()) {
@@ -352,8 +431,25 @@ export function FichaTecnicaModal({
     toast.success('Observación agregada.');
   };
 
+  const actualizarObservacion = (id: string, patch: Partial<FichaObservacion>) => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = {
+        ...d,
+        observaciones: (d.observaciones ?? []).map((o) => (o.id === id ? { ...o, ...patch } : o)),
+      };
+      programarGuardado(next);
+      return next;
+    });
+  };
+
   const eliminarObservacion = (id: string) => {
-    setData((d) => (d ? { ...d, observaciones: (d.observaciones ?? []).filter((o) => o.id !== id) } : null));
+    // Se anota como oculta para que un cuadro fijo borrado no vuelva solo.
+    setData((d) => (d ? {
+      ...d,
+      observaciones: (d.observaciones ?? []).filter((o) => o.id !== id),
+      renglonesOcultos: Array.from(new Set([...(d.renglonesOcultos ?? []), id])),
+    } : null));
   };
 
   // Fotos extras
@@ -384,7 +480,7 @@ export function FichaTecnicaModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={cerrar}>
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: spacing.md }}>
         <View
           style={{
@@ -414,7 +510,7 @@ export function FichaTecnicaModal({
                 Edita títulos, especificaciones, observaciones y fotos con el estilo moderno de alta calidad
               </Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={{ padding: 6 }}>
+            <TouchableOpacity onPress={cerrar} style={{ padding: 6 }}>
               <Text style={{ color: '#fff', fontSize: 18, fontWeight: '900' }}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -480,7 +576,7 @@ export function FichaTecnicaModal({
                   📊 Métricas Clave Superiores (Fila de tarjetas)
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
-                  Cuadros destacados en la parte superior (Potencia, Horómetro, Voltaje, etc.).
+                  Cuadros destacados en la parte superior. Escribe el valor en cada tarjeta; la que quede vacía no sale en el PDF.
                 </Text>
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm }}>
@@ -500,9 +596,21 @@ export function FichaTecnicaModal({
                         gap: 6,
                       }}
                     >
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: '#16324F', fontWeight: '900', fontSize: 13 }}>{m.valor}</Text>
-                        <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 9.5 }}>{m.titulo}</Text>
+                      <View style={{ flex: 1, gap: 3 }}>
+                        <TextInput
+                          value={m.titulo}
+                          onChangeText={(txt) => actualizarMetrica(m.id, { titulo: txt })}
+                          placeholder="Título de la tarjeta"
+                          placeholderTextColor={colors.muted}
+                          style={{ color: colors.muted, fontWeight: '700', fontSize: 9.5, padding: 2, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                        />
+                        <TextInput
+                          value={m.valor}
+                          onChangeText={(txt) => actualizarMetrica(m.id, { valor: txt })}
+                          placeholder={ayudaCampoFicha(m.id) ?? 'Valor'}
+                          placeholderTextColor={colors.muted}
+                          style={{ color: colors.text, fontWeight: '900', fontSize: 13, padding: 2, backgroundColor: colors.background, borderRadius: radius.sm }}
+                        />
                         {m.subtitulo ? <Text style={{ color: colors.muted, fontSize: 8.5 }}>{m.subtitulo}</Text> : null}
                       </View>
                       <TouchableOpacity onPress={() => eliminarMetrica(m.id)} style={{ padding: 4 }}>
@@ -577,8 +685,33 @@ export function FichaTecnicaModal({
                   </View>
                 </View>
 
+                {/* Cómo sale la tabla en el PDF: una sola (como las fichas de referencia) o por columnas */}
+                <View style={{ flexDirection: 'row', gap: 4, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Text style={{ color: colors.muted, fontSize: 10, marginRight: 2 }}>En el PDF:</Text>
+                  {([['tabla', 'Una sola tabla'], ['columnas', 'Columnas por sección']] as const).map(([valor, label]) => {
+                    const activo = (data.diseno ?? 'tabla') === valor;
+                    return (
+                      <TouchableOpacity
+                        key={valor}
+                        onPress={() => setDiseno(valor)}
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: radius.pill,
+                          backgroundColor: activo ? '#16324F' : colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: activo ? '#16324F' : colors.border,
+                        }}
+                      >
+                        <Text style={{ color: activo ? '#fff' : colors.text, fontSize: 10, fontWeight: '700' }}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  <Text style={{ color: colors.muted, fontSize: 10 }}>· Los campos vacíos no salen en el PDF.</Text>
+                </View>
+
                 {/* Lista de renglones existentes (editables en vivo) */}
-                <View style={{ maxHeight: 280, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
+                <View style={{ maxHeight: 420, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
                   <ScrollView nestedScrollEnabled style={{ padding: 6 }}>
                     {(data.renglones ?? []).map((r, idx) => (
                       <View
@@ -610,13 +743,13 @@ export function FichaTecnicaModal({
                                 paddingVertical: 4,
                                 fontSize: 11,
                                 fontWeight: '700',
-                                color: '#16324F',
+                                color: colors.text,
                               }}
                             />
                             <TextInput
                               value={r.valor}
                               onChangeText={(txt) => actualizarRenglon(r.id, { valor: txt })}
-                              placeholder="Valor"
+                              placeholder={ayudaCampoFicha(r.id) ?? 'Valor'}
                               placeholderTextColor={colors.muted}
                               style={{
                                 flex: 1.3,
@@ -631,6 +764,8 @@ export function FichaTecnicaModal({
                               }}
                             />
                           </View>
+                          {/* La columna solo importa si el PDF sale por columnas */}
+                          {data.diseno === 'columnas' ? (
                           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                             <TouchableOpacity
                               onPress={() => alternarCategoriaRenglon(r.id)}
@@ -648,6 +783,7 @@ export function FichaTecnicaModal({
                               </Text>
                             </TouchableOpacity>
                           </View>
+                          ) : null}
                         </View>
                         <TouchableOpacity onPress={() => eliminarRenglon(r.id)} style={{ padding: 6 }}>
                           <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>✕</Text>
@@ -913,7 +1049,7 @@ export function FichaTecnicaModal({
                   </View>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
-                  Cuadros destacados con borde dorado para notas técnicas, condiciones, cabina, etc.
+                  Cuadros con borde dorado: Estado General, Componentes y Anexo ya vienen puestos; el que quede vacío no sale en el PDF.
                 </Text>
 
                 {(data.observaciones ?? []).map((o) => (
@@ -930,13 +1066,26 @@ export function FichaTecnicaModal({
                       marginBottom: 6,
                     }}
                   >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 11.5 }}>{o.titulo || 'Observación'}</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                      <TextInput
+                        value={o.titulo}
+                        onChangeText={(txt) => actualizarObservacion(o.id, { titulo: txt })}
+                        placeholder="Título (ej. Estado General)"
+                        placeholderTextColor={colors.muted}
+                        style={{ flex: 1, color: colors.text, fontWeight: '800', fontSize: 11.5, padding: 2 }}
+                      />
                       <TouchableOpacity onPress={() => eliminarObservacion(o.id)} style={{ padding: 4 }}>
                         <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={{ color: colors.text, fontSize: 11, marginTop: 2 }}>{o.texto}</Text>
+                    <TextInput
+                      value={o.texto}
+                      onChangeText={(txt) => actualizarObservacion(o.id, { texto: txt })}
+                      multiline
+                      placeholder={ayudaCampoFicha(o.id) ?? 'Escribe la observación…'}
+                      placeholderTextColor={colors.muted}
+                      style={{ color: colors.text, fontSize: 11, marginTop: 2, padding: 6, minHeight: 40, backgroundColor: colors.background, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                    />
                   </View>
                 ))}
 
@@ -1065,7 +1214,7 @@ export function FichaTecnicaModal({
 
             <View style={{ flexDirection: 'row', gap: spacing.xs }}>
               <TouchableOpacity
-                onPress={onClose}
+                onPress={cerrar}
                 style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
               >
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cerrar</Text>

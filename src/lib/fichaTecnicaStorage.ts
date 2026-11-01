@@ -4,6 +4,10 @@
 // Permite guardar y recuperar las personalizaciones de la ficha técnica de cada
 // máquina (campos extra, observaciones, títulos personalizados) en AsyncStorage
 // SIN alterar la tabla `machinery` ni dañar el flujo de trabajo del catálogo.
+//
+// La copia de la nube vive en `tique_config.campos.fichasTecnicasCustom` y se
+// escribe SOLO por las funciones `guardar_ficha_tecnica` / `borrar_ficha_tecnica`
+// (01-nov-2026), que tocan la ficha de una máquina sin reescribir las demás.
 // ============================================================================
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
@@ -18,10 +22,14 @@ import {
   dimensionesTexto,
   tapaTexto,
   aceiteTexto,
-  proximoServicioTexto,
   resolverNuevoRenglon,
   aplicarPendientesFicha,
   sincronizarFichaConCatalogo,
+  camposFijosDeMaquina,
+  estadoSinEmoji,
+  METRICAS_FIJAS_FICHA,
+  OBSERVACIONES_FIJAS_FICHA,
+  elegirFichaMasReciente,
 } from './fichaTecnicaMaquina';
 import { dmy } from './informeTecnico';
 
@@ -57,24 +65,9 @@ export async function getFichaPersonalizada(machineId: string): Promise<FichaPer
       const remotos = (data.campos as any).fichasTecnicasCustom;
       const remoto: FichaPersonalizada | undefined = remotos && typeof remotos === 'object' ? remotos[machineId] : undefined;
       if (remoto && typeof remoto === 'object') {
-        const combinado: FichaPersonalizada = {
-          ...remoto,
-          ...local,
-          renglones: (local?.renglones && local.renglones.length >= (remoto.renglones?.length ?? 0))
-            ? local.renglones
-            : (remoto.renglones ?? local?.renglones),
-          metricas: (local?.metricas && local.metricas.length >= (remoto.metricas?.length ?? 0))
-            ? local.metricas
-            : (remoto.metricas ?? local?.metricas),
-          observaciones: (local?.observaciones && local.observaciones.length >= (remoto.observaciones?.length ?? 0))
-            ? local.observaciones
-            : (remoto.observaciones ?? local?.observaciones),
-          fotoPrincipalUrl: local?.fotoPrincipalUrl ?? remoto.fotoPrincipalUrl,
-          fotoSecundariaUrl: local?.fotoSecundariaUrl ?? remoto.fotoSecundariaUrl,
-          fotosExtra: (local?.fotosExtra && local.fotosExtra.length > 0) ? local.fotosExtra : (remoto.fotosExtra ?? []),
-        };
-        await AsyncStorage.setItem(`${PREFIX}${machineId}`, JSON.stringify(combinado)).catch(() => {});
-        return combinado;
+        const elegida = elegirFichaMasReciente(local, remoto);
+        await AsyncStorage.setItem(`${PREFIX}${machineId}`, JSON.stringify(elegida)).catch(() => {});
+        return elegida;
       }
     }
   } catch {
@@ -84,37 +77,41 @@ export async function getFichaPersonalizada(machineId: string): Promise<FichaPer
   return local;
 }
 
-/** Guarda la personalización de la ficha de una máquina en el almacenamiento local y sincroniza los textos/renglones. */
-export async function saveFichaPersonalizada(machineId: string, data: FichaPersonalizada): Promise<void> {
-  if (!machineId) return;
+/** Resultado de guardar: `nube` dice si llegó a la base; si no, `error` dice por qué. */
+export type GuardadoFicha = { nube: boolean; error?: string };
+
+/**
+ * Guarda la ficha en el teléfono y en la nube. La nube se escribe con
+ * `guardar_ficha_tecnica`, que toca SOLO la ficha de esta máquina en una
+ * sentencia: antes se leía toda la fila de `tique_config`, se modificaba y se
+ * reescribía, y dos personas guardando a la vez se pisaban. Y si el permiso no
+ * alcanzaba, la base no escribía nada y nadie se enteraba — ahora el error
+ * vuelve y la pantalla lo dice.
+ */
+export async function saveFichaPersonalizada(machineId: string, data: FichaPersonalizada): Promise<GuardadoFicha> {
+  if (!machineId) return { nube: false, error: 'Falta indicar de qué equipo es la ficha.' };
+  const conFecha: FichaPersonalizada = { ...data, actualizadoEn: new Date().toISOString() };
   try {
-    await AsyncStorage.setItem(`${PREFIX}${machineId}`, JSON.stringify(data));
+    await AsyncStorage.setItem(`${PREFIX}${machineId}`, JSON.stringify(conFecha));
   } catch (e) {
     console.warn('[fichaTecnicaStorage] error guardando:', e);
   }
 
   try {
-    const { data: row } = await supabase.from(TABLA_CONFIG).select('campos').eq('id', true).maybeSingle();
-    if (row) {
-      const dc = (row.campos && typeof row.campos === 'object') ? { ...(row.campos as any) } : {};
-      const mapa = (dc.fichasTecnicasCustom && typeof dc.fichasTecnicasCustom === 'object')
-        ? { ...dc.fichasTecnicasCustom }
-        : {};
-      mapa[machineId] = limpiarParaNube(data);
-      dc.fichasTecnicasCustom = mapa;
-      await supabase.from(TABLA_CONFIG).update({
-        campos: dc,
-        updated_at: new Date().toISOString(),
-      }).eq('id', true);
-    }
-  } catch {
-    // Queda guardado en el dispositivo aunque falle la red
+    const { error } = await supabase.rpc('guardar_ficha_tecnica', {
+      p_machine_id: machineId,
+      p_ficha: limpiarParaNube(conFecha),
+    });
+    if (error) return { nube: false, error: error.message };
+    return { nube: true };
+  } catch (e: any) {
+    return { nube: false, error: e?.message ?? 'Sin conexión: la ficha quedó guardada solo en este dispositivo.' };
   }
 }
 
 /** Elimina la personalización de la ficha para volver a los datos por defecto del catálogo. */
-export async function deleteFichaPersonalizada(machineId: string): Promise<void> {
-  if (!machineId) return;
+export async function deleteFichaPersonalizada(machineId: string): Promise<GuardadoFicha> {
+  if (!machineId) return { nube: false };
   try {
     await AsyncStorage.removeItem(`${PREFIX}${machineId}`);
   } catch (e) {
@@ -122,80 +119,59 @@ export async function deleteFichaPersonalizada(machineId: string): Promise<void>
   }
 
   try {
-    const { data: row } = await supabase.from(TABLA_CONFIG).select('campos').eq('id', true).maybeSingle();
-    if (row?.campos && typeof row.campos === 'object') {
-      const dc = { ...(row.campos as any) };
-      if (dc.fichasTecnicasCustom && typeof dc.fichasTecnicasCustom === 'object') {
-        const mapa = { ...dc.fichasTecnicasCustom };
-        delete mapa[machineId];
-        dc.fichasTecnicasCustom = mapa;
-        await supabase.from(TABLA_CONFIG).update({
-          campos: dc,
-          updated_at: new Date().toISOString(),
-        }).eq('id', true);
-      }
-    }
-  } catch {
-    // Ignorar error de red al borrar
+    const { error } = await supabase.rpc('borrar_ficha_tecnica', { p_machine_id: machineId });
+    if (error) return { nube: false, error: error.message };
+    return { nube: true };
+  } catch (e: any) {
+    return { nube: false, error: e?.message ?? 'Sin conexión: no se pudo restablecer la ficha en la nube.' };
   }
 }
 
 /**
  * Construye la estructura inicial de personalización a partir de los datos que
  * YA están cargados en el catálogo de maquinaria.
+ *
+ * Desde el 01-nov-2026 arranca con el formato de las fichas de referencia del
+ * equipo: cabecera «FICHA TÉCNICA» con el sello del estado, las tres tarjetas
+ * (Horómetro / Capacidad / Estado general), los diez campos fijos de la tabla y
+ * los tres cuadros de observaciones. Lo que el catálogo sabe viene precargado,
+ * lo demás queda vacío para teclearlo — y lo vacío no sale en el PDF.
  */
 export function construirFichaInicial(
   m: MaquinaFichaTecnica,
   op: OpcionesFichaTecnica = {}
 ): FichaPersonalizada {
   const nombre = nombreDeMaquina(m);
-  const subtituloDefecto =
-    String(m.clasificacion ?? '').trim() ||
-    String(m.tipo ?? '').trim() ||
-    String(op.fallbackSubtitulo ?? '').trim() ||
-    'Maquinaria pesada';
   const horas =
     m.last_horometro != null
       ? `${(Math.round(Number(m.last_horometro) * 10) / 10).toLocaleString('es-VE')} h`
-      : null;
-  const estado = String(op.estado ?? '').trim();
-  const proximo = proximoServicioTexto(m);
+      : '';
+  const estado = estadoSinEmoji(op.estado);
 
-  // 1. Tarjetas métricas superiores clave (estilo ficha técnica moderna)
-  const metricas: FichaMetrica[] = [
-    horas
-      ? { id: 'm-horas', titulo: 'HORAS DE TRABAJO', subtitulo: 'ACUMULADAS', valor: horas }
-      : null,
-    estado ? { id: 'm-estado', titulo: 'ESTADO ACTUAL', valor: estado } : null,
-    proximo
-      ? { id: 'm-proximo', titulo: 'PRÓXIMO SERVICIO', subtitulo: '(250 H)', valor: proximo }
-      : null,
-    m.weight_ton
-      ? { id: 'm-peso', titulo: 'PESO TOTAL', subtitulo: 'OPERATIVO', valor: pesoTexto(m) || '' }
-      : null,
-  ].filter(Boolean) as FichaMetrica[];
+  // 1. Las tres tarjetas de las fichas de referencia, con lo que se sepa.
+  const valorMetrica: Record<string, string> = {
+    'm-horas': horas,
+    'm-peso': pesoTexto(m) || '',
+    'm-estado': estado.toUpperCase(),
+  };
+  const metricas: FichaMetrica[] = METRICAS_FIJAS_FICHA.map((mf) => ({
+    id: mf.id,
+    titulo: mf.titulo,
+    valor: valorMetrica[mf.id] ?? '',
+  }));
 
-  // 2. Renglones de especificaciones técnicas
-  const renglones: FichaRenglon[] = [
-    m.marca
-      ? { id: 'r-marca', categoria: 'Datos Generales', etiqueta: 'Fabricante / Marca', valor: m.marca }
-      : null,
-    m.modelo
-      ? { id: 'r-modelo', categoria: 'Datos Generales', etiqueta: 'Modelo', valor: m.modelo }
-      : null,
+  // 2. Los campos fijos primero, en el orden de las fichas de referencia; luego
+  //    «otros datos» del catálogo. Marca, modelo, serial y placa ya van dentro
+  //    de los campos fijos, así que no se repiten abajo.
+  const placaEnFijo = String(m.plate ?? '').trim() ? 'plate' : (String(m.identifier ?? '').trim() ? 'identifier' : null);
+  const otros: FichaRenglon[] = [
     m.code
       ? { id: 'r-codigo', categoria: 'Datos Generales', etiqueta: 'Código en el sistema', valor: m.code }
       : null,
     m.clasificacion
       ? { id: 'r-clasif', categoria: 'Datos Generales', etiqueta: 'Clasificación', valor: m.clasificacion }
       : null,
-    m.serial
-      ? { id: 'r-serial', categoria: 'Componentes Principales', etiqueta: 'Número de Serie (Serial / PIN)', valor: m.serial }
-      : null,
-    m.plate
-      ? { id: 'r-placa', categoria: 'Componentes Principales', etiqueta: 'Placa', valor: m.plate }
-      : null,
-    m.identifier
+    m.identifier && placaEnFijo !== 'identifier'
       ? { id: 'r-ident', categoria: 'Componentes Principales', etiqueta: 'Identificador', valor: m.identifier }
       : null,
     pesoTexto(m)
@@ -238,20 +214,22 @@ export function construirFichaInicial(
       ? { id: 'r-ingreso', categoria: 'Datos Generales', etiqueta: 'Fecha de ingreso al sistema', valor: dmy(m.entry_date) }
       : null,
   ].filter(Boolean) as FichaRenglon[];
+  const renglones: FichaRenglon[] = [...camposFijosDeMaquina(m), ...otros];
 
-  // Subtítulo con formato de metadatos en línea
-  const metaLinea = [
-    m.marca ? `Marca: ${m.marca}` : null,
-    m.modelo ? `Modelo: ${m.modelo}` : null,
-    m.clasificacion || m.tipo || null,
+  // Subtítulo como el de las fichas de referencia: clase de equipo + marca + modelo.
+  const subtitulo = [
+    String(m.clasificacion ?? '').trim() || String(m.tipo ?? '').trim() || String(op.fallbackSubtitulo ?? '').trim(),
+    String(m.marca ?? '').trim(),
+    String(m.modelo ?? '').trim(),
   ]
     .filter(Boolean)
-    .join(' | ');
+    .join(' ')
+    .toUpperCase();
 
   return {
-    titulo: String(m.tipo ?? '').trim() || nombre,
-    subtitulo: metaLinea || subtituloDefecto,
-    badgeSuperior: String(m.modelo ?? '').trim() || estado || nombre,
+    titulo: 'FICHA TÉCNICA',
+    subtitulo: subtitulo || 'MAQUINARIA PESADA',
+    badgeSuperior: estado.toUpperCase() || String(m.modelo ?? '').trim() || nombre,
     subcodigo: m.code ? `CÓDIGO: ${m.code}` : null,
     seccionTitulo: 'ESPECIFICACIONES TÉCNICAS PRINCIPALES',
     seccionTag: 'Placa de Identificación',
@@ -261,9 +239,10 @@ export function construirFichaInicial(
     fotoPrincipalLeyenda: m.photo_url ? 'Vista general de la unidad en campo operativo' : null,
     fotoSecundariaUrl: null,
     fotoSecundariaLeyenda: null,
+    diseno: 'tabla',
     metricas,
     renglones,
-    observaciones: [],
+    observaciones: OBSERVACIONES_FIJAS_FICHA.map((o) => ({ id: o.id, titulo: o.titulo, texto: '' })),
     fotosExtra: [],
   };
 }
