@@ -59,13 +59,3 @@ export async function guardarFotosNotaCombustible(
   }
   return { ok: true };
 }
-
-/**
- * Enlace de WhatsApp con el mensaje. Se usa api.whatsapp.com/send y NO wa.me:
- * wa.me redirige y en la redirección los emojis (pares sustitutos UTF-16)
- * llegaban como un rombo con signo de interrogación. El texto completo va con encodeURIComponent y con saltos
- * de línea reales (\n → %0A), así cada dato queda en su línea.
- */
-export function urlWhatsapp(texto: string): string {
-  return `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
-}

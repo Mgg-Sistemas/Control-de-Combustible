@@ -11,7 +11,6 @@
  * 5. MENSAJES PARA WHATSAPP: Formateo limpio con emojis estándar para compartir comprobantes al instante.
  */
 import { Linking, Platform } from 'react-native';
-import { urlWhatsapp } from './combustibleEdicion';
 
 export const MARGEN_MERMA_DEFECTO = 10; // 10% por defecto
 
@@ -220,12 +219,22 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
 }
 
 /**
+ * Enlace de WhatsApp con el mensaje. Se usa api.whatsapp.com/send y NO wa.me:
+ * wa.me redirige y en la redirección los emojis (pares sustitutos UTF-16)
+ * llegaban como un rombo con signo de interrogación. El texto completo va con encodeURIComponent y con saltos
+ * de línea reales (\n → %0A), así cada dato queda en su línea.
+ */
+export function urlWhatsapp(texto: string): string {
+  return `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
+}
+
+/**
  * Abre WhatsApp con el mensaje estructurado pre-cargado.
  */
 export async function compartirPorWhatsapp(d: DatosMensajeCombustible): Promise<void> {
   const texto = construirMensajeWhatsapp(d);
   // 01-nov-2026: api.whatsapp.com/send en vez de wa.me — la redirección de wa.me
-  // dañaba los emojis (rombo con signo de interrogación). Ver urlWhatsapp en combustibleEdicion.ts.
+  // dañaba los emojis (rombo con signo de interrogación). Ver urlWhatsapp.
   const url = urlWhatsapp(texto);
   try {
     if (Platform.OS === 'web') {

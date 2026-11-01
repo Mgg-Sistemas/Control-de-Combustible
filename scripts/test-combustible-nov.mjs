@@ -71,10 +71,11 @@ ok('no hay sustitutos sueltos', !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(msg))
 const fuel = fs.readFileSync('src/lib/fuelRules.ts', 'utf8');
 const lib = fs.readFileSync('src/lib/combustibleEdicion.ts', 'utf8');
 const files = ['src/lib/fuelRules.ts', 'src/components/combustible/SurtidorMovil.tsx', 'src/screens/FuelDriverScreen.tsx', 'src/screens/redesign/DispatchesPilot.tsx', 'src/screens/redesign/IntakesPilot.tsx', 'src/components/RecordForm.tsx', 'src/components/combustible/EditarFotosCombustibleModal.tsx'];
+ok('fuelRules no importa nada que toque la base', !/from '\.\/(combustibleEdicion|supabase)'/.test(fuel));
 for (const f of files) ok(`sin U+FFFD en ${f}`, !fs.readFileSync(f, 'utf8').includes('�'));
 ok('comprobante usa urlWhatsapp', fuel.includes('const url = urlWhatsapp(texto);') && !fuel.includes('https://wa.me/?text='));
 ok('comprobante sin selector de variación (FE0F)', !/️/.test(fuel.slice(fuel.indexOf('export function construirMensajeWhatsapp'), fuel.indexOf('export async function compartirPorWhatsapp'))));
-ok('urlWhatsapp usa api.whatsapp.com', lib.includes('https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}'));
+ok('urlWhatsapp usa api.whatsapp.com', fuel.includes('https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}'));
 ok('nota y fotos de ingresos encendidas (columnas creadas)', /CONSUMOS_NOTAS_ACTIVAS = true/.test(lib) && /INGRESOS_NOTAS_ACTIVAS = true/.test(lib) && /INGRESOS_FOTOS_ACTIVAS = true/.test(lib));
 ok('guardado con .select(\'id\') y aviso de 0 filas', lib.includes(".eq('id', id).select('id')") && lib.includes('0 filas'));
 const surt = fs.readFileSync('src/components/combustible/SurtidorMovil.tsx', 'utf8');
