@@ -424,15 +424,31 @@ export function contactoParaEmpresa(
   const enlazado = empresa ? lista.find((c) => (c as any)?.company_id === empresa.id) : null;
   if (enlazado) return { accion: 'usar', contacto: enlazado, deshabilitado: apagado(enlazado) };
 
+  // ⚠️ 01-nov-2026 — «elijo una empresa y me toma OTRA». El RIF solo no basta:
+  //    hay contactos con el RIF de una empresa del catálogo cargado por error
+  //    (otro nombre, otra empresa). Antes se enlazaba ciegamente por RIF y la
+  //    venta salía a nombre del contacto equivocado. Ahora el RIF solo enlaza
+  //    si el NOMBRE también coincide (o el contacto todavía no está atado a otra
+  //    empresa y se llama parecido); si no, se sigue buscando por nombre.
   const digitos = docDigitos(empresa?.rif);
+  let rifOcupado = false;
   if (digitos) {
     const porRif = lista.find((c) => docDigitos(c.doc_number) === digitos);
-    if (porRif) return { accion: 'enlazar', contacto: porRif, deshabilitado: apagado(porRif), motivo: 'rif' };
+    if (porRif) {
+      const otraEmpresa = !!(porRif as any)?.company_id && (porRif as any).company_id !== empresa?.id;
+      if (!otraEmpresa && nombresCompatibles(porRif.name, empresa?.name)) {
+        return { accion: 'enlazar', contacto: porRif, deshabilitado: apagado(porRif), motivo: 'rif' };
+      }
+      // El RIF ya lo tiene otro contacto: la base no deja repetirlo
+      // (contactos_doc_key), así que la ficha nueva nace SIN documento.
+      rifOcupado = true;
+    }
   }
 
   const nombre = norm(empresa?.name);
   if (nombre) {
-    const porNombre = lista.find((c) => norm(c.name) === nombre);
+    const porNombre = lista.find((c) => norm(c.name) === nombre
+      && !((c as any)?.company_id && (c as any).company_id !== empresa?.id));
     if (porNombre) return { accion: 'enlazar', contacto: porNombre, deshabilitado: apagado(porNombre), motivo: 'nombre' };
   }
 
@@ -441,11 +457,27 @@ export function contactoParaEmpresa(
     fila: {
       ...filaContacto({
         letra: letraDeRif(empresa?.rif),
-        numero: empresa?.rif,
+        numero: rifOcupado ? null : empresa?.rif,
         razonSocial: empresa?.name,
         esCliente: true,
       }),
       company_id: empresa?.id ?? null,
     },
   };
+}
+
+/**
+ * ¿Es el mismo nombre? (01-nov-2026) Sin acentos, sin puntos ni «C.A.», y uno
+ * puede contener al otro («ACME 1127 CA» ≈ «ACME 1127 C.A.»). Dos razones
+ * sociales distintas con el mismo RIF NO son compatibles.
+ */
+export function nombresCompatibles(a: any, b: any): boolean {
+  const limpio = (s: any) => norm(s)
+    .replace(/[^a-z0-9ñ ]+/g, ' ')
+    .replace(/\b(c ?a|s ?a|s ?r ?l)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const x = limpio(a), y = limpio(b);
+  if (!x || !y) return false;
+  return x === y || x.includes(y) || y.includes(x);
 }

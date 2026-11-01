@@ -29,6 +29,7 @@ import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } 
 import { ConfigBanner } from './ConfigBanner';
 import { DateField } from './DateField';
 import { ContactoPicker } from './ContactoPicker';
+import { useVentaDocOpciones } from './VentaDocOpcionesModal';
 import { MaquinaPicker } from './MaquinaPicker';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -46,7 +47,7 @@ import {
   GrupoMaquina, claveMaquina, filtrarVentasServicio, lineasDeServicio, porMaquina,
   porTipoDeServicio, renglonServicio, renglonesDeServicio, totalesServicio, validarVentaServicio,
 } from '../lib/ventaServicios';
-import { ventaDocumentoHtml } from '../lib/ventaDocumento';
+import { VentaDocOpciones, ventaDocumentoHtml } from '../lib/ventaDocumento';
 import { useBcvRate, fmtUsd, fmtBs } from '../lib/bcv';
 import { exportPdf } from '../lib/pdf';
 import { leerNumero } from '../lib/numeros';
@@ -68,6 +69,8 @@ const VISTAS: { key: Vista; label: string }[] = [
 export function VentaServiciosTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session, fullName } = useAuth();
+  // 🖨️ Opciones del papel antes de imprimir (01-nov-2026).
+  const docOpciones = useVentaDocOpciones(session?.user?.id ?? null);
   const toast = useToast();
   const confirm = useConfirm();
   const { rate } = useBcvRate();
@@ -201,7 +204,11 @@ export function VentaServiciosTab({ canWrite }: { canWrite: boolean }) {
     if (quiere) imprimir(data as Sale);
   };
 
-  const imprimir = async (v: Sale) => {
+  const imprimir = (v: Sale) => docOpciones.pedir({
+    hayServicio: (v.items ?? []).some((it: any) => it?.kind === 'servicio'),
+    imprimir: (op) => imprimirCon(v, op),
+  });
+  const imprimirCon = async (v: Sale, op: VentaDocOpciones) => {
     const c = contactos.find((x) => x.id === v.client_id);
     await exportPdf(ventaDocumentoHtml({
       docKind: v.doc_kind, numero: v.doc_number ?? '', codigo: v.code, fecha: dmy(v.sale_date),
@@ -214,7 +221,7 @@ export function VentaServiciosTab({ canWrite }: { canWrite: boolean }) {
       ivaMonto: Number(v.iva_monto) || 0, total: Number(v.total) || 0,
       tasaBs: Number(v.rate_bs) || 0, totalBs: Number(v.total_bs) || 0,
       condicion: v.condicion, metodo: v.payment_method, vendedor: v.created_by_name, nota: v.note,
-    }), `${docKindLabel(v.doc_kind)} ${v.doc_number} - ${v.client_name}`);
+    }, op), `${docKindLabel(v.doc_kind)} ${v.doc_number} - ${v.client_name}`);
   };
 
   const borrarVenta = async (v: Sale) => {
@@ -725,6 +732,8 @@ export function VentaServiciosTab({ canWrite }: { canWrite: boolean }) {
           </ScrollView>
         </Screen>
       </Modal>
+      {/* Al final: en web gana el último modal montado. */}
+      {docOpciones.modal}
     </Screen>
   );
 }

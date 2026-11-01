@@ -8,6 +8,9 @@
 // El equivalente en Bs se imprime con la tasa que traía la venta, NO con la de
 // hoy: un papel ya entregado no puede cambiar de monto porque cambió el dólar.
 import { LOGO_DATA_URI } from './logoData';
+import { GOLDEN_TOUCH_LOGO_DATA_URI } from './logoGoldenTouchData';
+import { JHENZAEN_LOGO_DATA_URI } from './logoJhenzaenData';
+import { RENACE_LOGO_DATA_URI } from './logoRenaceData';
 import { COMPANY_NAME } from './company';
 import { VentaDocKind, VentaItem, MetodoPago, metodoLabel, lineaTotal } from './ventas';
 
@@ -37,6 +40,67 @@ export type VentaDocData = {
   nota?: string | null;
 };
 
+// ── Opciones del papel (01-nov-2026) ─────────────────────────────────────────
+// Se eligen ANTES de imprimir. Regla de la casa: activar/desactivar una opción
+// NO se anuncia en el papel; lo oculto simplemente no sale.
+export type VentaLogoKey = 'principal' | 'golden' | 'jhenzaen' | 'renace' | 'ninguno';
+
+export const VENTA_LOGOS: { key: VentaLogoKey; label: string }[] = [
+  { key: 'principal', label: 'Logo de la empresa' },
+  { key: 'golden', label: 'Golden Touch' },
+  { key: 'jhenzaen', label: 'Jhenzaen' },
+  { key: 'renace', label: 'Renace' },
+  { key: 'ninguno', label: 'Sin logo' },
+];
+
+export type VentaDocOpciones = {
+  /** En los renglones de SERVICIO no salen precio ni total; y si hay servicios,
+   *  tampoco subtotal, IVA, TOTAL ni equivalente en Bs (delatarían el monto). */
+  ocultarMontosServicio: boolean;
+  /** Sin la etiqueta «Servicio» bajo la descripción ni la unidad «SERV». */
+  ocultarIdServicio: boolean;
+  /** Logo de arriba a la izquierda. */
+  logo: VentaLogoKey;
+  /** Logo de arriba a la derecha, junto al sello (por defecto ninguno). */
+  logo2: VentaLogoKey;
+};
+
+export const VENTA_DOC_OPCIONES_DEFAULT: VentaDocOpciones = {
+  ocultarMontosServicio: false,
+  ocultarIdServicio: false,
+  logo: 'principal',
+  logo2: 'ninguno',
+};
+
+export function logoUri(k: VentaLogoKey | null | undefined): string {
+  switch (k) {
+    case 'principal': return LOGO_DATA_URI;
+    case 'golden': return GOLDEN_TOUCH_LOGO_DATA_URI;
+    case 'jhenzaen': return JHENZAEN_LOGO_DATA_URI;
+    case 'renace': return RENACE_LOGO_DATA_URI;
+    default: return '';
+  }
+}
+
+/** Lo guardado (AsyncStorage) puede venir viejo o roto: se completa con lo de fábrica. */
+export function opcionesVentaDoc(raw: any): VentaDocOpciones {
+  const o = raw && typeof raw === 'object' ? raw : {};
+  const esLogo = (v: any) => VENTA_LOGOS.some((l) => l.key === v);
+  return {
+    ocultarMontosServicio: o.ocultarMontosServicio === true,
+    ocultarIdServicio: o.ocultarIdServicio === true,
+    logo: esLogo(o.logo) ? o.logo : VENTA_DOC_OPCIONES_DEFAULT.logo,
+    logo2: esLogo(o.logo2) ? o.logo2 : VENTA_DOC_OPCIONES_DEFAULT.logo2,
+  };
+}
+
+/** La unidad que se imprime: «SERV» desaparece si se oculta el identificador. */
+export function unidadImpresa(it: VentaItem, op: VentaDocOpciones): string {
+  const u = String(it.unit ?? '').trim();
+  if (op.ocultarIdServicio && it.kind === 'servicio' && (!u || /^serv/i.test(u))) return '';
+  return u || '—';
+}
+
 const esc = (s: any): string =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -59,7 +123,15 @@ const NAVY = '#16324F';
  * del cliente en bloque propio, tabla con cantidad/unidad/precio/total, el
  * TOTAL grande en $ y su equivalente en Bs con la tasa usada, y dos firmas.
  */
-export function ventaDocumentoHtml(d: VentaDocData): string {
+export function ventaDocumentoHtml(d: VentaDocData, opciones?: Partial<VentaDocOpciones> | null): string {
+  const op = opcionesVentaDoc({ ...VENTA_DOC_OPCIONES_DEFAULT, ...(opciones || {}) });
+  const hayServicio = d.items.some((it) => it.kind === 'servicio');
+  // Con montos de servicio ocultos y TODO servicio, se van las columnas enteras.
+  const sinMontos = op.ocultarMontosServicio && hayServicio;
+  const sinColumnasMonto = sinMontos && d.items.every((it) => it.kind === 'servicio');
+  const montoDe = (it: VentaItem) => op.ocultarMontosServicio && it.kind === 'servicio';
+  const logo1 = logoUri(op.logo);
+  const logo2 = logoUri(op.logo2);
   const esFactura = d.docKind === 'factura';
   const titulo = esFactura ? 'FACTURA' : 'NOTA DE ENTREGA';
   const sello = esFactura ? NAVY : '#B45309';
@@ -69,16 +141,16 @@ export function ventaDocumentoHtml(d: VentaDocData): string {
       <td class="c mut">${i + 1}</td>
       <td>
         <div class="nm">${esc(it.name)}</div>
-        <div class="tag">${it.kind === 'servicio' ? '🧰 Servicio' : '📦 Material'}</div>
+        ${it.kind === 'servicio' && op.ocultarIdServicio ? '' : `<div class="tag">${it.kind === 'servicio' ? '🧰 Servicio' : '📦 Material'}</div>`}
         ${/* A QUÉ MÁQUINA se le hizo (23-sep-2026). Va en el papel: un servicio de
               maquinaria sin decir a cuál máquina fue es lo que después no se puede
               cobrar ni reclamar. El nombre viene CONGELADO en el renglón. */''}
         ${it.maquina ? `<div class="tag">🚜 ${esc(it.maquina)}${it.maquina_serial ? ` · Serial ${esc(it.maquina_serial)}` : ''}${it.maquina_placa ? ` · Placa ${esc(it.maquina_placa)}` : ''}</div>` : ''}
       </td>
       <td class="c">${qty(it.qty)}</td>
-      <td class="c mut">${esc(it.unit || '—')}</td>
-      <td class="r">${usd(it.price)}</td>
-      <td class="r b">${usd(lineaTotal(it))}</td>
+      <td class="c mut">${esc(unidadImpresa(it, op))}</td>
+      ${sinColumnasMonto ? '' : `<td class="r">${montoDe(it) ? '' : usd(it.price)}</td>
+      <td class="r b">${montoDe(it) ? '' : usd(lineaTotal(it))}</td>`}
     </tr>`).join('');
 
   const ivaFila = d.conIva
@@ -103,6 +175,7 @@ export function ventaDocumentoHtml(d: VentaDocData): string {
 
   .head{display:flex;align-items:flex-start;gap:14px;border-bottom:3px solid ${NAVY};padding-bottom:10px}
   .head img{height:62px;width:auto}
+  .head img.l2{height:54px;margin-left:4px}
   .co{flex:1}
   .co h1{margin:0;font-size:19px;color:${NAVY};letter-spacing:-.2px}
   .co .sub{color:#64748B;font-size:11px;margin-top:2px}
@@ -154,7 +227,7 @@ export function ventaDocumentoHtml(d: VentaDocData): string {
   </style></head><body>
 
     <div class="head">
-      <img src="${LOGO_DATA_URI}"/>
+      ${logo1 ? `<img src="${logo1}"/>` : ''}
       <div class="co">
         <h1>${esc(COMPANY_NAME)}</h1>
         <div class="sub">Documento de venta · ${esc(titulo.toLowerCase())}</div>
@@ -164,6 +237,7 @@ export function ventaDocumentoHtml(d: VentaDocData): string {
         <div class="num">${esc(d.numero)}</div>
         <div class="fec">${esc(d.fecha)}${d.codigo ? ` · ${esc(d.codigo)}` : ''}</div>
       </div>
+      ${logo2 ? `<img class="l2" src="${logo2}"/>` : ''}
     </div>
 
     <div class="cli">
@@ -178,10 +252,10 @@ export function ventaDocumentoHtml(d: VentaDocData): string {
         <th>Descripción</th>
         <th class="c" style="width:56px">Cant.</th>
         <th class="c" style="width:56px">Unidad</th>
-        <th class="r" style="width:86px">Precio</th>
-        <th class="r" style="width:92px">Total</th>
+        ${sinColumnasMonto ? '' : `<th class="r" style="width:86px">Precio</th>
+        <th class="r" style="width:92px">Total</th>`}
       </tr></thead>
-      <tbody>${filas || '<tr><td colspan="6" class="c mut">Sin renglones.</td></tr>'}</tbody>
+      <tbody>${filas || `<tr><td colspan="${sinColumnasMonto ? 4 : 6}" class="c mut">Sin renglones.</td></tr>`}</tbody>
     </table>
 
     <div class="bot">
@@ -189,7 +263,7 @@ export function ventaDocumentoHtml(d: VentaDocData): string {
         ${pago}
         ${d.nota ? `<div class="nota">${esc(d.nota)}</div>` : ''}
       </div>
-      <div>
+      ${sinMontos ? '' : `<div>
         <table class="tot">
           <tr><td class="lbl">Subtotal</td><td class="val">${usd(d.subtotal)}</td></tr>
           ${ivaFila}
@@ -197,7 +271,7 @@ export function ventaDocumentoHtml(d: VentaDocData): string {
           <tr class="bs"><td>Equivalente</td><td class="val">${bs(d.totalBs)}</td></tr>
         </table>
         <div class="tasa">${d.tasaBs > 0 ? `Tasa BCV: ${bs(d.tasaBs)} / $` : 'Sin tasa BCV registrada'}</div>
-      </div>
+      </div>`}
     </div>
 
     <div class="firmas">

@@ -120,7 +120,10 @@ export function ContactoPicker({
 
       // Si no se pudo crear en la tabla contactos o no tiene permisos,
       // seleccionamos directamente el ID de la empresa para no bloquear la venta/nota de entrega!
-      elegir(x.empresa.id);
+      // 01-nov-2026: con el prefijo «empresa_». El id pelado de la empresa es un
+      // UUID y se mandaba como client_id (que apunta a contactos): la venta no
+      // guardaba. VentasScreen quita el prefijo y resuelve nombre y RIF.
+      elegir(`empresa_${x.empresa.id}`);
       toast.success(`${x.empresa.name} seleccionada.`);
     } finally {
       setBusy(false);

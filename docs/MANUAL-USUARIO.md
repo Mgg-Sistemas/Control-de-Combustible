@@ -2360,6 +2360,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > (qué se agregó, quitó o cambió) y cabecera (título, nota, proveedor, área, condiciones de pago…). Editar el
 > destino de una solicitud ya no borra los adjuntos, las condiciones de pago ni el IVA.
 
+> **💰 Ventas: cliente correcto y opciones del papel** *(01/11/2026)*. Al elegir una **empresa del catálogo** como
+> cliente ya no se toma otra empresa que tuviera el mismo RIF cargado: el RIF solo une si el nombre también coincide.
+> Al **🖨️ Imprimir** una venta (💰 Ventas o 🧰 Ventas de servicio) sale primero **🖨️ Opciones del documento**: ocultar
+> los **montos de los servicios** (precio, total, subtotal, total y equivalente en Bs), ocultar el **identificador de
+> servicio** (la etiqueta «Servicio» y la unidad «SERV»), y elegir o quitar el **logo** de la izquierda y un segundo logo
+> junto al número. Lo oculto no se anuncia en el papel. Cada persona encuentra sus opciones como las dejó la última vez.
+
 > **✏️ Editar mi solicitud desde Pedir Material** *(01/11/2026)*. Quien pidió un repuesto **corrige su propia
 > solicitud** de compra técnica con el botón **«✏️ Editar mi solicitud»** de 🛒 Pedir Material → Mis solicitudes,
 > **sin necesitar permiso de Compras ni de Inventario** (antes la base solo dejaba modificar a esos dos módulos y
