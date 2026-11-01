@@ -1,5 +1,10 @@
-import React, { useCallback, useMemo, useRef } from 'react';
-import { View } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { View, Text, Image, Pressable } from 'react-native';
+import { useTheme } from '../../theme/ThemeContext';
+import { spacing, radius } from '../../theme';
+import { levelMeets } from '../../lib/permissions';
+import { INGRESOS_NOTAS_ACTIVAS, INGRESOS_FOTOS_ACTIVAS } from '../../lib/combustibleEdicion';
+import EditarFotosCombustibleModal from '../../components/combustible/EditarFotosCombustibleModal';
 import { RList, RRow, RAmount, RPill } from '../../components/redesign/RList';
 import { FuelIntake, Tank } from '../../types/database';
 import { useAuth } from '../../context/AuthContext';
@@ -29,7 +34,14 @@ const FUEL_OPTIONS = [
  * tanque sin buscarlo. Reusa RList → RecordForm (lógica intacta).
  */
 export default function IntakesPilot() {
-  const { fullName } = useAuth();
+  const { fullName, moduleLevel } = useAuth();
+  const { colors } = useTheme();
+  // 01-nov-2026: con 'full' en Ingresos se edita la foto/nota de un ingreso ya
+  // registrado. Queda detrás de los interruptores: fuel_intakes aún no tiene
+  // columnas photos ni notes (ver combustibleEdicion.ts).
+  const puedeEditarFotos = levelMeets(moduleLevel('ingresos'), 'full') && (INGRESOS_FOTOS_ACTIVAS || INGRESOS_NOTAS_ACTIVAS);
+  const [editFotos, setEditFotos] = useState<any | null>(null);
+  const refetchRef = useRef<(() => void) | null>(null);
   const { data: tanks } = useTable<Tank>('tanks');
 
   // Tanque del encargado logueado: el que tenga `responsable` = su nombre (comparación
@@ -56,11 +68,14 @@ export default function IntakesPilot() {
     { key: 'total_cost', label: 'Costo total', type: 'number' },
     // Preseleccionado con el tanque del encargado (si coincide el responsable). Muestra
     // ubicación + responsable en la etiqueta para distinguir tanques con el mismo nombre.
+    // 01-nov-2026: nota opcional — se enciende cuando exista fuel_intakes.notes.
+    ...(INGRESOS_NOTAS_ACTIVAS ? [{ key: 'notes', label: 'Nota / observación (opcional)', type: 'textarea' as const }] : []),
     { key: 'tank_id', label: 'Tanque destino', type: 'lookup', table: 'tanks', labelCol: 'name', subLabelCols: ['location', 'responsable'], dropdown: true, required: true, ...(miTanqueId ? { defaultValue: miTanqueId } : {}) },
   ]), [miTanqueId]);
 
   const cleanedRef = useRef<Set<string>>(new Set());
   const limpiarAjustesIngresos = useCallback(async (rows: FuelIntake[], refetch: () => void) => {
+    refetchRef.current = refetch;
     const legados = (rows || []).filter(
       (r) => esAjusteManualVisibleLegado(r) && !cleanedRef.current.has(r.id)
     );
@@ -81,6 +96,7 @@ export default function IntakesPilot() {
   const filtrarIngresosReales = useCallback((i: FuelIntake) => !esRegistroAjusteTanque(i), []);
 
   return (
+    <>
     <RList<FuelIntake>
       title="Ingresos"
       table="fuel_intakes"
@@ -109,9 +125,31 @@ export default function IntakesPilot() {
             {i.supplier ? <RRow label="Proveedor" value={i.supplier} /> : null}
             {i.invoice_no ? <RRow label="Factura" value={i.invoice_no} /> : null}
             {i.total_cost != null ? <RRow label="Costo total" value={Number(i.total_cost).toLocaleString()} mono /> : null}
+            {INGRESOS_NOTAS_ACTIVAS && (i as any).notes ? <RRow label="Nota" value={String((i as any).notes)} /> : null}
           </View>
+          {INGRESOS_FOTOS_ACTIVAS && ((i as any).photos ?? []).length > 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+              {((i as any).photos as string[]).filter(Boolean).map((uri, k) => (
+                <Image key={`${uri}-${k}`} source={{ uri }} style={{ width: 64, height: 64, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }} resizeMode="cover" />
+              ))}
+            </View>
+          ) : null}
+          {puedeEditarFotos ? (
+            <Pressable onPress={() => setEditFotos(i as any)} style={{ alignSelf: 'flex-start', marginTop: spacing.sm, paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🖼️ Editar foto / nota</Text>
+            </Pressable>
+          ) : null}
         </>
       )}
     />
+    <EditarFotosCombustibleModal
+      visible={editFotos != null}
+      tabla="fuel_intakes"
+      registro={editFotos}
+      carpetaId={editFotos?.tank_id || null}
+      onClose={() => setEditFotos(null)}
+      onSaved={() => refetchRef.current?.()}
+    />
+    </>
   );
 }

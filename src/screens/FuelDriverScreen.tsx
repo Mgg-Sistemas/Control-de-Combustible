@@ -18,6 +18,7 @@ import { spacing, radius } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, cmpText, onlyDecimal } from '../lib/text';
+import { leerNumero } from '../lib/numeros';
 import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../lib/photo';
@@ -74,10 +75,9 @@ function today(): string {
 }
 
 /** Convierte el texto de un input decimal ("12,5") a número (12.5). */
+// 01-nov-2026: punto O coma (leerNumero). Vacío o sin dígitos → NaN, como antes.
 function toNum(s: string): number {
-  const t = String(s ?? '').replace(',', '.');
-  const n = Number(t);
-  return isFinite(n) ? n : NaN;
+  return /\d/.test(String(s ?? '')) ? leerNumero(s) : NaN;
 }
 
 export default function FuelDriverScreen() {
@@ -859,7 +859,7 @@ export default function FuelDriverScreen() {
                       <TextInput
                         value={liters}
                         onChangeText={(t) => setLiters(onlyDecimal(t))}
-                        keyboardType="numeric"
+                        keyboardType="decimal-pad"
                         placeholder="0"
                         placeholderTextColor={colors.muted}
                         style={{
@@ -882,7 +882,7 @@ export default function FuelDriverScreen() {
                       <TextInput
                         value={pricePerLiter}
                         onChangeText={(t) => setPricePerLiter(onlyDecimal(t))}
-                        keyboardType="numeric"
+                        keyboardType="decimal-pad"
                         placeholder="0"
                         placeholderTextColor={colors.muted}
                         style={{

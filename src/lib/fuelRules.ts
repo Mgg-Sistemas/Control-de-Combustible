@@ -11,6 +11,7 @@
  * 5. MENSAJES PARA WHATSAPP: Formateo limpio con emojis estándar para compartir comprobantes al instante.
  */
 import { Linking, Platform } from 'react-native';
+import { urlWhatsapp } from './combustibleEdicion';
 
 export const MARGEN_MERMA_DEFECTO = 10; // 10% por defecto
 
@@ -169,7 +170,7 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
   if (d.tipo === 'surtido') {
     lineas.push('⛽ *COMPROBANTE DE SURTIDO - COMBUSTIBLE*');
     lineas.push('');
-    lineas.push(`🛢️ *Tanque origen:* ${d.tanqueNombre}`);
+    lineas.push(`⛽ *Tanque origen:* ${d.tanqueNombre}`);
     const eqLabel = [
       d.equipoCodigo,
       `(Placa: ${d.equipoPlaca || 'S/P'})`,
@@ -180,14 +181,14 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
     lineas.push(`🚜 *Equipo / Maquinaria:* ${eqLabel || 'Vehículo general'}`);
     lineas.push(`💧 *Litros surtidos:* ${d.litros.toLocaleString('es-VE')} L`);
     if (d.contadorIni != null || d.contadorFin != null) {
-      lineas.push(`🔢 *Contador bomba:* ${d.contadorIni ?? '—'} ➔ ${d.contadorFin ?? '—'}`);
+      lineas.push(`🔢 *Contador bomba:* ${d.contadorIni ?? '—'} → ${d.contadorFin ?? '—'}`);
     }
     if (d.horometroIni != null || d.horometroFin != null) {
       const horas = d.horasTrabajadas != null ? ` (${d.horasTrabajadas} h trab.)` : '';
-      lineas.push(`⏱️ *Horómetro:* ${d.horometroIni ?? '—'} ➔ ${d.horometroFin ?? '—'}${horas}`);
+      lineas.push(`🕒 *Horómetro:* ${d.horometroIni ?? '—'} → ${d.horometroFin ?? '—'}${horas}`);
     }
     if (d.kilometraje != null) {
-      lineas.push(`🛣️ *Odómetro:* ${d.kilometraje.toLocaleString('es-VE')} km`);
+      lineas.push(`🚗 *Odómetro:* ${d.kilometraje.toLocaleString('es-VE')} km`);
     }
     if (d.autorizadoPor) {
       lineas.push(`👤 *Autorizado por:* ${d.autorizadoPor}`);
@@ -199,13 +200,13 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
     lineas.push(`📥 *Tanque destino:* ${d.tanqueDestinoNombre || 'Tanque receptor'}`);
     lineas.push(`💧 *Litros trasladados:* ${d.litros.toLocaleString('es-VE')} L`);
     if (d.contadorIni != null || d.contadorFin != null) {
-      lineas.push(`🔢 *Contador bomba:* ${d.contadorIni ?? '—'} ➔ ${d.contadorFin ?? '—'}`);
+      lineas.push(`🔢 *Contador bomba:* ${d.contadorIni ?? '—'} → ${d.contadorFin ?? '—'}`);
     }
     if (d.autorizadoPor) lineas.push(`👤 *Responsable:* ${d.autorizadoPor}`);
   } else {
     lineas.push('📥 *RECEPCIÓN DE COMBUSTIBLE*');
     lineas.push('');
-    lineas.push(`🛢️ *Tanque receptor:* ${d.tanqueNombre}`);
+    lineas.push(`⛽ *Tanque receptor:* ${d.tanqueNombre}`);
     lineas.push(`💧 *Litros recibidos:* ${d.litros.toLocaleString('es-VE')} L`);
     if (d.autorizadoPor) lineas.push(`👤 *Recibido por:* ${d.autorizadoPor}`);
   }
@@ -223,7 +224,9 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
  */
 export async function compartirPorWhatsapp(d: DatosMensajeCombustible): Promise<void> {
   const texto = construirMensajeWhatsapp(d);
-  const url = `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  // 01-nov-2026: api.whatsapp.com/send en vez de wa.me — la redirección de wa.me
+  // dañaba los emojis (rombo con signo de interrogación). Ver urlWhatsapp en combustibleEdicion.ts.
+  const url = urlWhatsapp(texto);
   try {
     if (Platform.OS === 'web') {
       window.open(url, '_blank');

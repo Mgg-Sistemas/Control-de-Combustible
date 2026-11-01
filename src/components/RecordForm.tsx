@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { norm, cmpText, onlyDigits, onlyDecimal, corregirTexto } from '../lib/text';
+import { leerNumero } from '../lib/numeros';
 import { caracasParts } from '../lib/jornada';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -323,7 +324,7 @@ export function RecordForm({
       // correos/URLs/cuentas (se dañarían); ahí se guarda tal cual.
       const noFix = /serial|plate|placa|code|identif|mail|correo|url|http|account|cuenta|cedula|cédula/i.test(f.key);
       const esTextoLibre = (f.type === 'text' || f.type === 'textarea' || f.type === 'suggest') && !noFix;
-      payload[f.key] = f.type === 'number' ? Number(raw) : f.type === 'switch' ? raw === 'true' : esTextoLibre ? corregirTexto(raw) : raw;
+      payload[f.key] = f.type === 'number' ? leerNumero(raw) : f.type === 'switch' ? raw === 'true' : esTextoLibre ? corregirTexto(raw) : raw;
     });
 
     // Campos que quedaron OCULTOS por `showIf` con el estado actual (p. ej.
@@ -577,8 +578,9 @@ export function RecordForm({
                     }}
                     placeholder={('placeholder' in f && f.placeholder) || ''}
                     placeholderTextColor={colors.muted}
-                    keyboardType={f.type === 'number' || /cedula|cédula/i.test(f.key) ? 'numeric' : 'default'}
-                    inputMode={f.type === 'number' || /cedula|cédula/i.test(f.key) ? 'numeric' : undefined}
+                    // 01-nov-2026: 'decimal-pad' — en iPhone 'numeric' no trae punto ni coma.
+                    keyboardType={f.type === 'number' ? 'decimal-pad' : /cedula|cédula/i.test(f.key) ? 'numeric' : 'default'}
+                    inputMode={f.type === 'number' ? 'decimal' : /cedula|cédula/i.test(f.key) ? 'numeric' : undefined}
                     autoCapitalize={(f.type === 'text' || f.type === 'textarea') && !/cedula|cédula|mail|correo|url|http|account|cuenta/i.test(f.key) ? 'characters' : 'none'}
                   />
                 )}

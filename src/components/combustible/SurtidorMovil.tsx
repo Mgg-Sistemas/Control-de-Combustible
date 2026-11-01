@@ -19,6 +19,8 @@ import { useTable } from '../../hooks/useTable';
 import { Tank, TankLevel, Machinery, Vehicle, Dispatch, FuelIntake, Transfer } from '../../types/database';
 import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../../lib/photo';
 import PhotoSourceSheet from '../PhotoSourceSheet';
+import { leerNumero } from '../../lib/numeros';
+import { CONSUMOS_NOTAS_ACTIVAS, INGRESOS_NOTAS_ACTIVAS } from '../../lib/combustibleEdicion';
 import {
   contadorFinalPropuesto,
   horasTrabajadas,
@@ -183,11 +185,11 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
   };
 
   // Cálculo en vivo de horas trabajadas y propuesta de contador final
-  const litrosNum = Number(liters.replace(',', '.')) || 0;
-  const hiNum = hi !== '' ? Number(hi.replace(',', '.')) : null;
-  const hfNum = hf !== '' ? Number(hf.replace(',', '.')) : null;
-  const ciNum = ci !== '' ? Number(ci.replace(',', '.')) : null;
-  const cfNum = cf !== '' ? Number(cf.replace(',', '.')) : null;
+  const litrosNum = leerNumero(liters) || 0;
+  const hiNum = hi !== '' ? leerNumero(hi) : null;
+  const hfNum = hf !== '' ? leerNumero(hf) : null;
+  const ciNum = ci !== '' ? leerNumero(ci) : null;
+  const cfNum = cf !== '' ? leerNumero(cf) : null;
 
   const hrsCalculadas = horasTrabajadas(hiNum, hfNum);
   const cfPropuesto = contadorFinalPropuesto(ciNum, litrosNum);
@@ -282,7 +284,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
 
     setSaving(true);
     try {
-      const price = pricePerLiter ? Number(pricePerLiter.replace(',', '.')) : null;
+      const price = pricePerLiter ? leerNumero(pricePerLiter) : null;
       const totalAmount = price ? Math.round(price * litrosNum * 100) / 100 : null;
 
       const payload: any = {
@@ -293,7 +295,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         liters: litrosNum,
         tank_id: selectedTank.id,
         driver_operator: autorizadoPor.trim() || currentUserName,
-        odometer_km: km ? Number(km.replace(',', '.')) : null,
+        odometer_km: km ? leerNumero(km) : null,
         hourmeter_h: hfNum ?? (selectedMachine?.last_horometro || null),
         fuel_start: ciNum,
         fuel_end: contadorFinalEfectivo,
@@ -301,6 +303,8 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         price_per_liter: price,
         total_amount: totalAmount,
         photos: photos,
+        // 01-nov-2026: la nota se guarda cuando exista dispatches.notes (interruptor).
+        ...(CONSUMOS_NOTAS_ACTIVAS ? { notes: nota.trim() || null } : {}),
       };
 
       const { data: newDispatch, error: errInsert } = await supabase
@@ -338,7 +342,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         horometroIni: hiNum,
         horometroFin: hfNum,
         horasTrabajadas: hrsCalculadas,
-        kilometraje: km ? Number(km) : null,
+        kilometraje: km ? leerNumero(km) : null,
         autorizadoPor: autorizadoPor.trim() || currentUserName,
         registradoPor: currentUserName,
         nota: nota.trim() || undefined,
@@ -366,7 +370,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
       toast.error('Selecciona un tanque destino diferente al origen.');
       return;
     }
-    const l = Number(transferLiters.replace(',', '.')) || 0;
+    const l = leerNumero(transferLiters) || 0;
     if (l <= 0) {
       toast.error('Ingresa los litros a transferir.');
       return;
@@ -393,8 +397,8 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         tanqueNombre: selectedTank.name,
         tanqueDestinoNombre: destTank?.name || 'Tanque receptor',
         litros: l,
-        contadorIni: transferCi ? Number(transferCi) : null,
-        contadorFin: transferCf ? Number(transferCf) : null,
+        contadorIni: transferCi ? leerNumero(transferCi) : null,
+        contadorFin: transferCf ? leerNumero(transferCf) : null,
         autorizadoPor: currentUserName,
         registradoPor: currentUserName,
         nota: transferNotes.trim() || undefined,
@@ -416,8 +420,8 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
   // Guardar Entrada de Combustible
   const handleGuardarEntrada = async () => {
     if (!selectedTank) return;
-    const env = Number(intakeGuideLiters.replace(',', '.')) || 0;
-    const rec = intakeRealLiters ? Number(intakeRealLiters.replace(',', '.')) : env;
+    const env = leerNumero(intakeGuideLiters) || 0;
+    const rec = intakeRealLiters ? leerNumero(intakeRealLiters) : env;
     if (env <= 0) {
       toast.error('Ingresa los litros según la guía de PDVSA / proveedor.');
       return;
@@ -439,6 +443,10 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         tank_id: selectedTank.id,
         invoice_no: intakeInvoiceNo.trim() || null,
         created_by: session?.user?.id || null,
+        // 01-nov-2026: la observación (y guía/merma) ya no se pierde al guardar.
+        ...(INGRESOS_NOTAS_ACTIVAS
+          ? { notes: [env !== rec ? `Guía: ${env} L · Recibido: ${rec} L` : '', intakeNotes.trim()].filter(Boolean).join(' · ') || null }
+          : {}),
       });
 
       if (errIn) throw new Error(errIn.message);
@@ -1343,7 +1351,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
               <TextInput
                 value={liters}
                 onChangeText={setLiters}
-                keyboardType="numeric"
+                keyboardType="decimal-pad"
                 placeholder="Ej. 120"
                 placeholderTextColor={colors.muted}
                 style={{
@@ -1384,7 +1392,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                   <TextInput
                     value={ci}
                     onChangeText={setCi}
-                    keyboardType="numeric"
+                    keyboardType="decimal-pad"
                     placeholder="Arranca en..."
                     placeholderTextColor={colors.muted}
                     style={{
@@ -1405,7 +1413,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                   <TextInput
                     value={cf}
                     onChangeText={setCf}
-                    keyboardType="numeric"
+                    keyboardType="decimal-pad"
                     placeholder={cfPropuesto ? String(cfPropuesto) : 'Lectura final'}
                     placeholderTextColor={colors.muted}
                     style={{
@@ -1447,7 +1455,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                     <TextInput
                       value={hi}
                       onChangeText={setHi}
-                      keyboardType="numeric"
+                      keyboardType="decimal-pad"
                       placeholder="Último horómetro"
                       placeholderTextColor={colors.muted}
                       style={{
@@ -1466,7 +1474,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                     <TextInput
                       value={hf}
                       onChangeText={setHf}
-                      keyboardType="numeric"
+                      keyboardType="decimal-pad"
                       placeholder="Lectura actual"
                       placeholderTextColor={colors.muted}
                       style={{
@@ -1500,7 +1508,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                 <TextInput
                   value={km}
                   onChangeText={setKm}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   placeholder="Ej. 145000"
                   placeholderTextColor={colors.muted}
                   style={{
@@ -1545,7 +1553,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                 <TextInput
                   value={pricePerLiter}
                   onChangeText={setPricePerLiter}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   placeholder="Ej. 0.50"
                   placeholderTextColor={colors.muted}
                   style={{
@@ -1706,7 +1714,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
               <TextInput
                 value={transferLiters}
                 onChangeText={setTransferLiters}
-                keyboardType="numeric"
+                keyboardType="decimal-pad"
                 placeholder="Ej. 1000"
                 placeholderTextColor={colors.muted}
                 style={{
@@ -1826,7 +1834,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                 <TextInput
                   value={intakeGuideLiters}
                   onChangeText={setIntakeGuideLiters}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   placeholder="Guía/Factura"
                   placeholderTextColor={colors.muted}
                   style={{
@@ -1848,7 +1856,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                 <TextInput
                   value={intakeRealLiters}
                   onChangeText={setIntakeRealLiters}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   placeholder="Medido en tanque"
                   placeholderTextColor={colors.muted}
                   style={{
@@ -1865,10 +1873,10 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
               </View>
             </View>
 
-            {intakeGuideLiters && intakeRealLiters && Number(intakeGuideLiters) > Number(intakeRealLiters) && (
+            {intakeGuideLiters && intakeRealLiters && leerNumero(intakeGuideLiters) > leerNumero(intakeRealLiters) && (
               <View style={{ backgroundColor: colors.dangerSoftBg, padding: spacing.sm, borderRadius: radius.sm }}>
                 <Text style={{ fontSize: 12, color: colors.danger, fontWeight: '800' }}>
-                  ⚠️ Merma de recepción detectada: {(Number(intakeGuideLiters) - Number(intakeRealLiters)).toFixed(2)} L ({(((Number(intakeGuideLiters) - Number(intakeRealLiters)) / Number(intakeGuideLiters)) * 100).toFixed(1)}%)
+                  ⚠️ Merma de recepción detectada: {(leerNumero(intakeGuideLiters) - leerNumero(intakeRealLiters)).toFixed(2)} L ({(((leerNumero(intakeGuideLiters) - leerNumero(intakeRealLiters)) / leerNumero(intakeGuideLiters)) * 100).toFixed(1)}%)
                 </Text>
               </View>
             )}

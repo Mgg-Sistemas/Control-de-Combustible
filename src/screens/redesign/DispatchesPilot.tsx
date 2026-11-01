@@ -10,6 +10,9 @@ import { useAuth } from '../../context/AuthContext';
 import { useTable } from '../../hooks/useTable';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../components/ToastProvider';
+import { levelMeets } from '../../lib/permissions';
+import { CONSUMOS_NOTAS_ACTIVAS } from '../../lib/combustibleEdicion';
+import EditarFotosCombustibleModal from '../../components/combustible/EditarFotosCombustibleModal';
 import {
   MARCADOR_AJUSTE_TANQUE,
   agruparLitrosPorMaquinaTop,
@@ -93,9 +96,14 @@ function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
 export default function DispatchesPilot() {
   const { colors } = useTheme();
   const toast = useToast();
-  const { fullName, session } = useAuth();
+  const { fullName, session, moduleLevel } = useAuth();
   const currentUserName = fullName || session?.user?.email || '';
   const [viewPhoto, setViewPhoto] = useState<string | null>(null);
+  // 01-nov-2026: con 'full' en Consumos se cambia la foto (y la nota, cuando exista
+  // la columna) de un consumo ya registrado. La RLS pide can_write_module('consumos').
+  const puedeEditarFotos = levelMeets(moduleLevel('consumos'), 'full');
+  const [editFotos, setEditFotos] = useState<any | null>(null);
+  const refetchRef = useRef<(() => void) | null>(null);
 
   // Tanques activos del sistema para deducción y auto-asignación
   const { data: tanks } = useTable<Tank>('tanks', {
@@ -210,6 +218,7 @@ export default function DispatchesPilot() {
   // el trigger NO reponga los litros en el tanque), ocultándolo de Consumos.
   const limpiarAjustesVisiblesLegados = useCallback(
     async (rows: Dispatch[], refetch: () => void) => {
+      refetchRef.current = refetch;
       const legados = (rows || []).filter(
         (r) => esAjusteManualVisibleLegado(r) && !cleanedIdsRef.current.has(r.id)
       );
@@ -356,6 +365,8 @@ export default function DispatchesPilot() {
           { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
           { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },
           { key: 'driver_operator', label: 'Conductor/Operador', type: 'text', defaultValue: currentUserName },
+          // 01-nov-2026: nota opcional — se enciende cuando exista dispatches.notes.
+          ...(CONSUMOS_NOTAS_ACTIVAS ? [{ key: 'notes', label: 'Nota / observación (opcional)', type: 'textarea' as const }] : []),
         ]}
         renderItem={(d) => {
           const fotos = ((d as any).photos ?? []).filter(Boolean) as string[];
@@ -503,9 +514,24 @@ export default function DispatchesPilot() {
                   ))}
                 </View>
               ) : null}
+              {CONSUMOS_NOTAS_ACTIVAS && (d as any).notes ? <RRow label="Nota" value={String((d as any).notes)} /> : null}
+              {puedeEditarFotos ? (
+                <Pressable onPress={() => setEditFotos(d as any)} style={{ alignSelf: 'flex-start', marginTop: spacing.sm, paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🖼️ Editar foto{CONSUMOS_NOTAS_ACTIVAS ? ' / nota' : ''}</Text>
+                </Pressable>
+              ) : null}
             </>
           );
         }}
+      />
+
+      <EditarFotosCombustibleModal
+        visible={editFotos != null}
+        tabla="dispatches"
+        registro={editFotos}
+        carpetaId={editFotos?.machinery_id || editFotos?.vehicle_id || null}
+        onClose={() => setEditFotos(null)}
+        onSaved={() => refetchRef.current?.()}
       />
 
       {/* Visor de foto a pantalla completa. */}

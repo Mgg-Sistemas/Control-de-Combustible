@@ -2366,6 +2366,14 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > los **montos de los servicios** (precio, total, subtotal, total y equivalente en Bs), ocultar el **identificador de
 > servicio** (la etiqueta «Servicio» y la unidad «SERV»), y elegir o quitar el **logo** de la izquierda y un segundo logo
 > junto al número. Lo oculto no se anuncia en el papel. Cada persona encuentra sus opciones como las dejó la última vez.
+> **⛽ Combustible: foto, nota y decimales** *(01/11/2026)*. Quien tiene permiso **full** en Consumos (o en
+> Ingresos) ve **«🖼️ Editar foto / nota»** en cada consumo o entrada ya registrados: quita fotos o agrega nuevas
+> con **📷 Cámara** o **🖼️ Galería** y escribe una **nota u observación** (opcional). Al registrar también hay un
+> campo de nota opcional, y la observación de la entrada desde el Surtidor ya se guarda. Cambiar la foto o la nota
+> **no mueve los litros del tanque**. Si no se pudo guardar por permiso, la pantalla lo dice. Los campos de
+> **litros, contador, horómetro y montos** abren el teclado con separador decimal (también en iPhone) y aceptan
+> **punto o coma**. El **comprobante por WhatsApp** ya no muestra rombos con «?» en lugar de los emojis: cada
+> dato va en su línea.
 
 > **✏️ Editar mi solicitud desde Pedir Material** *(01/11/2026)*. Quien pidió un repuesto **corrige su propia
 > solicitud** de compra técnica con el botón **«✏️ Editar mi solicitud»** de 🛒 Pedir Material → Mis solicitudes,
