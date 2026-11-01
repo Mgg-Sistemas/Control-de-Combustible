@@ -134,6 +134,73 @@ eq('⭐ la foto tomada en el teléfono no se pierde aunque gane la nube',
 
 eq('el estado en vivo pierde su emoji para el sello', F.estadoSinEmoji('✅ Operativa'), 'Operativa');
 
+// ── Formato de la ficha hecha a mano (01-nov-2026, segunda vuelta) ──────────
+const MAQ = { ...XCMG, photo_url: 'https://x.supabase.co/storage/v1/object/public/machinery/a/equipo.jpg',
+  photo_serial_url: 'https://x.supabase.co/storage/v1/object/public/machinery/a/placa.jpg',
+  fotoHorometroUrl: 'https://x.supabase.co/storage/v1/object/public/machinery/a/horo.jpg' };
+const fotoUrl = (n) => `https://x.supabase.co/storage/v1/object/public/machinery/a/ficha-anexo/${n}.jpg`;
+const conAnexo = {
+  ...ficha,
+  seccionFotosTitulo: '',
+  fotoPrincipalLeyenda: null,
+  observaciones: [
+    { id: 'o-estado', titulo: 'Estado General', texto: 'Placa verificada.' },
+    { id: 'o-componentes', titulo: 'Componentes', texto: 'Cabina y pluma integradas.' },
+  ],
+  anexos: [
+    { id: 'a1', titulo: 'VISTAS ESTRUCTURALES Y TREN DE RODAJE', columnas: 2, fotos: [
+      { id: 'f1', url: fotoUrl(1), leyenda: 'Perfil sobre lowboy (vista derecha)' },
+      { id: 'f2', url: MAQ.photo_serial_url, leyenda: 'Coincidencia entre placa y PIN', descripcion: 'XUG00225CTPA00246' },
+    ] },
+    { id: 'a2', titulo: 'SECCIÓN VACÍA', columnas: 3, fotos: [] },
+    { id: 'a3', titulo: 'COMPARTIMENTO DE MOTOR, FILTROS Y REFRIGERACIÓN', subtitulo: 'Revisión del 29/10', columnas: 3, fotos: [
+      { id: 'f3', url: fotoUrl(3), leyenda: 'Filtro de aire' },
+    ] },
+  ],
+};
+const H = F.fichaTecnicaMaquinaHtml(MAQ, { personalizada: conAnexo });
+ok('⭐⭐ las secciones del anexo salen numeradas y en su orden',
+  H.includes('1. VISTAS ESTRUCTURALES Y TREN DE RODAJE') && H.includes('2. COMPARTIMENTO DE MOTOR')
+    && H.indexOf('1. VISTAS') < H.indexOf('2. COMPARTIMENTO'));
+ok('⭐ la sección sin fotos no sale (ni gasta número)', !H.includes('SECCIÓN VACÍA'));
+ok('⭐⭐ cada foto lleva su título y su explicación', H.includes('Perfil sobre lowboy (vista derecha)') && H.includes('XUG00225CTPA00246</div>'));
+ok('la explicación de la sección sale debajo del título', H.includes('Revisión del 29/10'));
+ok('⭐ cada sección empieza en página nueva y elige 2 o 3 columnas',
+  (H.match(/class="anx-sec"/g) || []).length === 2 && H.includes('anx-grid c2') && H.includes('anx-grid c3'));
+ok('⭐ la foto de la placa puesta en una sección no se repite en el anexo automático',
+  !H.includes('Detalle de la placa de identificación (serial / placa) del equipo'));
+ok('la foto del horómetro que no se puso en una sección sigue en el anexo automático', H.includes('Última foto del horómetro subida'));
+ok('⭐⭐ las observaciones van en un solo recuadro como «Título: texto»',
+  H.includes('<b>Estado General:</b> Placa verificada.') && H.includes('<b>Componentes:</b> Cabina y pluma integradas.')
+    && (H.match(/class="obs-box"/g) || []).length === 1 && H.includes('OBSERVACIONES DE INSPECCIÓN'));
+ok('⭐ las observaciones van antes que la foto del equipo (página 1, como la referencia)',
+  H.indexOf('OBSERVACIONES DE INSPECCIÓN') < H.indexOf('equipo.jpg'));
+ok('⭐ sin título ni leyenda, la foto del equipo sale sola (sin franja ni pie)',
+  !H.includes('VISTA GENERAL DEL EQUIPO') && !H.includes('foto-p1-cap"'));
+ok('⭐ la tarjeta lleva el título arriba y el valor debajo',
+  /<div class="ct">HORÓMETRO \/ KILOMETRAJE<\/div>\s*<div class="cv">10,7 h<\/div>/.test(H));
+ok('⭐⭐ cada página lleva su pie y «Página X de Y»',
+  H.includes('@bottom-left{content:"Ficha Técnica - XCMG · XE225BR"') && H.includes('counter(page) " de " counter(pages)'));
+const Hpie = F.fichaTecnicaMaquinaHtml(MAQ, { personalizada: { ...conAnexo, pieTexto: 'Ficha "X" </style><script>' } });
+ok('⭐ el pie escrito a mano no rompe el CSS ni cuela etiquetas', !Hpie.includes('</style><script>') && Hpie.includes('\\"X\\"'));
+const HsinPie = F.fichaTecnicaMaquinaHtml(MAQ, { personalizada: { ...conAnexo, pieTexto: '' } });
+ok('pie vacío = sin texto, pero sigue «Página X de Y»', !HsinPie.includes('@bottom-left') && HsinPie.includes('counter(pages)'));
+ok('la ficha automática (sin personalizar) no cambia su @page', !F.fichaTecnicaMaquinaHtml(MAQ).includes('@bottom-right'));
+
+eq('↕ ordenar como la referencia: fijos y equivalentes primero, lo demás después, sin perder nada',
+  F.ordenarRenglonesComoReferencia([
+    { id: 'r-codigo', etiqueta: 'Código', valor: 'J' },
+    { id: 'f-origen', etiqueta: 'País de Origen', valor: 'Brasil' },
+    { id: 'r-serial', etiqueta: 'Serie', valor: 'S' },
+    { id: 'r-marca', etiqueta: 'Fabricante / Marca', valor: 'XCMG' },
+    { id: 'r-modelo', etiqueta: 'Modelo', valor: 'XE' },
+    { id: 'x', etiqueta: 'Otro', valor: 'o' },
+  ]).map((r) => r.id),
+  ['r-marca', 'r-modelo', 'r-serial', 'f-origen', 'r-codigo', 'x']);
+
+const limpia = F.limpiarFichaParaNube({ anexos: [{ id: 'a', titulo: 't', fotos: [{ id: '1', url: 'data:image/jpeg;base64,xx' }, { id: '2', url: fotoUrl(2) }] }] });
+eq('⭐ una foto que solo está en el teléfono no sube a la nube, tampoco dentro del anexo', limpia.anexos[0].fotos.map((f) => f.id), ['2']);
+
 // ── Resultado ───────────────────────────────────────────────────────────────
 console.log('\nFICHA TÉCNICA — campos fijos y lo vacío no sale\n');
 if (failures.length) console.log(failures.join('\n'));
