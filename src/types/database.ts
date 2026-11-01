@@ -339,6 +339,8 @@ export interface Employee {
   precio_quincena: number | null;// pago a personal: precio por quincena
   precio_mes: number | null;     // pago a personal: precio por mes
   notes: string | null;
+  /** 🛠️ Habilidades / destrezas del trabajador (1 o varias cargadas manualmente). */
+  habilidades?: string[] | null;
   created_by: string | null;
   created_at: string;
 }
@@ -391,6 +393,8 @@ export interface Aliado {
   state: string | null;
   status: 'activo' | 'inactivo' | 'suspendido';
   notes: string | null;
+  /** 🛠️ Habilidades / destrezas del trabajador (1 o varias cargadas manualmente). */
+  habilidades?: string[] | null;
   created_by: string | null;
   created_at: string;
 }
@@ -602,6 +606,8 @@ export interface Supplier {
   pago_movil_bank?: string | null;
   binance_id?: string | null;
   payment_notes?: string | null;
+  payment_photo_url?: string | null;
+  payment_photo_name?: string | null;
 }
 
 /** Renglón de una solicitud/orden de compra (guardado en JSONB). */
@@ -615,6 +621,7 @@ export interface PurchaseLine {
    *  en la base imponible. Solo lo usa la COMPRA DIRECTA; en los renglones
    *  viejos no existe (= gravado, como siempre). */
   exento?: boolean;
+  image_url?: string | null; // foto de referencia de la pieza / producto
 }
 
 export type PurchaseRequestStatus = 'solicitada' | 'aprobada' | 'rechazada' | 'ordenada';
@@ -679,6 +686,8 @@ export interface DirectPurchase {
   factura_url: string | null;
   factura_type: 'image' | 'pdf' | null;
   factura_name: string | null;
+  foto_producto_url?: string | null;
+  foto_producto_name?: string | null;
   note: string | null;
   created_by: string | null;
   created_at: string;
@@ -737,6 +746,8 @@ export interface InventoryItem {
   // producto terminado del stock "general" ya existente. Columna aditiva
   // (supabase/fabricacion_maestros.sql), default 'general'.
   item_kind?: string;
+  image_url?: string | null;  // Foto del producto/repuesto (Storage)
+  photo_url?: string | null;
 }
 
 /** Vista de existencias: producto + stock derivado de los movimientos. */
@@ -856,13 +867,24 @@ export interface RequirementLine {
   unit: string | null;
   qty: number;
   est_price: number;                // precio estimado unitario (en la moneda indicada)
-  currency: 'USD' | 'VES';          // moneda del precio estimado
+  currency: 'USD' | 'VES' | 'EUR' | 'COP' | string; // moneda del precio estimado
+  exchange_rate?: number;           // tasa de conversión a USD si aplica
   note?: string | null;
   image_url?: string | null;        // foto/imagen de referencia del producto (Storage)
   received?: boolean;               // ya se recibió en inventario
+  // 🏢 Proveedor asignado individualmente a este artículo (compra consolidada multi-proveedor)
+  supplier_id?: string | null;
+  supplier_name?: string | null;
+  cotizaciones?: any[] | null;      // ofertas comparativas para este renglón
+  exento?: boolean;                 // 🧾 Exento de IVA para este renglón (como en Compra Directa)
+  price_usd?: number;               // Precio unitario explícito en USD
+  price_bs?: number;                // Precio unitario explícito en Bolívares
+  modo_precio?: 'unidad' | 'total'; // 🎯 Modo de captura del precio: por unidad (c/u) o total por los objetos
+  total_usd?: number;               // Precio total explícito en USD para todos los objetos del renglón
+  total_bs?: number;                // Precio total explícito en Bolívares para todos los objetos del renglón
 }
 
-export type RequirementStatus = 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'aclaratoria_solicitada';
+export type RequirementStatus = 'pendiente' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'aclaratoria_solicitada' | 'pagado';
 
 /** Requerimiento de compra: se pasa al jefe para aprobar/rechazar; si se compra, se recibe. */
 export interface InventoryRequirement {
@@ -913,6 +935,39 @@ export interface InventoryRequirement {
   // 🏢 Empresa Pagadora (Fase de asignación antes de Tesorería):
   empresa_pagadora_id?: string | null;
   empresa_pagadora_nombre?: string | null;
+
+  // 🔺 Prioridad (29-oct-2026): mismos valores que cuentas.prioridad y la base la
+  // copia en los dos sentidos con la cuenta por pagar. NULL = sin prioridad.
+  prioridad?: 'alta' | 'media' | 'baja' | null;
+  // 🏍️ Motorizado responsable (29-oct-2026): un usuario de la lista (puede ser un
+  // almacenista) o un nombre escrito a mano; el nombre se guarda siempre aparte.
+  motorizado_user_id?: string | null;
+  motorizado_nombre?: string | null;
+
+  // 👔 Filtro de Seguridad por Monto (> $1,000 USD): Aprobación del Gerente General antes del Pago
+  gerente_aprobado?: boolean | null;
+  gerente_aprobado_por?: string | null;
+  gerente_aprobado_at?: string | null;
+
+  // 🧾 Factura Fiscal / Comercial (Ilusiones o Golden Touch):
+  factura_numero?: string | null;
+  factura_url?: string | null;
+  factura_tipo?: 'image' | 'pdf' | null;
+  factura_nombre?: string | null;
+  factura_empresa?: string | null;
+  factura_fecha?: string | null;
+  factura_subida_por?: string | null;
+  factura_subida_at?: string | null;
+
+  // 📦 Control Físico de Almacén (Disponible vs Retirado):
+  despacho_estado?: 'disponible' | 'retirado' | null;
+  despachado_a_nombre?: string | null;
+  despachado_a_id?: string | null;
+  despachado_por?: string | null;
+  despachado_at?: string | null;
+  despacho_nota?: string | null;
+  cotizaciones?: any[] | null;        // ofertas comparativas multi-moneda y multi-proveedor
+  iva_alicuota?: number | null;       // 🧾 Alícuota de IVA del requerimiento (nace en 16%, editable a 0%)
 }
 
 export interface MachineryLocation {
@@ -1162,6 +1217,10 @@ export interface Dispatch {
   total_amount: number | null;
   /** Fotos del surtido (URLs del bucket 'machinery'). */
   photos: string[] | null;
+  fuel_start?: number | null;
+  fuel_end?: number | null;
+  km_ida?: number | null;
+  km_vuelta?: number | null;
 }
 
 export interface Payroll {
@@ -1252,6 +1311,8 @@ export interface MachineryServiceOrder {
   work_done: string | null;         // «Acciones realizadas»
   photos: string[];
   notes: string | null;
+  /** 🛠️ Habilidades / destrezas del trabajador (1 o varias cargadas manualmente). */
+  habilidades?: string[] | null;
   created_by: string | null;
   created_at: string;
 }
@@ -1346,6 +1407,8 @@ export interface Transfer {
   to_tank_id: string;
   liters: number;
   notes: string | null;
+  /** 🛠️ Habilidades / destrezas del trabajador (1 o varias cargadas manualmente). */
+  habilidades?: string[] | null;
   created_by: string | null;
   created_at: string;
 }
@@ -1876,10 +1939,15 @@ export interface Cuenta {
   /** Nombre libre de la contraparte cuando NO viene del catálogo (p. ej. empresa
    *  de mangueras): una 'por_cobrar' vale con company_id O con contraparte. */
   contraparte: string | null;
-  order_id: string | null;        // orden de compra que originó la deuda
+  order_id: string | null;        // orden de compra que originó la deuda (id de la ORDEN, no del requerimiento)
+  // 🔗 Requerimiento del que nace la cuenta (la crea req_sync_compra). Ojo: el
+  // requerimiento se busca por ESTA columna, nunca por order_id (29-oct-2026).
+  inventory_requirement_id?: string | null;
   concepto: string;
   documento: string | null;       // Nº de factura / control / recibo
   factura_url: string | null;     // archivo de la factura (imagen/PDF) en storage
+  presupuesto_files?: Array<{ id: string; url: string; kind: 'image' | 'pdf'; name: string; sizeBytes?: number; uploadedAt?: string }> | null;
+  alicuota_iva?: number | null;   // alícuota de IVA aplicada (%)
   prioridad: 'alta' | 'media' | 'baja' | null; // grado de prioridad (opcional)
   monto: number;
   moneda: string;
@@ -2081,4 +2149,127 @@ export interface CajaCategoria {
   icon: string | null;
   active: boolean;
   created_at: string;
+}
+
+// ── 🏭 CENTRO DE OPERACIONES (23-oct-2026) ───────────────────────────────────
+// Tablas propias del módulo, AISLADAS: solo las escribe y las lee el módulo
+// (src/lib/centroOperacionesDb.ts). Sin llaves foráneas hacia tablas ajenas: los
+// ids de afuera (machinery_id, ubicacion_id) son uuid sueltos y lo que se recibe
+// se congela como texto. El sello (created_*/updated_*) lo pone la base.
+
+/** Columnas de sello que pone la base en las tablas cop_*. */
+export interface CopSello {
+  created_by: string | null;
+  created_by_nombre: string | null;
+  created_at: string;
+  updated_by_nombre: string | null;
+  updated_at: string;
+}
+
+export interface CopSitioRow extends CopSello {
+  id: string;
+  nombre: string;
+  nota: string | null;
+  activo: boolean;
+  ubicacion_id: string | null;        // obra del sistema, uuid suelto (sin FK)
+  lat: number | null;                 // GPS del sitio (Parte diario, 24-oct-2026)
+  lng: number | null;
+}
+
+export interface CopUnidadRow extends CopSello {
+  id: string;
+  sitio_id: string;
+  origen: 'catalogo' | 'propia';
+  machinery_id: string | null;        // solo si origen = catalogo; uuid suelto (sin FK)
+  codigo: string;
+  descripcion: string | null;
+  placa: string | null;
+  serial: string | null;
+  marca: string | null;
+  modelo: string | null;
+  dueno: string | null;
+  capacidad_m3: number | null;
+  activo: boolean;                    // dar de baja = false; nunca se borra
+  nota: string | null;
+  // La MARCA del sitio, solo del módulo (26-oct-2026, mesa de maquinaria): sin defecto; NULL =
+  // «sin marca» (en una vinculada manda inspección). Una unidad sin vínculo (machinery_id NULL)
+  // nunca queda en NULL: check cop_unidades_estado_propia_chk.
+  estado: 'disponible' | 'averiada' | null;
+  estado_nota: string | null;
+  estado_at: string | null;           // lo sella un trigger en CADA escritura de `estado` (NULL sin marca): nunca se manda
+  chofer: string | null;
+}
+
+export interface CopListaRow extends CopSello {
+  id: string;
+  sitio_id: string | null;            // null = para todos los sitios
+  clase: 'transportista' | 'origen' | 'destino' | 'material' | 'terraza';
+  nombre: string;
+  activo: boolean;
+  lat: number | null;                 // GPS (destinos) — Parte diario, 24-oct-2026
+  lng: number | null;
+  km: number | null;                  // destinos: km por carretera desde el sitio (≥ 0)
+  factor_t_m3: number | null;         // materiales: t por m³ (> 0)
+  dias_disponible: number | null;     // materiales: días hasta disponible para la venta (≥ 0)
+}
+
+export interface CopMovimientoRow extends CopSello {
+  id: string;
+  sitio_id: string;
+  fecha: string;                      // AAAA-MM-DD, fecha de JORNADA (7am a 7am)
+  hora: string | null;                // HH:MM:SS; antes de las 07:00 = día calendario siguiente
+  tipo: 'entrada' | 'interno' | 'salida' | 'otro' | 'produccion';
+  unidad_id: string | null;
+  unidad_texto: string;               // congelado: manda en los papeles
+  placa: string | null;
+  transportista: string | null;
+  transportista_lista_id: string | null;
+  origen: string | null;
+  origen_lista_id: string | null;
+  destino: string | null;
+  destino_lista_id: string | null;
+  material: string | null;
+  material_lista_id: string | null;
+  capacidad_m3: number | null;
+  viajes: number | null;              // null solo si por_confirmar, produccion o con cantidad (check en la base)
+  toneladas: number | null;
+  m3: number | null;                  // null = viajes × capacidad_m3
+  estado: 'confirmado' | 'por_confirmar' | 'esperando_pesaje';
+  observacion: string | null;
+  // Parte diario (24-oct-2026):
+  chofer: string | null;
+  km: number | null;                  // km del destino congelados al anotar (≥ 0)
+  vehiculo: 'propio' | 'externo' | null;
+  cantidad: number | null;            // piezas (bloques) (≥ 0)
+  unidad_ingresada: 'm3' | 't' | 'kg' | 'u' | null;
+  disponible_desde: string | null;    // AAAA-MM-DD (producción: fecha + días hasta disponible)
+}
+
+/** Una fila del Reporte General pegado de WhatsApp (por empresa o por frente). */
+export interface CopFilaReporteGeneral {
+  nombre: string;
+  viajes: number;
+  toneladas: number;
+}
+
+/** El Reporte General de UNA jornada del sitio (Parte diario, 24-oct-2026). Pegarlo de
+ *  nuevo el mismo día lo REEMPLAZA: único (sitio_id, fecha). */
+export interface CopReporteGeneralRow extends CopSello {
+  id: string;
+  sitio_id: string;
+  fecha: string;                      // AAAA-MM-DD, fecha de JORNADA (la `jornada` del reporte)
+  hora_corte: string | null;          // HH:MM:SS
+  viajes_total: number | null;
+  toneladas_total: number | null;
+  empresas: CopFilaReporteGeneral[];  // jsonb, defecto []
+  frentes: CopFilaReporteGeneral[];   // jsonb, defecto []
+  avisos: string[];                   // jsonb, defecto []
+  texto_original: string;             // defecto ''
+}
+
+export interface CopAjusteRow extends CopSello {
+  id: string;
+  sitio_id: string | null;            // null = general
+  clave: string;
+  valor: unknown;                     // jsonb
 }

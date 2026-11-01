@@ -30,10 +30,23 @@ export const PLACEHOLDER_INSPECTOR_ID = '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
  * borra; solo se ignora al clasificar el estado y contar horas.
  * Comparar SIEMPRE contra el nombre VIVO del inspector (el que resuelve
  * listInspectorAssignments() desde profiles), en minúsculas y sin espacios extra.
+ *
+ * 🛑 APAGADA el 28-oct-2026 (pedido del cliente: «el inspector SOS no debe activar
+ * máquinas ni nada»; «si la marcaron parada, que siga parada»). Con el interruptor en
+ * false las máquinas del SOS se clasifican como cualquier otra: su avería o parada se
+ * ve, y sus horas paradas NO se cuentan como trabajadas. Ocultar no es eliminar: para
+ * volver a encenderla, poner `SOS_SIEMPRE_ACTIVO = true`.
  */
-export const INSPECTORES_SIEMPRE_ACTIVOS = ['inspector sos la guaira'];
+export const SOS_SIEMPRE_ACTIVO = false;
+const NOMBRES_INSPECTOR_SOS = ['inspector sos la guaira'];
+export const INSPECTORES_SIEMPRE_ACTIVOS: string[] = SOS_SIEMPRE_ACTIVO ? NOMBRES_INSPECTOR_SOS : [];
 export function inspectorSiempreActivo(name?: string | null): boolean {
   return INSPECTORES_SIEMPRE_ACTIVOS.includes((name || '').trim().toLowerCase());
+}
+
+/** ¿Es el «Inspector SOS LA GUAIRA»? Solo IDENTIFICA al inspector (no cambia ningún estado). */
+export function esInspectorSos(name?: string | null): boolean {
+  return NOMBRES_INSPECTOR_SOS.includes((name || '').trim().toLowerCase());
 }
 
 /**
@@ -48,7 +61,7 @@ export function inspectorSiempreActivo(name?: string | null): boolean {
  * de coordinar inspectores.
  */
 export function soloAdminPuedeAsignar(p: { id?: string | null; full_name?: string | null }): boolean {
-  return p.id === PLACEHOLDER_INSPECTOR_ID || inspectorSiempreActivo(p.full_name);
+  return p.id === PLACEHOLDER_INSPECTOR_ID || esInspectorSos(p.full_name);
 }
 
 /**

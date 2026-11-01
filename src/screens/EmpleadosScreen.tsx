@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Image, ScrollView, Modal } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
@@ -8,8 +9,17 @@ import { supabase } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { coincideEmpleado } from '../lib/empleadosBuscar';
 import { canonicalCargo } from '../lib/cargos';
-import { grupoApartado, pasaFiltroEstado, FiltroEstado, GrupoApartadoConfig, DEFAULT_GRUPOS_APARTADOS } from '../lib/nominaGrupos';
+import { grupoApartado, pasaFiltroEstado, toggleFiltroEstado, etiquetaFiltrosEstado, esInactivoEstado, GrupoApartadoConfig, DEFAULT_GRUPOS_APARTADOS } from '../lib/nominaGrupos';
 import { leerGruposApartados, guardarGruposApartados } from '../lib/nominaGruposStorage';
+import { leerHabilidadesEmpleado, extraerMapaHabilidadesDeEmpresas, MapaHabilidades } from '../lib/empleadosHabilidades';
+import { leerMapaHabilidades } from '../lib/empleadosHabilidadesStorage';
+import {
+  OpcionesReporteEmpleados,
+  OPCIONES_REPORTE_EMPLEADOS_DEFECTO,
+  cuerpoReporteEmpleados,
+  contarColumnasActivasEmpleados,
+} from '../lib/empleadosReporte';
+import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
 import { agruparPorCargo } from '../lib/empleadosAgrupar';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -59,6 +69,8 @@ const FIELDS: Field[] = [
   { key: 'cargo', label: 'Cargo', type: 'suggest', table: 'employees', column: 'cargo', dropdown: true, placeholder: 'Elegir cargo…' },
   { key: 'department', label: 'Departamento', type: 'suggest', table: 'employees', column: 'department' },
   { key: 'grupo', label: 'Grupo / zona', type: 'suggest', table: 'employees', column: 'grupo' },
+  { key: '__sec_habilidades', label: '🛠️ Habilidades / Destrezas', type: 'section' },
+  { key: 'habilidades', label: 'Habilidades (puedes agregar 1 o varias manualmente)', type: 'habilidades' },
   { key: 'blood_type', label: 'Grupo sanguíneo', type: 'select', options: BLOOD },
   { key: 'birth_date', label: 'Fecha de nacimiento', type: 'date' },
   { key: 'gender', label: 'Género', type: 'select', options: GENDER },
@@ -89,7 +101,7 @@ const FIELDS: Field[] = [
 /** Clave de los empleados SIN contratista asignado: son de SOS LA GUAIRA. */
 const SIN_EMPRESA = '__none__';
 
-export default function EmpleadosScreen({ navigation }: any) {
+export default function EmpleadosScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
   const toast = useToast();
@@ -105,22 +117,71 @@ export default function EmpleadosScreen({ navigation }: any) {
   );
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
-  const [statusFilter, setStatusFilter] = useState<FiltroEstado>('todos'); // estado del empleado (+ grupos apartados)
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(() =>
+    route?.params?.initialFilter === 'inactivo' ? new Set(['inactivo']) : new Set(['todos'])
+  ); // multi-selección de estados vigentes y pestañas aparte, o apartado exclusivo 'inactivo'
+  const [inactivoGrupoSel, setInactivoGrupoSel] = useState<string>('todos'); // dentro de 🚫 Inactivos: 'todos' | '__ninguno__' | id de grupo aparte
+  const enVistaInactivos = statusFilter.has('inactivo');
+  const toggleStatus = (key: string) => {
+    setInactivoGrupoSel('todos');
+    setStatusFilter((prev) => toggleFiltroEstado(prev, key));
+  };
+  useEffect(() => {
+    if (route?.params?.initialFilter === 'inactivo') {
+      setInactivoGrupoSel('todos');
+      setStatusFilter(new Set(['inactivo']));
+    }
+  }, [route?.params?.initialFilter]);
   const [gruposConfig, setGruposConfig] = useState<GrupoApartadoConfig[]>(DEFAULT_GRUPOS_APARTADOS);
   const [modalGruposOpen, setModalGruposOpen] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoTipo, setNuevoTipo] = useState<'empresa' | 'cargo' | 'departamento'>('empresa');
   const [nuevoValor, setNuevoValor] = useState('');
   const [nuevoColor, setNuevoColor] = useState('#D97706');
+  const [mapaHabsLocal, setMapaHabsLocal] = useState<MapaHabilidades>({});
+
+  // Configuración modificable del 📊 Reporte (persistida en AsyncStorage)
+  const CLAVE_REPORTE_EMPLEADOS = 'reporteEmpleados.opciones.v1';
+  const [reporteConfigOpen, setReporteConfigOpen] = useState(false);
+  const [opReporte, setOpReporte] = useState<OpcionesReporteEmpleados>(OPCIONES_REPORTE_EMPLEADOS_DEFECTO);
+  const [logosReporte, setLogosReporte] = useState<LogosReporte>(LOGOS_POR_DEFECTO);
 
   useEffect(() => {
     leerGruposApartados().then(setGruposConfig);
+    leerMapaHabilidades().then(setMapaHabsLocal);
+    AsyncStorage.getItem(CLAVE_REPORTE_EMPLEADOS)
+      .then((raw) => {
+        if (!raw) return;
+        const g = JSON.parse(raw);
+        if (g?.op) setOpReporte({ ...OPCIONES_REPORTE_EMPLEADOS_DEFECTO, ...g.op });
+        if (g?.logos) setLogosReporte({ ...LOGOS_POR_DEFECTO, ...g.logos });
+      })
+      .catch(() => {});
   }, []);
+
+  const guardarConfigReporte = (nextOp: OpcionesReporteEmpleados, nextLogos: LogosReporte) => {
+    setOpReporte(nextOp);
+    setLogosReporte(nextLogos);
+    AsyncStorage.setItem(CLAVE_REPORTE_EMPLEADOS, JSON.stringify({ op: nextOp, logos: nextLogos })).catch(() => {});
+  };
+  const cambiarOpReporte = <K extends keyof OpcionesReporteEmpleados>(k: K, v: OpcionesReporteEmpleados[K]) => {
+    guardarConfigReporte({ ...opReporte, [k]: v }, logosReporte);
+  };
+  const cambiarLogoReporte = <K extends keyof LogosReporte>(k: K, v: boolean) => {
+    guardarConfigReporte(opReporte, { ...logosReporte, [k]: v });
+  };
 
   useRealtimeRefresh(['payroll_companies'], () => {
     leerGruposApartados().then(setGruposConfig);
+    leerMapaHabilidades().then(setMapaHabsLocal);
     refetchPayroll();
   });
+
+  const mapaHabilidades = useMemo(
+    () => ({ ...mapaHabsLocal, ...extraerMapaHabilidadesDeEmpresas(payrollCompanies) }),
+    [mapaHabsLocal, payrollCompanies]
+  );
+  const habilidadesDe = (e: Employee) => leerHabilidadesEmpleado(e, mapaHabilidades);
 
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set()); // vacío = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
@@ -151,15 +212,25 @@ export default function EmpleadosScreen({ navigation }: any) {
 
   const q = norm(query.trim());
   const estadoDe = (e: Employee) => (e.status || '').toLowerCase();
-  const esActivo = (e: Employee) => estadoDe(e) === 'activo';
+  const esActivo = (e: Employee) => estadoDe(e) === 'activo' || estadoDe(e) === '';
   const esOtro = (e: Employee) => estadoDe(e) === 'otro';
+  const esInactivo = (e: Employee) => esInactivoEstado(e.status);
   // GRUPO APARTADO del empleado (Carbozulia, Seguridad o personalizados) o null si va en las
   // pestañas normales. Se evalúan según la configuración activa.
   const grupoDe = (e: Employee) => grupoApartado(nominaName((e as any).payroll_company_id), e.cargo, (e as any).department, gruposConfig);
-  // ¿El empleado pasa el filtro de estado elegido? "Inactivos" = ni activo ni "otro"
-  // (inactivo/suspendido); "Otro" tiene su propio chip. Los apartados NO salen en
-  // ninguna de esas cuatro: cada uno solo en SU pestaña.
-  const pasaEstado = (e: Employee) => pasaFiltroEstado(statusFilter, grupoDe(e), e.status);
+  const grupoLabelDe = (id: string | null) => (id ? gruposConfig.find((g) => g.id === id)?.label ?? id : null);
+  // ¿El empleado pasa el filtro de estado elegido?
+  // Los INACTIVOS viven únicamente en el apartado "🚫 Inactivos" y NUNCA se mezclan
+  // en Todos, Activos, Otro ni en las pestañas APARTE (CDT, Carbozulia, Seguridad, etc.).
+  const pasaEstado = (e: Employee) => {
+    if (!pasaFiltroEstado(statusFilter, grupoDe(e), e.status)) return false;
+    if (enVistaInactivos && inactivoGrupoSel !== 'todos') {
+      const g = grupoDe(e);
+      if (inactivoGrupoSel === '__ninguno__') return !g;
+      return g === inactivoGrupoSel;
+    }
+    return true;
+  };
   // Clave de empresa de un empleado: su `company_id`, o SIN_EMPRESA si no tiene
   // contratista asignado (esos son de SOS LA GUAIRA, ver `companyName`).
   // Agrupa por la EMPRESA FILTRO NÓMINA, no por la empresa real: es exactamente el
@@ -175,11 +246,24 @@ export default function EmpleadosScreen({ navigation }: any) {
     () => employees.filter((e) =>
       pasaEstado(e) &&
       // La regla vive en `src/lib/empleadosBuscar.ts` para poder probarla; acá
-      // solo se le pasan los dos nombres de empresa ya resueltos.
-      coincideEmpleado(e as any, query, [companyName(e.company_id), nominaName((e as any).payroll_company_id)])
+      // solo se le pasan los dos nombres de empresa ya resueltos y sus habilidades.
+      coincideEmpleado({ ...(e as any), habilidades: habilidadesDe(e) }, query, [companyName(e.company_id), nominaName((e as any).payroll_company_id)])
     ),
-    [employees, q, statusFilter, companies, payrollCompanies]
+    [employees, q, statusFilter, inactivoGrupoSel, enVistaInactivos, companies, payrollCompanies, mapaHabilidades, gruposConfig]
   );
+
+  // Coincidencias en el Apartado de Inactivos cuando el usuario busca un nombre/cédula desde las listas activas
+  const coincidenciasEnInactivos = useMemo(() => {
+    if (!query.trim() || enVistaInactivos) return 0;
+    return employees.filter(
+      (e) =>
+        esInactivo(e) &&
+        coincideEmpleado({ ...(e as any), habilidades: habilidadesDe(e) }, query, [
+          companyName(e.company_id),
+          nominaName((e as any).payroll_company_id),
+        ])
+    ).length;
+  }, [employees, query, enVistaInactivos, companies, payrollCompanies, mapaHabilidades]);
 
   // Conteo por empresa (para los chips-filtro): [clave, nombre, cantidad].
   const empresaCounts = useMemo(() => {
@@ -212,16 +296,31 @@ export default function EmpleadosScreen({ navigation }: any) {
   );
 
   // Conteo total por estado (independiente del filtro, para las etiquetas de los chips).
-  // Los APARTADOS se cuentan aparte y se descuentan del resto: "Todos" ya no es
-  // la plantilla entera, es la plantilla MENOS Carbozulia y Seguridad. Así el
-  // número del chip cuadra con lo que después se lista.
+  // REGLA DE AISLAMIENTO: Los empleados INACTIVOS se descuentan SIEMPRE primero
+  // (tanto si eran de la plantilla general como si pertenecían a una pestaña APARTE
+  // como Carbozulia, Seguridad, CDT, Operadores, Alimentación, etc.). Así NUNCA inflan
+  // los contadores de Todos, Activos ni de las pestañas APARTE, y viven todos en `inactivo`.
   const statusCounts = useMemo(() => {
-    let act = 0, otr = 0, carb = 0, seg = 0, base = 0;
+    let act = 0, otr = 0, inact = 0, carb = 0, seg = 0, base = 0;
     const porGrupo: Record<string, number> = {};
-    gruposConfig.forEach((g) => { porGrupo[g.id] = 0; });
+    const inactivoPorGrupo: Record<string, number> = {};
+    let inactivoSinGrupo = 0;
+    gruposConfig.forEach((g) => {
+      porGrupo[g.id] = 0;
+      inactivoPorGrupo[g.id] = 0;
+    });
 
     employees.forEach((e) => {
       const g = grupoDe(e);
+      if (esInactivo(e)) {
+        inact++;
+        if (g && inactivoPorGrupo[g] !== undefined) {
+          inactivoPorGrupo[g]++;
+        } else {
+          inactivoSinGrupo++;
+        }
+        return;
+      }
       if (g && porGrupo[g] !== undefined) {
         porGrupo[g]++;
         if (g === 'carbozulia') carb++;
@@ -234,11 +333,13 @@ export default function EmpleadosScreen({ navigation }: any) {
     return {
       activo: act,
       otro: otr,
-      inactivo: base - act - otr,
+      inactivo: inact,
       todos: base,
       carbozulia: carb,
       seguridad: seg,
       porGrupo,
+      inactivoPorGrupo,
+      inactivoSinGrupo,
     };
   }, [employees, payrollCompanies, gruposConfig]);
 
@@ -264,7 +365,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   const gruposCargo = useMemo(() => agruparPorCargo(shown, cargoLabel, cmpText), [shown]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
-  const openEdit = (e: Employee) => { setEditing(e); setFormOpen(true); };
+  const openEdit = (e: Employee) => { setEditing({ ...e, habilidades: habilidadesDe(e) }); setFormOpen(true); };
 
   const subirFoto = async (e: Employee) => {
     setBusy(e.id + '-photo');
@@ -285,6 +386,37 @@ export default function EmpleadosScreen({ navigation }: any) {
     const r = await removePhoto('employees', e.id);
     if (!r.ok && r.error) toast.error(r.error); else refetch();
     setBusy(null);
+  };
+
+  // Cambio rápido de estado (Activo <-> Inactivo) desde la tarjeta del empleado.
+  // Al pasar a INACTIVO, el empleado sale de inmediato de todas las listas activas y pestañas aparte,
+  // y pasa a vivir únicamente en el Apartado de Inactivos (🚫 Inactivos).
+  const cambiarEstadoEmpleado = async (e: Employee, nuevoEstado: 'activo' | 'inactivo') => {
+    const pasarAInactivo = nuevoEstado === 'inactivo';
+    const grpLbl = grupoLabelDe(grupoDe(e));
+    const ok = await confirm({
+      title: pasarAInactivo ? 'Pasar empleado a Inactivo' : 'Reactivar empleado a Activo',
+      message: pasarAInactivo
+        ? `¿Pasar a ${fullName(e)} a estado INACTIVO?\n\nSe quitará inmediatamente de las listas operativas${grpLbl ? ` (incluyendo ${grpLbl})` : ''} y pasará al 🚫 Apartado de Inactivos.`
+        : `¿Reactivar a ${fullName(e)} como ACTIVO?\n\nSaldrá del Apartado de Inactivos y volverá a su lista activa${grpLbl ? ` (${grpLbl})` : ''}.`,
+      confirmText: pasarAInactivo ? '🚫 Pasar a Inactivo' : '✅ Reactivar',
+      cancelText: 'Cancelar',
+      danger: pasarAInactivo,
+    });
+    if (!ok) return;
+    setBusy(e.id + '-status');
+    const { error } = await supabase.from('employees').update({ status: nuevoEstado }).eq('id', e.id);
+    setBusy(null);
+    if (error) {
+      toast.error(`No se pudo cambiar el estado: ${error.message}`);
+      return;
+    }
+    await refetch();
+    toast.success(
+      pasarAInactivo
+        ? `🚫 ${fullName(e)} se movió al Apartado de Inactivos.`
+        : `✅ ${fullName(e)} reactivado en nómina activa${grpLbl ? ` (${grpLbl})` : ''}.`
+    );
   };
 
   const imprimirCarnet = async (e: Employee) => {
@@ -424,70 +556,47 @@ export default function EmpleadosScreen({ navigation }: any) {
   };
 
   // Reporte PDF de LO SELECCIONADO: lista las personas del filtro actual (estado +
-  // cargos elegidos + búsqueda) con sus datos, más un resumen por cargo arriba.
+  // cargos elegidos + búsqueda) con sus datos (incluyendo habilidades) y las columnas
+  // / secciones modificables elegidas por el usuario.
   const reporteSeleccion = async () => {
+    if (!opReporte.resumenCargo && !opReporte.listadoPersonas) {
+      toast.error('Activa al menos el Resumen por cargo o el Listado de personas en "🖨️ Qué sale en el reporte".');
+      return;
+    }
     setBusy('reporte-cargo');
-    const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const list = shown; // ya respeta estado + cargos + búsqueda, y viene ordenado
-    const grupoActual = gruposConfig.find((g) => g.id === statusFilter);
-    const estadoTxt = statusFilter === 'todos' ? 'Todos'
-      : statusFilter === 'activo' ? 'Activos'
-      : statusFilter === 'otro' ? 'Otro'
-      : statusFilter === 'inactivo' ? 'Inactivos'
-      : (grupoActual?.label ?? statusFilter);
+    const list = shown; // ya respeta estado(s) + empresa(s) + cargo(s) + búsqueda, y viene ordenado
+    const estadoTxt = etiquetaFiltrosEstado(statusFilter, gruposConfig);
+    const empresaTxt =
+      empresaSel.size === 0
+        ? 'Todas'
+        : empresaCounts
+            .filter((c) => empresaSel.has(c.key))
+            .map((c) => c.name)
+            .join(', ');
     const cargoTxt = cargoSel.size === 0 ? 'Todos los cargos' : Array.from(cargoSel).sort().join(', ');
-    const busqTxt = q ? ` · Búsqueda: "${esc(query.trim())}"` : '';
 
-    // Resumen por cargo DE LA SELECCIÓN.
-    const selMap = new Map<string, number>();
-    list.forEach((e) => { const k = cargoLabel(e); selMap.set(k, (selMap.get(k) ?? 0) + 1); });
-    const selCounts = Array.from(selMap.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
-    const rowsSum = selCounts.map(([c, n]) => `<tr><td>${esc(c)}</td><td class="r">${n}</td></tr>`).join('');
+    const { body, extraCss, totalCargos } = cuerpoReporteEmpleados({
+      empleados: list.map((e) => ({
+        ...e,
+        cargo: e.cargo ? canonicalCargo(e.cargo) : 'Sin cargo',
+        empresaNomina: nominaName((e as any).payroll_company_id),
+        empresaContratista: companyName(e.company_id),
+        habilidades: habilidadesDe(e),
+      })),
+      estadoTxt,
+      empresaTxt,
+      cargoTxt,
+      busquedaTxt: query.trim() || null,
+      opciones: opReporte,
+    });
 
-    // Listado de las personas seleccionadas.
-    const rowsList = list.map((e, i) =>
-      `<tr>
-        <td class="c">${i + 1}</td>
-        <td>${esc(fullName(e))}</td>
-        <td class="c">${esc(e.cedula ?? '—')}</td>
-        <td class="c">${esc(e.ficha_number ?? '—')}</td>
-        <td>${esc(e.cargo ? canonicalCargo(e.cargo) : '—')}</td>
-        <td>${esc(nominaName((e as any).payroll_company_id))}</td>
-        <td class="c">${esc(e.status ?? '—')}</td>
-        <td>${esc(e.phone ?? '—')}</td>
-      </tr>`).join('');
-
-    const body = `
-      <div class="meta">Estado: <b>${estadoTxt}</b> · Cargo: <b>${esc(cargoTxt)}</b>${busqTxt}</div>
-      <h3 class="sec">Resumen por cargo</h3>
-      <table class="sum">
-        <thead><tr><th>Cargo</th><th class="r">Cantidad</th></tr></thead>
-        <tbody>${rowsSum || '<tr><td colspan="2">Sin empleados</td></tr>'}</tbody>
-        <tfoot><tr><td>TOTAL</td><td class="r">${list.length}</td></tr></tfoot>
-      </table>
-      <h3 class="sec">Listado (${list.length} persona(s))</h3>
-      <table>
-        <thead><tr>
-          <th class="c" style="width:26px">#</th><th>Empleado</th><th class="c">Cédula</th><th class="c">Ficha</th>
-          <th>Cargo</th><th>Empresa filtro nómina</th><th class="c">Estado</th><th>Teléfono</th>
-        </tr></thead>
-        <tbody>${rowsList || '<tr><td colspan="8">Sin empleados</td></tr>'}</tbody>
-      </table>`;
-    const extraCss = `
-      .meta{margin:2px 0 8px;color:#333;font-size:11pt}
-      .sec{margin:18px 0 6px;color:#1E3A5F;font-size:12.5pt;border-top:2px solid #1E3A5F;padding-top:10px}
-      table{border-collapse:collapse;width:100%;font-size:10.5pt;margin-top:4px}
-      th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left}
-      th{background:#1E3A5F;color:#fff}
-      td.c,th.c{text-align:center} td.r,th.r{text-align:right}
-      table.sum{width:auto;min-width:280px}
-      tbody tr:nth-child(even) td{background:#f4f7fb}
-      tfoot td{font-weight:800;background:#eef2f7;border-top:2px solid #1E3A5F}`;
     const html = pdfDocument({
       title: 'Reporte de empleados',
-      subtitle: `${list.length} empleado(s)${cargoSel.size ? ` · ${cargoSel.size} cargo(s) seleccionado(s)` : ` · ${selCounts.length} cargo(s)`}`,
+      subtitle: `${list.length} empleado(s)${cargoSel.size ? ` · ${cargoSel.size} cargo(s) seleccionado(s)` : ` · ${totalCargos} cargo(s)`}`,
       body,
       extraCss,
+      logos: logosReporte,
+      marcaTexto: opReporte.marcaTexto,
     });
     await exportPdf(html, `Reporte de empleados${cargoSel.size ? ' - ' + cargoTxt : ''}`);
     setBusy(null);
@@ -553,7 +662,12 @@ export default function EmpleadosScreen({ navigation }: any) {
     if (!ok) return;
     const nuevaLista = gruposConfig.filter((g) => g.id !== id || g.builtin);
     setGruposConfig(nuevaLista);
-    if (statusFilter === id) setStatusFilter('todos');
+    setStatusFilter((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next.size === 0 ? new Set(['todos']) : next;
+    });
     await guardarGruposApartados(nuevaLista);
     toast.success(`Pestaña "${label}" eliminada.`);
   };
@@ -587,11 +701,28 @@ export default function EmpleadosScreen({ navigation }: any) {
   return (
     <Screen>
       <ConfigBanner />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <SectionTitle>Empleados</SectionTitle>
-        <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-          <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>+ Nuevo</Text>
-        </TouchableOpacity>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+        <SectionTitle>{enVistaInactivos ? '🚫 Empleados — Apartado de Inactivos' : 'Empleados'}</SectionTitle>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+          <TouchableOpacity
+            onPress={() => toggleStatus('inactivo')}
+            style={{
+              backgroundColor: enVistaInactivos ? (EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger) : 'rgba(220,38,38,0.1)',
+              borderWidth: 1.5,
+              borderColor: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger,
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.xs,
+              borderRadius: radius.pill,
+            }}
+          >
+            <Text style={{ color: enVistaInactivos ? '#fff' : (EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger), fontWeight: '900', fontSize: 12 }}>
+              {enVistaInactivos ? '← Volver a Nómina Activa' : `🚫 Apartado de Inactivos · ${statusCounts.inactivo}`}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>+ Nuevo</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <TextInput
@@ -602,19 +733,52 @@ export default function EmpleadosScreen({ navigation }: any) {
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
 
-      {/* Filtro por ESTADO (activos / inactivos) */}
+      {/* Aviso inteligente si el usuario busca desde las listas activas y hay coincidencias en el Apartado de Inactivos */}
+      {coincidenciasEnInactivos > 0 && !enVistaInactivos ? (
+        <TouchableOpacity
+          onPress={() => {
+            setInactivoGrupoSel('todos');
+            setStatusFilter(new Set(['inactivo']));
+          }}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: spacing.xs,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.xs,
+            marginBottom: spacing.sm,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger,
+            backgroundColor: 'rgba(220,38,38,0.08)',
+          }}
+        >
+          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', flex: 1 }}>
+            💡 Hay <Text style={{ color: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger, fontWeight: '900' }}>{coincidenciasEnInactivos} coincidencia(s)</Text> para "{query.trim()}" en el <Text style={{ fontWeight: '900' }}>🚫 Apartado de Inactivos</Text>.
+          </Text>
+          <Text style={{ color: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger, fontSize: 12, fontWeight: '900' }}>
+            Ver en Inactivos →
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {/* Filtro por ESTADO (solo personal vigente: Todos / Activos / Otro) y pestañas APARTE — libres al 100% de inactivos */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Estado:</Text>
-        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro]] as const).map(([key, label, n]) => {
-          const on = statusFilter === key;
+        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['otro', 'Otro', statusCounts.otro]] as const).map(([key, label, n]) => {
+          const on = statusFilter.has(key);
           const tint = key === 'todos' ? colors.brand : (EMPLOYEE_STATUS_COLOR[key] ?? colors.brand);
           return (
             <TouchableOpacity
               key={key}
-              onPress={() => setStatusFilter(key)}
+              onPress={() => toggleStatus(key)}
               style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? tint : colors.border, backgroundColor: on ? tint : colors.surface }}
             >
-              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>{label} · {n}</Text>
+              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>
+                {on && key !== 'todos' ? '✓ ' : ''}{label} · {n}
+              </Text>
             </TouchableOpacity>
           );
         })}
@@ -624,12 +788,12 @@ export default function EmpleadosScreen({ navigation }: any) {
         </Text>
 
         {gruposConfig.map((g) => {
-          const on = statusFilter === g.id;
+          const on = statusFilter.has(g.id);
           const n = statusCounts.porGrupo?.[g.id] ?? 0;
           return (
             <TouchableOpacity
               key={g.id}
-              onPress={() => setStatusFilter(g.id)}
+              onPress={() => toggleStatus(g.id)}
               style={{
                 paddingHorizontal: spacing.md,
                 paddingVertical: spacing.xs,
@@ -639,10 +803,30 @@ export default function EmpleadosScreen({ navigation }: any) {
                 backgroundColor: on ? g.color : colors.surface,
               }}
             >
-              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>{g.label} · {n}</Text>
+              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>
+                {on ? '✓ ' : ''}{g.label} · {n}
+              </Text>
             </TouchableOpacity>
           );
         })}
+
+        {!(statusFilter.size === 1 && statusFilter.has('todos')) && !enVistaInactivos ? (
+          <TouchableOpacity
+            onPress={() => { setInactivoGrupoSel('todos'); setStatusFilter(new Set(['todos'])); }}
+            style={{
+              paddingHorizontal: spacing.sm,
+              paddingVertical: 5,
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: colors.danger,
+              backgroundColor: 'rgba(220,38,38,0.08)',
+            }}
+          >
+            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>
+              ✕ Limpiar ({statusFilter.size})
+            </Text>
+          </TouchableOpacity>
+        ) : null}
 
         {/* Botón para crear o gestionar grupos apartados */}
         <TouchableOpacity
@@ -662,7 +846,76 @@ export default function EmpleadosScreen({ navigation }: any) {
         >
           <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>⚙️ + Pestaña aparte</Text>
         </TouchableOpacity>
+
+        {/* APARTADO SEPARADO DE INACTIVOS (🚫 Inactivos) */}
+        <TouchableOpacity
+          onPress={() => toggleStatus('inactivo')}
+          style={{
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.xs,
+            borderRadius: radius.pill,
+            borderWidth: 1.5,
+            borderColor: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger,
+            backgroundColor: enVistaInactivos ? (EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger) : 'rgba(220,38,38,0.08)',
+            marginLeft: spacing.xs,
+          }}
+        >
+          <Text style={{ color: enVistaInactivos ? '#fff' : (EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger), fontWeight: '900', fontSize: 12 }}>
+            🚫 Inactivos · {statusCounts.inactivo}
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Banner y sub-filtros exclusivos cuando se está dentro del Apartado de Inactivos */}
+      {enVistaInactivos ? (
+        <Card style={{ borderColor: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger, borderWidth: 1.5, marginBottom: spacing.sm }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+            <View style={{ flex: 1, minWidth: 200 }}>
+              <Text style={{ color: EMPLOYEE_STATUS_COLOR.inactivo ?? colors.danger, fontWeight: '900', fontSize: 14 }}>
+                🚫 Apartado de Personal Inactivo ({statusCounts.inactivo})
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                Los empleados inactivos se quitan automáticamente de todas las listas activas (Todos, Activos, CDT, Carbozulia, Seguridad, etc.) y se concentran únicamente en este apartado. Puedes filtrarlos por su pestaña/empresa de origen o reactivarlos con 1 toque.
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => { setInactivoGrupoSel('todos'); setStatusFilter(new Set(['todos'])); }}
+              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.brand }}
+            >
+              <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>← Volver a personal activo</Text>
+            </TouchableOpacity>
+          </View>
+          {/* Sub-filtro por grupo/pestaña original dentro de Inactivos */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>Pestaña / grupo de origen:</Text>
+            {([
+              { id: 'todos', label: 'Todos los inactivos', count: statusCounts.inactivo },
+              { id: '__ninguno__', label: 'Plantilla general', count: statusCounts.inactivoSinGrupo },
+              ...gruposConfig.map((g) => ({ id: g.id, label: g.label, count: statusCounts.inactivoPorGrupo?.[g.id] ?? 0 })),
+            ]).filter((item) => item.id === 'todos' || item.count > 0).map((item) => {
+              const on = inactivoGrupoSel === item.id;
+              return (
+                <TouchableOpacity
+                  key={'inact-grp-' + item.id}
+                  onPress={() => setInactivoGrupoSel(item.id)}
+                  style={{
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: 4,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: on ? colors.danger : colors.border,
+                    backgroundColor: on ? colors.danger : colors.surface,
+                  }}
+                >
+                  <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 11 }}>
+                    {on ? '✓ ' : ''}{item.label} · {item.count}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Card>
+      ) : null}
 
       {/* Filtro por EMPRESA (pedido del cliente 20-ago-2026). Va plegado y ocupa una
           línea, para no empujar el listado hacia abajo; se despliega al tocarlo.
@@ -784,20 +1037,195 @@ export default function EmpleadosScreen({ navigation }: any) {
         })}
       </View>
 
-      {/* Filtro por CARGO (tipo) + reporte por cargo */}
+      {/* Filtro por CARGO (tipo) + reporte por cargo modificable */}
       <Card>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
-          <TouchableOpacity onPress={() => setCargosOpen((v) => !v)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, flexWrap: 'wrap' }}>
+          <TouchableOpacity onPress={() => setCargosOpen((v) => !v)} style={{ flex: 1, minWidth: 180, flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🏷️ Cargo: </Text>
             <Text style={{ color: cargoSel.size ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
               {cargoSel.size === 0 ? `Todos · ${cargoCounts.length} cargo(s)` : `${cargoSel.size} cargo(s): ${Array.from(cargoSel).sort().join(', ')}`}
             </Text>
             <Text style={{ color: colors.brandText, fontWeight: '800' }}>{cargosOpen ? '▲' : '▼'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={reporteSeleccion} disabled={busy === 'reporte-cargo'} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: busy === 'reporte-cargo' ? 0.6 : 1 }}>
-            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>{busy === 'reporte-cargo' ? 'Generando…' : '📊 Reporte'}</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+            <TouchableOpacity
+              onPress={() => setReporteConfigOpen((v) => !v)}
+              style={{
+                paddingHorizontal: spacing.sm,
+                paddingVertical: spacing.xs,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: reporteConfigOpen ? colors.brand : colors.border,
+                backgroundColor: reporteConfigOpen ? colors.surfaceAlt : colors.surface,
+              }}
+            >
+              <Text style={{ color: reporteConfigOpen ? colors.brandText : colors.text, fontWeight: '800', fontSize: 12 }}>
+                🖨️ Qué sale ({contarColumnasActivasEmpleados(opReporte)} col.) {reporteConfigOpen ? '▲' : '▼'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={reporteSeleccion} disabled={busy === 'reporte-cargo'} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: busy === 'reporte-cargo' ? 0.6 : 1 }}>
+              <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>{busy === 'reporte-cargo' ? 'Generando…' : '📊 Reporte'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {reporteConfigOpen ? (
+          <View style={{ marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.xs }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                🖨️ Personalizar qué sale y qué no sale en el 📊 Reporte PDF
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={() =>
+                    guardarConfigReporte(
+                      {
+                        numeracion: true,
+                        cedula: true,
+                        ficha: true,
+                        cargo: true,
+                        habilidades: true,
+                        empresa: true,
+                        empresaReal: true,
+                        departamento: true,
+                        estado: true,
+                        telefono: true,
+                        datosBancarios: true,
+                        cabeceraFiltros: true,
+                        resumenCargo: true,
+                        listadoPersonas: true,
+                        marcaTexto: true,
+                      },
+                      logosReporte
+                    )
+                  }
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.surface }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>✓ Marcar todo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => guardarConfigReporte(OPCIONES_REPORTE_EMPLEADOS_DEFECTO, LOGOS_POR_DEFECTO)}
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11 }}>↺ Por defecto</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: 2 }}>
+              COLUMNAS DE LA TABLA DE EMPLEADOS:
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              <View style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>🔒 Empleado (siempre fijo)</Text>
+              </View>
+              {(
+                [
+                  ['numeracion', '1️⃣ Numeración (#)'],
+                  ['cedula', '🪪 Cédula'],
+                  ['ficha', '🔢 N° de Ficha'],
+                  ['cargo', '🏷️ Cargo'],
+                  ['habilidades', '🛠️ Habilidades'],
+                  ['empresa', '🏢 Empresa filtro nómina'],
+                  ['empresaReal', '🏛️ Empresa contratista'],
+                  ['departamento', '🗂️ Departamento / Grupo'],
+                  ['estado', '● Estado'],
+                  ['telefono', '📞 Teléfono'],
+                  ['datosBancarios', '🏦 Datos bancarios'],
+                ] as const
+              ).map(([k, lbl]) => {
+                const on = opReporte[k];
+                return (
+                  <TouchableOpacity
+                    key={k}
+                    onPress={() => cambiarOpReporte(k, !on)}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 5,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: on ? colors.brand : colors.border,
+                      backgroundColor: on ? colors.brand : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                      {on ? '☑ ' : '☐ '}{lbl}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: 4 }}>
+              SECCIONES Y MEMBRETE DEL DOCUMENTO:
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {(
+                [
+                  ['resumenCargo', '📊 Resumen por cargo'],
+                  ['listadoPersonas', '👥 Listado de personas'],
+                  ['cabeceraFiltros', '🔎 Cabecera de filtros aplicados'],
+                  ['marcaTexto', '📝 Marca de empresa en texto y pie'],
+                ] as const
+              ).map(([k, lbl]) => {
+                const on = opReporte[k];
+                return (
+                  <TouchableOpacity
+                    key={k}
+                    onPress={() => cambiarOpReporte(k, !on)}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 5,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: on ? colors.brand : colors.border,
+                      backgroundColor: on ? colors.brand : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                      {on ? '☑ ' : '☐ '}{lbl}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: 4 }}>
+              🏷️ LOGOS DEL MEMBRETE:
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {(
+                [
+                  ['bcv', '🏛️ BCV'],
+                  ['sos', '🛟 SOS La Guaira'],
+                  ['golden', '✨ Golden Touch'],
+                  ['renace', '🇻🇪 Plan Venezuela Renace'],
+                  ['jhenzaen', '🏗️ Jhenzaen 2.012 C.A'],
+                ] as const
+              ).map(([k, lbl]) => {
+                const on = !!logosReporte[k];
+                return (
+                  <TouchableOpacity
+                    key={k}
+                    onPress={() => cambiarLogoReporte(k, !on)}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 5,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: on ? colors.brand : colors.border,
+                      backgroundColor: on ? colors.brand : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                      {on ? '☑ ' : '☐ '}{lbl}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
         {cargosOpen ? (
           <View style={{ marginTop: spacing.sm }}>
             <TextInput value={cargoQ} onChangeText={setCargoQ} placeholder="🔎 Buscar cargo…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }} />
@@ -868,7 +1296,9 @@ export default function EmpleadosScreen({ navigation }: any) {
                 <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>{g.empleados.length}</Text>
               </View>
             ) : null}
-            {g.empleados.map((e) => (
+            {g.empleados.map((e) => {
+                const habsEmp = habilidadesDe(e);
+                return (
                 <ExpandableCard
                   key={e.id}
                   summary={
@@ -883,13 +1313,59 @@ export default function EmpleadosScreen({ navigation }: any) {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
+                          {esInactivo(e) ? (
+                            <TouchableOpacity
+                              onPress={() => cambiarEstadoEmpleado(e, 'activo')}
+                              style={{
+                                backgroundColor: '#16A34A',
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: radius.pill,
+                              }}
+                            >
+                              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '900' }}>✅ Reactivar</Text>
+                            </TouchableOpacity>
+                          ) : null}
                           <Badge label={e.status} tone={employeeStatusTone(e.status)} />
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cargo ? canonicalCargo(e.cargo) : '', e.ficha_number ? `Ficha ${e.ficha_number}` : ''].filter(Boolean).join(' · ')}</Text>
-                        {/* La EMPRESA FILTRO NÓMINA, a la vista en cada tarjeta. Antes solo
-                            se veía abriendo el filtro o sacando el PDF, así que asignarla
-                            se sentía como que no había pasado nada. */}
-                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }} numberOfLines={1}>🏢 {nominaName((e as any).payroll_company_id)}</Text>
+                        {/* La EMPRESA FILTRO NÓMINA y la pestaña APARTE a la vista en cada tarjeta. */}
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }} numberOfLines={1}>
+                          🏢 {nominaName((e as any).payroll_company_id)}{grupoDe(e) ? ` · 📌 ${grupoLabelDe(grupoDe(e))}` : ''}
+                        </Text>
+                        {habsEmp.length > 0 ? (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                            {habsEmp.slice(0, 3).map((hab, idx) => (
+                              <View
+                                key={`${hab}-${idx}`}
+                                style={{
+                                  paddingHorizontal: 7,
+                                  paddingVertical: 2,
+                                  borderRadius: radius.pill,
+                                  backgroundColor: colors.surfaceAlt,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                }}
+                              >
+                                <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '800' }}>🛠️ {hab}</Text>
+                              </View>
+                            ))}
+                            {habsEmp.length > 3 ? (
+                              <View
+                                style={{
+                                  paddingHorizontal: 7,
+                                  paddingVertical: 2,
+                                  borderRadius: radius.pill,
+                                  backgroundColor: colors.surfaceAlt,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                }}
+                              >
+                                <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '800' }}>+{habsEmp.length - 3} más</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        ) : null}
                       </View>
                     </View>
                   }
@@ -903,8 +1379,43 @@ export default function EmpleadosScreen({ navigation }: any) {
                           🏦 {[e.bank_name, e.bank_account ? `Cta. ${e.bank_account}` : '', e.bank_holder || '', e.bank_cedula ? `C.I ${e.bank_cedula}` : ''].filter(Boolean).join(' · ')}
                         </Text>
                       ) : null}
+                      {habsEmp.length > 0 ? (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                          <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>🛠️ Habilidades:</Text>
+                          {habsEmp.map((hab, idx) => (
+                            <View
+                              key={`det-${hab}-${idx}`}
+                              style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: radius.pill,
+                                backgroundColor: colors.surfaceAlt,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                              }}
+                            >
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>{hab}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                         <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
+                        {esInactivo(e) ? (
+                          <Btn
+                            label={busy === e.id + '-status' ? 'Reactivando…' : '✅ Reactivar (Pasar a Activo)'}
+                            color="#16A34A"
+                            disabled={busy === e.id + '-status'}
+                            onPress={() => cambiarEstadoEmpleado(e, 'activo')}
+                          />
+                        ) : (
+                          <Btn
+                            label={busy === e.id + '-status' ? 'Moviendo…' : '🚫 Pasar a Inactivo'}
+                            color="#DC2626"
+                            disabled={busy === e.id + '-status'}
+                            onPress={() => cambiarEstadoEmpleado(e, 'inactivo')}
+                          />
+                        )}
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
                         <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); }} />
@@ -917,7 +1428,8 @@ export default function EmpleadosScreen({ navigation }: any) {
                     </>
                   }
                 />
-            ))}
+                );
+            })}
           </View>
         ))
       )}
@@ -939,7 +1451,7 @@ export default function EmpleadosScreen({ navigation }: any) {
         // "Empresa" en vez del nombre que la persona acababa de escribir — y solo
         // se arreglaba recargando la app entera. (Reporte del cliente 21-ago-2026:
         // «ni me muestra el nombre de la empresa que creé».)
-        onSaved={() => { refetch(); refetchPayroll(); }}
+        onSaved={() => { refetch(); refetchPayroll(); leerMapaHabilidades().then(setMapaHabsLocal); }}
       />
 
       {/* CONSTANCIA DE TRABAJO — ¿lleva el sueldo o no?

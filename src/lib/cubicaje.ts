@@ -355,7 +355,7 @@ export type ColSpec = { key: string; head: string; num?: boolean };
  *  el reporte se pidió en toneladas (28-sep-2026). Solo texto: el dato es kilos. */
 const U = (unidad: 'kg' | 't') => (unidad === 't' ? 'Ton' : 'Kg');
 
-export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
+export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' | 'formato' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
   const c: ColSpec[] = [
     { key: 'fecha', head: 'Fecha' },
     { key: 'hora', head: 'Hora' },
@@ -384,7 +384,7 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
 
 /** Columnas del reporte RESUMIDO (una línea por camión). Apagar «viajes» deja
  *  el reporte puramente volumétrico: camión, medida y m³. */
-export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
+export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' | 'formato' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
   const c: ColSpec[] = [{ key: 'camion', head: 'Camión' }];
   // La columna del EJE no va: su valor ya está en el encabezado del grupo. Por
   // eso agrupando por empresa —que es como se abre— el resumido sale idéntico a
@@ -421,7 +421,7 @@ export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' 
  *  conteo de viajes, los m³ y el peso SIEMPRE fuera, estén como estén los
  *  interruptores — este papel no lleva ninguna cantidad.
  *  Lleva un Nº de renglón para poder cantar la lista. */
-export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa'): ColSpec[] {
+export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' | 'formato' = 'empresa'): ColSpec[] {
   return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false, pesoBruto: false, pesoTara: false, pesoNeto: false, pesoPromedio: false }, eje)];
 }
 

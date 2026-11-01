@@ -38,6 +38,10 @@ import { listInspectorAssignments, assignInspector, unassignInspector, Shift, sh
 import { logAudit } from '../lib/audit';
 import { cargarLecturasDeMaquinaDia, guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
 import { HorometroCorregirModal } from '../components/HorometroCorregirModal';
+// 🕐 Corregir hora de inicio / fin de una jornada YA finalizada (28-oct-2026).
+import { CorregirHorasJornadaModal } from '../components/CorregirHorasJornadaModal';
+import { CorregirInicioJornadaAbiertaModal } from '../components/CorregirInicioJornadaAbiertaModal';
+import { TramoTurno, esCierreManual, puedeCorregirHoras, hhmmCaracas } from '../lib/corregirHorasJornada';
 import { LecturaTrabajo, lecturaParaCompletarFinal, horometroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
@@ -363,6 +367,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number; openDay: boolean; openNight: boolean; dayWorked: number; nightWorked: number; openStartDay: number; openStartNight: number; declaredDay: boolean; declaredNight: boolean }>>({});
   // Cómo cerró cada máquina su jornada (por turno): hora real + manual/automático.
   const [cierreById, setCierreById] = useState<Record<string, { day?: CierreInfo; night?: CierreInfo }>>({});
+  // 🔁 Si el ÚLTIMO tramo del turno fue una PARADA (no un cierre de jornada), guarda su
+  //    hora (ms). Esa máquina se puede volver a poner a trabajar en el mismo turno.
+  const [paradaCierreById, setParadaCierreById] = useState<Record<string, { day?: number; night?: number }>>({});
   // Paradas VIGENTES (crudas) con su TURNO (día/noche, por hora Caracas de la marca).
   // La parada es POR TURNO: la que marca el inspector de DÍA no le aplica al de NOCHE.
   const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string; arrastrada: boolean; createdMs: number }[]>([]);
@@ -469,6 +476,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [horoEditables, setHoroEditables] = useState<{ roundDate: string; lecturas: LecturaTrabajo[] }[]>([]);
   const [horoEditFecha, setHoroEditFecha] = useState<string | null>(null);
   const [horoEditRecarga, setHoroEditRecarga] = useState(0);
+  // 🕐 CORREGIR HORA DE INICIO / FIN de la jornada que YO finalicé (28-oct-2026). Misma
+  //    ventana que el horómetro (hoy y ayer). Los tramos de la máquina de esas fechas
+  //    (todos: hacen falta para saber si Control ya ajustó o si hay solapes).
+  const [horasTramos, setHorasTramos] = useState<(TramoTurno & { round_date: string })[]>([]);
+  const [horasEditTramo, setHorasEditTramo] = useState<(TramoTurno & { round_date: string }) | null>(null);
+  const [horasEditRecarga, setHorasEditRecarga] = useState(0);
+  // 🕐 CORREGIR LA HORA DE INICIO con la jornada todavía ABIERTA (28-oct-2026): abre el
+  //    modal (montado al FINAL del árbol). Reglas: lib/corregirHorasJornada.ts.
+  const [inicioAbiertaEdit, setInicioAbiertaEdit] = useState(false);
   const [finTardiaBusy, setFinTardiaBusy] = useState(false);
   // ⚙️ CIERRE CONSCIENTE (24-sep-2026): si la máquina marcó horómetro INICIAL hoy y el
   //    final viene vacío, el primer «Sí, finalizar» NO cierra: avisa, y hay que escribirlo
@@ -593,6 +609,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   }, [ci?.id]);
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
+    setInicioAbiertaEdit(false);
     if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); setMotivoCierre(''); return; }
     setParadaOpen(false); setFinConfirm(false); setHoroFin(''); setMotivoCierre(''); setCerrarSinFinal(false); setIniciarSinHoro(false); setFinTime('');
     // Limpia el formulario de PARADA (ambos caminos) al cambiar de máquina.
@@ -862,6 +879,23 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       };
     });
     setCierreById(cMap);
+    // 🔁 Último tramo de CUALQUIER tipo por máquina+turno: si fue una parada, el turno
+    //    no «cerró» — el inspector la paró y la puede volver a poner a trabajar (30-oct-2026).
+    const ultRaw: Record<string, { day?: { src: string; ms: number }; night?: { src: string; ms: number } }> = {};
+    ((segs ?? []) as any[]).forEach((s) => {
+      const ms = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
+      if (isNaN(ms)) return;
+      const sh: 'day' | 'night' = s.shift === 'night' ? 'night' : 'day';
+      const u = ultRaw[s.machinery_id] ?? {};
+      if (!u[sh] || ms > u[sh]!.ms) u[sh] = { src: String(s.source || ''), ms };
+      ultRaw[s.machinery_id] = u;
+    });
+    const pMap: Record<string, { day?: number; night?: number }> = {};
+    Object.entries(ultRaw).forEach(([id, u]) => {
+      const esParada = (x?: { src: string }) => !!x && (x.src === 'parada_averia' || x.src === 'parada_no_trabajo');
+      pMap[id] = { day: esParada(u.day) ? u.day!.ms : undefined, night: esParada(u.night) ? u.night!.ms : undefined };
+    });
+    setParadaCierreById(pMap);
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
     // turno del inspector se hace en los memos paradaIds/paradaMotivos (más abajo).
     const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasParts(new Date(iso)).hour; return h >= 7 && h < 19 ? 'day' : 'night'; };
@@ -1058,6 +1092,53 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   }, [machines, assignMap, roundsById]);
   const toggleExp = (k: string) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
+  // Turno ACTUAL según la hora del sistema (Caracas): 7am–7pm = ☀️ día · 7pm–7am = 🌙
+  // noche. Es el turno con el que el COORDINADOR inicia la jornada (no lo elige a mano)
+  // y por el que se filtran los inspectores que se muestran en la sub-vista "👥 Inspectores".
+  const nowShift = useMemo<Shift>(() => {
+    const h = caracasParts(new Date()).hour;
+    return h >= 7 && h < 19 ? 'day' : 'night';
+  }, [nowTick]);
+
+  // Turno del inspector LOGUEADO en esta máquina (día/noche), o null si no es suya
+  // (admin/coordinador viendo todo → sin turno específico = comportamiento global).
+  const shiftOfMine = (id: string): 'day' | 'night' | null => {
+    const s = assignMap[id] || {};
+    const mineDay = s.day?.id === uid;
+    const mineNight = s.night?.id === uid;
+    // Cubre AMBOS turnos → el turno vigente lo dicta la hora actual (mismo criterio que
+    // `myShift`). Así de noche ve/opera el estado de NOCHE (la avería/parada de DÍA le
+    // sale como pendiente), no el de día por chequear día-primero.
+    if (mineDay && mineNight) return nowShift;
+    if (mineDay) return 'day';
+    if (mineNight) return 'night';
+    return null;
+  };
+  const openMine = (id: string): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    const sh = shiftOfMine(id);
+    if (sh === 'day') return r.openDay;
+    if (sh === 'night') return r.openNight;
+    return r.open;
+  };
+  // ¿MI turno tiene HORAS registradas (finalizó la jornada)? Sirve para separar
+  // CERRADA (finalizó con horas, ya no abierta) de INICIADA (abierta ahora).
+  const hoursMine = (id: string): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    const sh = shiftOfMine(id);
+    if (sh === 'day') return r.dayWorked > MIN_WORKED_HOURS;
+    if (sh === 'night') return r.nightWorked > MIN_WORKED_HOURS;
+    return r.worked > MIN_WORKED_HOURS;
+  };
+  const openEn = (id: string, sh: 'day' | 'night'): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    return sh === 'day' ? r.openDay : r.openNight;
+  };
+  const hoursEn = (id: string, sh: 'day' | 'night'): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    return sh === 'day' ? r.dayWorked > MIN_WORKED_HOURS : r.nightWorked > MIN_WORKED_HOURS;
+  };
+
   // ── REGLA DE TURNOS DEL INSPECTOR ──────────────────────────────────────────
   // El inspector solo puede iniciar jornada de SU turno asignado (día/noche) en
   // esta máquina, y solo una por turno por día (tras finalizar, vuelve a poder
@@ -1077,27 +1158,30 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (mineNight) return 'night';
     return null;
   }, [ci, assignMap, uid, nowTick]);
-  // ¿El turno del inspector en esta máquina YA CERRÓ hoy? Se decide por la HORA DE
-  // CIERRE del turno (hora de Caracas), NO por horas>0: así puede INICIAR/REINICIAR
-  // varias veces el mismo día (p.ej. tras una parada) mientras su turno siga abierto,
-  // y solo se bloquea cuando el turno ya cerró (día: 19:00 · noche: 07:00, y sigue
-  // cerrada hasta las 19:00). Recién mañana podrá iniciar de nuevo.
+  // ¿El turno del inspector en esta máquina YA CERRÓ hoy?
+  // Se decide SOLO si el turno ya finalizó con horas registradas y NO tiene jornada abierta.
+  // Ya NO se bloquea por hora de reloj (7:00pm) para que no cierre jornadas arbitrariamente.
   const shiftClosed = useMemo(() => {
-    if (!myShift) return false;
-    const h = caracasParts(new Date()).hour;
-    if (myShift === 'day') return h >= 19;               // día cierra a las 7:00pm
-    // NOCHE cierra a las 7:00am (12h, 7pm→7am) para TODAS las máquinas (regla cliente
-    // 14-ago-2026, igual que el auto-cierre del servidor): cerrada de 7am a 7pm; solo se
-    // puede iniciar/reiniciar de 7pm a 7am. Antes cerraba a la 1am (excepto LUMINARIA).
-    return h >= 7 && h < 19;
-  }, [myShift, nowTick]);
-  // Turno ACTUAL según la hora del sistema (Caracas): 7am–7pm = ☀️ día · 7pm–7am = 🌙
-  // noche. Es el turno con el que el COORDINADOR inicia la jornada (no lo elige a mano)
-  // y por el que se filtran los inspectores que se muestran en la sub-vista "👥 Inspectores".
-  const nowShift = useMemo<Shift>(() => {
-    const h = caracasParts(new Date()).hour;
-    return h >= 7 && h < 19 ? 'day' : 'night';
-  }, [nowTick]);
+    if (!ci) return false;
+    if (openMine(ci.id)) return false;
+    // 🔁 Si lo último del turno fue una PARADA, el turno no cerró: se puede volver a
+    //    poner a trabajar (pedido de los inspectores, 30-oct-2026).
+    const sh = shiftOfMine(ci.id);
+    const pc = paradaCierreById[ci.id];
+    if (pc && ((sh === 'night' ? pc.night : pc.day) ?? 0) > 0) return false;
+    return hoursMine(ci.id);
+  }, [ci, roundsById, assignMap, uid, nowShift, paradaCierreById]);
+  // 🕐 Tramos de HOY y AYER de la máquina elegida (para «Corregir hora de inicio / fin»).
+  //    Se recargan al finalizar (cambian jornadaStart/shiftClosed) y tras guardar.
+  useEffect(() => {
+    let vivo = true;
+    if (!ci) { setHorasTramos([]); return; }
+    supabase.from('machine_work_segments')
+      .select('id, round_date, shift, source, started_at, ended_at, hours, recorded_by, notes, close_reason')
+      .eq('machinery_id', ci.id).in('round_date', [today, yesterday]).order('started_at')
+      .then(({ data, error }) => { if (vivo) setHorasTramos(error ? [] : ((data ?? []) as any)); }, () => { if (vivo) setHorasTramos([]); });
+    return () => { vivo = false; };
+  }, [ci?.id, today, yesterday, horasEditRecarga, jornadaStart, shiftClosed]); // eslint-disable-line react-hooks/exhaustive-deps
   // GRACIA DE NOCHE (7am–9am): una jornada de NOCHE (7pm–7am) ya finalizada sigue
   // viéndose CERRADA/finalizada hasta las 9am (regla cliente). A las 9am pasa a
   // pendiente por iniciar. Solo aplica a la noche; no toca el flujo del día.
@@ -1154,44 +1238,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     paradaRawList.forEach((p) => { if (!p.arrastrada) s.add(p.id); });
     return s;
   }, [paradaRawList]);
-  // Turno del inspector LOGUEADO en esta máquina (día/noche), o null si no es suya
-  // (admin/coordinador viendo todo → sin turno específico = comportamiento global).
-  const shiftOfMine = (id: string): 'day' | 'night' | null => {
-    const s = assignMap[id] || {};
-    const mineDay = s.day?.id === uid;
-    const mineNight = s.night?.id === uid;
-    // Cubre AMBOS turnos → el turno vigente lo dicta la hora actual (mismo criterio que
-    // `myShift`). Así de noche ve/opera el estado de NOCHE (la avería/parada de DÍA le
-    // sale como pendiente), no el de día por chequear día-primero.
-    if (mineDay && mineNight) return nowShift;
-    if (mineDay) return 'day';
-    if (mineNight) return 'night';
-    return null;
-  };
-  const openMine = (id: string): boolean => {
-    const r = roundsById[id]; if (!r) return false;
-    const sh = shiftOfMine(id);
-    if (sh === 'day') return r.openDay;
-    if (sh === 'night') return r.openNight;
-    return r.open;
-  };
-  // ¿MI turno tiene HORAS registradas (finalizó la jornada)? Sirve para separar
-  // CERRADA (finalizó con horas, ya no abierta) de INICIADA (abierta ahora).
-  const hoursMine = (id: string): boolean => {
-    const r = roundsById[id]; if (!r) return false;
-    const sh = shiftOfMine(id);
-    if (sh === 'day') return r.dayWorked > MIN_WORKED_HOURS;
-    if (sh === 'night') return r.nightWorked > MIN_WORKED_HOURS;
-    return r.worked > MIN_WORKED_HOURS;
-  };
-  const openEn = (id: string, sh: 'day' | 'night'): boolean => {
-    const r = roundsById[id]; if (!r) return false;
-    return sh === 'day' ? r.openDay : r.openNight;
-  };
-  const hoursEn = (id: string, sh: 'day' | 'night'): boolean => {
-    const r = roundsById[id]; if (!r) return false;
-    return sh === 'day' ? r.dayWorked > MIN_WORKED_HOURS : r.nightWorked > MIN_WORKED_HOURS;
-  };
   // ÍNDICE O(1) de averías/paradas por máquina y turno. RENDIMIENTO: antes `segmentoDe`
   // hacía hasta 4 `.some()` sobre averiaRawList/paradaRawList por CADA llamada, y se llama
   // miles de veces por render (una por máquina en varias listas/contadores) → O(n²). Aquí
@@ -1394,12 +1440,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (!g) { g = { id, name, ids: new Set<string>() }; byId.set(id, g); }
       return g;
     };
-    // Solo el turno ACTUAL: de día se muestran los inspectores (y máquinas) del turno
-    // ☀️ día; de noche, los del 🌙 noche. Así el coordinador ve/opera lo que toca ahora.
+    // Turno ACTUAL según la hora, MÁS máquinas con jornada aún ABIERTA de cualquier turno:
+    // así a las 7:00pm los inspectores de día con máquinas trabajando siguen visibles para el coordinador
     machines.forEach((m) => {
       const s = assignMap[m.id] || {};
       const slot = s[nowShift];
       if (slot?.id && !esVirtual(slot.id)) ensure(slot.id, slot.name).ids.add(m.id);
+      const r = roundsById[m.id];
+      if (r?.openDay && s.day?.id && !esVirtual(s.day.id)) {
+        ensure(s.day.id, s.day.name).ids.add(m.id);
+      }
+      if (r?.openNight && s.night?.id && !esVirtual(s.night.id)) {
+        ensure(s.night.id, s.night.name).ids.add(m.id);
+      }
     });
     const machById = new Map(machines.map((m) => [m.id, m] as const));
     const rows = Array.from(byId.values()).map((g) => {
@@ -1407,7 +1460,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       g.ids.forEach((id) => {
         const m = machById.get(id);
         if (!m || !visibleParaInspector(m)) return;
-        const seg = segmentoConTurno(id, nowShift);
+        const r = roundsById[id];
+        const abierto = r?.openDay || r?.openNight;
+        const seg = abierto ? 'iniciada' : segmentoConTurno(id, nowShift);
         buckets[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : seg === 'cerrada' ? 'cerradas' : 'pendientes'].push(m);
       });
       (Object.keys(buckets) as (keyof InspBuckets)[]).forEach((k) => buckets[k].sort((a, b) => cmpText(a.code, b.code)));
@@ -1417,16 +1472,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     return rows;
   }, [machines, assignMap, roundsById, averiaRawList, paradaRawList, nowShift]);
 
-  // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
-  // global cuando es único. Para el COORDINADOR (que opera por otros) el turno lo DICTA
-  // la hora del sistema (7am–7pm día / 7pm–7am noche): no lo elige a mano. null = puede
-  // elegir (admin, o sin asignaciones).
+  // Turno FIJO para iniciar / operar: automático y sin margen de error humano.
+  // 1) Si la máquina ya tiene una jornada en curso, se usa el turno de esa jornada.
+  // 2) Si el inspector tiene turno asignado en esta máquina, se usa su turno.
+  // 3) Si no, se usa el turno del momento (7am-7pm día / 7pm-7am noche).
+  // Ningún inspector ni coordinador debe seleccionar el turno a mano.
   const fixedShift = useMemo<Shift | null>(() => {
+    const r = ci ? roundsById[ci.id] : null;
+    if (r?.openNight) return 'night';
+    if (r?.openDay) return 'day';
     if (myShift) return myShift;
-    if (esCoordinador) return nowShift;
     if (!puedeCualquierTurno && myGlobalShifts.size === 1) return Array.from(myGlobalShifts)[0];
-    return null;
-  }, [myShift, myGlobalShifts, puedeCualquierTurno, esCoordinador, nowShift]);
+    return nowShift;
+  }, [ci, roundsById, myShift, puedeCualquierTurno, myGlobalShifts, nowShift]);
   // Fuerza el turno declarado al turno del inspector (no puede elegir el otro).
   useEffect(() => {
     if (fixedShift) { setIniShift(fixedShift); setIniTime(nowHHMM()); }
@@ -1755,7 +1813,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Bloqueo: un inspector NO puede escanear/abrir/marcar la máquina de OTRO inspector.
     if (!puedeMarcar(m)) {
       setScanOpen(false);
-      setNotice(`🔒 "${m.code}" está asignada a ${otroInspectorNombre(m)}. No puedes escanearla ni marcarla (solo su inspector o un administrador).`);
+      setNotice(`🔒 "${m.code}" está asignada a ${otroInspectorNombre(m)}. No puedes escanearla ni marcarla (solo su inspector, un coordinador de inspectores o un administrador).`);
       return;
     }
     // Bloqueo: "Esperando instrucciones" = congelada por completo (pedido del cliente
@@ -2014,6 +2072,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // `jornada_start_at`, y sus 1.410 rondas salían "⏳ pendiente" (cliente 18-ago-2026).
     // El detalle de cada regla está documentado en la función.
     const { roundDate, startIso, retrasoMin } = calcularInicioJornada({ declaredIso, shift: sh, now });
+    // 🔁 Al volver a poner a trabajar una máquina que se PARÓ en este turno, la nueva
+    //    jornada no puede empezar antes de la parada: esas horas ya quedaron guardadas
+    //    y se contarían dos veces (30-oct-2026).
+    const paradaMs = ci ? (sh === 'night' ? paradaCierreById[ci.id]?.night : paradaCierreById[ci.id]?.day) : undefined;
+    if (paradaMs && new Date(startIso).getTime() < paradaMs) {
+      setNotice(`❌ La máquina se paró a las ${caracasClock(new Date(paradaMs).toISOString())}: la nueva jornada no puede empezar antes. Escribe la hora en que volvió a trabajar.`);
+      return;
+    }
 
     setJornadaBusy(true); setNotice(null);
     const vis = await registrarVisita('trabajando');
@@ -2210,15 +2276,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const shiftStartMs = jornadaShift === 'night'
       ? new Date(roundDate + 'T19:00:00-04:00').getTime()
       : new Date(roundDate + 'T07:00:00-04:00').getTime();
-    const topeFisico = Math.min(12, Math.max(0, (cierreEfectivoMs - shiftStartMs) / 3600000));
+    const topeFisico = Math.min(24, Math.max(0, (cierreEfectivoMs - shiftStartMs) / 3600000));
     // Las horas bancadas NUNCA pueden ser MENORES a lo realmente trabajado en ESTA
-    // sesión (inicio → ahora, tope 12h). El `min(topeFisico, …)` protege del doble
+    // sesión (inicio → ahora, tope 24h). El `min(topeFisico, …)` protege del doble
     // conteo al re-abrir, PERO cuando `jornada_start_at` cae antes del inicio nominal
     // del turno (p. ej. una jornada de día marcada de madrugada) y se cierra temprano,
     // `topeFisico` daba 0 y bancaba 0 aunque el tramo tuviera 6-12h reales (bug ago-2026:
     // decenas de máquinas de ayer con horas_ronda=0 y horas_tramo=9-12). El piso real
     // lo evita sin romper el tope físico ni el anti-doble-conteo del re-abrir.
-    const pisoReal = Math.min(12, Math.max(0, horas));
+    const pisoReal = Math.min(24, Math.max(0, horas));
     const totalTurno = Math.round(Math.max(pisoReal, Math.min(topeFisico, base + horas)) * 100) / 100;
     const res = await upsertMachineRound(ci.id, roundDate, { [key]: totalTurno, ...(hfValid ? { horometro_final: hfNum } : {}), ...(horoFinPhoto ? { horometro_photo: horoFinPhoto } : {}), jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
@@ -2326,7 +2392,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const shiftStartMs = jornadaShift === 'night'
         ? new Date(roundDate + 'T19:00:00-04:00').getTime()
         : new Date(roundDate + 'T07:00:00-04:00').getTime();
-      const topeFisico = Math.min(12, Math.max(0, (Date.now() - shiftStartMs) / 3600000));
+      const topeFisico = Math.min(24, Math.max(0, (Date.now() - shiftStartMs) / 3600000));
       const total = Math.round(Math.min(topeFisico, base + horas) * 100) / 100;
       const res = await upsertMachineRound(ci.id, roundDate, { [key]: total, jornada_start_at: null }, uid || null);
       // Si el bancado de horas falla, NO seguimos como si hubiera ido bien: se
@@ -2797,6 +2863,86 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   );
 
   const revisadas = Object.keys(visits).length;
+
+  // ✏️ CORREGIR EL HORÓMETRO QUE YO CARGUÉ (02-oct-2026, a pedido). Solo esta máquina,
+  // solo hoy y ayer, con motivo obligatorio; queda en el reporte como «✎ corregido por el
+  // inspector». Lo que Control ya corrigió no se puede tocar (la base tampoco lo deja).
+  // ⚠️ 28-oct-2026 (pedido del cliente): antes vivía SOLO en la rama «iniciar jornada»,
+  // así que al FINALIZAR la jornada (`shiftClosed`) el panel desaparecía y el inspector
+  // ya no podía corregir inicial/final ni la foto, aunque estuviera dentro de hoy/ayer.
+  // Ahora se muestra también con la jornada finalizada. NO se muestra con la jornada
+  // ABIERTA: «Finalizar» guarda el inicial que tiene la pantalla y pisaría la corrección.
+  // El guardado es el de siempre (HorometroCorregirModal → guardarLecturaHorometro):
+  // REEMPLAZA la lectura del (día, turno), no agrega otra.
+  const panelCorregirHoro = ci && horoEditables.some((d) => d.lecturas.length > 0) ? (
+                    <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>⚙️ Horómetros que cargaste (hoy y ayer)</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si tecleaste mal un número o subiste una foto equivocada, corrígelo aquí con el motivo. Puedes actualizar números y subir/cambiar las fotos de inicio o fin.</Text>
+                      {horoEditables.filter((d) => d.lecturas.length > 0).map((d) => (
+                        <View key={d.roundDate} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{d.roundDate === today ? 'Hoy' : 'Ayer'} · {d.roundDate.split('-').reverse().join('/')}</Text>
+                            {d.lecturas.map((l) => (
+                              <Text key={l.shift} style={{ color: colors.muted, fontSize: 11 }}>
+                                {l.shift === 'night' ? '🌙' : '☀️'} inicial {l.inicial ?? '—'}{l.fotoInicialUrl ? ' 📷' : ''} · final {l.final ?? '—'}{l.fotoFinalUrl ? ' 📷' : ''}
+                                {l.corregidoPor ? ' · 🔒 corregida por Control' : l.motivoCorreccion ? ' · ✎ corregida' : ''}
+                              </Text>
+                            ))}
+                          </View>
+                          <TouchableOpacity onPress={() => setHoroEditFecha(d.roundDate)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✏️ Corregir</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                      {horoEditFecha ? (
+                        <HorometroCorregirModal
+                          modo="inspector"
+                          code={ci.code}
+                          machineryId={ci.id}
+                          roundDate={horoEditFecha}
+                          lecturas={horoEditables.find((d) => d.roundDate === horoEditFecha)?.lecturas ?? []}
+                          onClose={() => setHoroEditFecha(null)}
+                          onSaved={() => { setHoroEditRecarga((n) => n + 1); setNotice('✏️ Horómetro / foto corregido. Queda con tu nombre y tu motivo en el reporte.'); }}
+                        />
+                      ) : null}
+                    </View>
+  ) : null;
+
+  // 🕐 CORREGIR HORA DE INICIO / FIN (28-oct-2026, pedido del cliente). Solo las jornadas
+  // que ESTE inspector finalizó (tramo manual_finish/_early con su usuario), de hoy y
+  // ayer (la misma ventana del horómetro), de su máquina en ese turno. Lo que Control ya
+  // ajustó no se toca. Mismo lugar que el panel del horómetro (jornada no abierta); el
+  // modal se monta al FINAL del árbol. Reglas: lib/corregirHorasJornada.ts.
+  const asignadoEnTurnoDe = (shift: string): boolean => {
+    if (!ci) return false;
+    if (puedeCoordinar) return true;
+    const s = assignMap[ci.id] || {};
+    return (shift === 'night' ? s.night?.id : s.day?.id) === uid;
+  };
+  const tramosMios = horasTramos.filter((t) => esCierreManual(t.source) && !!uid && t.recorded_by === uid);
+  const panelCorregirHoras = ci && tramosMios.length > 0 ? (
+                    <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>🕐 Jornadas que finalizaste (hoy y ayer)</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si marcaste mal la hora de inicio o de fin, corrígela aquí con el motivo. Lo que Control ya corrigió no se toca.</Text>
+                      {tramosMios.map((t) => {
+                        const perm = puedeCorregirHoras({ tramo: t, uid, roundDate: t.round_date, today, yesterday, asignadoEnTurno: asignadoEnTurnoDe(String(t.shift)), tramosDelTurno: horasTramos.filter((x) => x.round_date === t.round_date) });
+                        return (
+                          <View key={t.id} style={{ paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                              {t.round_date === today ? 'Hoy' : 'Ayer'} · {t.round_date.split('-').reverse().join('/')} · {t.shift === 'night' ? '🌙' : '☀️'} {hhmmCaracas(new Date(t.started_at).getTime())}–{hhmmCaracas(new Date(t.ended_at).getTime())} ({Number(t.hours).toFixed(2)} h){/Corregido por inspector/.test(String(t.notes ?? '')) ? ' · ✎ corregida' : ''}
+                            </Text>
+                            {perm.ok ? (
+                              <TouchableOpacity onPress={() => setHorasEditTramo(t)} style={{ alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🕐 Corregir hora de inicio / fin</Text>
+                              </TouchableOpacity>
+                            ) : (
+                              <Text style={{ color: perm.porControl ? colors.danger : colors.muted, fontSize: 11, marginTop: 2 }}>🔒 {perm.error}</Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+  ) : null;
 
   return (
     <Screen onRefresh={load} refreshing={loading}>
@@ -3826,7 +3972,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>
                       🟢 Jornada en curso ({jornadaShift === 'night' ? '🌙 noche' : '☀️ día'}) · desde {caracasClock(jornadaStart)}
                     </Text>
-                    <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>⏱️ Este tramo: {elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
+                    <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>⏱️ Este tramo: {elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 86400000))}</Text>
                     {/* ACUMULADO DEL TURNO (08-oct-2026): si antes de este tramo ya se bancaron
                         horas (parada→reactivación), el inspector tiene que VER que no se
                         perdieron — reclamo «no suma las horas de antes con las de después». */}
@@ -3835,13 +3981,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         Σ Acumulado del turno: {horasVivasTurno({ bancado: curRoundHours[jornadaShift], startMs: new Date(jornadaStart).getTime(), shift: jornadaShift, nowMs: nowTick }).toFixed(2)} h (incluye lo trabajado antes de la parada)
                       </Text>
                     ) : null}
+                    {/* 🕐 ¿Se equivocó al iniciar? Corrige SOLO la hora de inicio; la jornada
+                        sigue abierta. Su máquina en ese turno (o coordina). El modal va al
+                        FINAL del árbol; las reglas, en lib/corregirHorasJornada.ts. */}
+                    {asignadoEnTurnoDe(jornadaShift) ? (
+                      <TouchableOpacity onPress={() => setInicioAbiertaEdit(true)} disabled={jornadaBusy} style={{ alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.successSoftBorder, backgroundColor: colors.surface, opacity: jornadaBusy ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🕐 Corregir hora de inicio</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                   {finConfirm ? (
                     <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
                       <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>¿Finalizar la jornada?</Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 13, marginTop: 4, textAlign: 'center' }}>
-                        Este tramo: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
-                        {'  '}({Math.min(12, Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000).toFixed(2)} h)
+                        Este tramo: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 86400000))}</Text>
+                        {'  '}({Math.min(24, Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000).toFixed(2)} h)
                       </Text>
                       {/* ACUMULADO del turno = bancado + este tramo (horasVivasTurno, 08-oct-2026).
                           Antes tomaba el MAYOR entre ambos — regla de cuando el re-inicio se
@@ -3884,7 +4038,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                             </View>
                           );
                         }
-                        const h = Math.min(12, Math.max(0, (r.efectivoMs - new Date(jornadaStart).getTime()) / 3600000));
+                        const h = Math.min(24, Math.max(0, (r.efectivoMs - new Date(jornadaStart).getTime()) / 3600000));
                         return (
                           <Text style={{ color: colors.infoSoftText, fontSize: 12, marginBottom: spacing.sm, textAlign: 'center' }}>
                             🕐 Con esa hora, este tramo: <Text style={{ fontWeight: '900' }}>{h.toFixed(2)} h</Text>{r.finMs > e ? ' (topado al fin del turno)' : ''}
@@ -3951,9 +4105,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               ) : shiftClosed ? (
                 // El turno del inspector YA CERRÓ hoy (por hora): no puede iniciar/reiniciar
                 // hasta mañana. (Antes de cerrar SÍ puede reiniciar para acumular horas.)
-                <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13 }}>✅ La jornada de {shiftFromKey(myShift as any).label} de hoy ya cerró.</Text>
-                  <Text style={{ color: colors.infoSoftText, fontSize: 12, marginTop: 2 }}>Podrás iniciar otra jornada de {shiftFromKey(myShift as any).label} mañana.</Text>
+                <View>
+                  <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13 }}>✅ La jornada de {shiftFromKey(myShift as any).label} de hoy ya cerró.</Text>
+                    <Text style={{ color: colors.infoSoftText, fontSize: 12, marginTop: 2 }}>Podrás iniciar otra jornada de {shiftFromKey(myShift as any).label} mañana.</Text>
+                  </View>
+                  {/* ✏️ Jornada ya finalizada: igual puede corregir horómetro/foto de hoy y ayer. */}
+                  {panelCorregirHoro}
+                  {/* 🕐 …y la hora de inicio / fin de la jornada que finalizó (hoy y ayer). */}
+                  {panelCorregirHoras}
                 </View>
               ) : (
                 <View style={{ marginBottom: spacing.sm }}>
@@ -3978,43 +4138,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       </TouchableOpacity>
                     </View>
                   ) : null}
-                  {/* ✏️ CORREGIR EL HORÓMETRO QUE YO CARGUÉ (02-oct-2026, a pedido). Solo
-                      esta máquina, solo hoy y ayer, con motivo obligatorio; queda en el
-                      reporte como «✎ corregido por el inspector». Lo que Control ya
-                      corrigió no se puede tocar (la base tampoco lo deja). */}
-                  {ci && horoEditables.some((d) => d.lecturas.length > 0) ? (
-                    <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>⚙️ Horómetros que cargaste (hoy y ayer)</Text>
-                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si tecleaste mal un número o subiste una foto equivocada, corrígelo aquí con el motivo. Puedes actualizar números y subir/cambiar las fotos de inicio o fin.</Text>
-                      {horoEditables.filter((d) => d.lecturas.length > 0).map((d) => (
-                        <View key={d.roundDate} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{d.roundDate === today ? 'Hoy' : 'Ayer'} · {d.roundDate.split('-').reverse().join('/')}</Text>
-                            {d.lecturas.map((l) => (
-                              <Text key={l.shift} style={{ color: colors.muted, fontSize: 11 }}>
-                                {l.shift === 'night' ? '🌙' : '☀️'} inicial {l.inicial ?? '—'}{l.fotoInicialUrl ? ' 📷' : ''} · final {l.final ?? '—'}{l.fotoFinalUrl ? ' 📷' : ''}
-                                {l.corregidoPor ? ' · 🔒 corregida por Control' : l.motivoCorreccion ? ' · ✎ corregida' : ''}
-                              </Text>
-                            ))}
-                          </View>
-                          <TouchableOpacity onPress={() => setHoroEditFecha(d.roundDate)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
-                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✏️ Corregir</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                      {horoEditFecha ? (
-                        <HorometroCorregirModal
-                          modo="inspector"
-                          code={ci.code}
-                          machineryId={ci.id}
-                          roundDate={horoEditFecha}
-                          lecturas={horoEditables.find((d) => d.roundDate === horoEditFecha)?.lecturas ?? []}
-                          onClose={() => setHoroEditFecha(null)}
-                          onSaved={() => { setHoroEditRecarga((n) => n + 1); setNotice('✏️ Horómetro / foto corregido. Queda con tu nombre y tu motivo en el reporte.'); }}
-                        />
-                      ) : null}
-                    </View>
-                  ) : null}
+                  {/* ✏️ Corregir horómetro/foto (hoy y ayer): ver `panelCorregirHoro`. */}
+                  {panelCorregirHoro}
+                  {/* 🕐 Corregir hora de inicio / fin (hoy y ayer): ver `panelCorregirHoras`. */}
+                  {panelCorregirHoras}
                   {/* Turno de la jornada. Si el inspector tiene turno ASIGNADO (día/noche),
                       se FIJA a su turno (no puede elegir el otro); si no está asignado, elige. */}
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Turno de la jornada</Text>
@@ -4458,6 +4585,38 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           </View>
         </View>
       </Modal>
+      {/* 🕐 Corregir hora de inicio / fin: montado al FINAL del árbol (en web gana el
+          último modal montado). */}
+      {ci && horasEditTramo ? (
+        <CorregirHorasJornadaModal
+          code={ci.code}
+          machineryId={ci.id}
+          roundDate={horasEditTramo.round_date}
+          tramo={horasEditTramo}
+          uid={uid}
+          today={today}
+          yesterday={yesterday}
+          asignadoEnTurno={asignadoEnTurnoDe(String(horasEditTramo.shift))}
+          onClose={() => setHorasEditTramo(null)}
+          onSaved={(aviso) => { setHorasEditRecarga((n) => n + 1); setNotice(aviso); reloadEstados(); }}
+        />
+      ) : null}
+      {/* 🕐 Corregir la hora de inicio de la jornada ABIERTA: también al FINAL del árbol.
+          Al guardar, el inicio nuevo pasa al estado de la pantalla: de ahí salen las horas
+          en vivo, la parada (bancado) y el FINALIZAR. */}
+      {ci && jornadaStart && inicioAbiertaEdit ? (
+        <CorregirInicioJornadaAbiertaModal
+          code={ci.code}
+          machineryId={ci.id}
+          shift={jornadaShift}
+          inicioActual={jornadaStart}
+          today={today}
+          yesterday={yesterday}
+          asignadoEnTurno={asignadoEnTurnoDe(jornadaShift)}
+          onClose={() => setInicioAbiertaEdit(false)}
+          onSaved={(nuevoInicio, aviso) => { setJornadaStart(nuevoInicio); setFinConfirm(false); setNotice(aviso); reloadEstados(); }}
+        />
+      ) : null}
     </Screen>
   );
 }

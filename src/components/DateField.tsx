@@ -20,6 +20,7 @@ function parseISO(iso?: string | null): { y: number; m: number; d: number } | nu
 }
 
 type Props = {
+  label?: string;                // etiqueta opcional
   value: string;                 // fecha en ISO "AAAA-MM-DD"
   onChange: (iso: string) => void;
   placeholder?: string;

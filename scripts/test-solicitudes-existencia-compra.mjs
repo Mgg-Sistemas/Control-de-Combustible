@@ -53,10 +53,31 @@ const nav = leer('src/navigation/index.tsx');
 ok('🧭 Navigation incluye SolicitudMaterial en MoreStack', nav.includes('name="SolicitudMaterial"'));
 ok('🧭 Navigation incluye SolicitudMaterial en moreScreens', nav.includes("SolicitudMaterial: 'pedir-material'"));
 
-// 5. Migración SQL
+// 5. Nuevos Requerimientos: Multi-selección, Carrito de Repuestos, Auditoría y Rechazos
+ok('🛒 Pantalla maneja multi-selección de maquinaria y vehículos', screen.includes('selectedMachineryIds') && screen.includes('selectedVehicleIds'));
+ok('🚜 Cumple regla de maquinaria: muestra código y PLACA siempre', screen.includes('m.plate') && screen.includes('m.code'));
+ok('🛒 Permite agregar múltiples repuestos al carrito', screen.includes('cartItems') && screen.includes('agregarItemAlCarrito'));
+ok('🛒 Permite modificar cantidades (+/- y manual)', screen.includes('cambiarCantidadCarrito') && screen.includes('setCantidadDirecta'));
+ok('👤 Mis Solicitudes filtra estrictamente por el usuario autenticado', screen.includes('s.created_by === uid') && screen.includes('r.requested_by === uid'));
+ok('👤 Registra automáticamente al usuario autenticado (created_by / requested_by)', screen.includes('created_by: uid') && screen.includes('requested_by: uid'));
+ok('❌ Sistema parsea y formatea autor, fecha y motivo del rechazo', lib.includes('formatRejectionNote') && lib.includes('parseRejectionNote') && screen.includes('parseRejectionNote'));
+
+// 6. Migración SQL
 const sql = leer('supabase/solicitudes_existencia.sql');
 ok('💾 Migración SQL crea tabla inventory_stock_requests', sql.includes('create table if not exists public.inventory_stock_requests'));
 ok('💾 Migración SQL incluye RLS y correlativo automático', sql.includes('enable row level security') && sql.includes('trg_assign_stock_request_code'));
+
+// 7. Consolidación de Solicitudes por Pedido (Órdenes Agrupadas)
+ok('📦 agruparSolicitudesStock agrupa registros atómicos en pedidos únicos', lib.includes('export function agruparSolicitudesStock'));
+ok('📦 ESTADO_GRUPO_CONFIG incluye pendiente, parcial, despachado y rechazado', lib.includes('ESTADO_GRUPO_CONFIG') && lib.includes('parcial'));
+ok('🏢 InventarioScreen agrupa solicitudes en tarjetas únicas por pedido', inv.includes('gruposFiltrados') && inv.includes('agruparSolicitudesStock'));
+ok('🏢 InventarioScreen permite despachar disponibles de una orden en lote', inv.includes('despacharGrupoDisponibles'));
+ok('🏢 InventarioScreen permite rechazar orden consolidada completa', inv.includes('abrirRechazarGrupo') && inv.includes('confirmarRechazo'));
+ok('🛒 SolicitudMaterialScreen etiqueta carritos multi-ítem con tag de orden', screen.includes('codigoBaseLote') && screen.includes('[ORDEN:'));
+ok('📱 SolicitudMaterialScreen muestra pedidos consolidados en Mis Solicitudes', screen.includes('gruposStockFiltrados') && screen.includes('agruparSolicitudesStock'));
+ok('🚜 Cumple regla de maquinaria en tarjeta consolidada (código + PLACA obligatoria)', (inv.includes('m.plate') || inv.includes('mach.plate')) && (screen.includes('m.plate') || screen.includes('mach.plate')));
+ok('📂 InventarioScreen tarjetas son plegables/desplegables (toggle y masivo)', inv.includes('toggleExpand') && inv.includes('expandirTodos') && inv.includes('plegarTodos'));
+ok('📂 SolicitudMaterialScreen tarjetas son plegables/desplegables (toggle y masivo)', screen.includes('toggleExpandStock') && screen.includes('expandirTodosStock') && screen.includes('plegarTodosStock'));
 
 console.log(`\n🧪 Solicitudes de Existencia y Compra: ${pass} OK · ${fail} FALLO(S)`);
 if (fail) {
@@ -64,3 +85,4 @@ if (fail) {
   process.exit(1);
 }
 console.log('   Todo el flujo técnico y operativo está integrado y verificado.');
+

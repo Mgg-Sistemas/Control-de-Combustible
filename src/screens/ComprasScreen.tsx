@@ -12,13 +12,27 @@ import { CuentasTab, CUENTAS_TABS } from './CuentasScreen';
 import { RequerimientoTab } from './RequerimientoTab';
 import { SolicitudesCompraTab } from './SolicitudesCompraTab';
 import { ServiciosTab } from './ServiciosTab';
-import { pickAndUploadDocFile } from '../lib/photo';
-import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa, DirectPurchase } from '../types/database';
+import { AiresAcondicionadosTab } from './AiresAcondicionadosTab';
+import { HistoricoComprasTab } from './HistoricoComprasTab';
+import { usePermisosAprobacion } from '../lib/permisosAprobacion';
+import {
+  CONDICIONES_PAGO_CHIPS,
+  toggleChipCondicionPago,
+  extraerCondicionesPago,
+  inyectarCondicionesPagoEnNota,
+} from '../lib/cuentasPago';
+import { pickAndUploadDocFile, takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../lib/photo';
+import * as ImagePicker from 'expo-image-picker';
+import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
+import { extraerFotoProducto, empaquetarNotaConFotoProducto, limpiarNotaFotoProducto, FotoProductoData } from '../lib/comprasDirectas';
+import { PRIORIDAD_COMPRA_INFO, esPrioridadCompra, colorPrioridad } from '../lib/prioridadCompra';
+import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa, DirectPurchase, InventoryRequirement } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { norm, cmpText } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
+import { rawCaseField } from '../lib/fonts';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Acepta punto O coma como separador decimal (12,50 y 12.50 valen igual). Si vienen
@@ -112,7 +126,35 @@ function Pill({ label, bg, border, text }: { label: string; bg: string; border: 
 }
 
 // ── Editor de renglones (descripción · cantidad · unidad · precio) ───────────
-function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice, conExento }: { items: PurchaseLine[]; setItems: (l: PurchaseLine[]) => void; priceLabel: string; readOnly?: boolean; catalog?: InventoryLevel[]; noPrice?: boolean; conExento?: boolean }) {
+function LineEditor({
+  items,
+  setItems,
+  priceLabel,
+  readOnly,
+  catalog,
+  noPrice,
+  conExento,
+  allowPhoto,
+  subiendoIndex,
+  onTomarFoto,
+  onElegirFoto,
+  onQuitarFoto,
+  onVerFoto,
+}: {
+  items: PurchaseLine[];
+  setItems: (l: PurchaseLine[]) => void;
+  priceLabel: string;
+  readOnly?: boolean;
+  catalog?: InventoryLevel[];
+  noPrice?: boolean;
+  conExento?: boolean;
+  allowPhoto?: boolean;
+  subiendoIndex?: number | null;
+  onTomarFoto?: (index: number) => void;
+  onElegirFoto?: (index: number) => void;
+  onQuitarFoto?: (index: number) => void;
+  onVerFoto?: (url: string, title: string) => void;
+}) {
   const { colors } = useTheme();
   const [focus, setFocus] = useState<number | null>(null);
   // Texto crudo de cant./precio mientras se escribe: deja teclear "12," o "12." sin
@@ -163,6 +205,133 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice, c
             <TouchableOpacity disabled={readOnly} onPress={() => upd(i, { exento: !l.exento })} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={{ color: l.exento ? colors.brandText : colors.muted, fontSize: 12, fontWeight: '700' }}>{l.exento ? '☑' : '☐'} Exento de IVA</Text>
             </TouchableOpacity>
+          ) : null}
+
+          {/* 📷 Foto del producto en este renglón específico (opcional) */}
+          {allowPhoto ? (
+            <View style={{ marginTop: 2, paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+              {l.image_url ? (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: spacing.sm,
+                    backgroundColor: colors.surface,
+                    padding: 6,
+                    borderRadius: radius.sm,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <TouchableOpacity
+                    onPress={() => onVerFoto?.(l.image_url!, `Foto: ${l.description || `Renglón ${i + 1}`}`)}
+                    activeOpacity={0.8}
+                  >
+                    <Image
+                      source={{ uri: l.image_url }}
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: radius.sm,
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.brand,
+                      }}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+
+                  <View style={{ flex: 1, minWidth: 140 }}>
+                    <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '700' }} numberOfLines={1}>
+                      📷 Foto del producto adjunta
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => onVerFoto?.(l.image_url!, `Foto: ${l.description || `Renglón ${i + 1}`}`)}
+                        style={{
+                          backgroundColor: colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: colors.brand,
+                          borderRadius: radius.pill,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                        }}
+                      >
+                        <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '700' }}>👁️ Ver grande</Text>
+                      </TouchableOpacity>
+                      {!readOnly ? (
+                        <TouchableOpacity
+                          onPress={() => onQuitarFoto?.(i)}
+                          style={{
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.danger,
+                            borderRadius: radius.pill,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                          }}
+                        >
+                          <Text style={{ color: colors.danger, fontSize: 10.5, fontWeight: '700' }}>🗑️ Quitar</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                </View>
+              ) : !readOnly ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                  <TouchableOpacity
+                    onPress={() => onTomarFoto?.(i)}
+                    disabled={subiendoIndex === i}
+                    style={{
+                      flex: 1,
+                      minWidth: 110,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingVertical: 6,
+                      paddingHorizontal: 8,
+                      opacity: subiendoIndex === i ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12 }}>📷</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '700' }}>
+                      {subiendoIndex === i ? 'Subiendo…' : 'Tomar foto'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => onElegirFoto?.(i)}
+                    disabled={subiendoIndex === i}
+                    style={{
+                      flex: 1,
+                      minWidth: 110,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingVertical: 6,
+                      paddingHorizontal: 8,
+                      opacity: subiendoIndex === i ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12 }}>🖼️</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '700' }}>
+                      {subiendoIndex === i ? 'Subiendo…' : 'Galería / Archivo'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
           ) : null}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             {!noPrice ? <Text style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>Subtotal: {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{conExento && l.exento ? ' · EXENTO' : ''}</Text> : <View />}
@@ -264,6 +433,11 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
   const [pagoMovilBank, setPagoMovilBank] = useState('');
   const [binanceId, setBinanceId] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
+  // 📸 Captura de Pago / Billetera / QR (TRX, Tron, Banco)
+  const [paymentPhotoUrl, setPaymentPhotoUrl] = useState('');
+  const [paymentPhotoName, setPaymentPhotoName] = useState('');
+  const [subiendoCaptura, setSubiendoCaptura] = useState(false);
+  const [visorCaptura, setVisorCaptura] = useState<CapturaPagoInfo | null>(null);
   const [busy, setBusy] = useState(false);
   // Error EN LÍNEA dentro del Modal: el toast queda TAPADO por el Modal a pantalla
   // completa (web), así el usuario no veía por qué "no deja registrar". Ver la
@@ -283,9 +457,91 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
     setPagoMovilId(s?.pago_movil_id ?? (s?.rif ?? ''));
     setPagoMovilBank(s?.pago_movil_bank ?? (s?.bank_name ?? ''));
     setBinanceId(s?.binance_id ?? '');
-    setPaymentNotes(s?.payment_notes ?? '');
+    const cap = extraerCapturaPago(s);
+    setPaymentPhotoUrl(cap?.url ?? '');
+    setPaymentPhotoName(cap?.name ?? '');
+    setPaymentNotes(limpiarNotasUsuario(s?.payment_notes));
     setOpen(true);
   };
+
+  const subirCapturaArchivo = async () => {
+    try {
+      setSubiendoCaptura(true);
+      const res = await pickAndUploadDocFile('proveedores', editing?.id || 'nuevo');
+      if (res.ok && res.url) {
+        setPaymentPhotoUrl(res.url);
+        if (!paymentPhotoName.trim()) {
+          setPaymentPhotoName(res.name || 'Captura de pago / QR');
+        }
+        toast.success('Captura cargada con éxito.');
+      } else if (res.error) {
+        toast.error(res.error);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al subir captura');
+    } finally {
+      setSubiendoCaptura(false);
+    }
+  };
+
+  const tomarFotoCaptura = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        toast.error('Permiso de cámara denegado.');
+        return;
+      }
+      setSubiendoCaptura(true);
+      const res = await ImagePicker.launchCameraAsync({
+        quality: 0.7,
+        base64: true,
+      });
+      if (res.canceled || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      const folder = 'proveedores';
+      const id = editing?.id || 'nuevo';
+      const path = `${folder}/${id}/${Date.now()}.jpg`;
+
+      let up: any;
+      if (Platform.OS === 'web') {
+        const resp = await fetch(asset.uri);
+        const blob = await resp.blob();
+        up = await supabase.storage.from('machinery').upload(path, blob, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      } else {
+        const base64Str = asset.base64 || '';
+        const byteCharacters = atob(base64Str);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        up = await supabase.storage.from('machinery').upload(path, byteArray, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      }
+      if (up?.error) {
+        toast.error(up.error.message);
+        return;
+      }
+      const { data } = supabase.storage.from('machinery').getPublicUrl(path);
+      if (data?.publicUrl) {
+        setPaymentPhotoUrl(data.publicUrl);
+        if (!paymentPhotoName.trim()) {
+          setPaymentPhotoName('Foto tomada con cámara');
+        }
+        toast.success('Foto guardada con éxito.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al tomar foto');
+    } finally {
+      setSubiendoCaptura(false);
+    }
+  };
+
   const addTag = (raw?: string) => {
     const t = (raw ?? tagInput).trim().toUpperCase();
     if (!t) return;
@@ -296,8 +552,9 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
     setFormErr(null);
     if (!name.trim()) { setFormErr('El nombre es obligatorio.'); return; }
     setBusy(true);
+    const finalNotes = empaquetarNotasConCaptura(paymentNotes, paymentPhotoUrl, paymentPhotoName);
     const payload = {
-      name: name.trim().toUpperCase(), rif: rif.trim() || null, phone: phone.trim() || null,
+      name: name.trim(), rif: rif.trim() || null, phone: phone.trim() || null,
       email: email.trim() || null, address: address.trim() || null, tags: tags.length ? tags : null,
       bank_name: bankName.trim() || null,
       account_number: accountNumber.trim() || null,
@@ -308,7 +565,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
       pago_movil_id: pagoMovilId.trim() || null,
       pago_movil_bank: pagoMovilBank.trim() || null,
       binance_id: binanceId.trim() || null,
-      payment_notes: paymentNotes.trim() || null,
+      payment_notes: finalNotes,
     };
     const { error } = editing
       ? await supabase.from('suppliers').update(payload).eq('id', editing.id)
@@ -381,9 +638,26 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
               ) : null}
               {s.binance_id ? (
                 <View style={{ backgroundColor: '#713F12', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                  <Text style={{ color: '#FCD34D', fontSize: 10.5, fontWeight: '800' }}>🟡 Binance: {s.binance_id}</Text>
+                  <Text {...rawCaseField} style={{ color: '#FCD34D', fontSize: 10.5, fontWeight: '800', textTransform: 'none' }}>🟡 Binance: {s.binance_id}</Text>
                 </View>
               ) : null}
+              {(() => {
+                const cap = extraerCapturaPago(s);
+                if (!cap) return null;
+                return (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      setVisorCaptura(cap);
+                    }}
+                    style={{ backgroundColor: '#581C87', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                  >
+                    <Text style={{ color: '#E9D5FF', fontSize: 10.5, fontWeight: '800' }}>
+                      📸 {cap.name || 'Captura TRX / Tron / QR'} 👁️
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()}
             </View>
 
             {(s.tags ?? []).length ? (
@@ -409,12 +683,12 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, marginBottom: spacing.sm }}>{editing ? 'Editar proveedor' : 'Nuevo proveedor'}</Text>
               
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre o Razón Social *</Text>
-              <TextInput value={name} onChangeText={setName} placeholder="Nombre o razón social" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={name} onChangeText={setName} autoCapitalize="words" placeholder="Nombre o razón social" placeholderTextColor={colors.muted} style={input} />
               
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>RIF</Text>
-                  <TextInput value={rif} onChangeText={setRif} placeholder="J-000000000" placeholderTextColor={colors.muted} style={input} />
+                  <TextInput value={rif} onChangeText={setRif} autoCapitalize="none" placeholder="J-000000000" placeholderTextColor={colors.muted} style={input} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Teléfono de contacto</Text>
@@ -423,14 +697,14 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
               </View>
 
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Correo electrónico</Text>
-              <TextInput value={email} onChangeText={setEmail} placeholder="correo@empresa.com" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" keyboardType="email-address" />
+              <TextInput value={email} onChangeText={setEmail} placeholder="correo@empresa.com" placeholderTextColor={colors.muted} style={[input, { textTransform: 'none' }]} {...rawCaseField} autoCapitalize="none" keyboardType="email-address" />
               
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Dirección fiscal / física</Text>
-              <TextInput value={address} onChangeText={setAddress} placeholder="Dirección" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={address} onChangeText={setAddress} autoCapitalize="sentences" placeholder="Dirección" placeholderTextColor={colors.muted} style={input} />
 
               {/* 💳 SECCIÓN DE DATOS FINANCIEROS Y MÉTODOS DE PAGO */}
               <View style={{ marginTop: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
-                <Text style={{ color: '#16324F', fontWeight: '900', fontSize: 13, marginBottom: 4, textTransform: 'uppercase' }}>
+                <Text style={{ color: '#1E3A5F', fontWeight: '900', fontSize: 13, marginBottom: 4, textTransform: 'uppercase' }}>
                   💳 Datos Financieros (Para Transición a Tesorería / Pagos)
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
@@ -444,11 +718,11 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: 6 }}>
                     <View style={{ flex: 2 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco emisor</Text>
-                      <TextInput value={bankName} onChangeText={setBankName} placeholder="Ej. Banesco, Mercantil, Venezuela" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={bankName} onChangeText={setBankName} autoCapitalize="words" placeholder="Ej. Banesco, Mercantil, Venezuela" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Tipo de cuenta</Text>
-                      <TextInput value={accountType} onChangeText={setAccountType} placeholder="Corriente / Ahorro" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={accountType} onChangeText={setAccountType} autoCapitalize="words" placeholder="Corriente / Ahorro" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                   </View>
 
@@ -458,11 +732,11 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                     <View style={{ flex: 2 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Titular de la cuenta</Text>
-                      <TextInput value={accountHolder} onChangeText={setAccountHolder} placeholder="Nombre o Razón social" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={accountHolder} onChangeText={setAccountHolder} autoCapitalize="words" placeholder="Nombre o Razón social" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Cédula / RIF</Text>
-                      <TextInput value={accountIdDoc} onChangeText={setAccountIdDoc} placeholder="J-12345678-9" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={accountIdDoc} onChangeText={setAccountIdDoc} autoCapitalize="none" placeholder="J-12345678-9" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                   </View>
                 </View>
@@ -473,7 +747,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco</Text>
-                      <TextInput value={pagoMovilBank} onChangeText={setPagoMovilBank} placeholder="Ej. Banesco (0134)" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={pagoMovilBank} onChangeText={setPagoMovilBank} autoCapitalize="words" placeholder="Ej. Banesco (0134)" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Teléfono</Text>
@@ -481,7 +755,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>C.I. / RIF</Text>
-                      <TextInput value={pagoMovilId} onChangeText={setPagoMovilId} placeholder="V-12345678" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                      <TextInput value={pagoMovilId} onChangeText={setPagoMovilId} autoCapitalize="none" placeholder="V-12345678" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
                   </View>
                 </View>
@@ -490,10 +764,95 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                 <View style={{ backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 6 }}>🟡 Billetera Digital (Binance Pay / USDT)</Text>
                   <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Binance Pay ID o Correo electrónico registrado</Text>
-                  <TextInput value={binanceId} onChangeText={setBinanceId} placeholder="Binance ID (ej. 123456789) o correo de cuenta" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 6 }]} autoCapitalize="none" />
+                  <TextInput value={binanceId} onChangeText={setBinanceId} placeholder="Binance ID (ej. 123456789) o correo de cuenta" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 6, textTransform: 'none' }]} {...rawCaseField} autoCapitalize="none" />
 
                   <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Notas / Instrucciones adicionales de pago</Text>
-                  <TextInput value={paymentNotes} onChangeText={setPaymentNotes} placeholder="Ej. Solo transferencias antes de las 2:00 PM…" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} />
+                  <TextInput value={paymentNotes} onChangeText={setPaymentNotes} autoCapitalize="none" placeholder="Ej. Solo transferencias antes de las 2:00 PM…" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
+                </View>
+
+                {/* 4. Captura de Billetera / QR / Tron TRX / Volante bancario */}
+                <View style={{ backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginTop: spacing.xs }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
+                      📸 Captura de Pago / Billetera TRX / Tron / QR
+                    </Text>
+                    {paymentPhotoUrl ? (
+                      <View style={{ backgroundColor: '#064E3B', borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ color: '#34D399', fontSize: 10, fontWeight: '800' }}>✓ Adjuntada</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 8 }}>
+                    Sube la captura de pantalla que envió el proveedor (ej. QR de wallet Tron/TRX, dirección USDT, comprobante o cuenta bancaria).
+                  </Text>
+
+                  {/* Nombre/descripción opcional de la captura */}
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Descripción / Red (ej. Wallet TRX Tron TRC-20 / QR Mercantil)</Text>
+                  <TextInput
+                    value={paymentPhotoName}
+                    onChangeText={setPaymentPhotoName}
+                    placeholder="Ej. Billetera Tron TRX (TRC-20)"
+                    placeholderTextColor={colors.muted}
+                    style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 8, textTransform: 'none' }]}
+                    {...rawCaseField}
+                    autoCapitalize="none"
+                  />
+
+                  {paymentPhotoUrl ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surfaceAlt, padding: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: 8 }}>
+                      <Image
+                        source={{ uri: paymentPhotoUrl }}
+                        style={{ width: 56, height: 56, borderRadius: 6, backgroundColor: '#000' }}
+                        resizeMode="cover"
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
+                          {paymentPhotoName || 'Captura de pago / QR'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                          <TouchableOpacity
+                            onPress={() => setVisorCaptura({ url: paymentPhotoUrl, name: paymentPhotoName })}
+                            style={{ backgroundColor: colors.brand, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}
+                          >
+                            <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800' }}>👁️ Ver grande</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setPaymentPhotoUrl('');
+                              setPaymentPhotoName('');
+                            }}
+                            style={{ backgroundColor: colors.dangerSoftBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.dangerSoftBorder }}
+                          >
+                            <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Quitar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {/* Botones de acción */}
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      disabled={subiendoCaptura}
+                      onPress={tomarFotoCaptura}
+                      style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 5 }}
+                    >
+                      <Text style={{ fontSize: 14 }}>📷</Text>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                        {subiendoCaptura ? 'Cargando…' : 'Tomar Foto'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      disabled={subiendoCaptura}
+                      onPress={subirCapturaArchivo}
+                      style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 5 }}
+                    >
+                      <Text style={{ fontSize: 14 }}>📎</Text>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                        {subiendoCaptura ? 'Subiendo…' : 'Subir Captura'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
 
@@ -547,6 +906,47 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
           </View>
         </View>
       </Modal>
+
+      {/* Modal Visor de Captura / QR a Pantalla Completa */}
+      <Modal visible={!!visorCaptura} transparent animationType="fade" onRequestClose={() => setVisorCaptura(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+          <View style={{ width: '100%', maxWidth: 500, backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden', maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>
+                📸 {visorCaptura?.name || 'Captura de Billetera / QR'}
+              </Text>
+              <TouchableOpacity onPress={() => setVisorCaptura(null)} style={{ padding: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '900' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ alignItems: 'center', padding: spacing.md }}>
+              {visorCaptura?.url ? (
+                <Image
+                  source={{ uri: visorCaptura.url }}
+                  style={{ width: '100%', height: 420, borderRadius: radius.md }}
+                  resizeMode="contain"
+                />
+              ) : null}
+            </ScrollView>
+            <View style={{ padding: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+              {visorCaptura?.url ? (
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(visorCaptura.url)}
+                  style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🔗 Abrir original</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                onPress={() => setVisorCaptura(null)}
+                style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.brand }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 12 }}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -576,6 +976,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const [nuevoProv, setNuevoProv] = useState('');       // crear proveedor en línea
   const [creandoProv, setCreandoProv] = useState(false);
   const [category, setCategory] = useState('repuestos');
+  const [condicionesPago, setCondicionesPago] = useState('');
   const [note, setNote] = useState('');
   const [items, setItems] = useState<PurchaseLine[]>([{ description: '', qty: 1, unit: '', price: 0 }]);
   // 🧾 La alícuota de IVA: nace en 16 y se puede cambiar (texto crudo para dejar
@@ -589,8 +990,18 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const [draftId] = useState(() => (globalThis as any)?.crypto?.randomUUID?.() ?? String(Date.now()));
   // Vista de la factura ya cargada (imagen o PDF).
   const [preview, setPreview] = useState<DirectPurchase | null>(null);
+  // Foto del repuesto / objeto comprado (opcional)
+  const [fotoProducto, setFotoProducto] = useState<FotoProductoData | null>(null);
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const [previewFoto, setPreviewFoto] = useState<{ url: string; title: string } | null>(null);
 
-  const resetForm = () => { setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setProvQ(''); setNuevoProv(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setAlicuota(String(IVA_POR_DEFECTO)); setFactura(null); };
+  const [subiendoItemIndex, setSubiendoItemIndex] = useState<number | null>(null);
+
+  const resetForm = () => {
+    setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setProvQ(''); setNuevoProv('');
+    setCategory('repuestos'); setCondicionesPago(''); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]);
+    setAlicuota(String(IVA_POR_DEFECTO)); setFactura(null); setFotoProducto(null); setSubiendoItemIndex(null);
+  };
 
   // Crear un proveedor NUEVO sin salir de la compra (se guarda en `suppliers` y
   // queda elegido). Antes había que ir a la pestaña Proveedores primero.
@@ -598,7 +1009,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     const nombre = nuevoProv.trim();
     if (!nombre) return;
     setCreandoProv(true);
-    const { data, error } = await supabase.from('suppliers').insert({ name: nombre.toUpperCase() }).select('id').single();
+    const { data, error } = await supabase.from('suppliers').insert({ name: nombre }).select('id').single();
     setCreandoProv(false);
     if (error) return toast.error(error.message);
     setNuevoProv('');
@@ -608,8 +1019,9 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const abrirNueva = () => {
-    setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote('');
-    setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setAlicuota(String(IVA_POR_DEFECTO)); setFactura(null);
+    setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setCondicionesPago(''); setNote('');
+    setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setAlicuota(String(IVA_POR_DEFECTO));
+    setFactura(null); setFotoProducto(null); setSubiendoItemIndex(null);
     setFormKey((k) => k + 1); setOpen(true);
   };
 
@@ -618,11 +1030,14 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     setCompany(c.company_id ?? '');
     setSupplier(c.supplier_id ?? '');
     setCategory(c.category ?? 'repuestos');
-    setNote(c.note ?? '');
+    setCondicionesPago(extraerCondicionesPago(c.note));
+    setNote(limpiarNotaFotoProducto(c.note));
     setItems((c.items && c.items.length) ? c.items.map((l) => ({ ...l })) : [{ description: '', qty: 1, unit: '', price: 0 }]);
     // Compra vieja sin IVA: alícuota 0, para que editarla no le invente IVA.
     setAlicuota(String(c.alicuota_iva ?? 0));
     setFactura(c.factura_url ? { url: c.factura_url, kind: (c.factura_type as 'image' | 'pdf') ?? 'image', name: c.factura_name ?? 'factura' } : null);
+    setFotoProducto(extraerFotoProducto(c));
+    setSubiendoItemIndex(null);
     setFormKey((k) => k + 1); setOpen(true);
   };
 
@@ -636,21 +1051,121 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     } finally { setSubiendo(false); }
   };
 
+  const tomarFotoProducto = async () => {
+    if (subiendoFoto) return;
+    setSubiendoFoto(true);
+    try {
+      const res = await takePhotoAndUpload(draftId, 'compras-directas-productos');
+      if (!res.ok) { if (res.error) toast.error(res.error); return; }
+      setFotoProducto({ url: res.url!, name: 'Foto de la pieza' });
+      toast.success('Foto de la pieza tomada.');
+    } finally { setSubiendoFoto(false); }
+  };
+
+  const elegirFotoProducto = async () => {
+    if (subiendoFoto) return;
+    setSubiendoFoto(true);
+    try {
+      const res = Platform.OS === 'web'
+        ? await pickAndUploadDocFile('compras-directas-productos', draftId)
+        : await pickPhotoFromGalleryAndUpload(draftId, 'compras-directas-productos');
+      if (!res.ok) { if (res.error) toast.error(res.error); return; }
+      setFotoProducto({ url: res.url!, name: (res as any).name || 'Foto de la pieza' });
+      toast.success('Foto de la pieza adjuntada.');
+    } finally { setSubiendoFoto(false); }
+  };
+
+  const tomarFotoRenglon = async (index: number) => {
+    if (subiendoItemIndex !== null) return;
+    setSubiendoItemIndex(index);
+    try {
+      const res = await takePhotoAndUpload(draftId, 'compras-directas-productos');
+      if (!res.ok) {
+        if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
+          toast.error(res.error);
+        }
+        return;
+      }
+      if (res.url) {
+        setItems((prev) => prev.map((l, j) => (j === index ? { ...l, image_url: res.url } : l)));
+        // La foto del renglón es de ESE renglón; solo con UN renglón es también la general.
+        if (!fotoProducto && items.length === 1) {
+          setFotoProducto({ url: res.url, name: `Foto de la pieza (Renglón ${index + 1})` });
+        }
+        toast.success(`Foto agregada al renglón ${index + 1}.`);
+      }
+    } finally {
+      setSubiendoItemIndex(null);
+    }
+  };
+
+  const elegirFotoRenglon = async (index: number) => {
+    if (subiendoItemIndex !== null) return;
+    setSubiendoItemIndex(index);
+    try {
+      const res = Platform.OS === 'web'
+        ? await pickAndUploadDocFile('compras-directas-productos', draftId)
+        : await pickPhotoFromGalleryAndUpload(draftId, 'compras-directas-productos');
+      if (!res.ok) {
+        if (res.error && !res.error.includes('cancel') && !res.error.includes('denegado')) {
+          toast.error(res.error);
+        }
+        return;
+      }
+      if (res.url) {
+        setItems((prev) => prev.map((l, j) => (j === index ? { ...l, image_url: res.url } : l)));
+        // La foto del renglón es de ESE renglón; solo con UN renglón es también la general.
+        if (!fotoProducto && items.length === 1) {
+          setFotoProducto({ url: res.url, name: (res as any).name || `Foto de la pieza (Renglón ${index + 1})` });
+        }
+        toast.success(`Foto agregada al renglón ${index + 1}.`);
+      }
+    } finally {
+      setSubiendoItemIndex(null);
+    }
+  };
+
+  const quitarFotoRenglon = (index: number) => {
+    setItems((prev) => prev.map((l, j) => (j === index ? { ...l, image_url: null } : l)));
+  };
+
+  const quitarFotoProducto = () => {
+    setFotoProducto(null);
+  };
+
   const crear = async () => {
     if (!company) return toast.error('Elige la empresa.');
     if (!supplier) return toast.error('Elige el proveedor (a quién se le paga).');
     // La compra directa SÍ lleva precio: entra al inventario con su costo.
     const clean = items.filter((l) => l.description.trim() && Number(l.qty) > 0);
     if (!clean.length) return toast.error('Agrega al menos un renglón con producto y cantidad.');
+
+    // 📷 La foto es OPCIONAL. Cada renglón guarda la SUYA (items[].image_url). La foto
+    //    general y la del renglón solo se igualan si la compra tiene UN renglón: con varios no
+    //    se sabe de cuál producto es (28-oct-2026: «cada foto para su objeto»).
+    const unRenglon = clean.length === 1;
+    let fotoDefinitiva = fotoProducto;
+    if (unRenglon && !fotoDefinitiva?.url && clean[0]?.image_url) {
+      fotoDefinitiva = { url: clean[0].image_url, name: 'Foto del producto' };
+    }
+    if (unRenglon && fotoDefinitiva?.url && !clean[0]?.image_url) {
+      clean[0] = { ...clean[0], image_url: fotoDefinitiva.url };
+    }
+
     setBusy(true);
     // 🧾 La alícuota se acota a [0, 100]; el total guardado YA incluye el IVA.
     const alic = Math.min(100, Math.max(0, parseNum(alicuota) || 0));
+    const notaConFoto = empaquetarNotaConFotoProducto(note.trim().toUpperCase(), fotoDefinitiva);
+    const notaGuardar = inyectarCondicionesPagoEnNota(notaConFoto, condicionesPago.trim().toUpperCase());
     const payload = {
       company_id: company, supplier_id: supplier, category,
       items: clean, total: Math.round((linesTotal(clean) + ivaDe(clean, alic)) * 100) / 100,
       alicuota_iva: alic,
       factura_url: factura?.url ?? null, factura_type: factura?.kind ?? null, factura_name: factura?.name ?? null,
-      note: note.trim().toUpperCase() || null,
+      // Sin foto_producto_url / foto_producto_name: direct_purchases NO tiene esas columnas y
+      // mandarlas hacía fallar TODA compra directa desde el 27-oct (con o sin foto). La foto
+      // general viaja en la nota (empaquetarNotaConFotoProducto) y la lee extraerFotoProducto.
+      note: notaGuardar,
     };
     const { error } = editingId
       ? await supabase.from('direct_purchases').update(payload).eq('id', editingId)
@@ -663,6 +1178,28 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       return toast.error(error.message);
     }
     const editado = !!editingId;
+
+    // 📸 Sincronización de foto al inventario (inventory_items):
+    // Si algún renglón o la compra trae foto, se actualiza el producto en el catálogo de inventario.
+    try {
+      for (const line of clean) {
+        const itemFoto = line.image_url || fotoDefinitiva?.url || null;
+        if (!itemFoto) continue;
+        const nombreItem = line.description.trim().toUpperCase();
+        const { data: foundItems } = await supabase
+          .from('inventory_items')
+          .select('id, image_url')
+          .ilike('name', nombreItem)
+          .limit(1);
+        if (foundItems && foundItems.length > 0) {
+          const itId = foundItems[0].id;
+          await supabase.from('inventory_items').update({ image_url: itemFoto }).eq('id', itId);
+        }
+      }
+    } catch (fotoErr) {
+      console.warn('[compras] Sincronización opcional de foto a inventory_items:', fotoErr);
+    }
+
     resetForm();
     refetch();
     toast.success(editado
@@ -693,48 +1230,112 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
         <EmptyState title="Sin compras directas" subtitle="Registra una compra directa: producto, precio y factura → entra al inventario." />
       ) : groupByCompany(compras, companyName).map((grp) => (
         <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
-          {grp.items.map((c) => (
-            <ExpandableCard
-              key={c.id}
-              summary={
-                <View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                    <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>🛒 {c.code}</Text>
-                    <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800' }}>{usd(c.total)}</Text>
-                  </View>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(c.category).icon} {catInfo(c.category).label} · {(c.items || []).length} renglón(es) · 🏭 {supplierName(c.supplier_id)}</Text>
-                </View>
-              }
-              detail={
-                <>
-                  {(c.items || []).map((l, i) => (
-                    <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>{i + 1}. {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{l.exento ? ' · EXENTO DE IVA' : ''}</Text>
-                  ))}
-                  {(Number(c.alicuota_iva) || 0) > 0 ? (
-                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                      Subtotal {usd(linesTotal(c.items || []))} · IVA ({Number(c.alicuota_iva)}%) {usd(Math.max(0, Math.round(((Number(c.total) || 0) - linesTotal(c.items || [])) * 100) / 100))} = {usd(c.total)}
-                    </Text>
-                  ) : null}
-                  {c.note ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {c.note}</Text> : null}
-                  <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 2 }}>✓ Cargada al inventario</Text>
-                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-                    {c.factura_url ? (
-                      <TouchableOpacity onPress={() => verFactura(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📎 Ver factura{c.factura_type === 'pdf' ? ' (PDF)' : ''}</Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>Sin factura adjunta.</Text>
-                    )}
-                    {canWrite ? (
-                      <TouchableOpacity onPress={() => abrirEditar(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>✏️ Editar</Text>
-                      </TouchableOpacity>
+          {grp.items.map((c) => {
+            const condPago = extraerCondicionesPago(c.note);
+            const notaLimpia = limpiarNotaFotoProducto(c.note);
+            const fotoObj = extraerFotoProducto(c);
+            return (
+              <ExpandableCard
+                key={c.id}
+                summary={
+                  <View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                      <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>🛒 {c.code}</Text>
+                      <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800' }}>{usd(c.total)}</Text>
+                    </View>
+                    {(() => {
+                      const totalFotos = (c.items || []).filter((l) => Boolean(l.image_url)).length;
+                      return (
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                          {catInfo(c.category).icon} {catInfo(c.category).label} · {(c.items || []).length} renglón(es) · 🏭 {supplierName(c.supplier_id)}{totalFotos > 0 ? ` · 📷 ${totalFotos} con foto` : fotoObj ? ' · 📷 Con foto' : ''}
+                        </Text>
+                      );
+                    })()}
+                    {condPago || notaLimpia ? (
+                      <View style={{ marginTop: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderLeftWidth: 3, borderLeftColor: condPago ? colors.accent : colors.brand, gap: 2 }}>
+                        {condPago ? (
+                          <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                            <Text style={{ color: colors.brandText, fontWeight: '800' }}>💳 Condiciones de pago: </Text>
+                            <Text style={{ fontWeight: '700' }}>{condPago}</Text>
+                          </Text>
+                        ) : null}
+                        {notaLimpia ? (
+                          <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                            <Text style={{ color: colors.brandText, fontWeight: '800' }}>📝 Nota: </Text>
+                            {notaLimpia}
+                          </Text>
+                        ) : null}
+                      </View>
                     ) : null}
                   </View>
-                </>
-              }
-            />
-          ))}
+                }
+                detail={
+                  <>
+                    {(c.items || []).map((l, i) => (
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, marginVertical: 3 }}>
+                        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          {l.image_url ? (
+                            <TouchableOpacity onPress={() => setPreviewFoto({ url: l.image_url!, title: `${l.description} · ${c.code || 'Compra'}` })}>
+                              <Image source={{ uri: l.image_url }} style={{ width: 32, height: 32, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }} resizeMode="cover" />
+                            </TouchableOpacity>
+                          ) : null}
+                          <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
+                            {i + 1}. {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{l.exento ? ' · EXENTO DE IVA' : ''}
+                          </Text>
+                        </View>
+                        {l.image_url ? (
+                          <TouchableOpacity
+                            onPress={() => setPreviewFoto({ url: l.image_url!, title: `${l.description} · ${c.code || 'Compra'}` })}
+                            style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand }}
+                          >
+                            <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '700' }}>📷 Ver foto</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    ))}
+                    {(Number(c.alicuota_iva) || 0) > 0 ? (
+                      <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                        Subtotal {usd(linesTotal(c.items || []))} · IVA ({Number(c.alicuota_iva)}%) {usd(Math.max(0, Math.round(((Number(c.total) || 0) - linesTotal(c.items || [])) * 100) / 100))} = {usd(c.total)}
+                      </Text>
+                    ) : null}
+                    {condPago ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginTop: 2 }}>💳 Condiciones de pago: {condPago}</Text> : null}
+                    {notaLimpia ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>📝 Nota: {notaLimpia}</Text> : null}
+                    {fotoObj?.url ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                        <Image source={{ uri: fotoObj.url }} style={{ width: 44, height: 44, borderRadius: radius.sm, backgroundColor: colors.surface }} resizeMode="cover" />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>📷 {fotoObj.name || 'Foto del objeto'}</Text>
+                          <TouchableOpacity onPress={() => setPreviewFoto({ url: fotoObj.url, title: `Foto · ${c.code || 'Compra'}` })}>
+                            <Text style={{ color: colors.brand, fontSize: 11, fontWeight: '700' }}>Tocar para ver en grande ›</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : null}
+                    <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 2 }}>✓ Cargada al inventario</Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                      {c.factura_url ? (
+                        <TouchableOpacity onPress={() => verFactura(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📎 Ver factura{c.factura_type === 'pdf' ? ' (PDF)' : ''}</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>Sin factura adjunta.</Text>
+                      )}
+                      {fotoObj?.url ? (
+                        <TouchableOpacity onPress={() => setPreviewFoto({ url: fotoObj.url, title: `Foto · ${c.code || 'Compra'}` })} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📷 Ver foto objeto</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {canWrite ? (
+                        <TouchableOpacity onPress={() => abrirEditar(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>✏️ Editar</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </>
+                }
+              />
+            );
+          })}
         </AccordionGroup>
       ))}
 
@@ -769,7 +1370,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
               </View>
               <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
                 <View style={{ flex: 1 }}>
-                  <TextInput value={nuevoProv} onChangeText={(t) => setNuevoProv(t.toUpperCase())} autoCapitalize="characters" placeholder="Nuevo proveedor…" placeholderTextColor={colors.muted}
+                  <TextInput value={nuevoProv} onChangeText={setNuevoProv} autoCapitalize="words" placeholder="Nuevo proveedor…" placeholderTextColor={colors.muted}
                     style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, color: colors.text }} />
                 </View>
                 <TouchableOpacity onPress={crearProveedor} disabled={creandoProv || !nuevoProv.trim()} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center', opacity: creandoProv || !nuevoProv.trim() ? 0.5 : 1 }}>
@@ -784,7 +1385,20 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Renglones (producto · cantidad · precio)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Cada renglón entra al inventario como ENTRADA con su precio. Al escribir, se sugieren productos ya registrados.</Text>
-              <LineEditor key={formKey} items={items} setItems={setItems} priceLabel="Precio unit." catalog={catalog} conExento />
+              <LineEditor
+                key={formKey}
+                items={items}
+                setItems={setItems}
+                priceLabel="Precio unit."
+                catalog={catalog}
+                conExento
+                allowPhoto
+                subiendoIndex={subiendoItemIndex}
+                onTomarFoto={tomarFotoRenglon}
+                onElegirFoto={elegirFotoRenglon}
+                onQuitarFoto={quitarFotoRenglon}
+                onVerFoto={(url, title) => setPreviewFoto({ url, title })}
+              />
               {/* 🧾 IVA como en LA CANTERA: alícuota editable (nace 16) y el resumen
                   Subtotal · Base imponible · IVA · Total. Los exentos no pagan IVA. */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
@@ -815,14 +1429,114 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
               })()}
             </Card>
             <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Factura</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Factura</Text>
+                {factura ? (
+                  <TouchableOpacity onPress={() => setFactura(null)}>
+                    <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>Quitar</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
               <TouchableOpacity onPress={adjuntarFactura} disabled={subiendo} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendo ? 0.6 : 1 }}>
                 <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendo ? '⏳ Subiendo…' : factura ? `📎 ${factura.name} · Cambiar` : '📎 Adjuntar factura (imagen o PDF)'}</Text>
               </TouchableOpacity>
             </Card>
             <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nota (opcional)</Text>
-              <TextInput value={note} onChangeText={(t) => setNote(t.toUpperCase())} autoCapitalize="characters" placeholder="OBSERVACIÓN…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Foto del objeto / repuesto comprado (opcional)</Text>
+                {fotoProducto ? (
+                  <TouchableOpacity onPress={quitarFotoProducto}>
+                    <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>Quitar</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {fotoProducto?.url ? (
+                <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                    <Image source={{ uri: fotoProducto.url }} style={{ width: 64, height: 64, borderRadius: radius.sm, backgroundColor: colors.surface }} resizeMode="cover" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>
+                        ✓ {fotoProducto.name || 'Foto del objeto'}
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+                        <TouchableOpacity
+                          onPress={() => setPreviewFoto({ url: fotoProducto.url, title: fotoProducto.name || 'Foto del objeto' })}
+                          style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                        >
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>👁️ Ver grande</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={quitarFotoProducto}
+                          style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                        >
+                          <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑️ Quitar</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                  <TouchableOpacity
+                    onPress={tomarFotoProducto}
+                    disabled={subiendoFoto}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoFoto ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12.5 }}>
+                      {subiendoFoto ? '⏳ Subiendo…' : '📷 Tomar foto'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={elegirFotoProducto}
+                    disabled={subiendoFoto}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoFoto ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12.5 }}>
+                      {subiendoFoto ? '⏳ Subiendo…' : '🖼️ Galería / Archivo'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Card>
+            <Card>
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginBottom: 4 }}>
+                💳 Condiciones de pago de esta compra (opcional)
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {CONDICIONES_PAGO_CHIPS.map((chipLabel) => {
+                  const activo = condicionesPago.toUpperCase().includes(chipLabel.toUpperCase());
+                  return (
+                    <TouchableOpacity
+                      key={chipLabel}
+                      onPress={() => setCondicionesPago(toggleChipCondicionPago(condicionesPago, chipLabel))}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: activo ? colors.brand : colors.border,
+                        backgroundColor: activo ? colors.brand : colors.surfaceAlt,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 5,
+                      }}
+                    >
+                      <Text style={{ color: activo ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                        {activo ? `✓ ${chipLabel}` : chipLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={condicionesPago}
+                onChangeText={setCondicionesPago}
+                autoCapitalize="sentences"
+                placeholder="Ej. Contado, 50% adelanto y 50% entrega, Crédito 15 días…"
+                placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+              />
+            </Card>
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>📝 Nota / Observaciones (opcional)</Text>
+              <TextInput value={note} onChangeText={setNote} autoCapitalize="sentences" placeholder="Observación…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
             </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity onPress={resetForm} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
@@ -852,6 +1566,21 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
           </View>
         </View>
       </Modal>
+
+      {/* Ver foto del objeto comprado */}
+      <Modal visible={!!previewFoto} animationType="slide" transparent onRequestClose={() => setPreviewFoto(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md, maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>📷 {previewFoto?.title || 'Foto de la pieza u objeto'}</Text>
+              <TouchableOpacity onPress={() => setPreviewFoto(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill }}><Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar</Text></TouchableOpacity>
+            </View>
+            {previewFoto?.url ? (
+              <Image source={{ uri: previewFoto.url }} style={{ width: '100%', height: 460, borderRadius: radius.md }} resizeMode="contain" />
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -863,11 +1592,13 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
   const confirm = useConfirm();
   const toast = useToast();
   const { data: orders, loading, refetch } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
+  const { data: requirements, refetch: refetchReqs } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: catalog, refetch: refetchCatalog } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
   const supplierName = (id: string | null) => (id ? suppliers.find((s) => s.id === id)?.name ?? '—' : '—');
+  const reqById = (id?: string | null) => (id ? requirements.find((r) => r.id === id) ?? null : null);
 
   const [sel, setSel] = useState<PurchaseOrder | null>(null);
   const [supplier, setSupplier] = useState('');
@@ -877,12 +1608,19 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
 
   const openEdit = (o: PurchaseOrder) => { setSel(o); setSupplier(o.supplier_id ?? ''); setItems(o.items || []); setNote(o.note ?? ''); };
   const readOnly = sel ? sel.status !== 'borrador' : false;
+  // 🔗 Orden que nace de un requerimiento (29-oct-2026): renglones y total los escribe
+  // req_sync_compra desde el requerimiento (lo que se tecleara aquí se pisaba). El
+  // proveedor sí se elige aquí: la base lo pasa al requerimiento y a su cuenta.
+  const atadaReq = !!sel?.inventory_requirement_id;
+  const renglonesOrden = () => (atadaReq ? {} : { items, total: linesTotal(items) });
 
   const guardar = async () => {
     if (!sel) return;
     setBusy(true);
-    await supabase.from('purchase_orders').update({ supplier_id: supplier || null, items, total: linesTotal(items), note: note.trim().toUpperCase() || null }).eq('id', sel.id);
-    setBusy(false); setSel(null); refetch();
+    const { error } = await supabase.from('purchase_orders').update({ supplier_id: supplier || null, ...renglonesOrden(), note: note.trim() || null }).eq('id', sel.id);
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    setSel(null); refetch();
   };
 
   const aprobar = async () => {
@@ -890,7 +1628,8 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
     if (!supplier) return toast.error('Elige el proveedor antes de aprobar.');
     const ok = await confirm({ title: 'Aprobar orden', message: `Aprobar la orden a ${supplierName(supplier)} por ${usd(linesTotal(items))}?`, confirmText: 'Aprobar' });
     if (!ok) return;
-    await supabase.from('purchase_orders').update({ supplier_id: supplier, items, total: linesTotal(items), note: note.trim().toUpperCase() || null, status: 'aprobada', approved_by: session?.user?.id ?? null, approved_at: nowISO() }).eq('id', sel.id);
+    const { error } = await supabase.from('purchase_orders').update({ supplier_id: supplier, ...renglonesOrden(), note: note.trim() || null, status: 'aprobada', approved_by: session?.user?.id ?? null, approved_at: nowISO() }).eq('id', sel.id);
+    if (error) return toast.error(error.message);
     setSel(null); refetch();
   };
 
@@ -906,12 +1645,17 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
         const name = (line.description || '').trim();
         if (!name || !(Number(line.qty) > 0)) continue;
         let itemId = line.item_id || findId(name) || createdCache[norm(name)];
+        const linePhoto = (line as any).image_url || null;
         if (!itemId) {
           const { data: ins, error } = await supabase.from('inventory_items')
-            .insert({ name: name.toUpperCase(), category: o.category ?? null, unit: line.unit ?? null, company_id: o.company_id ?? null })
+            .insert({ name: name.toUpperCase(), category: o.category ?? null, unit: line.unit ?? null, company_id: o.company_id ?? null, ...(linePhoto ? { image_url: linePhoto } : {}) })
             .select('id').single();
           if (error) throw error;
           itemId = ins.id; createdCache[norm(name)] = itemId;
+        } else if (linePhoto) {
+          try {
+            await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
+          } catch {}
         }
         const { error: mErr } = await supabase.from('inventory_movements').insert({
           item_id: itemId, kind: 'entrada', qty: Number(line.qty) || 0, unit_cost: Number(line.price) || 0,
@@ -919,9 +1663,14 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
         });
         if (mErr) throw mErr;
       }
-      // 2) Marcar la orden como recibida.
+      // 2) Marcar la orden como recibida y sincronizar con el requerimiento si está atada.
       await supabase.from('purchase_orders').update({ status: 'recibida', received_at: nowISO() }).eq('id', o.id);
-      refetch(); refetchCatalog();
+      if (o.inventory_requirement_id) {
+        try {
+          await supabase.from('inventory_requirements').update({ status: 'recibido', received_at: nowISO() }).eq('id', o.inventory_requirement_id);
+        } catch {}
+      }
+      refetch(); refetchCatalog(); refetchReqs();
       toast.success('Orden recibida y cargada al inventario. El PMP de cada producto se actualizó.');
     } catch (e: any) {
       toast.error(e?.message || 'No se pudo cargar al inventario.');
@@ -963,21 +1712,48 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
         <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
           {grp.items.map((o) => {
             const st = ORD_STATUS[o.status] ?? ORD_STATUS.borrador;
+            const req = reqById(o.inventory_requirement_id);
             return (
               <ExpandableCard
                 key={o.id}
                 summary={
                   <View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.brandText, flex: 1, fontVariant: ['tabular-nums'] as any }} numberOfLines={1}>{usd(o.total)} · {supplierName(o.supplier_id)}</Text>
-                      <Pill label={st.label} {...toneSoft(colors, st.tone)} />
+                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.brandText, flex: 1, fontVariant: ['tabular-nums'] as any }} numberOfLines={1}>
+                        {req?.code ? `${req.code} · ` : ''}{usd(o.total)} · {supplierName(o.supplier_id)}
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {req && esPrioridadCompra(req.prioridad) ? (
+                          <Pill label={`Prioridad ${PRIORIDAD_COMPRA_INFO[req.prioridad].label}`} {...colorPrioridad(colors, req.prioridad)} />
+                        ) : null}
+                        <Pill label={st.label} {...toneSoft(colors, st.tone)} />
+                      </View>
                     </View>
-                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(o.category).icon} {catInfo(o.category).label}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                      {catInfo(o.category).icon} {catInfo(o.category).label}
+                      {req?.title ? ` · ${req.title}` : ''}
+                      {req?.responsable_nombre ? ` · 📦 Resp.: ${req.responsable_nombre}` : ''}
+                      {req?.motorizado_nombre ? ` · 🏍️ Moto.: ${req.motorizado_nombre}` : ''}
+                    </Text>
                   </View>
                 }
                 detail={
                   <>
+                    {req ? (
+                      <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>
+                        🔗 Sincronizada con Requerimiento {req.code ?? ''}{req.title ? ` — ${req.title}` : ''}
+                      </Text>
+                    ) : null}
                     <Text style={{ color: colors.muted, fontSize: 13 }}>Proveedor: {supplierName(o.supplier_id)}</Text>
+                    {(o.items || []).length > 0 ? (
+                      <View style={{ marginTop: 6, marginBottom: 4, gap: 2 }}>
+                        {(o.items || []).map((ln, idx) => (
+                          <Text key={idx} style={{ color: colors.text, fontSize: 12 }}>
+                            • {ln.description} — {ln.qty} {ln.unit || 'UND'} × {usd(Number(ln.price) || 0)} = {usd((Number(ln.qty) || 0) * (Number(ln.price) || 0))}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : null}
                     <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Total: {usd(o.total)}</Text>
                     {canWrite ? (
                       <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
@@ -1022,7 +1798,8 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
             </Card>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Renglones (precio unitario)</Text>
-              <LineEditor items={items} setItems={setItems} priceLabel="Precio unit." readOnly={readOnly} catalog={catalog} />
+              {atadaReq ? <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>🔗 Salen del requerimiento: los renglones y el total se corrigen allá (aquí se pisarían).</Text> : null}
+              <LineEditor items={items} setItems={setItems} priceLabel="Precio unit." readOnly={readOnly || atadaReq} catalog={catalog} />
             </Card>
             {!readOnly ? (
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
@@ -1459,29 +2236,41 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
 }
 
 // ── Contenedor con sub-pestañas ──────────────────────────────────────────────
+// 🧾 Órdenes OCULTA (29-oct-2026, a pedido: «oculta órdenes»). Repetía lo del
+// requerimiento y Por pagar: la base genera una orden por requerimiento y la app no
+// crea ninguna a mano. Solo se esconde la pestaña: la tabla purchase_orders, su
+// sincronización, el Resumen de gasto y el enlace de las cuentas siguen igual.
+// Para volver a mostrarla, poner true.
+const MOSTRAR_ORDENES = false;
+
 export default function ComprasScreen() {
   const { colors } = useTheme();
-  const { moduleLevel } = useAuth();
-  const canWrite = levelMeets(moduleLevel('compras'), 'escritura');
+  const { moduleLevel, fullName, session } = useAuth();
+  // El aprobador designado ve Compras y Por pagar aunque no tenga el módulo: lo
+  // decide la base por su cuenta (30-oct-2026), no su nombre.
+  const esLozada = usePermisosAprobacion(session?.user?.id).puedeAprobar;
+  const canWrite = levelMeets(moduleLevel('compras'), 'escritura') || esLozada;
 
   // Cuentas por pagar / por cobrar viven ACÁ dentro (pedido del cliente,
   // 17-ago-2026: "en compras estén las cuentas por cobrar y cuentas por pagar"),
   // pero con permiso PROPIO: las políticas RLS de `cuentas` consultan
   // `cuentas_nivel()`, así que abrirlas con el permiso de compras solo lograría
   // que las pestañas salieran vacías. Sin el permiso, ni se muestran.
-  const veCuentas = levelMeets(moduleLevel('cuentas'), 'lectura');
-  const cuentasWrite = levelMeets(moduleLevel('cuentas'), 'escritura');
+  const veCuentas = levelMeets(moduleLevel('cuentas'), 'lectura') || esLozada;
+  const cuentasWrite = levelMeets(moduleLevel('cuentas'), 'escritura') || esLozada;
 
   const TABS = [
     { key: 'solicitudes', label: 'Solicitudes', icon: '📥' },
     { key: 'requerimiento', label: 'Requerimiento', icon: '📝' },
     { key: 'directas', label: 'Compras directas', icon: '🛒' },
     { key: 'servicios', label: 'Servicios', icon: '🧰' },
-    { key: 'ordenes', label: 'Órdenes', icon: '🧾' },
+    { key: 'aires', label: 'Aires Acondicionados', icon: '❄️' },
+    ...(MOSTRAR_ORDENES ? [{ key: 'ordenes', label: 'Órdenes', icon: '🧾' }] : []),
     { key: 'proveedores', label: 'Proveedores', icon: '🏭' },
     { key: 'resumen', label: 'Resumen', icon: '📊' },
     { key: 'mangueras', label: 'Mangueras', icon: '🔧' },
     ...(veCuentas ? CUENTAS_TABS : []),
+    { key: 'historico', label: 'Histórico', icon: '📜' },
   ];
   const [active, setActive] = useState('solicitudes');
 
@@ -1505,6 +2294,8 @@ export default function ComprasScreen() {
           // `key` fuerza remontar al cambiar de tipo: cada uno arranca con su
           // propio buscador y formulario limpios.
           <CuentasTab key={active} tipo={active} canWrite={cuentasWrite} />
+        ) : active === 'historico' ? (
+          <HistoricoComprasTab />
         ) : active === 'solicitudes' ? (
           <SolicitudesCompraTab canWrite={canWrite} />
         ) : active === 'requerimiento' ? (
@@ -1512,7 +2303,9 @@ export default function ComprasScreen() {
         ) : active === 'directas' ? (
           <ComprasDirectasTab canWrite={canWrite} />
         ) : active === 'servicios' ? (
-          <ServiciosTab canWrite={canWrite} />
+          <ServiciosTab canWrite={canWrite} onGoToAires={() => setActive('aires')} />
+        ) : active === 'aires' ? (
+          <AiresAcondicionadosTab canWrite={canWrite} />
         ) : active === 'ordenes' ? (
           <OrdenesTab canWrite={canWrite} />
         ) : active === 'resumen' ? (

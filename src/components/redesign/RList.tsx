@@ -46,11 +46,11 @@ export function RRow({ label, value, mono = false }: { label: string; value: Rea
       <Text
         {...(mono ? figFont : {})}
         style={[
-          { color: colors.text, fontSize: 12.5, fontWeight: '600', textAlign: 'right' },
+          { color: colors.text, fontSize: 12.5, fontWeight: '600', textAlign: 'right', flexShrink: 1 },
           mono ? { fontVariant: ['tabular-nums'] as any } : null,
           mono ? figFontStyle : null,
         ]}
-        numberOfLines={1}
+        numberOfLines={2}
       >
         {value}
       </Text>
@@ -79,8 +79,8 @@ export function RBarChart({ data, fmt, max }: { data: { label: string; value: nu
     <View style={{ gap: spacing.sm }}>
       {data.map((d, i) => (
         <View key={`${d.label}-${i}`}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-            <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '700', fontSize: 12.5, flex: 1, paddingRight: spacing.sm }}>{d.label}</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
+            <Text numberOfLines={2} style={{ color: colors.text, fontWeight: '700', fontSize: 12.5, flex: 1, paddingRight: spacing.sm }}>{d.label}</Text>
             <Text {...figFont} style={[{ color: colors.text, fontWeight: '800', fontSize: 12.5, fontVariant: ['tabular-nums'] as any }, figFontStyle]}>{format(d.value)}</Text>
           </View>
           <View style={{ height: 11, backgroundColor: colors.tankTrack, borderRadius: radius.pill, overflow: 'hidden' }}>
@@ -187,6 +187,10 @@ type RListProps<T> = {
    *  movimiento recién hecho "no aparezca" en una lista larga y que el histórico
    *  completo cargue de golpe. El usuario puede ampliar el rango cuando quiera. */
   defaultToday?: boolean;
+  /** Filtro base opcional para ocultar registros internos (ej. ajustes de tanque). */
+  baseFilter?: (item: T) => boolean;
+  /** Callback opcional cuando cambian las filas crudas de la tabla. */
+  onDataLoaded?: (rows: T[], refetch: () => void) => void;
 };
 
 /** Lista genérica restilizada. Misma API que ListScreen; look del rediseño. */
@@ -195,9 +199,15 @@ export function RList<T extends { id: string }>({
   editable = false, dateField, formFields, formTitle, autoUserField,
   addLabel = '+ Nuevo', emptyTitle, emptySubtitle, emptyIcon,
   renderItem, subtitle, headerExtra, searchText, searchPlaceholder = 'Buscar…', defaultToday = false,
+  baseFilter, onDataLoaded,
 }: RListProps<T>) {
   const { colors } = useTheme();
-  const { data, loading, refetch } = useTable<T>(table, { orderBy, select, ...(ascending != null ? { ascending } : {}) });
+  const { data, loading, refetch } = useTable<T>(table, {
+    orderBy,
+    select,
+    ...(ascending != null ? { ascending } : {}),
+    realtimeFrom: [table],
+  });
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<T | null>(null);
   const [from, setFrom] = useState('');
@@ -205,12 +215,19 @@ export function RList<T extends { id: string }>({
   const [q, setQ] = useState('');
   const todayIso = caracasParts(new Date()).iso;
 
+  React.useEffect(() => {
+    if (onDataLoaded && data && data.length > 0) {
+      onDataLoaded(data, refetch);
+    }
+  }, [data, onDataLoaded, refetch]);
+
   const shown = useMemo(() => {
     const nq = norm(q.trim());
     // Vista por defecto = SOLO HOY (si defaultToday y no hay rango ni búsqueda). Así un
     // movimiento recién registrado se ve de una y no se carga todo el histórico.
     const soloHoy = defaultToday && !!dateField && !from && !to && !nq;
     return data.filter((item) => {
+      if (baseFilter && !baseFilter(item)) return false;
       if (dateField && (from || to)) {
         const v = String((item as any)[dateField] ?? '').slice(0, 10);
         if (!v) return false;

@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, selectAllRows } from './supabase';
 import { caracasParts } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { paradaShiftOf } from './inspectorDaySets';
@@ -32,13 +32,63 @@ export type LiveStatus = { estado: MachineEstado; total: number; enCurso: number
 // loadInspByShift), extraídas para que cualquier pantalla lea EXACTAMENTE los
 // mismos datos crudos, sin reimplementar el dedupe/orden/ventanas de fecha. ──
 
+/**
+ * Opciones de lectura (25-oct-2026, aditivas, para el Centro de Operaciones; mesa de
+ * maquinaria §6.1). SIN opciones, cada consulta y el resultado son EXACTAMENTE los de
+ * siempre: las seis pantallas que usan la lib (Catálogo, Inicio, Conteo, Frentes,
+ * Usuarios, Viajes) llaman sin argumentos, y `scripts/test-live-status-lectura.mjs`
+ * lo fija con la foto de las consultas y de los resultados.
+ *  · `ids`: lee SOLO esas máquinas (`.in('machinery_id', ids)`). `[]` → `{}` sin
+ *    consultar. El resultado es el mismo que leer todo y recortar a esos ids (el
+ *    dedupe es por máquina), pero sin acercarse al tope de 1000 filas de PostgREST,
+ *    que en la lectura completa corta EN SILENCIO los pendientes más viejos.
+ *  · `estricto`: si alguna consulta trae error, LANZA (en español) en vez de devolver
+ *    lo parcial o `{}` — el «ciego» del que dependen las seis pantallas se conserva
+ *    cuando no se pide.
+ */
+export type OpcionesLectura = { ids?: string[]; estricto?: boolean };
+
+/** El marcador genérico «no trabajó este turno» (NO es una avería real). UNA sola
+ *  constante para `fetchAveriaCat` y `fetchNovedadesInspeccion`: si mañana cambia,
+ *  cambia para las dos (la historia de la casa: copias que se desincronizan). */
+const MARCADOR_PARADA = 'MÁQUINA PARADA';
+const NO_SE_PUDO_LEER = 'No se pudo leer el estado de inspección';
+
+/** Margen para una hora «futura» (reloj adelantado de quien registró el hecho, o una fila
+ *  fantasma): un hecho más allá de ahora + este margen NO cuenta todavía (se APLAZA, no se
+ *  pierde: en la siguiente lectura, cuando llegue su hora, entra). Sin esto, un hecho «de
+ *  mañana» trabaría la guardia del Centro de Operaciones hasta mañana (lote 6, A1). */
+export const MARGEN_HORA_FUTURA_MS = 10 * 60 * 1000;
+
+/** Agrega el filtro por máquinas SOLO si lo pidieron; sin `ids` la consulta queda intacta. */
+function conIds<Q>(q: Q, ids: string[] | undefined): Q {
+  return ids ? (q as any).in('machinery_id', ids) : q;
+}
+
+/** El error de lectura, en español, con el detalle original (y el error en `cause`). */
+function errorDeLectura(e: unknown): Error {
+  const msg = typeof e === 'string' ? e : (e as { message?: unknown } | null)?.message;
+  const detalle = typeof msg === 'string' ? msg.trim() : '';
+  return Object.assign(new Error(detalle ? `${NO_SE_PUDO_LEER}: ${detalle}` : `${NO_SE_PUDO_LEER}.`), { cause: e });
+}
+
+/** En modo estricto, el primer `error` de las respuestas se convierte en excepción. */
+function exigirSinError(estricto: boolean | undefined, ...respuestas: { error: unknown }[]) {
+  if (!estricto) return;
+  const conError = respuestas.find((r) => r.error);
+  if (conError) throw errorDeLectura(conError.error);
+}
+
 /** Avería/parada PENDIENTE más reciente por máquina (avería real tiene prioridad
- *  sobre el marcador genérico "MÁQUINA PARADA"). Copia exacta de `loadAveriaCat`. */
-export async function fetchAveriaCat(): Promise<Record<string, AveriaEntry>> {
+ *  sobre el marcador genérico "MÁQUINA PARADA"). Copia exacta de `loadAveriaCat`.
+ *  Opciones: ver `OpcionesLectura` (sin opciones, idéntica a siempre). */
+export async function fetchAveriaCat(op: OpcionesLectura = {}): Promise<Record<string, AveriaEntry>> {
+  if (op.ids && op.ids.length === 0) return {};
   const [averias, paradas] = await Promise.all([
-    supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
-    supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
+    conIds(supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').neq('material', MARCADOR_PARADA).eq('status', 'pendiente'), op.ids).order('created_at', { ascending: false }),
+    conIds(supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', MARCADOR_PARADA).eq('status', 'pendiente'), op.ids).order('created_at', { ascending: false }),
   ]);
+  exigirSinError(op.estricto, averias, paradas);
   const m: Record<string, AveriaEntry> = {};
   const ms = (iso: any) => (iso ? new Date(iso).getTime() : 0);
   (paradas.data ?? []).forEach((r: any) => { if (m[r.machinery_id]) return; m[r.machinery_id] = { tipo: 'parada', motivo: r.notes, createdMs: ms(r.created_at) }; });
@@ -53,14 +103,17 @@ export async function fetchAveriaCat(): Promise<Record<string, AveriaEntry>> {
 
 /** Horas trabajadas hoy (día/noche) + instante de inicio de la jornada abierta de
  *  cada turno, con arrastre de la jornada de NOCHE de anoche si sigue abierta.
- *  Copia exacta de `loadJornadaCat`. */
-export async function fetchJornadaCat(now: Date = new Date()): Promise<Record<string, JornadaEntry>> {
+ *  Copia exacta de `loadJornadaCat`. Opciones: ver `OpcionesLectura` (van de SEGUNDO
+ *  parámetro porque el primero ya es `now`; sin opciones, idéntica a siempre). */
+export async function fetchJornadaCat(now: Date = new Date(), op: OpcionesLectura = {}): Promise<Record<string, JornadaEntry>> {
+  if (op.ids && op.ids.length === 0) return {};
   const today = caracasParts(now).iso;
   const yesterday = caracasParts(new Date(now.getTime() - 86400000)).iso;
   const [todayRes, nightRes] = await Promise.all([
-    supabase.from('machine_rounds').select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_marked_at, jornada_shift').eq('round_date', today),
-    supabase.from('machine_rounds').select('machinery_id, night_hours, jornada_start_at, jornada_marked_at, jornada_shift').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
+    conIds(supabase.from('machine_rounds').select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_marked_at, jornada_shift').eq('round_date', today), op.ids),
+    conIds(supabase.from('machine_rounds').select('machinery_id, night_hours, jornada_start_at, jornada_marked_at, jornada_shift').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null), op.ids),
   ]);
+  exigirSinError(op.estricto, todayRes, nightRes);
   const m: Record<string, JornadaEntry> = {};
   const ensure = (id: string) => (m[id] ??= { dayH: 0, nightH: 0, openStartDay: null, openStartNight: null, reactStartDay: null, reactStartNight: null });
   // Turno del inicio: el declarado; si falta, se infiere por la hora Caracas (07–18:59 = día).
@@ -96,6 +149,82 @@ export async function fetchJornadaCat(now: Date = new Date()): Promise<Record<st
       e.reactStartNight = e.reactStartNight == null ? rt : Math.max(e.reactStartNight, rt);
     }
   });
+  return m;
+}
+
+/** Un «hecho nuevo de inspección» (mesa de maquinaria, D1): lo que hace que vuelva a
+ *  mandar inspección sobre la marca que el sitio le puso a una máquina vinculada. */
+export type NovedadInspeccion = { ms: number; que: 'averia_creada' | 'averia_resuelta' | 'jornada'; motivo: string | null };
+
+/**
+ * ⭐ HECHOS NUEVOS DE INSPECCIÓN posteriores a `desde`: por máquina, el MÁS
+ * RECIENTE (25-oct-2026, para el Centro de Operaciones; ninguna otra pantalla la
+ * llama). Para decidir basta «¿hubo algún hecho después de la marca?», y el más
+ * reciente es el que se le muestra a quien marcó. Un hecho es (D1):
+ *  · una avería REAL creada (`created_at`) o resuelta (`resolved_at`) — NUNCA el
+ *    marcador MÁQUINA PARADA (ni crearlo, ni resolverlo, ni reabrirlo): el inspector y
+ *    el listero crean SIEMPRE dos filas (marcador + avería real), así que dejarlo
+ *    fuera no pierde ninguna avería, y contarlo vencería la marca en cada turno por
+ *    un «no trabajó»;
+ *  · una jornada iniciada por una PERSONA (`jornada_marked_at`) — NUNCA
+ *    `jornada_start_at`, que queda anclado a 7 a. m. / 7 p. m. y que también ponían
+ *    los crons de arranque.
+ * `desde` puede ser UNA fecha ISO para todas (`.gt(col, desde)`, la consulta de siempre) o
+ * una fecha POR MÁQUINA (`{ [id]: iso }`, lote 6 A2): entonces cada máquina trae solo lo
+ * posterior a SU marca, en las mismas tres consultas, con un `.or(and(machinery_id.eq.X,
+ * col.gt."T"),…)` (la lista viaja en la dirección: quien llama manda lotes chicos).
+ * Un hecho con hora FUTURA (más de `MARGEN_HORA_FUTURA_MS` por delante del reloj) se aplaza (A1).
+ * SIEMPRE estricta: si falla cualquiera de las tres lecturas, lanza en español.
+ * Paginada con `selectAllRows` (sin tope de filas). `ids: []` → `{}` sin consultar.
+ * Solo lee.
+ */
+export async function fetchNovedadesInspeccion(ids: string[], desde: string | Record<string, string>): Promise<Record<string, NovedadInspeccion>> {
+  if (ids.length === 0) return {};
+  const fechaMala = () => new Error(`${NO_SE_PUDO_LEER}: la fecha «desde» no es válida.`);
+  const porMaquina = typeof desde !== 'string';
+  const desdeDe: Record<string, number> = {};
+  let desdeComun = NaN;
+  if (porMaquina) {
+    for (const id of ids) {
+      // El id va DENTRO del texto del filtro: con una coma o un paréntesis cambiaría el filtro.
+      if (/[,()"\s]/.test(id)) throw new Error(`${NO_SE_PUDO_LEER}: el id de una máquina no es válido.`);
+      const t = Date.parse(String(desde[id] ?? ''));
+      if (!Number.isFinite(t)) throw fechaMala();
+      desdeDe[id] = t;
+    }
+  } else {
+    desdeComun = Date.parse(desde);
+    if (!Number.isFinite(desdeComun)) throw fechaMala();
+  }
+  /** La ventana: la misma `.gt` de siempre, o una por máquina (los valores con «:» y «.» van
+   *  entre comillas, como pide PostgREST para sus caracteres reservados). */
+  const ventana = (q: any, col: string) => (porMaquina
+    ? q.or(ids.map((id) => `and(machinery_id.eq.${id},${col}.gt."${new Date(desdeDe[id]).toISOString()}")`).join(','))
+    : q.gt(col, desde));
+  const topeFuturo = Date.now() + MARGEN_HORA_FUTURA_MS;
+  let creadas: any[], resueltas: any[], jornadas: any[];
+  try {
+    [creadas, resueltas, jornadas] = await Promise.all([
+      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at', (q: any) => ventana(q.in('machinery_id', ids).neq('material', MARCADOR_PARADA), 'created_at')),
+      selectAllRows('maintenance_requests', 'machinery_id, material, notes, resolved_at', (q: any) => ventana(q.in('machinery_id', ids).neq('material', MARCADOR_PARADA), 'resolved_at')),
+      selectAllRows('machine_rounds', 'machinery_id, jornada_marked_at', (q: any) => ventana(q.in('machinery_id', ids), 'jornada_marked_at')),
+    ]);
+  } catch (e) {
+    throw errorDeLectura(e);
+  }
+  const m: Record<string, NovedadInspeccion> = {};
+  const anotar = (id: string | null, iso: string | null, que: NovedadInspeccion['que'], motivo: string | null) => {
+    const ms = iso ? new Date(iso).getTime() : NaN;
+    const desdeMs = porMaquina ? desdeDe[id ?? ''] : desdeComun;
+    // La base ya filtró «posterior a desde»; se vuelve a mirar acá por si la hora
+    // llega en otro formato. Un hecho con hora futura se aplaza (A1). A igual hora gana el
+    // primero (creada, resuelta, jornada).
+    if (!id || !Number.isFinite(ms) || !Number.isFinite(desdeMs) || ms <= desdeMs || ms > topeFuturo) return;
+    if (!m[id] || ms > m[id].ms) m[id] = { ms, que, motivo };
+  };
+  creadas.forEach((r) => anotar(r.machinery_id, r.created_at, 'averia_creada', r.notes || r.material || null));
+  resueltas.forEach((r) => anotar(r.machinery_id, r.resolved_at, 'averia_resuelta', r.notes || r.material || null));
+  jornadas.forEach((r) => anotar(r.machinery_id, r.jornada_marked_at, 'jornada', null));
   return m;
 }
 

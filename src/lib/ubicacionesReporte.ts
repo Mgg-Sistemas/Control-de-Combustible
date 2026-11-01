@@ -640,6 +640,31 @@ export function resumirPorMaquina(filas: readonly FilaUbicacion[]): MaquinaResum
   return out.sort((a, b) => cmp(a.maquina.code, b.maquina.code) || cmp(a.maquina.placa, b.maquina.placa));
 }
 
+/**
+ * 🧭 El Este/Oeste de CADA máquina en un rango, para prestárselo a otros papeles
+ * (Reporte personalizado, 30-oct-2026). Una sola regla para los dos reportes:
+ * - Con algo en el rango (ronda, check-in o punto GPS): lo mismo que el resumen de
+ *   📍 Ubicaciones — su ÚLTIMA ubicación del rango (`resumirPorMaquina`).
+ * - Sin nada en el rango: lo que diga su ficha HOY — GPS del catálogo, el
+ *   edificio/obra, o la columna `sector` solo si dice Este u Oeste. Sin nada de
+ *   eso no se inventa: la máquina no entra al mapa (la celda sale vacía).
+ */
+export function cardinalPorMaquina(
+  maquinas: readonly MaquinaUbic[],
+  filas: readonly FilaUbicacion[],
+): Map<string, { cardinal: Cardinal; area: string }> {
+  const out = new Map<string, { cardinal: Cardinal; area: string }>();
+  resumirPorMaquina(filas).forEach((r) => out.set(r.maquina.id, { cardinal: r.cardinal, area: r.area }));
+  maquinas.forEach((m) => {
+    if (out.has(m.id)) return;
+    for (const fuente of [m.sectorActual, m.referenciaActual, m.cardinalFicha]) {
+      const z = zonaCardinal(fuente);
+      if (z.cardinal) { out.set(m.id, { cardinal: z.cardinal, area: z.area }); return; }
+    }
+  });
+  return out;
+}
+
 export type GrupoArea = { nombre: string; maquinas: MaquinaResumen[]; horas: number };
 export type GrupoCardinal = { cardinal: Cardinal; titulo: string; emoji: string; maquinas: number; horas: number; areas: GrupoArea[] };
 

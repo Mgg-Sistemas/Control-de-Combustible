@@ -96,9 +96,9 @@ eq('* vacío tampoco', parseHHMM(''), null);
   ok('* y cuenta como anticipado (son las 6:10pm)', r.anticipado);
 }
 {
-  // Cerrando DESPUÉS de las 7pm sin declarar hora: topa al nominal, no anticipado.
+  // Cerrando DESPUÉS de las 7pm sin declarar hora: registra las horas trabajadas en vivo.
   const r = resolverFinJornada({ ...DIA, nowMs: CCS('2026-10-20T19:25:00'), texto: null });
-  eq('⭐ cerrar tarde sin declarar topa al nominal (no regala horas)', r.efectivoMs, DIA.nominalEndMs);
+  eq('⭐ cerrar tarde registra las horas reales transcurridas', r.efectivoMs, CCS('2026-10-20T19:25:00'));
   ok('* y NO es anticipado', !r.anticipado);
 }
 
@@ -116,9 +116,9 @@ eq('* vacío tampoco', parseHHMM(''), null);
   ok('⭐ cerrar a las 7:05pm declarando 17:00 ES anticipado (motivo obligatorio)', r.ok && r.anticipado);
 }
 {
-  // Declarar más allá del fin nominal no regala horas: topa a las 7pm.
+  // Declarar más de 12 horas (ej. 21:00): permitido y registra las horas reales.
   const r = resolverFinJornada({ ...DIA, nowMs: CCS('2026-10-20T21:10:00'), texto: '21:00' });
-  eq('⭐ declarar 21:00 topa al nominal (7pm)', r.efectivoMs, DIA.nominalEndMs);
+  eq('⭐ declarar 21:00 registra las 13,5 h reales (más de 12h permitido)', r.efectivoMs, CCS('2026-10-20T21:00:00'));
   ok('* y no es anticipado', !r.anticipado);
 }
 

@@ -37,7 +37,11 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },
   { label: 'Fabricación', route: 'FabricacionHub', desc: 'Taller: mangueras, centros de trabajo, recetas (BoM) y rutas de producción', icon: '🏭', module: 'mangueras' },
   { label: 'Acarreo / Transporte', route: 'AcarreoHub', desc: 'Traslado de maquinaria: flota (chutos/bateas), choferes, órdenes de acarreo y costos', icon: '🚛', module: 'acarreo' },
+  { label: 'Traslados y Salidas de Maquinaria', route: 'TrasladoMaquinaria', desc: 'Autorización de traslado (PDF), salvoconducto de salida y control de fletes', icon: '🚜', module: 'traslados_maquinaria' },
+  { label: 'Servicio de Fletes', route: 'ServicioFletes', desc: 'Registro y liquidación de viajes por empresa, por camión o flete individual en PDF', icon: '🚚', module: 'control_maquinaria' },
+  { label: 'Acta de Recepción de Equipo', route: 'ActaRecepcion', desc: 'Inspección física inicial, checklist de componentes y anexo fotográfico', icon: '📋', module: 'actas_recepcion' },
   { label: 'Pedir Material / Repuesto', route: 'SolicitudMaterial', desc: 'Consultar existencias en almacén, pedir despacho o solicitar compra técnica', icon: '📦', module: 'solicitudes_material' },
+  { label: 'Centro de Operaciones', route: 'CentroOperaciones', desc: 'Sitios, flota, entradas, movimientos y salidas, con sus reportes', icon: '🏭', module: 'centro_operaciones' },
   // (Kiosco de planta se quitó del menú: salía duplicado con la tarjeta del hub de
   //  Fabricación. Los roles "solo kiosco" entran directo al Kiosco por su panel, ver
   //  navigation `fabricacionPlanta`. La pantalla/ruta PlantaKiosk sigue existiendo.)

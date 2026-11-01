@@ -17,6 +17,8 @@ import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { DateField } from './DateField';
 import { ContactoEmergencia, MAX_CONTACTOS, contactosParaGuardar, leerContactos, normalizarContacto, tituloContacto, PASOS_SIN_MIGRACION, quitarColumnas } from '../lib/contactosEmergencia';
+import { MAX_HABILIDADES, leerHabilidadesEmpleado, limpiarHabilidades } from '../lib/empleadosHabilidades';
+import { guardarHabilidadesEmpleado } from '../lib/empleadosHabilidadesStorage';
 
 /** Predicado opcional: el campo solo se muestra si devuelve true. */
 type ShowIf = (values: Record<string, string>) => boolean;
@@ -27,6 +29,8 @@ export type Field =
    *  `values[key]` como JSON, y al guardar se reparte en la columna `emergency_contacts`
    *  más las tres columnas viejas con el contacto nº 1. Ver src/lib/contactosEmergencia.ts. */
   | { key: string; label: string; type: 'contactos'; required?: boolean; showIf?: ShowIf }
+  /** Lista REPETIBLE de habilidades / destrezas cargadas manualmente (1 o más). */
+  | { key: string; label: string; type: 'habilidades'; required?: boolean; placeholder?: string; showIf?: ShowIf }
   | { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf; defaultValue?: string } // 'textarea' = texto multilínea
   | { key: string; label: string; type: 'switch'; required?: boolean; showIf?: ShowIf; defaultValue?: boolean } // check Sí/No (booleano)
   | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf; dropdown?: boolean; placeholder?: string }
@@ -147,6 +151,7 @@ export function RecordForm({
     fields.forEach((f) => {
       if (f.type === 'date') o[f.key] = todayISO();
       else if (f.type === 'contactos') o[f.key] = '[]';
+      else if (f.type === 'habilidades') o[f.key] = '[]';
       else if (f.type === 'switch') o[f.key] = f.defaultValue ? 'true' : 'false';
       else if ('defaultValue' in f && f.defaultValue) o[f.key] = f.defaultValue as string;
     });
@@ -173,6 +178,7 @@ export function RecordForm({
         // Los contactos NO son texto: se leen con su propia regla (que ademas
         // reconstruye el contacto nº 1 de los empleados viejos) y viajan como JSON.
         if (f.type === 'contactos') { pre[f.key] = JSON.stringify(leerContactos(record as any)); return; }
+        if (f.type === 'habilidades') { pre[f.key] = JSON.stringify(leerHabilidadesEmpleado(record as any)); return; }
         const v = record[f.key];
         if (v !== null && v !== undefined) pre[f.key] = String(v);
       });
@@ -194,9 +200,18 @@ export function RecordForm({
         // Columnas extra para DISTINGUIR opciones con el mismo nombre (p. ej. dos tanques
         // "TANQUE DE COMBUSTIBLE"): se agregan al label como " · valor" (ubicación,
         // responsable…). Solo se muestran las que tengan valor.
-        const subCols = f.subLabelCols ?? [];
-        const extra = [f.activeCol, ...subCols].filter(Boolean).join(', ');
-        let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}${extra ? `, ${extra}` : ''}`);
+        const subCols = f.subLabelCols ?? (f.table === 'machinery' ? ['plate', 'serial', 'identifier'] : f.table === 'vehicles' ? ['name', 'serial', 'identifier'] : []);
+        const queryCols = Array.from(
+          new Set(
+            [
+              f.activeCol,
+              ...subCols,
+              ...(f.table === 'machinery' ? ['plate', 'serial', 'identifier'] : []),
+              ...(f.table === 'vehicles' ? ['name', 'serial', 'identifier'] : []),
+            ].filter(Boolean)
+          )
+        ).join(', ');
+        let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}${queryCols ? `, ${queryCols}` : ''}`);
         if (f.filter) Object.entries(f.filter).forEach(([col, val]) => { qb = qb.eq(col, val); });
         const { data } = await qb;
         const activeCol = f.activeCol;
@@ -204,7 +219,25 @@ export function RecordForm({
           ...prev,
           [f.key]: (data ?? [])
             .map((r: any) => {
-              const sub = subCols.map((c) => String(r[c] ?? '').trim()).filter(Boolean).join(' · ');
+              const subItems = subCols
+                .map((c) => {
+                  const val = String(r[c] ?? '').trim();
+                  if (!val) return '';
+                  if (c === 'plate' || c === 'placa') return `🚗 Placa: ${val}`;
+                  if (c === 'serial') return `🔢 Serial: ${val}`;
+                  if (c === 'identifier') return `🔢 ID: ${val}`;
+                  return val;
+                })
+                .filter(Boolean);
+              if (f.table === 'machinery' && !subItems.some((s) => s.includes('Placa'))) {
+                const p = String(r.plate ?? '').trim();
+                subItems.push(p ? `🚗 Placa: ${p}` : '🚗 Placa: S/P');
+              }
+              if (f.table === 'machinery' && !subItems.some((s) => s.includes('Serial') || s.includes('ID:'))) {
+                const sn = String(r.serial || r.identifier || '').trim();
+                if (sn) subItems.push(`🔢 Serial: ${sn}`);
+              }
+              const sub = subItems.join(' · ');
               const base = String(r[f.labelCol]);
               const withSub = sub ? `${base} · ${sub}` : base;
               return {
@@ -248,6 +281,13 @@ export function RecordForm({
         }
         continue;
       }
+      if (f.type === 'habilidades') {
+        if (f.required && !limpiarHabilidades(values[f.key] || '[]').length) {
+          setError('Agrega al menos una habilidad.');
+          return;
+        }
+        continue;
+      }
       if (f.required && !values[f.key]) {
         setError(`El campo "${f.label}" es obligatorio.`);
         return;
@@ -266,6 +306,10 @@ export function RecordForm({
         let lista: any = [];
         try { lista = JSON.parse(raw || '[]'); } catch { lista = []; }
         Object.assign(payload, contactosParaGuardar(lista));
+        return;
+      }
+      if (f.type === 'habilidades') {
+        // Las habilidades se guardan tras confirmar el id en guardarHabilidadesEmpleado()
         return;
       }
       if (raw === '') {
@@ -340,6 +384,14 @@ export function RecordForm({
       fila = quitarColumnas(fila, paso.columnas);
       error = await guardar();
     }
+    if (!error && savedId) {
+      for (const f of visibleFields) {
+        if (f.type === 'habilidades') {
+          const habs = limpiarHabilidades(values[f.key] || '[]');
+          await guardarHabilidadesEmpleado(savedId, habs);
+        }
+      }
+    }
     setSaving(false);
     if (error) {
       // La BD rechazó un duplicado (índice único, p. ej. serial/placa). Mensaje claro.
@@ -369,6 +421,29 @@ export function RecordForm({
           ? 'No se puede eliminar: tiene movimientos o registros asociados (ingresos, consumos o traslados).'
           : error.message
       );
+      return;
+    }
+    onSaved();
+    onClose();
+  };
+
+  const removeWithoutRestoringTank = async () => {
+    if (!record || table !== 'dispatches') return;
+    setAskDelete(false);
+    setError(null);
+    setDeleting(true);
+    const prevDriver = String(record.driver_operator ?? '')
+      .replace(/\[AJUSTE_TANQUE_OCULTO\]\s*/g, '')
+      .trim();
+    const { error } = await supabase
+      .from('dispatches')
+      .update({
+        driver_operator: `[AJUSTE_TANQUE_OCULTO] ${prevDriver || 'Consumo eliminado sin reponer al tanque'}`,
+      })
+      .eq('id', record.id);
+    setDeleting(false);
+    if (error) {
+      setError(error.message);
       return;
     }
     onSaved();
@@ -466,6 +541,14 @@ export function RecordForm({
                     typography={typography}
                     styles={styles}
                   />
+                ) : f.type === 'habilidades' ? (
+                  <HabilidadesField
+                    value={values[f.key] ?? '[]'}
+                    onChange={(v) => set(f.key, v)}
+                    placeholder={f.placeholder}
+                    colors={colors}
+                    styles={styles}
+                  />
                 ) : f.type === 'switch' ? (
                   <TouchableOpacity onPress={() => set(f.key, values[f.key] === 'true' ? 'false' : 'true')} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
                     <View style={{ width: 26, height: 26, borderRadius: 6, borderWidth: 2, borderColor: values[f.key] === 'true' ? colors.primary : colors.border, backgroundColor: values[f.key] === 'true' ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
@@ -532,26 +615,58 @@ export function RecordForm({
                   Eliminar
                 </Text>
                 <Text style={{ color: colors.text, textAlign: 'center', marginBottom: spacing.md }}>
-                  ¿Desea eliminar este registro? Esta acción no se puede deshacer.
+                  {table === 'dispatches'
+                    ? '¿Cómo desea eliminar este registro de combustible?'
+                    : '¿Desea eliminar este registro? Esta acción no se puede deshacer.'}
                 </Text>
-                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnGhost]}
-                    onPress={() => setAskDelete(false)}
-                    disabled={deleting}
-                  >
-                    <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, { backgroundColor: colors.danger }]}
-                    onPress={remove}
-                    disabled={deleting}
-                  >
-                    <Text style={{ color: '#fff', fontWeight: '700' }}>
-                      {deleting ? 'Eliminando…' : 'Aceptar'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                {table === 'dispatches' ? (
+                  <View style={{ gap: spacing.xs }}>
+                    <TouchableOpacity
+                      style={[styles.btn, { backgroundColor: colors.danger, paddingVertical: 11 }]}
+                      onPress={removeWithoutRestoringTank}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center', fontSize: 13 }}>
+                        {deleting ? 'Procesando…' : '🔒 Eliminar SIN reponer en el tanque'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, { backgroundColor: colors.primary, paddingVertical: 11 }]}
+                      onPress={remove}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', textAlign: 'center', fontSize: 13 }}>
+                        {deleting ? 'Procesando…' : '🔄 Eliminar y reponer litros al tanque'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnGhost]}
+                      onPress={() => setAskDelete(false)}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnGhost]}
+                      onPress={() => setAskDelete(false)}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, { backgroundColor: colors.danger }]}
+                      onPress={remove}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '700' }}>
+                        {deleting ? 'Eliminando…' : 'Aceptar'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             </View>
           ) : null}
@@ -585,8 +700,8 @@ function SearchSelect({
   const q = norm(query.trim());
   const filtered = q ? options.filter((o) => norm(o.label).includes(q)) : options;
   const exactExists = options.some((o) => norm(o.label) === q);
-  // El buscador solo aparece si hay muchas opciones o si se pueden crear nuevas.
-  const showSearch = !!createColumn || options.length > 8;
+  // El buscador aparece siempre en maquinaria/vehículos o si hay muchas opciones / creación.
+  const showSearch = !!createColumn || table === 'machinery' || table === 'vehicles' || options.length > 8;
 
   const create = async () => {
     if (!createColumn || !query.trim()) return;
@@ -680,6 +795,11 @@ function SearchSelectChip({
   styles: ReturnType<typeof makeStyles>;
   onPress: (v: string) => void;
 }) {
+  const raw = option.label || '';
+  const parts = raw.split(' · ');
+  const mainTitle = parts[0] || '';
+  const details = parts.slice(1).join(' · ');
+
   return (
     <TouchableOpacity
       onPress={() => onPress(option.value)}
@@ -689,13 +809,28 @@ function SearchSelectChip({
         numberOfLines={2}
         style={{
           color: active ? colors.primaryContrast : colors.text,
-          fontSize: 15,
-          fontWeight: '600',
+          fontSize: 13,
+          fontWeight: '800',
           textAlign: 'center',
         }}
       >
-        {shortLabel(option.label)}
+        {mainTitle}
       </Text>
+      {details ? (
+        <Text
+          numberOfLines={2}
+          style={{
+            color: active ? colors.primaryContrast : colors.muted,
+            fontSize: 11,
+            fontWeight: '700',
+            textAlign: 'center',
+            marginTop: 3,
+            opacity: active ? 0.95 : 1,
+          }}
+        >
+          {details}
+        </Text>
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -999,7 +1134,8 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   ssChip: {
-    width: 104,
+    minWidth: 130,
+    maxWidth: 300,
     minHeight: 56,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -1007,8 +1143,8 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
   ssChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   selectedRow: {
@@ -1111,6 +1247,113 @@ function ContactosField({ value, onChange, colors, typography, styles }: {
         </TouchableOpacity>
       ) : (
         <Text style={{ color: colors.muted, fontSize: 11 }}>Máximo {MAX_CONTACTOS} contactos por persona.</Text>
+      )}
+    </View>
+  );
+}
+
+/** Lista REPETIBLE de habilidades / destrezas manuales: permite escribir 1 o varias
+ *  habilidades en campos individuales, agregar nuevas casillas o quitar cualquiera. */
+function HabilidadesField({ value, onChange, placeholder, colors, styles }: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  colors: AppColors;
+  styles: any;
+}) {
+  let lista: string[] = [];
+  try {
+    const p = JSON.parse(value || '[]');
+    if (Array.isArray(p)) lista = p.map((s) => String(s ?? ''));
+  } catch {
+    lista = [];
+  }
+  // Siempre hay al menos 1 campo visible en pantalla para escribir directamente;
+  // si queda vacío, limpiarHabilidades() lo descarta al guardar.
+  const vista = lista.length > 0 ? lista : [''];
+  const emitir = (l: string[]) => onChange(JSON.stringify(l));
+  const setItem = (idx: number, txt: string) =>
+    emitir(vista.map((s, j) => (j === idx ? txt : s)));
+
+  return (
+    <View style={{ gap: spacing.xs }}>
+      {vista.map((hab, i) => (
+        <View
+          key={i}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.xs,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: radius.md,
+            padding: spacing.xs,
+            backgroundColor: colors.surfaceAlt,
+          }}
+        >
+          <View
+            style={{
+              minWidth: 30,
+              paddingVertical: 6,
+              paddingHorizontal: 8,
+              borderRadius: radius.sm,
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 11 }}>#{i + 1}</Text>
+          </View>
+          <TextInput
+            style={[styles.input, { flex: 1, paddingVertical: 8 }]}
+            value={hab}
+            onChangeText={(t) => setItem(i, t.toUpperCase())}
+            autoCapitalize="characters"
+            placeholder={placeholder || `HABILIDAD #${i + 1} (EJ. SOLDADOR, MECÁNICO, ELECTRICISTA…)`}
+            placeholderTextColor={colors.muted}
+          />
+          {vista.length > 1 || hab.trim().length > 0 ? (
+            <TouchableOpacity
+              onPress={() => {
+                if (vista.length > 1) {
+                  emitir(vista.filter((_, j) => j !== i));
+                } else {
+                  emitir(['']);
+                }
+              }}
+              style={{
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 7,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: colors.danger,
+                backgroundColor: 'rgba(220,38,38,0.08)',
+              }}
+            >
+              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑 Quitar</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ))}
+      {vista.length < MAX_HABILIDADES ? (
+        <TouchableOpacity
+          onPress={() => emitir([...vista, ''])}
+          style={{
+            alignSelf: 'flex-start',
+            borderWidth: 1,
+            borderColor: colors.primary,
+            borderStyle: 'dashed',
+            borderRadius: radius.md,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.xs,
+            marginTop: 2,
+          }}
+        >
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>＋ Agregar otra habilidad</Text>
+        </TouchableOpacity>
+      ) : (
+        <Text style={{ color: colors.muted, fontSize: 11 }}>Máximo {MAX_HABILIDADES} habilidades por persona.</Text>
       )}
     </View>
   );

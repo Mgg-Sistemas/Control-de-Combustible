@@ -1,11 +1,22 @@
-import React, { useState } from 'react';
-import { View, Text, Image, Modal, Pressable, ScrollView } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { View, Text, Image, Modal, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { RList, RRow, RAmount, RPill, RBarChart } from '../../components/redesign/RList';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
-import { cmpText } from '../../lib/text';
+import { cmpText, norm } from '../../lib/text';
 import { caracasParts } from '../../lib/jornada';
-import { Dispatch } from '../../types/database';
+import { Dispatch, Tank } from '../../types/database';
+import { useAuth } from '../../context/AuthContext';
+import { useTable } from '../../hooks/useTable';
+import { supabase } from '../../lib/supabase';
+import { useToast } from '../../components/ToastProvider';
+import {
+  MARCADOR_AJUSTE_TANQUE,
+  agruparLitrosPorMaquinaTop,
+  esAjusteManualVisibleLegado,
+  esRegistroAjusteTanque,
+  etiquetaEquipoCombustible,
+} from '../../lib/fuelRules';
 
 const ASSET_OPTIONS = [
   { label: 'Vehículo', value: 'vehiculo' },
@@ -18,8 +29,9 @@ const fmtMonto = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLoc
 function TodayTotal({ rows }: { rows: Dispatch[] }) {
   const { colors } = useTheme();
   const today = caracasParts(new Date()).iso;
-  const total = rows.reduce((s, d: any) => (String(d.dispatch_date).slice(0, 10) === today ? s + (Number(d.liters) || 0) : s), 0);
-  const n = rows.filter((d: any) => String(d.dispatch_date).slice(0, 10) === today).length;
+  const validRows = rows.filter((d: any) => !esRegistroAjusteTanque(d));
+  const total = validRows.reduce((s, d: any) => (String(d.dispatch_date).slice(0, 10) === today ? s + (Number(d.liters) || 0) : s), 0);
+  const n = validRows.filter((d: any) => String(d.dispatch_date).slice(0, 10) === today).length;
   return (
     <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
       <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 12, letterSpacing: 0.5 }}>⛽ CONSUMIDO HOY</Text>
@@ -37,18 +49,15 @@ function TodayTotal({ rows }: { rows: Dispatch[] }) {
  *  (sobre las filas visibles = respeta búsqueda y rango de fecha). */
 function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
   const { colors } = useTheme();
-  const maq = rows.filter((d: any) => d.asset_kind === 'maquinaria');
+  const maq = rows.filter((d: any) => d.asset_kind === 'maquinaria' && !esRegistroAjusteTanque(d));
   if (maq.length === 0) return null;
   const byDay = new Map<string, number>();
-  const byMachine = new Map<string, number>();
   maq.forEach((d: any) => {
     const day = String(d.dispatch_date).slice(0, 10);
     byDay.set(day, (byDay.get(day) || 0) + (Number(d.liters) || 0));
-    const code = d.machine?.code || '—';
-    byMachine.set(code, (byMachine.get(code) || 0) + (Number(d.liters) || 0));
   });
   const days = Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  const machines = Array.from(byMachine.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
+  const machines = agruparLitrosPorMaquinaTop(maq);
   const total = maq.reduce((s, d: any) => s + (Number(d.liters) || 0), 0);
   const box = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm } as const;
   const head = { color: colors.brandText, fontWeight: '900' as const, fontSize: 13, marginBottom: spacing.sm, letterSpacing: 0.3 };
@@ -65,7 +74,7 @@ function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
       </View>
       <View style={box}>
         <Text style={head}>🚜 LITROS POR MÁQUINA (TOP)</Text>
-        <RBarChart data={machines.slice(0, 12).map(([label, value]) => ({ label, value }))} fmt={fmtL} />
+        <RBarChart data={machines.slice(0, 12).map((m) => ({ label: m.label, value: m.value }))} fmt={fmtL} />
         {machines.length > 12 ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>+{machines.length - 12} máquina(s) más…</Text> : null}
       </View>
     </>
@@ -78,11 +87,151 @@ function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
  *  - títulos en negrita y color de texto que ADAPTA al modo oscuro (brandText),
  *  - resumen con GRÁFICAS de barras (más visual),
  *  - BUSCADOR por máquina / placa / conductor / tipo / litros + rango de fecha.
+ *  - ASIGNACIÓN INTELIGENTE DE TANQUES según conductor u operador asignado.
  * Reusa RList → RecordForm (lógica intacta).
  */
 export default function DispatchesPilot() {
   const { colors } = useTheme();
+  const toast = useToast();
+  const { fullName, session } = useAuth();
+  const currentUserName = fullName || session?.user?.email || '';
   const [viewPhoto, setViewPhoto] = useState<string | null>(null);
+
+  // Tanques activos del sistema para deducción y auto-asignación
+  const { data: tanks } = useTable<Tank>('tanks', {
+    realtimeFrom: ['tanks', 'stock_movements'],
+  });
+
+  const activeTanks = useMemo(() => {
+    return (tanks || []).filter((t) => t.active !== false);
+  }, [tanks]);
+
+  // Tanque por defecto según el usuario logueado o único tanque disponible
+  const defaultTank = useMemo(() => {
+    if (activeTanks.length === 0) return null;
+    const u = norm(currentUserName);
+    const matched = activeTanks.find((t) => {
+      const resp = t.responsable ? norm(t.responsable) : '';
+      const chof = t.chofer ? norm(t.chofer) : '';
+      return (
+        (resp && (resp === u || resp.includes(u) || u.includes(resp))) ||
+        (chof && (chof === u || chof.includes(u) || u.includes(chof)))
+      );
+    });
+    if (matched) return matched;
+    if (activeTanks.length === 1) return activeTanks[0];
+    return null;
+  }, [activeTanks, currentUserName]);
+
+  // Busca el tanque correspondiente para un conductor / chofer
+  const findTankForDriver = (driverName: string | null | undefined): Tank | null => {
+    if (!driverName) {
+      return activeTanks.length === 1 ? activeTanks[0] : null;
+    }
+    const d = norm(driverName);
+    const match = activeTanks.find((t) => {
+      const resp = t.responsable ? norm(t.responsable) : '';
+      const chof = t.chofer ? norm(t.chofer) : '';
+      return (
+        (resp && (resp === d || resp.includes(d) || d.includes(resp))) ||
+        (chof && (chof === d || chof.includes(d) || d.includes(chof)))
+      );
+    });
+    return match || (activeTanks.length === 1 ? activeTanks[0] : null);
+  };
+
+  const [autoAssigning, setAutoAssigning] = useState(false);
+  const [autoAssignMsg, setAutoAssignMsg] = useState<string | null>(null);
+  const [assigningRowId, setAssigningRowId] = useState<string | null>(null);
+
+  const autoAsignarTanques = async (items: Dispatch[]) => {
+    if (autoAssigning) return;
+    const sinTanque = items.filter((r) => !r.tank_id);
+    if (sinTanque.length === 0) return;
+
+    setAutoAssigning(true);
+    setAutoAssignMsg(null);
+    let asignados = 0;
+    let noEncontrados = 0;
+
+    try {
+      for (const d of sinTanque) {
+        const matched = findTankForDriver(d.driver_operator);
+        if (matched) {
+          const { error } = await supabase
+            .from('dispatches')
+            .update({ tank_id: matched.id })
+            .eq('id', d.id);
+          if (!error) {
+            asignados++;
+          }
+        } else {
+          noEncontrados++;
+        }
+      }
+      if (asignados > 0) {
+        const msg = `✅ Se auto-asignaron ${asignados} consumo(s) a sus tanques y se descontó el stock.`;
+        setAutoAssignMsg(msg);
+        toast?.success?.(msg);
+      } else {
+        setAutoAssignMsg('⚠️ No se encontró tanque correspondiente para los conductores.');
+      }
+    } catch (e: any) {
+      setAutoAssignMsg(`❌ Error: ${e?.message || e}`);
+    } finally {
+      setAutoAssigning(false);
+    }
+  };
+
+  const asignarUnConsumo = async (dispatchId: string, tankId: string) => {
+    if (assigningRowId) return;
+    setAssigningRowId(dispatchId);
+    try {
+      const { error } = await supabase
+        .from('dispatches')
+        .update({ tank_id: tankId })
+        .eq('id', dispatchId);
+      if (error) {
+        toast?.error?.(`Error: ${error.message}`);
+      } else {
+        toast?.success?.('Tanque asignado con éxito. Stock sincronizado.');
+      }
+    } catch (e: any) {
+      toast?.error?.(`Error: ${e?.message || e}`);
+    } finally {
+      setAssigningRowId(null);
+    }
+  };
+
+  const cleanedIdsRef = useRef<Set<string>>(new Set());
+
+  // Convierte automáticamente cualquier registro legado con "ajuste manual visible" o
+  // "ajuste visible" a un ajuste interno de tanque SIN borrarlo de la tabla (para que
+  // el trigger NO reponga los litros en el tanque), ocultándolo de Consumos.
+  const limpiarAjustesVisiblesLegados = useCallback(
+    async (rows: Dispatch[], refetch: () => void) => {
+      const legados = (rows || []).filter(
+        (r) => esAjusteManualVisibleLegado(r) && !cleanedIdsRef.current.has(r.id)
+      );
+      if (legados.length === 0) return;
+      let changed = false;
+      for (const r of legados) {
+        cleanedIdsRef.current.add(r.id);
+        const prev = String(r.driver_operator || '').trim();
+        const { error } = await supabase
+          .from('dispatches')
+          .update({
+            driver_operator: `${MARCADOR_AJUSTE_TANQUE} ${prev || 'Ajuste de nivel en tanque'}`,
+          })
+          .eq('id', r.id);
+        if (!error) changed = true;
+      }
+      if (changed) refetch();
+    },
+    []
+  );
+
+  const filtrarConsumosReales = useCallback((d: Dispatch) => !esRegistroAjusteTanque(d), []);
 
   return (
     <>
@@ -91,19 +240,32 @@ export default function DispatchesPilot() {
         table="dispatches"
         orderBy="dispatch_date"
         ascending={false}
-        select="*, machine:machinery_id(code), vehicle:vehicle_id(plate)"
+        select="*, machine:machinery_id(code, plate, serial, identifier, tipo), vehicle:vehicle_id(plate, name, model, serial, identifier), tank:tank_id(id, name, fuel, is_mobile, responsable, chofer)"
         editable
         dateField="dispatch_date"
         defaultToday
+        baseFilter={filtrarConsumosReales}
+        onDataLoaded={limpiarAjustesVisiblesLegados}
         emptyIcon="⛽"
         emptyTitle="Sin consumos"
         emptySubtitle="Registra los despachos a vehículos o maquinaria."
         formTitle="Nuevo consumo"
-        searchPlaceholder="Buscar por máquina, placa, conductor, tipo, litros…"
+        searchPlaceholder="Buscar por máquina, placa, serial, conductor, tanque, litros…"
         // Buscable por TODAS las características útiles del movimiento.
         searchText={(d: any) => [
           d.machine?.code,
+          d.machine?.plate,
+          d.machine?.serial,
+          d.machine?.identifier,
+          d.machine?.tipo,
           d.vehicle?.plate,
+          d.vehicle?.name,
+          d.vehicle?.model,
+          d.vehicle?.serial,
+          d.vehicle?.identifier,
+          d.tank?.name,
+          d.tank?.responsable,
+          d.tank?.chofer,
           d.driver_operator,
           d.asset_kind,
           d.dispatch_date,
@@ -111,38 +273,221 @@ export default function DispatchesPilot() {
         ].filter(Boolean).join(' ')}
         subtitle={(rows) => {
           const l = rows.reduce((s, r) => s + (Number(r.liters) || 0), 0);
-          return `${rows.length} consumo(s) · ${l.toLocaleString()} L`;
+          const sinTanque = rows.filter((r) => !r.tank_id).length;
+          return `${rows.length} consumo(s) · ${l.toLocaleString()} L${sinTanque > 0 ? ` · ⚠️ ${sinTanque} sin tanque` : ''}`;
         }}
         // Por defecto: solo el TOTAL CONSUMIDO HOY. Al elegir un rango de fecha (o
         // buscar), se muestran las GRÁFICAS completas (por día y por máquina).
-        headerExtra={(shown, ctx) => (ctx.dateActive || ctx.searching ? <DailyMachineCharts rows={shown} /> : <TodayTotal rows={shown} />)}
+        headerExtra={(shown, ctx) => {
+          const sinTanqueList = shown.filter((r) => !r.tank_id);
+          const sinTanque = sinTanqueList.length;
+          return (
+            <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
+              {sinTanque > 0 ? (
+                <View
+                  style={{
+                    backgroundColor: '#FEF2F2',
+                    borderWidth: 1.5,
+                    borderColor: '#EF4444',
+                    borderRadius: radius.md,
+                    padding: spacing.md,
+                    gap: spacing.xs,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
+                    <Text style={{ color: '#B91C1C', fontWeight: '900', fontSize: 13, flexShrink: 1 }}>
+                      ⚠️ {sinTanque} consumo(s) no tienen Tanque de Origen asignado
+                    </Text>
+                    <Pressable
+                      onPress={() => autoAsignarTanques(shown)}
+                      disabled={autoAssigning}
+                      style={{
+                        backgroundColor: '#DC2626',
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 7,
+                        borderRadius: radius.pill,
+                        opacity: autoAssigning ? 0.6 : 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      {autoAssigning ? <ActivityIndicator size="small" color="#fff" /> : null}
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                        {autoAssigning ? 'Asignando tanques…' : '⚡ Auto-asignar tanques por Conductor'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <Text style={{ color: '#7F1D1D', fontSize: 12, marginTop: 2 }}>
+                    Los tanques no descuentan stock hasta tener su tanque de origen. Pulsa el botón rojo para auto-asignarlos al tanque asignado de cada conductor (o tócalos abajo para asignar individualmente).
+                  </Text>
+                  {autoAssignMsg ? (
+                    <Text style={{ color: '#15803D', fontWeight: '700', fontSize: 12, marginTop: 4 }}>
+                      {autoAssignMsg}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+              {ctx.dateActive || ctx.searching ? <DailyMachineCharts rows={shown} /> : <TodayTotal rows={shown} />}
+            </View>
+          );
+        }}
         formFields={[
           { key: 'dispatch_date', label: 'Fecha', type: 'date', required: true },
+          {
+            key: 'tank_id',
+            label: 'Tanque / Cisterna origen *',
+            type: 'lookup',
+            table: 'tanks',
+            labelCol: 'name',
+            subLabelCols: ['responsable', 'chofer', 'location', 'fuel'],
+            dropdown: true,
+            required: true,
+            defaultValue: defaultTank?.id,
+          },
           { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
           // Oculta los vehículos "Esperando instrucciones" (recién agregados, aún sin
           // decidir) — no deben poder recibir combustible hasta que se les dé de alta
           // de verdad. Uno CREADO aquí mismo (createColumn) no entra en esta regla:
           // nace con en_espera=false (default de la columna), porque se está usando ya.
-          { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
-          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate'], filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
-          { key: 'liters', label: 'Litros', type: 'number', required: true },
+          { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', subLabelCols: ['name', 'serial', 'identifier'], createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
+          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['plate', 'serial', 'identifier'], filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
+          { key: 'liters', label: 'Litros despachados *', type: 'number', required: true },
           { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
           { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },
-          { key: 'driver_operator', label: 'Conductor/Operador', type: 'text' },
-          { key: 'tank_id', label: 'Tanque origen (opcional · vacío = directo de bomba)', type: 'lookup', table: 'tanks', labelCol: 'name' },
+          { key: 'driver_operator', label: 'Conductor/Operador', type: 'text', defaultValue: currentUserName },
         ]}
         renderItem={(d) => {
           const fotos = ((d as any).photos ?? []).filter(Boolean) as string[];
+          const mach = (d as any).machine;
+          const veh = (d as any).vehicle;
+          const tank = (d as any).tank;
+          const suggestedTank = !tank ? findTankForDriver(d.driver_operator) : null;
+          const isRowBusy = assigningRowId === d.id;
+          const infoEquipo = etiquetaEquipoCombustible(d);
+
           return (
             <>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <RAmount tone="brand">{Number(d.liters).toLocaleString()} L</RAmount>
                 <RPill label={String(d.asset_kind).toUpperCase()} tone="neutral" />
               </View>
+              {/* Encabezado destacado del equipo con Código + Placa + Serial */}
+              <View
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.sm,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  marginTop: 6,
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                  {d.asset_kind === 'maquinaria' ? '🚜 ' : '🚗 '}
+                  {infoEquipo.etiquetaGrafica}
+                </Text>
+              </View>
               <View style={{ marginTop: 6 }}>
                 <RRow label="Fecha" value={d.dispatch_date} />
-                {(d as any).machine?.code ? <RRow label="Máquina" value={(d as any).machine.code} mono /> : null}
-                {(d as any).vehicle?.plate ? <RRow label="Placa" value={(d as any).vehicle.plate} mono /> : null}
+                {tank ? (
+                  <RRow
+                    label="Tanque origen"
+                    value={`🛢️ ${tank.name}${tank.responsable ? ` (${tank.responsable})` : tank.fuel ? ` (${String(tank.fuel).toUpperCase()})` : ''}`}
+                    mono
+                  />
+                ) : (
+                  <View
+                    style={{
+                      backgroundColor: '#FEF2F2',
+                      borderColor: '#EF4444',
+                      borderWidth: 1.5,
+                      borderRadius: radius.sm,
+                      paddingHorizontal: 10,
+                      paddingVertical: 8,
+                      marginVertical: 4,
+                      gap: 4,
+                    }}
+                  >
+                    <Text style={{ color: '#B91C1C', fontSize: 11, fontWeight: '900' }}>
+                      ⚠️ SIN TANQUE ASIGNADO (No descuenta stock)
+                    </Text>
+                    {suggestedTank ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                        <Text style={{ color: '#7F1D1D', fontSize: 11, flexShrink: 1 }}>
+                          Tanque asignado a {d.driver_operator}: <Text style={{ fontWeight: '800' }}>{suggestedTank.name}</Text>
+                        </Text>
+                        <Pressable
+                          onPress={() => asignarUnConsumo(d.id, suggestedTank.id)}
+                          disabled={isRowBusy}
+                          style={{
+                            backgroundColor: '#DC2626',
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: radius.pill,
+                            opacity: isRowBusy ? 0.6 : 1,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          {isRowBusy ? <ActivityIndicator size="small" color="#fff" /> : null}
+                          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>
+                            ⚡ Asignar a su tanque
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Text style={{ color: '#DC2626', fontSize: 10.5, marginTop: 1 }}>
+                        👉 Toca este registro para editarlo y seleccionar de qué tanque o cisterna se extrajo.
+                      </Text>
+                    )}
+                  </View>
+                )}
+                {mach ? (
+                  <>
+                    <RRow label="Máquina" value={mach.code || '—'} mono />
+                    <RRow
+                      label="🚗 Placa"
+                      value={mach.plate ? String(mach.plate).trim() : 'S/P (Sin placa)'}
+                      mono
+                    />
+                    <RRow
+                      label="🔢 Serial"
+                      value={
+                        mach.serial
+                          ? String(mach.serial).trim()
+                          : mach.identifier
+                          ? String(mach.identifier).trim()
+                          : 'S/S (Sin serial)'
+                      }
+                      mono
+                    />
+                    {mach.tipo ? <RRow label="Tipo" value={mach.tipo} /> : null}
+                  </>
+                ) : null}
+                {veh ? (
+                  <>
+                    <RRow
+                      label="Vehículo"
+                      value={veh.name ? `${veh.name}${veh.model ? ` (${veh.model})` : ''}` : 'Vehículo'}
+                      mono
+                    />
+                    <RRow
+                      label="🚗 Placa"
+                      value={veh.plate ? String(veh.plate).trim() : 'S/P (Sin placa)'}
+                      mono
+                    />
+                    {veh.serial || veh.identifier ? (
+                      <RRow
+                        label="🔢 Serial"
+                        value={String(veh.serial || veh.identifier).trim()}
+                        mono
+                      />
+                    ) : null}
+                  </>
+                ) : null}
                 {d.driver_operator ? <RRow label="Conductor/Operador" value={d.driver_operator} /> : null}
                 {d.odometer_km != null ? <RRow label="Odómetro" value={`${d.odometer_km} km`} mono /> : null}
                 {d.hourmeter_h != null ? <RRow label="Horómetro" value={`${d.hourmeter_h} h`} mono /> : null}

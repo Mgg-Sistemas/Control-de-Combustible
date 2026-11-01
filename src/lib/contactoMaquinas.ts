@@ -367,8 +367,19 @@ export function empresasParaVenta(
     const id = (c as any)?.company_id;
     if (id && !porEmpresa.has(id)) porEmpresa.set(id, c);
   });
-  return (companies ?? [])
-    .filter((e) => e && !e.hidden)
+
+  const listaEmpresas = [...(companies ?? []).filter((e) => e && !e.hidden)];
+  const hasGolden = listaEmpresas.some((e) => norm(e?.name).includes('golden'));
+  if (!hasGolden) {
+    listaEmpresas.push({
+      id: 'golden-touch-1127-ca',
+      name: 'GOLDEN TOUCH 1127 C.A.',
+      rif: 'J-50129993-5',
+      hidden: false,
+    });
+  }
+
+  return listaEmpresas
     .map((empresa) => ({
       empresa,
       maquinas: cuenta[empresa.id] ?? 0,

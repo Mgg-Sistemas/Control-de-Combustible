@@ -28,6 +28,7 @@ export function Screen({
   persistScrollKey,
   onRefresh,
   refreshing,
+  keyboardShouldPersistTaps,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
@@ -41,6 +42,11 @@ export function Screen({
   // y refreshing (el boolean de "está recargando" que ya tiene la pantalla).
   onRefresh?: () => void | Promise<void>;
   refreshing?: boolean;
+  // (Nativo) Qué pasa con un toque mientras el teclado está abierto. OPCIONAL y sin
+  // defecto: si no llega, el ScrollView se queda con el suyo ('never'), como siempre.
+  // 'handled' deja tocar una lista de sugerencias dentro de la pantalla sin que el
+  // primer toque solo cierre el teclado.
+  keyboardShouldPersistTaps?: 'always' | 'never' | 'handled';
 }) {
   const { colors } = useTheme();
   const background = bg ?? colors.background;
@@ -102,7 +108,7 @@ export function Screen({
       <ScrollView
         ref={setScrollRef}
         style={{ flex: 1, backgroundColor: scrollBg }}
-        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md, paddingBottom: 64 }}
         scrollEventThrottle={16}
         onScroll={(e) => {
           const y = e.nativeEvent.contentOffset.y;
@@ -110,6 +116,7 @@ export function Screen({
           saveScroll(y);
         }}
         refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} /> : undefined}
+        {...(keyboardShouldPersistTaps ? { keyboardShouldPersistTaps } : null)}
       >
         {children}
       </ScrollView>
@@ -226,23 +233,47 @@ export function ExpandableCard({
   summary,
   detail,
   defaultOpen = false,
+  open: controlledOpen,
+  onToggle,
   style,
 }: {
   summary: React.ReactNode;
   detail?: React.ReactNode;
   defaultOpen?: boolean;
+  open?: boolean;
+  onToggle?: () => void;
   style?: ViewStyle;
 }) {
   const { colors } = useTheme();
-  const [open, setOpen] = React.useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = React.useState(defaultOpen);
+  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const handleToggle = () => {
+    if (onToggle) onToggle();
+    else setInternalOpen((o) => !o);
+  };
   const hasDetail = !!detail;
   return (
     <Card style={style}>
-      <TouchableOpacity activeOpacity={hasDetail ? 0.7 : 1} onPress={() => hasDetail && setOpen((o) => !o)}>
+      <TouchableOpacity activeOpacity={hasDetail ? 0.7 : 1} onPress={() => hasDetail && handleToggle()}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <View style={{ flex: 1 }}>{summary}</View>
           {hasDetail ? (
-            <Text style={{ color: colors.muted, fontSize: 16, fontWeight: '900' }}>{open ? '▴' : '▾'}</Text>
+            <View
+              style={{
+                backgroundColor: open ? colors.brand : colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: open ? colors.brand : colors.border,
+                borderRadius: radius.pill,
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ color: open ? colors.brandContrast : colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                {open ? '▴ Plegar' : '▾ Desplegar'}
+              </Text>
+            </View>
           ) : null}
         </View>
       </TouchableOpacity>
@@ -350,7 +381,7 @@ export function Badge({
   tone = 'muted',
 }: {
   label: string;
-  tone?: 'success' | 'warning' | 'danger' | 'muted';
+  tone?: 'success' | 'warning' | 'danger' | 'muted' | 'brand';
 }) {
   const { colors } = useTheme();
   const toneColor =
@@ -360,6 +391,8 @@ export function Badge({
       ? colors.warning
       : tone === 'danger'
       ? colors.danger
+      : tone === 'brand'
+      ? colors.brand
       : colors.muted;
   return (
     <View style={[styles.badge, { borderColor: toneColor }]}>

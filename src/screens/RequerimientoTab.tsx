@@ -5,23 +5,56 @@
 // `req_sync_compra`). Si se compra, se RECIBE en el inventario (genera entradas
 // con el precio real). La recepción de stock sigue necesitando permiso de
 // inventario. Solo los administradores aprueban/rechazan.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform, Image, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { usePermisosAprobacion } from '../lib/permisosAprobacion';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
-import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus } from '../types/database';
+import { rawCaseField } from '../lib/fonts';
+import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee, Cuenta } from '../types/database';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
-import { pickAndUploadRequirementFile, captureAndUploadPhoto } from '../lib/photo';
+import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile, pickAndUploadRequirementFiles, pickAndUploadDocFiles } from '../lib/photo';
+import { FormatoAdjunto, empaquetarFormatosEnObservaciones, extraerFormatosAdjuntos, limpiarObservacionesFormatos } from '../lib/formatosAdjuntos';
+import * as ImagePicker from 'expo-image-picker';
+import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
 import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
+import { CotizacionesModal } from '../components/CotizacionesModal';
+import {
+  CotizacionAlternativa,
+  MonedaCotizacion,
+  MONEDAS_COMUNES,
+  empaquetarCotizacionesEnTexto,
+  extraerCotizacionesDeTexto,
+  formatearMoneda,
+  simboloMoneda,
+} from '../lib/cotizaciones';
+import {
+  extraerFactura,
+  inyectarFacturaEnObservaciones,
+  extraerReciboPago,
+  inyectarReciboPagoEnObservaciones,
+  extraerDespacho,
+  inyectarDespachoEnObservaciones,
+  extraerProveedorSugerido,
+  limpiarObservacionesUsuario,
+  expedienteCompletoHtml,
+  type FacturaData,
+  type ReciboPagoData,
+  type DespachoAlmacenData,
+  type EmpresaFactura,
+  type ArchivoSoporte,
+} from '../lib/requerimientoExpediente';
+import { EditarSoporteReqModal, type TipoSoporteReq } from '../components/EditarSoporteReqModal';
+import { machineLabel, machineMatches } from '../lib/machineLabel';
 // 👤 Quién solicitó / quién autorizó, para qué (vehículo o maquinaria), a qué
 //    área, y las observaciones del final (20-oct-2026, a pedido).
 import { PersonaNominaPicker } from '../components/PersonaNominaPicker';
@@ -31,6 +64,51 @@ import {
   type PersonaElegida, type PersonaNomina,
 } from '../lib/requerimientoPersonas';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
+import {
+  calcularEstadoRequerimiento,
+  calcularTotalReqUsd,
+  LIMITE_MONTO_GERENTE_GENERAL_USD,
+  obtenerProveedorDeLinea,
+  obtenerConfigAprobacionMonto,
+  guardarConfigAprobacionMonto,
+  ID_SIN_EMPRESA_REQ,
+  resolverEmpresaRequerimiento,
+  pasaFiltroEmpresasReq,
+  calcularConteoEmpresasReq,
+  esRequerimientoVisibleEnBandejaRequerimientos,
+  preservarMarcadoresSolicitudEnObservaciones,
+  limpiarMarcadoresSolicitudDeTexto,
+  type InfoEstadoRequerimiento,
+  type ReglaAprobacionMonto,
+} from '../lib/requerimientoFlujo';
+import {
+  inyectarReciboPagoEnNota,
+  extraerFacturaCuenta,
+  inyectarFacturaEnCuentaNota,
+  CONDICIONES_PAGO_CHIPS,
+  toggleChipCondicionPago,
+  extraerCondicionesPago,
+  limpiarCondicionesPagoDeNota,
+  inyectarCondicionesPagoEnNota,
+  extraerAprobacionCxp,
+  inyectarAprobacionCxpEnNota,
+  inyectarIvaEnCuentaNota,
+  resolverAlicuotaIvaRequerimiento,
+} from '../lib/cuentasPago';
+import { inyectarEmpresaEnNota } from '../lib/cuentasEmpresa';
+import { PRIORIDADES_COMPRA, PRIORIDAD_COMPRA_INFO, PrioridadCompra, esPrioridadCompra, colorPrioridad, faltaColumnaSyncCompras, parcheExtrasReq, ExtrasReq } from '../lib/prioridadCompra';
+import {
+  anexarEventoHistorial,
+  calcularDiffItemsCompra,
+  construirTimelineExpediente,
+  extraerDestinoDeRequerimiento,
+  extraerEnvioCxp,
+  fmtFechaHora,
+  inyectarEnvioCxpEnTexto,
+  preservarHistorialYEnvioEnTexto,
+  resumirCambiosCabeceraCompra,
+} from '../lib/comprasHistorico';
+import { TimelineExpedienteBox } from './HistoricoComprasTab';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -49,10 +127,57 @@ function Pill({ label, color }: { label: string; color: string }) {
   );
 }
 
-type ReqRow = { key: string; product_id: string | null; name: string; unit: string; qty: string; price: string; currency: 'USD' | 'VES'; note: string; image_url: string };
+export interface PresupuestoItem {
+  id: string;
+  proveedor: string;
+  concepto?: string;
+  metodo_pago?: string;
+  modo_precio?: 'unidad' | 'total';
+  precio_usd: string;       // Precio unitario c/u en $ USD
+  precio_bs: string;        // Precio unitario c/u en Bs
+  total_usd?: string;       // Precio total por la cantidad del ítem en $ USD
+  total_bs?: string;        // Precio total por la cantidad del ítem en Bs
+  archivos?: FormatoAdjunto[]; // Uno o varios archivos/fotos de presupuesto adjuntos
+  nota?: string;
+}
+
+export const METODOS_PAGO_COTIZACION = [
+  { key: 'efectivo_usd', label: 'Efectivo USD', icon: '💵' },
+  { key: 'pago_movil', label: 'Pago Móvil / Transf. Bs', icon: '📱' },
+  { key: 'zelle', label: 'Zelle', icon: '⚡' },
+  { key: 'transferencia_usd', label: 'Banesco Panamá / Transf. $', icon: '🏦' },
+  { key: 'debito', label: 'Punto / Débito', icon: '💳' },
+  { key: 'binance', label: 'Binance USDT', icon: '🟡' },
+  { key: 'credito', label: 'Crédito', icon: '⏳' },
+  { key: 'otro', label: 'Otro', icon: '✏️' },
+];
+
+type ReqRow = {
+  key: string;
+  product_id: string | null;
+  name: string;
+  unit: string;
+  qty: string;
+  modo_precio?: 'unidad' | 'total'; // 🎯 Por Unidad (c/u) o 📦 Precio Total por la cantidad
+  price: string;       // Precio unitario en $ USD
+  price_bs: string;    // Precio unitario en Bs (independiente para edición manual)
+  total_usd?: string;  // Precio total en $ USD (cuando se coloca el total por los objetos)
+  total_bs?: string;   // Precio total en Bs (cuando se coloca el total por los objetos)
+  currency: 'USD' | 'VES';
+  note: string;
+  image_url: string;
+  supplier_id?: string | null;
+  supplier_name?: string | null;
+  metodo_pago?: string | null;
+  exento?: boolean;    // 🧾 Cuadrito Exento de IVA
+  presupuestos?: PresupuestoItem[]; // 📋 Cotizaciones / Presupuestos alternos (uno o varios)
+  presupuestosAbierto?: boolean;
+};
 const REQ_STATUS: Record<string, { label: string; color: string; short: string }> = {
-  pendiente: { label: '⏳ Pendiente por aprobación del Gerente General', color: '#D97706', short: 'Pendiente' },
+  pendiente: { label: '⏳ Pendiente', color: '#D97706', short: 'Pendiente' },
   aprobado: { label: '✅ Aprobado', color: '#2563EB', short: 'Aprobado' },
+  esperando_recepcion: { label: '📦 Esperando Recepción', color: '#0D9488', short: 'Esperando Recepción' },
+  pagado: { label: '📦 Esperando Recepción', color: '#0D9488', short: 'Esperando Recepción' },
   rechazado: { label: '❌ Rechazado', color: '#DC2626', short: 'Rechazado' },
   recibido: { label: '📦 Recibido', color: '#16A34A', short: 'Recibido' },
   aclaratoria_solicitada: { label: '⚠️ Aclaratoria Técnica Solicitada', color: '#EA580C', short: 'En Aclaratoria' },
@@ -64,9 +189,230 @@ function nextReqCode(codes: (string | null | undefined)[], bump = 0): string {
 }
 const dmyOf = (iso: string) => { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
 
-export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
+function ItemSupplierPicker({
+  supplierId,
+  supplierName,
+  suppliers,
+  onSelect,
+}: {
+  supplierId: string | null | undefined;
+  supplierName?: string | null | undefined;
+  suppliers: Supplier[];
+  onSelect: (id: string | null, name: string | null) => void;
+}) {
   const { colors } = useTheme();
-  const { session, role, moduleLevel } = useAuth();
+  const [activo, setActivo] = useState(Boolean(supplierId));
+  const [search, setSearch] = useState('');
+  const [abierto, setAbierto] = useState(!supplierId);
+
+  useEffect(() => {
+    if (supplierId) {
+      setActivo(true);
+    }
+  }, [supplierId]);
+
+  const toggleCheck = () => {
+    if (activo) {
+      setActivo(false);
+      setSearch('');
+      setAbierto(false);
+      onSelect(null, null);
+    } else {
+      setActivo(true);
+      setAbierto(true);
+    }
+  };
+
+  const selectedSupplier = suppliers.find((s) => s.id === supplierId);
+  const currentName = selectedSupplier?.name || supplierName;
+
+  const filteredSuppliers = useMemo(() => {
+    if (!search.trim()) return suppliers;
+    const q = norm(search);
+    return suppliers.filter((s) => norm(s.name).includes(q) || (s.rif && norm(s.rif).includes(q)));
+  }, [suppliers, search]);
+
+  return (
+    <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
+      {/* Checkbox para activar proveedor individual */}
+      <TouchableOpacity
+        onPress={toggleCheck}
+        activeOpacity={0.7}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}
+      >
+        <View
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 4,
+            borderWidth: 1.5,
+            borderColor: activo ? colors.brand : colors.border,
+            backgroundColor: activo ? colors.brand : colors.surfaceAlt,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {activo ? <Text style={{ color: colors.brandContrast, fontSize: 13, fontWeight: '900', lineHeight: 14 }}>✓</Text> : null}
+        </View>
+        <Text style={{ color: activo ? colors.text : colors.muted, fontSize: 12, fontWeight: activo ? '700' : '600' }}>
+          Asignar proveedor específico a este ítem (compra consolidada)
+        </Text>
+      </TouchableOpacity>
+
+      {/* Panel de opciones y buscador (solo si el check está activo) */}
+      {activo ? (
+        <View
+          style={{
+            marginTop: 6,
+            padding: 8,
+            borderRadius: radius.md,
+            backgroundColor: colors.surfaceAlt,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
+          {supplierId && currentName ? (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: colors.surface,
+                paddingHorizontal: 10,
+                paddingVertical: 8,
+                borderRadius: radius.sm,
+                borderWidth: 1,
+                borderColor: colors.brand,
+                marginBottom: abierto ? 8 : 0,
+              }}
+            >
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }}>
+                  🏢 Proveedor Asignado
+                </Text>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }} numberOfLines={1}>
+                  {currentName}
+                </Text>
+                {selectedSupplier?.rif ? (
+                  <Text style={{ color: colors.muted, fontSize: 10 }}>RIF: {selectedSupplier.rif}</Text>
+                ) : null}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={() => setAbierto((v) => !v)}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: radius.sm,
+                  }}
+                >
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
+                    {abierto ? '▲ Cerrar' : '🔍 Cambiar'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    onSelect(null, null);
+                    setAbierto(true);
+                  }}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: radius.sm,
+                  }}
+                >
+                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>
+                    ✕
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Desplegable vertical con buscador */}
+          {abierto || !supplierId ? (
+            <View>
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="🔍 Buscar proveedor por nombre o RIF…"
+                placeholderTextColor={colors.muted}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.sm,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  color: colors.text,
+                  fontSize: 12,
+                  marginBottom: 6,
+                }}
+              />
+              <View style={{ maxHeight: 180, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: colors.surface }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled style={{ maxHeight: 180 }}>
+                  {filteredSuppliers.map((s) => {
+                    const sel = s.id === supplierId;
+                    return (
+                      <TouchableOpacity
+                        key={s.id}
+                        onPress={() => {
+                          onSelect(s.id, s.name);
+                          setAbierto(false);
+                          setSearch('');
+                        }}
+                        style={{
+                          paddingVertical: 8,
+                          paddingHorizontal: 10,
+                          borderBottomWidth: 1,
+                          borderBottomColor: colors.border,
+                          backgroundColor: sel ? colors.brand : 'transparent',
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <View style={{ flex: 1, marginRight: 6 }}>
+                          <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: sel ? '800' : '600' }} numberOfLines={1}>
+                            {s.name}
+                          </Text>
+                          {s.rif ? (
+                            <Text style={{ color: sel ? colors.brandContrast : colors.muted, fontSize: 10 }}>
+                              {s.rif}
+                            </Text>
+                          ) : null}
+                        </View>
+                        {sel ? (
+                          <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text>
+                        ) : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {filteredSuppliers.length === 0 ? (
+                    <View style={{ padding: 12, alignItems: 'center' }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Sin coincidencias para «{search}»</Text>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === 'dark';
+  const { session, role, fullName, appRole, moduleLevel } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const isAdmin = role === 'admin';
@@ -76,9 +422,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const canReceive = isAdmin || levelMeets(moduleLevel('inventario'), 'full');
   const uid = session?.user?.id ?? null;
   const { rate } = useBcvRate();
-  const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
-  // Filtro por estatus del requerimiento (+ "sin precio" para ubicar los que faltan cargar precio).
-  const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'sin_precio' | 'aclaratoria_solicitada'>('todos');
+  const { data: allReqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
+  // 🔗 FLUJO ESTRICTO: Cualquier Solicitud es primero una Solicitud en `📥 Solicitudes`;
+  // recién cuando se convierte en Requerimiento aparece en `📝 Requerimiento`.
+  const reqs = useMemo(
+    () => (allReqs || []).filter((r) => esRequerimientoVisibleEnBandejaRequerimientos(r)),
+    [allReqs]
+  );
+  // Filtro por estatus del requerimiento (enfocado en la gestión de la analista de Compras + seguimiento de Por Pagar / Almacén).
+  const [filterStatus, setFilterStatus] = useState<'todos' | 'sin_proveedor' | 'sin_precio' | 'aclaratoria_solicitada' | 'listo_por_pagar' | 'pendiente' | 'esperando_aprobacion_gg' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido'>('todos');
+  // Filtro por nivel de prioridad (alta, media, baja)
+  const [filterPrioridad, setFilterPrioridad] = useState<'todas' | PrioridadCompra>('todas');
   const faltaPrecioDe = (r: InventoryRequirement) => r.items.some((it) => !(Number(it.est_price) > 0));
   // Búsqueda libre (código, título, nota, solicitante, empresa, nombre de los ítems) +
   // rango de fecha (por created_at, ISO AAAA-MM-DD) — se combinan con el filtro de estatus.
@@ -94,6 +448,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? null : null);
   // Proveedores del catálogo (para asignar al requerimiento — opcional).
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
+  // Cuentas por pagar sincronizadas (para detectar pagos realizados en Tesorería)
+  const { data: cuentasData, refetch: refetchCuentas } = useTable<Cuenta>('cuentas');
+  const cuentasPagadasSet = useMemo(() => {
+    const set = new Set<string>();
+    (cuentasData || []).forEach((c) => {
+      if (c.estado === 'pagada' || ((c as any).saldo != null && (c as any).saldo <= 0)) {
+        if (c.inventory_requirement_id) set.add(c.inventory_requirement_id);
+        if (c.order_id) set.add(c.order_id);
+      }
+    });
+    return set;
+  }, [cuentasData]);
 
   // Crear / editar requerimiento (editId != null → estamos editando ese requerimiento)
   const [createOpen, setCreateOpen] = useState(false);
@@ -105,6 +471,148 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   // 🏢 Empresa Pagadora (Fase previa a Tesorería)
   const [empresaPagadoraId, setEmpresaPagadoraId] = useState<string | null>(null);
   const [empresaPagadoraNombre, setEmpresaPagadoraNombre] = useState<string | null>(null);
+
+  // 🚜 Catálogo de maquinaria y personal para selectores con buscador y placa
+  const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  const { data: employees } = useTable<Employee>('employees', { orderBy: 'name' });
+
+  // 🧾 Factura Fiscal / Comercial (Proveedor registrado o manual + Nota)
+  const [facturaModalOpen, setFacturaModalOpen] = useState(false);
+  const [facturaTarget, setFacturaTarget] = useState<InventoryRequirement | null>(null);
+  const [facturaNumero, setFacturaNumero] = useState('');
+  const [facturaEmpresa, setFacturaEmpresa] = useState<EmpresaFactura>('');
+  const [facturaFecha, setFacturaFecha] = useState('');
+  const [facturaUrl, setFacturaUrl] = useState<string | null>(null);
+  const [facturaTipo, setFacturaTipo] = useState<'image' | 'pdf' | null>('image');
+  const [facturaNombre, setFacturaNombre] = useState<string | null>(null);
+  const [facturaNota, setFacturaNota] = useState('');
+  const [facturaProvSearch, setFacturaProvSearch] = useState('');
+  const [facturaProvOpen, setFacturaProvOpen] = useState(false);
+  const [subiendoFactura, setSubiendoFactura] = useState(false);
+  const [guardandoFactura, setGuardandoFactura] = useState(false);
+
+  // 💳 Recibo / Comprobante de Pago (sincronizado con Cuentas por Pagar)
+  const [reciboPagoUrl, setReciboPagoUrl] = useState<string | null>(null);
+  const [reciboPagoTipo, setReciboPagoTipo] = useState<'image' | 'pdf' | null>('image');
+  const [reciboPagoNombre, setReciboPagoNombre] = useState<string | null>(null);
+  const [reciboPagoRef, setReciboPagoRef] = useState('');
+  const [reciboPagoFecha, setReciboPagoFecha] = useState('');
+  const [reciboPagoMetodo, setReciboPagoMetodo] = useState('');
+  const [reciboPagoNota, setReciboPagoNota] = useState('');
+  const [subiendoReciboPago, setSubiendoReciboPago] = useState(false);
+
+  // 🏢 Filtro por Empresa (una o varias empresas seleccionadas)
+  const [empresaSel, setEmpresaSel] = useState<string[]>([]);
+  const [empresasOpen, setEmpresasOpen] = useState(false);
+  const [empresaQ, setEmpresaQ] = useState('');
+  const toggleEmpresa = (id: string) =>
+    setEmpresaSel((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const empresaCounts = useMemo(
+    () => calcularConteoEmpresasReq(reqs, companies),
+    [reqs, companies]
+  );
+  const reqsPorEmpresa = useMemo(() => {
+    if (empresaSel.length === 0) return reqs;
+    return reqs.filter((r) => pasaFiltroEmpresasReq(r, empresaSel, companies));
+  }, [reqs, empresaSel, companies]);
+
+  // ⚙️ Regla de Aprobación de Requerimientos (solo visible para los responsables de sistemas)
+  const [configAprobacion, setConfigAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [cfgActivo, setCfgActivo] = useState(true);
+  const [cfgExigirEnTodos, setCfgExigirEnTodos] = useState(true);
+  const [cfgMonto, setCfgMonto] = useState('0');
+  const [cfgEmpresaId, setCfgEmpresaId] = useState<string | null>(null);
+  const [cfgEmpresaNombre, setCfgEmpresaNombre] = useState('Todas las empresas');
+  const [cfgAprobadoresIds, setCfgAprobadoresIds] = useState<string[]>([]);
+  const [cfgAprobadoresNombres, setCfgAprobadoresNombres] = useState<string[]>([]);
+  const [cfgUserSearch, setCfgUserSearch] = useState('');
+  const [usuariosSistema, setUsuariosSistema] = useState<Array<{
+    id: string;
+    full_name: string;
+    username?: string | null;
+    cedula?: string | null;
+    role?: string | null;
+    app_role_name?: string | null;
+  }>>([]);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const [{ data: profs }, { data: ft }] = await Promise.all([
+          supabase.from('profiles').select('id, full_name, username, cedula, role, app_role:app_role_id(name)'),
+          supabase.from('feature_toggles').select('key, enabled, extra_user_ids').eq('key', 'compras_req_aprobacion').maybeSingle(),
+        ]);
+        if (cancel) return;
+        const lista = ((profs ?? []) as any[])
+          .filter((p) => String(p.full_name || p.username || '').trim())
+          .map((p) => ({
+            id: String(p.id),
+            full_name: String(p.full_name || p.username || '').trim(),
+            username: p.username ? String(p.username) : null,
+            cedula: p.cedula ? String(p.cedula) : null,
+            role: p.role ? String(p.role) : null,
+            app_role_name: p.app_role?.name ? String(p.app_role.name) : null,
+          }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
+        setUsuariosSistema(lista);
+
+        if (ft) {
+          const ids = Array.isArray(ft.extra_user_ids) ? ft.extra_user_ids.map(String) : [];
+          const nombresDesdeIds = ids
+            .map((id) => lista.find((u) => u.id === id)?.full_name)
+            .filter((n): n is string => Boolean(n));
+          setConfigAprobacion((prev) => {
+            const next: ReglaAprobacionMonto = {
+              ...prev,
+              activo: typeof ft.enabled === 'boolean' ? ft.enabled : prev.activo,
+              aprobadoresIds: ids.length > 0 ? ids : prev.aprobadoresIds,
+              aprobadoresNombres: nombresDesdeIds.length > 0 ? nombresDesdeIds : prev.aprobadoresNombres,
+            };
+            guardarConfigAprobacionMonto(next);
+            return next;
+          });
+        }
+      } catch {
+        // Fallback silencioso a localStorage
+      }
+    })();
+    return () => { cancel = true; };
+  }, []);
+
+  const miPerfil = useMemo(
+    () => usuariosSistema.find((u) => u.id === uid) || null,
+    [usuariosSistema, uid]
+  );
+
+  // 🔒 Quién ve y abre la configuración del aprobador
+  // y 👔 quién aprueba: lo decide la BASE por la cuenta conectada (30-oct-2026),
+  //    no el nombre: ver src/lib/permisosAprobacion.ts.
+  const permisosAprob = usePermisosAprobacion(uid);
+  const puedeVerConfigAprobacion = permisosAprob.puedeConfigurar;
+  const puedeAprobarRequerimientos = permisosAprob.puedeAprobar;
+
+  // 👁️ Visor de Factura / Recibo Modal
+  const [facturaViewerOpen, setFacturaViewerOpen] = useState(false);
+  const [facturaViewerUrl, setFacturaViewerUrl] = useState<string | null>(null);
+  const [facturaViewerTipo, setFacturaViewerTipo] = useState<'image' | 'pdf' | null>('image');
+  const [facturaViewerNombre, setFacturaViewerNombre] = useState<string | null>(null);
+
+  // 📦 Control de Almacén: Despacho / Retiro Físico
+  const [despachoModalOpen, setDespachoModalOpen] = useState(false);
+  const [despachoTarget, setDespachoTarget] = useState<InventoryRequirement | null>(null);
+  const [retiradoPor, setRetiradoPor] = useState('');
+  const [retiradoCedula, setRetiradoCedula] = useState('');
+  const [retiradoCargo, setRetiradoCargo] = useState('');
+  const [retiradoEmployeeId, setRetiradoEmployeeId] = useState<string | null>(null);
+  const [despachadoPor, setDespachadoPor] = useState('');
+  const [despachoFecha, setDespachoFecha] = useState('');
+  const [despachoNota, setDespachoNota] = useState('');
+  const [despachoMaquinariaId, setDespachoMaquinariaId] = useState<string | null>(null);
+  const [empBusquedaQ, setEmpBusquedaQ] = useState('');
+  const [maqBusquedaQ, setMaqBusquedaQ] = useState('');
+  const [guardandoDespacho, setGuardandoDespacho] = useState(false);
 
   // 💳 Modal de edición rápida de datos de pago del proveedor en tiempo real
   const [modalPagoProvOpen, setModalPagoProvOpen] = useState(false);
@@ -119,6 +627,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [provPagoMovilBanco, setProvPagoMovilBanco] = useState('');
   const [provBinanceId, setProvBinanceId] = useState('');
   const [provNotasPago, setProvNotasPago] = useState('');
+  const [provPaymentPhotoUrl, setProvPaymentPhotoUrl] = useState('');
+  const [provPaymentPhotoName, setProvPaymentPhotoName] = useState('');
+  const [subiendoCapturaProv, setSubiendoCapturaProv] = useState(false);
+  const [visorCapturaProv, setVisorCapturaProv] = useState<CapturaPagoInfo | null>(null);
   const [guardandoPagoProv, setGuardandoPagoProv] = useState(false);
 
   // 🔄 Ciclo de Retroalimentación Técnica (Bucle de Cotización)
@@ -134,6 +646,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [respuestaBusy, setRespuestaBusy] = useState(false);
 
   const [rows, setRows] = useState<ReqRow[]>([]);
+  const [alicuotaIva, setAlicuotaIva] = useState('16');
   const [q, setQ] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
   const [supQ, setSupQ] = useState('');       // búsqueda de proveedor
@@ -145,6 +658,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [respId, setRespId] = useState<string | null>(null);
   const [respNombre, setRespNombre] = useState<string | null>(null);
   const [almacenistas, setAlmacenistas] = useState<{ id: string; name: string }[]>([]);
+  // 🔺 PRIORIDAD y 🏍️ MOTORIZADO responsable (29-oct-2026, a pedido). El motorizado
+  // puede ser un almacenista de la lista o un nombre escrito a mano. Son columnas
+  // nuevas: se guardan en un update APARTE y solo si cambiaron (lib/prioridadCompra),
+  // para que el guardado no se caiga si el SQL del 29-oct aún no se corrió.
+  const [prioridadReq, setPrioridadReq] = useState<PrioridadCompra | null>(null);
+  const [motoId, setMotoId] = useState<string | null>(null);
+  const [motoNombre, setMotoNombre] = useState('');
+  const [extrasAntes, setExtrasAntes] = useState<ExtrasReq | null>(null);
   useEffect(() => {
     if (!createOpen) return;
     (async () => {
@@ -169,6 +690,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [destino, setDestino] = useState<string | null>(null);
   const [area, setArea] = useState<string>('');
   const [areaLibre, setAreaLibre] = useState(false);     // escribir un área que no está en la lista
+  const [condicionesPago, setCondicionesPago] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [personas, setPersonas] = useState<PersonaNomina[]>([]);
   const [contactosLista, setContactosLista] = useState<{ id: string; name: string }[]>([]);
@@ -223,27 +745,561 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [formErr, setFormErr] = useState<string | null>(null);                    // error visible DENTRO del Modal (el toast queda tapado)
   const [subiendoId, setSubiendoId] = useState<string | null>(null);              // formato subiendo
   const [previewReq, setPreviewReq] = useState<InventoryRequirement | null>(null); // vista previa del formato
-  // Formato (imagen/PDF) adjuntado AL CREAR/EDITAR el requerimiento (antes de guardar).
-  const [formato, setFormato] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
+  const [previewIndex, setPreviewIndex] = useState(0);                            // índice del formato activo en la vista previa
+  // Formatos (imágenes/PDFs) adjuntados AL CREAR/EDITAR el requerimiento (dos o más archivos).
+  const [formatos, setFormatos] = useState<FormatoAdjunto[]>([]);
   const [subiendoNuevo, setSubiendoNuevo] = useState(false);
   const [subiendoImgKey, setSubiendoImgKey] = useState<string | null>(null); // imagen de producto subiéndose
 
   // Recibir en inventario
   const [recvFor, setRecvFor] = useState<InventoryRequirement | null>(null);
-  const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; unit: string | null; qty: string; price: string; currency: 'USD' | 'VES' }[]>([]);
+  const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; unit: string | null; qty: string; price: string; currency: string; note?: string }[]>([]);
   const [recvBusy, setRecvBusy] = useState(false);
+  // 🧾 Factura y Nota al recibir en Almacén (sincronizada con Cuentas por Pagar)
+  const [recvFacturaNumero, setRecvFacturaNumero] = useState('');
+  // 31-oct-2026: una o VARIAS fotos/PDF de la factura (antes solo una).
+  const [recvFacturaArchivos, setRecvFacturaArchivos] = useState<ArchivoSoporte[]>([]);
+  const recvFacturaUrl = recvFacturaArchivos[0]?.url ?? null;
+  const recvFacturaTipo = recvFacturaArchivos[0]?.tipo ?? null;
+  const recvFacturaNombre = recvFacturaArchivos[0]?.nombre ?? null;
+  const [recvSubiendoFactura, setRecvSubiendoFactura] = useState(false);
+  // ✏️ Editor de factura / comprobante ya subidos (desde la tarjeta del requerimiento)
+  const [soporteEdit, setSoporteEdit] = useState<{ req: InventoryRequirement; tipo: TipoSoporteReq; archivos: ArchivoSoporte[] } | null>(null);
+  const [recvNota, setRecvNota] = useState('');
+
+  // 📋 Modal de Cotizaciones Múltiples y Multi-Moneda
+  const [cotizacionesTarget, setCotizacionesTarget] = useState<InventoryRequirement | null>(null);
+  const [cotizacionesModalOpen, setCotizacionesModalOpen] = useState(false);
+
+  const getReqCotizaciones = (r: InventoryRequirement): CotizacionAlternativa[] => {
+    if (Array.isArray(r.cotizaciones) && r.cotizaciones.length > 0) return r.cotizaciones;
+    return extraerCotizacionesDeTexto(r.observaciones);
+  };
+
+  const abrirCotizaciones = (r: InventoryRequirement) => {
+    setCotizacionesTarget(r);
+    setCotizacionesModalOpen(true);
+  };
+
+  const guardarCotizacionesReq = async (nuevas: CotizacionAlternativa[], ganadora?: CotizacionAlternativa | null) => {
+    if (!cotizacionesTarget) return;
+    const patch: any = {
+      cotizaciones: nuevas,
+      observaciones: empaquetarCotizacionesEnTexto(cotizacionesTarget.observaciones, nuevas),
+    };
+    if (ganadora) {
+      if (ganadora.supplier_id) patch.supplier_id = ganadora.supplier_id;
+      const tasaGan = ganadora.exchange_rate || rate || 0;
+      const toUsd = (monto: number) => {
+        if (ganadora.currency === 'USD' || ganadora.currency === 'USDT') return monto;
+        return tasaGan > 0 ? Math.round((monto / tasaGan) * 100) / 100 : monto;
+      };
+      const toBs = (monto: number) => {
+        if (ganadora.currency === 'VES') return monto;
+        return tasaGan > 0 ? Math.round(monto * tasaGan * 100) / 100 : 0;
+      };
+
+      if (cotizacionesTarget.items && cotizacionesTarget.items.length > 0) {
+        if (Array.isArray(ganadora.presupuestos) && ganadora.presupuestos.length > 0) {
+          patch.items = cotizacionesTarget.items.map((item, idx) => {
+            const presLinea = ganadora.presupuestos!.find((p) => p.item_index === idx) ||
+              (cotizacionesTarget.items.length === 1 ? ganadora.presupuestos![0] : null);
+            if (!presLinea) return item;
+            const cant = Math.max(0.0001, Number(item.qty) || Number(presLinea.qty) || 1);
+            const unitMoneda = presLinea.modo_precio === 'unidad'
+              ? Number(presLinea.precio_unitario ?? presLinea.unit_price) || 0
+              : (Number(presLinea.precio_total ?? presLinea.total_price) || 0) / cant;
+            const totMoneda = presLinea.modo_precio === 'total'
+              ? Number(presLinea.precio_total ?? presLinea.total_price) || 0
+              : unitMoneda * cant;
+            const unitUsd = toUsd(unitMoneda);
+            const totUsd = toUsd(totMoneda);
+            const unitBs = toBs(unitMoneda);
+            const totBs = toBs(totMoneda);
+            return {
+              ...item,
+              modo_precio: presLinea.modo_precio || 'unidad',
+              est_price: unitUsd,
+              price_usd: unitUsd,
+              price_bs: unitBs,
+              total_usd: totUsd,
+              total_bs: totBs,
+              currency: 'USD',
+              exchange_rate: ganadora.exchange_rate,
+              supplier_id: ganadora.supplier_id || item.supplier_id,
+              supplier_name: ganadora.supplier_name || item.supplier_name,
+            };
+          });
+        } else if (cotizacionesTarget.items.length === 1) {
+          const item0 = cotizacionesTarget.items[0];
+          const cant = Math.max(0.0001, Number(item0.qty) || 1);
+          const modoGan = ganadora.modo_precio || 'total';
+          const totMoneda = Number(ganadora.price) || 0;
+          const unitMoneda = modoGan === 'unidad' && ganadora.unit_price
+            ? Number(ganadora.unit_price)
+            : totMoneda / cant;
+          const unitUsd = toUsd(unitMoneda);
+          const totUsd = toUsd(totMoneda);
+          const unitBs = toBs(unitMoneda);
+          const totBs = toBs(totMoneda);
+          patch.items = [{
+            ...item0,
+            modo_precio: modoGan,
+            est_price: unitUsd,
+            price_usd: unitUsd,
+            price_bs: unitBs,
+            total_usd: totUsd,
+            total_bs: totBs,
+            currency: 'USD',
+            exchange_rate: ganadora.exchange_rate,
+            supplier_id: ganadora.supplier_id || item0.supplier_id,
+            supplier_name: ganadora.supplier_name || item0.supplier_name,
+          }];
+        }
+      }
+    }
+    const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', cotizacionesTarget.id);
+    if (error) {
+      const { error: err2 } = await supabase.from('inventory_requirements').update({
+        observaciones: patch.observaciones,
+        ...(patch.supplier_id ? { supplier_id: patch.supplier_id } : {}),
+        ...(patch.items ? { items: patch.items } : {}),
+      }).eq('id', cotizacionesTarget.id);
+      if (err2) throw err2;
+    }
+    refetch();
+  };
+
+  const subirFacturaRecibir = async (origen: 'camara' | 'archivo') => {
+    setRecvSubiendoFactura(true);
+    try {
+      if (origen === 'camara') {
+        const r = await captureAndUploadPhoto('requerimientos');
+        if (r.ok && r.url) {
+          setRecvFacturaArchivos((prev) => [...prev, { url: r.url!, tipo: 'image', nombre: `Foto Factura #${prev.length + 1}.jpg` }]);
+          toast.success('Foto de factura agregada.');
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      } else {
+        const r = await pickAndUploadRequirementFiles('requerimientos');
+        if (r.ok && r.files?.length) {
+          setRecvFacturaArchivos((prev) => [
+            ...prev,
+            ...r.files!.map((f) => ({ url: f.url, tipo: f.kind === 'pdf' ? ('pdf' as const) : ('image' as const), nombre: f.name || 'Factura' })),
+          ]);
+          toast.success(`${r.files.length} archivo(s) de factura agregado(s).`);
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo subir la factura.');
+    } finally {
+      setRecvSubiendoFactura(false);
+    }
+  };
 
   const inp = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   let seq = 0;
   const newKey = () => `${Date.now()}-${seq++}-${rows.length}`;
-  const addBlank = () => setRows((r) => [...r, { key: newKey(), product_id: null, name: '', unit: '', qty: '1', price: '0', currency: 'USD', note: '', image_url: '' }]);
+  const fmtClean = (n: number) => (n > 0 ? (Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, '') : '0');
+
+  const addBlank = () => setRows((r) => [...r, {
+    key: newKey(),
+    product_id: null,
+    name: '',
+    unit: '',
+    qty: '1',
+    modo_precio: 'unidad',
+    price: '0',
+    price_bs: '0',
+    total_usd: '0',
+    total_bs: '0',
+    currency: 'USD',
+    note: '',
+    image_url: '',
+    exento: false,
+    presupuestos: [],
+    presupuestosAbierto: false,
+  }]);
   const addFromProduct = (it: InventoryLevel) => {
-    setRows((r) => [...r, { key: newKey(), product_id: it.id, name: it.name, unit: it.unit || '', qty: '1', price: String(Number(it.avg_cost) || 0), currency: 'USD', note: '', image_url: '' }]);
+    const pUsd = Number(it.avg_cost) || 0;
+    const pBs = rate && rate > 0 ? fmtClean(pUsd * rate) : '0';
+    setRows((r) => [...r, {
+      key: newKey(),
+      product_id: it.id,
+      name: it.name,
+      unit: it.unit || '',
+      qty: '1',
+      modo_precio: 'unidad',
+      price: String(pUsd),
+      price_bs: pBs,
+      total_usd: String(pUsd),
+      total_bs: pBs,
+      currency: 'USD',
+      note: '',
+      image_url: '',
+      exento: false,
+      presupuestos: [],
+      presupuestosAbierto: false,
+    }]);
     setPickOpen(false); setQ('');
   };
-  const upd = (key: string, field: keyof ReqRow, val: string) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
+  const upd = (key: string, field: keyof ReqRow, val: any) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
   const rm = (key: string) => setRows((r) => r.filter((x) => x.key !== key));
+
+  // Cambio de cantidad: recalcula total (si está en modo 'unidad') o unitario (si está en modo 'total')
+  const handleQtyChange = (key: string, val: string) => {
+    const clean = onlyDecimal(val);
+    const q = Math.max(0.0001, parseNum(clean) || 1);
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const modo = x.modo_precio || 'unidad';
+      const nextPresupuestos = (x.presupuestos || []).map((c) => {
+        const mCot = c.modo_precio || 'unidad';
+        if (mCot === 'total') {
+          const tU = parseNum(c.total_usd || '0');
+          const tB = parseNum(c.total_bs || '0');
+          return {
+            ...c,
+            precio_usd: tU > 0 ? fmtClean(tU / q) : c.precio_usd,
+            precio_bs: tB > 0 ? fmtClean(tB / q) : c.precio_bs,
+          };
+        } else {
+          const uU = parseNum(c.precio_usd || '0');
+          const uB = parseNum(c.precio_bs || '0');
+          return {
+            ...c,
+            total_usd: uU > 0 ? fmtClean(uU * q) : c.total_usd,
+            total_bs: uB > 0 ? fmtClean(uB * q) : c.total_bs,
+          };
+        }
+      });
+      if (modo === 'total') {
+        const tUsd = parseNum(x.total_usd || '0');
+        const tBs = parseNum(x.total_bs || '0');
+        return {
+          ...x,
+          qty: clean,
+          price: tUsd > 0 ? fmtClean(tUsd / q) : '0',
+          price_bs: tBs > 0 ? fmtClean(tBs / q) : '0',
+          presupuestos: nextPresupuestos,
+        };
+      } else {
+        const uUsd = parseNum(x.price);
+        const uBs = parseNum(x.price_bs);
+        return {
+          ...x,
+          qty: clean,
+          total_usd: uUsd > 0 ? fmtClean(uUsd * q) : '0',
+          total_bs: uBs > 0 ? fmtClean(uBs * q) : '0',
+          presupuestos: nextPresupuestos,
+        };
+      }
+    }));
+  };
+
+  // Alternar entre 🎯 Precio por Unidad (c/u) y 📦 Precio Total (por todos los objetos del renglón)
+  const cambiarModoPrecioRow = (key: string, nuevoModo: 'unidad' | 'total') => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const uUsd = parseNum(x.price);
+      const uBs = parseNum(x.price_bs);
+      const tUsd = parseNum(x.total_usd || '0') || (uUsd * q);
+      const tBs = parseNum(x.total_bs || '0') || (uBs * q);
+      return {
+        ...x,
+        modo_precio: nuevoModo,
+        total_usd: tUsd > 0 ? fmtClean(tUsd) : x.price,
+        total_bs: tBs > 0 ? fmtClean(tBs) : x.price_bs,
+        price: tUsd > 0 ? fmtClean(tUsd / q) : x.price,
+        price_bs: tBs > 0 ? fmtClean(tBs / q) : x.price_bs,
+      };
+    }));
+  };
+
+  // Manejo de precio en dólares ($ USD): respeta si el usuario está ingresando por unidad o el total
+  const handlePrecioUsdChange = (key: string, val: string) => {
+    const clean = onlyDecimal(val);
+    const numUsd = parseNum(clean);
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
+      if (modo === 'total') {
+        const totBsActual = x.total_bs || '';
+        const bsVacio = !totBsActual || totBsActual === '0' || totBsActual === '0.00';
+        const nuevoTotBs = bsVacio && rate && rate > 0 && numUsd > 0
+          ? fmtClean(numUsd * rate)
+          : (clean === '' ? '' : totBsActual);
+        const unitUsd = numUsd > 0 ? fmtClean(numUsd / q) : (clean === '' ? '' : '0');
+        const numTotBs = parseNum(nuevoTotBs);
+        const unitBs = numTotBs > 0 ? fmtClean(numTotBs / q) : (nuevoTotBs === '' ? '' : '0');
+        return { ...x, total_usd: clean, total_bs: nuevoTotBs, price: unitUsd, price_bs: unitBs };
+      } else {
+        const bsVacio = !x.price_bs || x.price_bs === '' || x.price_bs === '0' || x.price_bs === '0.00';
+        const nuevoBs = bsVacio && rate && rate > 0 && numUsd > 0
+          ? fmtClean(numUsd * rate)
+          : (clean === '' ? '' : x.price_bs);
+        const totUsd = numUsd > 0 ? fmtClean(numUsd * q) : '0';
+        const numBs = parseNum(nuevoBs);
+        const totBs = numBs > 0 ? fmtClean(numBs * q) : '0';
+        return { ...x, price: clean, price_bs: nuevoBs, total_usd: totUsd, total_bs: totBs };
+      }
+    }));
+  };
+
+  // Manejo de precio en bolívares (Bs): respeta si el usuario está ingresando por unidad o el total
+  const handlePrecioBsChange = (key: string, val: string) => {
+    const clean = onlyDecimal(val);
+    const numBs = parseNum(clean);
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
+      if (modo === 'total') {
+        const totUsdActual = x.total_usd || '';
+        const usdVacio = !totUsdActual || totUsdActual === '0' || totUsdActual === '0.00';
+        const nuevoTotUsd = usdVacio && rate && rate > 0 && numBs > 0
+          ? fmtClean(numBs / rate)
+          : totUsdActual;
+        const unitBs = numBs > 0 ? fmtClean(numBs / q) : (clean === '' ? '' : '0');
+        const numTotUsd = parseNum(nuevoTotUsd);
+        const unitUsd = numTotUsd > 0 ? fmtClean(numTotUsd / q) : x.price;
+        return { ...x, total_bs: clean, total_usd: nuevoTotUsd, price_bs: unitBs, price: unitUsd };
+      } else {
+        const usdVacio = !x.price || x.price === '' || x.price === '0' || x.price === '0.00';
+        const nuevoUsd = usdVacio && rate && rate > 0 && numBs > 0
+          ? fmtClean(numBs / rate)
+          : x.price;
+        const totBs = numBs > 0 ? fmtClean(numBs * q) : '0';
+        const numUsd = parseNum(nuevoUsd);
+        const totUsd = numUsd > 0 ? fmtClean(numUsd * q) : '0';
+        return { ...x, price_bs: clean, price: nuevoUsd, total_bs: totBs, total_usd: totUsd };
+      }
+    }));
+  };
+
+  // Recomputar manualmente con la tasa BCV (botón 🔄)
+  const recomputarDesdeBcv = (key: string, base: 'USD' | 'VES') => {
+    if (!rate || rate <= 0) return toast.info('No hay tasa BCV activa para convertir.');
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
+      if (base === 'USD') {
+        if (modo === 'total') {
+          const tU = parseNum(x.total_usd || '0') || (parseNum(x.price) * q);
+          const tB = fmtClean(tU * rate);
+          return { ...x, total_bs: tB, price_bs: fmtClean((tU * rate) / q) };
+        }
+        const u = parseNum(x.price);
+        const bs = fmtClean(u * rate);
+        return { ...x, price_bs: bs, total_bs: fmtClean(u * rate * q) };
+      } else {
+        if (modo === 'total') {
+          const tB = parseNum(x.total_bs || '0') || (parseNum(x.price_bs) * q);
+          const tU = fmtClean(tB / rate);
+          return { ...x, total_usd: tU, price: fmtClean((tB / rate) / q) };
+        }
+        const b = parseNum(x.price_bs);
+        const u = fmtClean(b / rate);
+        return { ...x, price: u, total_usd: fmtClean((b / rate) * q) };
+      }
+    }));
+  };
+
+  // 📋 Cotizaciones / Presupuestos alternativos por renglón (uno o varios presupuestos por ítem)
+  const agregarPresupuesto = (key: string) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const list = x.presupuestos || [];
+      const nuevo: PresupuestoItem = {
+        id: `cot-${Date.now()}-${list.length}`,
+        proveedor: '',
+        concepto: x.name || '',
+        metodo_pago: 'efectivo_usd',
+        modo_precio: x.modo_precio || 'unidad',
+        precio_usd: '',
+        precio_bs: '',
+        total_usd: '',
+        total_bs: '',
+        archivos: [],
+        nota: '',
+      };
+      return { ...x, presupuestos: [...list, nuevo], presupuestosAbierto: true };
+    }));
+  };
+
+  const cambiarModoPrecioPresupuesto = (key: string, cotId: string, nuevoModo: 'unidad' | 'total') => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const list = (x.presupuestos || []).map((c) => {
+        if (c.id !== cotId) return c;
+        const uU = parseNum(c.precio_usd);
+        const uB = parseNum(c.precio_bs);
+        const tU = parseNum(c.total_usd || '0') || (uU * q);
+        const tB = parseNum(c.total_bs || '0') || (uB * q);
+        return {
+          ...c,
+          modo_precio: nuevoModo,
+          total_usd: tU > 0 ? fmtClean(tU) : c.precio_usd,
+          total_bs: tB > 0 ? fmtClean(tB) : c.precio_bs,
+          precio_usd: tU > 0 ? fmtClean(tU / q) : c.precio_usd,
+          precio_bs: tB > 0 ? fmtClean(tB / q) : c.precio_bs,
+        };
+      });
+      return { ...x, presupuestos: list };
+    }));
+  };
+
+  const actualizarPresupuesto = (key: string, cotId: string, campo: keyof PresupuestoItem, val: string) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const list = (x.presupuestos || []).map((c) => {
+        if (c.id !== cotId) return c;
+        const modo = c.modo_precio || 'unidad';
+        if (campo === 'precio_usd' || campo === 'total_usd') {
+          const clean = onlyDecimal(val);
+          const numU = parseNum(clean);
+          if (modo === 'total') {
+            const bsVacio = !c.total_bs || c.total_bs === '0' || c.total_bs === '0.00';
+            const nuevoTotBs = bsVacio && rate && rate > 0 && numU > 0 ? fmtClean(numU * rate) : (clean === '' ? '' : (c.total_bs || ''));
+            const unitUsd = numU > 0 ? fmtClean(numU / q) : '';
+            const numTotBs = parseNum(nuevoTotBs);
+            const unitBs = numTotBs > 0 ? fmtClean(numTotBs / q) : c.precio_bs;
+            return { ...c, total_usd: clean, total_bs: nuevoTotBs, precio_usd: unitUsd, precio_bs: unitBs };
+          } else {
+            const bsVacio = !c.precio_bs || c.precio_bs === '0' || c.precio_bs === '0.00';
+            const nuevoBs = bsVacio && rate && rate > 0 && numU > 0 ? fmtClean(numU * rate) : (clean === '' ? '' : c.precio_bs);
+            const totUsd = numU > 0 ? fmtClean(numU * q) : '';
+            const numBs = parseNum(nuevoBs);
+            const totBs = numBs > 0 ? fmtClean(numBs * q) : (c.total_bs || '');
+            return { ...c, precio_usd: clean, precio_bs: nuevoBs, total_usd: totUsd, total_bs: totBs };
+          }
+        }
+        if (campo === 'precio_bs' || campo === 'total_bs') {
+          const clean = onlyDecimal(val);
+          const numB = parseNum(clean);
+          if (modo === 'total') {
+            const usdVacio = !c.total_usd || c.total_usd === '0' || c.total_usd === '0.00';
+            const nuevoTotUsd = usdVacio && rate && rate > 0 && numB > 0 ? fmtClean(numB / rate) : (c.total_usd || '');
+            const unitBs = numB > 0 ? fmtClean(numB / q) : '';
+            const numTotUsd = parseNum(nuevoTotUsd);
+            const unitUsd = numTotUsd > 0 ? fmtClean(numTotUsd / q) : c.precio_usd;
+            return { ...c, total_bs: clean, total_usd: nuevoTotUsd, precio_bs: unitBs, precio_usd: unitUsd };
+          } else {
+            const usdVacio = !c.precio_usd || c.precio_usd === '0' || c.precio_usd === '0.00';
+            const nuevoUsd = usdVacio && rate && rate > 0 && numB > 0 ? fmtClean(numB / rate) : c.precio_usd;
+            const totBs = numB > 0 ? fmtClean(numB * q) : '';
+            const numUsd = parseNum(nuevoUsd);
+            const totUsd = numUsd > 0 ? fmtClean(numUsd * q) : (c.total_usd || '');
+            return { ...c, precio_bs: clean, precio_usd: nuevoUsd, total_bs: totBs, total_usd: totUsd };
+          }
+        }
+        return { ...c, [campo]: val };
+      });
+      return { ...x, presupuestos: list };
+    }));
+  };
+
+  // Subir uno o varios soportes (PDF o foto) dentro de un presupuesto comparativo de un renglón
+  const [subiendoPresupuestoId, setSubiendoPresupuestoId] = useState<string | null>(null);
+  const subirArchivoPresupuestoItem = async (rowKey: string, cotId: string, origen: 'camara' | 'archivo') => {
+    setSubiendoPresupuestoId(cotId);
+    try {
+      const nuevos: FormatoAdjunto[] = [];
+      if (origen === 'camara') {
+        const res = await captureAndUploadPhoto('requerimientos', `presupuesto-${cotId}`);
+        if (!res.ok) { if (res.error) toast.error(res.error); return; }
+        if (res.url) {
+          nuevos.push({
+            id: `pfile-${Date.now()}`,
+            url: res.url,
+            kind: 'image',
+            name: `Foto Presupuesto.jpg`,
+          });
+        }
+      } else {
+        const res = await pickAndUploadRequirementFiles(`presupuesto-${cotId}`);
+        if (!res.ok) { if (res.error) toast.error(res.error); return; }
+        if (res.files && res.files.length > 0) {
+          res.files.forEach((f, idx) => {
+            nuevos.push({
+              id: `pfile-${Date.now()}-${idx}`,
+              url: f.url,
+              kind: f.kind,
+              name: f.name || `Presupuesto ${idx + 1}`,
+            });
+          });
+        }
+      }
+      if (nuevos.length > 0) {
+        setRows((r) => r.map((x) => {
+          if (x.key !== rowKey) return x;
+          return {
+            ...x,
+            presupuestos: (x.presupuestos || []).map((c) =>
+              c.id === cotId ? { ...c, archivos: [...(c.archivos || []), ...nuevos] } : c
+            ),
+          };
+        }));
+        toast.success(`${nuevos.length} presupuesto(s) adjuntado(s).`);
+      }
+    } finally {
+      setSubiendoPresupuestoId(null);
+    }
+  };
+
+  const quitarArchivoPresupuestoItem = (rowKey: string, cotId: string, fileId: string) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== rowKey) return x;
+      return {
+        ...x,
+        presupuestos: (x.presupuestos || []).map((c) =>
+          c.id === cotId ? { ...c, archivos: (c.archivos || []).filter((a) => a.id !== fileId) } : c
+        ),
+      };
+    }));
+  };
+
+  const eliminarPresupuesto = (key: string, cotId: string) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      return { ...x, presupuestos: (x.presupuestos || []).filter((c) => c.id !== cotId) };
+    }));
+  };
+
+  const aplicarPresupuestoAlItem = (key: string, cot: PresupuestoItem) => {
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = cot.modo_precio || 'unidad';
+      const uUsd = parseNum(cot.precio_usd);
+      const uBs = parseNum(cot.precio_bs);
+      const tUsd = parseNum(cot.total_usd || '0') || (uUsd * q);
+      const tBs = parseNum(cot.total_bs || '0') || (uBs * q);
+      const matchingSupplier = suppliers.find((s) => s.name.trim().toLowerCase() === cot.proveedor.trim().toLowerCase());
+      return {
+        ...x,
+        modo_precio: modo,
+        price: uUsd > 0 ? fmtClean(uUsd) : (tUsd > 0 ? fmtClean(tUsd / q) : x.price),
+        price_bs: uBs > 0 ? fmtClean(uBs) : (tBs > 0 ? fmtClean(tBs / q) : x.price_bs),
+        total_usd: tUsd > 0 ? fmtClean(tUsd) : (uUsd > 0 ? fmtClean(uUsd * q) : x.total_usd),
+        total_bs: tBs > 0 ? fmtClean(tBs) : (uBs > 0 ? fmtClean(uBs * q) : x.total_bs),
+        supplier_name: cot.proveedor || x.supplier_name,
+        supplier_id: matchingSupplier ? matchingSupplier.id : x.supplier_id,
+        metodo_pago: cot.metodo_pago || x.metodo_pago,
+      };
+    }));
+    const metObj = METODOS_PAGO_COTIZACION.find((m) => m.key === cot.metodo_pago);
+    toast.success(`Presupuesto de "${cot.proveedor || 'Proveedor'}" aplicado al ítem${metObj ? ` (${metObj.icon} ${metObj.label})` : ''}.`);
+  };
 
   // Sube una IMAGEN de referencia de un producto (toma foto o elige de galería) y la
   // deja en esa fila. Se guarda dentro del ítem (JSON) al enviar el requerimiento y
@@ -268,18 +1324,52 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     return (data as any)?.full_name ?? null;
   };
 
-  // Adjunta el formato (imagen/PDF) AL CREAR/EDITAR: sube el archivo y lo deja en
-  // memoria (`formato`); se guarda junto con el requerimiento al enviar.
+  // Adjunta formatos (imagen/PDF) AL CREAR/EDITAR: sube uno o varios archivos y los
+  // acumula en la lista `formatos`; se guardan junto con el requerimiento al enviar.
   const adjuntarFormatoNuevo = async () => {
     setSubiendoNuevo(true);
     try {
       const folder = editId || `nuevo-${Date.now()}`;
-      const res = await pickAndUploadRequirementFile(folder);
+      const res = await pickAndUploadRequirementFiles(folder);
       if (!res.ok) { if (res.error) toast.error(res.error); return; }
-      setFormato({ url: res.url!, kind: res.kind!, name: res.name ?? 'formato' });
+      if (res.files && res.files.length > 0) {
+        const nuevos: FormatoAdjunto[] = res.files.map((f, idx) => ({
+          id: `fmt-${Date.now()}-${idx}`,
+          url: f.url,
+          kind: f.kind,
+          name: f.name,
+        }));
+        setFormatos((prev) => [...prev, ...nuevos]);
+        toast.success(`${nuevos.length} formato(s) cargado(s) correctamente.`);
+      }
     } finally {
       setSubiendoNuevo(false);
     }
+  };
+
+  const tomarFotoFormatoNuevo = async () => {
+    setSubiendoNuevo(true);
+    try {
+      const folder = editId || `nuevo-${Date.now()}`;
+      const res = await captureAndUploadPhoto('requerimientos', folder);
+      if (!res.ok) { if (res.error) toast.error(res.error); return; }
+      if (res.url) {
+        const nuevo: FormatoAdjunto = {
+          id: `fmt-cam-${Date.now()}`,
+          url: res.url,
+          kind: 'image',
+          name: `Foto_${new Date().toLocaleTimeString('es-VE').replace(/:/g, '-')}.jpg`,
+        };
+        setFormatos((prev) => [...prev, nuevo]);
+        toast.success('Foto adjuntada al requerimiento.');
+      }
+    } finally {
+      setSubiendoNuevo(false);
+    }
+  };
+
+  const quitarFormato = (id: string) => {
+    setFormatos((prev) => prev.filter((f) => f.id !== id));
   };
 
   /** Deja el formulario en blanco. En UNA función: con 12 campos, resetear a mano
@@ -287,9 +1377,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const limpiarForm = () => {
     setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null);
     setEmpresaPagadoraId(null); setEmpresaPagadoraNombre(null);
-    setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
+    setAlicuotaIva('16');
+    setRows([]); setFormatos([]); setRespId(null); setRespNombre(null);
+    setPrioridadReq(null); setMotoId(null); setMotoNombre(''); setExtrasAntes(null);
     setSolicitante(SIN_PERSONA); setAutorizado(SIN_PERSONA);
-    setDestino(null); setArea(''); setAreaLibre(false); setObservaciones('');
+    setDestino(null); setArea(''); setAreaLibre(false); setCondicionesPago(''); setObservaciones('');
   };
 
   // 💳 Modal de edición rápida de datos financieros del proveedor
@@ -304,14 +1396,93 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setProvPagoMovilDoc(s.pago_movil_id ?? (s.rif ?? ''));
     setProvPagoMovilBanco(s.pago_movil_bank ?? (s.bank_name ?? ''));
     setProvBinanceId(s.binance_id ?? '');
-    setProvNotasPago(s.payment_notes ?? '');
+    const cap = extraerCapturaPago(s);
+    setProvPaymentPhotoUrl(cap?.url ?? '');
+    setProvPaymentPhotoName(cap?.name ?? '');
+    setProvNotasPago(limpiarNotasUsuario(s.payment_notes));
     setModalPagoProvOpen(true);
+  };
+
+  const subirCapturaProvArchivo = async () => {
+    try {
+      setSubiendoCapturaProv(true);
+      const res = await pickAndUploadDocFile('proveedores', provParaPago?.id || 'nuevo');
+      if (res.ok && res.url) {
+        setProvPaymentPhotoUrl(res.url);
+        if (!provPaymentPhotoName.trim()) {
+          setProvPaymentPhotoName(res.name || 'Captura de pago / QR');
+        }
+        toast.success('Captura del proveedor cargada con éxito.');
+      } else if (res.error) {
+        toast.error(res.error);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al subir captura');
+    } finally {
+      setSubiendoCapturaProv(false);
+    }
+  };
+
+  const tomarFotoCapturaProv = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        toast.error('Permiso de cámara denegado.');
+        return;
+      }
+      setSubiendoCapturaProv(true);
+      const res = await ImagePicker.launchCameraAsync({ quality: 0.7, base64: true });
+      if (res.canceled || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      const folder = 'proveedores';
+      const id = provParaPago?.id || 'nuevo';
+      const path = `${folder}/${id}/${Date.now()}.jpg`;
+
+      let up: any;
+      if (Platform.OS === 'web') {
+        const resp = await fetch(asset.uri);
+        const blob = await resp.blob();
+        up = await supabase.storage.from('machinery').upload(path, blob, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      } else {
+        const base64Str = asset.base64 || '';
+        const byteCharacters = atob(base64Str);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        up = await supabase.storage.from('machinery').upload(path, byteArray, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      }
+      if (up?.error) {
+        toast.error(up.error.message);
+        return;
+      }
+      const { data } = supabase.storage.from('machinery').getPublicUrl(path);
+      if (data?.publicUrl) {
+        setProvPaymentPhotoUrl(data.publicUrl);
+        if (!provPaymentPhotoName.trim()) {
+          setProvPaymentPhotoName('Foto tomada con cámara');
+        }
+        toast.success('Foto guardada con éxito.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al tomar foto');
+    } finally {
+      setSubiendoCapturaProv(false);
+    }
   };
 
   const guardarPagoProv = async () => {
     if (!provParaPago) return;
     setGuardandoPagoProv(true);
     try {
+      const finalNotes = empaquetarNotasConCaptura(provNotasPago, provPaymentPhotoUrl, provPaymentPhotoName);
       const payload = {
         bank_name: provBanco.trim() || null,
         account_number: provNumCuenta.trim() || null,
@@ -322,7 +1493,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         pago_movil_id: provPagoMovilDoc.trim() || null,
         pago_movil_bank: provPagoMovilBanco.trim() || null,
         binance_id: provBinanceId.trim() || null,
-        payment_notes: provNotasPago.trim() || null,
+        payment_notes: finalNotes,
       };
       const { error } = await supabase.from('suppliers').update(payload).eq('id', provParaPago.id);
       if (error) throw error;
@@ -330,9 +1501,608 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       await refetch();
       toast.success('Coordenadas de pago del proveedor actualizadas con éxito.');
     } catch (e: any) {
-      toast.error(e?.message ?? 'No se pudieron guardar las coordenadas.');
+      toast.error(e?.message ?? 'No se pudieron guardar los datos de pago.');
     } finally {
       setGuardandoPagoProv(false);
+    }
+  };
+
+  // ── Factura Fiscal / Comercial & Recibo de Pago (Expediente Unificado) ──
+  const abrirSubirFactura = (r: InventoryRequirement) => {
+    setFacturaTarget(r);
+    const fac = extraerFactura(r);
+    const provDefecto =
+      suppliers.find((s) => s.id === r.supplier_id)?.name ||
+      r.items?.map((it) => it.supplier_name || suppliers.find((s) => s.id === it.supplier_id)?.name).find(Boolean) ||
+      '';
+    setFacturaProvSearch('');
+    setFacturaProvOpen(false);
+    if (fac) {
+      setFacturaNumero(fac.numero || '');
+      const empGuardada =
+        fac.empresa && fac.empresa !== 'Inversiones Las Ilusiones' && fac.empresa !== 'Golden Touch'
+          ? fac.empresa
+          : provDefecto || fac.empresa || '';
+      setFacturaEmpresa(empGuardada);
+      setFacturaFecha(fac.fecha || new Date().toISOString().slice(0, 10));
+      setFacturaUrl(fac.url || null);
+      setFacturaTipo(fac.tipo || 'image');
+      setFacturaNombre(fac.nombre || null);
+      setFacturaNota(fac.nota || '');
+    } else {
+      setFacturaNumero('');
+      setFacturaEmpresa(provDefecto);
+      setFacturaFecha(new Date().toISOString().slice(0, 10));
+      setFacturaUrl(null);
+      setFacturaTipo('image');
+      setFacturaNombre(null);
+      setFacturaNota('');
+    }
+
+    const rec = extraerReciboPago(r);
+    if (rec) {
+      setReciboPagoUrl(rec.url || null);
+      setReciboPagoTipo(rec.tipo || 'image');
+      setReciboPagoNombre(rec.nombre || null);
+      setReciboPagoRef(rec.referencia || '');
+      setReciboPagoFecha(rec.fecha || new Date().toISOString().slice(0, 10));
+      setReciboPagoMetodo(rec.metodo || '');
+      setReciboPagoNota(rec.nota || '');
+    } else {
+      setReciboPagoUrl(null);
+      setReciboPagoTipo('image');
+      setReciboPagoNombre(null);
+      setReciboPagoRef('');
+      setReciboPagoFecha(new Date().toISOString().slice(0, 10));
+      setReciboPagoMetodo('');
+      setReciboPagoNota('');
+    }
+
+    setFacturaModalOpen(true);
+  };
+
+  const subirArchivoFactura = async () => {
+    if (!facturaTarget) return;
+    setSubiendoFactura(true);
+    try {
+      const res = await pickAndUploadRequirementFile(`facturas/${facturaTarget.id}`);
+      if (!res.ok) {
+        if (res.error) toast.error(res.error);
+        return;
+      }
+      setFacturaUrl(res.url || null);
+      setFacturaTipo(res.kind || 'image');
+      setFacturaNombre(res.name || 'factura');
+      toast.success('Archivo de factura cargado.');
+    } catch (e: any) {
+      toast.error('Error al subir archivo: ' + (e?.message ?? e));
+    } finally {
+      setSubiendoFactura(false);
+    }
+  };
+
+  const tomarFotoFactura = async () => {
+    if (!facturaTarget) return;
+    setSubiendoFactura(true);
+    try {
+      const res = await captureAndUploadPhoto(`facturas/${facturaTarget.id}`);
+      if (!res.ok) {
+        if (res.error) toast.error(res.error);
+        return;
+      }
+      setFacturaUrl(res.url || null);
+      setFacturaTipo('image');
+      setFacturaNombre('Foto Factura');
+      toast.success('Foto de factura capturada.');
+    } catch (e: any) {
+      toast.error('Error al capturar foto: ' + (e?.message ?? e));
+    } finally {
+      setSubiendoFactura(false);
+    }
+  };
+
+  const subirArchivoReciboPago = async () => {
+    if (!facturaTarget) return;
+    setSubiendoReciboPago(true);
+    try {
+      const res = await pickAndUploadRequirementFile(`recibos_pago/${facturaTarget.id}`);
+      if (!res.ok) {
+        if (res.error) toast.error(res.error);
+        return;
+      }
+      setReciboPagoUrl(res.url || null);
+      setReciboPagoTipo(res.kind || 'image');
+      setReciboPagoNombre(res.name || 'recibo_pago');
+      toast.success('Archivo de recibo de pago cargado.');
+    } catch (e: any) {
+      toast.error('Error al subir archivo: ' + (e?.message ?? e));
+    } finally {
+      setSubiendoReciboPago(false);
+    }
+  };
+
+  const tomarFotoReciboPago = async () => {
+    if (!facturaTarget) return;
+    setSubiendoReciboPago(true);
+    try {
+      const res = await captureAndUploadPhoto(`recibos_pago/${facturaTarget.id}`);
+      if (!res.ok) {
+        if (res.error) toast.error(res.error);
+        return;
+      }
+      setReciboPagoUrl(res.url || null);
+      setReciboPagoTipo('image');
+      setReciboPagoNombre('Foto Recibo Pago');
+      toast.success('Foto de recibo de pago capturada.');
+    } catch (e: any) {
+      toast.error('Error al capturar foto: ' + (e?.message ?? e));
+    } finally {
+      setSubiendoReciboPago(false);
+    }
+  };
+
+  // ── Configuración de Usuario Designado para Aprobar Requerimientos (solo responsables de sistemas) ──
+  const abrirConfigModal = () => {
+    if (!puedeVerConfigAprobacion) {
+      toast.error('Solo los responsables de sistemas pueden abrir esta configuración.');
+      return;
+    }
+    const cur = configAprobacion || obtenerConfigAprobacionMonto();
+    setCfgActivo(cur.activo !== false);
+    const esTodos = Boolean(cur.exigirEnTodos || Number(cur.montoLimiteUSD) === 0);
+    setCfgExigirEnTodos(esTodos);
+    setCfgMonto(String(cur.montoLimiteUSD ?? 0));
+    setCfgEmpresaId(cur.empresaId || null);
+    setCfgEmpresaNombre(cur.empresaNombre || 'Todas las empresas');
+    setCfgAprobadoresIds(Array.isArray(cur.aprobadoresIds) ? cur.aprobadoresIds : []);
+    setCfgAprobadoresNombres(cur.aprobadoresNombres?.length ? cur.aprobadoresNombres : ['Gerente General']);
+    setCfgUserSearch('');
+    setConfigModalOpen(true);
+  };
+
+  const toggleUsuarioAprobador = (u: { id: string; full_name: string }) => {
+    setCfgAprobadoresIds((prevIds) => {
+      const yaEsta = prevIds.includes(u.id);
+      const nextIds = yaEsta ? prevIds.filter((id) => id !== u.id) : [...prevIds, u.id];
+      setCfgAprobadoresNombres((prevNames) => {
+        if (yaEsta) {
+          return prevNames.filter((n) => norm(n) !== norm(u.full_name));
+        }
+        const existeNombre = prevNames.some((n) => norm(n) === norm(u.full_name));
+        return existeNombre ? prevNames : [...prevNames, u.full_name];
+      });
+      return nextIds;
+    });
+  };
+
+  const guardarConfigModal = async () => {
+    if (!puedeVerConfigAprobacion) {
+      toast.error('Solo los responsables de sistemas pueden guardar esta configuración.');
+      return;
+    }
+    const m = cfgExigirEnTodos ? 0 : parseNum(cfgMonto);
+    if (!cfgExigirEnTodos && !(m >= 0)) {
+      toast.error('Indica un monto límite válido en USD.');
+      return;
+    }
+    const nombresFinales = cfgAprobadoresNombres.length > 0 ? cfgAprobadoresNombres : ['Gerente General'];
+    const nuevaRegla: ReglaAprobacionMonto = {
+      montoLimiteUSD: m,
+      exigirEnTodos: cfgExigirEnTodos,
+      empresaId: cfgEmpresaId,
+      empresaNombre: cfgEmpresaNombre,
+      aprobadoresIds: cfgAprobadoresIds,
+      aprobadoresNombres: nombresFinales,
+      activo: cfgActivo,
+    };
+    // Primero la base (que valida quién puede); solo si acepta se guarda en el equipo.
+    const { error: errCfg } = await supabase.from('feature_toggles').upsert({
+      key: 'compras_req_aprobacion',
+      enabled: cfgActivo,
+      extra_user_ids: cfgAprobadoresIds,
+      updated_at: nowISO(),
+      updated_by: uid,
+    });
+    if (errCfg) return toast.error(errCfg.message);
+    guardarConfigAprobacionMonto(nuevaRegla);
+    setConfigAprobacion(nuevaRegla);
+
+    setConfigModalOpen(false);
+    toast.success(
+      cfgActivo
+        ? `Aprobación configurada: ${nombresFinales.join(', ')} (${cfgExigirEnTodos ? 'Todos los requerimientos' : `> $${m.toLocaleString()} USD`}).`
+        : 'Regla de aprobador designado desactivada.'
+    );
+  };
+
+  const guardarFacturaModal = async () => {
+    if (!facturaTarget) return;
+    const hayDatosFactura = Boolean(
+      facturaNumero.trim() || facturaUrl || facturaNota.trim() || facturaEmpresa.trim()
+    );
+    const hayDatosRecibo = Boolean(
+      reciboPagoUrl || reciboPagoRef.trim() || reciboPagoNota.trim()
+    );
+    if (!hayDatosFactura && !hayDatosRecibo) {
+      toast.error('Indica al menos los datos/nota de la factura o del recibo de pago.');
+      return;
+    }
+    setGuardandoFactura(true);
+    try {
+      const userName = await perfilNombre();
+      let nuevaObs = facturaTarget.observaciones || '';
+      const provDefault =
+        suppliers.find((s) => s.id === facturaTarget.supplier_id)?.name || 'Proveedor';
+
+      let dataFac: FacturaData | null = null;
+      const ahoraExp = nowISO();
+      const autorExp = userName || session?.user?.email || 'Administración';
+      let evHistFac: any = null;
+      let evHistRec: any = null;
+
+      if (facturaNumero.trim() || facturaUrl || facturaNota.trim()) {
+        dataFac = {
+          numero: facturaNumero.trim() || (facturaUrl ? 'ADJ-FACT' : 'S/N'),
+          empresa: facturaEmpresa.trim() || provDefault,
+          fecha: facturaFecha || ahoraExp.slice(0, 10),
+          url: facturaUrl || null,
+          tipo: facturaTipo || 'image',
+          nombre: facturaNombre || null,
+          nota: facturaNota.trim() || null,
+          subidaPor: autorExp,
+          subidaAt: ahoraExp,
+        };
+        nuevaObs = inyectarFacturaEnObservaciones(nuevaObs, dataFac);
+        evHistFac = {
+          id: `ev-fac-${Date.now()}`,
+          at: ahoraExp,
+          by: autorExp,
+          byId: uid,
+          modulo: 'Requerimientos' as const,
+          tipo: 'factura_registrada' as const,
+          titulo: `Factura N° ${dataFac.numero} cargada por ${autorExp}`,
+          detalle: `Proveedor: ${dataFac.empresa}${dataFac.nota ? ` · Nota: ${dataFac.nota}` : ''}`,
+          reqId: facturaTarget.id,
+          reqCode: facturaTarget.code,
+        };
+        nuevaObs = anexarEventoHistorial(nuevaObs, evHistFac);
+      }
+
+      if (hayDatosRecibo) {
+        const dataRec: ReciboPagoData = {
+          url: reciboPagoUrl || null,
+          tipo: reciboPagoTipo || 'image',
+          nombre: reciboPagoNombre || (reciboPagoUrl ? 'Recibo de pago' : null),
+          referencia: reciboPagoRef.trim() || null,
+          fecha: reciboPagoFecha || ahoraExp.slice(0, 10),
+          metodo: reciboPagoMetodo.trim() || null,
+          nota: reciboPagoNota.trim() || null,
+          subidoPor: autorExp,
+          subidoAt: ahoraExp,
+        };
+        nuevaObs = inyectarReciboPagoEnObservaciones(nuevaObs, dataRec);
+        evHistRec = {
+          id: `ev-rec-${Date.now()}`,
+          at: ahoraExp,
+          by: autorExp,
+          byId: uid,
+          modulo: 'Requerimientos' as const,
+          tipo: 'pagado_completo' as const,
+          titulo: `Comprobante de pago registrado por ${autorExp}`,
+          detalle: `${dataRec.metodo ? `Método: ${dataRec.metodo}` : 'Pago registrado'}${dataRec.referencia ? ` · Ref: ${dataRec.referencia}` : ''}${dataRec.nota ? ` · Nota: ${dataRec.nota}` : ''}`,
+          reqId: facturaTarget.id,
+          reqCode: facturaTarget.code,
+        };
+        nuevaObs = anexarEventoHistorial(nuevaObs, evHistRec);
+      }
+
+      const patchPayload: Record<string, any> = {
+        observaciones: nuevaObs,
+      };
+      if (dataFac?.url && !facturaTarget.attachment_url) {
+        patchPayload.attachment_url = dataFac.url;
+        patchPayload.attachment_type = dataFac.tipo || 'image';
+        patchPayload.attachment_name = dataFac.nombre || `Factura ${dataFac.numero}`;
+      }
+
+      const { error } = await supabase
+        .from('inventory_requirements')
+        .update(patchPayload)
+        .eq('id', facturaTarget.id);
+
+      if (error) throw error;
+
+      // Sincronización automática con Cuentas por Pagar si existe una cuenta ligada.
+      // ⚠️ 29-oct-2026: se busca por inventory_requirement_id. Antes era
+      //    «order_id = id del requerimiento O el mismo proveedor»: lo primero nunca
+      //    calzaba y lo segundo agarraba CUALQUIER cuenta de ese proveedor (la factura
+      //    podía caer en la cuenta equivocada). Y si no se subió recibo, la nota se deja
+      //    como está (antes se le borraba el recibo que ya tuviera).
+      try {
+        if (facturaTarget.id) {
+          const { data: ctas } = await supabase
+            .from('cuentas')
+            .select('id, nota, factura_url, documento, estado')
+            .eq('inventory_requirement_id', facturaTarget.id)
+            .limit(1);
+          if (ctas && ctas.length > 0) {
+            const targetCta = ctas[0] as any;
+            let notaCta = reciboPagoUrl || reciboPagoRef.trim()
+              ? inyectarReciboPagoEnNota(targetCta.nota, {
+                  url: reciboPagoUrl || null,
+                  tipo: reciboPagoTipo || 'image',
+                  nombre: 'Recibo de pago',
+                  referencia: reciboPagoRef.trim() || null,
+                  metodo: reciboPagoMetodo.trim() || null,
+                  nota: reciboPagoNota.trim() || null,
+                  fecha: reciboPagoFecha || ahoraExp.slice(0, 10),
+                  subidoPor: autorExp,
+                  subidoAt: ahoraExp,
+                })
+              : targetCta.nota;
+            if (evHistFac) notaCta = anexarEventoHistorial(notaCta, evHistFac);
+            if (evHistRec) notaCta = anexarEventoHistorial(notaCta, evHistRec);
+            const tienePagoRegistrado = Boolean(reciboPagoUrl || reciboPagoRef.trim());
+            await supabase.from('cuentas').update({
+              nota: notaCta,
+              factura_url: dataFac?.url || targetCta.factura_url,
+              ...(dataFac?.numero ? { documento: dataFac.numero } : {}),
+              ...(tienePagoRegistrado && targetCta.estado !== 'pagada'
+                ? { estado: 'pagada', settled_by: uid, settled_at: ahoraExp }
+                : {}),
+              updated_at: ahoraExp,
+            }).eq('id', targetCta.id);
+          }
+        }
+      } catch (eSync) {
+        // Sync silencioso
+      }
+
+      setFacturaModalOpen(false);
+      setFacturaTarget(null);
+      refetch();
+      refetchCuentas();
+      toast.success('Expediente de Factura y Pago guardado con éxito.');
+    } catch (e: any) {
+      toast.error('Error al guardar expediente: ' + (e?.message ?? e));
+    } finally {
+      setGuardandoFactura(false);
+    }
+  };
+
+  // ↩ Revertir Pago por error (en Requerimiento y en Cuentas por Pagar)
+  const revertirPagoRequerimiento = async (r: InventoryRequirement) => {
+    const ok = await confirm({
+      title: 'Revertir pago por error',
+      message: `¿Revertir el pago registrado en ${r.code ?? 'este requerimiento'}?\n\n• Se quitará el comprobante de pago del requerimiento.\n• El requerimiento volverá a estado "Aprobado (Por Pagar)".\n• La Cuenta por Pagar asociada volverá a estado "Pendiente".`,
+      confirmText: 'Revertir pago',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const obsSinRecibo = inyectarReciboPagoEnObservaciones(r.observaciones, null);
+      const nextStatus = (r.status === 'esperando_recepcion' || (r.status as string) === 'pagado') ? 'aprobado' : r.status;
+      const { error } = await supabase
+        .from('inventory_requirements')
+        .update({ observaciones: obsSinRecibo, status: nextStatus })
+        .eq('id', r.id);
+      if (error) throw error;
+
+      // También revertir en Cuentas por Pagar si tiene cuenta asociada.
+      // ⚠️ 29-oct-2026: se busca por inventory_requirement_id (con order_id nunca
+      //    calzaba y la cuenta seguía pagada). Si la cuenta tiene ABONOS no se tocan
+      //    aquí (antes se borraban sin avisar): se revierte desde Por pagar, que avisa.
+      let ctaConAbonos = false;
+      try {
+        const { data: ctas } = await supabase
+          .from('cuentas')
+          .select('id, nota')
+          .eq('inventory_requirement_id', r.id);
+        if (ctas && ctas.length > 0) {
+          for (const cta of ctas) {
+            const { count: nAbonos } = await supabase.from('cuenta_abonos').select('id', { count: 'exact', head: true }).eq('cuenta_id', cta.id);
+            if ((nAbonos ?? 0) > 0) { ctaConAbonos = true; continue; }
+            const notaSinRec = inyectarReciboPagoEnNota(cta.nota, null);
+            await supabase.from('cuentas').update({
+              estado: 'pendiente',
+              settled_by: null,
+              settled_at: null,
+              nota: notaSinRec,
+              updated_at: nowISO(),
+            }).eq('id', cta.id);
+          }
+        }
+      } catch (eCxp) {
+        console.warn('Error revirtiendo cuenta ligada:', eCxp);
+      }
+
+      refetch();
+      refetchCuentas();
+      if (ctaConAbonos) {
+        toast.error(`Pago revertido en ${r.code}, pero su cuenta por pagar tiene abonos: revierte el pago desde Por pagar para decidir qué pasa con ellos.`);
+        return;
+      }
+      toast.success(`Pago revertido en ${r.code}. Volvió a Pendiente por Pagar en Requerimientos y en Cuentas por Pagar.`);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo revertir el pago.');
+    }
+  };
+
+  const abrirVisorFactura = (url?: string | null, tipo?: 'image' | 'pdf' | null, nombre?: string | null) => {
+    if (!url) return;
+    if (Platform.OS === 'web' && tipo === 'pdf') {
+      window.open(url, '_blank');
+      return;
+    }
+    setFacturaViewerUrl(url);
+    setFacturaViewerTipo(tipo || 'image');
+    setFacturaViewerNombre(nombre || 'Factura');
+    setFacturaViewerOpen(true);
+  };
+
+  // ── Control de Almacén: Despacho Físico ────────────────────────────────────
+  const abrirDespachoModal = async (r: InventoryRequirement) => {
+    setDespachoTarget(r);
+    const desp = extraerDespacho(r);
+    const userName = await perfilNombre();
+    setRetiradoPor(desp.retiradoPor || r.solicitante_nombre || '');
+    setRetiradoCedula(desp.retiradoCedula || '');
+    setRetiradoCargo(desp.retiradoCargo || '');
+    setRetiradoEmployeeId(desp.retiradoEmployeeId || null);
+    setDespachadoPor(desp.despachadoPor || userName || 'Almacén');
+    setDespachoFecha(desp.fecha || new Date().toISOString());
+    setDespachoNota(desp.nota || '');
+    setEmpBusquedaQ('');
+    setMaqBusquedaQ('');
+
+    if (desp.maquinariaCodigo) {
+      const maqEncontrada = machines.find((m) => m.code === desp.maquinariaCodigo);
+      if (maqEncontrada) setDespachoMaquinariaId(maqEncontrada.id);
+    } else {
+      setDespachoMaquinariaId(null);
+    }
+
+    setDespachoModalOpen(true);
+  };
+
+  const guardarDespachoModal = async () => {
+    if (!despachoTarget) return;
+    if (!retiradoPor.trim()) {
+      toast.error('Indica quién retiró físicamente el material (mecánico o chofer).');
+      return;
+    }
+    setGuardandoDespacho(true);
+    try {
+      const userName = await perfilNombre();
+      const maqObj = machines.find((m) => m.id === despachoMaquinariaId);
+      const dataDespacho: DespachoAlmacenData = {
+        estado: 'retirado',
+        retiradoPor: retiradoPor.trim(),
+        retiradoCedula: retiradoCedula.trim() || null,
+        retiradoCargo: retiradoCargo.trim() || null,
+        retiradoEmployeeId: retiradoEmployeeId || null,
+        despachadoPor: userName || despachadoPor || 'Almacén',
+        fecha: despachoFecha || nowISO(),
+        nota: despachoNota.trim() || null,
+        maquinariaCodigo: maqObj?.code || null,
+        maquinariaPlaca: maqObj?.plate || null,
+      };
+
+      const nuevaObs = inyectarDespachoEnObservaciones(despachoTarget.observaciones, dataDespacho);
+      const { error } = await supabase
+        .from('inventory_requirements')
+        .update({ observaciones: nuevaObs })
+        .eq('id', despachoTarget.id);
+
+      if (error) throw error;
+      setDespachoModalOpen(false);
+      setDespachoTarget(null);
+      refetch();
+      toast.success(`Retiro físico registrado a nombre de ${dataDespacho.retiradoPor}.`);
+    } catch (e: any) {
+      toast.error('Error al registrar retiro: ' + (e?.message ?? e));
+    } finally {
+      setGuardandoDespacho(false);
+    }
+  };
+
+  // ── Generación de Expediente Completo (PDF) ───────────────────────────────
+  const descargarExpediente = async (r: InventoryRequirement) => {
+    try {
+      toast.info('Generando Expediente Completo de Compra...');
+      const factura = extraerFactura(r);
+      const despacho = extraerDespacho(r);
+
+      const prov = suppliers.find((s) => s.id === r.supplier_id);
+      let provDatosPago: string | null = null;
+      if (prov) {
+        const parts = [
+          prov.bank_name || prov.account_number ? `🏦 ${prov.bank_name ?? ''} Cta: ${prov.account_number ?? ''}${prov.account_holder ? ` (${prov.account_holder} ${prov.account_id_doc ?? ''})` : ''}`.trim() : '',
+          prov.pago_movil_phone ? `📱 PM: ${prov.pago_movil_bank ?? ''} - ${prov.pago_movil_phone} (${prov.pago_movil_id ?? ''})` : '',
+          prov.binance_id ? `🟡 Binance: ${prov.binance_id}` : '',
+        ].filter(Boolean);
+        provDatosPago = parts.join(' · ');
+      }
+
+      let pagoInfo: any = null;
+      try {
+        const { data: cuentaRows } = await supabase
+          .from('cuentas')
+          .select('id, estado, monto, concepto')
+          .eq('inventory_requirement_id', r.id)
+          .limit(1);
+
+        if (cuentaRows && cuentaRows[0]) {
+          const c = cuentaRows[0];
+          const { data: abonoRows } = await supabase
+            .from('cuenta_abonos')
+            .select('fecha, monto, metodo, referencia, nota')
+            .eq('cuenta_id', c.id)
+            .order('fecha', { ascending: true });
+
+          const abonos = abonoRows || [];
+          const pagado = abonos.reduce((sum: number, ab: any) => sum + (Number(ab.monto) || 0), 0);
+          pagoInfo = {
+            estadoCuenta: c.estado,
+            montoTotal: Number(c.monto) || 0,
+            montoPagado: pagado,
+            saldoPendiente: Math.max(0, (Number(c.monto) || 0) - pagado),
+            concepto: c.concepto,
+            abonos,
+          };
+        }
+      } catch (e) {
+        console.warn('No se pudo cargar cuentas:', e);
+      }
+
+      let maqLabel = '';
+      if (despacho.maquinariaCodigo) {
+        maqLabel = `${despacho.maquinariaCodigo}${despacho.maquinariaPlaca ? ` · Placa ${despacho.maquinariaPlaca}` : ''}`;
+      } else if (r.title && r.title.includes('para ')) {
+        maqLabel = r.title.split('para ')[1]?.trim();
+      } else if (r.area) {
+        maqLabel = r.area;
+      }
+
+      const itemsConImagenes = await Promise.all(
+        (r.items || []).map(async (it) => ({
+          name: it.name,
+          unit: it.unit,
+          qty: it.qty,
+          est_price: it.est_price,
+          price_usd: it.price_usd,
+          total_usd: it.total_usd,
+          modo_precio: it.modo_precio,
+          currency: it.currency || 'USD',
+          note: it.note,
+          image_url: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
+          supplier_name: it.supplier_name,
+        }))
+      );
+
+      let facturaParaPdf = factura;
+      if (factura && factura.url && factura.tipo === 'image') {
+        const dataUri = await urlToDataUri(factura.url);
+        facturaParaPdf = { ...factura, url: dataUri || factura.url };
+      }
+
+      const html = expedienteCompletoHtml({
+        req: r,
+        factura: facturaParaPdf,
+        despacho,
+        pagoInfo,
+        proveedorNombre: prov?.name ?? null,
+        proveedorRif: prov?.rif ?? null,
+        proveedorDatosPago: provDatosPago,
+        maquinariaLabel: maqLabel || destinoLabel(r.destino_tipo) || 'Destino asignado',
+        itemsConImagenes,
+      });
+
+      await exportPdf(html, `Expediente-${r.code || 'REQ'}`);
+      toast.success('Expediente generado exitosamente.');
+    } catch (err: any) {
+      toast.error('Error al generar expediente: ' + (err?.message ?? err));
     }
   };
 
@@ -404,30 +2174,183 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   const crear = async () => {
     setFormErr(null);
-    const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => ({
-      product_id: x.product_id, name: x.name.trim().toUpperCase(), unit: x.unit.trim().toUpperCase() || null,
-      qty: parseNum(x.qty), est_price: parseNum(x.price), currency: x.currency, note: x.note.trim() || null,
-      image_url: x.image_url || null,
-    }));
+    const alicNum = Math.min(100, Math.max(0, parseNum(alicuotaIva) || 0));
+    const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => {
+      const supObj = x.supplier_id ? suppliers.find((s) => s.id === x.supplier_id) : (supplierId ? suppliers.find((s) => s.id === supplierId) : null);
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
+      const rawTotalUsd = parseNum(x.total_usd || '0');
+      const rawUnitUsd = parseNum(x.price);
+      const pUsd = modo === 'total' && rawTotalUsd > 0 ? Math.round((rawTotalUsd / q) * 10000) / 10000 : rawUnitUsd;
+      const totUsd = modo === 'total' && rawTotalUsd > 0 ? rawTotalUsd : Math.round(pUsd * q * 100) / 100;
+
+      const rawTotalBs = parseNum(x.total_bs || '0');
+      const rawUnitBs = parseNum(x.price_bs);
+      const pBs = modo === 'total' && rawTotalBs > 0
+        ? Math.round((rawTotalBs / q) * 100) / 100
+        : (rawUnitBs || (rate && rate > 0 ? Math.round(pUsd * rate * 100) / 100 : 0));
+      const totBs = modo === 'total' && rawTotalBs > 0
+        ? rawTotalBs
+        : (pBs > 0 ? Math.round(pBs * q * 100) / 100 : (rate && rate > 0 ? Math.round(totUsd * rate * 100) / 100 : 0));
+
+      return {
+        product_id: x.product_id,
+        name: x.name.trim().toUpperCase(),
+        unit: x.unit.trim().toUpperCase() || null,
+        qty: parseNum(x.qty),
+        modo_precio: modo,
+        est_price: pUsd,
+        price_usd: pUsd,
+        price_bs: pBs,
+        total_usd: totUsd,
+        total_bs: totBs,
+        currency: 'USD',
+        note: x.note.trim() || null,
+        image_url: x.image_url || null,
+        supplier_id: x.supplier_id || supplierId || null,
+        supplier_name: x.supplier_name || supObj?.name || null,
+        exento: Boolean(x.exento),
+        iva_alicuota: alicNum,
+        cotizaciones: (x.presupuestos || []).filter((c) => c.proveedor.trim() || parseNum(c.precio_usd) > 0 || parseNum(c.precio_bs) > 0 || parseNum(c.total_usd || '0') > 0 || parseNum(c.total_bs || '0') > 0 || (c.archivos && c.archivos.length > 0)).map((c) => ({
+          id: c.id,
+          proveedor: c.proveedor.trim().toUpperCase(),
+          concepto: (c.concepto || x.name || '').trim().toUpperCase() || null,
+          metodo_pago: c.metodo_pago || null,
+          modo_precio: c.modo_precio || 'unidad',
+          precio_usd: parseNum(c.precio_usd),
+          precio_bs: parseNum(c.precio_bs),
+          total_usd: parseNum(c.total_usd || '0') || (parseNum(c.precio_usd) * q),
+          total_bs: parseNum(c.total_bs || '0') || (parseNum(c.precio_bs) * q),
+          archivos: c.archivos || [],
+          nota: (c.nota || '').trim() || null,
+        })),
+        metodo_pago: x.metodo_pago || null,
+      };
+    });
     if (items.length === 0) { const m = 'Agrega al menos un producto (del inventario o nuevo) antes de guardar.'; setFormErr(m); return toast.error(m); }
     setBusy(true);
+
+    const primerFmt = formatos[0] || null;
+    const reqAnterior = editId ? (allReqs || []).find((x) => x.id === editId) : null;
+    const obsBaseTexto = editId
+      ? preservarMarcadoresSolicitudEnObservaciones(reqAnterior?.observaciones, observaciones.trim() || null)
+      : (observaciones.trim() || null);
+    let obsCompuesta = inyectarCondicionesPagoEnNota(obsBaseTexto, condicionesPago.trim() || null) ?? '';
+    obsCompuesta = inyectarIvaEnCuentaNota(obsCompuesta, alicNum) ?? obsCompuesta;
+    if (editId && reqAnterior) {
+      const facPrev = extraerFactura(reqAnterior);
+      if (facPrev) obsCompuesta = inyectarFacturaEnObservaciones(obsCompuesta, facPrev);
+      const recPrev = extraerReciboPago(reqAnterior);
+      if (recPrev) obsCompuesta = inyectarReciboPagoEnObservaciones(obsCompuesta, recPrev);
+      const despPrev = extraerDespacho(reqAnterior);
+      if (despPrev && despPrev.estado === 'retirado') obsCompuesta = inyectarDespachoEnObservaciones(obsCompuesta, despPrev);
+      const apPrev = extraerAprobacionCxp(reqAnterior.observaciones);
+      if (apPrev) obsCompuesta = inyectarAprobacionCxpEnNota(obsCompuesta, apPrev) ?? obsCompuesta;
+      const cotPrev = extraerCotizacionesDeTexto(reqAnterior.observaciones);
+      if (cotPrev.length > 0) obsCompuesta = empaquetarCotizacionesEnTexto(obsCompuesta, cotPrev);
+      obsCompuesta = preservarHistorialYEnvioEnTexto(reqAnterior.observaciones, obsCompuesta) ?? obsCompuesta;
+
+      const autorEdicion = await perfilNombre();
+      const diffItems = calcularDiffItemsCompra({
+        itemsAntes: reqAnterior.items || [],
+        itemsDespues: items,
+        autor: autorEdicion,
+        modulo: 'Requerimientos',
+        ivaAntes: resolverAlicuotaIvaRequerimiento(reqAnterior),
+        ivaDespues: alicNum,
+      });
+      if (diffItems.hayCambios) {
+        obsCompuesta = anexarEventoHistorial(obsCompuesta, {
+          by: autorEdicion,
+          byId: uid,
+          modulo: 'Requerimientos',
+          tipo: 'items_modificados',
+          titulo: 'Modificación de ítems / precios en Requerimiento',
+          detalle: diffItems.resumenDetalle,
+          montoAntesUsd: diffItems.montoAntesUsd,
+          montoDespuesUsd: diffItems.montoDespuesUsd,
+          cambiosItems: diffItems.cambiosItems,
+          reqId: reqAnterior.id,
+          reqCode: reqAnterior.code,
+        });
+      }
+      // 📜 31-oct-2026: cambios de cabecera (título, nota, proveedor…) también quedan en el
+      //    Histórico; antes solo se anotaba cuando cambiaban los renglones.
+      const provNombreDe = (id?: string | null) => (id ? suppliers.find((sp) => sp.id === id)?.name || '' : '');
+      const cambiosCab = resumirCambiosCabeceraCompra([
+        { etiqueta: 'Título', antes: reqAnterior.title, despues: title },
+        { etiqueta: 'Nota', antes: reqAnterior.note, despues: note },
+        { etiqueta: 'Proveedor', antes: provNombreDe(reqAnterior.supplier_id), despues: provNombreDe(supplierId || items.find((it) => it.supplier_id)?.supplier_id || null) },
+        { etiqueta: 'Empresa pagadora', antes: reqAnterior.empresa_pagadora_nombre, despues: empresaPagadoraNombre },
+        { etiqueta: 'Responsable', antes: reqAnterior.responsable_nombre, despues: respNombre },
+        { etiqueta: 'Área', antes: reqAnterior.area, despues: area },
+        { etiqueta: 'Condiciones de pago', antes: extraerCondicionesPago(reqAnterior.observaciones), despues: condicionesPago },
+        { etiqueta: 'Observaciones', antes: limpiarObservacionesUsuario(reqAnterior.observaciones), despues: observaciones },
+      ]);
+      if (cambiosCab.length > 0) {
+        obsCompuesta = anexarEventoHistorial(obsCompuesta, {
+          by: autorEdicion,
+          byId: uid,
+          modulo: 'Requerimientos',
+          tipo: 'solicitud_editada',
+          titulo: 'Requerimiento editado',
+          detalle: `${autorEdicion || 'Compras'} desde Requerimientos: ${cambiosCab.join(' · ')}`,
+          reqId: reqAnterior.id,
+          reqCode: reqAnterior.code,
+        });
+      }
+    }
+    const conFormatos = empaquetarFormatosEnObservaciones(obsCompuesta, formatos);
+    const adj = primerFmt ? {
+      attachment_url: primerFmt.url,
+      attachment_type: primerFmt.kind,
+      attachment_name: primerFmt.name,
+    } : {
+      attachment_url: null,
+      attachment_type: null,
+      attachment_name: null,
+    };
+
     // EDITAR: actualiza el requerimiento existente (conserva su código y estado).
     // Columna nueva (17-oct-2026): si el SQL del responsable aún no se corrió, el
     // guardado NO se cae — se reintenta sin esos campos y se avisa.
     const faltaColResp = (msg: string) => /responsable/i.test(msg) && /column|does not exist|schema cache|no existe/i.test(msg);
+    // 🔺🏍️ Prioridad y motorizado (29-oct-2026): update APARTE, solo con lo que cambió.
+    //    Devuelve lo que NO se pudo guardar (para el aviso), o '' si todo bien.
+    const guardarExtras = async (id: string, antes: ExtrasReq | null) => {
+      const parche = parcheExtrasReq(antes, { prioridad: prioridadReq, motorizado_user_id: motoId, motorizado_nombre: motoNombre });
+      if (Object.keys(parche).length === 0) return '';
+      const { error: exErr } = await supabase.from('inventory_requirements').update(parche).eq('id', id);
+      if (exErr) {
+        return faltaColumnaSyncCompras(exErr.message) ? 'la prioridad ni el motorizado' : `la prioridad ni el motorizado (${exErr.message})`;
+      }
+      if ('prioridad' in parche) {
+        try {
+          await supabase.from('cuentas').update({ prioridad: parche.prioridad ?? null, updated_at: nowISO() }).eq('inventory_requirement_id', id);
+        } catch {}
+      }
+      return '';
+    };
+    const supplierIdEfectivo = supplierId || items.find((it) => it.supplier_id)?.supplier_id || null;
     if (editId) {
-      const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
       const base = {
-        title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId,
+        title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierIdEfectivo,
         empresa_pagadora_id: empresaPagadoraId, empresa_pagadora_nombre: empresaPagadoraNombre,
+        iva_alicuota: alicNum,
         items, ...adj
       };
       // 👤 Solicitante, autorizado, destino, área y observaciones (20-oct-2026).
       const conResp = { ...base, responsable_id: respId, responsable_nombre: respNombre };
-      const nuevos = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones });
+      const nuevos = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones: conFormatos });
       let respGuardado = true;
       let nuevosGuardados = true;
       let { error } = await supabase.from('inventory_requirements').update({ ...conResp, ...nuevos }).eq('id', editId);
+      // Si el SQL de iva_alicuota aún no se corrió, reintenta sin ella
+      if (error && /iva_alicuota/i.test(error.message)) {
+        delete (conResp as any).iva_alicuota;
+        delete (base as any).iva_alicuota;
+        ({ error } = await supabase.from('inventory_requirements').update({ ...conResp, ...nuevos }).eq('id', editId));
+      }
       // Si el SQL de empresa pagadora aún no se corrió, reintenta sin ella
       if (error && /empresa_pagadora/i.test(error.message)) {
         delete (conResp as any).empresa_pagadora_id;
@@ -444,11 +2367,42 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         respGuardado = false;
         ({ error } = await supabase.from('inventory_requirements').update(base).eq('id', editId));
       }
+      // Sincronizar condiciones de pago e IVA hacia la cuenta por pagar vinculada (si existe)
+      try {
+        const montoEditConIva = calcularTotalReqUsd(items, rate, alicNum);
+        const { data: cxpRows } = await supabase
+          .from('cuentas')
+          .select('id, nota')
+          .or(`inventory_requirement_id.eq.${editId},order_id.eq.${editId}`);
+        if (cxpRows && cxpRows.length > 0) {
+          for (const cxp of cxpRows) {
+            let nuevaNotaCxp = inyectarCondicionesPagoEnNota(cxp.nota, condicionesPago.trim() || null);
+            nuevaNotaCxp = inyectarIvaEnCuentaNota(nuevaNotaCxp, alicNum);
+            const patchCxpEdit: Record<string, any> = {
+              nota: nuevaNotaCxp,
+              alicuota_iva: alicNum,
+              updated_at: nowISO(),
+            };
+            if (montoEditConIva > 0) patchCxpEdit.monto = montoEditConIva;
+            await supabase.from('cuentas').update(patchCxpEdit).eq('id', cxp.id);
+          }
+          refetchCuentas();
+        }
+      } catch {}
+      if (error) {
+        setBusy(false);
+        const esTriggerIva = /record\s+"new"\s+has\s+no\s+field\s+"iva_alicuota"/i.test(error.message);
+        const msgError = esTriggerIva
+          ? 'Falta agregar la columna iva_alicuota en inventory_requirements en Supabase: ALTER TABLE public.inventory_requirements ADD COLUMN IF NOT EXISTS iva_alicuota numeric(5,2) DEFAULT 16; (La cuenta por pagar vinculada sí se actualizó con el IVA).'
+          : error.message;
+        setFormErr(msgError);
+        return toast.error(msgError);
+      }
+      const extrasFalta = await guardarExtras(editId, extrasAntes);
       setBusy(false);
-      if (error) { setFormErr(error.message); return toast.error(error.message); }
       setCreateOpen(false); limpiarForm();
       refetch();
-      const faltas = [!respGuardado ? 'el responsable' : '', !nuevosGuardados ? 'quién solicitó/autorizó, el área y las observaciones' : '']
+      const faltas = [!respGuardado ? 'el responsable' : '', !nuevosGuardados ? 'quién solicitó/autorizó, el área y las observaciones' : '', extrasFalta]
         .filter(Boolean).join(' ni ');
       toast.success(faltas
         ? `Requerimiento actualizado (no se guardó ${faltas}: falta correr el SQL).`
@@ -460,7 +2414,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     // único en `code` impide duplicados; si dos requerimientos chocan en el mismo
     // código, se reintenta con el siguiente número.
     const reqName = await perfilNombre();
-    const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
     let code = '';
     let saved = false;
     // Campos del responsable: si la columna aún no existe (falta el SQL), se quitan
@@ -472,8 +2425,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     let empresaFaltaSql = false;
     // 👤 Lo pedido el 20-oct: quién solicitó, quién autorizó, para qué, a qué área
     //    y las observaciones. Mismo trato defensivo que el responsable.
-    let nuevosCampos: Record<string, any> = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones });
+    let nuevosCampos: Record<string, any> = camposRequerimiento({ solicitante, autorizado, destino, area, observaciones: conFormatos });
     let nuevosFaltaSql = false;
+    let ivaCampos: Record<string, any> = { iva_alicuota: alicNum };
+    let insertedId: string | null = null;
     for (let intento = 0; intento < 6 && !saved; intento++) {
       const { data: codeRows, error: readErr } = await supabase.from('inventory_requirements').select('code');
       if (readErr || !codeRows) {
@@ -485,10 +2440,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // La BASE reasigna el código con un trigger (correlativo a prueba de fallos);
       // leemos el código REAL que quedó para mostrarlo.
       const { data: inserted, error } = await supabase.from('inventory_requirements').insert({
-        code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, status: 'pendiente', items,
-        requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos, ...nuevosCampos, ...empresaCampos,
+        code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierIdEfectivo, status: 'pendiente', items,
+        requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos, ...nuevosCampos, ...empresaCampos, ...ivaCampos,
       }).select('id, code').single();
-      if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; saved = true; break; }
+      if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; insertedId = (inserted as any)?.id ?? null; saved = true; break; }
+      // Falta la columna de iva_alicuota: se reintenta sin ella
+      if (Object.keys(ivaCampos).length && /iva_alicuota/i.test(error.message)) { ivaCampos = {}; intento--; continue; }
       // Falta la columna de empresa pagadora: se reintenta sin ella
       if (Object.keys(empresaCampos).length && /empresa_pagadora/i.test(error.message)) { empresaCampos = {}; empresaFaltaSql = true; intento--; continue; }
       // Falta la columna del responsable: se reintenta SIN ella (mismo número).
@@ -500,8 +2457,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       setBusy(false);
       setFormErr(error.message); return toast.error(error.message);
     }
+    if (!saved) { setBusy(false); const m = 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.'; setFormErr(m); return toast.error(m); }
+    const extrasFaltaAlta = insertedId ? await guardarExtras(insertedId, null) : '';
     setBusy(false);
-    if (!saved) { const m = 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.'; setFormErr(m); return toast.error(m); }
     // 🔔 EL AVISO AL RESPONSABLE LO MANDA LA BASE, NO LA APP (18-oct-2026). El
     // trigger trg_notify_requirement_responsable (gemelo del que avisa a los admin)
     // crea la notificación dirigida (recipient_id) al INSERTAR con responsable y al
@@ -515,6 +2473,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       respFaltaSql ? 'el responsable' : '',
       nuevosFaltaSql ? 'quién solicitó/autorizó, el área y las observaciones' : '',
       empresaFaltaSql ? 'la empresa pagadora' : '',
+      extrasFaltaAlta,
     ].filter(Boolean).join(' ni ');
     toast.success(sinSql
       ? `Requerimiento ${code} enviado. ⚠️ No se guardó ${sinSql} (falta correr el SQL); el aviso sí se envió.`
@@ -532,6 +2491,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setEmpresaPagadoraNombre(r.empresa_pagadora_nombre ?? null);
     setRespId(r.responsable_id ?? null);
     setRespNombre(r.responsable_nombre ?? null);
+    setPrioridadReq(esPrioridadCompra(r.prioridad) ? r.prioridad : null);
+    setMotoId(r.motorizado_user_id ?? null);
+    setMotoNombre(r.motorizado_nombre ?? '');
+    setExtrasAntes({ prioridad: r.prioridad ?? null, motorizado_user_id: r.motorizado_user_id ?? null, motorizado_nombre: r.motorizado_nombre ?? null });
     // 👤 Lo del 20-oct. Un requerimiento viejo no los trae: quedan en blanco y el
     //    formulario se ve igual que siempre.
     setSolicitante({ nombre: r.solicitante_nombre ?? null, employeeId: r.solicitante_employee_id ?? null });
@@ -539,16 +2502,89 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setDestino(r.destino_tipo ?? null);
     setArea(r.area ?? '');
     setAreaLibre(false);
-    setObservaciones(r.observaciones ?? '');
-    setFormato(r.attachment_url ? { url: r.attachment_url, kind: (r.attachment_type as 'image' | 'pdf') || 'image', name: r.attachment_name || 'formato' } : null);
+    setCondicionesPago(extraerCondicionesPago(r.observaciones));
+    setObservaciones(limpiarObservacionesUsuario(r.observaciones ?? ''));
+    const alicEditar = r.iva_alicuota != null ? String(r.iva_alicuota) : String(resolverAlicuotaIvaRequerimiento(r));
+    setAlicuotaIva(alicEditar);
+    setFormatos(extraerFormatosAdjuntos(r));
     let s = 0;
-    setRows(r.items.map((it) => ({
-      key: `${Date.now()}-${s++}`, product_id: it.product_id, name: it.name, unit: it.unit ?? '',
-      qty: String(it.qty), price: String(it.est_price ?? 0), currency: (it.currency as 'USD' | 'VES') || 'USD', note: it.note ?? '',
-      image_url: it.image_url ?? '',
-    })));
+    // ⚠️ 31-oct-2026: una línea en Bs sin precio en $ se pasa a $ con la tasa con la que
+    //    se registró la compra (la que la base anotó en la cuenta), no con la de hoy. Con
+    //    la de hoy, borrar o editar un renglón le movía el precio a todas las demás.
+    const ctaDelReq = (cuentasData || []).find((c) => c.inventory_requirement_id === r.id);
+    const mTasaCta = String(ctaDelReq?.nota || '').match(/\(Bs\s*([\d.]+)\s*por \$\)/);
+    const tasaDelReq = mTasaCta && Number(mTasaCta[1]) > 0 ? Number(mTasaCta[1]) : (rate || 0);
+    setRows(r.items.map((it) => {
+      const q = Math.max(0.0001, Number(it.qty) || 1);
+      const pUsdNum = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, tasaDelReq));
+      const pBsNum = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdNum * rate * 100) / 100 : 0));
+      const totUsdNum = it.total_usd != null && Number(it.total_usd) > 0 ? Number(it.total_usd) : Math.round(pUsdNum * q * 100) / 100;
+      const totBsNum = it.total_bs != null && Number(it.total_bs) > 0 ? Number(it.total_bs) : Math.round(pBsNum * q * 100) / 100;
+      return {
+        key: `${Date.now()}-${s++}`,
+        product_id: it.product_id,
+        name: it.name,
+        unit: it.unit ?? '',
+        qty: String(it.qty),
+        modo_precio: it.modo_precio || 'unidad',
+        price: String(pUsdNum),
+        price_bs: String(pBsNum),
+        total_usd: String(totUsdNum),
+        total_bs: String(totBsNum),
+        currency: 'USD',
+        note: it.note ?? '',
+        image_url: it.image_url ?? '',
+        supplier_id: it.supplier_id || null,
+        supplier_name: it.supplier_name || null,
+        metodo_pago: (it as any).metodo_pago || null,
+        exento: Boolean(it.exento),
+        presupuestos: Array.isArray(it.cotizaciones) ? it.cotizaciones.map((c: any, ci: number) => {
+          const cUnitUsd = Number(c.precio_usd ?? c.price ?? 0);
+          const cUnitBs = Number(c.precio_bs ?? (rate && rate > 0 ? Math.round(cUnitUsd * rate * 100) / 100 : 0));
+          const cTotUsd = c.total_usd != null && Number(c.total_usd) > 0 ? Number(c.total_usd) : Math.round(cUnitUsd * q * 100) / 100;
+          const cTotBs = c.total_bs != null && Number(c.total_bs) > 0 ? Number(c.total_bs) : Math.round(cUnitBs * q * 100) / 100;
+          return {
+            id: c.id || `cot-${ci}-${Date.now()}`,
+            proveedor: c.proveedor || c.supplier_name || '',
+            concepto: c.concepto || it.name || '',
+            metodo_pago: c.metodo_pago || 'efectivo_usd',
+            modo_precio: c.modo_precio || 'unidad',
+            precio_usd: String(cUnitUsd),
+            precio_bs: String(cUnitBs),
+            total_usd: String(cTotUsd),
+            total_bs: String(cTotBs),
+            archivos: Array.isArray(c.archivos) ? c.archivos : [],
+            nota: c.nota || c.note || '',
+          };
+        }) : [],
+        presupuestosAbierto: false,
+      };
+    }));
     setFormErr(null);
     setCreateOpen(true);
+  };
+
+  // 🔺 Asignación rápida de Prioridad desde la tarjeta del requerimiento (sincronizada con Por pagar)
+  const ponerPrioridadReq = async (r: InventoryRequirement, p: PrioridadCompra | null) => {
+    const { data, error } = await supabase.from('inventory_requirements').update({ prioridad: p }).eq('id', r.id).select('id');
+    if (error) {
+      return toast.error(faltaColumnaSyncCompras(error.message) ? 'La prioridad aún no se puede guardar: falta correr el SQL del 29-oct.' : error.message);
+    }
+    if (!data || data.length === 0) {
+      return toast.error(`No se pudo poner la prioridad en ${r.code}: no tienes permiso para editar ese requerimiento.`);
+    }
+    try {
+      await supabase.from('cuentas').update({ prioridad: p, updated_at: nowISO() }).eq('inventory_requirement_id', r.id);
+    } catch {}
+    refetch();
+    refetchCuentas();
+    toast.success(p ? `Prioridad ${PRIORIDAD_COMPRA_INFO[p].label} asignada a ${r.code} (sincronizada con Por Pagar).` : `Prioridad quitada de ${r.code}.`);
+  };
+
+  // 💸 Pasar Requerimiento a Por Pagar (Compras envía el requerimiento completado a Por Pagar,
+  // donde entra con estado 👔 Esperando Aprobación del Gerente General / Usuario Designado)
+  const aprobarGerenteGeneral = async (r: InventoryRequirement) => {
+    await decidir(r, 'aprobado');
   };
 
   // Eliminar TODO el requerimiento (con confirmación). No revierte movimientos de
@@ -570,33 +2606,205 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const decidir = async (r: InventoryRequirement, status: 'aprobado' | 'rechazado') => {
+    if (status === 'aprobado' && !canWrite && !puedeAprobarRequerimientos && !isAdmin) {
+      return toast.error('No tienes permiso de escritura en Compras para pasar el requerimiento a Por Pagar.');
+    }
     if (r.status === 'aclaratoria_solicitada' && status === 'aprobado') {
-      return toast.error('No se puede aprobar un requerimiento con aclaratoria técnica pendiente. Espera la respuesta técnica del solicitante.');
+      return toast.error('No se puede enviar a Por Pagar un requerimiento con aclaratoria técnica pendiente. Espera la respuesta técnica del solicitante.');
     }
     const decName = await perfilNombre();
-    const { error } = await supabase.from('inventory_requirements').update({
-      status, decided_by: uid, decided_by_name: decName, decided_at: nowISO(),
-    }).eq('id', r.id);
+    const fallbackSup =
+      r.supplier_id ||
+      r.items.find((it) => it.supplier_id)?.supplier_id ||
+      suppliers.find((s) => r.items.some((it) => it.supplier_name && norm(it.supplier_name) === norm(s.name)))?.id ||
+      null;
+    if (status === 'aprobado' && !fallbackSup) {
+      return toast.error('Asigna un proveedor al requerimiento antes de pasarlo a 💸 Por Pagar.');
+    }
+    if (status === 'aprobado' && faltaPrecioDe(r)) {
+      return toast.error('Todos los renglones deben tener precio mayor a 0 antes de enviarlo a 💸 Por Pagar.');
+    }
+    const ahoraIso = nowISO();
+    const apActual = extraerAprobacionCxp(r.observaciones);
+    let nuevaObs =
+      status === 'aprobado' && apActual?.estado !== 'aprobado'
+        ? inyectarAprobacionCxpEnNota(r.observaciones, {
+            estado: 'pendiente',
+            aprobadoPor: null,
+            aprobadoPorId: null,
+            fecha: ahoraIso,
+          })
+        : r.observaciones;
+    if (status === 'aprobado') {
+      nuevaObs =
+        inyectarEnvioCxpEnTexto(nuevaObs, {
+          enviadoPor: decName,
+          enviadoPorId: uid,
+          fecha: ahoraIso,
+          origen: 'requerimiento',
+        }) ?? nuevaObs;
+      const provNombreEnv =
+        suppliers.find((s) => s.id === fallbackSup)?.name ||
+        r.items.find((it) => it.supplier_name)?.supplier_name ||
+        'Proveedor asignado';
+      const alicEnv = r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r);
+      const montoEnv = calcularTotalReqUsd(r.items, rate, alicEnv);
+      nuevaObs = anexarEventoHistorial(nuevaObs, {
+        at: ahoraIso,
+        by: decName,
+        byId: uid,
+        modulo: 'Requerimientos',
+        tipo: 'enviado_por_pagar',
+        titulo: 'Enviado a Por Pagar desde Requerimientos',
+        detalle: `Enviado a Cuentas por Pagar por ${decName} · Proveedor: ${provNombreEnv} · Monto: ${usd(montoEnv)} USD.`,
+        montoDespuesUsd: montoEnv,
+        reqId: r.id,
+        reqCode: r.code,
+      });
+    } else if (status === 'rechazado') {
+      nuevaObs = anexarEventoHistorial(nuevaObs, {
+        at: ahoraIso,
+        by: decName,
+        byId: uid,
+        modulo: 'Requerimientos',
+        tipo: 'rechazado_o_anulado',
+        titulo: 'Requerimiento rechazado / anulado',
+        detalle: `Rechazado por ${decName}.`,
+        reqId: r.id,
+        reqCode: r.code,
+      });
+    }
+    const patch: Record<string, any> = {
+      status,
+      decided_by: uid,
+      decided_by_name: decName,
+      decided_at: ahoraIso,
+      ...(nuevaObs !== r.observaciones ? { observaciones: nuevaObs } : {}),
+    };
+    if (status === 'aprobado') {
+      if (fallbackSup && !r.supplier_id) patch.supplier_id = fallbackSup;
+    }
+    const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
     if (error) return toast.error(error.message);
+    if (status === 'aprobado') {
+      try {
+        const { data: cxpRows } = await supabase
+          .from('cuentas')
+          .select('id, nota')
+          .eq('inventory_requirement_id', r.id);
+        const empId = r.empresa_pagadora_id || r.company_id || null;
+        const empNombre =
+          r.empresa_pagadora_nombre ||
+          (empId ? companies.find((c) => c.id === empId)?.name || null : null);
+        const condReq = extraerCondicionesPago(r.observaciones);
+        const provNombreEnv =
+          suppliers.find((s) => s.id === fallbackSup)?.name ||
+          r.items.find((it) => it.supplier_name)?.supplier_name ||
+          'Proveedor asignado';
+        const alicEnv = r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r);
+      const montoEnv = calcularTotalReqUsd(r.items, rate, alicEnv);
+        if (cxpRows && cxpRows.length > 0) {
+          for (const cxp of cxpRows) {
+            let notaCxp = cxp.nota || '';
+            if (empId && empNombre) {
+              notaCxp = inyectarEmpresaEnNota(notaCxp, empId, empNombre) ?? notaCxp;
+            }
+            if (condReq) {
+              notaCxp = inyectarCondicionesPagoEnNota(notaCxp, condReq) ?? notaCxp;
+            }
+            notaCxp = inyectarIvaEnCuentaNota(notaCxp, alicEnv) ?? notaCxp;
+            notaCxp =
+              inyectarEnvioCxpEnTexto(notaCxp, {
+                enviadoPor: decName,
+                enviadoPorId: uid,
+                fecha: ahoraIso,
+                origen: 'requerimiento',
+              }) ?? notaCxp;
+            const apCxpExist = extraerAprobacionCxp(notaCxp);
+            if (apCxpExist?.estado !== 'aprobado') {
+              notaCxp =
+                inyectarAprobacionCxpEnNota(notaCxp, {
+                  estado: 'pendiente',
+                  aprobadoPor: null,
+                  aprobadoPorId: null,
+                  fecha: ahoraIso,
+                }) ?? notaCxp;
+            }
+            notaCxp = anexarEventoHistorial(notaCxp, {
+              at: ahoraIso,
+              by: decName,
+              byId: uid,
+              modulo: 'Requerimientos',
+              tipo: 'enviado_por_pagar',
+              titulo: 'Enviado a Por Pagar desde Requerimientos',
+              detalle: `Enviado a Cuentas por Pagar por ${decName} · Proveedor: ${provNombreEnv} · Monto: ${usd(montoEnv)} USD.`,
+              montoDespuesUsd: montoEnv,
+              reqId: r.id,
+              reqCode: r.code,
+              cuentaId: cxp.id,
+            });
+            const patchCxp: Record<string, any> = {
+              nota: notaCxp || null,
+              alicuota_iva: alicEnv,
+              updated_at: ahoraIso,
+            };
+            if (montoEnv > 0) patchCxp.monto = montoEnv;
+            if (esPrioridadCompra(r.prioridad)) patchCxp.prioridad = r.prioridad;
+            await supabase.from('cuentas').update(patchCxp).eq('id', cxp.id);
+            if (montoEnv > 0) {
+              await supabase.from('purchase_orders').update({ total: montoEnv }).eq('inventory_requirement_id', r.id);
+            }
+          }
+        }
+      } catch {}
+      const aprobadoresTxt =
+        configAprobacion.aprobadoresNombres && configAprobacion.aprobadoresNombres.length > 0
+          ? configAprobacion.aprobadoresNombres.join(' / ')
+          : 'Gerente General';
+      toast.success(
+        `Requerimiento ${r.code} enviado a 💸 Por Pagar (👔 Esperando aprobación de ${aprobadoresTxt}).`
+      );
+    }
     refetch();
-    // Al APROBAR, si trae formato adjunto, se abre la vista previa para ver y descargar.
+    refetchCuentas();
     if (status === 'aprobado' && r.attachment_url) setPreviewReq({ ...r, status });
   };
 
-  // APROBACIÓN EN LOTE: el gerente marca (☑) varios requerimientos PENDIENTES y los
-  // aprueba todos de un click. Solo toca los pendientes seleccionados; el trigger
-  // req_sync_compra genera la orden/cuenta de cada uno igual que al aprobar uno a uno.
+  // ENVIAR EN LOTE A POR PAGAR: marca (☑) varios requerimientos PENDIENTES y los pasa a Por Pagar de un click.
   const aprobarLote = async () => {
-    const ids = reqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').map((r) => r.id);
-    if (!ids.length) return toast.error('Marca (☑) requerimientos PENDIENTES para aprobar en lote.');
-    const ok = await confirm({ title: 'Aprobar en lote', message: `¿Aprobar ${ids.length} requerimiento(s) pendiente(s) de una vez?`, confirmText: `Aprobar ${ids.length}` });
+    if (!canWrite && !puedeAprobarRequerimientos && !isAdmin) {
+      return toast.error('No tienes permiso para pasar requerimientos en lote a Por Pagar.');
+    }
+    const reqsLote = reqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente');
+    const ids = reqsLote.map((r) => r.id);
+    if (!ids.length) return toast.error('Marca (☑) requerimientos PENDIENTES para enviar en lote a Por Pagar.');
+    const ok = await confirm({ title: 'Enviar en lote a Por Pagar', message: `¿Pasar ${ids.length} requerimiento(s) pendiente(s) a 💸 Por Pagar para aprobación?`, confirmText: `Pasar ${ids.length} a Por Pagar` });
     if (!ok) return;
     const decName = await perfilNombre();
-    const { error } = await supabase.from('inventory_requirements').update({ status: 'aprobado', decided_by: uid, decided_by_name: decName, decided_at: nowISO() }).in('id', ids);
+    const ahoraIso = nowISO();
+    const { error } = await supabase.from('inventory_requirements').update({
+      status: 'aprobado',
+      decided_by: uid,
+      decided_by_name: decName,
+      decided_at: ahoraIso,
+    }).in('id', ids);
     if (error) return toast.error(error.message);
+
+    // Sincronizar monto con IVA en cuentas y órdenes de los requerimientos aprobados
+    try {
+      for (const reqItem of reqsLote) {
+        const montoConIva = calcularTotalReqUsd(reqItem.items, rate, reqItem.iva_alicuota);
+        if (montoConIva > 0) {
+          await supabase.from('cuentas').update({ monto: montoConIva, updated_at: ahoraIso }).eq('inventory_requirement_id', reqItem.id);
+          await supabase.from('purchase_orders').update({ total: montoConIva }).eq('inventory_requirement_id', reqItem.id);
+        }
+      }
+    } catch {}
+
     setReqSelIds(new Set());
     refetch();
-    toast.success(`${ids.length} requerimiento(s) aprobados en lote.`);
+    refetchCuentas();
+    toast.success(`${ids.length} requerimiento(s) enviados a 💸 Por Pagar.`);
   };
 
   // ANULAR un requerimiento YA APROBADO: el mismo gerente lo rechaza. Pasa a
@@ -614,14 +2822,32 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     await decidir(r, 'rechazado');
   };
 
-  // Sube un FORMATO (imagen o PDF) al requerimiento y lo guarda en la fila.
+  // Sube uno o más FORMATOS (imágenes o PDFs) al requerimiento y los guarda en la fila.
   const subirFormato = async (r: InventoryRequirement) => {
     setSubiendoId(r.id);
     try {
-      const res = await pickAndUploadRequirementFile(r.id);
+      const res = await pickAndUploadRequirementFiles(r.id);
       if (!res.ok) { if (res.error) toast.error(res.error); return; }
+      if (!res.files || res.files.length === 0) return;
+
+      const actuales = extraerFormatosAdjuntos(r);
+      const nuevos: FormatoAdjunto[] = res.files.map((f, idx) => ({
+        id: `fmt-${Date.now()}-${idx}`,
+        url: f.url,
+        kind: f.kind,
+        name: f.name,
+      }));
+      const combinados = [...actuales, ...nuevos];
+      const conFormatos = empaquetarFormatosEnObservaciones(r.observaciones, combinados);
+      const primerFmt = combinados[0] || null;
+
       const { data, error } = await supabase.from('inventory_requirements')
-        .update({ attachment_url: res.url, attachment_type: res.kind, attachment_name: res.name ?? null })
+        .update({
+          attachment_url: primerFmt?.url ?? null,
+          attachment_type: primerFmt?.kind ?? null,
+          attachment_name: primerFmt?.name ?? null,
+          observaciones: conFormatos,
+        })
         .eq('id', r.id).select('id');
       if (error) {
         if (/attachment|column/i.test(error.message)) { toast.error('Corre "requerimientos_adjunto.sql" en Supabase para guardar el formato.'); return; }
@@ -629,21 +2855,23 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       }
       if (!data || data.length === 0) { toast.error('No tienes permiso de escritura en inventario.'); return; }
       await refetch();
-      toast.success('El formato quedó guardado en el requerimiento.');
+      toast.success(`${nuevos.length} formato(s) guardado(s) en el requerimiento.`);
     } finally {
       setSubiendoId(null);
     }
   };
 
   // Descarga (o abre) el formato adjunto.
-  const descargarFormato = (r: InventoryRequirement) => {
-    if (!r.attachment_url) return;
+  const descargarFormato = (r: InventoryRequirement, formatoItem?: FormatoAdjunto | null) => {
+    const fmts = extraerFormatosAdjuntos(r);
+    const target = formatoItem || fmts[0] || (r.attachment_url ? { url: r.attachment_url, name: r.attachment_name } : null);
+    if (!target?.url) return;
     if (Platform.OS === 'web') {
       const a = document.createElement('a');
-      a.href = r.attachment_url; a.download = r.attachment_name || 'formato'; a.target = '_blank'; a.rel = 'noopener';
+      a.href = target.url; a.download = target.name || 'formato'; a.target = '_blank'; a.rel = 'noopener';
       a.click();
     } else {
-      Linking.openURL(r.attachment_url);
+      Linking.openURL(target.url);
     }
   };
 
@@ -671,7 +2899,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         target_role: 'admin', entity_type: 'inventory_requirement', entity_id: String(r.id),
         created_by: uid, meta: { code: r.code, status: 'pendiente' },
       });
-    } catch {}
+    } catch { }
     refetch();
   };
 
@@ -688,8 +2916,35 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       confirmText: 'Cambiar', cancelText: 'Cancelar',
     });
     if (!ok) return;
-    const patch: Record<string, any> = { status };
-    if (status === 'recibido' && !r.received_at) patch.received_at = nowISO();
+    const ahoraEst = nowISO();
+    const autorEst = (await perfilNombre()) || session?.user?.email || 'Usuario';
+    const tipoEvEst =
+      status === 'esperando_recepcion' || status === 'pagado'
+        ? ('pagado_completo' as const)
+        : status === 'recibido'
+          ? ('recepcion_almacen' as const)
+          : status === 'rechazado'
+            ? ('rechazado_o_anulado' as const)
+            : ('estado_flujo' as const);
+    const obsConHistEst = anexarEventoHistorial(r.observaciones, {
+      at: ahoraEst,
+      by: autorEst,
+      byId: uid,
+      modulo: 'Requerimientos',
+      tipo: tipoEvEst,
+      titulo:
+        status === 'esperando_recepcion' || status === 'pagado'
+          ? `Marcado como Pagado / Esperando Recepción por ${autorEst}`
+          : `Estado cambiado a "${REQ_STATUS[status]?.short || status}" por ${autorEst}`,
+      detalle: `Cambio manual de estado en Requerimientos (${REQ_STATUS[r.status]?.short || r.status} ➔ ${REQ_STATUS[status]?.short || status}) ejecutado por ${autorEst}.`,
+      reqId: r.id,
+      reqCode: r.code,
+    });
+    const patch: Record<string, any> = { status, observaciones: obsConHistEst };
+    if (status === 'recibido' && !r.received_at) patch.received_at = ahoraEst;
+    if (!r.decided_by && uid) patch.decided_by = uid;
+    if (!r.decided_by_name && autorEst) patch.decided_by_name = autorEst;
+    if (!r.decided_at) patch.decided_at = ahoraEst;
     const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
     if (error) return toast.error(error.message);
     setStatusPickerId(null);
@@ -700,7 +2955,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   // Abrir "Recibir": precarga los ítems con su precio estimado (para editarlo al real).
   const abrirRecibir = (r: InventoryRequirement) => {
     setRecvFor(r);
-    setRecvRows(r.items.map((it) => ({ product_id: it.product_id, name: it.name, unit: it.unit, qty: String(it.qty), price: String(it.est_price || 0), currency: it.currency || 'USD' })));
+    setRecvRows(r.items.map((it) => ({
+      product_id: it.product_id,
+      name: it.name,
+      unit: it.unit,
+      qty: String(it.qty),
+      price: String(it.est_price || 0),
+      currency: it.currency || 'USD',
+      note: it.note ?? '',
+    })));
+    setRecvFacturaNumero('');
+    setRecvFacturaArchivos([]);
+    setRecvNota('');
   };
 
   const recibir = async () => {
@@ -712,37 +2978,175 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     let maxN = 0;
     (skuRows ?? []).forEach((r: any) => { const m = String(r.sku ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; } });
     const pad = (n: number) => 'INV-' + String(n).padStart(4, '0');
+    const notaGenTrim = recvNota.trim();
     try {
       for (const it of recvRows) {
         let itemId = it.product_id;
+        const lineItem = recvFor.items.find((x) => x.product_id === it.product_id || norm(x.name) === norm(it.name));
+        const linePhoto = lineItem?.image_url || (it as any).image_url || null;
         if (!itemId) { // producto NUEVO: se crea a raíz del requerimiento
           maxN += 1;
           const { data: ins, error } = await supabase.from('inventory_items')
-            .insert({ name: it.name.toUpperCase(), unit: it.unit || null, sku: pad(maxN), category: 'otros', min_stock: 0, machinery_id: null, company_id: null })
+            .insert({ name: it.name.toUpperCase(), unit: it.unit || null, sku: pad(maxN), category: 'otros', min_stock: 0, machinery_id: null, company_id: null, ...(linePhoto ? { image_url: linePhoto } : {}) })
             .select('id').single();
           if (error) throw error;
           itemId = ins.id;
+        } else if (linePhoto) {
+          try {
+            await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
+          } catch { }
         }
         const priceUsd = it.currency === 'USD' ? parseNum(it.price) : usdFromBs(parseNum(it.price), rate || 0);
+        const notaItemTrim = (it.note || '').trim();
+        const detalleRazon = [
+          `RECIBIDO DE REQUERIMIENTO ${recvFor.code ?? ''}`.trim(),
+          notaItemTrim ? `Nota ítem: ${notaItemTrim}` : '',
+          notaGenTrim ? `Nota recepción: ${notaGenTrim}` : '',
+        ].filter(Boolean).join(' · ');
         const { error: mErr } = await supabase.from('inventory_movements').insert({
           item_id: itemId, kind: 'entrada', qty: parseNum(it.qty), unit_cost: Math.round((priceUsd || 0) * 10000) / 10000,
-          reason: `RECIBIDO DE REQUERIMIENTO ${recvFor.code ?? ''}`.trim(), company_id: null, created_by: uid,
+          reason: detalleRazon, company_id: null, created_by: uid,
         });
         if (mErr) throw mErr;
       }
-      const items2 = recvFor.items.map((it) => ({ ...it, received: true }));
-      const { error: uErr } = await supabase.from('inventory_requirements').update({ status: 'recibido', received_at: nowISO(), items: items2 }).eq('id', recvFor.id);
+      const items2 = recvFor.items.map((it, idx) => {
+        const rowMatch = recvRows[idx];
+        const nextNote = rowMatch?.note != null && rowMatch.note.trim() ? rowMatch.note.trim() : it.note;
+        return { ...it, note: nextNote, received: true };
+      });
+      const ahoraRecv = nowISO();
+      const autorRecv = (await perfilNombre()) || session?.user?.email || 'Almacén';
+      const partesRecepcion = [
+        recvFacturaNumero.trim() ? `Factura N° ${recvFacturaNumero.trim()}${recvFacturaUrl ? ' (con soporte adjunto)' : ''}` : '',
+        notaGenTrim ? `Nota: ${notaGenTrim}` : '',
+      ].filter(Boolean).join(' · ');
+      let obsConTagRecv = `${recvFor.observaciones || ''}${partesRecepcion ? `\n[RECEPCIÓN ALMACÉN: ${partesRecepcion}]` : ''}`.trim() || null;
+      // 🧾 31-oct-2026: la factura recibida queda COMO factura del requerimiento (con
+      //    todas sus fotos). Antes solo caía en el adjunto si estaba vacío; si no, la
+      //    tarjeta mostraba la foto del producto como «factura».
+      const proveedorRecv = suppliers.find((s) => s.id === recvFor.supplier_id)?.name || '';
+      let dataFacRecv: FacturaData | null = null;
+      if (recvFacturaArchivos.length > 0) {
+        const facPrevia = extraerFactura(recvFor);
+        const archivosFac = [...(facPrevia?.archivos || [])];
+        recvFacturaArchivos.forEach((a) => { if (!archivosFac.some((x) => x.url === a.url)) archivosFac.push(a); });
+        dataFacRecv = {
+          numero: recvFacturaNumero.trim() || facPrevia?.numero || 'ADJ-FACT',
+          empresa: facPrevia?.empresa || proveedorRecv,
+          fecha: facPrevia?.fecha || ahoraRecv.slice(0, 10),
+          url: archivosFac[0]?.url || null,
+          tipo: archivosFac[0]?.tipo || 'image',
+          nombre: archivosFac[0]?.nombre || null,
+          archivos: archivosFac,
+          nota: facPrevia?.nota || null,
+          subidaPor: autorRecv,
+          subidaAt: ahoraRecv,
+        };
+        obsConTagRecv = inyectarFacturaEnObservaciones(obsConTagRecv, dataFacRecv);
+      }
+      const obsFinal = anexarEventoHistorial(obsConTagRecv, {
+        at: ahoraRecv,
+        by: autorRecv,
+        byId: uid,
+        modulo: 'Almacén',
+        tipo: 'recepcion_almacen',
+        titulo: `Recibido en Almacén por ${autorRecv}`,
+        detalle: `Mercancía ingresada al inventario de almacén por ${autorRecv}${partesRecepcion ? ` · ${partesRecepcion}` : ''}.`,
+        reqId: recvFor.id,
+        reqCode: recvFor.code,
+      });
+
+      const reqPatch: Record<string, any> = {
+        status: 'recibido',
+        received_at: ahoraRecv,
+        items: items2,
+        observaciones: obsFinal,
+      };
+      if (recvFacturaUrl && !recvFor.attachment_url) {
+        reqPatch.attachment_url = recvFacturaUrl;
+        reqPatch.attachment_type = recvFacturaTipo || 'image';
+        reqPatch.attachment_name = recvFacturaNombre || `Factura ${recvFacturaNumero || recvFor.code}`;
+      }
+
+      const { error: uErr } = await supabase.from('inventory_requirements').update(reqPatch).eq('id', recvFor.id);
       if (uErr) throw uErr;
-      setRecvBusy(false); setRecvFor(null); setRecvRows([]);
+
+      // 🔗 Sincronizar también la orden de compra vinculada en purchase_orders como 'recibida'
+      try {
+        await supabase.from('purchase_orders').update({ status: 'recibida', received_at: nowISO() }).eq('inventory_requirement_id', recvFor.id);
+      } catch {}
+
+      // 🧾 Sincronización automática con Cuentas por Pagar
+      if (recvFor.supplier_id) {
+        try {
+          const totalMontoRecv = recvRows.reduce((s, it) => {
+            const pr = it.currency === 'USD' ? parseNum(it.price) : usdFromBs(parseNum(it.price), rate || 0);
+            return s + pr * parseNum(it.qty);
+          }, 0);
+
+          // ⚠️ 29-oct-2026: la cuenta del requerimiento se busca por
+          //    inventory_requirement_id (con order_id nunca calzaba: se intentaba
+          //    crear otra cuenta con el id del requerimiento como orden y fallaba).
+          const { data: existCxp } = await supabase
+            .from('cuentas')
+            .select('id, nota')
+            .eq('inventory_requirement_id', recvFor.id)
+            .limit(1);
+
+          if (existCxp && existCxp.length > 0) {
+            const prevNota = (existCxp[0] as any).nota || '';
+            let nuevaNotaCxp = notaGenTrim
+              ? `${prevNota ? prevNota + '\n' : ''}Nota recepción almacén: ${notaGenTrim}`
+              : undefined;
+            // Las fotos de la factura también quedan en Por Pagar (todas, no solo la primera).
+            if (dataFacRecv) nuevaNotaCxp = inyectarFacturaEnCuentaNota(nuevaNotaCxp ?? prevNota, dataFacRecv) ?? undefined;
+            // Sin `monto`: en la cuenta atada lo pone la base desde los renglones del
+            // requerimiento (la guardia trg_cxp_req_guardia lo conserva aunque llegue).
+            const { error: cxpUpdErr } = await supabase
+              .from('cuentas')
+              .update({
+                documento: recvFacturaNumero.trim() || undefined,
+                factura_url: recvFacturaUrl || undefined,
+                ...(nuevaNotaCxp ? { nota: nuevaNotaCxp } : {}),
+                updated_at: nowISO(),
+              })
+              .eq('id', existCxp[0].id);
+            if (cxpUpdErr) console.warn('Sync cxp error:', cxpUpdErr.message);
+          } else if (totalMontoRecv > 0) {
+            const { error: cxpInsErr } = await supabase.from('cuentas').insert({
+              tipo: 'por_pagar',
+              supplier_id: recvFor.supplier_id,
+              inventory_requirement_id: recvFor.id,
+              concepto: `Compra recibida en almacén: ${recvFor.title || recvFor.code}`,
+              documento: recvFacturaNumero.trim() || null,
+              factura_url: recvFacturaUrl || null,
+              monto: totalMontoRecv,
+              moneda: 'USD',
+              fecha_emision: nowISO().slice(0, 10),
+              estado: 'pendiente',
+              nota: (() => {
+                const txt = `Factura cargada por Almacén al recibir requerimiento ${recvFor.code}.${notaGenTrim ? ` Nota: ${notaGenTrim}` : ''}`;
+                return dataFacRecv ? inyectarFacturaEnCuentaNota(txt, dataFacRecv) : txt;
+              })(),
+              created_by: uid,
+            });
+            if (cxpInsErr) console.warn('Sync cxp error:', cxpInsErr.message);
+          }
+        } catch (cxpErr) {
+          console.warn('Sync cxp error:', cxpErr);
+        }
+      }
+
+      setRecvBusy(false); setRecvFor(null); setRecvRows([]); setRecvNota('');
       refetch();
-      toast.success('Recibido en el inventario. Las entradas quedaron registradas con su precio.');
+      toast.success('Recibido en el inventario. Las entradas y la factura quedaron registradas.');
     } catch (e: any) {
       setRecvBusy(false);
       toast.error(e?.message ?? 'No se pudo recibir en inventario.');
     }
   };
 
-  const totalUsdDe = (r: InventoryRequirement) => r.items.reduce((s, it) => s + (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0)) * (Number(it.qty) || 0), 0);
+  const totalUsdDe = (r: InventoryRequirement) => calcularTotalReqUsd(r.items || [], rate, r.iva_alicuota != null ? r.iva_alicuota : resolverAlicuotaIvaRequerimiento(r));
 
   // Convierte los ítems al formato del PDF, incrustando la imagen de cada producto
   // como data-URI (para que salga SÍ o SÍ en el PDF, sin depender de CORS ni de que
@@ -751,6 +3155,15 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const itemsToPdf = (r: InventoryRequirement) => Promise.all(r.items.map(async (it) => ({
     name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency,
     isNew: !it.product_id, note: it.note,
+    supplier_name: it.supplier_name || null,
+    exento: Boolean(it.exento),
+    modo_precio: it.modo_precio || 'unidad',
+    price_usd: it.price_usd,
+    price_bs: it.price_bs,
+    total_usd: it.total_usd,
+    total_bs: it.total_bs,
+    metodo_pago: (it as any).metodo_pago || null,
+    cotizaciones_count: Array.isArray(it.cotizaciones) ? it.cotizaciones.length : 0,
     image: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
   })));
 
@@ -772,7 +3185,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
       /* 👤 Lo declarado en el papel (20-oct-2026). Lo vacío no sale impreso. */
       solicitante: r.solicitante_nombre ?? null, autorizadoPor: r.autorizado_nombre ?? null,
-      destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: r.observaciones ?? null,
+      destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: limpiarObservacionesFormatos(r.observaciones) ?? null,
       aclaratoria: r.aclaratoria_motivo ? {
         motivo: r.aclaratoria_motivo,
         solicitadaPor: r.aclaratoria_solicitada_por ?? null,
@@ -781,6 +3194,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         fechaRespuesta: r.aclaratoria_fecha_respuesta ? dmyOf(r.aclaratoria_fecha_respuesta) : null,
       } : null,
       approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
+      ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r),
       items: await itemsToPdf(r),
     };
   };
@@ -791,41 +3205,305 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
   };
 
-  const createTotalUsd = rows.reduce((s, x) => s + (x.currency === 'USD' ? parseNum(x.price) : usdFromBs(parseNum(x.price), rate || 0)) * parseNum(x.qty), 0);
+  const rowUsd = (x: ReqRow) => {
+    const q = parseNum(x.qty);
+    if ((x.modo_precio || 'unidad') === 'total') {
+      const tUsd = parseNum(x.total_usd || '0');
+      if (tUsd > 0) return tUsd;
+    }
+    return parseNum(x.price) * q;
+  };
+
+  const rowBs = (x: ReqRow) => {
+    const q = parseNum(x.qty);
+    if ((x.modo_precio || 'unidad') === 'total') {
+      const tBs = parseNum(x.total_bs || '0');
+      if (tBs > 0) return tBs;
+      const tUsd = parseNum(x.total_usd || '0');
+      if (tUsd > 0 && rate && rate > 0) return tUsd * rate;
+    }
+    const pBs = parseNum(x.price_bs);
+    if (pBs > 0) return pBs * q;
+    const pUsd = parseNum(x.price);
+    return rate && rate > 0 ? (pUsd * rate) * q : 0;
+  };
+
+  const createSubtotalUsd = rows.reduce((s, x) => s + rowUsd(x), 0);
+  const createBaseImponibleUsd = rows.reduce((s, x) => s + (x.exento ? 0 : rowUsd(x)), 0);
+  const createExentoUsd = createSubtotalUsd - createBaseImponibleUsd;
+  const createAlicuotaNum = Math.min(100, Math.max(0, parseNum(alicuotaIva) || 0));
+  const createIvaUsd = Math.round(createBaseImponibleUsd * (createAlicuotaNum / 100) * 100) / 100;
+  const createTotalUsd = Math.round((createSubtotalUsd + createIvaUsd) * 100) / 100;
+
+  const createSubtotalBs = rows.reduce((s, x) => s + rowBs(x), 0);
+  const createBaseImponibleBs = rows.reduce((s, x) => s + (x.exento ? 0 : rowBs(x)), 0);
+  const createExentoBs = createSubtotalBs - createBaseImponibleBs;
+  const createIvaBs = Math.round(createBaseImponibleBs * (createAlicuotaNum / 100) * 100) / 100;
+  const createTotalBs = Math.round((createSubtotalBs + createIvaBs) * 100) / 100;
 
   if (loading) return <Screen><SkeletonList /></Screen>;
 
   return (
     <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
         <SectionTitle>Requerimientos</SectionTitle>
-        {canWrite ? (
-          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setEmpresaPagadoraId(null); setEmpresaPagadoraNombre(null); setSupOpen(false); setSupQ(''); setRows([]); setFormato(null); setFormErr(null); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
-          </TouchableOpacity>
-        ) : null}
+        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap' }}>
+          {puedeVerConfigAprobacion ? (
+            <TouchableOpacity
+              onPress={abrirConfigModal}
+              style={{
+                backgroundColor: colors.surfaceAlt,
+                borderColor: colors.brand,
+                borderWidth: 1.5,
+                paddingHorizontal: spacing.sm,
+                paddingVertical: spacing.xs,
+                borderRadius: radius.pill,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Text style={{ fontSize: 11 }}>⚙️</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                Aprobador: {configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}{' '}
+                ({configAprobacion.exigirEnTodos || Number(configAprobacion.montoLimiteUSD) === 0
+                  ? 'Todos'
+                  : `> $${configAprobacion.montoLimiteUSD.toLocaleString()}`})
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {canWrite ? (
+            <TouchableOpacity onPress={() => { limpiarForm(); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Pide productos del inventario o nuevos para que el jefe apruebe la compra. Si se compra, se recibe en el inventario con su precio. {rate ? `Tasa hoy: ${fmtBs(rate)}/US$.` : ''}
+        Pide productos del inventario o nuevos para que el usuario designado ({configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}) apruebe la compra. Si se compra, se recibe en el inventario con su precio. {rate ? `Tasa hoy: ${fmtBs(rate)}/US$.` : ''}
       </Text>
 
-      {/* Filtro por estatus */}
+      {/* Filtro por Empresa (una o varias) */}
+      <View
+        style={{
+          marginBottom: spacing.sm,
+          padding: 8,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surfaceAlt,
+          gap: 6,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+          <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.text }}>
+            🏢 Filtrar por Empresa {empresaSel.length > 0 ? `(${empresaSel.length} seleccionada${empresaSel.length > 1 ? 's' : ''})` : '(Todas)'}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {empresaSel.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => setEmpresaSel([])}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: radius.pill,
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.danger }}>✕ Limpiar</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              onPress={() => setEmpresasOpen((v) => !v)}
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: radius.pill,
+                backgroundColor: empresasOpen ? colors.brand : colors.surface,
+                borderWidth: 1,
+                borderColor: empresasOpen ? colors.brand : colors.border,
+              }}
+            >
+              <Text style={{ fontSize: 10.5, fontWeight: '700', color: empresasOpen ? colors.brandContrast : colors.text }}>
+                {empresasOpen ? '▲ Ocultar buscador' : '🔍 Buscar / Más empresas'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          <TouchableOpacity
+            onPress={() => setEmpresaSel([])}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: radius.pill,
+              backgroundColor: empresaSel.length === 0 ? colors.brand : colors.surface,
+              borderWidth: 1,
+              borderColor: empresaSel.length === 0 ? colors.brand : colors.border,
+            }}
+          >
+            <Text style={{ color: empresaSel.length === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+              Todas ({reqs.length})
+            </Text>
+          </TouchableOpacity>
+          {empresaCounts.map((emp) => {
+            const sel = empresaSel.includes(emp.id);
+            return (
+              <TouchableOpacity
+                key={emp.id}
+                onPress={() => toggleEmpresa(emp.id)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: radius.pill,
+                  backgroundColor: sel ? colors.brand : colors.surface,
+                  borderWidth: 1,
+                  borderColor: sel ? colors.brand : colors.border,
+                }}
+              >
+                <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                  {sel ? '✓ ' : ''}{emp.name} ({emp.count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {empresasOpen ? (
+          <View style={{ gap: 6, marginTop: 4 }}>
+            <TextInput
+              value={empresaQ}
+              onChangeText={setEmpresaQ}
+              placeholder="Buscar empresa por nombre..."
+              placeholderTextColor={colors.muted}
+              style={[inp, { paddingVertical: 6, fontSize: 12 }]}
+            />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {companies
+                .filter((c) => !empresaQ.trim() || norm(c.name).includes(norm(empresaQ)))
+                .map((c) => {
+                  const sel = empresaSel.includes(c.id);
+                  const cnt = empresaCounts.find((x) => x.id === c.id)?.count || 0;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      onPress={() => toggleEmpresa(c.id)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: radius.md,
+                        backgroundColor: sel ? colors.brand : colors.surface,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.brand : colors.border,
+                      }}
+                    >
+                      <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
+                        {sel ? '☑ ' : '☐ '}{c.name} ({cnt})
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+            </View>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Filtro por estatus (estados de gestión de Compras + estados en Por Pagar / Almacén) */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
         {([
           { k: 'todos', label: 'Todos', color: colors.brandText },
-          { k: 'pendiente', label: '⏳ Pendientes', color: '#D97706' },
-          { k: 'aclaratoria_solicitada', label: '⚠️ En Aclaratoria', color: '#D97706' },
-          { k: 'sin_precio', label: '❗ Sin precio', color: '#DC2626' },
-          { k: 'aprobado', label: '✅ Aprobados', color: '#2563EB' },
-          { k: 'rechazado', label: '❌ Rechazados', color: '#DC2626' },
+          { k: 'sin_proveedor', label: '🏢 Falta Proveedor', color: '#4B5563' },
+          { k: 'sin_precio', label: '💲 Falta Precio', color: '#D97706' },
+          { k: 'aclaratoria_solicitada', label: '⚠️ Falta Aclaratoria', color: '#EA580C' },
+          { k: 'listo_por_pagar', label: '✅ Listos para Enviar a Por Pagar', color: '#2563EB' },
+          { k: 'aprobado', label: '💸 En Por Pagar', color: '#7C3AED' },
+          { k: 'esperando_recepcion', label: '💳 Pagados / Esperando Recepción', color: '#0D9488' },
           { k: 'recibido', label: '📦 Recibidos', color: '#16A34A' },
+          { k: 'rechazado', label: '❌ Rechazados', color: '#DC2626' },
         ] as const).map((f) => {
           const on = filterStatus === f.k;
-          const n = f.k === 'todos' ? reqs.length : f.k === 'sin_precio' ? reqs.filter(faltaPrecioDe).length : reqs.filter((r) => r.status === f.k).length;
+          const n = f.k === 'todos'
+            ? reqsPorEmpresa.length
+            : f.k === 'sin_proveedor'
+              ? reqsPorEmpresa.filter((r) => {
+                const provG = suppliers.find((s) => s.id === r.supplier_id);
+                return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_proveedor';
+              }).length
+              : f.k === 'sin_precio'
+                ? reqsPorEmpresa.filter((r) => {
+                  const provG = suppliers.find((s) => s.id === r.supplier_id);
+                  const est = calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id));
+                  return est.codigo === 'esperando_cotizacion' || (r.status === 'pendiente' && faltaPrecioDe(r));
+                }).length
+                : f.k === 'aclaratoria_solicitada'
+                  ? reqsPorEmpresa.filter((r) => r.status === 'aclaratoria_solicitada').length
+                  : f.k === 'listo_por_pagar'
+                    ? reqsPorEmpresa.filter((r) => {
+                      const provG = suppliers.find((s) => s.id === r.supplier_id);
+                      return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_pago';
+                    }).length
+                    : f.k === 'aprobado'
+                      ? reqsPorEmpresa.filter((r) => {
+                        const provG = suppliers.find((s) => s.id === r.supplier_id);
+                        const est = calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id));
+                        return est.codigo === 'aprobado' || est.codigo === 'esperando_aprobacion_gg';
+                      }).length
+                      : f.k === 'esperando_recepcion'
+                        ? reqsPorEmpresa.filter((r) => {
+                          const provG = suppliers.find((s) => s.id === r.supplier_id);
+                          return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_recepcion';
+                        }).length
+                        : reqsPorEmpresa.filter((r) => r.status === f.k).length;
           return (
             <TouchableOpacity key={f.k} onPress={() => setFilterStatus(f.k)} style={{ borderWidth: 1.5, borderColor: f.color, backgroundColor: on ? f.color : 'transparent', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
               <Text style={{ color: on ? '#fff' : f.color, fontWeight: '800', fontSize: 12 }}>{f.label} ({n})</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* 🔺 Filtro por Nivel de Prioridad (sincronizado con Por Pagar) */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '800' }}>Prioridad:</Text>
+        <TouchableOpacity
+          onPress={() => setFilterPrioridad('todas')}
+          style={{
+            borderRadius: radius.pill,
+            borderWidth: 1,
+            borderColor: filterPrioridad === 'todas' ? colors.brand : colors.border,
+            backgroundColor: filterPrioridad === 'todas' ? colors.brand : colors.surfaceAlt,
+            paddingHorizontal: spacing.sm,
+            paddingVertical: 4,
+          }}
+        >
+          <Text style={{ color: filterPrioridad === 'todas' ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+            Todas ({reqsPorEmpresa.length})
+          </Text>
+        </TouchableOpacity>
+        {PRIORIDADES_COMPRA.map((p) => {
+          const on = filterPrioridad === p;
+          const t = colorPrioridad(colors, p);
+          const countP = reqsPorEmpresa.filter((r) => r.prioridad === p).length;
+          return (
+            <TouchableOpacity
+              key={p}
+              onPress={() => setFilterPrioridad(on ? 'todas' : p)}
+              style={{
+                borderRadius: radius.pill,
+                borderWidth: 1.5,
+                borderColor: on ? t.border : colors.border,
+                backgroundColor: on ? t.bg : colors.surfaceAlt,
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 4,
+              }}
+            >
+              <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                {PRIORIDAD_COMPRA_INFO[p].label} ({countP})
+              </Text>
             </TouchableOpacity>
           );
         })}
@@ -857,13 +3535,29 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
       {(() => {
         const nq = norm(listQuery);
-        const filteredReqs = reqs
-          .filter((r) => filterStatus === 'todos' ? true : filterStatus === 'sin_precio' ? faltaPrecioDe(r) : r.status === filterStatus)
+        const filteredReqs = reqsPorEmpresa
+          .filter((r) => {
+            if (filterPrioridad !== 'todas' && r.prioridad !== filterPrioridad) return false;
+            if (filterStatus === 'todos') return true;
+            const provG = suppliers.find((s) => s.id === r.supplier_id);
+            const est = calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id));
+            if (filterStatus === 'sin_proveedor') return est.codigo === 'esperando_proveedor';
+            if (filterStatus === 'sin_precio') return est.codigo === 'esperando_cotizacion' || (r.status === 'pendiente' && faltaPrecioDe(r));
+            if (filterStatus === 'aclaratoria_solicitada') return r.status === 'aclaratoria_solicitada';
+            if (filterStatus === 'listo_por_pagar') return est.codigo === 'esperando_pago';
+            if (filterStatus === 'esperando_aprobacion_gg') {
+              return est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG);
+            }
+            if (filterStatus === 'esperando_recepcion') return est.codigo === 'esperando_recepcion';
+            if (filterStatus === 'aprobado') return est.codigo === 'aprobado' || est.codigo === 'esperando_aprobacion_gg';
+            return r.status === filterStatus;
+          })
           .filter((r) => !reqDateFrom || r.created_at.slice(0, 10) >= reqDateFrom)
           .filter((r) => !reqDateTo || r.created_at.slice(0, 10) <= reqDateTo)
           .filter((r) => {
             if (!nq) return true;
-            const haystack = [r.code, r.title, r.note, r.requested_by_name, r.decided_by_name, companyName(r.company_id), ...r.items.map((it) => it.name)]
+            const empInfo = resolverEmpresaRequerimiento(r, companies);
+            const haystack = [r.code, r.title, r.note, r.requested_by_name, r.decided_by_name, companyName(r.company_id), empInfo.name, ...r.items.map((it) => it.name)]
               .filter(Boolean).join(' ');
             return norm(haystack).includes(nq);
           });
@@ -885,255 +3579,938 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           } catch (e: any) { toast.error('No se pudo generar el resumen: ' + (e?.message ?? e)); }
         };
         return filteredReqs.length === 0 ? (
-        <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' && !listQuery && !reqDateFrom && !reqDateTo ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'Ningún requerimiento coincide con el filtro/búsqueda.'} />
-      ) : (
-        <>
-          {/* Selección para el PDF por lote: "Seleccionar todos" marca los VISIBLES (ya
+          <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' && empresaSel.length === 0 && !listQuery && !reqDateFrom && !reqDateTo ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'Ningún requerimiento coincide con el filtro/búsqueda.'} />
+        ) : (
+          <>
+            {/* Selección para el PDF por lote: "Seleccionar todos" marca los VISIBLES (ya
               filtrados/buscados); el botón exporta solo los marcados, o todos los
               filtrados si no hay ninguno marcado. */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm, flexWrap: 'wrap', gap: spacing.xs }}>
-            <TouchableOpacity onPress={() => setReqSelIds(allSel ? new Set() : new Set(filteredReqs.map((r) => r.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: allSel ? colors.brand : colors.border, backgroundColor: allSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                {allSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm, flexWrap: 'wrap', gap: spacing.xs }}>
+              <TouchableOpacity onPress={() => setReqSelIds(allSel ? new Set() : new Set(filteredReqs.map((r) => r.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: allSel ? colors.brand : colors.border, backgroundColor: allSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {allSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                </View>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todos ({filteredReqs.length})</Text>
+              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <TouchableOpacity onPress={pdfResumen} style={{ backgroundColor: colors.surfaceAlt ?? colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📄 Resumen{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={pdfMultiple} style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 PDF{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
+                </TouchableOpacity>
               </View>
-              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todos ({filteredReqs.length})</Text>
-            </TouchableOpacity>
-            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-              <TouchableOpacity onPress={pdfResumen} style={{ backgroundColor: colors.surfaceAlt ?? colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📄 Resumen{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={pdfMultiple} style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 PDF{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
-              </TouchableOpacity>
             </View>
-          </View>
-          {/* APROBACIÓN EN LOTE (solo admin): aparece cuando hay ≥1 requerimiento
-              PENDIENTE marcado; aprueba todos los marcados de un solo click. */}
-          {isAdmin && (() => {
-            const nPend = filteredReqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').length;
-            if (!nPend) return null;
-            return (
-              <TouchableOpacity onPress={aprobarLote} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.brandContrast ?? '#fff', fontWeight: '900', fontSize: 14 }}>✅ Aprobar en lote ({nPend})</Text>
-              </TouchableOpacity>
-            );
-          })()}
-          {filteredReqs.map((r) => {
-            const rSel = reqSelIds.has(r.id);
-            return (
-            <View key={r.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs }}>
-              <TouchableOpacity onPress={() => toggleReqSel(r.id)} style={{ paddingTop: spacing.md }}>
-                <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: rSel ? colors.brand : colors.border, backgroundColor: rSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                  {rSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
-                </View>
-              </TouchableOpacity>
-              <View style={{ flex: 1 }}>
-              {(() => {
-        const st = REQ_STATUS[r.status] ?? REQ_STATUS.pendiente;
-        const tUsd = totalUsdDe(r);
-        const faltaPrecio = faltaPrecioDe(r);
-        return (
-          <ExpandableCard
-            key={r.id}
-            summary={
-              <View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}{r.responsable_nombre ? ` · 📦 Resp.: ${r.responsable_nombre}` : ''}</Text>
-                    {r.empresa_pagadora_nombre ? (
-                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>💳 Pagadora: {r.empresa_pagadora_nombre}</Text>
-                    ) : null}
-                  </View>
-                  <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 170 }}>
-                    {canReceive ? (
-                      <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); setStatusPickerId((id) => (id === r.id ? null : r.id)); }}>
-                        <Pill label={`${st.label} ${statusPickerId === r.id ? '▴' : '▾'}`} color={st.color} />
-                      </TouchableOpacity>
-                    ) : (
-                      <Pill label={st.label} color={st.color} />
-                    )}
-                    {faltaPrecio ? <Pill label="❗ Pendiente por cargar precio" color={colors.danger} /> : null}
-                  </View>
-                </View>
-
-                {tUsd >= 1000 ? (
-                  <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#FEF2F2', borderColor: '#DC2626', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                    <Text style={{ color: '#DC2626', fontWeight: '800', fontSize: 11 }}>🚨 Umbral &gt; $1,000 USD (Req. Doble Aprobación / Tesorería)</Text>
-                  </View>
-                ) : null}
-
-                {r.status === 'aclaratoria_solicitada' && r.aclaratoria_motivo ? (
-                  <View style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
-                    <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 12 }}>⚠️ Aclaratoria Técnica Solicitada por Compras</Text>
-                    <Text style={{ color: '#B45309', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_motivo}</Text>
-                    {r.aclaratoria_solicitada_por ? (
-                      <Text style={{ color: '#92400E', fontSize: 10, marginTop: 2 }}>Solicitado por: {r.aclaratoria_solicitada_por}{r.aclaratoria_fecha_solicitud ? ` (${dmyOf(r.aclaratoria_fecha_solicitud)})` : ''}</Text>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {r.aclaratoria_respuesta ? (
-                  <View style={{ backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
-                    <Text style={{ color: '#065F46', fontWeight: '800', fontSize: 12 }}>💬 Respuesta Técnica Registrada</Text>
-                    <Text style={{ color: '#047857', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_respuesta}</Text>
-                    {r.aclaratoria_fecha_respuesta ? (
-                      <Text style={{ color: '#065F46', fontSize: 10, marginTop: 2 }}>Respondido: {dmyOf(r.aclaratoria_fecha_respuesta)}</Text>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {/* Cambiar estado A MANO, tocando el badge de arriba — no crea ni revierte
-                    stock, solo corrige la etiqueta. Aparte del pill "sin precio". */}
-                {canReceive && statusPickerId === r.id ? (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: spacing.xs, justifyContent: 'flex-end' }}>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
-                    {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
-                      <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s].short}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            }
-            detail={
-              <View>
-                {r.items.map((it, i) => (
-                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 3, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
-                    <View style={{ flex: 1 }}>
-                      {/* 🔢 El mismo número que la columna «#» del PDF y que el
-                          formulario: así «el renglón 3» es el mismo para todos. */}
-                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}><Text style={{ color: colors.muted }}>{i + 1}. </Text>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}</Text>
-                      {it.note ? <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginTop: 1 }}>📐 {it.note}</Text> : null}
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>{qtyFmt(it.qty)} {it.unit || ''} · {it.currency === 'USD' ? usd(it.est_price) : fmtBs(it.est_price)} c/u</Text>
+            {/* ENVIAR EN LOTE A POR PAGAR: aparece cuando hay ≥1 requerimiento
+              PENDIENTE marcado; los envía todos a 💸 Por Pagar de un solo click. */}
+            {canWrite && (() => {
+              const nPend = filteredReqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').length;
+              if (!nPend) return null;
+              return (
+                <TouchableOpacity onPress={aprobarLote} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.brandContrast ?? '#fff', fontWeight: '900', fontSize: 14 }}>💸 Enviar en lote a Por Pagar ({nPend})</Text>
+                </TouchableOpacity>
+              );
+            })()}
+            {filteredReqs.map((r) => {
+              const rSel = reqSelIds.has(r.id);
+              return (
+                <View key={r.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs }}>
+                  <TouchableOpacity onPress={() => toggleReqSel(r.id)} style={{ paddingTop: spacing.md }}>
+                    <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: rSel ? colors.brand : colors.border, backgroundColor: rSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {rSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
                     </View>
-                    {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
-                  </View>
-                ))}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
-                  <Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text>
-                  <Text style={{ color: colors.brandText, fontWeight: '900' }}>{usd(tUsd)}{rate ? ` · ${fmtBs(bsFromUsd(tUsd, rate))}` : ''}</Text>
-                </View>
-                {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
-                {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
-                {r.status === 'recibido' ? <Text style={{ color: colors.success, fontSize: 11, marginTop: 2 }}>Recibido en inventario{r.received_at ? ` · ${dmyOf(r.received_at)}` : ''}</Text> : null}
-                {r.attachment_url ? <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2, fontWeight: '700' }}>📎 Formato adjunto{r.attachment_type === 'pdf' ? ' (PDF)' : ' (imagen)'}</Text> : null}
-
-                {r.supplier_id ? (() => {
-                  const s = suppliers.find((sup) => sup.id === r.supplier_id);
-                  if (!s) return null;
-                  const hasBank = !!(s.bank_name || s.account_number);
-                  const hasPm = !!s.pago_movil_phone;
-                  const hasBin = !!s.binance_id;
-                  return (
-                    <View style={{ marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
-                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>Proveedor: {s.name}</Text>
-                      {hasBank || hasPm || hasBin ? (
-                        <Text style={{ fontSize: 10, color: colors.muted }}>
-                          {hasBank ? `🏦 ${s.bank_name} (${s.account_number?.slice(-4) || '—'}) ` : ''}
-                          {hasPm ? `📱 PM: ${s.pago_movil_phone} ` : ''}
-                          {hasBin ? `🟡 Binance: ${s.binance_id}` : ''}
-                        </Text>
-                      ) : (
-                        <Text style={{ fontSize: 10, color: '#D97706' }}>⚠️ Proveedor sin datos bancarios ni de pago móvil registrados</Text>
-                      )}
-                    </View>
-                  );
-                })() : null}
-
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-                  <TouchableOpacity onPress={() => pdf(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
                   </TouchableOpacity>
-                  {/* Subir formato (imagen o PDF) al requerimiento. */}
-                  {canWrite ? (
-                    <TouchableOpacity onPress={() => subirFormato(r)} disabled={subiendoId === r.id} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: subiendoId === r.id ? 0.6 : 1 }}>
-                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>{subiendoId === r.id ? '⏳ Subiendo…' : r.attachment_url ? '📎 Cambiar formato' : '📎 Subir formato'}</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Ver formato adjunto (vista previa + descarga). */}
-                  {r.attachment_url ? (
-                    <TouchableOpacity onPress={() => setPreviewReq(r)} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>👁️ Ver formato</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Solicitar aclaratoria técnica si está pendiente */}
-                  {canWrite && r.status === 'pendiente' ? (
-                    <TouchableOpacity onPress={() => abrirSolicitarAclaratoria(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: '#D97706', fontWeight: '800', fontSize: 12 }}>🔄 Solicitar Aclaratoria</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Responder aclaratoria técnica si está en aclaratoria */}
-                  {r.status === 'aclaratoria_solicitada' ? (
-                    <TouchableOpacity onPress={() => abrirResponderAclaratoria(r)} style={{ backgroundColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>📝 Responder Aclaratoria</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Editar datos de pago del proveedor si tiene proveedor asignado */}
-                  {r.supplier_id && canWrite ? (() => {
-                    const s = suppliers.find((sup) => sup.id === r.supplier_id);
-                    if (!s) return null;
-                    return (
-                      <TouchableOpacity onPress={() => abrirEditarPagoProv(s)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>💳 Datos de Pago Prov.</Text>
-                      </TouchableOpacity>
-                    );
-                  })() : null}
-                  {isAdmin && r.status === 'pendiente' ? (
-                    <>
-                      <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => decidir(r, 'rechazado')} style={{ backgroundColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>❌ Rechazar</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : null}
-                  {canReceive && r.status === 'aprobado' ? (
-                    <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Anular un requerimiento YA APROBADO: el mismo gerente lo rechaza y la
+                  <View style={{ flex: 1 }}>
+                    {(() => {
+                      const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+                      const estDinamico = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion, cuentasPagadasSet.has(r.id));
+                      const tUsd = estDinamico.totalUSD;
+                      const faltaPrecio = !estDinamico.tieneCotizacionCompleta;
+                      return (
+                        <ExpandableCard
+                          key={r.id}
+                          summary={
+                            <View>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                                <View style={{ flex: 1, minWidth: 150 }}>
+                                  <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
+                                  <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}{r.responsable_nombre ? ` · 📦 Resp.: ${r.responsable_nombre}` : ''}</Text>
+                                  {r.empresa_pagadora_nombre ? (
+                                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>💳 Pagadora: {r.empresa_pagadora_nombre}</Text>
+                                  ) : null}
+                                  {(() => {
+                                    const destConPlaca = extraerDestinoDeRequerimiento(r, machines, null);
+                                    const envInfo = extraerEnvioCxp(r.observaciones);
+                                    const enviadoPorTxt = envInfo?.enviadoPor || (r.status === 'aprobado' ? r.decided_by_name : null);
+                                    const enviadoAtTxt = envInfo?.fecha || (r.status === 'aprobado' ? r.decided_at : null);
+                                    return (
+                                      <View style={{ marginTop: 3, gap: 1 }}>
+                                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                                          👤 <Text style={{ fontWeight: '700' }}>Solicitado por:</Text>{' '}
+                                          <Text style={{ color: colors.brandText, fontWeight: '800' }}>
+                                            {r.solicitante_nombre || r.requested_by_name || 'Personal de Campo'}
+                                          </Text>
+                                          {r.requested_by_name && r.solicitante_nombre && r.requested_by_name !== r.solicitante_nombre ? (
+                                            <Text style={{ color: colors.muted, fontSize: 11 }}> (registró: {r.requested_by_name})</Text>
+                                          ) : null}
+                                          <Text style={{ color: colors.muted, fontSize: 11 }}> · 🕒 {fmtFechaHora(r.created_at)}</Text>
+                                        </Text>
+                                        {destConPlaca || r.area ? (
+                                          <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                                            {destConPlaca ? (
+                                              <>
+                                                🚜 <Text style={{ fontWeight: '700', color: colors.text }}>Para / Destino:</Text>{' '}
+                                                <Text style={{ fontWeight: '800', color: colors.brandText }}>{destConPlaca}</Text>
+                                              </>
+                                            ) : null}
+                                            {r.area ? `  📍 Área: ${r.area}` : ''}
+                                          </Text>
+                                        ) : null}
+                                        {enviadoPorTxt && enviadoAtTxt ? (
+                                          <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '700' }}>
+                                            📤 Enviado a Por Pagar por {enviadoPorTxt} · 🕒 {fmtFechaHora(enviadoAtTxt)}
+                                          </Text>
+                                        ) : null}
+                                      </View>
+                                    );
+                                  })()}
+                                </View>
+                                <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 1, maxWidth: 260 }}>
+                                  {canReceive ? (
+                                    <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); setStatusPickerId((id) => (id === r.id ? null : r.id)); }}>
+                                      <Pill label={`${estDinamico.label} ${statusPickerId === r.id ? '▴' : '▾'}`} color={estDinamico.color} />
+                                    </TouchableOpacity>
+                                  ) : (
+                                    <Pill label={estDinamico.label} color={estDinamico.color} />
+                                  )}
+                                  {faltaPrecio && estDinamico.codigo !== 'esperando_cotizacion' ? <Pill label="💲 Falta Precio" color={colors.danger} /> : null}
+                                  {esPrioridadCompra(r.prioridad) ? <Pill label={`Prioridad ${PRIORIDAD_COMPRA_INFO[r.prioridad].label}`} color={colorPrioridad(colors, r.prioridad).text} /> : null}
+                                  {r.status === 'pendiente' && estDinamico.codigo === 'esperando_pago' && (canWrite || puedeAprobarRequerimientos || isAdmin) ? (
+                                    <TouchableOpacity
+                                      onPress={(e) => { e.stopPropagation?.(); decidir(r, 'aprobado'); }}
+                                      style={{ backgroundColor: '#2563EB', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4, marginTop: 2 }}
+                                    >
+                                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 11 }}>💸 Enviar a Por Pagar</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                </View>
+                              </View>
+
+                              {/* Badge de Compra Consolidada Multi-Proveedor */}
+                              {estDinamico.esMultiProveedor ? (
+                                <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                                  <Text style={{ color: '#1D4ED8', fontWeight: '800', fontSize: 11 }}>
+                                    🏢 Compra Consolidada Multi-Proveedor ({estDinamico.proveedoresNombres.join(', ')})
+                                  </Text>
+                                </View>
+                              ) : null}
+
+                              {/* Indicador de Estado en 💸 Por Pagar (Esperando Aprobación / Esperando Pago / Pagado) */}
+                              {estDinamico.codigo === 'esperando_recepcion' ? (
+                                <View style={{ alignSelf: 'stretch', marginTop: 5, backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1.5, borderRadius: radius.md, padding: spacing.xs, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                                  <Text style={{ color: '#065F46', fontWeight: '900', fontSize: 12 }}>
+                                    ✅ PAGADO EN POR PAGAR · 📦 Esperando Recepción en Almacén
+                                  </Text>
+                                  <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11.5 }}>
+                                    {usd(tUsd)}
+                                  </Text>
+                                </View>
+                              ) : estDinamico.requiereAprobacionGG ? (
+                                <View style={{ alignSelf: 'stretch', marginTop: 5, backgroundColor: '#FAF5FF', borderColor: '#8B5CF6', borderWidth: 1.5, borderRadius: radius.md, padding: spacing.sm, gap: 4 }}>
+                                  <Text style={{ color: '#6D28D9', fontWeight: '900', fontSize: 12 }}>
+                                    💸 En Por Pagar · 👔 Esperando Aprobación de {estDinamico.aprobadoresNombres?.join(' / ') || 'Gerente General'}{tUsd >= 1000 ? ' · 💰 Pago > $1,000 USD' : ''}
+                                  </Text>
+                                  <Text style={{ color: '#7C3AED', fontSize: 11 }}>
+                                    Monto total: {usd(tUsd)}. La autorización del pago se realiza directamente desde la pestaña 💸 Por Pagar.
+                                  </Text>
+                                </View>
+                              ) : r.status === 'aprobado' ? (
+                                <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                                  <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11 }}>
+                                    ⏳ En Por Pagar · Esperando Pago{extraerAprobacionCxp(r.observaciones)?.aprobadoPor ? ` (Autorizado por ${extraerAprobacionCxp(r.observaciones)?.aprobadoPor})` : ''}
+                                  </Text>
+                                </View>
+                              ) : null}
+
+                              {(() => {
+                                const condReq = extraerCondicionesPago(r.observaciones);
+                                if (!condReq) return null;
+                                return (
+                                  <View style={{ marginTop: 6, paddingHorizontal: 8, paddingVertical: 5, borderRadius: radius.sm, backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderLeftWidth: 3, borderLeftColor: colors.brand }}>
+                                    <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                                      <Text style={{ color: colors.infoSoftText, fontWeight: '800' }}>💳 Condiciones de pago: </Text>
+                                      <Text style={{ fontWeight: '700' }}>{condReq}</Text>
+                                    </Text>
+                                  </View>
+                                );
+                              })()}
+
+                              {r.status === 'aclaratoria_solicitada' && r.aclaratoria_motivo ? (
+                                <View style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
+                                  <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 12 }}>⚠️ Aclaratoria Técnica Solicitada por Compras</Text>
+                                  <Text style={{ color: '#B45309', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_motivo}</Text>
+                                  {r.aclaratoria_solicitada_por ? (
+                                    <Text style={{ color: '#92400E', fontSize: 10, marginTop: 2 }}>Solicitado por: {r.aclaratoria_solicitada_por}{r.aclaratoria_fecha_solicitud ? ` (${dmyOf(r.aclaratoria_fecha_solicitud)})` : ''}</Text>
+                                  ) : null}
+                                </View>
+                              ) : null}
+
+                              {r.aclaratoria_respuesta ? (
+                                <View style={{ backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs }}>
+                                  <Text style={{ color: '#065F46', fontWeight: '800', fontSize: 12 }}>💬 Respuesta Técnica Registrada</Text>
+                                  <Text style={{ color: '#047857', fontSize: 12, marginTop: 2 }}>{r.aclaratoria_respuesta}</Text>
+                                  {r.aclaratoria_fecha_respuesta ? (
+                                    <Text style={{ color: '#065F46', fontSize: 10, marginTop: 2 }}>Respondido: {dmyOf(r.aclaratoria_fecha_respuesta)}</Text>
+                                  ) : null}
+                                </View>
+                              ) : null}
+
+                              {/* Cambiar estado A MANO, tocando el badge de arriba — no crea ni revierte
+                    stock, solo corrige la etiqueta. Aparte del pill "sin precio". */}
+                              {canReceive && statusPickerId === r.id ? (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: spacing.xs, justifyContent: 'flex-end' }}>
+                                  <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
+                                  {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'esperando_recepcion', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
+                                    <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s]?.short || s}</Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                </View>
+                              ) : null}
+                            </View>
+                          }
+                          detail={
+                            <View>
+                              {r.items.map((it, i) => {
+                                const q = Number(it.qty) || 1;
+                                const pUsdVal = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
+                                const pBsVal = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdVal * rate * 100) / 100 : 0));
+                                const totUsdVal = it.modo_precio === 'total' && Number(it.total_usd) > 0 ? Number(it.total_usd) : pUsdVal * q;
+                                const totBsVal = it.modo_precio === 'total' && Number(it.total_bs) > 0 ? Number(it.total_bs) : pBsVal * q;
+                                const cots = Array.isArray(it.cotizaciones) ? it.cotizaciones : [];
+                                return (
+                                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 4, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+                                    <View style={{ flex: 1 }}>
+                                      {/* 🔢 Número de renglón */}
+                                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
+                                        <Text style={{ color: colors.muted }}>{i + 1}. </Text>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}
+                                        {it.exento ? <Text style={{ color: '#0284C7', fontSize: 11, fontWeight: '800' }}> · 🛡️ EXENTO DE IVA</Text> : null}
+                                      </Text>
+                                      {it.note ? <Text style={{ color: colors.brandText, fontSize: 11, fontStyle: 'italic', marginTop: 1 }}>📐 {it.note}</Text> : null}
+                                      {it.supplier_name ? (
+                                        <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '700', marginTop: 1 }}>🏢 Proveedor del ítem: {it.supplier_name}</Text>
+                                      ) : null}
+                                      {cots.length > 0 ? (
+                                        <Text style={{ color: '#7E22CE', fontSize: 11, fontWeight: '700', marginTop: 1 }}>📋 {cots.length} presupuesto(s) alternativo(s) evaluado(s)</Text>
+                                      ) : null}
+                                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+                                        {qtyFmt(it.qty)} {it.unit || ''} · {usd(pUsdVal)}{pBsVal > 0 ? ` / ${fmtBs(pBsVal)}` : ''} c/u
+                                        {q !== 1 || it.modo_precio === 'total'
+                                          ? `  ➜  Total: ${usd(totUsdVal)}${totBsVal > 0 ? ` / ${fmtBs(totBsVal)}` : ''}${it.modo_precio === 'total' ? ' (📦 Precio Total)' : ''}`
+                                          : ''}
+                                      </Text>
+                                    </View>
+                                    {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
+                                  </View>
+                                );
+                              })}
+                              {(() => {
+                                const lineTotalUsd = (it: RequirementLine) => {
+                                  if (it.modo_precio === 'total' && Number(it.total_usd) > 0) return Number(it.total_usd);
+                                  const pU = it.price_usd != null ? Number(it.price_usd) : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0));
+                                  return pU * (Number(it.qty) || 0);
+                                };
+                                const subUsd = r.items.reduce((s, it) => s + lineTotalUsd(it), 0);
+                                const baseUsd = r.items.reduce((s, it) => s + (it.exento ? 0 : lineTotalUsd(it)), 0);
+                                const exentoUsd = subUsd - baseUsd;
+                                const alic = r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r);
+                                const ivaUsd = Math.round(baseUsd * (alic / 100) * 100) / 100;
+                                const totalConIvaUsd = alic > 0 ? Math.round((subUsd + ivaUsd) * 100) / 100 : tUsd;
+
+                                return (
+                                  <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                                    {alic > 0 || exentoUsd > 0 ? (
+                                      <View style={{ marginBottom: 4, gap: 2 }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                          <Text style={{ color: colors.muted, fontSize: 11 }}>Subtotal:</Text>
+                                          <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{usd(subUsd)}</Text>
+                                        </View>
+                                        {exentoUsd > 0 ? (
+                                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                            <Text style={{ color: '#0369A1', fontSize: 11 }}>Exento de IVA:</Text>
+                                            <Text style={{ color: '#0369A1', fontSize: 11, fontWeight: '700' }}>{usd(exentoUsd)}</Text>
+                                          </View>
+                                        ) : null}
+                                        {alic > 0 ? (
+                                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                            <Text style={{ color: colors.muted, fontSize: 11 }}>IVA ({alic}%):</Text>
+                                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{usd(ivaUsd)}</Text>
+                                          </View>
+                                        ) : null}
+                                      </View>
+                                    ) : null}
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                      <Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text>
+                                      <Text style={{ color: colors.brandText, fontWeight: '900' }}>
+                                        {usd(totalConIvaUsd)}{rate ? ` · ${fmtBs(bsFromUsd(totalConIvaUsd, rate))}` : ''}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                );
+                              })()}
+                              {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
+                              {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
+                              {r.motorizado_nombre ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>🏍️ Motorizado responsable: {r.motorizado_nombre}</Text> : null}
+
+                              {/* 📜 Línea de tiempo / Histórico de movimientos del Requerimiento */}
+                              {(() => {
+                                const ctaVinc = (cuentasData || []).find((c) => c.inventory_requirement_id === r.id) || null;
+                                const evs = construirTimelineExpediente({
+                                  req: r,
+                                  cuenta: ctaVinc,
+                                  companies,
+                                  suppliers,
+                                  machines,
+                                });
+                                return <TimelineExpedienteBox eventos={evs} />;
+                              })()}
+
+                              {/* 🔺 Selector rápido de Prioridad directo en la tarjeta (sincronizado con Por Pagar) */}
+                              {canWrite || esPrioridadCompra(r.prioridad) ? (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                                  <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '800' }}>Prioridad:</Text>
+                                  {PRIORIDADES_COMPRA.filter((p) => canWrite || r.prioridad === p).map((p) => {
+                                    const on = r.prioridad === p;
+                                    const t = colorPrioridad(colors, p);
+                                    return (
+                                      <TouchableOpacity
+                                        key={p}
+                                        disabled={!canWrite}
+                                        onPress={() => ponerPrioridadReq(r, on ? null : p)}
+                                        style={{
+                                          borderRadius: radius.pill,
+                                          borderWidth: 1,
+                                          borderColor: on ? t.border : colors.border,
+                                          backgroundColor: on ? t.bg : colors.surfaceAlt,
+                                          paddingHorizontal: spacing.sm,
+                                          paddingVertical: 3,
+                                        }}
+                                      >
+                                        <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                                          {PRIORIDAD_COMPRA_INFO[p].label}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                  {canWrite && esPrioridadCompra(r.prioridad) ? (
+                                    <TouchableOpacity onPress={() => ponerPrioridadReq(r, null)} style={{ paddingHorizontal: spacing.xs, paddingVertical: 3 }}>
+                                      <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 11.5 }}>Quitar ✕</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                </View>
+                              ) : null}
+                              {(() => {
+                                const fmts = extraerFormatosAdjuntos(r);
+                                if (fmts.length === 0) return null;
+                                return (
+                                  <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2, fontWeight: '700' }}>
+                                    📎 {fmts.length === 1 ? `Formato adjunto (${fmts[0].kind === 'pdf' ? 'PDF' : 'imagen'})` : `${fmts.length} formatos adjuntos`}
+                                  </Text>
+                                );
+                              })()}
+
+                              {/* 🏬 Ficha de Proveedor Propuesto por el Solicitante (si existe) */}
+                              {(() => {
+                                const provSug = extraerProveedorSugerido(r.observaciones);
+                                if (!provSug) return null;
+                                return (
+                                  <View
+                                    style={{
+                                      marginTop: spacing.xs,
+                                      backgroundColor: '#FEF3C7',
+                                      borderWidth: 1.5,
+                                      borderColor: '#F59E0B',
+                                      borderRadius: radius.md,
+                                      padding: spacing.sm,
+                                      gap: 4,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Text style={{ fontSize: 16 }}>🏬</Text>
+                                        <Text style={{ color: '#92400E', fontWeight: '900', fontSize: 12.5 }}>
+                                          PROVEEDOR PROPUESTO POR EL SOLICITANTE
+                                        </Text>
+                                      </View>
+                                      <View style={{ flexDirection: 'row', gap: 4 }}>
+                                        {provSug.telefono ? (
+                                          <>
+                                            <TouchableOpacity
+                                              onPress={() => Linking.openURL(`tel:${provSug.telefono.replace(/\s+/g, '')}`)}
+                                              style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#D97706', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
+                                            >
+                                              <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '800' }}>📞 Llamar</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                              onPress={() => {
+                                                const clean = provSug.telefono.replace(/\D/g, '');
+                                                const wa = clean.startsWith('58') ? clean : clean.startsWith('0') ? '58' + clean.slice(1) : clean;
+                                                Linking.openURL(`https://wa.me/${wa}`);
+                                              }}
+                                              style={{ backgroundColor: '#059669', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
+                                            >
+                                              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>💬 WhatsApp</Text>
+                                            </TouchableOpacity>
+                                          </>
+                                        ) : null}
+                                      </View>
+                                    </View>
+
+                                    {provSug.nombre ? (
+                                      <Text style={{ color: '#78350F', fontSize: 12.5 }}>
+                                        🏢 <Text style={{ fontWeight: '800' }}>Nombre / Tienda:</Text> {provSug.nombre}
+                                      </Text>
+                                    ) : null}
+                                    {provSug.telefono ? (
+                                      <Text style={{ color: '#78350F', fontSize: 12 }}>
+                                        📞 <Text style={{ fontWeight: '800' }}>Teléfono:</Text> {provSug.telefono}
+                                      </Text>
+                                    ) : null}
+                                    {provSug.direccion ? (
+                                      <Text style={{ color: '#78350F', fontSize: 12 }}>
+                                        📍 <Text style={{ fontWeight: '800' }}>Dirección / Ubicación:</Text> {provSug.direccion}
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                );
+                              })()}
+
+                              {r.supplier_id ? (() => {
+                                const s = suppliers.find((sup) => sup.id === r.supplier_id);
+                                if (!s) return null;
+                                const hasBank = !!(s.bank_name || s.account_number);
+                                const hasPm = !!s.pago_movil_phone;
+                                const hasBin = !!s.binance_id;
+                                return (
+                                  <View style={{ marginTop: spacing.xs, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>Proveedor General: {s.name}</Text>
+                                    {hasBank || hasPm || hasBin || !!extraerCapturaPago(s) ? (
+                                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 2 }}>
+                                        {hasBank ? <Text style={{ fontSize: 10, color: colors.muted }}>🏦 {s.bank_name} ({s.account_number?.slice(-4) || '—'})</Text> : null}
+                                        {hasPm ? <Text style={{ fontSize: 10, color: colors.muted }}>📱 PM: {s.pago_movil_phone}</Text> : null}
+                                        {hasBin ? <Text {...rawCaseField} style={{ fontSize: 10, color: colors.muted, textTransform: 'none' }}>🟡 Binance: {s.binance_id}</Text> : null}
+                                        {(() => {
+                                          const cap = extraerCapturaPago(s);
+                                          if (!cap) return null;
+                                          return (
+                                            <TouchableOpacity
+                                              onPress={() => setVisorCapturaProv(cap)}
+                                              style={{ backgroundColor: '#581C87', borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2 }}
+                                            >
+                                              <Text style={{ color: '#E9D5FF', fontSize: 10, fontWeight: '800' }}>
+                                                📸 {cap.name || 'Captura TRX/Tron'} 👁️
+                                              </Text>
+                                            </TouchableOpacity>
+                                          );
+                                        })()}
+                                      </View>
+                                    ) : (
+                                      <Text style={{ fontSize: 10, color: '#D97706' }}>⚠️ Proveedor sin datos bancarios ni de pago móvil registrados</Text>
+                                    )}
+                                  </View>
+                                );
+                              })() : null}
+
+                              {/* 🧾 Factura y 💳 Comprobante de Pago: SOLO se suben en 💸 Por Pagar; aquí se muestran de lectura cuando ya fueron cargados en Por Pagar */}
+                              {(() => {
+                                const fac = extraerFactura(r);
+                                const tieneFac = Boolean(fac && (fac.numero || fac.url || fac.nota || (fac.archivos && fac.archivos.length > 0)));
+                                if (!tieneFac) return null;
+                                // Si el requerimiento no guardó la foto (recepciones viejas), se muestra
+                                // la que quedó en la cuenta por pagar atada (31-oct-2026).
+                                const facCtaVinc = !fac?.archivos?.length && !fac?.url
+                                  ? extraerFacturaCuenta((cuentasData || []).find((c) => c.inventory_requirement_id === r.id))
+                                  : null;
+                                const archivosFac: ArchivoSoporte[] = fac?.archivos && fac.archivos.length > 0
+                                  ? fac.archivos
+                                  : fac?.url
+                                    ? [{ url: fac.url, tipo: (fac.tipo === 'pdf' ? 'pdf' : 'image') as 'image' | 'pdf', nombre: fac.nombre || 'Factura' }]
+                                    : facCtaVinc?.archivos?.length
+                                      ? facCtaVinc.archivos
+                                      : [];
+                                return (
+                                  <View
+                                    style={{
+                                      marginTop: spacing.sm,
+                                      backgroundColor: colors.surfaceAlt,
+                                      borderRadius: radius.md,
+                                      borderWidth: 1.5,
+                                      borderColor: '#6366F1',
+                                      padding: spacing.sm,
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Text style={{ fontSize: 14 }}>🧾</Text>
+                                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                                          Factura Fiscal / Comercial ({archivosFac.length || 1} en Por Pagar)
+                                        </Text>
+                                      </View>
+                                      {fac?.empresa ? (
+                                        <View
+                                          style={{
+                                            backgroundColor: '#E0E7FF',
+                                            borderColor: '#6366F1',
+                                            borderWidth: 1,
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 2,
+                                            borderRadius: radius.pill,
+                                          }}
+                                        >
+                                          <Text style={{ color: '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
+                                            🏭 {fac.empresa}
+                                          </Text>
+                                        </View>
+                                      ) : null}
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                                      <Text style={{ fontSize: 12, color: colors.text }}>
+                                        <Text style={{ fontWeight: '700' }}>N° Factura:</Text>{' '}
+                                        <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero || 'S/N'}</Text>
+                                      </Text>
+                                      {fac?.fecha ? (
+                                        <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                          📅 Fecha: {fac.fecha}
+                                        </Text>
+                                      ) : null}
+                                    </View>
+                                    {fac?.nota ? (
+                                      <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic' }}>
+                                        📝 Nota factura: {fac.nota}
+                                      </Text>
+                                    ) : null}
+                                    {archivosFac.length > 0 ? (
+                                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                                        {archivosFac.map((arch, aIdx) => (
+                                          <TouchableOpacity
+                                            key={aIdx}
+                                            onPress={() => abrirVisorFactura(arch.url, arch.tipo, arch.nombre || `Factura #${aIdx + 1}`)}
+                                            style={{
+                                              backgroundColor: colors.surface,
+                                              borderWidth: 1,
+                                              borderColor: colors.brand,
+                                              borderRadius: radius.sm,
+                                              paddingHorizontal: spacing.sm,
+                                              paddingVertical: 4,
+                                              flexDirection: 'row',
+                                              alignItems: 'center',
+                                              gap: 4,
+                                            }}
+                                          >
+                                            <Text style={{ fontSize: 11 }}>👁️</Text>
+                                            <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>
+                                              {archivosFac.length > 1 ? `Ver Factura #${aIdx + 1}` : 'Ver Factura Adjunta'}
+                                            </Text>
+                                          </TouchableOpacity>
+                                        ))}
+                                      </View>
+                                    ) : null}
+                                    {canWrite ? (
+                                      <TouchableOpacity
+                                        onPress={() => setSoporteEdit({ req: r, tipo: 'factura', archivos: archivosFac })}
+                                        style={{ alignSelf: 'flex-start', marginTop: 2, borderWidth: 1, borderColor: '#6366F1', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                                      >
+                                        <Text style={{ color: '#6366F1', fontWeight: '800', fontSize: 11.5 }}>✏️ Editar / + Fotos Factura</Text>
+                                      </TouchableOpacity>
+                                    ) : null}
+                                  </View>
+                                );
+                              })()}
+
+                              {/* 💳 Sección Dedicada: Recibo / Comprobante de Pago Bancario (reflejado desde 💸 Por Pagar) */}
+                              {(() => {
+                                const rec = extraerReciboPago(r);
+                                const tieneRec = Boolean(rec && (rec.url || rec.referencia || rec.nota || (rec.archivos && rec.archivos.length > 0)));
+                                const marcadoPagado = tieneRec || cuentasPagadasSet.has(r.id) || r.status === 'esperando_recepcion' || (r.status as string) === 'pagado';
+                                if (!marcadoPagado) return null;
+                                const archivosRec = rec?.archivos && rec.archivos.length > 0
+                                  ? rec.archivos
+                                  : rec?.url
+                                    ? [{ url: rec.url, tipo: (rec.tipo === 'pdf' ? 'pdf' : 'image') as 'image' | 'pdf', nombre: rec.nombre || 'Comprobante de Pago' }]
+                                    : [];
+                                return (
+                                  <View
+                                    style={{
+                                      marginTop: spacing.xs,
+                                      backgroundColor: colors.surfaceAlt,
+                                      borderRadius: radius.md,
+                                      borderWidth: 1.5,
+                                      borderColor: '#10B981',
+                                      padding: spacing.sm,
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Text style={{ fontSize: 14 }}>💳</Text>
+                                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                                          Recibo / Comprobante de Pago ({archivosRec.length || 1} en Por Pagar)
+                                        </Text>
+                                      </View>
+                                      {rec?.metodo ? (
+                                        <View
+                                          style={{
+                                            backgroundColor: '#ECFDF5',
+                                            borderColor: '#10B981',
+                                            borderWidth: 1,
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 2,
+                                            borderRadius: radius.pill,
+                                          }}
+                                        >
+                                          <Text style={{ color: '#065F46', fontSize: 10.5, fontWeight: '800' }}>
+                                            {rec.metodo}
+                                          </Text>
+                                        </View>
+                                      ) : null}
+                                    </View>
+
+                                    <View style={{ gap: 4 }}>
+                                      {tieneRec ? (
+                                        <>
+                                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                                            {rec?.referencia ? (
+                                              <Text style={{ fontSize: 12, color: colors.text }}>
+                                                <Text style={{ fontWeight: '700' }}>Ref / Comprobante:</Text>{' '}
+                                                <Text style={{ fontWeight: '900', color: '#059669' }}>{rec.referencia}</Text>
+                                              </Text>
+                                            ) : null}
+                                            {rec?.fecha ? (
+                                              <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                                📅 Fecha de Pago: {rec.fecha}
+                                              </Text>
+                                            ) : null}
+                                          </View>
+                                          {rec?.nota ? (
+                                            <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic' }}>
+                                              📝 Nota de pago: {rec.nota}
+                                            </Text>
+                                          ) : null}
+                                          {rec?.subidoPor ? (
+                                            <Text style={{ fontSize: 11, color: colors.muted }}>
+                                              👤 Adjuntado por: {rec.subidoPor}
+                                            </Text>
+                                          ) : null}
+                                        </>
+                                      ) : (
+                                        <Text style={{ fontSize: 11.5, color: '#047857', fontWeight: '700' }}>
+                                          ✅ Marcado como pagado (sincronizado con Cuentas por Pagar).
+                                        </Text>
+                                      )}
+                                      {archivosRec.length > 0 ? (
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                                          {archivosRec.map((arch, aIdx) => (
+                                            <TouchableOpacity
+                                              key={aIdx}
+                                              onPress={() => abrirVisorFactura(arch.url, arch.tipo, arch.nombre || `Comprobante #${aIdx + 1}`)}
+                                              style={{
+                                                backgroundColor: colors.surface,
+                                                borderWidth: 1,
+                                                borderColor: '#10B981',
+                                                borderRadius: radius.sm,
+                                                paddingHorizontal: spacing.sm,
+                                                paddingVertical: 4,
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                              }}
+                                            >
+                                              <Text style={{ fontSize: 11 }}>👁️</Text>
+                                              <Text style={{ color: '#047857', fontWeight: '700', fontSize: 11.5 }}>
+                                                {archivosRec.length > 1 ? `Ver Comprobante #${aIdx + 1}` : 'Ver Comprobante Adjunto'}
+                                              </Text>
+                                            </TouchableOpacity>
+                                          ))}
+                                        </View>
+                                      ) : null}
+                                      {canWrite && tieneRec ? (
+                                        <TouchableOpacity
+                                          onPress={() => setSoporteEdit({ req: r, tipo: 'comprobante', archivos: archivosRec })}
+                                          style={{ alignSelf: 'flex-start', marginTop: 2, borderWidth: 1, borderColor: '#10B981', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                                        >
+                                          <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11.5 }}>✏️ Editar / + Fotos Comprobante</Text>
+                                        </TouchableOpacity>
+                                      ) : null}
+                                    </View>
+                                  </View>
+                                );
+                              })()}
+
+                              {/* 📦 Sección Dedicada: Control Físico de Almacén (Disponible vs Retirado) */}
+                              {r.status === 'recibido' && (() => {
+                                const desp = extraerDespacho(r);
+                                const esRetirado = desp.estado === 'retirado';
+                                return (
+                                  <View
+                                    style={{
+                                      marginTop: spacing.sm,
+                                      backgroundColor: esRetirado ? '#F8FAFC' : '#F0FDF4',
+                                      borderRadius: radius.md,
+                                      borderWidth: 1.5,
+                                      borderColor: esRetirado ? '#3B82F6' : '#22C55E',
+                                      padding: spacing.sm,
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Text style={{ fontSize: 14 }}>{esRetirado ? '📦' : '🟢'}</Text>
+                                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                                          Control Físico en Almacén: {esRetirado ? 'Retirado / Despachado' : 'Disponible en Almacén'}
+                                        </Text>
+                                      </View>
+                                      <View
+                                        style={{
+                                          backgroundColor: esRetirado ? '#DBEAFE' : '#DCFCE7',
+                                          borderColor: esRetirado ? '#2563EB' : '#16A34A',
+                                          borderWidth: 1,
+                                          paddingHorizontal: 8,
+                                          paddingVertical: 2,
+                                          borderRadius: radius.pill,
+                                        }}
+                                      >
+                                        <Text style={{ color: esRetirado ? '#1E40AF' : '#15803D', fontSize: 10.5, fontWeight: '800' }}>
+                                          {esRetirado ? 'DESPACHADO' : 'LISTO PARA ENTREGA'}
+                                        </Text>
+                                      </View>
+                                    </View>
+
+                                    {esRetirado ? (
+                                      <View style={{ gap: 4 }}>
+                                        <Text style={{ fontSize: 12, color: colors.text }}>
+                                          👤 <Text style={{ fontWeight: '700' }}>Retirado por:</Text>{' '}
+                                          <Text style={{ fontWeight: '800', color: colors.brandText }}>{desp.retiradoPor}</Text>
+                                          {desp.retiradoCedula ? ` (CI: ${desp.retiradoCedula})` : ''}
+                                          {desp.retiradoCargo ? ` · ${desp.retiradoCargo}` : ''}
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                                          {desp.fecha ? (
+                                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                              🕒 Fecha: {dmyOf(desp.fecha)}
+                                            </Text>
+                                          ) : null}
+                                          {desp.despachadoPor ? (
+                                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                              📦 Entregó: {desp.despachadoPor}
+                                            </Text>
+                                          ) : null}
+                                        </View>
+                                        {desp.maquinariaCodigo || desp.maquinariaPlaca ? (
+                                          <Text style={{ fontSize: 11.5, color: '#1E3A5F', fontWeight: '700' }}>
+                                            🚜 Destino: {desp.maquinariaCodigo || ''} · Placa: {desp.maquinariaPlaca || 'Sin placa'}
+                                          </Text>
+                                        ) : null}
+                                        {desp.nota ? (
+                                          <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic', backgroundColor: colors.surface, padding: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                                            "{desp.nota}"
+                                          </Text>
+                                        ) : null}
+                                        {canReceive ? (
+                                          <TouchableOpacity
+                                            onPress={() => abrirDespachoModal(r)}
+                                            style={{
+                                              alignSelf: 'flex-start',
+                                              backgroundColor: colors.surface,
+                                              borderWidth: 1,
+                                              borderColor: colors.border,
+                                              borderRadius: radius.sm,
+                                              paddingHorizontal: spacing.sm,
+                                              paddingVertical: 4,
+                                              marginTop: 2,
+                                            }}
+                                          >
+                                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
+                                              ✏️ Editar Registro de Retiro
+                                            </Text>
+                                          </TouchableOpacity>
+                                        ) : null}
+                                      </View>
+                                    ) : (
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                        <Text style={{ fontSize: 11.5, color: '#166534', fontWeight: '600', flex: 1 }}>
+                                          El repuesto ya está físicamente en el estante de almacén listo para ser retirado.
+                                        </Text>
+                                        {canReceive ? (
+                                          <TouchableOpacity
+                                            onPress={() => abrirDespachoModal(r)}
+                                            style={{
+                                              backgroundColor: '#16A34A',
+                                              borderRadius: radius.sm,
+                                              paddingHorizontal: spacing.sm,
+                                              paddingVertical: 6,
+                                              flexDirection: 'row',
+                                              alignItems: 'center',
+                                              gap: 4,
+                                            }}
+                                          >
+                                            <Text style={{ fontSize: 12 }}>📦</Text>
+                                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11.5 }}>
+                                              Registrar Retiro / Despacho
+                                            </Text>
+                                          </TouchableOpacity>
+                                        ) : null}
+                                      </View>
+                                    )}
+                                  </View>
+                                );
+                              })()}
+
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+                                <TouchableOpacity onPress={() => pdf(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
+                                </TouchableOpacity>
+                                {/* Botón de Cotizaciones Múltiples y Multi-Moneda */}
+                                <TouchableOpacity
+                                  onPress={() => abrirCotizaciones(r)}
+                                  style={{
+                                    backgroundColor: '#0EA5E9',
+                                    borderRadius: radius.md,
+                                    paddingHorizontal: spacing.md,
+                                    paddingVertical: spacing.xs,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 12 }}>📋</Text>
+                                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                                    Cotizaciones ({getReqCotizaciones(r).length})
+                                  </Text>
+                                </TouchableOpacity>
+                                {/* Botón de Expediente Completo Oficial (PDF) */}
+                                <TouchableOpacity
+                                  onPress={() => descargarExpediente(r)}
+                                  style={{
+                                    backgroundColor: '#1E3A5F',
+                                    borderRadius: radius.md,
+                                    paddingHorizontal: spacing.md,
+                                    paddingVertical: spacing.xs,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 12 }}>📑</Text>
+                                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                                    Expediente Completo (PDF)
+                                  </Text>
+                                </TouchableOpacity>
+                                {/* Subir formato (imagen o PDF) al requerimiento. */}
+                                {canWrite ? (
+                                  <TouchableOpacity onPress={() => subirFormato(r)} disabled={subiendoId === r.id} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: subiendoId === r.id ? 0.6 : 1 }}>
+                                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                                      {subiendoId === r.id ? '⏳ Subiendo…' : (() => {
+                                        const fmts = extraerFormatosAdjuntos(r);
+                                        return fmts.length > 0 ? `📎 Adjuntar otro (${fmts.length})` : '📎 Subir formato';
+                                      })()}
+                                    </Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Ver formatos adjuntos (vista previa + descarga). */}
+                                {(() => {
+                                  const fmts = extraerFormatosAdjuntos(r);
+                                  if (fmts.length === 0) return null;
+                                  return (
+                                    <TouchableOpacity onPress={() => { setPreviewReq(r); setPreviewIndex(0); }} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                                        👁️ Ver formatos ({fmts.length})
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                })()}
+                                {/* Solicitar aclaratoria técnica si está pendiente */}
+                                {canWrite && r.status === 'pendiente' ? (
+                                  <TouchableOpacity onPress={() => abrirSolicitarAclaratoria(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: '#D97706', fontWeight: '800', fontSize: 12 }}>🔄 Solicitar Aclaratoria</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Responder aclaratoria técnica si está en aclaratoria */}
+                                {r.status === 'aclaratoria_solicitada' ? (
+                                  <TouchableOpacity onPress={() => abrirResponderAclaratoria(r)} style={{ backgroundColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>📝 Responder Aclaratoria</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Editar datos de pago del proveedor si tiene proveedor asignado */}
+                                {r.supplier_id && canWrite ? (() => {
+                                  const s = suppliers.find((sup) => sup.id === r.supplier_id);
+                                  if (!s) return null;
+                                  return (
+                                    <TouchableOpacity onPress={() => abrirEditarPagoProv(s)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>💳 Datos de Pago Prov.</Text>
+                                    </TouchableOpacity>
+                                  );
+                                })() : null}
+                                {/* Botón para que la analista de Compras envíe el requerimiento a 💸 Por Pagar */}
+                                {r.status === 'pendiente' ? (
+                                  <>
+                                    {canWrite || puedeAprobarRequerimientos || isAdmin ? (
+                                      <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>💸 Enviar a Por Pagar</Text>
+                                      </TouchableOpacity>
+                                    ) : null}
+                                    {canWrite || isAdmin || puedeAprobarRequerimientos ? (
+                                      <TouchableOpacity onPress={() => decidir(r, 'rechazado')} style={{ backgroundColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>❌ Rechazar</Text>
+                                      </TouchableOpacity>
+                                    ) : null}
+                                  </>
+                                ) : null}
+                                {canReceive && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
+                                  <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Anular un requerimiento YA APROBADO: el mismo gerente lo rechaza y la
                       BD anula la orden de compra + cuenta por pagar generadas. */}
-                  {isAdmin && r.status === 'aprobado' ? (
-                    <TouchableOpacity onPress={() => anularAprobado(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>⛔ Anular (rechazar)</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Revertir un rechazo (error de dedo) → vuelve a PENDIENTE y notifica. */}
-                  {isAdmin && r.status === 'rechazado' ? (
-                    <TouchableOpacity onPress={() => revertirRechazo(r)} style={{ backgroundColor: colors.warning, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>↩ Volver a pendiente</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Editar todo el requerimiento (no si ya se recibió en inventario). */}
-                  {canWrite && r.status !== 'recibido' ? (
-                    <TouchableOpacity onPress={() => abrirEditar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {/* Eliminar todo el requerimiento. */}
-                  {canWrite ? (
-                    <TouchableOpacity onPress={() => eliminar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {!isAdmin && r.status === 'pendiente' ? <Text style={{ color: colors.muted, fontSize: 11, alignSelf: 'center' }}>Esperando aprobación del jefe…</Text> : null}
-                  {r.status === 'aclaratoria_solicitada' ? <Text style={{ color: '#B45309', fontSize: 11, alignSelf: 'center', fontWeight: '700' }}>⚠️ Esperando respuesta técnica para reanudar aprobación</Text> : null}
+                                {isAdmin && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
+                                  <TouchableOpacity onPress={() => anularAprobado(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>⛔ Anular (rechazar)</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Revertir un rechazo (error de dedo) → vuelve a PENDIENTE y notifica. */}
+                                {isAdmin && r.status === 'rechazado' ? (
+                                  <TouchableOpacity onPress={() => revertirRechazo(r)} style={{ backgroundColor: colors.warning, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>↩ Volver a pendiente</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Editar todo el requerimiento (no si ya se recibió en inventario). */}
+                                {canWrite && r.status !== 'recibido' ? (
+                                  <TouchableOpacity onPress={() => abrirEditar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {/* Eliminar todo el requerimiento. */}
+                                {canWrite ? (
+                                  <TouchableOpacity onPress={() => eliminar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {!isAdmin && r.status === 'pendiente' ? <Text style={{ color: colors.muted, fontSize: 11, alignSelf: 'center' }}>Esperando aprobación del jefe…</Text> : null}
+                                {r.status === 'aclaratoria_solicitada' ? <Text style={{ color: '#B45309', fontSize: 11, alignSelf: 'center', fontWeight: '700' }}>⚠️ Esperando respuesta técnica para reanudar aprobación</Text> : null}
+                              </View>
+                            </View>
+                          }
+                        />
+                      );
+                    })()}
+                  </View>
                 </View>
-              </View>
-            }
-          />
+              );
+            })}
+          </>
         );
-      })()}
-              </View>
-            </View>
-            );
-          })}
-        </>
-      );
       })()}
 
       {/* ── Crear requerimiento ── */}
@@ -1210,11 +4587,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                         <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>✏️ {hasBank || hasPm || hasBin ? 'Actualizar datos' : 'Registrar datos'}</Text>
                       </TouchableOpacity>
                     </View>
-                    {hasBank || hasPm || hasBin ? (
+                    {hasBank || hasPm || hasBin || !!extraerCapturaPago(s) ? (
                       <View style={{ marginTop: 4, gap: 2 }}>
                         {hasBank ? <Text style={{ fontSize: 11, color: colors.muted }}>🏦 {s.bank_name} · Cta: {s.account_number ? `...${s.account_number.slice(-4)}` : '—'} · {s.account_holder} ({s.account_id_doc})</Text> : null}
                         {hasPm ? <Text style={{ fontSize: 11, color: colors.muted }}>📱 PM: {s.pago_movil_phone} · {s.pago_movil_bank ?? '—'} · {s.pago_movil_id ?? '—'}</Text> : null}
-                        {hasBin ? <Text style={{ fontSize: 11, color: colors.muted }}>🟡 Binance Pay ID: {s.binance_id}</Text> : null}
+                        {hasBin ? <Text {...rawCaseField} style={{ fontSize: 11, color: colors.muted, textTransform: 'none' }}>🟡 Binance Pay ID: {s.binance_id}</Text> : null}
+                        {(() => {
+                          const cap = extraerCapturaPago(s);
+                          if (!cap) return null;
+                          return (
+                            <TouchableOpacity
+                              onPress={() => setVisorCapturaProv(cap)}
+                              style={{ alignSelf: 'flex-start', backgroundColor: '#581C87', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2, marginTop: 2 }}
+                            >
+                              <Text style={{ color: '#E9D5FF', fontSize: 10.5, fontWeight: '800' }}>
+                                📸 {cap.name || 'Captura de Billetera TRX / Tron / QR'} 👁️ Ver grande
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })()}
                       </View>
                     ) : (
                       <Text style={{ fontSize: 11, color: '#D97706', marginTop: 2 }}>⚠️ Sin coordenadas financieras registradas. Toca "Registrar datos" para agilizar el envío a Tesorería.</Text>
@@ -1253,6 +4644,46 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 })}
                 {almacenistas.length === 0 ? (
                   <Text style={{ color: colors.muted, fontSize: 11 }}>No hay usuarios con rol de almacenista todavía (se asigna en Usuarios).</Text>
+                ) : null}
+              </View>
+
+              {/* 🏍️ MOTORIZADO RESPONSABLE (29-oct-2026, a pedido): quien lleva o busca
+                  la compra. Puede ser un almacenista de la lista o un nombre a mano. */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Motorizado responsable</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[{ id: null as string | null, name: 'Sin motorizado' }, ...almacenistas].map((a) => {
+                  const on = a.id ? motoId === a.id : (!motoId && !motoNombre.trim());
+                  return (
+                    <TouchableOpacity key={a.id ?? '__moto_none__'} onPress={() => { setMotoId(a.id); setMotoNombre(a.id ? a.name : ''); }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{a.id ? `🏍️ ${a.name}` : a.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={motoId ? '' : motoNombre}
+                onChangeText={(t) => { setMotoId(null); setMotoNombre(t); }}
+                placeholder="…o escribe el nombre del motorizado (si hace falta)"
+                placeholderTextColor={colors.muted}
+                style={{ marginTop: 6, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+              />
+
+              {/* 🔺 PRIORIDAD (29-oct-2026): la misma de Por pagar; se copia sola a su cuenta. */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Prioridad (opcional)</Text>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                {PRIORIDADES_COMPRA.map((p) => {
+                  const on = prioridadReq === p;
+                  const t = colorPrioridad(colors, p);
+                  return (
+                    <TouchableOpacity key={p} onPress={() => setPrioridadReq(on ? null : p)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? t.border : colors.border, backgroundColor: on ? t.bg : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 12 }}>{PRIORIDAD_COMPRA_INFO[p].label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {prioridadReq ? (
+                  <TouchableOpacity onPress={() => setPrioridadReq(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Quitar ✕</Text>
+                  </TouchableOpacity>
                 ) : null}
               </View>
 
@@ -1367,15 +4798,489 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     placeholderTextColor={colors.muted}
                     style={[inp, { marginTop: 4, fontSize: 12 }]}
                   />
-                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
-                    <View style={{ width: 64 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text><TextInput value={x.qty} onChangeText={(t) => upd(x.key, 'qty', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'center' }]} /></View>
-                    <View style={{ width: 70 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Unidad</Text><TextInput value={x.unit} onChangeText={(t) => upd(x.key, 'unit', t.toUpperCase())} placeholder="UND" placeholderTextColor={colors.muted} style={inp} /></View>
-                    <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Precio est.</Text><TextInput value={x.price} onChangeText={(t) => upd(x.key, 'price', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'right' }]} /></View>
-                    <TouchableOpacity onPress={() => upd(x.key, 'currency', x.currency === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{x.currency === 'USD' ? '$' : 'Bs'}</Text>
+                  {/* 🎯 Selector: Precio por Unidad (c/u) vs Precio Total por el o los objetos */}
+                  {(() => {
+                    const modoRow = x.modo_precio || 'unidad';
+                    const qNum = parseNum(x.qty) || 1;
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                        <Text style={{ fontSize: 11, color: colors.muted, fontWeight: '700' }}>
+                          💰 ¿Cómo deseas colocar el precio?
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 4 }}>
+                          <TouchableOpacity
+                            onPress={() => cambiarModoPrecioRow(x.key, 'unidad')}
+                            style={{
+                              paddingHorizontal: 9,
+                              paddingVertical: 4,
+                              borderRadius: radius.pill,
+                              borderWidth: 1,
+                              borderColor: modoRow === 'unidad' ? colors.brand : colors.border,
+                              backgroundColor: modoRow === 'unidad' ? colors.brand : colors.surfaceAlt,
+                            }}
+                          >
+                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: modoRow === 'unidad' ? colors.brandContrast : colors.text }}>
+                              🎯 Por Unidad (c/u)
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => cambiarModoPrecioRow(x.key, 'total')}
+                            style={{
+                              paddingHorizontal: 9,
+                              paddingVertical: 4,
+                              borderRadius: radius.pill,
+                              borderWidth: 1,
+                              borderColor: modoRow === 'total' ? '#7C3AED' : colors.border,
+                              backgroundColor: modoRow === 'total' ? '#7C3AED' : colors.surfaceAlt,
+                            }}
+                          >
+                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: modoRow === 'total' ? '#fff' : colors.text }}>
+                              📦 Precio Total ({qNum} {x.unit || 'und'})
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })()}
+
+                  {/* 🔢 Cantidad, Unidad, Precio en $ USD y Precio en Bs (Responsive Teléfono / PC) */}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
+                    <View style={{ width: 62 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text>
+                      <TextInput
+                        value={x.qty}
+                        onChangeText={(t) => handleQtyChange(x.key, t)}
+                        keyboardType="numeric"
+                        inputMode="decimal"
+                        style={[inp, { textAlign: 'center' }]}
+                      />
+                    </View>
+                    <View style={{ width: 70 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Unidad</Text>
+                      <TextInput
+                        value={x.unit}
+                        onChangeText={(t) => upd(x.key, 'unit', t.toUpperCase())}
+                        placeholder="UND"
+                        placeholderTextColor={colors.muted}
+                        style={inp}
+                      />
+                    </View>
+
+                    {/* 💵 Barra Precio Dólares ($ USD) */}
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <Text style={{ color: (x.modo_precio || 'unidad') === 'total' ? '#7C3AED' : colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                          {(x.modo_precio || 'unidad') === 'total' ? '📦 Total ($ USD)' : '💵 Unitario c/u ($ USD)'}
+                        </Text>
+                        {rate && rate > 0 ? (
+                          <TouchableOpacity onPress={() => recomputarDesdeBcv(x.key, 'VES')} style={{ paddingHorizontal: 2 }}>
+                            <Text style={{ color: colors.muted, fontSize: 10 }}>🔄 de Bs</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      <TextInput
+                        value={(x.modo_precio || 'unidad') === 'total' ? (x.total_usd ?? x.price) : x.price}
+                        onChangeText={(t) => handlePrecioUsdChange(x.key, t)}
+                        keyboardType="numeric"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        placeholderTextColor={colors.muted}
+                        style={[inp, { textAlign: 'right', fontWeight: '800', borderColor: (x.modo_precio || 'unidad') === 'total' ? '#7C3AED' : colors.border }]}
+                      />
+                    </View>
+
+                    {/* 🇻🇪 Barra Precio Bolívares (Bs) */}
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <Text style={{ color: '#0D9488', fontSize: 11, fontWeight: '800' }}>
+                          {(x.modo_precio || 'unidad') === 'total' ? '📦 Total (Bs)' : '🇻🇪 Unitario c/u (Bs)'}
+                        </Text>
+                        {rate && rate > 0 ? (
+                          <TouchableOpacity onPress={() => recomputarDesdeBcv(x.key, 'USD')} style={{ paddingHorizontal: 2 }}>
+                            <Text style={{ color: colors.muted, fontSize: 10 }}>🔄 de $</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      <TextInput
+                        value={(x.modo_precio || 'unidad') === 'total' ? (x.total_bs ?? x.price_bs) : x.price_bs}
+                        onChangeText={(t) => handlePrecioBsChange(x.key, t)}
+                        keyboardType="numeric"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        placeholderTextColor={colors.muted}
+                        style={[inp, { textAlign: 'right', fontWeight: '800' }]}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Resumen automático de Unitario vs Total del renglón */}
+                  {(() => {
+                    const q = Math.max(0.0001, parseNum(x.qty) || 1);
+                    const uUsd = parseNum(x.price);
+                    const uBs = parseNum(x.price_bs);
+                    const tUsd = rowUsd(x);
+                    const tBs = rowBs(x);
+                    if (uUsd <= 0 && uBs <= 0 && tUsd <= 0 && tBs <= 0) return null;
+                    return (
+                      <View style={{
+                        marginTop: 5,
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        borderRadius: radius.sm,
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 6,
+                      }}>
+                        <Text style={{ fontSize: 11, color: colors.muted, fontWeight: '700' }}>
+                          🎯 Unitario c/u: <Text style={{ color: colors.text, fontWeight: '800' }}>{usd(uUsd)}{uBs > 0 ? ` / ${fmtBs(uBs)}` : ''}</Text>
+                        </Text>
+                        <Text style={{ fontSize: 11, color: colors.brandText, fontWeight: '800' }}>
+                          📦 Total ({qtyFmt(q)} {x.unit || 'und'}): {usd(tUsd)}{tBs > 0 ? ` / ${fmtBs(tBs)}` : ''}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+
+                  {/* Indicador de Tasa Implícita del Renglón si se ingresó USD y Bs manualmente */}
+                  {(() => {
+                    const u = parseNum(x.price);
+                    const b = parseNum(x.price_bs);
+                    const tasaItem = u > 0 && b > 0 ? (b / u) : null;
+                    const esDistinto = tasaItem && rate && Math.abs(tasaItem - rate) > 0.05;
+                    const metObj = x.metodo_pago ? METODOS_PAGO_COTIZACION.find((m) => m.key === x.metodo_pago) : null;
+
+                    if (!tasaItem && !metObj) return null;
+
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, marginTop: 4, flexWrap: 'wrap', gap: 4 }}>
+                        {tasaItem ? (
+                          <Text style={{ fontSize: 10.5, color: '#0D9488', fontWeight: '800' }}>
+                            ⚡ Tasa propia del ítem: {tasaItem.toFixed(2)} Bs/$ {esDistinto ? `(BCV: ${rate?.toFixed(2)})` : ''}
+                          </Text>
+                        ) : <View />}
+                        {metObj ? (
+                          <View style={{ backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#86EFAC', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                            <Text style={{ fontSize: 10, color: '#15803D', fontWeight: '800' }}>
+                              {metObj.icon} Cotizado en: {metObj.label}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })()}
+
+                  {/* 🧾 Fila de Acciones por Renglón: Exento de IVA y Presupuestos Comparativos */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, flexWrap: 'wrap', gap: 6 }}>
+                    {/* Cuadro Exento de IVA (idéntico a Compra Directa) */}
+                    <TouchableOpacity
+                      onPress={() => upd(x.key, 'exento', !x.exento)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        borderRadius: radius.sm,
+                        backgroundColor: x.exento ? '#E0F2FE' : colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: x.exento ? '#0284C7' : colors.border,
+                        alignSelf: 'flex-start',
+                      }}
+                    >
+                      <Text style={{ color: x.exento ? '#0369A1' : colors.muted, fontSize: 13, fontWeight: '900' }}>
+                        {x.exento ? '☑' : '☐'}
+                      </Text>
+                      <Text style={{ color: x.exento ? '#0369A1' : colors.text, fontSize: 12, fontWeight: x.exento ? '800' : '600' }}>
+                        Exento de IVA
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Botón para desplegar / agregar uno o varios presupuestos en la cotización de este renglón */}
+                    <TouchableOpacity
+                      onPress={() => upd(x.key, 'presupuestosAbierto', !x.presupuestosAbierto)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 5,
+                        paddingVertical: 4,
+                        paddingHorizontal: 10,
+                        borderRadius: radius.pill,
+                        backgroundColor: (x.presupuestos || []).length > 0 ? '#F3E8FF' : colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: (x.presupuestos || []).length > 0 ? '#A855F7' : colors.border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12 }}>📋</Text>
+                      <Text style={{ color: (x.presupuestos || []).length > 0 ? '#7E22CE' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                        {(x.presupuestos || []).length === 0
+                          ? '＋ Cotización / Presupuestos (1 o varios)'
+                          : `Presupuestos en cotización (${(x.presupuestos || []).length}) ${x.presupuestosAbierto ? '▲' : '▼'}`}
+                      </Text>
                     </TouchableOpacity>
                   </View>
-                  {parseNum(x.price) > 0 && rate ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'right' }}>≈ {otra} c/u</Text> : null}
+
+                  {/* 📋 Bloque desplegable de Presupuestos / Cotizaciones múltiples para este producto */}
+                  {x.presupuestosAbierto ? (
+                    <View style={{ marginTop: 8, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: spacing.xs }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
+                          📋 Cotización · Uno o varios Presupuestos
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => agregarPresupuesto(x.key)}
+                          style={{ backgroundColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4 }}
+                        >
+                          <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800' }}>＋ Agregar presupuesto</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={{ fontSize: 11, color: colors.muted }}>
+                        Puedes registrar uno o varios presupuestos para este objeto, indicando el precio por unidad o el precio total, y adjuntar sus soportes (PDF/fotos). Toca "✓ Elegir este presupuesto" para aplicarlo al ítem.
+                      </Text>
+
+                      {(x.presupuestos || []).map((cot, ci) => {
+                        const modoCot = cot.modo_precio || 'unidad';
+                        const qCot = Math.max(0.0001, parseNum(x.qty) || 1);
+                        const uUsdCot = parseNum(cot.precio_usd);
+                        const uBsCot = parseNum(cot.precio_bs);
+                        const tUsdCot = parseNum(cot.total_usd || '0') || (uUsdCot * qCot);
+                        const tBsCot = parseNum(cot.total_bs || '0') || (uBsCot * qCot);
+                        return (
+                          <View key={cot.id} style={{ backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginTop: 4 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                              <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.brandText }}>Presupuesto #{ci + 1}</Text>
+                              <TouchableOpacity onPress={() => eliminarPresupuesto(x.key, cot.id)}>
+                                <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑 Quitar</Text>
+                              </TouchableOpacity>
+                            </View>
+
+                            <TextInput
+                              value={cot.proveedor}
+                              onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'proveedor', t)}
+                              placeholder="Nombre del proveedor o tienda (ej. Repuestos El Sol)"
+                              placeholderTextColor={colors.muted}
+                              style={[inp, { fontSize: 12, marginBottom: 4 }]}
+                            />
+
+                            {/* 💳 Método de Pago de este presupuesto */}
+                            <View style={{ marginTop: 2, marginBottom: 6 }}>
+                              <Text style={{ fontSize: 10, color: colors.muted, marginBottom: 3, fontWeight: '700' }}>
+                                💳 Condición / Método de Pago:
+                              </Text>
+                              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                                {METODOS_PAGO_COTIZACION.map((m) => {
+                                  const active = (cot.metodo_pago || 'efectivo_usd') === m.key;
+                                  return (
+                                    <TouchableOpacity
+                                      key={m.key}
+                                      onPress={() => actualizarPresupuesto(x.key, cot.id, 'metodo_pago', m.key)}
+                                      style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        paddingHorizontal: 8,
+                                        paddingVertical: 3,
+                                        borderRadius: radius.pill,
+                                        borderWidth: 1,
+                                        borderColor: active ? colors.brand : colors.border,
+                                        backgroundColor: active ? (isDark ? '#1E293B' : '#EFF6FF') : colors.surfaceAlt,
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 11 }}>{m.icon}</Text>
+                                      <Text style={{ fontSize: 10.5, fontWeight: active ? '800' : '600', color: active ? colors.brandText : colors.text }}>
+                                        {m.label}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </ScrollView>
+                            </View>
+
+                            {/* 🎯 Selector: Precio por Unidad vs Precio Total en este presupuesto */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: '700' }}>Modo de precio:</Text>
+                              <View style={{ flexDirection: 'row', gap: 4 }}>
+                                <TouchableOpacity
+                                  onPress={() => cambiarModoPrecioPresupuesto(x.key, cot.id, 'unidad')}
+                                  style={{
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    borderRadius: radius.pill,
+                                    borderWidth: 1,
+                                    borderColor: modoCot === 'unidad' ? colors.brand : colors.border,
+                                    backgroundColor: modoCot === 'unidad' ? colors.brand : colors.surfaceAlt,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 10, fontWeight: '800', color: modoCot === 'unidad' ? colors.brandContrast : colors.text }}>
+                                    🎯 Por Unidad (c/u)
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  onPress={() => cambiarModoPrecioPresupuesto(x.key, cot.id, 'total')}
+                                  style={{
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    borderRadius: radius.pill,
+                                    borderWidth: 1,
+                                    borderColor: modoCot === 'total' ? '#7C3AED' : colors.border,
+                                    backgroundColor: modoCot === 'total' ? '#7C3AED' : colors.surfaceAlt,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 10, fontWeight: '800', color: modoCot === 'total' ? '#fff' : colors.text }}>
+                                    📦 Precio Total ({qtyFmt(qCot)} {x.unit || 'und'})
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', gap: 6 }}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 10, color: modoCot === 'total' ? '#7C3AED' : colors.muted, fontWeight: '700', marginBottom: 2 }}>
+                                  {modoCot === 'total' ? `📦 Total ($ USD)` : `🎯 Unitario c/u ($ USD)`}
+                                </Text>
+                                <TextInput
+                                  value={modoCot === 'total' ? (cot.total_usd ?? cot.precio_usd) : cot.precio_usd}
+                                  onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, modoCot === 'total' ? 'total_usd' : 'precio_usd', t)}
+                                  keyboardType="numeric"
+                                  inputMode="decimal"
+                                  placeholder="$ 0.00"
+                                  placeholderTextColor={colors.muted}
+                                  style={[inp, { textAlign: 'right', fontSize: 12, fontWeight: '700' }]}
+                                />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 10, color: colors.muted, fontWeight: '700', marginBottom: 2 }}>
+                                  {modoCot === 'total' ? `📦 Total (Bs)` : `🎯 Unitario c/u (Bs)`}
+                                </Text>
+                                <TextInput
+                                  value={modoCot === 'total' ? (cot.total_bs ?? cot.precio_bs) : cot.precio_bs}
+                                  onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, modoCot === 'total' ? 'total_bs' : 'precio_bs', t)}
+                                  keyboardType="numeric"
+                                  inputMode="decimal"
+                                  placeholder="Bs 0.00"
+                                  placeholderTextColor={colors.muted}
+                                  style={[inp, { textAlign: 'right', fontSize: 12, fontWeight: '700' }]}
+                                />
+                              </View>
+                            </View>
+
+                            {/* Resumen automático Unitario y Total del Presupuesto */}
+                            {uUsdCot > 0 || uBsCot > 0 || tUsdCot > 0 || tBsCot > 0 ? (
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginTop: 4, backgroundColor: colors.surfaceAlt, paddingHorizontal: 6, paddingVertical: 3, borderRadius: radius.sm }}>
+                                <Text style={{ fontSize: 10, color: colors.muted, fontWeight: '700' }}>
+                                  Unitario: {usd(uUsdCot)}{uBsCot > 0 ? ` / ${fmtBs(uBsCot)}` : ''} c/u
+                                </Text>
+                                <Text style={{ fontSize: 10, color: colors.brandText, fontWeight: '800' }}>
+                                  Total ({qtyFmt(qCot)} {x.unit || 'und'}): {usd(tUsdCot)}{tBsCot > 0 ? ` / ${fmtBs(tBsCot)}` : ''}
+                                </Text>
+                              </View>
+                            ) : null}
+
+                            {uUsdCot > 0 && uBsCot > 0 ? (
+                              <Text style={{ fontSize: 9.5, color: '#0D9488', fontWeight: '700', marginTop: 3 }}>
+                                ⚡ Tasa implícita de este presupuesto: {(uBsCot / uUsdCot).toFixed(2)} Bs/$
+                              </Text>
+                            ) : null}
+
+                            <TextInput
+                              value={cot.nota || ''}
+                              onChangeText={(t) => actualizarPresupuesto(x.key, cot.id, 'nota', t)}
+                              placeholder="Nota: entrega inmediata, garantía, marca, N° de presupuesto…"
+                              placeholderTextColor={colors.muted}
+                              style={[inp, { fontSize: 11.5, marginTop: 4 }]}
+                            />
+
+                            {/* 📎 Soportes / Archivos del presupuesto (uno o varios archivos PDF o fotos) */}
+                            <View style={{ marginTop: 6 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                                <Text style={{ fontSize: 10, color: colors.muted, fontWeight: '700' }}>
+                                  📎 Soportes del presupuesto ({(cot.archivos || []).length}):
+                                </Text>
+                                <View style={{ flexDirection: 'row', gap: 6 }}>
+                                  <TouchableOpacity
+                                    onPress={() => subirArchivoPresupuestoItem(x.key, cot.id, 'camara')}
+                                    disabled={subiendoPresupuestoId === cot.id}
+                                    style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 3 }}
+                                  >
+                                    <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.text }}>📷 Foto</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    onPress={() => subirArchivoPresupuestoItem(x.key, cot.id, 'archivo')}
+                                    disabled={subiendoPresupuestoId === cot.id}
+                                    style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 3 }}
+                                  >
+                                    <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.brandText }}>
+                                      {subiendoPresupuestoId === cot.id ? '⏳ Subiendo…' : '📎 Subir PDF / Imagen(es)'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                              {(cot.archivos || []).length > 0 ? (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                                  {(cot.archivos || []).map((arch) => (
+                                    <View
+                                      key={arch.id}
+                                      style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        backgroundColor: colors.surfaceAlt,
+                                        borderWidth: 1,
+                                        borderColor: colors.border,
+                                        borderRadius: radius.sm,
+                                        paddingHorizontal: 6,
+                                        paddingVertical: 2,
+                                      }}
+                                    >
+                                      <TouchableOpacity onPress={() => Linking.openURL(arch.url)}>
+                                        <Text style={{ fontSize: 10.5, color: colors.brandText, fontWeight: '700' }}>
+                                          {arch.kind === 'pdf' ? '📄' : '🖼️'} {arch.name}
+                                        </Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity onPress={() => quitarArchivoPresupuestoItem(x.key, cot.id, arch.id)}>
+                                        <Text style={{ fontSize: 10.5, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  ))}
+                                </View>
+                              ) : null}
+                            </View>
+
+                            <TouchableOpacity
+                              onPress={() => aplicarPresupuestoAlItem(x.key, cot)}
+                              style={{
+                                marginTop: 8,
+                                alignSelf: 'flex-start',
+                                backgroundColor: '#DCFCE7',
+                                borderWidth: 1,
+                                borderColor: '#16A34A',
+                                borderRadius: radius.pill,
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                              }}
+                            >
+                              <Text style={{ color: '#15803D', fontSize: 11, fontWeight: '800' }}>
+                                ✓ Elegir este presupuesto para el ítem
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+
+                      {(x.presupuestos || []).length === 0 ? (
+                        <TouchableOpacity
+                          onPress={() => agregarPresupuesto(x.key)}
+                          style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, alignItems: 'center', marginTop: 4 }}
+                        >
+                          <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>＋ Toca para registrar el primer presupuesto</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
+
                   {/* Imagen de referencia del producto: sale en el PDF junto a su descripción. */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
                     {x.image_url ? (
@@ -1392,31 +5297,265 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       <TouchableOpacity onPress={() => upd(x.key, 'image_url', '')}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
                     ) : null}
                   </View>
+
+                  {/* Asignación individual de proveedor por renglón (Multi-proveedor con checkbox y buscador vertical) */}
+                  <ItemSupplierPicker
+                    supplierId={x.supplier_id}
+                    supplierName={x.supplier_name}
+                    suppliers={suppliers}
+                    onSelect={(id, name) => {
+                      upd(x.key, 'supplier_id', id);
+                      upd(x.key, 'supplier_name', name);
+                    }}
+                  />
                 </Card>
               );
             })}
 
+            {/* 🧾 Desglose Financiero con IVA idéntico a Compra Directa */}
             {rows.length ? (
               <Card>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text><Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 16 }}>{usd(createTotalUsd)}</Text></View>
-                {rate ? <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'right' }}>{fmtBs(bsFromUsd(createTotalUsd, rate))}</Text> : null}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>IVA %</Text>
+                  <TextInput
+                    value={alicuotaIva}
+                    onChangeText={setAlicuotaIva}
+                    keyboardType="decimal-pad"
+                    inputMode="decimal"
+                    placeholder="16"
+                    placeholderTextColor={colors.muted}
+                    style={{
+                      width: 80,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 6,
+                      color: colors.text,
+                      fontSize: 13,
+                      textAlign: 'right',
+                      fontWeight: '800',
+                    }}
+                  />
+                  <Text style={{ color: colors.muted, fontSize: 11, flex: 1 }}>
+                    Nace en 16%. Colócalo en 0 si el requerimiento completo no lleva IVA.
+                  </Text>
+                </View>
+
+                {(() => {
+                  const subUsd = createSubtotalUsd;
+                  const baseUsd = createBaseImponibleUsd;
+                  const exentoUsd = createExentoUsd;
+                  const alic = createAlicuotaNum;
+                  const ivaUsd = createIvaUsd;
+                  const totalUsd = createTotalUsd;
+
+                  const subBs = createSubtotalBs;
+                  const baseBs = createBaseImponibleBs;
+                  const exentoBs = createExentoBs;
+                  const ivaBs = createIvaBs;
+                  const totalBs = createTotalBs;
+
+                  const fila = (label: string, usdVal: number, bsVal: number, highlight?: boolean, esTotal?: boolean) => {
+                    return (
+                      <View
+                        key={label}
+                        style={{
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginTop: esTotal ? 8 : 3,
+                          paddingTop: esTotal ? 6 : 0,
+                          borderTopWidth: esTotal ? 1.5 : 0,
+                          borderTopColor: colors.border,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: esTotal ? colors.text : (highlight ? '#0369A1' : colors.muted),
+                            fontSize: esTotal ? 14 : 12,
+                            fontWeight: esTotal ? '900' : (highlight ? '700' : '600'),
+                          }}
+                        >
+                          {label}
+                        </Text>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text
+                            style={{
+                              color: esTotal ? colors.brandText : colors.text,
+                              fontSize: esTotal ? 16 : 13,
+                              fontWeight: esTotal ? '900' : '700',
+                              fontVariant: ['tabular-nums'],
+                            }}
+                          >
+                            {usd(usdVal)}
+                          </Text>
+                          {bsVal > 0 || (rate && rate > 0) ? (
+                            <Text
+                              style={{
+                                color: colors.muted,
+                                fontSize: esTotal ? 11.5 : 10.5,
+                                fontVariant: ['tabular-nums'],
+                              }}
+                            >
+                              {fmtBs(bsVal)}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  };
+
+                  return (
+                    <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                      {fila('Subtotal', subUsd, subBs)}
+                      {exentoUsd > 0 || exentoBs > 0 ? fila('Exento de IVA', exentoUsd, exentoBs, true) : null}
+                      {exentoUsd > 0 || exentoBs > 0 ? fila('Base imponible (gravada)', baseUsd, baseBs) : null}
+                      {fila(`IVA (${alic}%)`, ivaUsd, ivaBs)}
+                      {fila('TOTAL ESTIMADO', totalUsd, totalBs, false, true)}
+                    </View>
+                  );
+                })()}
               </Card>
             ) : <EmptyState title="Sin productos" subtitle="Agrega productos del inventario o nuevos." />}
 
-            {/* Adjuntar FORMATO (imagen o PDF): cotización, foto del repuesto, planilla… */}
+            {/* Adjuntar FORMATOS (imágenes o PDFs múltiples): cotizaciones, fotos del repuesto, planillas… */}
             <Card>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>📎 Formato (opcional)</Text>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Adjunta una imagen o un PDF (cotización, foto del repuesto, planilla…). El jefe lo verá al aprobar.</Text>
-              {formato ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
-                  {formato.kind === 'image' ? <Image source={{ uri: formato.url }} style={{ width: 46, height: 46, borderRadius: radius.sm }} /> : <Text style={{ fontSize: 30 }}>📄</Text>}
-                  <Text style={{ color: colors.text, fontSize: 12, flex: 1 }} numberOfLines={1}>{formato.name}{formato.kind === 'pdf' ? ' (PDF)' : ''}</Text>
-                  <TouchableOpacity onPress={() => setFormato(null)}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📎 Formatos y Soportes (opcional)</Text>
+                {formatos.length > 0 ? (
+                  <View style={{ backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                    <Text style={{ color: '#1D4ED8', fontSize: 11, fontWeight: '800' }}>{formatos.length} archivo(s)</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+                Puedes subir dos o más archivos (cotizaciones en PDF, fotos del repuesto, presupuestos escaneados). El jefe podrá revisarlos y descargarlos.
+              </Text>
+
+              {formatos.length > 0 ? (
+                <View style={{ gap: spacing.xs, marginBottom: spacing.sm }}>
+                  {formatos.map((fmt, idx) => (
+                    <View
+                      key={fmt.id || idx}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: spacing.sm,
+                        backgroundColor: colors.surfaceAlt,
+                        borderRadius: radius.md,
+                        padding: spacing.xs,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                    >
+                      {fmt.kind === 'image' ? (
+                        <Image source={{ uri: fmt.url }} style={{ width: 44, height: 44, borderRadius: radius.sm, backgroundColor: colors.surface }} />
+                      ) : (
+                        <View style={{ width: 44, height: 44, borderRadius: radius.sm, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 24 }}>📄</Text>
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                          {fmt.name || `Formato ${idx + 1}`}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                          {fmt.kind === 'pdf' ? 'Documento PDF' : 'Imagen'} · Adjunto #{idx + 1}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => quitarFormato(fmt.id)}
+                        style={{ padding: spacing.xs }}
+                      >
+                        <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️ Quitar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
               ) : null}
-              <TouchableOpacity onPress={adjuntarFormatoNuevo} disabled={subiendoNuevo} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoNuevo ? 0.6 : 1 }}>
-                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>{subiendoNuevo ? '⏳ Subiendo…' : formato ? '📎 Cambiar formato' : '📎 Adjuntar imagen o PDF'}</Text>
-              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={adjuntarFormatoNuevo}
+                  disabled={subiendoNuevo}
+                  style={{
+                    flex: 1,
+                    minWidth: 140,
+                    borderWidth: 1,
+                    borderColor: colors.brand,
+                    borderRadius: radius.md,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                    backgroundColor: colors.surfaceAlt,
+                    opacity: subiendoNuevo ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                    {subiendoNuevo ? '⏳ Subiendo…' : '＋ Adjuntar archivo(s)'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={tomarFotoFormatoNuevo}
+                  disabled={subiendoNuevo}
+                  style={{
+                    flex: 1,
+                    minWidth: 110,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                    backgroundColor: colors.surfaceAlt,
+                    opacity: subiendoNuevo ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                    📷 Tomar foto
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </Card>
+
+            {/* 💳 CONDICIONES DE PAGO DE ESTA COMPRA — viaja automáticamente a Por Pagar */}
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>
+                💳 Condiciones de pago de esta compra (opcional)
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                Cada compra o requerimiento puede tener sus propias condiciones. Se mostrarán directo en Cuentas por Pagar para quien realiza el pago.
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {CONDICIONES_PAGO_CHIPS.map((chipLabel) => {
+                  const activo = condicionesPago.toUpperCase().includes(chipLabel.toUpperCase());
+                  return (
+                    <TouchableOpacity
+                      key={chipLabel}
+                      onPress={() => setCondicionesPago(toggleChipCondicionPago(condicionesPago, chipLabel))}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: activo ? colors.brand : colors.border,
+                        backgroundColor: activo ? colors.brand : colors.surfaceAlt,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 5,
+                      }}
+                    >
+                      <Text style={{ color: activo ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                        {activo ? `✓ ${chipLabel}` : chipLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={condicionesPago}
+                onChangeText={setCondicionesPago}
+                placeholder="Ej. 50% adelanto y 50% contra entrega · Transferencia Bs BCV…"
+                placeholderTextColor={colors.muted}
+                style={inp}
+              />
             </Card>
 
             {/* 📝 OBSERVACIONES — al final, como se pidió: «un espacio de
@@ -1448,32 +5587,130 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         </Screen>
       </Modal>
 
-      {/* ── Vista previa del FORMATO adjunto (imagen o PDF) + descarga ── */}
+      {/* ── Vista previa del FORMATO adjunto (imagen o PDF) + descarga (soporte de 1 o más formatos) ── */}
       <Modal visible={!!previewReq} animationType="fade" transparent onRequestClose={() => setPreviewReq(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.md }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%', overflow: 'hidden' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>📎 {previewReq?.attachment_name || 'Formato'}</Text>
-              <TouchableOpacity onPress={() => setPreviewReq(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
-                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={{ padding: spacing.md }}>
-              {previewReq?.attachment_url ? (
-                previewReq.attachment_type === 'pdf' ? (
-                  Platform.OS === 'web'
-                    ? React.createElement('iframe', { src: previewReq.attachment_url, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
-                    : <Text style={{ color: colors.muted, fontSize: 13 }}>Toca "⬇️ Descargar / Abrir" para ver el PDF.</Text>
-                ) : (
-                  <Image source={{ uri: previewReq.attachment_url }} style={{ width: '100%', height: 420, borderRadius: radius.md }} resizeMode="contain" />
-                )
-              ) : null}
-            </ScrollView>
-            <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
-              <TouchableOpacity onPress={() => previewReq && descargarFormato(previewReq)} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar / Abrir</Text>
-              </TouchableOpacity>
-            </View>
+            {(() => {
+              const reqFormatos = previewReq ? extraerFormatosAdjuntos(previewReq) : [];
+              const safeIndex = Math.min(Math.max(0, previewIndex), Math.max(0, reqFormatos.length - 1));
+              const currentFmt = reqFormatos[safeIndex] || (previewReq?.attachment_url ? {
+                id: 'legado',
+                url: previewReq.attachment_url,
+                kind: previewReq.attachment_type || 'image',
+                name: previewReq.attachment_name || 'Formato',
+              } : null);
+
+              return (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <View style={{ flex: 1, marginRight: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }} numberOfLines={1}>
+                        📎 {currentFmt?.name || previewReq?.attachment_name || 'Formato'}
+                      </Text>
+                      {reqFormatos.length > 1 ? (
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+                          Archivo {safeIndex + 1} de {reqFormatos.length}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <TouchableOpacity onPress={() => setPreviewReq(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Pestañas para alternar entre formatos si hay más de 1 */}
+                  {reqFormatos.length > 1 ? (
+                    <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.sm, paddingVertical: 6, gap: 6 }}>
+                        {reqFormatos.map((fmt, fIdx) => {
+                          const active = fIdx === safeIndex;
+                          return (
+                            <TouchableOpacity
+                              key={fmt.id || fIdx}
+                              onPress={() => setPreviewIndex(fIdx)}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                borderRadius: radius.pill,
+                                backgroundColor: active ? colors.brand : colors.surface,
+                                borderWidth: 1,
+                                borderColor: active ? colors.brand : colors.border,
+                              }}
+                            >
+                              <Text style={{ fontSize: 11 }}>{fmt.kind === 'pdf' ? '📄' : '🖼️'}</Text>
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: active ? '800' : '600',
+                                  color: active ? colors.brandContrast : colors.text,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {fmt.name ? (fmt.name.length > 20 ? fmt.name.slice(0, 18) + '…' : fmt.name) : `Adjunto ${fIdx + 1}`}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+
+                  <ScrollView style={{ padding: spacing.md }}>
+                    {currentFmt?.url ? (
+                      currentFmt.kind === 'pdf' ? (
+                        Platform.OS === 'web'
+                          ? React.createElement('iframe', { src: currentFmt.url, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
+                          : <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', paddingVertical: spacing.md }}>Toca "⬇️ Descargar / Abrir" para ver el PDF.</Text>
+                      ) : (
+                        <Image source={{ uri: currentFmt.url }} style={{ width: '100%', height: 420, borderRadius: radius.md }} resizeMode="contain" />
+                      )
+                    ) : (
+                      <Text style={{ color: colors.muted, textAlign: 'center', paddingVertical: spacing.lg }}>
+                        No hay archivo disponible para visualizar.
+                      </Text>
+                    )}
+                  </ScrollView>
+
+                  <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', gap: spacing.sm }}>
+                    {reqFormatos.length > 1 && safeIndex > 0 ? (
+                      <TouchableOpacity
+                        onPress={() => setPreviewIndex((i) => Math.max(0, i - 1))}
+                        style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>◀ Anterior</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (currentFmt) {
+                          descargarFormato({
+                            ...previewReq!,
+                            attachment_url: currentFmt.url,
+                            attachment_name: currentFmt.name,
+                            attachment_type: currentFmt.kind,
+                          });
+                        }
+                      }}
+                      style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                    >
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar / Abrir archivo</Text>
+                    </TouchableOpacity>
+                    {reqFormatos.length > 1 && safeIndex < reqFormatos.length - 1 ? (
+                      <TouchableOpacity
+                        onPress={() => setPreviewIndex((i) => Math.min(reqFormatos.length - 1, i + 1))}
+                        style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>Siguiente ▶</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </>
+              );
+            })()}
           </View>
         </View>
       </Modal>
@@ -1499,9 +5736,94 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     </TouchableOpacity>
                   </View>
                   {parseNum(it.price) > 0 && rate ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'right' }}>≈ {otra} c/u</Text> : null}
+                  <View style={{ marginTop: 6 }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>📝 Nota del producto (opcional)</Text>
+                    <TextInput
+                      value={it.note || ''}
+                      onChangeText={(t) => setRecvRows((p) => p.map((r, i) => i === idx ? { ...r, note: t } : r))}
+                      placeholder="Ej: marca recibida, presentación, serial o detalle de este ítem…"
+                      placeholderTextColor={colors.muted}
+                      style={[inp, { fontSize: 12 }]}
+                    />
+                  </View>
                 </Card>
               );
             })}
+
+            {/* 🧾 Carga de Factura de Compra / Soporte Fiscal y Nota de Recepción (Para Almacén y Cuentas por Pagar) */}
+            <Card style={{ marginTop: spacing.sm, borderWidth: 1.5, borderColor: '#0284C7', backgroundColor: '#F0F9FF' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <Text style={{ fontSize: 16 }}>🧾</Text>
+                <Text style={{ color: '#0369A1', fontWeight: '800', fontSize: 13 }}>
+                  Factura de Compra / Soporte Fiscal
+                </Text>
+              </View>
+              <Text style={{ color: '#075985', fontSize: 11.5, marginBottom: spacing.xs }}>
+                Ingresa los datos de la factura para que queden registrados en Almacén y en Cuentas por Pagar no tenga que volver a subirlos.
+              </Text>
+
+              <Text style={{ color: '#0C4A6E', fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
+                N° de Factura / Control:
+              </Text>
+              <TextInput
+                value={recvFacturaNumero}
+                onChangeText={setRecvFacturaNumero}
+                placeholder="Ej: FACT-009842 o CTRL-1102"
+                placeholderTextColor="#94A3B8"
+                style={[inp, { backgroundColor: '#fff', marginBottom: spacing.xs }]}
+              />
+
+              <Text style={{ color: '#0C4A6E', fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
+                Foto o Documento PDF de la Factura:
+              </Text>
+              {recvFacturaArchivos.map((a, i) => (
+                <View key={`${a.url}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', padding: 8, borderRadius: radius.md, borderWidth: 1, borderColor: '#BAE6FD', marginBottom: spacing.xs }}>
+                  {a.tipo === 'pdf' ? (
+                    <Text style={{ fontSize: 20 }}>📄</Text>
+                  ) : (
+                    <Image source={{ uri: a.url }} style={{ width: 40, height: 40, borderRadius: 4 }} resizeMode="cover" />
+                  )}
+                  <Text style={{ flex: 1, fontSize: 12, color: '#0F172A' }} numberOfLines={1}>#{i + 1} {a.nombre || 'Factura adjunta'}</Text>
+                  <TouchableOpacity onPress={() => setRecvFacturaArchivos((prev) => prev.filter((_, j) => j !== i))}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {(
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+                  <TouchableOpacity
+                    onPress={() => subirFacturaRecibir('camara')}
+                    disabled={recvSubiendoFactura}
+                    style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#0284C7', paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', opacity: recvSubiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: '#0284C7', fontWeight: '700', fontSize: 12 }}>
+                      {recvSubiendoFactura ? '⏳ Subiendo…' : recvFacturaArchivos.length ? '📷 + Otra foto' : '📷 Tomar Foto'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => subirFacturaRecibir('archivo')}
+                    disabled={recvSubiendoFactura}
+                    style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#0284C7', paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', opacity: recvSubiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: '#0284C7', fontWeight: '700', fontSize: 12 }}>
+                      {recvSubiendoFactura ? '⏳ Subiendo…' : '🖼️ Galería / PDF (varias)'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <Text style={{ color: '#0C4A6E', fontSize: 11, fontWeight: '700', marginTop: 4, marginBottom: 2 }}>
+                📝 Nota / Observación de Recepción (opcional):
+              </Text>
+              <TextInput
+                value={recvNota}
+                onChangeText={setRecvNota}
+                placeholder="Ej: Recibido conforme en almacén, entregado por chofer, observación de la factura o recepción…"
+                placeholderTextColor="#94A3B8"
+                multiline
+                style={[inp, { backgroundColor: '#fff', minHeight: 62, textAlignVertical: 'top' }]}
+              />
+            </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
               <TouchableOpacity onPress={() => setRecvFor(null)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={recibir} disabled={recvBusy} style={{ flex: 2, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: recvBusy ? 0.6 : 1 }}><Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{recvBusy ? 'Recibiendo…' : '📥 Confirmar entrada'}</Text></TouchableOpacity>
@@ -1537,31 +5859,103 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </View>
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nombre del Titular</Text>
-              <TextInput value={provTitular} onChangeText={setProvTitular} placeholder="Nombre de la empresa o titular" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+              <TextInput value={provTitular} onChangeText={setProvTitular} autoCapitalize="words" placeholder="Nombre de la empresa o titular" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula / RIF del Titular</Text>
-              <TextInput value={provDocTitular} onChangeText={(t) => setProvDocTitular(t.toUpperCase())} placeholder="J-12345678-9 o V-12345678" placeholderTextColor={colors.muted} style={inp} />
+              <TextInput value={provDocTitular} onChangeText={setProvDocTitular} autoCapitalize="none" placeholder="J-12345678-9 o V-12345678" placeholderTextColor={colors.muted} style={inp} />
             </Card>
 
             <Card>
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>📱 Pago Móvil</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Banco Pago Móvil</Text>
-              <TextInput value={provPagoMovilBanco} onChangeText={setProvPagoMovilBanco} placeholder="Ej. Banesco, BDV, Mercantil…" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+              <TextInput value={provPagoMovilBanco} onChangeText={setProvPagoMovilBanco} autoCapitalize="words" placeholder="Ej. Banesco, BDV, Mercantil…" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Teléfono Pago Móvil</Text>
               <TextInput value={provPagoMovilTel} onChangeText={setProvPagoMovilTel} keyboardType="phone-pad" placeholder="0414-1234567" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula / RIF Pago Móvil</Text>
-              <TextInput value={provPagoMovilDoc} onChangeText={(t) => setProvPagoMovilDoc(t.toUpperCase())} placeholder="V-12345678 o J-12345678-9" placeholderTextColor={colors.muted} style={inp} />
+              <TextInput value={provPagoMovilDoc} onChangeText={setProvPagoMovilDoc} autoCapitalize="none" placeholder="V-12345678 o J-12345678-9" placeholderTextColor={colors.muted} style={inp} />
             </Card>
 
             <Card>
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🟡 Billetera Digital (Binance Pay / Cripto)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Binance Pay ID / Correo</Text>
-              <TextInput value={provBinanceId} onChangeText={setProvBinanceId} placeholder="Binance ID o correo de cuenta" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+              <TextInput value={provBinanceId} onChangeText={setProvBinanceId} autoCapitalize="none" keyboardType="email-address" placeholder="Binance ID o correo de cuenta" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6, textTransform: 'none' }]} {...rawCaseField} />
 
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Notas adicionales de pago (opcional)</Text>
-              <TextInput value={provNotasPago} onChangeText={setProvNotasPago} placeholder="Instrucciones especiales de pago…" placeholderTextColor={colors.muted} multiline style={[inp, { minHeight: 50, textAlignVertical: 'top' }]} />
+              <TextInput value={provNotasPago} onChangeText={setProvNotasPago} autoCapitalize="none" placeholder="Instrucciones especiales de pago…" placeholderTextColor={colors.muted} multiline style={[inp, { minHeight: 50, textAlignVertical: 'top', textTransform: 'none' }]} {...rawCaseField} />
+            </Card>
+
+            {/* 📸 Captura de Pago / Billetera TRX / Tron / QR */}
+            <Card>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                  📸 Captura de Billetera TRX / Tron / QR Banco
+                </Text>
+                {provPaymentPhotoUrl ? (
+                  <View style={{ backgroundColor: '#064E3B', borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2 }}>
+                    <Text style={{ color: '#34D399', fontSize: 10, fontWeight: '800' }}>✓ Adjuntada</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+                Captura de pantalla de la billetera (TRC-20, TRX, Tron, QR bancario) enviada por el proveedor.
+              </Text>
+
+              {provPaymentPhotoUrl ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surfaceAlt, padding: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: 8 }}>
+                  <Image
+                    source={{ uri: provPaymentPhotoUrl }}
+                    style={{ width: 56, height: 56, borderRadius: 6, backgroundColor: '#000' }}
+                    resizeMode="cover"
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
+                      {provPaymentPhotoName || 'Captura de pago / QR'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => setVisorCapturaProv({ url: provPaymentPhotoUrl, name: provPaymentPhotoName })}
+                        style={{ backgroundColor: colors.brand, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}
+                      >
+                        <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800' }}>👁️ Ver grande</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setProvPaymentPhotoUrl('');
+                          setProvPaymentPhotoName('');
+                        }}
+                        style={{ backgroundColor: colors.dangerSoftBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.dangerSoftBorder }}
+                      >
+                        <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Quitar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  disabled={subiendoCapturaProv}
+                  onPress={tomarFotoCapturaProv}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 5 }}
+                >
+                  <Text style={{ fontSize: 14 }}>📷</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                    {subiendoCapturaProv ? 'Cargando…' : 'Tomar Foto'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={subiendoCapturaProv}
+                  onPress={subirCapturaProvArchivo}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 5 }}
+                >
+                  <Text style={{ fontSize: 14 }}>📎</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                    {subiendoCapturaProv ? 'Subiendo…' : 'Subir Captura'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </Card>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
@@ -1574,6 +5968,47 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             </View>
           </ScrollView>
         </Screen>
+      </Modal>
+
+      {/* Visor modal de captura de pago de proveedor */}
+      <Modal visible={!!visorCapturaProv} transparent animationType="fade" onRequestClose={() => setVisorCapturaProv(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+          <View style={{ width: '100%', maxWidth: 500, backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden', maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>
+                📸 {visorCapturaProv?.name || 'Captura de Billetera / QR'}
+              </Text>
+              <TouchableOpacity onPress={() => setVisorCapturaProv(null)} style={{ padding: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '900' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ alignItems: 'center', padding: spacing.md }}>
+              {visorCapturaProv?.url ? (
+                <Image
+                  source={{ uri: visorCapturaProv.url }}
+                  style={{ width: '100%', height: 420, borderRadius: radius.md }}
+                  resizeMode="contain"
+                />
+              ) : null}
+            </ScrollView>
+            <View style={{ padding: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+              {visorCapturaProv?.url ? (
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(visorCapturaProv.url)}
+                  style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🔗 Abrir original</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                onPress={() => setVisorCapturaProv(null)}
+                style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.brand }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 12 }}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* ── Modal: Solicitar Aclaratoria Técnica (Bucle de Cotización) ── */}
@@ -1653,6 +6088,829 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           </View>
         </View>
       </Modal>
+
+      {/* ── Modal: Carga de Factura Fiscal / Comercial y Recibo de Pago (Expediente Unificado) ── */}
+      <Modal visible={facturaModalOpen} animationType="slide" onRequestClose={() => setFacturaModalOpen(false)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>🧾 Expediente: Factura y Recibo de Pago</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Requerimiento {facturaTarget?.code ?? ''}: Carga y gestiona en un solo lugar la factura comercial/fiscal y el comprobante de transferencia o recibo de pago para trazabilidad directa con Cuentas por Pagar.
+            </Text>
+
+            {/* Tarjeta 1: Factura Fiscal / Comercial */}
+            <Card style={{ marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.xs }}>
+                <Text style={{ fontSize: 16 }}>🧾</Text>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                  1. Factura Fiscal / Comercial
+                </Text>
+              </View>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', gap: 6 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                  🏭 Proveedor / Emisor de la Factura (buscar o escribir manualmente):
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setFacturaProvOpen((v) => !v)}
+                  style={{
+                    backgroundColor: facturaProvOpen ? colors.brand : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: facturaProvOpen ? colors.brand : colors.border,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: radius.pill,
+                  }}
+                >
+                  <Text style={{ color: facturaProvOpen ? colors.brandContrast : colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                    {facturaProvOpen ? '▲ Cerrar lista de proveedores' : `🔍 Buscar en proveedores (${suppliers.length})`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TextInput
+                value={facturaEmpresa}
+                onChangeText={(txt) => {
+                  setFacturaEmpresa(txt);
+                  if (facturaProvOpen) setFacturaProvSearch(txt);
+                }}
+                placeholder="Escribe manualmente el proveedor/emisor o selecciónalo del catálogo..."
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.xs }]}
+              />
+
+              {facturaProvOpen ? (
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.brand,
+                    borderRadius: radius.md,
+                    padding: spacing.xs,
+                    marginBottom: spacing.sm,
+                    maxHeight: 210,
+                  }}
+                >
+                  <TextInput
+                    value={facturaProvSearch}
+                    onChangeText={setFacturaProvSearch}
+                    placeholder="🔍 Filtrar proveedor por nombre o RIF..."
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { backgroundColor: colors.surface, paddingVertical: 6, fontSize: 12, marginBottom: 6 }]}
+                  />
+                  <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+                    {suppliers
+                      .filter((s) => {
+                        if (!facturaProvSearch.trim()) return true;
+                        const q = norm(facturaProvSearch);
+                        return norm(s.name).includes(q) || (s.rif && norm(s.rif).includes(q));
+                      })
+                      .slice(0, 40)
+                      .map((s) => {
+                        const sel = norm(facturaEmpresa) === norm(s.name);
+                        return (
+                          <TouchableOpacity
+                            key={s.id}
+                            onPress={() => {
+                              setFacturaEmpresa(s.name);
+                              setFacturaProvOpen(false);
+                            }}
+                            style={{
+                              paddingVertical: 7,
+                              paddingHorizontal: 8,
+                              borderRadius: radius.sm,
+                              backgroundColor: sel ? colors.brand + '22' : 'transparent',
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: colors.border,
+                              flexDirection: 'row',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ color: sel ? colors.brandText : colors.text, fontWeight: sel ? '800' : '600', fontSize: 12 }}>
+                              🏭 {s.name}
+                            </Text>
+                            {s.rif ? (
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>{s.rif}</Text>
+                            ) : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>N° de Factura / Control</Text>
+              <TextInput
+                value={facturaNumero}
+                onChangeText={setFacturaNumero}
+                placeholder="Ej. FACT-00892 o 0001248"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Fecha de Emisión (AAAA-MM-DD)</Text>
+              <TextInput
+                value={facturaFecha}
+                onChangeText={setFacturaFecha}
+                placeholder="2026-10-26"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nota de la Factura (Opcional)</Text>
+              <TextInput
+                value={facturaNota}
+                onChangeText={setFacturaNota}
+                placeholder="Ej. Factura entregada en físico, pendiente retención, observación..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { marginBottom: spacing.sm, minHeight: 54, textAlignVertical: 'top' }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Documento Adjunto (PDF o Imagen de la Factura)</Text>
+              {facturaUrl ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surfaceAlt, padding: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm }}>
+                  <Text style={{ fontSize: 22 }}>{facturaTipo === 'pdf' ? '📄' : '🖼️'}</Text>
+                  <Text style={{ flex: 1, fontSize: 12, color: colors.text }} numberOfLines={1}>
+                    {facturaNombre || 'Factura adjunta'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => abrirVisorFactura(facturaUrl, facturaTipo, facturaNombre)}
+                    style={{ backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                  >
+                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => { setFacturaUrl(null); setFacturaNombre(null); }}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>Quitar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={tomarFotoFactura}
+                    disabled={subiendoFactura}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', opacity: subiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                      {subiendoFactura ? '⏳ Subiendo…' : '📷 Tomar Foto'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={subirArchivoFactura}
+                    disabled={subiendoFactura}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', opacity: subiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                      {subiendoFactura ? '⏳ Subiendo…' : '📎 Subir Archivo/PDF'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Card>
+
+            {/* Tarjeta 2: Recibo o Comprobante de Pago Bancario */}
+            <Card style={{ marginBottom: spacing.sm, borderColor: '#10B981', borderWidth: 1.5 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.xs }}>
+                <Text style={{ fontSize: 16 }}>💳</Text>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                  2. Recibo o Comprobante de Pago Bancario
+                </Text>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                Registra la transferencia, pago móvil o captura de pago para liquidación.
+              </Text>
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>N° de Referencia / Comprobante</Text>
+              <TextInput
+                value={reciboPagoRef}
+                onChangeText={setReciboPagoRef}
+                placeholder="Ej. Ref #893421 o Voucher 4410"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Método de Pago</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm }}>
+                {['Transferencia', 'Pago Móvil', 'Binance / USDT', 'Zelle', 'Efectivo'].map((m) => {
+                  const sel = reciboPagoMetodo === m;
+                  return (
+                    <TouchableOpacity
+                      key={m}
+                      onPress={() => setReciboPagoMetodo(m)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: sel ? '#10B981' : colors.border,
+                        backgroundColor: sel ? '#ECFDF5' : colors.surfaceAlt,
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: sel ? '#065F46' : colors.text }}>
+                        {m}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Fecha de Pago (AAAA-MM-DD)</Text>
+              <TextInput
+                value={reciboPagoFecha}
+                onChangeText={setReciboPagoFecha}
+                placeholder="2026-10-26"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nota del Recibo / Pago (Opcional)</Text>
+              <TextInput
+                value={reciboPagoNota}
+                onChangeText={setReciboPagoNota}
+                placeholder="Ej. Abono parcial, pagado desde cuenta Banesco, observación del pago..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { marginBottom: spacing.sm, minHeight: 54, textAlignVertical: 'top' }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Foto o Documento del Recibo / Comprobante</Text>
+              {reciboPagoUrl ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ECFDF5', padding: 8, borderRadius: radius.md, borderWidth: 1, borderColor: '#10B981', marginBottom: spacing.sm }}>
+                  <Text style={{ fontSize: 22 }}>{reciboPagoTipo === 'pdf' ? '📄' : '💳'}</Text>
+                  <Text style={{ flex: 1, fontSize: 12, color: '#065F46', fontWeight: '700' }} numberOfLines={1}>
+                    {reciboPagoNombre || 'Recibo de pago adjunto'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => abrirVisorFactura(reciboPagoUrl, reciboPagoTipo, reciboPagoNombre || 'Recibo')}
+                    style={{ backgroundColor: '#fff', paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: '#10B981' }}
+                  >
+                    <Text style={{ color: '#047857', fontSize: 11, fontWeight: '700' }}>Ver</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => { setReciboPagoUrl(null); setReciboPagoNombre(null); }}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>Quitar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={tomarFotoReciboPago}
+                    disabled={subiendoReciboPago}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#10B981', paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', opacity: subiendoReciboPago ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: '#047857', fontWeight: '700', fontSize: 12 }}>
+                      {subiendoReciboPago ? '⏳ Subiendo…' : '📷 Foto Recibo'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={subirArchivoReciboPago}
+                    disabled={subiendoReciboPago}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#10B981', paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', opacity: subiendoReciboPago ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: '#047857', fontWeight: '700', fontSize: 12 }}>
+                      {subiendoReciboPago ? '⏳ Subiendo…' : '📎 Subir Archivo/PDF'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Card>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity
+                onPress={() => setFacturaModalOpen(false)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={guardarFacturaModal}
+                disabled={guardandoFactura}
+                style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoFactura ? 0.6 : 1 }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>
+                  {guardandoFactura ? 'Guardando…' : '💾 Guardar Expediente'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Visor de Factura Adjunta ── */}
+      <Modal visible={facturaViewerOpen} animationType="fade" transparent onRequestClose={() => setFacturaViewerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%', overflow: 'hidden' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
+                🧾 {facturaViewerNombre || 'Factura'}
+              </Text>
+              <TouchableOpacity onPress={() => setFacturaViewerOpen(false)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ padding: spacing.md }}>
+              {facturaViewerUrl ? (
+                facturaViewerTipo === 'pdf' ? (
+                  Platform.OS === 'web'
+                    ? React.createElement('iframe', { src: facturaViewerUrl, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
+                    : <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginVertical: 20 }}>Toca "⬇️ Descargar / Abrir" para ver el PDF.</Text>
+                ) : (
+                  <Image source={{ uri: facturaViewerUrl }} style={{ width: '100%', height: 420, borderRadius: radius.md }} resizeMode="contain" />
+                )
+              ) : null}
+            </ScrollView>
+            <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', gap: spacing.sm }}>
+              <TouchableOpacity
+                onPress={() => setFacturaViewerOpen(false)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+              </TouchableOpacity>
+              {facturaViewerUrl ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      window.open(facturaViewerUrl, '_blank');
+                    } else {
+                      Linking.openURL(facturaViewerUrl);
+                    }
+                  }}
+                  style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Abrir / Descargar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal: Configuración de Usuario Designado para Aprobar Requerimientos (solo responsables de sistemas) ── */}
+      <Modal visible={configModalOpen && puedeVerConfigAprobacion} animationType="fade" transparent onRequestClose={() => setConfigModalOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, maxHeight: '92%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <Text style={{ fontSize: 16 }}>⚙️</Text>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text }}>
+                  Designar Usuario Aprobador de Requerimientos
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setConfigModalOpen(false)}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 11.5, color: colors.muted, marginBottom: spacing.sm }}>
+              🔒 Configuración exclusiva de los responsables de sistemas. Elige qué usuario(s) (ej. Gerente General) deben aprobar primero los requerimientos de compra.
+            </Text>
+
+            <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled">
+              {/* Modo de aplicación: Todos los requerimientos vs Por monto */}
+              <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.text, marginBottom: 6 }}>
+                1. ¿Cuándo se exige aprobación del usuario designado?
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={() => { setCfgActivo(true); setCfgExigirEnTodos(true); setCfgMonto('0'); }}
+                  style={{
+                    flex: 1,
+                    minWidth: 180,
+                    padding: 10,
+                    borderRadius: radius.md,
+                    borderWidth: 1.5,
+                    borderColor: cfgActivo && cfgExigirEnTodos ? colors.brand : colors.border,
+                    backgroundColor: cfgActivo && cfgExigirEnTodos ? colors.brand + '18' : colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: cfgActivo && cfgExigirEnTodos ? colors.brandText : colors.text }}>
+                    {cfgActivo && cfgExigirEnTodos ? '● ' : '○ '}En TODOS los requerimientos
+                  </Text>
+                  <Text style={{ fontSize: 10.5, color: colors.muted, marginTop: 2 }}>
+                    Todo requerimiento debe ser aprobado primero por el usuario designado (ej. Gerente General).
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => { setCfgActivo(true); setCfgExigirEnTodos(false); if (parseNum(cfgMonto) <= 0) setCfgMonto('1000'); }}
+                  style={{
+                    flex: 1,
+                    minWidth: 180,
+                    padding: 10,
+                    borderRadius: radius.md,
+                    borderWidth: 1.5,
+                    borderColor: cfgActivo && !cfgExigirEnTodos ? colors.brand : colors.border,
+                    backgroundColor: cfgActivo && !cfgExigirEnTodos ? colors.brand + '18' : colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: cfgActivo && !cfgExigirEnTodos ? colors.brandText : colors.text }}>
+                    {cfgActivo && !cfgExigirEnTodos ? '● ' : '○ '}Solo mayores a un monto ($ USD)
+                  </Text>
+                  <Text style={{ fontSize: 10.5, color: colors.muted, marginTop: 2 }}>
+                    Exige la aprobación especial cuando el requerimiento supere el monto indicado.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {!cfgExigirEnTodos ? (
+                <View style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
+                    Monto Límite en Dólares (USD):
+                  </Text>
+                  <TextInput
+                    value={cfgMonto}
+                    onChangeText={setCfgMonto}
+                    keyboardType="numeric"
+                    placeholder="1000"
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+              ) : null}
+
+              {/* Selección de Usuario(s) Designado(s) */}
+              <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.text, marginBottom: 4, marginTop: 4 }}>
+                2. Usuario(s) Designado(s) para Aprobar Requerimientos:
+              </Text>
+              <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 6 }}>
+                Selecciona de la lista de usuarios registrados o escribe el cargo/nombre (por defecto: Gerente General).
+              </Text>
+
+              <TextInput
+                value={cfgUserSearch}
+                onChangeText={setCfgUserSearch}
+                placeholder="🔍 Buscar usuario por nombre, usuario o cargo..."
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6, paddingVertical: 6, fontSize: 12 }]}
+              />
+
+              <View
+                style={{
+                  maxHeight: 170,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.md,
+                  backgroundColor: colors.surfaceAlt,
+                  padding: 6,
+                  marginBottom: spacing.sm,
+                }}
+              >
+                <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {usuariosSistema
+                    .filter((u) => {
+                      if (!cfgUserSearch.trim()) return true;
+                      const q = norm(cfgUserSearch);
+                      return (
+                        norm(u.full_name).includes(q) ||
+                        (u.username && norm(u.username).includes(q)) ||
+                        (u.app_role_name && norm(u.app_role_name).includes(q)) ||
+                        (u.role && norm(u.role).includes(q))
+                      );
+                    })
+                    .map((u) => {
+                      const sel =
+                        cfgAprobadoresIds.includes(u.id) ||
+                        cfgAprobadoresNombres.some((n) => norm(n) === norm(u.full_name));
+                      return (
+                        <TouchableOpacity
+                          key={u.id}
+                          onPress={() => toggleUsuarioAprobador(u)}
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            paddingVertical: 7,
+                            paddingHorizontal: 8,
+                            borderRadius: radius.sm,
+                            backgroundColor: sel ? colors.brand + '22' : 'transparent',
+                            borderBottomWidth: 0.5,
+                            borderBottomColor: colors.border,
+                          }}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: sel ? colors.brandText : colors.text, fontWeight: sel ? '800' : '600', fontSize: 12 }}>
+                              {sel ? '☑ ' : '☐ '}👤 {u.full_name}
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                              {u.app_role_name || u.role || 'Usuario'}{u.username ? ` · @${u.username}` : ''}
+                            </Text>
+                          </View>
+                          {sel ? (
+                            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>Designado</Text>
+                          ) : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                </ScrollView>
+              </View>
+
+              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
+                Nombres / Cargos Autorizados (puedes agregar &quot;Gerente General&quot; o separar por coma):
+              </Text>
+              <TextInput
+                value={cfgAprobadoresNombres.join(', ')}
+                onChangeText={(t) => setCfgAprobadoresNombres(t.split(',').map((x) => x.trim()).filter(Boolean))}
+                placeholder="Ej. Gerente General"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text, marginBottom: 6 }}>
+                3. Aplica a la Empresa:
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.md }}>
+                <TouchableOpacity
+                  onPress={() => { setCfgEmpresaId(null); setCfgEmpresaNombre('Todas las empresas'); }}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: cfgEmpresaId === null ? colors.brand : colors.border,
+                    backgroundColor: cfgEmpresaId === null ? colors.surfaceAlt : 'transparent',
+                  }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: cfgEmpresaId === null ? colors.brandText : colors.text }}>
+                    🌐 Todas las empresas
+                  </Text>
+                </TouchableOpacity>
+                {companies.map((c) => {
+                  const sel = cfgEmpresaId === c.id;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      onPress={() => { setCfgEmpresaId(c.id); setCfgEmpresaNombre(c.name); }}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.brand : colors.border,
+                        backgroundColor: sel ? colors.surfaceAlt : 'transparent',
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: sel ? colors.brandText : colors.text }}>
+                        🏢 {c.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+              <TouchableOpacity onPress={() => setConfigModalOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={guardarConfigModal} style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>💾 Guardar Aprobador Designado</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal: Control Físico de Retiro en Almacén (Falta 3) ── */}
+      <Modal visible={despachoModalOpen} animationType="slide" onRequestClose={() => setDespachoModalOpen(false)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>📦 Retiro / Despacho Físico de Almacén</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Requerimiento {despachoTarget?.code ?? ''}: Registra a qué mecánico o chofer se le entregó el material y para cuál maquinaria o vehículo (código y placa).
+            </Text>
+
+            {/* Persona que retira */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                👤 Personal que Retira (Mecánico / Chofer)
+              </Text>
+              <TextInput
+                value={empBusquedaQ}
+                onChangeText={setEmpBusquedaQ}
+                placeholder="🔎 Buscar en nómina (nombre, cargo, cédula)…"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6, fontSize: 12 }]}
+              />
+              {empBusquedaQ.trim().length > 0 ? (
+                <View style={{ maxHeight: 150, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, marginBottom: 8, overflow: 'hidden' }}>
+                  <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                    {employees
+                      .map((e) => ({
+                        e,
+                        fullName: [e.first_name, e.last_name].filter(Boolean).join(' ') || 'Sin Nombre',
+                      }))
+                      .filter(({ e, fullName }) => {
+                        const q = norm(empBusquedaQ);
+                        return norm(fullName).includes(q) || (e.cedula && norm(e.cedula).includes(q)) || (e.cargo && norm(e.cargo).includes(q));
+                      })
+                      .map(({ e, fullName }) => (
+                        <TouchableOpacity
+                          key={e.id}
+                          onPress={() => {
+                            setRetiradoPor(fullName);
+                            setRetiradoCedula(e.cedula || '');
+                            setRetiradoCargo(e.cargo || '');
+                            setRetiradoEmployeeId(e.id);
+                            setEmpBusquedaQ('');
+                          }}
+                          style={{ padding: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{fullName}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            {e.cedula ? `CI: ${e.cedula} · ` : ''}{e.cargo || 'Personal'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nombre Completo de quien retira</Text>
+              <TextInput
+                value={retiradoPor}
+                onChangeText={setRetiradoPor}
+                placeholder="Nombre y Apellido"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6 }]}
+              />
+
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: 6 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula</Text>
+                  <TextInput
+                    value={retiradoCedula}
+                    onChangeText={setRetiradoCedula}
+                    placeholder="V-12345678"
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cargo / Rol</Text>
+                  <TextInput
+                    value={retiradoCargo}
+                    onChangeText={setRetiradoCargo}
+                    placeholder="Ej. Mecánico, Chofer"
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+              </View>
+            </Card>
+
+            {/* Maquinaria o Vehículo de Destino (con PLACA y Buscador) */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                🚜 Maquinaria o Vehículo de Destino
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 6 }}>
+                Identifica la unidad que recibirá el repuesto mostrando siempre Código y Placa.
+              </Text>
+
+              {despachoMaquinariaId ? (() => {
+                const selMaq = machines.find((m) => m.id === despachoMaquinariaId);
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#3B82F6', borderRadius: radius.md, padding: 8, marginBottom: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#1E3A8A', fontWeight: '800', fontSize: 12.5 }}>
+                        🚜 {selMaq ? machineLabel(selMaq) : 'Maquinaria seleccionada'}
+                      </Text>
+                      <Text style={{ color: '#2563EB', fontSize: 11 }}>
+                        Placa: {selMaq?.plate || 'Sin placa'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setDespachoMaquinariaId(null)}>
+                      <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Cambiar</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })() : null}
+
+              <TextInput
+                value={maqBusquedaQ}
+                onChangeText={setMaqBusquedaQ}
+                placeholder="🔎 Buscar maquinaria por código, placa, serial…"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6, fontSize: 12 }]}
+              />
+              <View style={{ maxHeight: 180, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, overflow: 'hidden' }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {machines
+                    .filter((m) => machineMatches(m, maqBusquedaQ))
+                    .map((m) => {
+                      const isSel = m.id === despachoMaquinariaId;
+                      return (
+                        <TouchableOpacity
+                          key={m.id}
+                          onPress={() => {
+                            setDespachoMaquinariaId(m.id);
+                            setMaqBusquedaQ('');
+                          }}
+                          style={{
+                            padding: 8,
+                            borderBottomWidth: 1,
+                            borderBottomColor: colors.border,
+                            backgroundColor: isSel ? '#DBEAFE' : 'transparent',
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                              {machineLabel(m)}
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>
+                              Placa: <Text style={{ fontWeight: '700', color: colors.brandText }}>{m.plate || 'Sin placa'}</Text>{m.serial ? ` · Serial: ${m.serial}` : ''}
+                            </Text>
+                          </View>
+                          {isSel ? <Text style={{ color: '#2563EB', fontWeight: '900', fontSize: 14 }}>✓</Text> : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                </ScrollView>
+              </View>
+            </Card>
+
+            {/* Detalles de Almacén */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                📋 Trazabilidad de Entrega
+              </Text>
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Almacenista que Despacha</Text>
+              <TextInput
+                value={despachadoPor}
+                onChangeText={setDespachadoPor}
+                placeholder="Nombre del almacenista"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6 }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Fecha / Hora de Retiro</Text>
+              <TextInput
+                value={despachoFecha}
+                onChangeText={setDespachoFecha}
+                placeholder="2026-10-26T14:30:00Z"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6 }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Observaciones / Notas de Entrega</Text>
+              <TextInput
+                value={despachoNota}
+                onChangeText={setDespachoNota}
+                placeholder="Ej. Entregado en galpón principal, verificado con mecánico..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { minHeight: 60, textAlignVertical: 'top' }]}
+              />
+            </Card>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity
+                onPress={() => setDespachoModalOpen(false)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={guardarDespachoModal}
+                disabled={guardandoDespacho}
+                style={{ flex: 2, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoDespacho ? 0.6 : 1 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>
+                  {guardandoDespacho ? 'Guardando…' : '📦 Confirmar Despacho Físico'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal de Cotizaciones Múltiples y Multi-Moneda ── */}
+      <CotizacionesModal
+        visible={cotizacionesModalOpen}
+        onClose={() => { setCotizacionesModalOpen(false); setCotizacionesTarget(null); }}
+        requirementCode={cotizacionesTarget?.code}
+        requirementItems={cotizacionesTarget?.items || []}
+        cotizaciones={cotizacionesTarget ? getReqCotizaciones(cotizacionesTarget) : []}
+        suppliers={suppliers}
+        rateBcv={rate || 0}
+        canEdit={canWrite}
+        onSaveCotizaciones={guardarCotizacionesReq}
+      />
+
+      {/* ✏️ Editar factura / comprobante ya subidos (al final: en web gana el último montado) */}
+      {soporteEdit ? (
+        <EditarSoporteReqModal
+          req={soporteEdit.req}
+          tipo={soporteEdit.tipo}
+          archivosIniciales={soporteEdit.archivos}
+          proveedorNombre={suppliers.find((s) => s.id === soporteEdit.req.supplier_id)?.name || null}
+          onClose={() => setSoporteEdit(null)}
+          onSaved={() => { refetch(); refetchCuentas(); }}
+        />
+      ) : null}
     </Screen>
   );
 }

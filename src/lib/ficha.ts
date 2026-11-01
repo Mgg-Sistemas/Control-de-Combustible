@@ -4,6 +4,7 @@
 import { pdfDocument } from './pdf';
 import { Employee, Aliado } from '../types/database';
 import { leerContactos, tituloContacto } from './contactosEmergencia';
+import { leerHabilidadesEmpleado } from './empleadosHabilidades';
 
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const nombre = (e: { first_name?: string | null; last_name?: string | null }) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Sin nombre';
@@ -42,11 +43,12 @@ function section(title: string, pairs: [string, any][]): string {
   return body ? `<h3 class="sec">${title}</h3><table class="ft"><tbody>${body}</tbody></table>` : '';
 }
 
-type FichaOpts = { companyName?: string | null; photoDataUri?: string | null };
+type FichaOpts = { companyName?: string | null; photoDataUri?: string | null; habilidades?: string[] };
 
 /** Ficha COMPLETA de un trabajador (todos los datos) en PDF. */
 export function fichaEmpleadoHtml(e: Employee & { companyName?: string }, opts?: FichaOpts): string {
   const photo = opts?.photoDataUri || e.photo_url || '';
+  const habs = opts?.habilidades?.length ? opts.habilidades : leerHabilidadesEmpleado(e);
   const header = `<div class="fx-head">
       ${photo ? `<img class="fx-photo" src="${photo}"/>` : ''}
       <div class="fx-meta">
@@ -65,6 +67,7 @@ export function fichaEmpleadoHtml(e: Employee & { companyName?: string }, opts?:
         ['Empresa', opts?.companyName ?? e.companyName], ['Cargo', e.cargo], ['Departamento', e.department],
         ['Grupo / zona', e.grupo], ['Fecha de ingreso', fmtDMY(e.hire_date)],
       ])
+    + (habs.length ? section('🛠️ Habilidades', habs.map((h, i) => [`Habilidad ${i + 1}`, h] as [string, any])) : '')
     + section('📞 Contacto', [
         ['Teléfono', e.phone], ['Correo', e.email], ['Dirección', e.address], ['Ciudad', e.city], ['Estado', e.state],
       ])

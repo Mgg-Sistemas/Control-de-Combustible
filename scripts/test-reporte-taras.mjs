@@ -216,9 +216,23 @@ ok('vacío: lo dice en vez de una tabla en blanco', cuerpoReporteTaras(CAMIONES,
     nombreArchivoTaras('conTara', '2026-10-19', { ...OP, placa: false }).includes('19-10-2026') && nombreArchivoTaras('conTara', '2026-10-19', { ...OP, placa: false }).includes('sin placa'));
   // La pantalla pinta los toggles nuevos y pasa las opciones al nombre del archivo.
   const comp = fs.readFileSync(path.join(ROOT, 'src/components/ReporteTarasBox.tsx'), 'utf8');
-  ok('⭐ la pantalla tiene los toggles nuevos', /Numeración/.test(comp) && /Clasificación por capacidad/.test(comp) && /una sola empresa/.test(comp) && /Nota al pie/.test(comp) && /label="👤 Chofer"/.test(comp));
+  ok('⭐ la pantalla tiene los toggles nuevos', /Numeración/.test(comp) && /Clasificación por capacidad/.test(comp) && /una sola empresa/.test(comp) && /Nota al pie/.test(comp) && /label="👤 Chofer"/.test(comp) && /label="⛽ Combustible \(L\)"/.test(comp));
   ok('⭐ …y los choferes se leen solo si la columna está encendida', /op\.chofer === true\) \{[\s\S]*listOperatorAssignments\(\)/.test(comp));
   ok('⭐ …y el nombre del archivo lleva las opciones', /nombreArchivoTaras\(op\.alcance, caracasBusinessToday\(\), op\)/.test(comp));
+
+  // ⛽ Columna Combustible (L) y total por día
+  const { litrosTexto, resumenCombustibleTaras } = R;
+  eq('litrosTexto formatea enteros y decimales', [litrosTexto(120), litrosTexto(125.5), litrosTexto(1250), litrosTexto(null), litrosTexto(0)], ['120 L', '125,5 L', '1.250 L', '—', '—']);
+  const tarasConFuel = new Map([
+    ['a', tara(11340, { combustibleLitros: 150 })],
+    ['b', tara(12000, { combustibleLitros: 80.5 })],
+  ]);
+  eq('resumenCombustibleTaras suma litros de las filas', resumenCombustibleTaras(CAMIONES, tarasConFuel, 'conTara'), { conCombustible: 2, totalLitros: 230.5 });
+  const htmlConFuel = cuerpoReporteTaras(CAMIONES, tarasConFuel, OP);
+  ok('⭐ columna Combustible (L) sale en la tabla con cada equipo y el total', htmlConFuel.includes('<th class="r">Combustible (L)</th>') && htmlConFuel.includes('150 L') && htmlConFuel.includes('80,5 L') && htmlConFuel.includes('230,5 L') && htmlConFuel.includes('TOTAL COMBUSTIBLE'));
+  const htmlSinFuelCol = cuerpoReporteTaras(CAMIONES, tarasConFuel, { ...OP, combustible: false });
+  ok('⭐ apagada la columna Combustible, no sale en la tabla ni en las tarjetas', !htmlSinFuelCol.includes('Combustible (L)') && !htmlSinFuelCol.includes('150 L') && !htmlSinFuelCol.includes('TOTAL COMBUSTIBLE'));
+  ok('⭐ el sufijo del archivo indica «sin combustible» cuando se apaga', /sin combustible/.test(sufijoArchivoTaras({ ...OP, combustible: false })));
 }
 
 if (fail) {

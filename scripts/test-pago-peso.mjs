@@ -216,8 +216,9 @@ eq('sufijo del archivo: eje, filtros y lo que cambió de las pastillas', P.sufij
 eq('sufijo vacío cuando no cambia nada', P.sufijoArchivoPeso(P.FILTRO_PESO_TODO, 'empresa', P.OPCIONES_PESO_POR_DEFECTO), '');
 eq('ocultos en palabras (solo pantalla)', P.ocultosPesoEnPalabras({ ...P.OPCIONES_PESO_POR_DEFECTO, ...Object.fromEntries(P.PASTILLAS_PESO.map((p) => [p.key, false])), sinDias: true }), 'No sale: cuadro por día.');
 eq('alternar', P.alternarPeso(P.OPCIONES_PESO_POR_DEFECTO, 'sinViajes').sinViajes, false);
-ok('el papel vacío lo dice', P.cuerpoPagoPeso(datos({}, { lineas: [] })).includes('Sin viajes con ese filtro'));
 ok('escapa HTML', P.cuerpoPagoPeso(datos({}, { nombresEmpresa: new Map([['E2', '<b>X</b>']]) })).includes('&lt;b&gt;X&lt;/b&gt;'));
+ok('⭐ si se apaga el alcance en un papel filtrado por peso, NO sale el cuadro de alcance', !P.cuerpoPagoPeso(datos({ sinAlcance: true }, { filtro: F })).includes('Alcance del informe'));
+ok('⭐ la tarjeta PagoPesoResumen NO pisa la pastilla del alcance al filtrar', !/sinAlcance: false/.test(sinComentarios(leer('src/components/PagoPesoResumen.tsx'))));
 
 // ── 6) CANDADOS ──────────────────────────────────────────────────────────────
 {

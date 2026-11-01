@@ -317,6 +317,8 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   const filtrado = papel({ filtro: { empresas: ['e1'], obras: [] }, opciones: { ...R.OPCIONES_PAGO_COMO_ANTES, sinAlcance: false } });
   ok('⭐ y un papel FILTRADO sigue avisando que su total no es el completo',
     /este papel está filtrado/i.test(filtrado) && !/No sale:/.test(filtrado));
+  const filtradoSinAlcance = papel({ filtro: { empresas: ['e1'], obras: [] }, opciones: { ...R.OPCIONES_PAGO_COMO_ANTES, sinAlcance: true } });
+  ok('⭐ si se apaga el alcance en un papel filtrado, NO sale el cuadro de alcance', !/Alcance del informe/.test(filtradoSinAlcance));
   ok('la pantalla SÍ te dice antes de descargar qué vas a dejar fuera',
     /ocultosPagoEnPalabras/.test(leer('src/components/PagoViajesResumen.tsx')));
 }
@@ -326,7 +328,7 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   const ui = sinComentarios(leer('src/components/PagoViajesResumen.tsx'));
   ok('⭐ el papel sale de las MISMAS líneas de la tarjeta', /lineasDeGrupos\(empresas\.map\(\(e\) => e\.g\)\)/.test(ui));
   ok('⭐ arranca con el papel de siempre', /useState<OpcionesPagoViajes>\(OPCIONES_PAGO_COMO_ANTES\)/.test(ui));
-  ok('⭐ un papel filtrado SIEMPRE lleva el alcance, aunque lo apaguen', /opciones: pdfFiltrado \? \{ \.\.\.opcionesPdf, sinAlcance: false \} : opcionesPdf/.test(ui));
+  ok('⭐ la tarjeta NO pisa la pastilla del alcance al filtrar', !/sinAlcance: false/.test(ui));
   ok('⭐ el filtro se acota a lo que hay en el rango', /acotarFiltroPago\(/.test(ui));
   ok('sin viajes con ese filtro, el botón no deja', /!lineasPdf\.length\)/.test(ui));
   ok('la lista de «no entran al pago» solo va sin filtrar', /const fuera = !pdfFiltrado && fueraDelPago\.length/.test(ui));

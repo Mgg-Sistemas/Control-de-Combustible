@@ -138,7 +138,7 @@ export function areasSugeridas(
  */
 export function nombreEscritoValido(texto?: string | null): boolean {
   const n = limpiarNombre(texto);
-  return n.length >= 3 && /[A-ZÑÁÉÍÓÚÜ]{2}/.test(n);
+  return n.length >= 3 && /[a-záéíóúüñ]{2}/i.test(n);
 }
 
 /** Lo mismo que ve el usuario: el nombre limpio que se guardaría. */

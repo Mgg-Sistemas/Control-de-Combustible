@@ -15,11 +15,12 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { supabase } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { Profile, UserRole, AppRole } from '../types/database';
-import { MODULES, PermLevel, defaultLevel, maxLevel, roleLabel } from '../lib/permissions';
+import { MODULES, PermLevel, defaultLevel, maxLevel, roleLabel, ROLE_DESC } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { BulkPermissionsModal } from '../components/BulkPermissionsModal';
+import { FichasDeRolModal } from '../components/FichasDeRolModal';
 import { coincideUsuario } from '../lib/usuariosBulk';
 import {
   CuentaCicloVida, MOTIVO_MINIMO, AVISO_SIN_SQL, estadoDeCuenta, etiquetaEstado, faltaElSql,
@@ -181,6 +182,7 @@ export default function UsersScreen() {
   const [verArchivo, setVerArchivo] = useState(false);   // pestana En uso | Archivados
   const [archivando, setArchivando] = useState<Profile | null>(null); // modal del motivo
   const [rolesOpen, setRolesOpen] = useState(false);      // gestor de roles
+  const [fichasOpen, setFichasOpen] = useState(false);    // 🎭 accesos por rol del sistema
   const [bulkOpen, setBulkOpen] = useState(false);        // edición masiva de permisos
   const roleName = (id?: string | null) => appRoles.find((r) => r.id === id)?.name ?? null;
   // Cuántos usuarios tiene vinculado cada rol dinámico (para bloquear su borrado).
@@ -299,6 +301,22 @@ export default function UsersScreen() {
           </View>
         </Card>
       </TouchableOpacity>
+
+      {/* 🎭 ACCESOS POR ROL (31-oct-2026): accesos por defecto y vista en teléfono de
+          cada rol del sistema, sin código. Solo admins (la base también lo exige). */}
+      {role === 'admin' ? (
+        <TouchableOpacity onPress={() => setFichasOpen(true)}>
+          <Card>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🎭 Accesos por rol</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Qué módulos tiene por defecto cada rol (inspector, analista…) y a qué vista entra en el teléfono.</Text>
+              </View>
+              <Text style={{ color: colors.primary, fontWeight: '800' }}>Configurar ›</Text>
+            </View>
+          </Card>
+        </TouchableOpacity>
+      ) : null}
 
       {/* EDICIÓN MASIVA: cambiarle el permiso de un módulo a muchos de una vez,
           en vez de entrar y salir de "Editar" uno por uno. */}
@@ -481,6 +499,7 @@ export default function UsersScreen() {
         onClose={() => setEditing(null)}
         onSaved={refetch}
       />
+      <FichasDeRolModal visible={fichasOpen} users={users} onClose={() => setFichasOpen(false)} />
       <RolesManagerModal visible={rolesOpen} roles={appRoles} userCounts={roleUserCounts} onClose={() => setRolesOpen(false)} onChanged={refetchRoles} />
       <BulkPermissionsModal
         visible={bulkOpen}
@@ -529,6 +548,7 @@ function UnifiedRolePicker({ visible, roles, current, onPick, onClose }: {
               return (
                 <TouchableOpacity key={r} onPress={() => onPick({ kind: 'base', role: r })} style={rowStyle(on)}>
                   <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800' }}>{roleLabel(r)}</Text>
+                  {ROLE_DESC[r] ? <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>{ROLE_DESC[r]}</Text> : null}
                 </TouchableOpacity>
               );
             })}
@@ -1561,6 +1581,10 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
     padding: spacing.lg,
+    // En PC la hoja no se estira a todo el ancho; en teléfono no cambia nada.
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
   },
   input: {
     backgroundColor: colors.surface,

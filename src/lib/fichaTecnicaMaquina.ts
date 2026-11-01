@@ -71,6 +71,7 @@ export type FichaPersonalizada = {
   seccionTag?: string | null;     // Tag / enlace lateral (ej. "Placa de Identificación")
   metricas?: FichaMetrica[];      // Tarjetas métricas superiores destacadas
   renglones?: FichaRenglon[];     // Renglones de especificaciones adicionales o editados
+  renglonesOcultos?: string[];    // IDs de renglones del catálogo que el usuario ocultó/eliminó explícitamente
   observaciones?: FichaObservacion[]; // Cuadros de texto / observaciones con borde dorado
   fotosExtra?: FichaFoto[];       // Fotos adicionales con sus leyendas
   // 🖼️ Fotos de Vista General en Página 1 (garantizadas en la primera página):
@@ -236,11 +237,14 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   const secTagHtml = p?.seccionTag ? `<span class="sec-tag">${esc(p.seccionTag)}</span>` : '';
 
   let specsHtml = '';
-  if (p?.renglones && p.renglones.length > 0) {
+  const renglonesValidos = (p?.renglones ?? []).filter(
+    (r) => r && (String(r.etiqueta ?? '').trim().length > 0 || String(r.valor ?? '').trim().length > 0)
+  );
+  if (renglonesValidos.length > 0) {
     // Si tienen categorías, dividirlas en columnas dobles estilo catálogo técnico
     const catsMap = new Map<string, FichaRenglon[]>();
-    p.renglones.forEach((r) => {
-      const c = r.categoria?.trim() || 'Especificaciones';
+    renglonesValidos.forEach((r) => {
+      const c = String(r.categoria ?? '').trim() || 'Componentes Principales';
       const arr = catsMap.get(c) ?? [];
       arr.push(r);
       catsMap.set(c, arr);
@@ -251,13 +255,13 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
         <div class="specs-col">
           <div class="specs-col-hdr">${esc(cat)}</div>
           <table class="ft"><tbody>
-            ${items.map((r) => `<tr><td class="k">${esc(r.etiqueta)}</td><td>${esc(r.valor)}</td></tr>`).join('')}
+            ${items.map((r) => `<tr><td class="k">${esc(String(r.etiqueta ?? '').trim() || '—')}</td><td>${esc(String(r.valor ?? '').trim() || '—')}</td></tr>`).join('')}
           </tbody></table>
         </div>
       `).join('')}</div>`;
     } else {
       specsHtml = `<table class="ft"><tbody>
-        ${p.renglones.map((r) => `<tr><td class="k">${esc(r.etiqueta)}</td><td>${esc(r.valor)}</td></tr>`).join('')}
+        ${renglonesValidos.map((r) => `<tr><td class="k">${esc(String(r.etiqueta ?? '').trim() || '—')}</td><td>${esc(String(r.valor ?? '').trim() || '—')}</td></tr>`).join('')}
       </tbody></table>`;
     }
   } else {
@@ -427,8 +431,8 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   .card .cv{font-size:15px;font-weight:900;color:${NAVY};margin-top:2px}
   .card .cs{font-size:8px;color:#64748B;margin-top:1px}
 
-  .specs-dual{display:flex;gap:12px;margin-bottom:10px}
-  .specs-col{flex:1;min-width:0}
+  .specs-dual{display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+  .specs-col{flex:1;min-width:240px}
   .specs-col-hdr{background:${CELESTE};color:${NAVY};font-size:10.5px;font-weight:800;padding:5px 8px;border:1px solid ${BORDE};border-bottom:none;border-radius:4px 4px 0 0}
 
   table{border-collapse:collapse;width:100%}
@@ -528,4 +532,240 @@ export function nombreArchivoFichaTecnica(m: MaquinaFichaTecnica): string {
   const limpio = base.replace(/[^\w\s.-]/g, '').trim() || 'equipo';
   return `Ficha tecnica ${limpio}`;
 }
+
+const CATEGORIAS_CONOCIDAS = new Set([
+  'datos generales',
+  'componentes principales',
+  'especificaciones',
+]);
+
+/**
+ * Construye un `FichaRenglon` a partir de lo que el usuario haya escrito en los campos
+ * de nuevo renglón. Tolera cualquier combinación de llenado (por ejemplo si el usuario
+ * escribió el nombre del campo en la casilla de categoría y el valor abajo, o escribió
+ * "Motor: Cummins" en un solo campo). Devuelve `null` solo si todo está vacío.
+ */
+export function resolverNuevoRenglon(input: {
+  categoriaSeleccionada?: string | null;
+  categoria?: string | null;
+  etiqueta?: string | null;
+  valor?: string | null;
+  id?: string;
+}): FichaRenglon | null {
+  const catSel = String(input.categoriaSeleccionada ?? '').trim() || 'Componentes Principales';
+  const catTxt = String(input.categoria ?? '').trim();
+  const etqTxt = String(input.etiqueta ?? '').trim();
+  const valTxt = String(input.valor ?? '').trim();
+
+  if (!catTxt && !etqTxt && !valTxt) return null;
+
+  const id = input.id || `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+  // Caso 1: etiqueta y valor llenos normalmente
+  if (etqTxt && valTxt) {
+    return {
+      id,
+      categoria: catTxt || catSel,
+      etiqueta: etqTxt,
+      valor: valTxt,
+    };
+  }
+
+  // Caso 2: el usuario escribió en la 1ra casilla (catTxt) y en valor (valTxt), dejando etiqueta vacía
+  if (catTxt && valTxt && !etqTxt) {
+    return {
+      id,
+      categoria: CATEGORIAS_CONOCIDAS.has(catTxt.toLowerCase()) ? catTxt : catSel,
+      etiqueta: catTxt,
+      valor: valTxt,
+    };
+  }
+
+  // Caso 3: el usuario escribió en la 1ra casilla (catTxt) y en la 2da (etqTxt), dejando valor vacío
+  if (catTxt && etqTxt && !valTxt) {
+    if (!CATEGORIAS_CONOCIDAS.has(catTxt.toLowerCase())) {
+      return {
+        id,
+        categoria: catSel,
+        etiqueta: catTxt,
+        valor: etqTxt,
+      };
+    }
+    const idx = etqTxt.indexOf(':');
+    if (idx > 0) {
+      return {
+        id,
+        categoria: catTxt,
+        etiqueta: etqTxt.slice(0, idx).trim(),
+        valor: etqTxt.slice(idx + 1).trim() || '—',
+      };
+    }
+    return {
+      id,
+      categoria: catTxt,
+      etiqueta: etqTxt,
+      valor: '—',
+    };
+  }
+
+  // Caso 4: solo llenó etiqueta (ej. "Motor: Cummins 6BT" o nombre del campo)
+  if (etqTxt && !valTxt) {
+    const idx = etqTxt.indexOf(':');
+    if (idx > 0) {
+      return {
+        id,
+        categoria: catTxt || catSel,
+        etiqueta: etqTxt.slice(0, idx).trim(),
+        valor: etqTxt.slice(idx + 1).trim() || '—',
+      };
+    }
+    return {
+      id,
+      categoria: catTxt || catSel,
+      etiqueta: etqTxt,
+      valor: '—',
+    };
+  }
+
+  // Caso 5: solo llenó valor
+  if (valTxt && !etqTxt) {
+    const idx = valTxt.indexOf(':');
+    if (idx > 0) {
+      return {
+        id,
+        categoria: catTxt || catSel,
+        etiqueta: valTxt.slice(0, idx).trim(),
+        valor: valTxt.slice(idx + 1).trim() || '—',
+      };
+    }
+    return {
+      id,
+      categoria: catTxt || catSel,
+      etiqueta: 'Especificación',
+      valor: valTxt,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Vuelca cualquier dato que el usuario haya dejado escrito en los formularios de
+ * "+ Agregar renglón", "+ Agregar métrica" o "+ Agregar observación" sin haber
+ * pulsado el botón "Añadir" antes de pulsar "Guardar" o "Exportar PDF".
+ */
+export function aplicarPendientesFicha(
+  data: FichaPersonalizada,
+  pend: {
+    categoriaSeleccionada?: string | null;
+    nuevoCampoCat?: string | null;
+    nuevoCampoEtq?: string | null;
+    nuevoCampoVal?: string | null;
+    nuevaMetricaTit?: string | null;
+    nuevaMetricaSub?: string | null;
+    nuevaMetricaVal?: string | null;
+    nuevaObsTit?: string | null;
+    nuevaObsTxt?: string | null;
+  }
+): {
+  data: FichaPersonalizada;
+  agregados: { renglon: boolean; metrica: boolean; observacion: boolean };
+} {
+  let renglones = [...(data.renglones ?? [])].filter(
+    (r) => r && (String(r.etiqueta ?? '').trim().length > 0 || String(r.valor ?? '').trim().length > 0)
+  );
+  let metricas = [...(data.metricas ?? [])];
+  let observaciones = [...(data.observaciones ?? [])];
+
+  let agregoRenglon = false;
+  let agregoMetrica = false;
+  let agregoObs = false;
+
+  const nuevoRenglon = resolverNuevoRenglon({
+    categoriaSeleccionada: pend.categoriaSeleccionada,
+    categoria: pend.nuevoCampoCat,
+    etiqueta: pend.nuevoCampoEtq,
+    valor: pend.nuevoCampoVal,
+  });
+  if (nuevoRenglon) {
+    renglones.push(nuevoRenglon);
+    agregoRenglon = true;
+  }
+
+  const mTit = String(pend.nuevaMetricaTit ?? '').trim();
+  const mSub = String(pend.nuevaMetricaSub ?? '').trim();
+  const mVal = String(pend.nuevaMetricaVal ?? '').trim();
+  if (mTit || mVal) {
+    metricas.push({
+      id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      titulo: mTit || 'MÉTRICA',
+      subtitulo: mSub || undefined,
+      valor: mVal || '—',
+    });
+    agregoMetrica = true;
+  }
+
+  const oTit = String(pend.nuevaObsTit ?? '').trim();
+  const oTxt = String(pend.nuevaObsTxt ?? '').trim();
+  if (oTit || oTxt) {
+    observaciones.push({
+      id: `o-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      titulo: oTit || 'Observaciones Técnicas',
+      texto: oTxt || oTit,
+    });
+    agregoObs = true;
+  }
+
+  return {
+    data: {
+      ...data,
+      renglones,
+      metricas,
+      observaciones,
+    },
+    agregados: {
+      renglon: agregoRenglon,
+      metrica: agregoMetrica,
+      observacion: agregoObs,
+    },
+  };
+}
+
+/**
+ * Combina una ficha personalizada guardada previamente con los datos actuales del
+ * catálogo de la máquina:
+ * - Conserva TODOS los renglones personalizados que el usuario haya añadido o editado.
+ * - Si en el catálogo de la máquina se cargaron campos nuevos (ej. peso, aceite, placa,
+ *   dimensiones) que antes no estaban en `saved.renglones` y no fueron eliminados por
+ *   el usuario (`renglonesOcultos`), los incorpora automáticamente.
+ */
+export function sincronizarFichaConCatalogo(
+  saved: FichaPersonalizada,
+  inicial: FichaPersonalizada
+): FichaPersonalizada {
+  const ocultos = new Set(saved.renglonesOcultos ?? []);
+  const guardados = [...(saved.renglones ?? [])];
+  const idsGuardados = new Set(guardados.map((r) => r.id));
+  const etiquetasGuardadas = new Set(
+    guardados.map((r) => String(r.etiqueta ?? '').trim().toLowerCase())
+  );
+
+  for (const rInit of inicial.renglones ?? []) {
+    if (ocultos.has(rInit.id)) continue;
+    const etqNorm = String(rInit.etiqueta ?? '').trim().toLowerCase();
+    if (!idsGuardados.has(rInit.id) && !etiquetasGuardadas.has(etqNorm)) {
+      guardados.push(rInit);
+      idsGuardados.add(rInit.id);
+      etiquetasGuardadas.add(etqNorm);
+    }
+  }
+
+  return {
+    ...inicial,
+    ...saved,
+    renglones: guardados,
+    renglonesOcultos: Array.from(ocultos),
+  };
+}
+
 

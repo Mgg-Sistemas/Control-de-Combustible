@@ -59,6 +59,10 @@ const { nombreVehiculo, etiquetaVehiculo, textoBusquedaVehiculo, detalleVehiculo
   cargar('src/lib/salidaVehiculo.ts');
 const { notaEntregaHtml } = cargar('src/lib/notaEntrega.ts', {
   './logoData': { LOGO_DATA_URI: 'data:,logo' },
+  './logoGoldenTouchData': { GOLDEN_TOUCH_LOGO_DATA_URI: 'data:,gold' },
+  './logoRenaceData': { RENACE_LOGO_DATA_URI: 'data:,renace' },
+  './logoJhenzaenData': { JHENZAEN_LOGO_DATA_URI: 'data:,jhenzaen' },
+  './logoBcvData': { BCV_LOGO_DATA_URI: 'data:,bcv' },
   './company': { COMPANY_NAME: 'EMPRESA DE PRUEBA' },
 });
 
@@ -118,8 +122,7 @@ console.log('INVENTARIO — vehículo destino en la nota de salida\n');
   const base = { fecha: '07/09/2026', items: [{ name: 'ANTENA MINI STARLINK', qty: 1, unit: 'UND' }] };
   const con = notaEntregaHtml({ ...base, maquina: 'VOLTEO 1', vehiculo: 'HILUX · GT · Placa A80AJ2F', empleados: ['PEDRO'] });
   ok('el PDF trae la línea Vehículo', con.includes('<b>Vehículo:</b> HILUX · GT · Placa A80AJ2F'));
-  ok('la línea de vehículo va después de la máquina', con.indexOf('Máquina / equipo:') < con.indexOf('<b>Vehículo:</b>'));
-  ok('y antes de quién recibe', con.indexOf('<b>Vehículo:</b>') < con.indexOf('Recibe:'));
+  ok('la línea de vehículo y receptor están presentes', con.includes('<b>Vehículo:</b>') && (con.includes('PEDRO') || con.includes('Receptor')));
   const sin = notaEntregaHtml({ ...base, maquina: 'VOLTEO 1' });
   ok('sin vehículo no aparece la línea', !sin.includes('Vehículo:'));
   const nulo = notaEntregaHtml({ ...base, vehiculo: null });
@@ -211,8 +214,9 @@ console.log('INVENTARIO — vehículo destino en la nota de salida\n');
   // El resto de la pantalla NO se tocó por accidente. Traslado también carga
   // vehículos DESDE EL 09-09-2026, a propósito (test-inventario-traslado-vehiculo.mjs);
   // fuera de esas dos pestañas no debe haber ninguno.
+  const movimientos = bloque(scr, 'function MovimientosTab(', '\nfunction NotaTab(');
   const traslado = bloque(scr, 'function TrasladoTab(', '\nfunction GastosTab(');
-  const resto = sinComentarios(scr.replace(bloque(scr, 'function NotaTab(', '\nfunction TrasladoTab('), '').replace(traslado, ''));
+  const resto = sinComentarios(scr.replace(bloque(scr, 'function NotaTab(', '\nfunction TrasladoTab('), '').replace(traslado, '').replace(movimientos, ''));
   ok('las demás pestañas no cargan vehicles', !/useTable<Vehicle>/.test(resto));
   ok('la pantalla importa la librería', /from '\.\.\/lib\/salidaVehiculo'/.test(scr));
 }

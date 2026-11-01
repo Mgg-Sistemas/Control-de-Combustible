@@ -27,6 +27,7 @@ import { insertMachineService, MachineServiceKind } from '../lib/machineServices
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import EdificioPicker from '../components/EdificioPicker';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
+import SurtidorMovil from '../components/combustible/SurtidorMovil';
 
 // Máquina cargada del catálogo (solo los campos que usamos aquí).
 type Machine = {
@@ -81,11 +82,14 @@ function toNum(s: string): number {
 
 export default function FuelDriverScreen() {
   const { colors } = useTheme();
-  const { session, signOut } = useAuth();
+  const { session, signOut, fullName } = useAuth();
   const uid = session?.user?.id ?? '';
+  const [activeTab, setActiveTab] = useState<'surtidor' | 'qr_averias'>('surtidor');
 
-  const [driverName, setDriverName] = useState('');
+  const [driverName, setDriverName] = useState(fullName || '');
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [tanks, setTanks] = useState<{ id: string; name: string; responsable?: string | null; chofer?: string | null; fuel: string; location?: string | null }[]>([]);
+  const [selectedTankId, setSelectedTankId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [reloadTick, setReloadTick] = useState(0);
 
@@ -137,6 +141,50 @@ export default function FuelDriverScreen() {
       alive = false;
     };
   }, [uid]);
+
+  // Carga de tanques activos del sistema
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase
+        .from('tanks')
+        .select('id, name, responsable, chofer, fuel, location, active')
+        .neq('active', false);
+      if (alive && data) {
+        setTanks(data as any[]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [reloadTick]);
+  useRealtimeRefresh(['tanks'], () => setReloadTick((n) => n + 1));
+
+  // Tanque asignado al chofer actual (por responsable o chofer del tanque)
+  const myAssignedTank = useMemo(() => {
+    const effectiveName = driverName || fullName || '';
+    if (!effectiveName || tanks.length === 0) return null;
+    const d = norm(effectiveName);
+    return tanks.find((t) => {
+      const resp = t.responsable ? norm(t.responsable) : '';
+      const chof = t.chofer ? norm(t.chofer) : '';
+      return (
+        (resp && (resp === d || resp.includes(d) || d.includes(resp))) ||
+        (chof && (chof === d || chof.includes(d) || d.includes(chof)))
+      );
+    }) || null;
+  }, [tanks, driverName, fullName]);
+
+  // Pre-selección por defecto: el tanque del chofer o el único tanque existente
+  useEffect(() => {
+    if (!selectedTankId) {
+      if (myAssignedTank) {
+        setSelectedTankId(myAssignedTank.id);
+      } else if (tanks.length === 1) {
+        setSelectedTankId(tanks[0].id);
+      }
+    }
+  }, [myAssignedTank, tanks, selectedTankId]);
 
   // Carga de TODAS las máquinas del catálogo. En realtime: si desde la web se
   // agrega una máquina o se le edita sector/parroquia/encargado, antes el chofer
@@ -288,6 +336,11 @@ export default function FuelDriverScreen() {
       setResult({ ok: false, msg: '❌ Ingresa un monto por litro válido (0 o más).' });
       return;
     }
+    const effectiveTankId = selectedTankId || myAssignedTank?.id || (tanks.length === 1 ? tanks[0].id : null);
+    if (!effectiveTankId && tanks.length > 0) {
+      setResult({ ok: false, msg: '❌ Por favor selecciona el tanque o cisterna de donde estás surtiendo.' });
+      return;
+    }
     setSaving(true);
     setResult(null);
     try {
@@ -295,6 +348,7 @@ export default function FuelDriverScreen() {
         machineryId: selected.id,
         dispatchDate: today(),
         liters: l,
+        tankId: effectiveTankId,
         pricePerLiter: p,
         photos,
         operator: driverName || null,
@@ -405,61 +459,139 @@ export default function FuelDriverScreen() {
   const showVal = (v: string | null | undefined) => (v && String(v).trim() ? String(v) : '—');
 
   return (
-    <Screen>
-      {/* Encabezado */}
+    <Screen scroll={false}>
+      {/* Selector de modo estilo pastilla moderna (fijo en la parte superior, sin desbordes) */}
       <View
         style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: spacing.md,
-          gap: spacing.sm,
+          paddingHorizontal: spacing.md,
+          paddingTop: spacing.xs,
+          paddingBottom: spacing.xs,
+          backgroundColor: colors.surface,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
         }}
       >
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 22, fontWeight: '800', color: colors.text }}>
-            ⛽ Surtir combustible
-          </Text>
-          {driverName ? (
-            <Text style={{ color: colors.muted, marginTop: 2 }}>{driverName}</Text>
-          ) : null}
-        </View>
-        <TouchableOpacity
-          onPress={signOut}
+        <View
           style={{
+            flexDirection: 'row',
             backgroundColor: colors.surfaceAlt,
+            borderRadius: radius.pill,
+            padding: 3,
             borderWidth: 1,
             borderColor: colors.border,
-            paddingVertical: spacing.sm,
-            paddingHorizontal: spacing.md,
-            borderRadius: radius.pill,
           }}
         >
-          <Text style={{ color: colors.text, fontWeight: '700' }}>Salir</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={{ marginBottom: spacing.md }}>
-        <ChangePasswordButton />
+          <TouchableOpacity
+            onPress={() => setActiveTab('surtidor')}
+            activeOpacity={0.8}
+            style={{
+              flex: 1,
+              paddingVertical: 7,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: radius.pill,
+              backgroundColor: activeTab === 'surtidor' ? colors.primary : 'transparent',
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: 12.5,
+                fontWeight: '800',
+                color: activeTab === 'surtidor' ? colors.primaryContrast : colors.text,
+              }}
+            >
+              ⛽ Surtidor & Tanques
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setActiveTab('qr_averias')}
+            activeOpacity={0.8}
+            style={{
+              flex: 1,
+              paddingVertical: 7,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: radius.pill,
+              backgroundColor: activeTab === 'qr_averias' ? colors.primary : 'transparent',
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: 12.5,
+                fontWeight: '800',
+                color: activeTab === 'qr_averias' ? colors.primaryContrast : colors.text,
+              }}
+            >
+              📷 Escáner QR / Fallas
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Botón grande: ESCANEAR MÁQUINA */}
-      <TouchableOpacity
-        onPress={() => {
-          setScanMsg('');
-          setScanOpen(true);
-        }}
-        style={{
-          backgroundColor: colors.primary,
-          borderRadius: radius.md,
-          paddingVertical: spacing.lg,
-          alignItems: 'center',
-          marginBottom: spacing.sm,
-        }}
-      >
-        <Text style={{ color: colors.primaryContrast, fontSize: 18, fontWeight: '800' }}>
-          📷 ESCANEAR MÁQUINA
-        </Text>
-      </TouchableOpacity>
+      {activeTab === 'surtidor' ? (
+        <View style={{ flex: 1 }}>
+          <SurtidorMovil isStandalone />
+        </View>
+      ) : (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: spacing.md, gap: spacing.md, paddingBottom: 80 }}
+        >
+          {/* Encabezado Chofer */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: spacing.sm,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: colors.text }}>
+                📷 Escaneo & Averías
+              </Text>
+              {driverName ? (
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{driverName}</Text>
+              ) : null}
+            </View>
+            <TouchableOpacity
+              onPress={signOut}
+              style={{
+                backgroundColor: colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingVertical: 6,
+                paddingHorizontal: spacing.md,
+                borderRadius: radius.pill,
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Salir</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ChangePasswordButton />
+
+          {/* Botón grande: ESCANEAR MÁQUINA */}
+          <TouchableOpacity
+            onPress={() => {
+              setScanMsg('');
+              setScanOpen(true);
+            }}
+            style={{
+              backgroundColor: colors.primary,
+              borderRadius: radius.md,
+              paddingVertical: spacing.lg,
+              alignItems: 'center',
+              marginBottom: spacing.xs,
+            }}
+          >
+            <Text style={{ color: colors.primaryContrast, fontSize: 18, fontWeight: '800' }}>
+              📷 ESCANEAR MÁQUINA
+            </Text>
+          </TouchableOpacity>
       {scanMsg ? (
         <Text style={{ color: colors.danger, marginBottom: spacing.sm }}>{scanMsg}</Text>
       ) : null}
@@ -509,6 +641,8 @@ export default function FuelDriverScreen() {
             </TouchableOpacity>
           ))}
         </View>
+      )}
+        </ScrollView>
       )}
 
       {/* Modal del escáner QR */}
@@ -665,6 +799,55 @@ export default function FuelDriverScreen() {
                     </View>
                   ) : null}
                 </Card>
+
+                {/* Tanque / Cisterna de origen (para combustible) */}
+                {surtidoTipo === 'combustible' ? (
+                  <View>
+                    <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>
+                      🛢️ Tanque / Cisterna de origen *
+                    </Text>
+                    {tanks.length > 0 ? (
+                      <View style={{ gap: spacing.xs }}>
+                        {tanks.map((t) => {
+                          const isSel = (selectedTankId || myAssignedTank?.id || (tanks.length === 1 ? tanks[0].id : '')) === t.id;
+                          const isAssigned = (t.responsable && norm(t.responsable) === norm(driverName)) || (t.chofer && norm(t.chofer) === norm(driverName));
+                          return (
+                            <TouchableOpacity
+                              key={t.id}
+                              onPress={() => setSelectedTankId(t.id)}
+                              activeOpacity={0.8}
+                              style={{
+                                padding: spacing.sm,
+                                borderRadius: radius.md,
+                                borderWidth: 2,
+                                borderColor: isSel ? colors.primary : colors.border,
+                                backgroundColor: isSel ? colors.surfaceAlt : colors.surface,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                              }}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontWeight: '800', color: colors.text, fontSize: 13 }}>
+                                  {t.name} {t.fuel ? `(${String(t.fuel).toUpperCase()})` : ''}
+                                </Text>
+                                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                                  {t.responsable ? `Responsable: ${t.responsable}` : t.location ? `Ubicación: ${t.location}` : 'Tanque activo'}
+                                  {isAssigned ? ' · ⭐ Tu tanque asignado' : ''}
+                                </Text>
+                              </View>
+                              {isSel ? (
+                                <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 15 }}>✓</Text>
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ) : (
+                      <Text style={{ color: colors.danger, fontSize: 12 }}>⚠️ No hay tanques registrados en el sistema</Text>
+                    )}
+                  </View>
+                ) : null}
 
                 {/* Litros (combustible o aceite) — el AIRE no lleva litros. */}
                 {surtidoTipo !== 'aire' ? (

@@ -79,8 +79,8 @@ export type ContactoRow = {
   supplier_id?: string | null;
 };
 
-/** Limpia un nombre: sin espacios de más y en MAYÚSCULAS, como el resto del módulo. */
-export const limpiarNombre = (v: any): string => String(v ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
+/** Limpia un nombre: sin espacios de más, respetando mayúsculas y minúsculas ingresadas. */
+export const limpiarNombre = (v: any): string => String(v ?? '').replace(/\s+/g, ' ').trim();
 
 /**
  * El nombre que se imprime. De una persona, «NOMBRE APELLIDO»; de una empresa, su

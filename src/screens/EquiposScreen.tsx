@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView, Platform, useWindowDimensions } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useToast } from '../components/ToastProvider';
+import { useAuth } from '../context/AuthContext';
 import { RecordForm, Field } from '../components/RecordForm';
 import { DateField } from '../components/DateField';
 import { useTable } from '../hooks/useTable';
@@ -16,6 +17,18 @@ import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { fichaTecnicaMaquinaHtml, nombreArchivoFichaTecnica, MaquinaFichaTecnica, OpcionesFichaTecnica, FichaPersonalizada } from '../lib/fichaTecnicaMaquina';
 import { FichaTecnicaModal } from '../components/FichaTecnicaModal';
+import { actaRecepcionHtml } from '../lib/actaRecepcionEquipo';
+import { autorizacionTrasladoHtml } from '../lib/autorizacionTraslado';
+import { informeTrasladoCargaHtml } from '../lib/informeTrasladoCarga';
+import { STORAGE_ACTAS_KEY, ActaRegistro } from './ActaRecepcionScreen';
+import {
+  cargarActasCompartidas,
+  eliminarActaCompartida,
+  cargarTrasladosCompartidos,
+  eliminarTrasladoCompartido,
+  ActaCompartida,
+  TrasladoCompartido,
+} from '../lib/actasYTrasladosDb';
 import { ultimaFotoHorometro } from '../lib/horometroTrabajoDb';
 import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
 import { workedFromShifts } from './ControlMaquinariaScreen';
@@ -25,6 +38,7 @@ import { GuardButton } from '../components/GuardButton';
 import { useConfirm } from '../components/ConfirmProvider';
 import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { fetchActiveGuards } from '../lib/guards';
+import { isPhoneDevice } from '../lib/device';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
 import { listOperatorAssignments } from '../lib/machineOperators';
 import { caracasParts, shiftOf } from '../lib/jornada';
@@ -46,7 +60,6 @@ import { edificioCanonico, edificioLabel } from '../lib/edificios';
 import MachineQuickScreen from './MachineQuickScreen';
 import { ObrasPublicasAssignModal } from '../components/ObrasPublicasAssignModal';
 import { listOpAssignments, OpAssignment } from '../lib/obrasPublicas';
-import { useAuth } from '../context/AuthContext';
 import { Machinery, Vehicle, Company, MachineGuard } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -233,7 +246,14 @@ const VIAJES_FIELDS: Field[] = [
 
 export default function EquiposScreen({ navigation, route }: any) {
   const { colors } = useTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const isMobile = useMemo(() => isPhoneDevice() || windowWidth < 768, [windowWidth]);
+  const [cardActionsOpen, setCardActionsOpen] = useState<Record<string, boolean>>({});
+  const toggleCardActions = (id: string) => {
+    setCardActionsOpen((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
   const toast = useToast();
+  const { role, canSee, fullName, session } = useAuth();
   const [kind, setKind] = useState<Kind>('vehiculo');
 
   const vehicles = useTable<Vehicle>('vehicles', { orderBy: 'plate', ascending: true });
@@ -246,6 +266,11 @@ export default function EquiposScreen({ navigation, route }: any) {
   });
   const companies = useTable<Company>('companies');
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 120);
+    return () => clearTimeout(t);
+  }, [query]);
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('__all__'); // '__all__' | valor | '__none__'
@@ -277,7 +302,6 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [qrStr, setQrStr] = useState<string>('');
   const [qrBlockBusy, setQrBlockBusy] = useState(false);
   // Guardia / militar encargado actual por máquina (historial acumulable).
-  const { session, role, fullName } = useAuth();
   // Los SUPERVISORES pueden iniciar jornada desde el catálogo (sin escanear el
   // QR) — y el ADMIN también (27-sep-2026, regla de la casa: admin = acceso a
   // todo; antes tenía que irse a la vista de inspector para lo mismo).
@@ -352,17 +376,20 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Pre-calienta el GPS al entrar para que "Marcar ubicación" sea instantáneo.
   useEffect(() => { warmLocation(); }, []);
 
+  // Clave estable de IDs para no disparar las 7 consultas si los IDs de maquinaria no cambiaron
+  const machIdsKey = useMemo(() => machinery.data.map((m) => m.id).sort().join(','), [machinery.data]);
+
   // Carga el guardia/militar actual de cada máquina para mostrarlo en la ficha.
   const loadGuards = () => {
     const ids = machinery.data.map((m) => m.id);
     if (ids.length === 0) { setGuards({}); return; }
     fetchActiveGuards(ids).then(setGuards).catch(() => {});
   };
-  useEffect(() => { loadGuards(); }, [machinery.data]);
+  useEffect(() => { loadGuards(); }, [machIdsKey]);
 
   // Inspector "asignado" = quien hizo el último check-in en cada máquina.
   const loadInspectors = () => { latestInspectorByMachine().then(setInspectors).catch(() => {}); };
-  useEffect(() => { loadInspectors(); }, [machinery.data]);
+  useEffect(() => { loadInspectors(); }, [machIdsKey]);
 
   // Operador PLANEADO (día/noche) por máquina — asignación del Coordinador de Operadores
   // (machine_operators), independiente del inspector de arriba.
@@ -373,7 +400,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       setPlannedOperators(map);
     }).catch(() => {});
   };
-  useEffect(() => { loadPlannedOperators(); }, [machinery.data]);
+  useEffect(() => { loadPlannedOperators(); }, [machIdsKey]);
   // Operador planeado a mostrar en la tarjeta: el del turno vigente AHORA (mismo criterio
   // día/noche que `shiftOf()`, usado en toda la app para jornadas); si ese turno no tiene
   // a nadie planeado, cae al otro turno para no dejar la línea vacía si solo hay uno cargado.
@@ -391,7 +418,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // los mismos datos — ver AGENTS.md, "un solo lugar por regla de negocio".)
   const [inspByShift, setInspByShift] = useState<Record<string, InspByShiftEntry>>({});
   const loadInspByShift = () => { fetchInspByShift().then(setInspByShift).catch(() => {}); };
-  useEffect(() => { loadInspByShift(); }, [machinery.data]);
+  useEffect(() => { loadInspByShift(); }, [machIdsKey]);
 
   // Avería/parada reportada por un inspector (Mantenimiento de Maquinaria) — el Catálogo
   // no la mostraba: `operational` solo lo cambia el admin a mano con "⛔ Inactiva", así
@@ -403,7 +430,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // (fetch centralizado en src/lib/machineLiveStatus.ts — ver comentario de `inspByShift`.)
   const [averiaCat, setAveriaCat] = useState<Record<string, AveriaEntry>>({});
   const loadAveriaCat = () => { fetchAveriaCat().then(setAveriaCat).catch(() => {}); };
-  useEffect(() => { loadAveriaCat(); }, [machinery.data]);
+  useEffect(() => { loadAveriaCat(); }, [machIdsKey]);
 
   // Última inactividad RESUELTA (parada/avería ya cerrada con "Volver a Operativa" o
   // reactivación de jornada) por máquina — para mostrar en la ficha del catálogo un
@@ -432,7 +459,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       setLastInactivity(m);
     } catch {}
   };
-  useEffect(() => { loadLastInactivity(); }, [machinery.data]);
+  useEffect(() => { loadLastInactivity(); }, [machIdsKey]);
 
   // Estatus EN VIVO por jornada (machine_rounds): horas trabajadas hoy + jornada abierta.
   // Se lee la ronda de HOY (día de negocio Caracas) y la de ANOCHE si es una jornada de
@@ -441,7 +468,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // (fetch centralizado en src/lib/machineLiveStatus.ts — ver comentario de `inspByShift`.)
   const [jornadaCat, setJornadaCat] = useState<Record<string, JornadaEntry>>({});
   const loadJornadaCat = () => { fetchJornadaCat().then(setJornadaCat).catch(() => {}); };
-  useEffect(() => { loadJornadaCat(); }, [machinery.data]);
+  useEffect(() => { loadJornadaCat(); }, [machIdsKey]);
 
   // "Tick" en vivo: cada 60s re-renderiza para que las horas en curso crezcan solas.
   const [nowTick, setNowTick] = useState<number>(Date.now());
@@ -495,7 +522,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     const t = canonDim(m, catDim);
     return typeFilter === '__none__' ? !t : t === typeFilter;
   };
-  const q = norm(query.trim());
+  const q = norm(debouncedQuery.trim());
   const matchQ = (hay: any[]) => !q || hay.filter(Boolean).some((v: any) => norm(v).includes(q));
   // Catálogo unificado: maquinaria (agrupada por empresa) + vehículos.
   // Las máquinas INACTIVAS (No operativa) NO se muestran en el catálogo: solo
@@ -522,9 +549,12 @@ export default function EquiposScreen({ navigation, route }: any) {
     (m as any).marca, (m as any).modelo,
     inspectors[m.id]?.name, inspByShift[m.id]?.day, inspByShift[m.id]?.night,
   ];
-  const machineryList = machinery.data.filter(
-    (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchTapa(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, edificioLabel((m as any).referencia), companyName(m.company_id), tapaLabelOf(m), ...extrasBusqueda(m)])
-  );
+  const machineryList = useMemo(() => {
+    return machinery.data.filter(
+      (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchTapa(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, edificioLabel((m as any).referencia), companyName(m.company_id), tapaLabelOf(m), ...extrasBusqueda(m)])
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machinery.data, companyFilter, typeFilter, tapaFilter, q, catDim, companyName, inspectors, inspByShift]);
   // Opciones del filtro por la dimensión activa (Modelo/Clasificación), con conteo.
   const typeOptions = useMemo(() => {
     const c = new Map<string, number>();
@@ -540,7 +570,10 @@ export default function EquiposScreen({ navigation, route }: any) {
   }, [machinery.data, companyFilter, catDim]);
   // Los vehículos se muestran DENTRO del catálogo, agrupados por empresa igual que las
   // máquinas (no en una caja aparte). Respetan el filtro de empresa y la búsqueda.
-  const vehicleList = vehicles.data.filter((v) => matchCompany(v as any) && matchQ([v.name, v.plate, v.brand, v.model, v.vehicle_type, v.identifier, v.serial, v.encargado]));
+  const vehicleList = useMemo(() => {
+    return vehicles.data.filter((v) => matchCompany(v as any) && matchQ([v.name, v.plate, v.brand, v.model, v.vehicle_type, v.identifier, v.serial, v.encargado]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicles.data, companyFilter, q]);
   const totalResults = machineryList.length + vehicleList.length;
   const loading = machinery.loading || vehicles.loading;
   const refetchAll = () => { machinery.refetch(); vehicles.refetch(); };
@@ -624,6 +657,45 @@ export default function EquiposScreen({ navigation, route }: any) {
   // 🏷️ La clasificación de la ficha (misma regla en las tarjetas por categoría y
   //    en el filtro del detalle): vacía = «SIN CLASIFICACIÓN».
   const clasifDeMaquina = (m: Machinery) => (m.clasificacion && String(m.clasificacion).trim().toUpperCase()) || 'SIN CLASIFICACIÓN';
+
+  // ⚡ OPTIMIZACIÓN RENDIMIENTO: Memoización de definiciones y totales de tarjetas por categoría
+  const ESTADOS_CAT_DEFS = useMemo(() => [
+    { k: 'operativa' as EstadoTarjeta, s: 'active' as const, label: 'Operativas', color: colors.success },
+    { k: 'averiada' as EstadoTarjeta, s: 'averiada' as const, label: 'Averiadas', color: colors.warning },
+    { k: 'parada' as EstadoTarjeta, s: 'parada' as const, label: 'Paradas', color: '#B45309' },
+    { k: 'espera' as EstadoTarjeta, s: 'espera' as const, label: 'Esperando instrucciones', color: '#8B5CF6' },
+    { k: 'transferida' as EstadoTarjeta, s: 'transferida' as const, label: 'Transferidas a otros', color: '#0D9488' },
+  ], [colors]);
+
+  type FilaCat = { operativa: number; averiada: number; parada: number; espera: number; retirada: number; transferida: number; total: number };
+  const desgloseCategoriasData = useMemo(() => {
+    if (machinery.loading) return null;
+    const claseDe = clasifDeMaquina;
+    const vacia = (): FilaCat => ({ operativa: 0, averiada: 0, parada: 0, espera: 0, retirada: 0, transferida: 0, total: 0 });
+    const porCat = new Map<string, FilaCat>();
+    const suma = (lista: Machinery[], k: 'operativa' | 'averiada' | 'parada' | 'espera' | 'retirada' | 'transferida') =>
+      lista.forEach((m) => { const c = porCat.get(claseDe(m)) ?? vacia(); c[k] += 1; c.total += 1; porCat.set(claseDe(m), c); });
+
+    suma(activeMachines.filter((m) => liveStatusOf(m.id).estado !== 'parada'), 'operativa');
+    suma(activeMachines.filter((m) => liveStatusOf(m.id).estado === 'parada'), 'parada');
+    suma(averiadaMachines, 'averiada');
+    suma(esperaMachines, 'espera');
+    suma(transferidaMachines, 'transferida');
+    const cats = Array.from(porCat.entries()).sort((a, b) => cmpText(a[0], b[0]));
+    const total = vacia();
+    cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.parada += c.parada; total.espera += c.espera; total.transferida += c.transferida; total.total += c.total; });
+    return { cats, total };
+  }, [machinery.loading, activeMachines, averiadaMachines, esperaMachines, transferidaMachines, liveStatusOf]);
+
+  const tapaCounts = useMemo(() => {
+    const base = machinery.data.filter((m) => m.operational !== false && matchCompany(m) && esEscombro(m));
+    return {
+      __all__: base.length,
+      sencilla: base.filter((m) => !!m.con_tapa && !m.tapa_doble).length,
+      doble: base.filter((m) => !!m.con_tapa && !!m.tapa_doble).length,
+      sin: base.filter((m) => !m.con_tapa).length,
+    } as const;
+  }, [machinery.data, companyFilter]);
   // Detalle acotado a UNA categoría (14-oct-2026, a pedido: «si yo selecciono las
   // retiradas me salga las retiradas de ESA categoría»). null = todas, como siempre.
   const [detailCat, setDetailCat] = useState<string | null>(null);
@@ -1050,6 +1122,153 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
     machineId: string;
     options: OpcionesFichaTecnica;
   } | null>(null);
+
+  // 📁 APARTADO DE DOCUMENTACIÓN DE LA MAQUINARIA (Actas de recepción, traslados y fichas)
+  const [docMachine, setDocMachine] = useState<Machinery | null>(null);
+  const [docTab, setDocTab] = useState<'actas' | 'traslados'>('actas');
+  const [docActas, setDocActas] = useState<ActaCompartida[]>([]);
+  const [docTraslados, setDocTraslados] = useState<TrasladoCompartido[]>([]);
+  const [cargandoDocs, setCargandoDocs] = useState(false);
+  const [docItemAEliminar, setDocItemAEliminar] = useState<{ tipo: 'acta' | 'traslado'; item: any } | null>(null);
+  const [eliminandoDoc, setEliminandoDoc] = useState(false);
+
+  const abrirDocumentacion = async (m: Machinery) => {
+    setDocMachine(m);
+    setDocTab('actas');
+    setCargandoDocs(true);
+    try {
+      // 1. Actas de recepción compartidas de esta máquina
+      const todasActas = await cargarActasCompartidas(m.id);
+      const filtradasActas = todasActas.filter((a) => {
+        if (a.machineryId && a.machineryId === m.id) return true;
+        const dg = a.datos?.datosGenerales || (a as any).datosGenerales;
+        const codeMatch = m.code && (dg?.serialPin?.toLowerCase().includes(m.code.toLowerCase()) || a.datos?.equipoModeloHeader?.toLowerCase().includes(m.code.toLowerCase()) || a.machineCode?.toLowerCase().includes(m.code.toLowerCase()));
+        const plateMatch = m.plate && (dg?.placa?.toLowerCase().includes(m.plate.toLowerCase()) || a.datos?.placaHeader?.toLowerCase().includes(m.plate.toLowerCase()) || a.machinePlate?.toLowerCase().includes(m.plate.toLowerCase()));
+        const serialMatch = m.serial && (dg?.serialPin?.toLowerCase().includes(m.serial.toLowerCase()) || a.datos?.pinSerialHeader?.toLowerCase().includes(m.serial.toLowerCase()));
+        return codeMatch || plateMatch || serialMatch;
+      });
+      setDocActas(filtradasActas);
+
+      // 2. Autorizaciones de traslado compartidas de esta máquina
+      const todosTras = await cargarTrasladosCompartidos(m.id);
+      const filtradosTras = todosTras.filter((t) => {
+        if (t.machineryId && t.machineryId === m.id) return true;
+        const maq = t.datos?.maquinaria || (t as any).maquinaria;
+        const codeMatch = m.code && (maq?.codigo?.toLowerCase().includes(m.code.toLowerCase()) || t.machineCode?.toLowerCase().includes(m.code.toLowerCase()));
+        const plateMatch = m.plate && (maq?.placa?.toLowerCase().includes(m.plate.toLowerCase()) || t.machinePlate?.toLowerCase().includes(m.plate.toLowerCase()));
+        const serialMatch = m.serial && (maq?.serial?.toLowerCase().includes(m.serial.toLowerCase()));
+        return codeMatch || plateMatch || serialMatch;
+      });
+      setDocTraslados(filtradosTras);
+    } catch {
+      // noop
+    } finally {
+      setCargandoDocs(false);
+    }
+  };
+
+  const abrirModuloDocumento = (screenName: 'ActaRecepcion' | 'TrasladoMaquinaria', mId: string) => {
+    setDocMachine(null);
+    try {
+      navigation.navigate(screenName, { machineId: mId });
+      return;
+    } catch {}
+    try {
+      navigation.navigate('More', { screen: screenName, params: { machineId: mId } });
+      return;
+    } catch (e: any) {
+      toast.error('No se pudo abrir ' + screenName);
+    }
+  };
+
+  const editarActaDesdeModal = (acta: ActaCompartida) => {
+    const mId = docMachine?.id;
+    setDocMachine(null);
+    try {
+      navigation.navigate('ActaRecepcion', { editActaId: acta.id, machineId: mId });
+      return;
+    } catch {}
+    try {
+      navigation.navigate('More', { screen: 'ActaRecepcion', params: { editActaId: acta.id, machineId: mId } });
+    } catch (e: any) {
+      toast.error('No se pudo abrir editor de acta');
+    }
+  };
+
+  const editarTrasladoDesdeModal = (tr: TrasladoCompartido) => {
+    const mId = docMachine?.id;
+    setDocMachine(null);
+    try {
+      navigation.navigate('TrasladoMaquinaria', { editTrasladoId: tr.id, machineId: mId });
+      return;
+    } catch {}
+    try {
+      navigation.navigate('More', { screen: 'TrasladoMaquinaria', params: { editTrasladoId: tr.id, machineId: mId } });
+    } catch (e: any) {
+      toast.error('No se pudo abrir editor de traslado');
+    }
+  };
+
+  const confirmarEliminarDoc = (tipo: 'acta' | 'traslado', item: any) => {
+    setDocItemAEliminar({ tipo, item });
+  };
+
+  const ejecutarEliminarDoc = async () => {
+    if (!docItemAEliminar) return;
+    const { tipo, item } = docItemAEliminar;
+    try {
+      setEliminandoDoc(true);
+      if (tipo === 'acta') {
+        const ok = await eliminarActaCompartida(item.id, { id: session?.user?.id, name: fullName });
+        if (ok) {
+          toast.success(`Acta ${item.codigo} eliminada.`);
+          setDocActas((prev) => prev.filter((a) => a.id !== item.id));
+        } else {
+          toast.error('No se pudo eliminar el acta.');
+        }
+      } else {
+        const ok = await eliminarTrasladoCompartido(item.id, { id: session?.user?.id, name: fullName });
+        if (ok) {
+          toast.success(`Traslado ${item.numeroControl} eliminado.`);
+          setDocTraslados((prev) => prev.filter((t) => t.id !== item.id));
+        } else {
+          toast.error('No se pudo eliminar el traslado.');
+        }
+      }
+    } catch (e: any) {
+      toast.error('Error al eliminar: ' + (e?.message || 'Error'));
+    } finally {
+      setEliminandoDoc(false);
+      setDocItemAEliminar(null);
+    }
+  };
+
+  const reimprimirActaDesdeModal = async (acta: ActaCompartida) => {
+    try {
+      const html = actaRecepcionHtml(acta.datos || acta);
+      await exportPdf(html, `Acta-Recepcion-${acta.codigo}`);
+    } catch (e: any) {
+      toast.error('Error al abrir acta: ' + (e?.message || ''));
+    }
+  };
+
+  const reimprimirTrasladoDesdeModal = async (traslado: TrasladoCompartido) => {
+    try {
+      const html = autorizacionTrasladoHtml(traslado.datos || traslado);
+      await exportPdf(html, `Autorizacion-Traslado-${traslado.numeroControl}`);
+    } catch (e: any) {
+      toast.error('Error al abrir traslado: ' + (e?.message || ''));
+    }
+  };
+
+  const reimprimirInformeCargaDesdeModal = async (traslado: TrasladoCompartido) => {
+    try {
+      const html = informeTrasladoCargaHtml(traslado.datos || traslado);
+      await exportPdf(html, `Informe-Traslado-Carga-${traslado.numeroControl}`);
+    } catch (e: any) {
+      toast.error('Error al abrir informe de carga: ' + (e?.message || ''));
+    }
+  };
 
   const handleExportFichaModal = async (personalizada: FichaPersonalizada) => {
     if (!modalFicha) return;
@@ -1685,6 +1904,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
 
   const renderMachineCard = (m: Machinery) => {
     const saved = justSaved === m.id;
+    const actionsExpanded = cardActionsOpen[m.id];
     return (
     <Card key={m.id} style={saved ? { borderColor: colors.success, borderWidth: 2 } : undefined}>
       <TouchableOpacity onPress={() => { setKind('maquinaria'); openEdit(m); }} activeOpacity={0.7}>
@@ -1710,8 +1930,25 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             ) : null}
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>{m.code}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 4 }}>
+              <View style={{ flexShrink: 1 }}>
+                <Text style={{ fontWeight: '800', color: colors.text, fontSize: isMobile ? 18 : 17 }}>{m.code}</Text>
+                {/* 🚗 Regla de Identificación de Maquinaria: Código + PLACA siempre visible */}
+                <View style={{
+                  backgroundColor: m.plate ? (colors.brand + '20') : colors.surfaceAlt,
+                  borderColor: m.plate ? colors.brand : colors.border,
+                  borderWidth: 1,
+                  borderRadius: radius.sm,
+                  paddingHorizontal: 6,
+                  paddingVertical: 1,
+                  alignSelf: 'flex-start',
+                  marginTop: 3,
+                }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: m.plate ? colors.brandText : colors.muted }}>
+                    🚗 PLACA: {m.plate && m.plate.trim() ? m.plate.trim() : 'SIN PLACA'}
+                  </Text>
+                </View>
+              </View>
               {(() => {
                 // Antes esta etiqueta SOLO miraba `operational` (el campo que cambia el
                 // botón "Retirar"/"Activar"), así que una máquina reportada AVERIADA por
@@ -1752,7 +1989,6 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             {plannedOperatorNow(m.id) ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>👷 Operador planeado: {plannedOperatorNow(m.id)}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 12 }}>🛡️ Tapa: {tapaLabelOf(m)}</Text>
-            {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
             {/* UBICACIÓN vinculada al SECTOR del GPS: si la máquina tiene GPS, la ubicación
                 es el SECTOR calculado EN VIVO desde latitude/longitude (igual que el Mapa),
@@ -1818,34 +2054,64 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         </TouchableOpacity>
       ) : null}
 
+      {/* Botones de acción limpios y ordenados */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-        <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 ACTUALIZAR UBICACIÓN'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
-        {m.latitude != null ? (
-          <BigBtn label="🗺️ Ver en mapa" onPress={() => navigation?.navigate('Map', { focus: { id: m.id, code: m.code } })} color="#0D9488" />
-        ) : null}
-        <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto máquina'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
-        <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
+        {/* Acciones principales prioritarias */}
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
+        <BigBtn label="📁 Documentación" onPress={() => abrirDocumentacion(m)} color="#0F766E" />
+        <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Actualizar GPS'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
         <BigBtn label={fichaBusy === m.id ? '📄 Generando…' : '📄 Ficha técnica'} disabled={fichaBusy === m.id} onPress={() => fichaTecnica(m)} color="#16324F" />
-        <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
-        <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => onToggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
-        {/* 🔁 Transferida a otros: fuera de servicio como retirada, contada aparte. */}
-        {!m.transferida ? (
-          <BigBtn label="🔁 Transferido a otros" onPress={() => { setTransferDest(''); setTransferFor(m); }} color="#0D9488" disabled={busy === m.id + '-tra'} />
+
+        {/* En móvil: desplegable para acciones secundarias para evitar saturación visual */}
+        {isMobile ? (
+          <TouchableOpacity
+            onPress={() => toggleCardActions(m.id)}
+            style={{
+              width: '100%',
+              paddingVertical: 9,
+              paddingHorizontal: 12,
+              borderRadius: radius.md,
+              backgroundColor: colors.surfaceAlt,
+              borderWidth: 1,
+              borderColor: colors.border,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'row',
+              gap: 6,
+              marginTop: 2,
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={{ fontSize: 12.5, fontWeight: '700', color: colors.brandText }}>
+              {actionsExpanded ? '▴ Menos acciones' : '⚙️ Más acciones (Fotos, Traslado, QR, Estado...) ▾'}
+            </Text>
+          </TouchableOpacity>
         ) : null}
-        {/* Esperando instrucciones: máquina cargada en el sistema pero SIN decidir aún si
-            va a Operativa o a Parada. No factura, no le sale a los inspectores (mismo
-            criterio ya usado en todo el flujo de inspección/reportes). Solo aplica a
-            máquinas operativas (no tiene sentido "esperar" una ya retirada). */}
-        {m.operational ? (
-          <BigBtn
-            label={m.en_espera ? '✅ Ya se decidió (quitar espera)' : '⏳ Esperando instrucciones'}
-            onPress={() => toggleEspera(m)}
-            color={m.en_espera ? colors.success : colors.brand}
-            textColor={colors.brandContrast}
-            disabled={busy === m.id + '-esp'}
-          />
-        ) : null}
+
+        {(!isMobile || actionsExpanded) && (
+          <>
+            {m.latitude != null ? (
+              <BigBtn label="🗺️ Ver en mapa" onPress={() => navigation?.navigate('Map', { focus: { id: m.id, code: m.code } })} color="#0D9488" />
+            ) : null}
+            <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto máquina'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
+            <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
+            <BigBtn label="🚜 Traslado / Salida" onPress={() => navigation.navigate('TrasladoMaquinaria', { machineId: m.id })} color="#1E3A8A" />
+            <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
+            <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => onToggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
+            {!m.transferida ? (
+              <BigBtn label="🔁 Transferido a otros" onPress={() => { setTransferDest(''); setTransferFor(m); }} color="#0D9488" disabled={busy === m.id + '-tra'} />
+            ) : null}
+            {m.operational ? (
+              <BigBtn
+                label={m.en_espera ? '✅ Ya se decidió (quitar espera)' : '⏳ Esperando instrucciones'}
+                onPress={() => toggleEspera(m)}
+                color={m.en_espera ? colors.success : colors.brand}
+                textColor={colors.brandContrast}
+                disabled={busy === m.id + '-esp'}
+              />
+            ) : null}
+          </>
+        )}
       </View>
     </Card>
     );
@@ -1875,13 +2141,30 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             ) : null}
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.name && String(v.name).trim() ? v.name : v.plate}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 4 }}>
+              <View style={{ flexShrink: 1 }}>
+                <Text style={{ fontWeight: '800', color: colors.text, fontSize: isMobile ? 18 : 17 }}>
+                  🚗 {v.name && String(v.name).trim() ? v.name : v.plate}
+                </Text>
+                <View style={{
+                  backgroundColor: colors.brand + '20',
+                  borderColor: colors.brand,
+                  borderWidth: 1,
+                  borderRadius: radius.sm,
+                  paddingHorizontal: 6,
+                  paddingVertical: 1,
+                  alignSelf: 'flex-start',
+                  marginTop: 3,
+                }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.brandText }}>
+                    🚗 PLACA: {v.plate ? v.plate.trim() : 'SIN PLACA'}
+                  </Text>
+                </View>
+              </View>
               {v.en_espera
                 ? <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>⏳ Esperando</Text>
                 : <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>● Disponible</Text>}
             </View>
-            {v.name && String(v.name).trim() ? <Text style={{ color: colors.muted, fontSize: 12 }}>🚗 Placa: {v.plate}</Text> : null}
             {v.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {v.identifier}</Text> : null}
             {v.brand ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca: {v.brand}</Text> : null}
             {v.model ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {v.model}</Text> : null}
@@ -1912,13 +2195,13 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
     </Card>
   );
 
-  const BigBtn = ({ label, onPress, color, disabled, textColor = '#fff' }: any) => (
+  const BigBtn = ({ label, onPress, color, disabled, textColor = '#fff', fullWidth }: any) => (
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled}
       style={{
         flexGrow: 1,
-        flexBasis: 100,
+        flexBasis: fullWidth ? '100%' : (isMobile ? '47%' : 100),
         minHeight: 44,
         borderRadius: radius.md,
         alignItems: 'center',
@@ -1929,7 +2212,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         paddingVertical: spacing.xs,
       }}
     >
-      <Text style={{ color: textColor, fontWeight: '700', textAlign: 'center', fontSize: 13 }}>{label}</Text>
+      <Text style={{ color: textColor, fontWeight: '700', textAlign: 'center', fontSize: isMobile ? 12 : 13 }} numberOfLines={2}>{label}</Text>
     </TouchableOpacity>
   );
 
@@ -2048,85 +2331,118 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>{verCubos ? '▾ Ocultar cubos por estado' : '▸ Mostrar cubos por estado'}</Text>
             </TouchableOpacity>
             {verCubos ? (<>
-            {/* Desglose: 3 arriba (las que SUMAN a la flota disponible) + Retiradas
-                sola abajo a lo ancho (fuera de servicio, no cuenta). Clickeable → detalle. */}
-            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              {estados.slice(0, 3).map((e) => (
-                <TouchableOpacity key={e.key} activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle(e.key)}>
-                  <Card style={{ borderLeftWidth: 4, borderLeftColor: e.color, alignItems: 'center' }}>
+            {isMobile ? (
+              <>
+                {/* En móvil: fila 1 (Operativas y Averiadas) */}
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('active')}>
+                    <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.success, alignItems: 'center', paddingVertical: spacing.sm }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.success }} />
+                        <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Operativas</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                      </View>
+                      <Text style={{ fontSize: 24, fontWeight: '800', color: colors.success, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nOp}</Text>
+                    </Card>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('averiada')}>
+                    <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.warning, alignItems: 'center', paddingVertical: spacing.sm }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.warning }} />
+                        <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Averiadas</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                      </View>
+                      <Text style={{ fontSize: 24, fontWeight: '800', color: colors.warning, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nAv}</Text>
+                    </Card>
+                  </TouchableOpacity>
+                </View>
+
+                {/* En móvil: fila 2 a todo lo ancho para que "Esperando instrucciones" no se corte */}
+                <TouchableOpacity activeOpacity={0.7} style={{ width: '100%', marginTop: spacing.sm }} onPress={() => abrirDetalle('espera')}>
+                  <Card style={{ borderLeftWidth: 4, borderLeftColor: '#8B5CF6', alignItems: 'center', paddingVertical: spacing.sm }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: e.color }} />
-                      <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>{e.label}</Text>
+                      <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#8B5CF6' }} />
+                      <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }}>Esperando instrucciones</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
                     </View>
-                    <Text style={{ fontSize: 24, fontWeight: '800', color: e.color, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : e.n}</Text>
+                    <Text style={{ fontSize: 24, fontWeight: '800', color: '#8B5CF6', fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nEsp}</Text>
                   </Card>
                 </TouchableOpacity>
-              ))}
-            </View>
-            {/* Fuera de servicio (NO suman a la flota): Retiradas y 🔁 Transferidas. */}
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-              <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('retirada')}>
-                <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger, alignItems: 'center' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                    <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
-                    <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Retiradas</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
-                  </View>
-                  <Text style={{ fontSize: 24, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nRet}</Text>
-                </Card>
-              </TouchableOpacity>
-              <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('transferida')}>
-                <Card style={{ borderLeftWidth: 4, borderLeftColor: '#0D9488', alignItems: 'center' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                    <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#0D9488' }} />
-                    <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Transferido a otros</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
-                  </View>
-                  <Text style={{ fontSize: 24, fontWeight: '800', color: '#0D9488', fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nTra}</Text>
-                </Card>
-              </TouchableOpacity>
-            </View>
+
+                {/* En móvil: fila 3 (Retiradas y Transferidas) */}
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                  <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('retirada')}>
+                    <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger, alignItems: 'center', paddingVertical: spacing.sm }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
+                        <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Retiradas</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                      </View>
+                      <Text style={{ fontSize: 24, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nRet}</Text>
+                    </Card>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('transferida')}>
+                    <Card style={{ borderLeftWidth: 4, borderLeftColor: '#0D9488', alignItems: 'center', paddingVertical: spacing.sm }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#0D9488' }} />
+                        <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Transferido a otros</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                      </View>
+                      <Text style={{ fontSize: 24, fontWeight: '800', color: '#0D9488', fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nTra}</Text>
+                    </Card>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                {/* Desglose escritorio: 3 arriba + 2 abajo */}
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  {estados.slice(0, 3).map((e) => (
+                    <TouchableOpacity key={e.key} activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle(e.key)}>
+                      <Card style={{ borderLeftWidth: 4, borderLeftColor: e.color, alignItems: 'center' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                          <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: e.color }} />
+                          <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>{e.label}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                        </View>
+                        <Text style={{ fontSize: 24, fontWeight: '800', color: e.color, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : e.n}</Text>
+                      </Card>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                  <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('retirada')}>
+                    <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger, alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
+                        <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Retiradas</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                      </View>
+                      <Text style={{ fontSize: 24, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nRet}</Text>
+                    </Card>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('transferida')}>
+                    <Card style={{ borderLeftWidth: 4, borderLeftColor: '#0D9488', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#0D9488' }} />
+                        <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Transferido a otros</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                      </View>
+                      <Text style={{ fontSize: 24, fontWeight: '800', color: '#0D9488', fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nTra}</Text>
+                    </Card>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
             </>) : null}
           </View>
         );
       })()}
 
-      {/* 🏷️ DESGLOSE POR CATEGORÍA (14-oct-2026, a pedido: «una tarjeta por
-          categoría con todas las máquinas por estado… y al final una tarjeta con
-          el total de todas las categorías»). Usa la CLASIFICACIÓN de la ficha y
-          los MISMOS buckets EXCLUYENTES de los cubos de arriba — las sumas de
-          las tarjetas siempre cuadran con los cubos. */}
-      {!machinery.loading ? (() => {
-        const claseDe = clasifDeMaquina; // misma regla que el filtro del detalle
-        type FilaCat = { operativa: number; averiada: number; parada: number; espera: number; retirada: number; transferida: number; total: number };
-        const vacia = (): FilaCat => ({ operativa: 0, averiada: 0, parada: 0, espera: 0, retirada: 0, transferida: 0, total: 0 });
-        const porCat = new Map<string, FilaCat>();
-        const suma = (lista: Machinery[], k: 'operativa' | 'averiada' | 'parada' | 'espera' | 'retirada' | 'transferida') =>
-          lista.forEach((m) => { const c = porCat.get(claseDe(m)) ?? vacia(); c[k] += 1; c.total += 1; porCat.set(claseDe(m), c); });
-        // 🟡 Las PARADAS se cuentan aparte (20-oct-2026, a pedido): si la tarjeta
-        //    no muestra ese renglón, se suman de vuelta a «Operativas» al pintar —
-        //    el total de la tarjeta no cambia nunca por una preferencia visual.
-        suma(activeMachines.filter((m) => liveStatusOf(m.id).estado !== 'parada'), 'operativa');
-        suma(activeMachines.filter((m) => liveStatusOf(m.id).estado === 'parada'), 'parada');
-        suma(averiadaMachines, 'averiada');
-        suma(esperaMachines, 'espera');
-        // 🚫 Las RETIRADAS no se suman ni se muestran en estas tarjetas (14-oct-2026,
-        //    a pedido: «que en ninguno de eso se vea ni se cuente las retiradas»).
-        //    No se eliminan de ningún lado: siguen en los cubos por estado (ocultos
-        //    tras «Mostrar cubos por estado») y en su lista de siempre. Por eso el
-        //    configurador de abajo tampoco las ofrece.
-        suma(transferidaMachines, 'transferida');
-        const cats = Array.from(porCat.entries()).sort((a, b) => cmpText(a[0], b[0]));
-        const total = vacia();
-        cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.parada += c.parada; total.espera += c.espera; total.transferida += c.transferida; total.total += c.total; });
-        const ESTADOS_CAT: { k: EstadoTarjeta; s: 'active' | 'averiada' | 'parada' | 'espera' | 'transferida'; label: string; color: string }[] = [
-          { k: 'operativa', s: 'active', label: 'Operativas', color: colors.success },
-          { k: 'averiada', s: 'averiada', label: 'Averiadas', color: colors.warning },
-          { k: 'parada', s: 'parada', label: 'Paradas', color: '#B45309' },
-          { k: 'espera', s: 'espera', label: 'Esperando instrucciones', color: '#8B5CF6' },
-          { k: 'transferida', s: 'transferida', label: 'Transferidas a otros', color: '#0D9488' },
-        ];
+      {/* 🏷️ DESGLOSE POR CATEGORÍA MEMOIZADO (alto rendimiento):
+          Usa desgloseCategoriasData precalculado sin iterar en cada frame */}
+      {desgloseCategoriasData ? (() => {
+        const { cats, total } = desgloseCategoriasData;
         // VERTICAL y CLICKEABLE (14-oct-2026, a pedido): un renglón por estado;
         // tocarlo abre el detalle de ESE estado acotado a ESA categoría (en la
         // tarjeta Σ, sin acotar: todas las categorías).
@@ -2136,7 +2452,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         const filaEstados = (c: FilaCat, cat: string | null) => {
           const visibles = new Set(estadosDeTarjeta(tarjetasCfg, cat ?? TARJETA_TOTAL));
           const valorDe = (k: EstadoTarjeta) => (k === 'operativa' && !visibles.has('parada') ? c.operativa + c.parada : c[k]);
-          const lista = ESTADOS_CAT.filter((e) => visibles.has(e.k));
+          const lista = ESTADOS_CAT_DEFS.filter((e) => visibles.has(e.k));
           return (
             <View style={{ marginTop: 4 }}>
               {lista.length === 0 ? (
@@ -2182,7 +2498,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                         {nombre === TARJETA_TOTAL ? 'Σ TODAS LAS CATEGORÍAS' : `🏷️ ${nombre}`}
                       </Text>
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 3 }}>
-                        {ESTADOS_CAT.map((e) => {
+                        {ESTADOS_CAT_DEFS.map((e) => {
                           const on = visibles.has(e.k);
                           return (
                             <TouchableOpacity key={`cfg-${nombre}-${e.k}`} onPress={() => alternarTarjeta(nombre, e.k)}
@@ -2225,23 +2541,40 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       })() : null}
 
       {/* Alta unificada: + Agregar (elige vehículo o maquinaria) y Obras Públicas */}
-      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-        <TouchableOpacity
-          style={{ flex: 2, backgroundColor: colors.brand, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' }}
-          onPress={() => setKindChooser('add')}
-        >
-          <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 15 }}>
-            🚗 / 🚜  + Agregar
-          </Text>
-        </TouchableOpacity>
-        {/* Obras Públicas: abre la vista de asignación (reemplaza el viejo "Lote").
-            Asigna el Supervisor de Obras Públicas a las máquinas — módulo aislado. */}
-        <TouchableOpacity
-          style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' }}
-          onPress={() => setOpAssignOpen(true)}
-        >
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>🏛️ Obras Públicas</Text>
-        </TouchableOpacity>
+      <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: spacing.sm }}>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, flex: isMobile ? undefined : 2 }}>
+          <TouchableOpacity
+            style={{ flex: 1.5, backgroundColor: colors.brand, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', minHeight: 46 }}
+            onPress={() => setKindChooser('add')}
+          >
+            <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 15 }}>
+              🚗 / 🚜  + Agregar
+            </Text>
+          </TouchableOpacity>
+          {/* Obras Públicas: abre la vista de asignación (reemplaza el viejo "Lote").
+              Asigna el Supervisor de Obras Públicas a las máquinas — módulo aislado. */}
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', minHeight: 46 }}
+            onPress={() => setOpAssignOpen(true)}
+          >
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>🏛️ Obras Públicas</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: spacing.sm, flex: isMobile ? undefined : 2 }}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Map')}
+            style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', justifyContent: 'center', minHeight: 46 }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>🗺️  Ver mapa</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setReportOpen(true)}
+            style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', justifyContent: 'center', minHeight: 46 }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>📄  Reportes</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Vista de asignación de Obras Públicas (módulo aislado). Recibe las máquinas
@@ -2249,44 +2582,49 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       <ObrasPublicasAssignModal
         visible={opAssignOpen}
         onClose={() => { setOpAssignOpen(false); reloadOpAssigns(); }}
-        // Se ofrece TODO el catálogo (operativas + averiadas), sin filtrar por
-        // empresa. Antes solo salían GOLDEN y LICCIONE, con el nombre de la
-        // empresa quemado en el código: para darle o quitarle una máquina de
-        // otra empresa a Obras Públicas había que tocar el código y desplegar.
-        // Pedido del cliente (17-ago-2026): "que no tenga que tocar el código
-        // para hacerlo". Quién puede asignar se decide por permiso, no por a
-        // qué empresa pertenece la máquina.
         machines={[...averiadaMachines, ...activeMachines]}
         statusOf={liveStatusOf}
         companyName={companyName}
         userId={session?.user?.id}
       />
 
-      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Map')}
-          style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
-        >
-          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>🗺️  Ver mapa</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => setReportOpen(true)}
-          style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
-        >
-          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>📄  Reportes</Text>
-        </TouchableOpacity>
-      </View>
-
       <View style={{ marginTop: spacing.sm }}>
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="🔎 Buscar por código, placa, serial, empresa, encargado, inspector, marca o modelo…"
-          placeholderTextColor={colors.muted}
-          style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
-        />
+        <View style={{ position: 'relative', justifyContent: 'center' }}>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="🔎 Buscar por código, placa, serial, empresa, marca, modelo…"
+            placeholderTextColor={colors.muted}
+            style={{
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: radius.md,
+              padding: spacing.sm,
+              paddingRight: query ? 38 : spacing.sm,
+              color: colors.text,
+              fontSize: 14,
+              minHeight: 44,
+            }}
+          />
+          {query ? (
+            <TouchableOpacity
+              onPress={() => setQuery('')}
+              style={{
+                position: 'absolute',
+                right: 8,
+                padding: 6,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: colors.muted, fontSize: 16, fontWeight: 'bold' }}>✕</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
         {q ? (
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{totalResults} resultado(s)</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>{totalResults} resultado(s)</Text>
         ) : null}
       </View>
 
@@ -2328,30 +2666,20 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       <View style={{ marginTop: spacing.sm }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por tapa</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
-          {(() => {
-            const base = machinery.data.filter((m) => m.operational !== false && matchCompany(m) && esEscombro(m));
-            const counts = {
-              __all__: base.length,
-              sencilla: base.filter((m) => !!m.con_tapa && !m.tapa_doble).length,
-              doble: base.filter((m) => !!m.con_tapa && !!m.tapa_doble).length,
-              sin: base.filter((m) => !m.con_tapa).length,
-            } as const;
-            const chips: [typeof tapaFilter, string][] = [['__all__', 'Todas'], ['sencilla', '🛡️ Tapa sencilla'], ['doble', '🛡️🛡️ Doble tapa'], ['sin', 'Sin tapa']];
-            return chips.map(([val, label]) => {
-              const active = tapaFilter === val;
-              return (
-                <TouchableOpacity
-                  key={val}
-                  onPress={() => setTapaFilter(val)}
-                  activeOpacity={0.7}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: active ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
-                >
-                  <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
-                  <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12 }}>({counts[val]})</Text>
-                </TouchableOpacity>
-              );
-            });
-          })()}
+          {([['__all__', 'Todas'], ['sencilla', '🛡️ Tapa sencilla'], ['doble', '🛡️🛡️ Doble tapa'], ['sin', 'Sin tapa']] as [typeof tapaFilter, string][]).map(([val, label]) => {
+            const active = tapaFilter === val;
+            return (
+              <TouchableOpacity
+                key={val}
+                onPress={() => setTapaFilter(val)}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: active ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+              >
+                <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
+                <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12 }}>({tapaCounts[val]})</Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
 
@@ -2790,8 +3118,25 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                           ) : null}
                         </TouchableOpacity>
                         <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, flex: 1 }}>{m.code}</Text>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 4 }}>
+                            <View style={{ flexShrink: 1 }}>
+                              <Text style={{ color: colors.text, fontWeight: '800', fontSize: isMobile ? 17 : 16 }}>{m.code}</Text>
+                              {/* 🚗 Regla de Identificación de Maquinaria: Código + PLACA */}
+                              <View style={{
+                                backgroundColor: m.plate ? (colors.brand + '20') : colors.surfaceAlt,
+                                borderColor: m.plate ? colors.brand : colors.border,
+                                borderWidth: 1,
+                                borderRadius: radius.sm,
+                                paddingHorizontal: 6,
+                                paddingVertical: 1,
+                                alignSelf: 'flex-start',
+                                marginTop: 2,
+                              }}>
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: m.plate ? colors.brandText : colors.muted }}>
+                                  🚗 PLACA: {m.plate && m.plate.trim() ? m.plate.trim() : 'SIN PLACA'}
+                                </Text>
+                              </View>
+                            </View>
                             {(() => {
                               // La MISMA etiqueta en vivo de la tarjeta del catálogo (ver
                               // renderMachineCard): este listado solo miraba `operational`,
@@ -2840,6 +3185,8 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                           una máquina retirada o en espera SIGUE teniendo ficha — el pedido
                           fue precisamente que saliera «en cualquiera de esos apartados». */}
                       <BigBtn label={fichaBusy === m.id ? '📄 Generando…' : '📄 Ficha técnica'} disabled={fichaBusy === m.id} onPress={() => fichaTecnica(m)} color="#16324F" />
+                      <BigBtn label="🚜 Traslado / Salida" onPress={() => navigation.navigate('TrasladoMaquinaria', { machineId: m.id })} color="#1E3A8A" />
+                      <BigBtn label="📁 Documentación" onPress={() => abrirDocumentacion(m)} color="#0F766E" />
                       {/* Ver el QR también desde acá (incluye RETIRADAS): al escanear una
                           retirada solo debe salir el logo — este botón permite verificarlo. */}
                       <BigBtn label="🔳 Ver QR" onPress={() => openQr(m)} color="#111827" />
@@ -3339,6 +3686,396 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         onClose={() => setModalFicha(null)}
         onExport={handleExportFichaModal}
       />
+
+      {/* 📁 MODAL DE DOCUMENTACIÓN DE LA MAQUINARIA */}
+      <Modal visible={!!docMachine} animationType="slide" transparent onRequestClose={() => setDocMachine(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, maxHeight: '90%', padding: spacing.md, borderWidth: 1, borderColor: colors.border }}>
+            {docMachine && (
+              <>
+                {/* Cabecera del modal */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.sm, marginBottom: spacing.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>
+                      📁 Documentación · {docMachine.code}
+                    </Text>
+                    <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 12.5, marginTop: 2 }}>
+                      ⭐ Placa: {docMachine.plate || 'Sin placa'} · Serial: {docMachine.serial || '—'}
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }}>
+                      {[docMachine.clasificacion, docMachine.marca, docMachine.modelo].filter(Boolean).join(' · ')}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setDocMachine(null)} style={{ padding: 4 }}>
+                    <Text style={{ color: colors.muted, fontSize: 20, fontWeight: '700' }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Acciones directas para emitir nuevos documentos */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={() => abrirModuloDocumento('ActaRecepcion', docMachine.id)}
+                    style={{ flex: 1, minWidth: 140, backgroundColor: '#B45309', paddingVertical: 8, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
+                      📋 + Nueva Acta Recepción
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => abrirModuloDocumento('TrasladoMaquinaria', docMachine.id)}
+                    style={{ flex: 1, minWidth: 140, backgroundColor: '#1E3A8A', paddingVertical: 8, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
+                      🚜 + Nuevo Traslado / Salida
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      const target = docMachine;
+                      setDocMachine(null);
+                      fichaTecnica(target);
+                    }}
+                    style={{ flex: 1, minWidth: 140, backgroundColor: '#16324F', paddingVertical: 8, paddingHorizontal: 10, borderRadius: radius.md, alignItems: 'center' }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
+                      📄 Ficha Técnica
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Pestañas de Documentos guardados */}
+                <View style={{ flexDirection: 'row', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 6, marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={() => setDocTab('actas')}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.pill,
+                      backgroundColor: docTab === 'actas' ? '#B45309' : colors.surfaceAlt,
+                    }}
+                  >
+                    <Text style={{ color: docTab === 'actas' ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                      📋 Actas de Recepción ({docActas.length})
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setDocTab('traslados')}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.pill,
+                      backgroundColor: docTab === 'traslados' ? '#1E3A8A' : colors.surfaceAlt,
+                    }}
+                  >
+                    <Text style={{ color: docTab === 'traslados' ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                      🚜 Traslados y Salidas ({docTraslados.length})
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Lista según pestaña */}
+                <ScrollView style={{ maxHeight: 350 }} contentContainerStyle={{ gap: spacing.xs }}>
+                  {cargandoDocs ? (
+                    <Loading />
+                  ) : docTab === 'actas' ? (
+                    docActas.length === 0 ? (
+                      <View style={{ alignItems: 'center', paddingVertical: spacing.md }}>
+                        <EmptyState
+                          title="Sin actas de recepción"
+                          subtitle="Aún no se ha registrado un acta de recepción para esta máquina. Puedes emitir la primera ahora."
+                        />
+                        <TouchableOpacity
+                          onPress={() => abrirModuloDocumento('ActaRecepcion', docMachine.id)}
+                          style={{
+                            marginTop: spacing.sm,
+                            backgroundColor: '#B45309',
+                            paddingVertical: 7,
+                            paddingHorizontal: 14,
+                            borderRadius: radius.md,
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                            📋 + Emitir Acta de Recepción
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      docActas.map((acta) => {
+                        const dg = acta.datos?.datosGenerales || (acta as any).datosGenerales || {};
+                        return (
+                          <View
+                            key={acta.id}
+                            style={{
+                              backgroundColor: colors.surfaceAlt,
+                              padding: spacing.sm,
+                              borderRadius: radius.md,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              gap: spacing.xs,
+                            }}
+                          >
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <View style={{ flex: 1, paddingRight: spacing.xs }}>
+                                <Text style={{ color: '#B45309', fontWeight: '800', fontSize: 13.5 }}>
+                                  {acta.codigo} &nbsp;·&nbsp; <Text style={{ color: colors.text, fontSize: 12 }}>{acta.datos?.fecha || (acta as any).fecha || ''}</Text>
+                                </Text>
+                                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+                                  Horómetro: {dg.horometro || '—'} &nbsp;·&nbsp; Inspector: {dg.recibidoPor || '—'}
+                                </Text>
+                                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                                  Entregó: {dg.entregadoPor || '—'} &nbsp;·&nbsp; 📷 {acta.datos?.fotos?.length || 0} fotos
+                                </Text>
+                              </View>
+                            </View>
+
+                            {/* AUDITORÍA COMPARTIDA */}
+                            <View style={{ backgroundColor: colors.surface, borderRadius: radius.sm, padding: 6, gap: 2, borderWidth: 1, borderColor: colors.border }}>
+                              <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                                👤 <Text style={{ fontWeight: '700', color: colors.text }}>Creado por:</Text> {acta.createdByName || 'Personal'} · {acta.createdAt ? new Date(acta.createdAt).toLocaleDateString() : '—'}
+                              </Text>
+                              {acta.updatedAt ? (
+                                <Text style={{ color: colors.brand, fontSize: 10.5 }}>
+                                  ✏️ <Text style={{ fontWeight: '700' }}>Última edición:</Text> {acta.updatedByName || 'Usuario'} · {new Date(acta.updatedAt).toLocaleDateString()} {new Date(acta.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </Text>
+                              ) : null}
+                            </View>
+
+                            {/* BOTONES DE ACCIÓN: EDITAR / ELIMINAR / REIMPRIMIR */}
+                            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                              <TouchableOpacity
+                                onPress={() => editarActaDesdeModal(acta)}
+                                style={{
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  paddingVertical: 4,
+                                  paddingHorizontal: 8,
+                                  borderRadius: radius.sm,
+                                }}
+                              >
+                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
+                                  ✏️ Editar
+                                </Text>
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                onPress={() => confirmarEliminarDoc('acta', acta)}
+                                style={{
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.danger,
+                                  paddingVertical: 4,
+                                  paddingHorizontal: 8,
+                                  borderRadius: radius.sm,
+                                }}
+                              >
+                                <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>
+                                  🗑️ Eliminar
+                                </Text>
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                onPress={() => reimprimirActaDesdeModal(acta)}
+                                style={{
+                                  backgroundColor: '#B45309',
+                                  paddingVertical: 4,
+                                  paddingHorizontal: 10,
+                                  borderRadius: radius.sm,
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
+                                  🧾 Ver / Imprimir
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        );
+                      })
+                    )
+                  ) : docTraslados.length === 0 ? (
+                    <View style={{ alignItems: 'center', paddingVertical: spacing.md }}>
+                      <EmptyState
+                        title="Sin traslados o salidas"
+                        subtitle="Aún no hay autorizaciones de traslado emitidas para este equipo."
+                      />
+                      <TouchableOpacity
+                        onPress={() => abrirModuloDocumento('TrasladoMaquinaria', docMachine.id)}
+                        style={{
+                          marginTop: spacing.sm,
+                          backgroundColor: '#1E3A8A',
+                          paddingVertical: 7,
+                          paddingHorizontal: 14,
+                          borderRadius: radius.md,
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                          🚜 + Emitir Traslado / Salida
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    docTraslados.map((tr) => {
+                      const t = tr.datos?.transporte || (tr as any).transporte;
+                      return (
+                        <View
+                          key={tr.id}
+                          style={{
+                            backgroundColor: colors.surfaceAlt,
+                            padding: spacing.sm,
+                            borderRadius: radius.md,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            gap: spacing.xs,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <View style={{ flex: 1, paddingRight: spacing.xs }}>
+                              <Text style={{ color: '#1E3A8A', fontWeight: '800', fontSize: 13.5 }}>
+                                {tr.numeroControl} &nbsp;·&nbsp; <Text style={{ color: colors.text, fontSize: 12 }}>{tr.datos?.fecha || (tr as any).fecha || ''}</Text>
+                              </Text>
+                              <Text style={{ color: colors.text, fontSize: 11.5, marginTop: 1 }}>
+                                <Text style={{ fontWeight: '700' }}>Ruta:</Text> {tr.datos?.origen || (tr as any).origen} ➔ {tr.datos?.destino || (tr as any).destino}
+                              </Text>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>
+                                Chofer: {t?.conductorNombre || '—'} &nbsp;·&nbsp; Chuto: {t?.placaChuto || '—'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* AUDITORÍA COMPARTIDA */}
+                          <View style={{ backgroundColor: colors.surface, borderRadius: radius.sm, padding: 6, gap: 2, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                              👤 <Text style={{ fontWeight: '700', color: colors.text }}>Creado por:</Text> {tr.createdByName || 'Personal'} · {tr.createdAt ? new Date(tr.createdAt).toLocaleDateString() : '—'}
+                            </Text>
+                            {tr.updatedAt ? (
+                              <Text style={{ color: colors.brand, fontSize: 10.5 }}>
+                                ✏️ <Text style={{ fontWeight: '700' }}>Última edición:</Text> {tr.updatedByName || 'Usuario'} · {new Date(tr.updatedAt).toLocaleDateString()} {new Date(tr.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </Text>
+                            ) : null}
+                          </View>
+
+                          {/* BOTONES DE ACCIÓN: EDITAR / ELIMINAR / REIMPRIMIR */}
+                          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                            <TouchableOpacity
+                              onPress={() => editarTrasladoDesdeModal(tr)}
+                              style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                paddingVertical: 4,
+                                paddingHorizontal: 8,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
+                                ✏️ Editar
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={() => confirmarEliminarDoc('traslado', tr)}
+                              style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.danger,
+                                paddingVertical: 4,
+                                paddingHorizontal: 8,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>
+                                🗑️ Eliminar
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={() => reimprimirInformeCargaDesdeModal(tr)}
+                              style={{
+                                backgroundColor: '#0F766E',
+                                paddingVertical: 4,
+                                paddingHorizontal: 9,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
+                                📄 Informe Carga
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={() => reimprimirTrasladoDesdeModal(tr)}
+                              style={{
+                                backgroundColor: '#1E3A8A',
+                                paddingVertical: 4,
+                                paddingHorizontal: 9,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>
+                                🖨️ Salvoconducto
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+
+                {/* MODAL DE CONFIRMACIÓN DE ELIMINACIÓN DESDE DOCUMENTACIÓN */}
+                <Modal visible={!!docItemAEliminar} transparent animationType="fade">
+                  <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+                    <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, width: '100%', maxWidth: 400, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 16, marginBottom: spacing.xs }}>
+                        🗑️ ¿Eliminar {docItemAEliminar?.tipo === 'acta' ? 'Acta de Recepción' : 'Autorización de Traslado'}?
+                      </Text>
+                      <Text style={{ color: colors.text, fontSize: 13, marginBottom: spacing.sm, lineHeight: 19 }}>
+                        ¿Estás seguro de eliminar el documento <Text style={{ fontWeight: '800' }}>{docItemAEliminar?.tipo === 'acta' ? docItemAEliminar?.item?.codigo : docItemAEliminar?.item?.numeroControl}</Text>?
+                        {'\n\n'}
+                        Se registrará en la bitácora que fue eliminado por <Text style={{ fontWeight: '700' }}>{fullName || 'tu usuario'}</Text>.
+                      </Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm, marginTop: spacing.md }}>
+                        <TouchableOpacity
+                          onPress={() => setDocItemAEliminar(null)}
+                          disabled={eliminandoDoc}
+                          style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={ejecutarEliminarDoc}
+                          disabled={eliminandoDoc}
+                          style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.danger }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
+                            {eliminandoDoc ? 'Eliminando...' : 'Eliminar Documento'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                </Modal>
+
+                <TouchableOpacity
+                  onPress={() => setDocMachine(null)}
+                  style={{
+                    marginTop: spacing.md,
+                    paddingVertical: spacing.sm,
+                    alignItems: 'center',
+                    backgroundColor: colors.surfaceAlt,
+                    borderRadius: radius.md,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Cerrar</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }

@@ -19,6 +19,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
+import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
 import { Company, Supplier, ServicioRecord, ServicioItem, ServiceCategory, ServiceKind } from '../types/database';
 import { generalCompanies } from '../lib/companies';
@@ -27,6 +28,15 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { cmpText, norm, onlyDecimal } from '../lib/text';
 import { leerNumero, textoDeCampo } from '../lib/numeros';
+import {
+  CONDICIONES_PAGO_CHIPS,
+  detectarDiasCreditoChip,
+  toggleChipCondicionPago,
+  extraerCondicionesPago,
+  limpiarCondicionesPagoDeNota,
+  inyectarCondicionesPagoEnNota,
+} from '../lib/cuentasPago';
+import { inyectarEmpresaEnNota } from '../lib/cuentasEmpresa';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // 19-sep-2026: la regla de lectura vive en src/lib/numeros.ts, una sola para todo Compras.
@@ -44,11 +54,22 @@ const machLabel = (m: Mach) => [m.code, m.plate, m.serial, m.company?.name].filt
 // clasificación, encargado y empresa.
 const machHaystack = (m: Mach) => norm([m.code, m.plate, m.serial, m.marca, m.modelo, m.clasificacion, m.encargado, m.company?.name].filter(Boolean).join(' '));
 
-export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
+function masDiasISO(iso: string, n: number): string {
+  const [y, m, d] = (iso || todayISO()).split('-').map(Number);
+  const dt = new Date(y || 2026, (m || 1) - 1, d || 1);
+  dt.setDate(dt.getDate() + n);
+  const p = (v: number) => String(v).padStart(2, '0');
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+}
+
+export function ServiciosTab({ canWrite, onGoToAires }: { canWrite: boolean; onGoToAires?: () => void }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const toast = useToast();
-  const { data: servicios, loading, refetch } = useTable<ServicioRecord>('servicios', { orderBy: 'created_at', ascending: false, realtimeFrom: 'servicios' });
+  const confirm = useConfirm();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { data: serviciosRaw, loading, refetch } = useTable<ServicioRecord>('servicios', { orderBy: 'created_at', ascending: false, realtimeFrom: 'servicios' });
+  const servicios = useMemo(() => serviciosRaw.filter((s) => s.code !== 'AC-CATALOG-MASTER'), [serviciosRaw]);
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: suppliers, refetch: refetchSuppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: cats, refetch: refetchCats } = useTable<ServiceCategory>('service_categories', { orderBy: 'name' });
@@ -64,6 +85,9 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
   const [company, setCompany] = useState('');
   const [supplier, setSupplier] = useState('');
   const [serviceDate, setServiceDate] = useState(todayISO());
+  const [condicionesPago, setCondicionesPago] = useState('');
+  const [enviarPorPagar, setEnviarPorPagar] = useState(false);
+  const [vencePorPagar, setVencePorPagar] = useState('');
   const [note, setNote] = useState('');
   const [items, setItems] = useState<ServicioItem[]>([{ ...BLANK }]);
   const [factura, setFactura] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
@@ -105,12 +129,17 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
 
   const resetForm = () => {
     setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setServiceDate(todayISO());
+    setCondicionesPago(''); setEnviarPorPagar(false); setVencePorPagar('');
     setNote(''); setItems([{ ...BLANK }]); setCrudo({}); setFactura(null); setNuevoProv(''); setProvQ('');
   };
   const abrirNueva = () => { resetForm(); setOpen(true); };
   const abrirEditar = (s: ServicioRecord) => {
     setEditingId(s.id); setCompany(s.company_id ?? ''); setSupplier(s.supplier_id ?? '');
-    setServiceDate(String(s.service_date ?? todayISO()).slice(0, 10)); setNote(s.note ?? '');
+    setServiceDate(String(s.service_date ?? todayISO()).slice(0, 10));
+    setCondicionesPago(extraerCondicionesPago(s.note));
+    setEnviarPorPagar(false);
+    setVencePorPagar('');
+    setNote(limpiarCondicionesPagoDeNota(s.note ?? ''));
     setItems((s.items && s.items.length ? s.items : [{ ...BLANK }]).map((it) => ({ ...BLANK, ...it })));
     setCrudo({});
     setFactura(s.factura_url ? { url: s.factura_url, kind: (s.factura_type as any) ?? 'image', name: s.factura_name ?? 'factura' } : null);
@@ -173,25 +202,95 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
     if (!clean.length) return toast.error('Agrega al menos un servicio con categoría y cantidad.');
     // Un renglón que "usa repuesto" tiene que tener el repuesto elegido.
     if (clean.some((it) => it.usa_inventario && !it.item_id)) return toast.error('Elige el repuesto del inventario en los renglones marcados, o desmarca "usa repuesto".');
+    if (enviarPorPagar && !supplier) {
+      return toast.error('Para enviar este servicio a Cuentas por Pagar debes elegir el Proveedor.');
+    }
+    const totalSrv = itemsTotal(clean);
+    if (enviarPorPagar && !(totalSrv > 0)) {
+      return toast.error('Para enviar a Cuentas por Pagar el monto total debe ser mayor a $0.');
+    }
     setBusy(true);
+    const notaFinal = inyectarCondicionesPagoEnNota(
+      note.trim().toUpperCase() || null,
+      condicionesPago.trim().toUpperCase() || null,
+    );
     const payload = {
       company_id: company, supplier_id: supplier || null, service_date: serviceDate,
-      items: clean, total: itemsTotal(clean),
+      items: clean, total: totalSrv,
       factura_url: factura?.url ?? null, factura_type: factura?.kind ?? null, factura_name: factura?.name ?? null,
-      note: note.trim().toUpperCase() || null,
+      note: notaFinal,
     };
     await guardarNuevosCatalogos(clean);
-    const { error } = editingId
-      ? await supabase.from('servicios').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingId)
-      : await supabase.from('servicios').insert({ ...payload, created_by: session?.user?.id ?? null });
-    setBusy(false);
+    const resSrv = editingId
+      ? await supabase.from('servicios').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingId).select('id, code').single()
+      : await supabase.from('servicios').insert({ ...payload, created_by: session?.user?.id ?? null }).select('id, code').single();
+    const error = resSrv.error;
     if (error) {
+      setBusy(false);
       if (/servicios|relation|does not exist|column/i.test(error.message)) return toast.error('Corre "servicios.sql" en Supabase para habilitar Servicios.');
       return toast.error(error.message);
     }
+
+    // Si marcó "Enviar a Cuentas por Pagar", registramos/actualizamos la cuenta en `cuentas`
+    if (enviarPorPagar && supplier && totalSrv > 0) {
+      const srvCode = resSrv.data?.code || 'SRV';
+      const resumenCats = clean.map((l) => `${l.categoria}${l.tipo ? ` (${l.tipo})` : ''}`).join(', ');
+      const conceptoCxp = `SERVICIO ${srvCode} · ${resumenCats}`.slice(0, 220);
+      let notaCxp = note.trim().toUpperCase() || '';
+      notaCxp = inyectarEmpresaEnNota(notaCxp, company, companyName(company)) || '';
+      notaCxp = inyectarCondicionesPagoEnNota(notaCxp, condicionesPago.trim().toUpperCase()) || '';
+      const { error: errCxp } = await supabase.from('cuentas').insert({
+        tipo: 'por_pagar',
+        supplier_id: supplier,
+        company_id: null,
+        concepto: conceptoCxp,
+        documento: srvCode,
+        factura_url: factura?.url ?? null,
+        monto: totalSrv,
+        fecha_emision: serviceDate || todayISO(),
+        fecha_vencimiento: vencePorPagar.trim() || null,
+        estado: 'pendiente',
+        nota: notaCxp || null,
+        created_by: session?.user?.id ?? null,
+      });
+      if (errCxp) {
+        setBusy(false);
+        resetForm(); refetch();
+        return toast.error(`Servicio guardado, pero no se pudo crear la cuenta por pagar: ${errCxp.message}`);
+      }
+    }
+
+    setBusy(false);
     const editado = !!editingId;
+    const fueCxp = enviarPorPagar;
     resetForm(); refetch();
-    toast.success(editado ? 'Servicio actualizado.' : 'Servicio registrado.');
+    toast.success(
+      fueCxp
+        ? 'Servicio registrado y enviado a Cuentas por Pagar con sus condiciones.'
+        : editado
+          ? 'Servicio actualizado.'
+          : 'Servicio registrado.'
+    );
+  };
+
+  const eliminarServicio = async (s: ServicioRecord) => {
+    if (!canWrite) return toast.error('No tienes permiso para eliminar servicios.');
+    const usaRepuestos = (s.items || []).some((l) => l.usa_inventario && l.item_id);
+    const ok = await confirm({
+      title: `Eliminar ${s.code}`,
+      message: `¿Seguro que deseas eliminar el servicio ${s.code} por ${usd(s.total)}?${usaRepuestos ? ' Los repuestos descontados del inventario se restituirán automáticamente.' : ''} Esta acción no se puede deshacer.`,
+      confirmText: '🗑️ Sí, eliminar',
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingId(s.id);
+    const { data: del, error } = await supabase.from('servicios').delete().eq('id', s.id).select('id');
+    setDeletingId(null);
+    if (error) return toast.error(error.message);
+    if (!del || del.length === 0) return toast.error('No se pudo eliminar el servicio (verifica tus permisos).');
+    if (editingId === s.id) resetForm();
+    refetch();
+    toast.success(`Servicio ${s.code} eliminado.`);
   };
 
   const verFactura = (s: ServicioRecord) => {
@@ -244,11 +343,44 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Servicios (recargas, mantenimientos…): categoría, tipo, equipo opcional, cantidad y precio. Si el servicio usa un repuesto del inventario, se descuenta del stock.</Text>
 
+      {onGoToAires ? (
+        <TouchableOpacity
+          onPress={onGoToAires}
+          activeOpacity={0.8}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: colors.infoSoftBg,
+            borderWidth: 1,
+            borderColor: colors.infoSoftBorder,
+            borderRadius: radius.md,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.sm,
+            marginBottom: spacing.sm,
+            gap: spacing.xs,
+          }}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.infoSoftText, fontWeight: '900', fontSize: 13 }}>
+              ❄️ Control Riguroso de Aires Acondicionados (37 unidades en Base)
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+              Semáforo de mantenimiento por unidad (AA-01 a AA-37), historial y envío a Cuentas por Pagar
+            </Text>
+          </View>
+          <Text style={{ color: colors.infoSoftText, fontWeight: '900', fontSize: 13 }}>Ir →</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {loading ? <Loading /> : servicios.length === 0 ? (
         <EmptyState title="Sin servicios" subtitle="Registra un servicio: categoría, tipo, equipo y precio." />
       ) : grupos.map((grp) => (
         <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
-          {grp.items.map((s) => (
+          {grp.items.map((s) => {
+            const condSrv = extraerCondicionesPago(s.note);
+            const notaSrv = limpiarCondicionesPagoDeNota(s.note);
+            return (
             <ExpandableCard
               key={s.id}
               summary={
@@ -258,6 +390,22 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
                     <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800' }}>{usd(s.total)}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{(s.items || []).length} servicio(s) · 🏭 {supplierName(s.supplier_id)} · {String(s.service_date).slice(0, 10)}</Text>
+                  {condSrv || notaSrv ? (
+                    <View style={{ marginTop: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderLeftWidth: 3, borderLeftColor: condSrv ? colors.accent : colors.brand, gap: 2 }}>
+                      {condSrv ? (
+                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800' }}>💳 Condiciones de pago: </Text>
+                          <Text style={{ fontWeight: '700' }}>{condSrv}</Text>
+                        </Text>
+                      ) : null}
+                      {notaSrv ? (
+                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800' }}>📝 Nota: </Text>
+                          {notaSrv}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
               }
               detail={
@@ -267,7 +415,12 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
                       • {l.categoria}{l.tipo ? ` · ${l.tipo}` : ''}{l.machine_label ? ` · ${l.machine_label}` : ''} — {l.qty} × {usd(l.price)} = {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{l.usa_inventario && l.item_name ? ` · 📦 ${l.item_name}` : ''}
                     </Text>
                   ))}
-                  {s.note ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {s.note}</Text> : null}
+                  {condSrv ? (
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginTop: 4 }}>
+                      💳 Condiciones de pago: {condSrv}
+                    </Text>
+                  ) : null}
+                  {notaSrv ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>📝 Nota: {notaSrv}</Text> : null}
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                     {s.factura_url ? (
                       <TouchableOpacity onPress={() => verFactura(s)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
@@ -275,15 +428,25 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
                       </TouchableOpacity>
                     ) : null}
                     {canWrite ? (
-                      <TouchableOpacity onPress={() => abrirEditar(s)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>✏️ Editar</Text>
-                      </TouchableOpacity>
+                      <>
+                        <TouchableOpacity onPress={() => abrirEditar(s)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center' }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>✏️ Editar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => eliminarServicio(s)}
+                          disabled={deletingId === s.id}
+                          style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center', opacity: deletingId === s.id ? 0.6 : 1 }}
+                        >
+                          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>{deletingId === s.id ? '⏳ Eliminando…' : '🗑️ Eliminar'}</Text>
+                        </TouchableOpacity>
+                      </>
                     ) : null}
                   </View>
                 </>
               }
             />
-          ))}
+            );
+          })}
         </AccordionGroup>
       ))}
 
@@ -400,14 +563,88 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
             </Card>
 
             <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nota (opcional)</Text>
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginBottom: 4 }}>
+                💳 Condiciones de pago de este servicio (opcional)
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {CONDICIONES_PAGO_CHIPS.map((chipLabel) => {
+                  const activo = condicionesPago.toUpperCase().includes(chipLabel.toUpperCase());
+                  return (
+                    <TouchableOpacity
+                      key={chipLabel}
+                      onPress={() => {
+                        const next = toggleChipCondicionPago(condicionesPago, chipLabel);
+                        setCondicionesPago(next);
+                        const dias = detectarDiasCreditoChip(chipLabel);
+                        if (dias !== null && !activo) {
+                          setVencePorPagar(masDiasISO(serviceDate || todayISO(), dias));
+                        }
+                      }}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: activo ? colors.brand : colors.border,
+                        backgroundColor: activo ? colors.brand : colors.surfaceAlt,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 5,
+                      }}
+                    >
+                      <Text style={{ color: activo ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                        {activo ? `✓ ${chipLabel}` : chipLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {input(condicionesPago, (t) => setCondicionesPago(t.toUpperCase()), 'EJ. 50% ADELANTO PARA INICIAR Y 50% AL ENTREGAR FACTURA…', { autoCapitalize: 'characters' })}
+
+              <TouchableOpacity
+                onPress={() => setEnviarPorPagar((v) => !v)}
+                activeOpacity={0.8}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}
+              >
+                <Text style={{ fontSize: 16 }}>{enviarPorPagar ? '☑️' : '⬜'}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '800' }}>
+                    💸 Enviar también a Cuentas por Pagar (con estas condiciones y nota)
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    Crea automáticamente la deuda en «Por pagar» para que la gente de pagos vea las condiciones y notas sin volver a cargarlo.
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              {enviarPorPagar ? (
+                <View style={{ marginTop: spacing.xs }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 3 }}>Fecha de vencimiento en Por Pagar (AAAA-MM-DD, opcional)</Text>
+                  {input(vencePorPagar, setVencePorPagar, 'Sin fecha = no vence')}
+                </View>
+              ) : null}
+            </Card>
+
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>📝 Nota / Observaciones para Pagos (opcional)</Text>
               {input(note, (t) => setNote(t.toUpperCase()), 'OBSERVACIÓN…', { autoCapitalize: 'characters' })}
             </Card>
 
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: editingId ? spacing.sm : spacing.xl }}>
               <TouchableOpacity onPress={resetForm} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Registrar servicio'}</Text></TouchableOpacity>
             </View>
+            {editingId && canWrite ? (
+              (() => {
+                const srvActual = servicios.find((x) => x.id === editingId);
+                if (!srvActual) return null;
+                return (
+                  <TouchableOpacity
+                    onPress={() => eliminarServicio(srvActual)}
+                    disabled={deletingId === srvActual.id || busy}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginBottom: spacing.xl, opacity: deletingId === srvActual.id || busy ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.danger, fontWeight: '800' }}>{deletingId === srvActual.id ? '⏳ Eliminando…' : `🗑️ Eliminar servicio ${srvActual.code}`}</Text>
+                  </TouchableOpacity>
+                );
+              })()
+            ) : null}
           </ScrollView>
 
           {/* Selector de EQUIPO (buscador por todas las características) */}

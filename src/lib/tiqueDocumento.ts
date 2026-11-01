@@ -34,6 +34,8 @@ export type TiqueParaImprimir = {
    * El papel tiene que decirlo solo.
    */
   reimpresion?: boolean;
+  /** Configuración de formato específica de este ticket (si difiere de la base) */
+  config?: TiqueConfig;
 };
 
 /** Lo que se pinta cuando el dato no existe. Una raya, igual que en `tique.ts`. */
@@ -424,13 +426,14 @@ export function htmlDeUnTique(
   uris: Partial<Record<ClaveLogo, string>>,
   opts?: { titulo?: string; subtitulo?: string },
 ): string {
-  const filas = renglonesDelTique(t.datos, c)
+  const cfg = t.config ?? c;
+  const filas = renglonesDelTique(t.datos, cfg)
     .map((r) => `<div class="fila"><div class="k">${escapar(r.k)}</div><div class="v">${escapar(r.v)}</div></div>`)
     .join('');
   const folio = limpio(t.datos.folio);
   return [
     '<div class="tq">',
-    logosHtml(c, uris),
+    logosHtml(cfg, uris),
     `<div class="tit">${escapar(opts?.titulo ?? 'Ticket de viaje')}</div>`,
     opts?.subtitulo ? `<div class="sub">${escapar(opts.subtitulo)}</div>` : '',
     folio ? `<div class="folio">${escapar(folio)}</div>` : '',
@@ -461,24 +464,27 @@ export function documentoDeTiques(
   //    un tamaño por ticket, dos papeles de la misma hoja saldrían con letras
   //    distintas y el fajo parecería armado a pedazos. Uno solo para todos.
   const filasVacias = renglonesDelTique({}, c);
-  const renglones = filasVacias.length;
   const hayLogos = LOGOS_TIQUE.some((l) => c.logos[l.k] && String(uris[l.k] ?? '').trim());
   const hayReimpresion = tickets.some((t) => t.reimpresion === true);
+  const renglones = Math.max(
+    filasVacias.length,
+    ...tickets.map((t) => (t.config ? renglonesDelTique({}, t.config).length : filasVacias.length))
+  );
   const { pt } = tamanoQueEntra(c.papel, renglones, { logos: hayLogos, reimpresion: hayReimpresion, etiquetas: filasVacias.map((r) => r.k) });
   // El alto de la página del rollo se calcula con el mismo tamaño de letra que
   // va a salir impreso. Con otro tamaño, la página y el ticket no coincidirían.
   //
   // ⚠️ Y CUENTA LAS LÍNEAS PARTIDAS, con los datos de verdad. En el rollo de 58 la columna
-  //    del valor mide 30 mm, y un nombre de empresa o de CDT ya no cabe en una línea.
-  //    Contando solo renglones, el ticket de los 16 datos medía 172,5 mm contra 163 de
-  //    página y salía en DOS cortes (medido en el navegador el 12-sep-2026). La página
-  //    es una sola para todo el mandado, así que se usa el ticket que más líneas parte.
+  // del valor mide 30 mm, y un nombre de empresa o de CDT ya no cabe en una línea.
+  // Contando solo renglones, el ticket de los 16 datos medía 172,5 mm contra 163 de
+  // página y salía en DOS cortes (medido en el navegador el 12-sep-2026). La página
+  // es una sola para todo el mandado, así que se usa el ticket que más líneas parte.
   const colValorMm = MEDIDAS[c.papel].anchoMm - ANCHO_ETIQUETA_ROLLO_MM - GAP_FILA_MM;
   // Cada fila mide lo que su lado MÁS ALTO: el valor partido o la etiqueta
   // partida (las de los pesos van completas desde el 27-sep-2026 y en 18 mm
   // se parten en dos o tres). Contar solo el valor volvía a cortar el rollo.
   const lineasExtra = MEDIDAS[c.papel].rollo
-    ? Math.max(0, ...tickets.map((t) => renglonesDelTique(t.datos, c)
+    ? Math.max(0, ...tickets.map((t) => renglonesDelTique(t.datos, t.config ?? c)
       .reduce((suma, r) => suma + Math.max(
         lineasDelValor(r.v, colValorMm, pt),
         lineasDelValor(r.k, ANCHO_ETIQUETA_ROLLO_MM, pt - 2),

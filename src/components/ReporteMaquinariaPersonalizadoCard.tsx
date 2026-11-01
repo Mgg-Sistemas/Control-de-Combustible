@@ -15,7 +15,13 @@
 // - La fecha de emisión del papel es elegible (interruptor `emitida` de
 //   pdfDocument); el título, el subtítulo, la nota, las columnas y los logos
 //   también.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+//
+// ⛽🧭 Rango, combustible y Este/Oeste (30-oct-2026): con el rango de fechas, la
+// tarjeta TRAE (solo lectura) los litros despachados a cada máquina — la misma
+// `loadFuelByMachine` de Control de Maquinaria y Supervisión — y su Este/Oeste
+// con la regla del reporte 📍 Ubicaciones. Las dos columnas nacen apagadas, se
+// ponen y se quitan con sus pastillas, y lo corregido a mano no se pisa.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { DateField } from './DateField';
 import { Toggle } from './CubicajeTab';
@@ -25,11 +31,16 @@ import { selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { caracasToday } from '../lib/caracasDay';
 import { norm } from '../lib/text';
+import { loadFuelByMachine } from '../lib/fuelPerMachine';
+import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
+import { armarUbicaciones, cardinalPorMaquina } from '../lib/ubicacionesReporte';
 import {
   CSS_REPORTE_PERSONALIZADO, ESTADOS_PERSONALIZADO, FilaPersonalizada, OpcionesPersonalizado,
   OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO,
   alternarPersonalizado, cuerpoReportePersonalizado, dmyPersonalizado, emitidaTexto, filaVacia,
   ocultosPersonalizadoEnPalabras, sufijoArchivoPersonalizado,
+  empresasCatalogoPersonalizado, categoriasCatalogoPersonalizado, estadosCatalogoPersonalizado, filtrarCatalogoPersonalizado,
+  aplicarDatosDelRango, cardinalTexto, litrosTexto, rangoOrdenado, totalLitrosPersonalizado, usaRangoPersonalizado,
 } from '../lib/reporteMaquinariaPersonalizado';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -76,9 +87,26 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const [marcaTexto, setMarcaTexto] = useState(true);
   const [busca, setBusca] = useState('');
   const [fuente, setFuente] = useState<'todos' | 'maq' | 'veh'>('todos');
+  const [empresasSel, setEmpresasSel] = useState<string[]>([]);
+  const [categoriasSel, setCategoriasSel] = useState<string[]>([]);
+  const [estadosSel, setEstadosSel] = useState<string[]>([]);
+  const [empresaBusca, setEmpresaBusca] = useState('');
+  const [categoriaBusca, setCategoriaBusca] = useState('');
+  const [mostrarTodasPastillas, setMostrarTodasPastillas] = useState(false);
   const [manuales, setManuales] = useState(0);
   const [confirmaVaciar, setConfirmaVaciar] = useState(false);
   const [descargando, setDescargando] = useState(false);
+
+  // ⛽🧭 Lo que el sistema trae para el rango (null = no cargado / columna apagada).
+  const [litrosRango, setLitrosRango] = useState<Record<string, number> | null>(null);
+  const [cardinalRango, setCardinalRango] = useState<Record<string, string> | null>(null);
+  const [cargandoLitros, setCargandoLitros] = useState(false);
+  const [cargandoCardinal, setCargandoCardinal] = useState(false);
+  const [errorRango, setErrorRango] = useState<string | null>(null);
+  // Celdas corregidas a mano («id|campo»): recargar el rango no las pisa.
+  const editados = useRef<Set<string>>(new Set());
+  const pedidoLitros = useRef(0);
+  const pedidoCardinal = useRef(0);
 
   const cargar = useCallback(async () => {
     setCargando(true); setError(null);
@@ -125,6 +153,9 @@ export function ReporteMaquinariaPersonalizadoCard() {
         peso: Number.isFinite(Number(m.weight_ton)) && Number(m.weight_ton) > 0 ? `${n2(m.weight_ton)} t` : '',
         medidas: medidasFicha(m.height_m, m.length_m, m.width_m),
         nota: '',
+        // Los pone el rango (al agregar la fila o al cambiar las fechas).
+        litros: '',
+        cardinal: '',
       })) as FilaPersonalizada[]).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
       // El vehículo entra con el prefijo «veh-» en su clave local: así la
       // tarjeta sabe pintarle el 🚗 sin agregarle campos a la fila (que sigue
@@ -146,6 +177,9 @@ export function ReporteMaquinariaPersonalizadoCard() {
         peso: '',
         medidas: '',
         nota: '',
+        // Los despachos son de maquinaria: el vehículo no trae litros ni cardinal (se escriben a mano).
+        litros: '',
+        cardinal: '',
       })) as FilaPersonalizada[])).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
       setCatalogo([...filasMaq, ...filasVeh]);
     } catch (e: any) {
@@ -157,18 +191,122 @@ export function ReporteMaquinariaPersonalizadoCard() {
 
   useEffect(() => { void cargar(); }, [cargar]);
 
+  // ⛽🧭 El rango manda: con alguna de las dos columnas encendida, las fechas salen
+  //    en el subtítulo (unos litros sin su período no dicen nada).
+  const rango = useMemo(() => rangoOrdenado(desde, hasta), [desde, hasta]);
+  const usaRango = usaRangoPersonalizado(opciones);
+  const rangoEnPapel = conRango || usaRango;
+
+  // ⛽ Litros del rango: SOLO si la columna está encendida (si no, ni se pregunta).
+  useEffect(() => {
+    if (opciones.sinConsumo || !rango.desde) { setLitrosRango(null); return; }
+    const n = ++pedidoLitros.current;
+    setCargandoLitros(true); setErrorRango(null);
+    loadFuelByMachine(rango.desde, rango.hasta)
+      .then((agg) => {
+        if (n !== pedidoLitros.current) return; // llegó tarde: ya se pidió otro rango
+        const m: Record<string, number> = {};
+        Object.entries(agg).forEach(([id, a]) => { m[id] = a.liters; });
+        setLitrosRango(m);
+      })
+      .catch((e: any) => { if (n === pedidoLitros.current) { setLitrosRango(null); setErrorRango(`No se pudo leer el combustible: ${String(e?.message ?? e)}`); } })
+      .finally(() => { if (n === pedidoLitros.current) setCargandoLitros(false); });
+  }, [opciones.sinConsumo, rango.desde, rango.hasta]);
+
+  // 🧭 Este/Oeste del rango: la regla del reporte 📍 Ubicaciones, sobre TODO el
+  //    catálogo (así el resultado es el mismo que en ese papel).
+  useEffect(() => {
+    if (opciones.sinCardinal || !rango.desde) { setCardinalRango(null); return; }
+    const n = ++pedidoCardinal.current;
+    setCargandoCardinal(true); setErrorRango(null);
+    cargarDatosUbicaciones(rango.desde, rango.hasta)
+      .then((d) => {
+        if (n !== pedidoCardinal.current) return;
+        const filasUbic = armarUbicaciones({ ...d, desde: rango.desde, hasta: rango.hasta });
+        const m: Record<string, string> = {};
+        cardinalPorMaquina(d.maquinas, filasUbic).forEach((c, id) => { m[id] = cardinalTexto(c.cardinal, c.area); });
+        setCardinalRango(m);
+      })
+      .catch((e: any) => { if (n === pedidoCardinal.current) { setCardinalRango(null); setErrorRango(`No se pudo leer la ubicación Este/Oeste: ${String(e?.message ?? e)}`); } })
+      .finally(() => { if (n === pedidoCardinal.current) setCargandoCardinal(false); });
+  }, [opciones.sinCardinal, rango.desde, rango.hasta]);
+
+  // Lo que llega del rango se pone en las filas que ya están en el papel.
+  const datosRango = useMemo(() => ({ litros: litrosRango, cardinal: cardinalRango }), [litrosRango, cardinalRango]);
+  useEffect(() => {
+    setFilas((prev) => {
+      let cambio = false;
+      const next = prev.map((f) => { const g = aplicarDatosDelRango(f, datosRango, editados.current); if (g !== f) cambio = true; return g; });
+      return cambio ? next : prev;
+    });
+  }, [datosRango]);
+  const totalLitros = useMemo(() => totalLitrosPersonalizado(filas), [filas]);
+
   const enPapel = useMemo(() => new Set(filas.map((f) => f.id)), [filas]);
   const esVehiculo = (id: string) => id.startsWith('veh-');
-  const coincidentes = useMemo(() => {
-    const q = norm(busca);
-    return catalogo.filter((m) =>
-      (fuente === 'todos' || (fuente === 'veh') === esVehiculo(m.id))
-      && (!q || norm(`${m.code} ${m.plate} ${m.serial} ${m.marca} ${m.modelo} ${m.clasificacion} ${m.empresa}`).includes(q)));
-  }, [catalogo, busca, fuente]);
+
+  const empresasDisponibles = useMemo(
+    () => empresasCatalogoPersonalizado(catalogo, fuente),
+    [catalogo, fuente],
+  );
+  const empresasVisibles = useMemo(() => {
+    const qEmp = norm(empresaBusca);
+    if (!qEmp) return empresasDisponibles;
+    return empresasDisponibles.filter((e) => norm(e.nombre).includes(qEmp));
+  }, [empresasDisponibles, empresaBusca]);
+
+  const categoriasDisponibles = useMemo(
+    () => categoriasCatalogoPersonalizado(catalogo, fuente, empresasSel),
+    [catalogo, fuente, empresasSel],
+  );
+  const categoriasVisibles = useMemo(() => {
+    const qCat = norm(categoriaBusca);
+    if (!qCat) return categoriasDisponibles;
+    return categoriasDisponibles.filter((c) => norm(c.nombre).includes(qCat));
+  }, [categoriasDisponibles, categoriaBusca]);
+
+  const estadosDisponibles = useMemo(
+    () => estadosCatalogoPersonalizado(catalogo, fuente, empresasSel, categoriasSel),
+    [catalogo, fuente, empresasSel, categoriasSel],
+  );
+
+  const coincidentes = useMemo(
+    () => filtrarCatalogoPersonalizado({ catalogo, fuente, empresasSel, categoriasSel, estadosSel, busca }),
+    [catalogo, fuente, empresasSel, categoriasSel, estadosSel, busca],
+  );
+
+  const toggleEmpresaFiltro = (nombre: string) =>
+    setEmpresasSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
+
+  const toggleCategoriaFiltro = (nombre: string) =>
+    setCategoriasSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
+
+  const toggleEstadoFiltro = (nombre: string) =>
+    setEstadosSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
 
   // Quitar y reordenar: SIN tocar nada fuera de la tarjeta (es puro estado local).
-  const agregar = (m: FilaPersonalizada) => setFilas((prev) => (prev.some((f) => f.id === m.id) ? prev : [...prev, { ...m }]));
-  const quitar = (id: string) => setFilas((prev) => prev.filter((f) => f.id !== id));
+  // Una fila que entra al papel llega con los datos del rango ya cargados.
+  const conRangoAplicado = (m: FilaPersonalizada) => aplicarDatosDelRango({ ...m }, datosRango, editados.current);
+  // Al sacar una fila se olvida lo que se le corrigió: si vuelve, vuelve limpia.
+  //    (Se rehace el Set filtrado en vez de borrarle llaves: el candado de la suite
+  //    no admite en esta tarjeta ni un método con nombre de escritura a la base.)
+  const olvidarEditados = (ids: Iterable<string>) => {
+    const fuera = new Set(ids);
+    editados.current = new Set(Array.from(editados.current).filter((k) => !fuera.has(k.slice(0, k.lastIndexOf('|')))));
+  };
+  const agregar = (m: FilaPersonalizada) => setFilas((prev) => (prev.some((f) => f.id === m.id) ? prev : [...prev, conRangoAplicado(m)]));
+  const agregarVarias = (lista: FilaPersonalizada[]) =>
+    setFilas((prev) => {
+      const ya = new Set(prev.map((f) => f.id));
+      const nuevas = lista.filter((m) => !ya.has(m.id)).map(conRangoAplicado);
+      return nuevas.length === 0 ? prev : [...prev, ...nuevas];
+    });
+  const quitar = (id: string) => { olvidarEditados([id]); setFilas((prev) => prev.filter((f) => f.id !== id)); };
+  const quitarVarias = (lista: FilaPersonalizada[]) => {
+    const idsQuitar = new Set(lista.map((m) => m.id));
+    olvidarEditados(idsQuitar);
+    setFilas((prev) => prev.filter((f) => !idsQuitar.has(f.id)));
+  };
   const mover = (i: number, dir: -1 | 1) => setFilas((prev) => {
     const j = i + dir;
     if (j < 0 || j >= prev.length) return prev;
@@ -176,18 +314,20 @@ export function ReporteMaquinariaPersonalizadoCard() {
     [copia[i], copia[j]] = [copia[j], copia[i]];
     return copia;
   });
-  const editar = (id: string, campo: keyof FilaPersonalizada, valor: string) =>
+  const editar = (id: string, campo: keyof FilaPersonalizada, valor: string) => {
+    if (campo === 'litros' || campo === 'cardinal') editados.current.add(`${id}|${campo}`);
     setFilas((prev) => prev.map((f) => (f.id === id ? { ...f, [campo]: valor } : f)));
+  };
   const agregarManual = () => { setManuales((n) => n + 1); setFilas((prev) => [...prev, filaVacia(`manual-${manuales + 1}`)]); };
   const vaciar = () => {
     if (!confirmaVaciar) { setConfirmaVaciar(true); setTimeout(() => setConfirmaVaciar(false), 3000); return; }
-    setConfirmaVaciar(false); setFilas([]);
+    setConfirmaVaciar(false); editados.current.clear(); setFilas([]);
   };
 
   const subtituloPapel = useMemo(() => {
-    const partes = [conRango ? `Del ${dmyPersonalizado(desde)} al ${dmyPersonalizado(hasta)}` : '', limpio(subtitulo)].filter(Boolean);
+    const partes = [rangoEnPapel ? `Del ${dmyPersonalizado(rango.desde)} al ${dmyPersonalizado(rango.hasta)}` : '', limpio(subtitulo)].filter(Boolean);
     return partes.join(' · ');
-  }, [conRango, desde, hasta, subtitulo]);
+  }, [rangoEnPapel, rango.desde, rango.hasta, subtitulo]);
 
   const descargarPdf = async () => {
     setDescargando(true);
@@ -264,13 +404,36 @@ export function ReporteMaquinariaPersonalizadoCard() {
           <DateField value={fechaEmision} onChange={setFechaEmision} />
         </View>
       </View>
-      <Toggle on={conRango} label={conRango ? 'Con rango de fechas en el subtítulo' : 'Sin rango de fechas (solo el subtítulo)'} onPress={() => setConRango((v) => !v)} />
-      {conRango ? (
+      {rotulo('📅 RANGO DE FECHAS Y DATOS DEL RANGO')}
+      {/* ⛽🧭 Atajos: las mismas llaves que las pastillas de «¿Qué se oculta?». */}
+      <Toggle on={!opciones.sinConsumo} label="⛽ Traer el consumo de combustible del rango (litros por máquina)"
+        onPress={() => setOpciones((o) => alternarPersonalizado(o, 'sinConsumo'))} />
+      <Toggle on={!opciones.sinCardinal} label="🧭 Traer la ubicación Este / Oeste del rango"
+        onPress={() => setOpciones((o) => alternarPersonalizado(o, 'sinCardinal'))} />
+      {usaRango ? (
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+          El rango sale en el subtítulo del papel: los litros y la ubicación son de esas fechas.
+        </Text>
+      ) : (
+        <Toggle on={conRango} label={conRango ? 'Con rango de fechas en el subtítulo' : 'Sin rango de fechas (solo el subtítulo)'} onPress={() => setConRango((v) => !v)} />
+      )}
+      {rangoEnPapel ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
           <View><Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>Desde</Text><DateField value={desde} onChange={setDesde} /></View>
           <View><Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>Hasta</Text><DateField value={hasta} onChange={setHasta} /></View>
         </View>
       ) : null}
+      {usaRango ? (
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+          {cargandoLitros || cargandoCardinal
+            ? 'Leyendo los datos del rango…'
+            : [
+                !opciones.sinConsumo && litrosRango ? `⛽ ${litrosTexto(totalLitros) || '0'} L en las ${filas.length} fila(s) del papel (despachos por fecha del surtido, ambos días incluidos).` : '',
+                !opciones.sinCardinal && cardinalRango ? '🧭 Este / Oeste: la última ubicación de la máquina en el rango (la regla del reporte 📍 Ubicaciones); sin actividad en el rango, la de su ficha.' : '',
+              ].filter(Boolean).join(' ')}
+        </Text>
+      ) : null}
+      {errorRango ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>⚠️ {errorRango}</Text> : null}
 
       {rotulo('🚜 AGREGAR MÁQUINAS Y VEHÍCULOS DEL CATÁLOGO (toca para meter o sacar)')}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
@@ -278,27 +441,197 @@ export function ReporteMaquinariaPersonalizadoCard() {
         {pastilla('f-maq', '🚜 Máquinas', fuente === 'maq', () => setFuente('maq'))}
         {pastilla('f-veh', '🚗 Vehículos', fuente === 'veh', () => setFuente('veh'))}
       </View>
-      <TextInput value={busca} onChangeText={setBusca} placeholder="🔎 Buscar por código, placa, serial, marca o empresa…" placeholderTextColor={colors.muted}
+
+      {/* 🏢 Filtro por una o varias Empresas */}
+      {empresasDisponibles.length > 0 ? (
+        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+              🏢 Filtrar por empresa ({empresasSel.length === 0 ? `Todas · ${empresasDisponibles.length}` : `${empresasSel.length} seleccionada(s)`})
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {empresasSel.length < empresasDisponibles.length ? (
+                <TouchableOpacity onPress={() => setEmpresasSel(empresasDisponibles.map((e) => e.nombre))}>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>☑ Marcar todas</Text>
+                </TouchableOpacity>
+              ) : null}
+              {empresasSel.length > 0 ? (
+                <TouchableOpacity onPress={() => setEmpresasSel([])}>
+                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Limpiar empresas ({empresasSel.length})</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+          {empresasDisponibles.length > 6 ? (
+            <TextInput
+              value={empresaBusca}
+              onChangeText={setEmpresaBusca}
+              placeholder="🔎 Buscar empresa…"
+              placeholderTextColor={colors.muted}
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4, color: colors.text, fontSize: 12, backgroundColor: colors.surface, marginBottom: 6 }}
+            />
+          ) : null}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            {pastilla('emp-todas', `🏢 Todas (${catalogo.filter((m) => fuente === 'todos' || (fuente === 'veh') === esVehiculo(m.id)).length})`, empresasSel.length === 0, () => setEmpresasSel([]))}
+            {empresasVisibles.map((emp) => {
+              const activa = empresasSel.includes(emp.nombre);
+              return pastilla(
+                `emp-${emp.nombre}`,
+                `${activa ? '✓ ' : ''}${emp.nombre} · ${emp.count}`,
+                activa,
+                () => toggleEmpresaFiltro(emp.nombre),
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+            {empresasSel.length === 0
+              ? 'Toca una o varias empresas para ver y seleccionar solo sus máquinas.'
+              : `Mostrando máquinas de: ${empresasSel.join(' · ')}. Puedes seleccionarlas todas o escoger una por una abajo.`}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* 🔶 Filtro por una o varias Categorías de la maquinaria */}
+      {categoriasDisponibles.length > 0 ? (
+        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+              🔶 Filtrar por categoría de la maquinaria ({categoriasSel.length === 0 ? `Todas · ${categoriasDisponibles.length}` : `${categoriasSel.length} seleccionada(s)`})
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {categoriasSel.length < categoriasDisponibles.length ? (
+                <TouchableOpacity onPress={() => setCategoriasSel(categoriasDisponibles.map((c) => c.nombre))}>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>☑ Marcar todas</Text>
+                </TouchableOpacity>
+              ) : null}
+              {categoriasSel.length > 0 ? (
+                <TouchableOpacity onPress={() => setCategoriasSel([])}>
+                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Limpiar categorías ({categoriasSel.length})</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+          {categoriasDisponibles.length > 4 ? (
+            <TextInput
+              value={categoriaBusca}
+              onChangeText={setCategoriaBusca}
+              placeholder="🔎 Buscar categoría (ej. Remoción y excavación, Transporte de escombros…)"
+              placeholderTextColor={colors.muted}
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4, color: colors.text, fontSize: 12, backgroundColor: colors.surface, marginBottom: 6 }}
+            />
+          ) : null}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            {pastilla('cat-todas', `🔶 Todas (${categoriasDisponibles.reduce((acc, c) => acc + c.count, 0)})`, categoriasSel.length === 0, () => setCategoriasSel([]))}
+            {categoriasVisibles.map((cat) => {
+              const activa = categoriasSel.includes(cat.nombre);
+              return pastilla(
+                `cat-${cat.nombre}`,
+                `${activa ? '✓ ' : ''}${cat.nombre} · ${cat.count}`,
+                activa,
+                () => toggleCategoriaFiltro(cat.nombre),
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+            {categoriasSel.length === 0
+              ? 'Toca una o varias categorías para ver y seleccionar solo esas máquinas (ej. Remoción y excavación, Transporte de escombros, Manejo de carga…).'
+              : `Mostrando categoría(s): ${categoriasSel.join(' · ')}. Puedes seleccionarlas todas en bloque o escoger una por una abajo.`}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* 🚦 Filtro por Estado Actual de las máquinas */}
+      <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+            🚦 Filtrar por estado actual ({estadosSel.length === 0 ? 'Todos los estados' : `${estadosSel.length} estado(s)`})
+          </Text>
+          {estadosSel.length > 0 ? (
+            <TouchableOpacity onPress={() => setEstadosSel([])}>
+              <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Limpiar estados ({estadosSel.length})</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('est-todos', 'Todos los estados', estadosSel.length === 0, () => setEstadosSel([]))}
+          {estadosDisponibles.map((est) => {
+            const activo = estadosSel.includes(est.nombre);
+            return pastilla(
+              `est-${est.nombre}`,
+              `${activo ? '✓ ' : ''}${est.nombre} · ${est.count}`,
+              activo,
+              () => toggleEstadoFiltro(est.nombre),
+            );
+          })}
+        </View>
+      </View>
+
+      <TextInput value={busca} onChangeText={setBusca} placeholder="🔎 Buscar por código, placa, serial, marca, categoría o empresa…" placeholderTextColor={colors.muted}
         style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 6, color: colors.text, fontSize: 13, backgroundColor: colors.surface }} />
+
+      {/* Botones rápidos para seleccionar o des-seleccionar en bloque las máquinas filtradas */}
+      {(() => {
+        const seleccionadasDeFiltro = coincidentes.filter((m) => enPapel.has(m.id)).length;
+        const faltanPorSeleccionar = coincidentes.length - seleccionadasDeFiltro;
+        return (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs, alignItems: 'center' }}>
+            {pastilla(
+              'todas',
+              `➕ Seleccionar las ${coincidentes.length} filtradas${faltanPorSeleccionar > 0 && seleccionadasDeFiltro > 0 ? ` (+${faltanPorSeleccionar})` : ''}`,
+              false,
+              () => agregarVarias(coincidentes),
+            )}
+            {seleccionadasDeFiltro > 0
+              ? pastilla(
+                  'quitar-filtradas',
+                  `➖ Des-seleccionar las ${seleccionadasDeFiltro} filtradas en el papel`,
+                  false,
+                  () => quitarVarias(coincidentes),
+                )
+              : null}
+            {pastilla('manual', '➕ Agregar fila manual (en blanco)', false, agregarManual)}
+            {filas.length > 0 ? pastilla('vaciar', confirmaVaciar ? '⚠️ ¿Seguro? Toca otra vez' : '🧹 Vaciar todo el papel', confirmaVaciar, vaciar) : null}
+          </View>
+        );
+      })()}
+
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-        {coincidentes.slice(0, MAX_PASTILLAS_CATALOGO).map((m) =>
-          pastilla(m.id, `${enPapel.has(m.id) ? '✓ ' : ''}${esVehiculo(m.id) ? '🚗 ' : ''}${m.code || m.plate || m.serial || '—'}`, enPapel.has(m.id),
-            () => (enPapel.has(m.id) ? quitar(m.id) : agregar(m))))}
+        {(mostrarTodasPastillas ? coincidentes : coincidentes.slice(0, MAX_PASTILLAS_CATALOGO)).map((m) => {
+          const baseCode = m.code || m.plate || m.serial || '—';
+          const placaTxt = m.plate && m.plate !== baseCode ? ` · Placa: ${m.plate}` : (!m.plate ? ' · S/P' : '');
+          const catTxt = m.clasificacion ? ` · ${m.clasificacion}` : '';
+          const empTxt = m.empresa ? ` · ${m.empresa}` : '';
+          const estTxt = m.estado && m.estado !== 'Operativa' ? ` [${m.estado}]` : '';
+          return pastilla(
+            m.id,
+            `${enPapel.has(m.id) ? '✓ ' : ''}${esVehiculo(m.id) ? '🚗 ' : ''}${baseCode}${placaTxt}${catTxt}${empTxt}${estTxt}`,
+            enPapel.has(m.id),
+            () => (enPapel.has(m.id) ? quitar(m.id) : agregar(m)),
+          );
+        })}
       </View>
       {coincidentes.length > MAX_PASTILLAS_CATALOGO ? (
-        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>…y {coincidentes.length - MAX_PASTILLAS_CATALOGO} más: afina la búsqueda para verlas.</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 4, flexWrap: 'wrap' }}>
+          <Text style={{ color: colors.muted, fontSize: 11 }}>
+            {mostrarTodasPastillas
+              ? `Mostrando las ${coincidentes.length} máquinas filtradas.`
+              : `Mostrando ${MAX_PASTILLAS_CATALOGO} de ${coincidentes.length} máquinas filtradas.`}
+          </Text>
+          <TouchableOpacity onPress={() => setMostrarTodasPastillas((v) => !v)}>
+            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+              {mostrarTodasPastillas ? '▲ Mostrar menos' : `▼ Ver las ${coincidentes.length} máquinas`}
+            </Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-        {pastilla('todas', `➕ Agregar las ${coincidentes.length} de la búsqueda`, false, () => coincidentes.forEach(agregar))}
-        {pastilla('manual', '➕ Agregar fila manual (en blanco)', false, agregarManual)}
-        {filas.length > 0 ? pastilla('vaciar', confirmaVaciar ? '⚠️ ¿Seguro? Toca otra vez' : '🧹 Vaciar el papel', confirmaVaciar, vaciar) : null}
-      </View>
 
       {filas.length > 0 ? rotulo(`✏️ LAS ${filas.length} FILA(S) DEL PAPEL (toca cualquier celda y corrígela)`) : null}
       {filas.map((f, i) => (
         <View key={f.id} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs, backgroundColor: colors.surfaceAlt }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>{i + 1}. {esVehiculo(f.id) ? '🚗 ' : ''}{f.code || '(sin código)'}</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+              {i + 1}. {esVehiculo(f.id) ? '🚗 ' : ''}{f.code || '(sin código)'} · Placa: {f.plate || 'S/P'}{f.empresa ? ` · ${f.empresa}` : ''}
+            </Text>
             <View style={{ flexDirection: 'row', gap: spacing.xs }}>
               {pastilla(`up${f.id}`, '↑', false, () => mover(i, -1))}
               {pastilla(`dn${f.id}`, '↓', false, () => mover(i, 1))}
@@ -314,6 +647,8 @@ export function ReporteMaquinariaPersonalizadoCard() {
             {campo(f, 'plate', 'Placa')}
             {campo(f, 'empresa', 'Empresa')}
             {campo(f, 'zona', 'Zona / ubicación')}
+            {!opciones.sinCardinal ? campo(f, 'cardinal', '🧭 Este / Oeste') : null}
+            {!opciones.sinConsumo ? campo(f, 'litros', '⛽ Combustible (L)') : null}
             {campo(f, 'encargado', 'Encargado')}
             {campo(f, 'horometro', 'Horómetro')}
             {campo(f, 'peso', 'Peso')}
@@ -334,7 +669,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         {PASTILLAS_PERSONALIZADO.map((p) => pastilla('p' + p.key, p.chip, opciones[p.key], () => setOpciones((o) => alternarPersonalizado(o, p.key))))}
       </View>
       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-        Encendida = NO sale (encargado, horómetro, peso, medidas, notas y el cuadro por empresa nacen ocultos: tócalos para INCLUIRLOS). {ocultosPersonalizadoEnPalabras(opciones)}
+        Encendida = NO sale (encargado, horómetro, peso, medidas, notas, consumo de combustible, Este / Oeste y el cuadro por empresa nacen ocultos: tócalos para INCLUIRLOS). {ocultosPersonalizadoEnPalabras(opciones)}
       </Text>
 
       {rotulo('🏷️ QUÉ LOGOS LLEVA EL MEMBRETE')}
@@ -344,10 +679,10 @@ export function ReporteMaquinariaPersonalizadoCard() {
       <Toggle on={marcaTexto} label="Marca en texto «BCV / SOS La Guaira» (línea y pie)" onPress={() => setMarcaTexto((v) => !v)} />
 
       <TouchableOpacity
-        disabled={descargando || cargando || filas.length === 0}
+        disabled={descargando || cargando || cargandoLitros || cargandoCardinal || filas.length === 0}
         onPress={descargarPdf}
-        style={{ marginTop: spacing.sm, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', backgroundColor: descargando || cargando || filas.length === 0 ? colors.border : colors.brand }}>
-        <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{descargando ? 'Armando el papel…' : '📄 Descargar el reporte (PDF)'}</Text>
+        style={{ marginTop: spacing.sm, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', backgroundColor: descargando || cargando || cargandoLitros || cargandoCardinal || filas.length === 0 ? colors.border : colors.brand }}>
+        <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{descargando ? 'Armando el papel…' : cargandoLitros || cargandoCardinal ? 'Leyendo los datos del rango…' : '📄 Descargar el reporte (PDF)'}</Text>
       </TouchableOpacity>
     </View>
   );

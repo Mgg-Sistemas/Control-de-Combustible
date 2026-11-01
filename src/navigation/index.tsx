@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../context/AuthContext';
+import { ROLES_CON_VISTA_SISTEMA, type VistaTelefono } from '../lib/permissions';
 import { AppRole, UserRole } from '../types/database';
 import { esRolListero } from '../lib/rolListero';
 import { useTheme } from '../theme/ThemeContext';
@@ -69,6 +70,7 @@ import ContactosScreen from '../screens/ContactosScreen';
 import CajaScreen from '../screens/CajaScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import SolicitudMaterialScreen from '../screens/SolicitudMaterialScreen';
+import CentroOperacionesScreen from '../screens/CentroOperacionesScreen';
 import InspeccionesScreen from '../screens/InspeccionesScreen';
 import ManguerasScreen from '../screens/ManguerasScreen';
 import MachineTraceabilityScreen from '../screens/MachineTraceabilityScreen';
@@ -103,6 +105,9 @@ import HaulLocationsScreen from '../screens/acarreo/HaulLocationsScreen';
 import HaulDocumentsScreen from '../screens/acarreo/HaulDocumentsScreen';
 import HaulTariffsScreen from '../screens/acarreo/HaulTariffsScreen';
 import HaulDashboard from '../screens/acarreo/HaulDashboard';
+import TrasladoMaquinariaScreen from '../screens/TrasladoMaquinariaScreen';
+import ActaRecepcionScreen from '../screens/ActaRecepcionScreen';
+import ServicioFletesScreen from '../screens/ServicioFletesScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -115,7 +120,9 @@ const LOGO = require('../../assets/logo.png');
 // Ancho de pantalla por debajo del cual el header no tiene espacio para todo
 // (logo+título a la izquierda y tuerca+campana+cerrar sesión+reloj a la derecha)
 // y hay que achicar/ocultar lo menos importante para que nada se superponga.
-const HEADER_COMPACT_BREAKPOINT = 420;
+// 520 (28-oct-2026): los iPhone grandes miden 430 px y con 420 mostraban «Cerrar sesión» en
+// texto y la fecha, y todo se montaba sobre el título. Ningún teléfono en vertical llega a 520.
+const HEADER_COMPACT_BREAKPOINT = 520;
 
 /** Marca del encabezado: logo de la empresa + título de la pantalla (se recorta,
  *  nunca empuja ni se superpone con los botones de la derecha). */
@@ -162,14 +169,16 @@ function HeaderClock() {
 function HeaderHomeButton() {
   const navigation = useNavigation<any>();
   const { colors } = useTheme();
+  const { role, appRole, canSee } = useAuth();
   return (
     <TouchableOpacity
       onPress={() => {
         // Primero intenta volver a la pantalla anterior (p. ej. Tanques → menú Más);
-        // si no hay a dónde volver (pantalla raíz de un tab), va al inicio.
+        // si no hay a dónde volver (pantalla raíz de un tab), va al inicio permitido.
         if (navigation.canGoBack?.()) { navigation.goBack(); return; }
         const parent = navigation.getParent?.();
-        (parent ?? navigation).navigate('Dashboard');
+        const homeTarget = tabsHomeRoute(role, appRole, canSee).name;
+        (parent ?? navigation).navigate(homeTarget);
       }}
       style={{ paddingHorizontal: 12, paddingVertical: 4 }}
       accessibilityLabel="Volver al inicio"
@@ -288,6 +297,7 @@ function MoreStack() {
       <Stack.Screen name="Caja" component={CajaScreen} options={{ title: 'Caja' }} />
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="SolicitudMaterial" component={SolicitudMaterialScreen} options={{ title: 'Pedir Material / Repuesto' }} />
+      <Stack.Screen name="CentroOperaciones" component={CentroOperacionesScreen} options={{ title: 'Centro de Operaciones' }} />
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
       <Stack.Screen name="FabricacionHub" component={FabricacionHubScreen} options={{ title: 'Fabricación' }} />
       <Stack.Screen name="Mangueras" component={ManguerasScreen} options={{ title: 'Mangueras hidráulicas' }} />
@@ -318,6 +328,9 @@ function MoreStack() {
       <Stack.Screen name="Audit" component={AuditScreen} options={{ title: 'Auditoría' }} />
       <Stack.Screen name="Empresas" component={EmpresasScreen} options={{ title: 'Empresas' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="TrasladoMaquinaria" component={TrasladoMaquinariaScreen} options={{ title: 'Traslados y Salidas' }} />
+      <Stack.Screen name="ActaRecepcion" component={ActaRecepcionScreen} options={{ title: 'Acta de Recepción' }} />
+      <Stack.Screen name="ServicioFletes" component={ServicioFletesScreen} options={{ title: 'Servicio de Fletes' }} />
       <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
   );
@@ -342,6 +355,9 @@ function CoordinadorStack() {
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
       <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
       <Stack.Screen name="ControlMaquinaria" component={ControlMaquinariaScreen} options={{ title: 'Control de maquinaria' }} />
+      <Stack.Screen name="TrasladoMaquinaria" component={TrasladoMaquinariaScreen} options={{ title: 'Traslados y Salidas' }} />
+      <Stack.Screen name="ActaRecepcion" component={ActaRecepcionScreen} options={{ title: 'Acta de Recepción' }} />
+      <Stack.Screen name="ServicioFletes" component={ServicioFletesScreen} options={{ title: 'Servicio de Fletes' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
       <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
@@ -464,10 +480,12 @@ function ViajesStack() {
  *  `name` = pantalla del Tab.Navigator; `path` = URL equivalente (deben ir
  *  siempre juntos: si difieren, recargar la página manda a Inicio y pisa esto). */
 function tabsHomeRoute(role: UserRole | null, appRole: AppRole | null, canSee: (k: string) => boolean): { name: string; path: string } {
-  if (!appRole || role === 'admin') return { name: 'Dashboard', path: '/inicio' };
+  const puedeInicio = role === 'admin' || canSee('inicio');
+  if (puedeInicio && (!appRole || role === 'admin')) return { name: 'Dashboard', path: '/inicio' };
   if (canSee('control_maquinaria')) return { name: 'ControlMaquinaria', path: '/control' };
   if (canSee('mapa')) return { name: 'Map', path: '/mapa' };
   if (canSee('equipos')) return { name: 'Equipos', path: '/catalogo' };
+  if (puedeInicio) return { name: 'Dashboard', path: '/inicio' };
   return { name: 'More', path: '/mas' };
 }
 
@@ -755,11 +773,13 @@ function Tabs() {
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
       }}
     >
-      <Tab.Screen
-        name="Dashboard"
-        component={DashboardScreen}
-        options={{ title: 'Inicio', tabBarIcon: tabIcon('🏠') }}
-      />
+      {role === 'admin' || canSee('inicio') ? (
+        <Tab.Screen
+          name="Dashboard"
+          component={DashboardScreen}
+          options={{ title: 'Inicio', tabBarIcon: tabIcon('🏠') }}
+        />
+      ) : null}
       {canSee('control_maquinaria') ? (
         <Tab.Screen
           name="ControlMaquinaria"
@@ -781,6 +801,33 @@ function Tabs() {
           options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜'), headerLeft: () => <HeaderHomeButton /> }}
         />
       ) : null}
+      <Tab.Screen
+        name="ActaRecepcion"
+        component={ActaRecepcionScreen}
+        options={{
+          title: 'Acta de Recepción',
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
+        }}
+      />
+      <Tab.Screen
+        name="TrasladoMaquinaria"
+        component={TrasladoMaquinariaScreen}
+        options={{
+          title: 'Traslados y Salidas',
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
+        }}
+      />
+      <Tab.Screen
+        name="ServicioFletes"
+        component={ServicioFletesScreen}
+        options={{
+          title: 'Servicio de Fletes',
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
+        }}
+      />
       <Tab.Screen
         name="More"
         component={MoreStack}
@@ -848,6 +895,7 @@ const moreScreens = {
   Caja: 'caja',
   Inventario: 'inventario',
   SolicitudMaterial: 'pedir-material',
+  CentroOperaciones: 'centro-operaciones',
   InspeccionesMaq: 'inspecciones-maquinaria',
   FabricacionHub: 'fabricacion',
   Mangueras: 'fabricacion/mangueras',
@@ -877,6 +925,9 @@ const moreScreens = {
   Audit: 'auditoria',
   Empresas: 'empresas',
   Manual: 'manual',
+  TrasladoMaquinaria: 'traslados-maquinaria',
+  ActaRecepcion: 'acta-recepcion',
+  ServicioFletes: 'servicio-fletes',
   Ajustes: 'ajustes',
 };
 
@@ -981,8 +1032,12 @@ function pickTree(ctx: {
   isJesusLozada: boolean;
   sistemaMode: boolean;
   goSistema: () => void;
+  /** Vista al entrar en teléfono de la ficha del rol (🎭 Roles), congelada al iniciar. */
+  vistaTelefono?: VistaTelefono;
 }): { key: TreeKey; node: React.ReactNode } {
   const { phone, role, appRole, isJesusLozada, sistemaMode, goSistema } = ctx;
+  // Ficha del rol del sistema: solo en teléfono, sin rol personalizado y nunca admin.
+  const vistaFicha: VistaTelefono = phone && !appRole && role && role !== 'admin' ? (ctx.vistaTelefono ?? 'auto') : 'auto';
   if (appRole && role !== 'admin' && appRole.panel_type === 'chofer_combustible') return { key: 'fuelDriver', node: <FuelDriverStack /> };
   // Rol personalizado con panel_type 'conductor': mismo panel de 3 pestañas del
   // conductor fijo (Surtir · Camiones · Asistencia), pero para un rol que además
@@ -1006,6 +1061,12 @@ function pickTree(ctx: {
   // LAVADO DE MAQUINARIA: su propia vista (tablero de lavado, lm_* aislado). Va
   // temprano por la misma razón que obras públicas — base role 'conductor' + appRole.
   if (appRole && role !== 'admin' && esRolLavado(appRole)) return { key: 'lavadoMaquinaria', node: <LavadoStack /> };
+  // 🎭 Vista al entrar configurada para el rol (31-oct-2026). 'auto' = el camino de siempre.
+  if (vistaFicha === 'completa') return { key: 'tabs', node: <Tabs /> };
+  if (vistaFicha === 'propia_sistema' && role && ROLES_CON_VISTA_SISTEMA.includes(role)) {
+    if (sistemaMode) return { key: 'tabs', node: <Tabs /> };
+    return { key: 'supervisorTabs', node: <SupervisorTabs onSistema={goSistema} /> };
+  }
   if (role === 'coordinador_patio') return { key: 'patio', node: <PatioStack /> };
   // El admin (rol genérico) SIEMPRE arranca en la app completa en teléfono — el
   // cliente pidió explícitamente que el/los administrador(es) no inicien en la
@@ -1071,7 +1132,7 @@ function useQrParam(name: string): [string | null, () => void] {
 }
 
 export default function RootNavigator() {
-  const { session, configured, locked, role, appRole, roleReady, fullName, signOut, loading, canSee } = useAuth();
+  const { session, configured, locked, role, appRole, roleReady, fullName, signOut, loading, canSee, vistaTelefono } = useAuth();
   // Excepción puntual: Jesús Lozada entra a la Vista de Inspector como cualquier
   // otro rol en teléfono (no se toca su enrutamiento), pero además ve el botón
   // "SISTEMA" para saltar al módulo administrativo general (Tabs), igual que el
@@ -1141,6 +1202,15 @@ export default function RootNavigator() {
   // cada pocos segundos (perdía el modal de CHECK, el scroll y recargaba). Con
   // useCallback la referencia es fija y la pestaña ya no se remonta.
   const goSistema = React.useCallback(() => setSistemaMode(true), []);
+  // Vista al entrar de la ficha del rol: se toma UNA vez por sesión, cuando el rol
+  // ya cargó. Si el admin la cambia en vivo no se remonta la app (sacaría al
+  // inspector de una ronda a mitad): aplica la próxima vez que entre.
+  const vistaRef = React.useRef<{ uid: string | null; vista: VistaTelefono } | null>(null);
+  const uidSesion = session?.user?.id ?? null;
+  if (roleReady && (!vistaRef.current || vistaRef.current.uid !== uidSesion)) {
+    vistaRef.current = { uid: uidSesion, vista: vistaTelefono };
+  }
+  const vistaCongelada: VistaTelefono = vistaRef.current?.uid === uidSesion ? vistaRef.current.vista : 'auto';
   // PERSISTENCIA DE NAVEGACIÓN (web): la maneja `linking` (se arma más abajo,
   // según el árbol). La URL refleja la pantalla activa (soslaguaira.com/inventario)
   // y al RECARGAR React Navigation restaura la vista DIRECTO desde la URL —
@@ -1177,7 +1247,7 @@ export default function RootNavigator() {
   // Sin el filtro `phone &&`: en PC el enrutamiento también depende de `appRole`
   // (combustible, coordinador QR…), así que también debe esperar a `roleReady`.
   const treePick = !inQrFlow && showApp && !locked && !roleLoading
-    ? pickTree({ phone, role, appRole, isJesusLozada, sistemaMode, goSistema })
+    ? pickTree({ phone, role, appRole, isJesusLozada, sistemaMode, goSistema, vistaTelefono: vistaCongelada })
     : null;
   const treeKey = treePick?.key ?? null;
   const linking = React.useMemo<LinkingOptions<any>>(() => ({

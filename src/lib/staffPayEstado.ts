@@ -29,7 +29,7 @@
 // Quién es de cada grupo se decide con `grupoApartado` de `src/lib/nominaGrupos.ts`
 // (la MISMA regla que usa Empleados, para que no se separen con el tiempo). Acá
 // solo se recibe ya resuelto, en `grupoById`, para no traer imports a este archivo.
-export type EstadoFiltro = 'activos' | 'todos' | 'inactivos' | 'carbozulia' | 'seguridad' | string;
+export type EstadoFiltro = 'activos' | 'plantilla' | 'todos' | 'inactivos' | 'carbozulia' | 'seguridad' | string;
 
 /** Estados del empleado que cuentan como DESINCORPORADO. */
 export const ESTADOS_DESINCORPORADO = ['inactivo', 'suspendido'] as const;
@@ -60,8 +60,17 @@ export function pasaFiltroEstado(
   // Pestañas de GRUPO: muestran SOLO a los suyos. Mientras el detalle no haya
   // cargado no se puede decidir, y devolver `true` llenaría la pestaña con todo
   // el período por un instante — acá sí se prefiere vacío y que se llene.
+  if (estado === 'plantilla') {
+    if (!statusLoaded) return true;
+    const st = employeeId ? statusById.get(employeeId) : undefined;
+    if (!(st === 'activo' || !st)) return false;
+    if (grupoById && employeeId && grupoById.get(employeeId)) return false;
+    return true;
+  }
   if (estado !== 'todos' && estado !== 'activos' && estado !== 'inactivos') {
     if (!statusLoaded || !grupoById || !employeeId) return false;
+    const stGrupo = statusById.get(employeeId);
+    if (esDesincorporado(stGrupo) || stGrupo === 'otro') return false;
     return grupoById.get(employeeId) === estado;
   }
   if (estado === 'todos') return true;

@@ -50,6 +50,9 @@ export const MODULOS_AUDITORIA: ModuloAuditoria[] = [
   { key: 'asistencia_camiones', label: 'Asistencia de camiones', icon: '🚚' },
   { key: 'caja', label: 'Caja', icon: '💵' },
   { key: 'equipos', label: 'Catálogo de equipos', icon: '🚜' },
+  // ⚠️ En el menú es 🏭, pero aquí 🏭 ya es Fabricación y en las pastillas del
+  //    filtro no puede haber dos iguales (la prueba lo exige): por eso 🏗️.
+  { key: 'centro_operaciones', label: 'Centro de Operaciones', icon: '🏗️' },
   { key: 'alimentacion', label: 'Cocina y distribución de comida', icon: '🍽️' },
   { key: 'combustible', label: 'Combustible', icon: '⛽' },
   { key: 'compras', label: 'Compras', icon: '🛒' },
@@ -78,6 +81,20 @@ export const MODULOS_AUDITORIA: ModuloAuditoria[] = [
 const PORCLAVE = new Map(MODULOS_AUDITORIA.map((m) => [m.key, m]));
 
 /**
+ * Tablas con `trg_audit` ENCENDIDO en la base cuyo trigger se creó por MCP y no
+ * está en ningún .sql del repositorio (desde el 26-sep-2026 no se sube SQL al git:
+ * el repo es público). La prueba de cobertura las suma a las que lee de los .sql;
+ * sin esto su sección saldría como «sin rastro aún», que sería falso.
+ *
+ * Verificadas en la base el 23-oct-2026 (las cinco primeras existen y tienen
+ * `trg_audit`); `cop_reportes_generales` (el Reporte General del Parte diario), el
+ * 25-oct-2026. Si se agrega otra tabla auditada por MCP, va aquí, después de verificarla.
+ */
+export const AUDITADAS_FUERA_DEL_GIT = [
+  'cop_sitios', 'cop_unidades', 'cop_movimientos', 'cop_listas', 'cop_ajustes', 'cop_reportes_generales',
+];
+
+/**
  * Tabla → sección, para todo lo que NO trae una acción propia de la app.
  *
  * `machinery` va al CATÁLOGO: una fila INSERT/UPDATE/DELETE sobre esa tabla es
@@ -101,6 +118,11 @@ const TABLA_A_MODULO: Record<string, string> = {
   truck_yard_logs: 'asistencia_camiones', truck_attendance: 'asistencia_camiones',
   // 🚜 Catálogo de equipos: las fichas y su ubicación en el mapa
   machinery: 'equipos', vehicles: 'equipos', machinery_locations: 'equipos', map_zone_offsets: 'equipos',
+  // 🏭 Centro de Operaciones (23-oct-2026): sus seis tablas propias, aisladas (la sexta,
+  // el Reporte General pegado del 📅 Parte diario, desde el 25-oct-2026).
+  // Su trigger de auditoría NO está en ningún .sql del repo: ver AUDITADAS_FUERA_DEL_GIT.
+  cop_sitios: 'centro_operaciones', cop_unidades: 'centro_operaciones', cop_movimientos: 'centro_operaciones',
+  cop_listas: 'centro_operaciones', cop_ajustes: 'centro_operaciones', cop_reportes_generales: 'centro_operaciones',
   // 🍽️ Cocina y distribución de comida
   food_distributions: 'alimentacion', food_company_meals: 'alimentacion', comida_precios: 'alimentacion', comida_cuentas_config: 'alimentacion',
   // El catálogo de platos «Otros»: el «nuevo modo de comida» que pidió el

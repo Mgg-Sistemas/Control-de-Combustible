@@ -1,16 +1,49 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Linking } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Linking, ActivityIndicator, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
+import { PRIORIDADES_COMPRA, PRIORIDAD_COMPRA_INFO, PrioridadCompra, esPrioridadCompra, colorPrioridad, faltaColumnaSyncCompras, ESTADOS_REQ_ACEPTADO } from '../lib/prioridadCompra';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { norm, onlyDecimal } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
-import { InventoryRequirement, RequirementLine, Company, Supplier, Machinery, Vehicle } from '../types/database';
+import { InventoryRequirement, RequirementLine, Company, Supplier, Machinery, Vehicle, Employee } from '../types/database';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
+import { pickAndUploadRequirementFile, captureAndUploadPhoto } from '../lib/photo';
+import { exportPdf, urlToDataUri } from '../lib/pdf';
+import {
+  extraerFactura,
+  inyectarFacturaEnObservaciones,
+  extraerDespacho,
+  inyectarDespachoEnObservaciones,
+  expedienteCompletoHtml,
+  type FacturaData,
+  type DespachoAlmacenData,
+  type EmpresaFactura,
+} from '../lib/requerimientoExpediente';
+import { machineLabel, machineMatches } from '../lib/machineLabel';
+import {
+  calcularEstadoRequerimiento,
+  obtenerConfigAprobacionMonto,
+  guardarConfigAprobacionMonto,
+  calcularConteoEmpresasReq,
+  pasaFiltroEmpresasReq,
+  resolverEmpresaRequerimiento,
+  ID_SIN_EMPRESA_REQ,
+  puedeUsuarioAprobarRequerimiento,
+  esSolicitudDeCompra,
+  estaSolicitudConvertidaEnRequerimiento,
+  marcarObservacionesComoConvertidaEnReq,
+  preservarMarcadoresSolicitudEnObservaciones,
+  limpiarMarcadoresSolicitudDeTexto,
+  preservarTodasLasMarcasEnObservaciones,
+  quitarTodasLasMarcasDeTexto,
+  type ReglaAprobacionMonto,
+} from '../lib/requerimientoFlujo';
+import { anexarEventoHistorial, calcularDiffItemsCompra, resumirCambiosCabeceraCompra } from '../lib/comprasHistorico';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -31,17 +64,203 @@ function fmtDate(iso?: string | null): string {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-const ESTADOS_SOLICITUD: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  pendiente: { label: 'Pendiente de Cotización', color: '#D97706', bg: '#FEF3C7', icon: '⏳' },
-  aclaratoria_solicitada: { label: 'En Aclaratoria Técnica', color: '#EA580C', bg: '#FFEDD5', icon: '⚠️' },
-  aprobado: { label: 'Convertido / Aprobado', color: '#16A34A', bg: '#DCFCE7', icon: '✅' },
-  rechazado: { label: 'Rechazado', color: '#DC2626', bg: '#FEE2E2', icon: '❌' },
-  recibido: { label: 'Recibido en Almacén', color: '#2563EB', bg: '#DBEAFE', icon: '📦' },
-};
+function ConvertItemSupplierPicker({
+  itemIndex,
+  itemName,
+  itemQty,
+  itemUnit,
+  generalSupplierId,
+  currentSupplierId,
+  suppliers,
+  onSelectSupplier,
+}: {
+  itemIndex: number;
+  itemName: string;
+  itemQty: number;
+  itemUnit?: string | null;
+  generalSupplierId: string | null;
+  currentSupplierId: string | null;
+  suppliers: Supplier[];
+  onSelectSupplier: (supId: string | null) => void;
+}) {
+  const { colors } = useTheme();
+  const tieneSupPropio = Boolean(currentSupplierId && currentSupplierId !== generalSupplierId);
+  const [activo, setActivo] = useState(tieneSupPropio);
+  const [abierto, setAbierto] = useState(!currentSupplierId);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (currentSupplierId && currentSupplierId !== generalSupplierId) {
+      setActivo(true);
+    }
+  }, [currentSupplierId, generalSupplierId]);
+
+  const toggleCheck = () => {
+    if (activo) {
+      setActivo(false);
+      setSearch('');
+      setAbierto(false);
+      onSelectSupplier(null);
+    } else {
+      setActivo(true);
+      setAbierto(true);
+    }
+  };
+
+  const generalSupplierObj = suppliers.find((s) => s.id === generalSupplierId);
+  const assignedSupplierObj = suppliers.find((s) => s.id === currentSupplierId);
+
+  const filteredSuppliers = useMemo(() => {
+    if (!search.trim()) return suppliers;
+    const q = norm(search);
+    return suppliers.filter((s) => norm(s.name).includes(q) || (s.rif && norm(s.rif).includes(q)));
+  }, [suppliers, search]);
+
+  return (
+    <View style={{ marginBottom: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+      {/* Encabezado del artículo */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>
+          #{itemIndex + 1}. {itemName} ({qtyFmt(itemQty)} {itemUnit || 'UND'})
+        </Text>
+      </View>
+
+      {/* Checkbox: Asignar proveedor diferente a este artículo */}
+      <TouchableOpacity
+        onPress={toggleCheck}
+        activeOpacity={0.7}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}
+      >
+        <View
+          style={{
+            width: 18,
+            height: 18,
+            borderRadius: 4,
+            borderWidth: 1.5,
+            borderColor: activo ? colors.brand : colors.border,
+            backgroundColor: activo ? colors.brand : colors.surface,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {activo ? <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '900', lineHeight: 12 }}>✓</Text> : null}
+        </View>
+        <Text style={{ color: activo ? colors.text : colors.muted, fontSize: 11.5, fontWeight: activo ? '700' : '500' }}>
+          Asignar proveedor diferente a este artículo
+        </Text>
+      </TouchableOpacity>
+
+      {/* Si no está activo: indica que usa el general */}
+      {!activo ? (
+        <Text style={{ color: colors.muted, fontSize: 11, marginLeft: 26, marginTop: 1, fontStyle: 'italic' }}>
+          Usará el proveedor general: <Text style={{ color: colors.text, fontWeight: '700' }}>{generalSupplierObj?.name || 'Por cotizar'}</Text>
+        </Text>
+      ) : null}
+
+      {/* Si está activo: opciones con buscador vertical */}
+      {activo ? (
+        <View style={{ marginTop: 6, marginLeft: 12, padding: 8, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}>
+          {assignedSupplierObj && currentSupplierId !== generalSupplierId ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, paddingHorizontal: 10, paddingVertical: 7, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.brand, marginBottom: abierto ? 6 : 0 }}>
+              <View style={{ flex: 1, marginRight: 6 }}>
+                <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', textTransform: 'uppercase' }}>
+                  🏢 Proveedor Específico Asignado
+                </Text>
+                <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '800' }} numberOfLines={1}>
+                  {assignedSupplierObj.name}
+                </Text>
+                {assignedSupplierObj.rif ? (
+                  <Text style={{ color: colors.muted, fontSize: 10 }}>RIF: {assignedSupplierObj.rif}</Text>
+                ) : null}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={() => setAbierto((v) => !v)}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm }}
+                >
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>{abierto ? '▲ Cerrar' : '🔍 Cambiar'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { onSelectSupplier(null); setAbierto(true); }}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm }}
+                >
+                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
+          {abierto || !assignedSupplierObj || currentSupplierId === generalSupplierId ? (
+            <View style={{ marginTop: (assignedSupplierObj && currentSupplierId !== generalSupplierId) ? 4 : 0 }}>
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="🔍 Buscar proveedor por nombre o RIF…"
+                placeholderTextColor={colors.muted}
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.sm,
+                  paddingHorizontal: 8,
+                  paddingVertical: 5,
+                  fontSize: 11.5,
+                  color: colors.text,
+                  marginBottom: 4,
+                }}
+              />
+              <View style={{ maxHeight: 150, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, overflow: 'hidden' }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled style={{ maxHeight: 150 }}>
+                  {filteredSuppliers.map((s) => {
+                    const sel = currentSupplierId === s.id;
+                    return (
+                      <TouchableOpacity
+                        key={s.id}
+                        onPress={() => {
+                          onSelectSupplier(s.id);
+                          setAbierto(false);
+                          setSearch('');
+                        }}
+                        style={{
+                          paddingVertical: 7,
+                          paddingHorizontal: 8,
+                          borderBottomWidth: 1,
+                          borderBottomColor: colors.border,
+                          backgroundColor: sel ? colors.brand : 'transparent',
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <View style={{ flex: 1, marginRight: 4 }}>
+                          <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 11.5, fontWeight: sel ? '800' : '600' }} numberOfLines={1}>
+                            {s.name}
+                          </Text>
+                          {s.rif ? <Text style={{ color: sel ? colors.brandContrast : colors.muted, fontSize: 9.5 }}>{s.rif}</Text> : null}
+                        </View>
+                        {sel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 11 }}>✓</Text> : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {filteredSuppliers.length === 0 ? (
+                    <View style={{ padding: 10, alignItems: 'center' }}>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>Sin coincidencias para «{search}»</Text>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
-  const { colors } = useTheme();
-  const { session, fullName } = useAuth();
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === 'dark';
+  const { session, fullName, role, appRole } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const { rate } = useBcvRate();
@@ -55,10 +274,88 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
+  const { data: employees } = useTable<Employee>('employees', { orderBy: 'name' });
+  const [configAprobacion, setConfigAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
+
+  // Sincronizar configuración de usuario designado para aprobar desde feature_toggles + profiles
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const [{ data: ft }, { data: profs }] = await Promise.all([
+          supabase.from('feature_toggles').select('enabled, extra_user_ids').eq('key', 'compras_req_aprobacion').maybeSingle(),
+          supabase.from('profiles').select('id, full_name'),
+        ]);
+        if (!active || !ft) return;
+        const ids: string[] = Array.isArray((ft as any).extra_user_ids) ? (ft as any).extra_user_ids : [];
+        const profMap = new Map<string, string>();
+        ((profs ?? []) as any[]).forEach((p) => {
+          if (p.id && p.full_name) profMap.set(String(p.id), String(p.full_name).trim());
+        });
+        const nombresDesdeIds = ids.map((id) => profMap.get(id)).filter((n): n is string => Boolean(n));
+        const cur = obtenerConfigAprobacionMonto();
+        const merged: ReglaAprobacionMonto = {
+          ...cur,
+          activo: (ft as any).enabled !== false,
+          aprobadoresIds: ids,
+          aprobadoresNombres: nombresDesdeIds.length > 0 ? nombresDesdeIds : (cur.aprobadoresNombres?.length ? cur.aprobadoresNombres : ['Gerente General']),
+        };
+        guardarConfigAprobacionMonto(merged);
+        setConfigAprobacion(merged);
+      } catch {
+        // Silencioso si no existe fila o tabla
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  // 🧾 Factura Fiscal / Comercial (Proveedor registrado o manual + Nota)
+  const [facturaModalOpen, setFacturaModalOpen] = useState(false);
+  const [facturaTarget, setFacturaTarget] = useState<InventoryRequirement | null>(null);
+  const [facturaNumero, setFacturaNumero] = useState('');
+  const [facturaEmpresa, setFacturaEmpresa] = useState<EmpresaFactura>('');
+  const [facturaProvSearch, setFacturaProvSearch] = useState('');
+  const [facturaProvOpen, setFacturaProvOpen] = useState(false);
+  const [facturaFecha, setFacturaFecha] = useState('');
+  const [facturaNota, setFacturaNota] = useState('');
+  const [facturaUrl, setFacturaUrl] = useState<string | null>(null);
+  const [facturaTipo, setFacturaTipo] = useState<'image' | 'pdf' | null>('image');
+  const [facturaNombre, setFacturaNombre] = useState<string | null>(null);
+  const [subiendoFactura, setSubiendoFactura] = useState(false);
+  const [guardandoFactura, setGuardandoFactura] = useState(false);
+
+  // 🏢 Filtro por empresa (una o varias)
+  const [empresaSel, setEmpresaSel] = useState<string[]>([]);
+  const [empresasOpen, setEmpresasOpen] = useState(false);
+  const [empresaQ, setEmpresaQ] = useState('');
+
+  // 👁️ Visor de Factura Modal
+  const [facturaViewerOpen, setFacturaViewerOpen] = useState(false);
+  const [facturaViewerUrl, setFacturaViewerUrl] = useState<string | null>(null);
+  const [facturaViewerTipo, setFacturaViewerTipo] = useState<'image' | 'pdf' | null>('image');
+  const [facturaViewerNombre, setFacturaViewerNombre] = useState<string | null>(null);
+
+  // 📦 Control de Almacén: Despacho / Retiro Físico
+  const [despachoModalOpen, setDespachoModalOpen] = useState(false);
+  const [despachoTarget, setDespachoTarget] = useState<InventoryRequirement | null>(null);
+  const [retiradoPor, setRetiradoPor] = useState('');
+  const [retiradoCedula, setRetiradoCedula] = useState('');
+  const [retiradoCargo, setRetiradoCargo] = useState('');
+  const [retiradoEmployeeId, setRetiradoEmployeeId] = useState<string | null>(null);
+  const [despachadoPor, setDespachadoPor] = useState('');
+  const [despachoFecha, setDespachoFecha] = useState('');
+  const [despachoNota, setDespachoNota] = useState('');
+  const [despachoMaquinariaId, setDespachoMaquinariaId] = useState<string | null>(null);
+  const [empBusquedaQ, setEmpBusquedaQ] = useState('');
+  const [maqBusquedaQ, setMaqBusquedaQ] = useState('');
+  const [guardandoDespacho, setGuardandoDespacho] = useState(false);
 
   // Buscador y filtros
   const [query, setQuery] = useState('');
-  const [filterEstado, setFilterEstado] = useState<'todos' | 'pendiente' | 'aclaratoria' | 'convertido' | 'rechazado'>('todos');
+  const [verConvertidas, setVerConvertidas] = useState(false);
+  const [filterEstado, setFilterEstado] = useState<
+    'todos' | 'por_cotizar' | 'esperando_aprobacion_gg' | 'esperando_pago' | 'aclaratoria' | 'convertido' | 'rechazado' | 'pendiente'
+  >('todos');
 
   // Modales
   const [convertTarget, setConvertTarget] = useState<InventoryRequirement | null>(null);
@@ -83,50 +380,232 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   // Modal Foto ampliada
   const [fotoModalUrl, setFotoModalUrl] = useState<string | null>(null);
 
-  // Filtrado de solicitudes de compra (todas las que vienen del taller/solicitudes o pendientes)
-  const solicitudes = useMemo(() => {
-    return (allReqs || []).filter((r) => {
-      // Coincide con solicitudes técnicas o las creadas desde el portal de pedidos
-      const isTecnico =
-        Boolean(r.solicitante_nombre) ||
-        (r.title && r.title.toLowerCase().includes('pedido técnico')) ||
-        (r.observaciones && r.observaciones.toLowerCase().includes('portal técnico')) ||
-        r.items.some((it) => Boolean(it.note && it.note.trim()));
+  // Modal Edición de Solicitud
+  const [editTarget, setEditTarget] = useState<InventoryRequirement | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editSolicitante, setEditSolicitante] = useState('');
+  const [editArea, setEditArea] = useState('');
+  const [editDestinoTipo, setEditDestinoTipo] = useState<'maquinaria' | 'vehiculo' | 'area' | 'otro'>('maquinaria');
+  const [editDestinoTexto, setEditDestinoTexto] = useState('');
+  // 31-oct-2026: el destino tal como se abrió el editor; si no se tocó, las observaciones
+  // se guardan igual que estaban (no se reescriben ni pierden marcas).
+  const [editDestinoOrig, setEditDestinoOrig] = useState('');
+  const [editMachineSearch, setEditMachineSearch] = useState('');
+  const [editVehicleSearch, setEditVehicleSearch] = useState('');
+  const [editNote, setEditNote] = useState('');
+  const [editItems, setEditItems] = useState<Array<{
+    key: string;
+    product_id?: string | null;
+    name: string;
+    qty: string;
+    unit: string;
+    note: string;
+    image_url: string;
+    est_price: string;
+    currency: 'USD' | 'VES';
+    supplier_id?: string | null;
+    supplier_name?: string | null;
+    /** La línea tal como estaba guardada: al guardar se conserva todo lo que este
+     *  editor no muestra (precio en $, totales, cotizaciones, exento…). */
+    orig?: RequirementLine;
+  }>>([]);
+  const [editBusy, setEditBusy] = useState(false);
+  const [subiendoFotoKey, setSubiendoFotoKey] = useState<string | null>(null);
 
-      if (!isTecnico) return false;
+  // 1. Universo base de solicitudes técnicas pertenecientes a esta bandeja
+  const todasSolicitudes = useMemo(() => {
+    return (allReqs || []).filter((r) => esSolicitudDeCompra(r));
+  }, [allReqs]);
 
-      // Filtro de estado
-      if (filterEstado === 'pendiente' && r.status !== 'pendiente') return false;
-      if (filterEstado === 'aclaratoria' && r.status !== 'aclaratoria_solicitada') return false;
-      if (filterEstado === 'convertido' && r.status !== 'aprobado' && r.status !== 'recibido') return false;
-      if (filterEstado === 'rechazado' && r.status !== 'rechazado') return false;
+  // Cantidad de solicitudes que ya se convirtieron en Requerimiento o fueron rechazadas (ocultas por defecto como en Por Pagar)
+  const countOcultasConvertidas = useMemo(() => {
+    return todasSolicitudes.filter(
+      (r) => estaSolicitudConvertidaEnRequerimiento(r) || r.status === 'rechazado' || (r.status as string) === 'cancelado'
+    ).length;
+  }, [todasSolicitudes]);
 
-      // Buscador
-      if (query.trim()) {
-        const q = norm(query);
-        const matchCode = r.code && norm(r.code).includes(q);
-        const matchTitle = r.title && norm(r.title).includes(q);
-        const matchSolicitante = r.solicitante_nombre && norm(r.solicitante_nombre).includes(q);
-        const matchArea = r.area && norm(r.area).includes(q);
-        const matchItems = r.items.some(
-          (it) => norm(it.name).includes(q) || (it.note && norm(it.note).includes(q))
-        );
-        return matchCode || matchTitle || matchSolicitante || matchArea || matchItems;
-      }
+  // Universo visible según si el check `verConvertidas` está activado o si se eligió un chip de convertidas/rechazadas
+  const mostrarOcultasEfectivo =
+    verConvertidas ||
+    filterEstado === 'convertido' ||
+    filterEstado === 'rechazado' ||
+    filterEstado === 'esperando_aprobacion_gg' ||
+    filterEstado === 'esperando_pago';
 
-      return true;
+  const solicitudesBase = useMemo(() => {
+    if (mostrarOcultasEfectivo) return todasSolicitudes;
+    return todasSolicitudes.filter(
+      (r) => !estaSolicitudConvertidaEnRequerimiento(r) && r.status !== 'rechazado' && (r.status as string) !== 'cancelado'
+    );
+  }, [todasSolicitudes, mostrarOcultasEfectivo]);
+
+  // 1b. Conteo y filtro por Empresa (una o varias empresas seleccionadas)
+  const empresaCounts = useMemo(
+    () => calcularConteoEmpresasReq(solicitudesBase, companies),
+    [solicitudesBase, companies]
+  );
+
+  const toggleEmpresa = (id: string) =>
+    setEmpresaSel((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const solicitudesPorEmpresa = useMemo(() => {
+    if (empresaSel.length === 0) return solicitudesBase;
+    return solicitudesBase.filter((r) => pasaFiltroEmpresasReq(r, empresaSel, companies));
+  }, [solicitudesBase, empresaSel, companies]);
+
+  // 2. Filtrado por texto (búsqueda en código, título, solicitante, área, empresa, repuestos y notas)
+  const solicitudesBuscadas = useMemo(() => {
+    if (!query.trim()) return solicitudesPorEmpresa;
+    const q = norm(query);
+    return solicitudesPorEmpresa.filter((r) => {
+      const empInfo = resolverEmpresaRequerimiento(r, companies);
+      const matchCode = r.code && norm(r.code).includes(q);
+      const matchTitle = r.title && norm(r.title).includes(q);
+      const matchSolicitante = r.solicitante_nombre && norm(r.solicitante_nombre).includes(q);
+      const matchArea = r.area && norm(r.area).includes(q);
+      const matchEmpresa = empInfo.name && norm(empInfo.name).includes(q);
+      const matchItems = r.items.some(
+        (it) => norm(it.name).includes(q) || (it.note && norm(it.note).includes(q))
+      );
+      return matchCode || matchTitle || matchSolicitante || matchArea || matchEmpresa || matchItems;
     });
-  }, [allReqs, filterEstado, query]);
+  }, [solicitudesPorEmpresa, query, companies]);
 
-  // Contadores para chips
-  const countPendientes = useMemo(
-    () => (allReqs || []).filter((r) => r.status === 'pendiente').length,
-    [allReqs]
+  // 3. Evaluación dinámica de estados sincronizada con Requerimientos
+  const solicitudesConEstado = useMemo(() => {
+    return solicitudesBuscadas.map((r) => {
+      const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+      const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
+      const yaConvertido = estaSolicitudConvertidaEnRequerimiento(r);
+      return { req: r, est, provGeneral, yaConvertido };
+    });
+  }, [solicitudesBuscadas, suppliers, rate, configAprobacion]);
+
+  // Contadores reactivos precisos (separando Solicitudes sin convertir vs ya convertidas en Requerimiento)
+  const countTodos = solicitudesConEstado.length;
+  const countPorCotizar = useMemo(
+    () =>
+      solicitudesConEstado.filter(
+        ({ est, yaConvertido }) =>
+          !yaConvertido && est.codigo !== 'aclaratoria_solicitada' && est.codigo !== 'rechazado'
+      ).length,
+    [solicitudesConEstado]
+  );
+  const countEsperandoAprobacion = useMemo(
+    () =>
+      solicitudesConEstado.filter(
+        ({ est, yaConvertido }) =>
+          yaConvertido && (est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG))
+      ).length,
+    [solicitudesConEstado]
+  );
+  const countEsperandoPago = useMemo(
+    () =>
+      solicitudesConEstado.filter(
+        ({ est, yaConvertido }) =>
+          yaConvertido && (est.codigo === 'esperando_pago' || est.codigo === 'aprobado')
+      ).length,
+    [solicitudesConEstado]
   );
   const countAclaratorias = useMemo(
-    () => (allReqs || []).filter((r) => r.status === 'aclaratoria_solicitada').length,
-    [allReqs]
+    () => solicitudesConEstado.filter(({ est }) => est.codigo === 'aclaratoria_solicitada').length,
+    [solicitudesConEstado]
   );
+  const countConvertidos = useMemo(
+    () =>
+      solicitudesConEstado.filter(
+        ({ est, yaConvertido }) => yaConvertido && est.codigo !== 'rechazado'
+      ).length,
+    [solicitudesConEstado]
+  );
+  const countRechazados = useMemo(
+    () => solicitudesConEstado.filter(({ est }) => est.codigo === 'rechazado').length,
+    [solicitudesConEstado]
+  );
+
+  // 4. Lista final a mostrar según el chip de estado activo
+  const solicitudes = useMemo(() => {
+    if (filterEstado === 'por_cotizar' || filterEstado === 'pendiente') {
+      return solicitudesConEstado
+        .filter(
+          ({ est, yaConvertido }) =>
+            !yaConvertido && est.codigo !== 'aclaratoria_solicitada' && est.codigo !== 'rechazado'
+        )
+        .map((x) => x.req);
+    }
+    if (filterEstado === 'esperando_aprobacion_gg') {
+      return solicitudesConEstado
+        .filter(
+          ({ est, yaConvertido }) =>
+            yaConvertido && (est.codigo === 'esperando_aprobacion_gg' || Boolean(est.requiereAprobacionGG))
+        )
+        .map((x) => x.req);
+    }
+    if (filterEstado === 'esperando_pago') {
+      return solicitudesConEstado
+        .filter(
+          ({ est, yaConvertido }) =>
+            yaConvertido && (est.codigo === 'esperando_pago' || est.codigo === 'aprobado')
+        )
+        .map((x) => x.req);
+    }
+    if (filterEstado === 'aclaratoria') {
+      return solicitudesConEstado
+        .filter(({ est }) => est.codigo === 'aclaratoria_solicitada')
+        .map((x) => x.req);
+    }
+    if (filterEstado === 'convertido') {
+      return solicitudesConEstado
+        .filter(
+          ({ est, yaConvertido }) => yaConvertido && est.codigo !== 'rechazado'
+        )
+        .map((x) => x.req);
+    }
+    if (filterEstado === 'rechazado') {
+      return solicitudesConEstado
+        .filter(({ est }) => est.codigo === 'rechazado')
+        .map((x) => x.req);
+    }
+    return solicitudesConEstado.map((x) => x.req);
+  }, [solicitudesConEstado, filterEstado]);
+
+  // Estado para acordeón plegable/desplegable individual y masivo
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const expandirTodas = () => {
+    setExpandedIds(new Set(solicitudes.map((s) => s.id)));
+  };
+  const plegarTodas = () => {
+    setExpandedIds(new Set());
+  };
+
+  // Asignación de proveedor por renglón en conversión (compras consolidadas multi-proveedor)
+  const [convertItemSuppliers, setConvertItemSuppliers] = useState<Record<number, string | null>>({});
+  const [convertSupQ, setConvertSupQ] = useState('');
+  const [convertSupOpen, setConvertSupOpen] = useState(false);
+  const [convertPrioridad, setConvertPrioridad] = useState<PrioridadCompra | null>(null);
+
+  // 🔺 PRIORIDAD (29-oct-2026, a pedido): ya aceptada la solicitud, se le pone el
+  // nivel de prioridad. Update APARTE (columna nueva) y la base la copia a su cuenta
+  // por pagar. Si el SQL del 29-oct aún no se corrió, se avisa y no se rompe nada.
+  const ponerPrioridad = async (r: InventoryRequirement, p: PrioridadCompra | null) => {
+    const { data, error } = await supabase.from('inventory_requirements').update({ prioridad: p }).eq('id', r.id).select('id');
+    if (error) return toast.error(faltaColumnaSyncCompras(error.message) ? 'La prioridad aún no se puede guardar: falta correr el SQL del 29-oct.' : error.message);
+    // La RLS rechaza sin error y con 0 filas: no se anuncia un éxito que no hubo.
+    if (!data || data.length === 0) return toast.error(`No se pudo poner la prioridad en ${r.code}: no tienes permiso para editar ese requerimiento.`);
+    try {
+      await supabase.from('cuentas').update({ prioridad: p, updated_at: nowISO() }).eq('inventory_requirement_id', r.id);
+    } catch {}
+    refetch();
+    toast.success(p ? `Prioridad ${PRIORIDAD_COMPRA_INFO[p].label} puesta en ${r.code}.` : `Prioridad quitada de ${r.code}.`);
+  };
 
   // Abrir Modal de Conversión a Requerimiento
   const abrirConvertir = (r: InventoryRequirement) => {
@@ -134,10 +613,22 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     setConvertSupplierId(r.supplier_id || null);
     setConvertCompanyId(r.company_id || null);
     setConvertEmpresaPagadoraId(r.empresa_pagadora_id || null);
+    setConvertPrioridad(esPrioridadCompra(r.prioridad) ? r.prioridad : null);
+    setConvertSupQ('');
+    setConvertSupOpen(false);
+    // ⚠️ 31-oct-2026: ya no se precarga con el precio de la PRIMERA línea (se aplicaba a
+    //    todas al convertir y pisaba los precios de las demás).
     const primerItem = r.items[0];
-    setConvertPrice(primerItem && Number(primerItem.est_price) > 0 ? String(primerItem.est_price) : '');
+    setConvertPrice('');
     setConvertCurrency((primerItem?.currency as 'USD' | 'VES') || 'USD');
     setConvertNote(r.note || '');
+
+    // Precargar proveedores individuales de los renglones si ya tenían
+    const itemSups: Record<number, string | null> = {};
+    r.items.forEach((it, idx) => {
+      itemSups[idx] = it.supplier_id || null;
+    });
+    setConvertItemSuppliers(itemSups);
   };
 
   const ejecutarConversion = async () => {
@@ -146,35 +637,100 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
 
     try {
       const priceNum = parseNum(convertPrice);
-      const updatedItems = convertTarget.items.map((it) => ({
-        ...it,
-        est_price: priceNum > 0 ? priceNum : it.est_price || 0,
-        currency: convertCurrency,
-      }));
+      const updatedItems = convertTarget.items.map((it, idx) => {
+        const supId = convertItemSuppliers[idx] !== undefined ? convertItemSuppliers[idx] : convertSupplierId;
+        const supObj = supId ? suppliers.find((s) => s.id === supId) : null;
+        // El precio general solo llena las líneas SIN precio: la que ya tiene el suyo lo conserva.
+        const yaTienePrecio = Number(it.price_usd) > 0 || Number(it.est_price) > 0;
+        if (yaTienePrecio && Number(it.price_usd) > 0) {
+          return { ...it, supplier_id: supId || null, supplier_name: supObj?.name || it.supplier_name || null };
+        }
+        const usarGeneral = priceNum > 0 && !yaTienePrecio;
+        const rawPrice = usarGeneral ? priceNum : Number(it.est_price) || 0;
+        const curr = usarGeneral ? convertCurrency : (it.currency || 'USD');
+        const pUsd =
+          curr === 'VES'
+            ? rate && rate > 0
+              ? Math.round((rawPrice / rate) * 10000) / 10000
+              : rawPrice
+            : rawPrice;
+        const pBs =
+          curr === 'VES'
+            ? rawPrice
+            : rate && rate > 0
+              ? Math.round(pUsd * rate * 100) / 100
+              : Number(it.price_bs) || 0;
+        const qty = Math.max(0.0001, Number(it.qty) || 1);
+        return {
+          ...it,
+          est_price: pUsd,
+          price_usd: pUsd,
+          price_bs: pBs,
+          total_usd: Math.round(pUsd * qty * 100) / 100,
+          total_bs: Math.round(pBs * qty * 100) / 100,
+          currency: 'USD' as const,
+          supplier_id: supId || null,
+          supplier_name: supObj?.name || it.supplier_name || null,
+        };
+      });
 
       const empPagadora = companies.find((c) => c.id === convertEmpresaPagadoraId);
+      const supplierIdEfectivo = convertSupplierId || updatedItems.find((it) => it.supplier_id)?.supplier_id || null;
 
-      const { error } = await supabase
+      // 🔗 FLUJO ESTRICTO (Solicitud → Requerimiento → Por Pagar):
+      // Convertir una Solicitud la transforma en un Requerimiento en la pestaña 📝 Requerimiento (status = 'pendiente').
+      // Recién cuando el Requerimiento se apruebe en 📝 Requerimiento pasará a 💸 Por Pagar.
+      const yaEstabaAprobado =
+        convertTarget.status === 'aprobado' ||
+        convertTarget.status === 'esperando_recepcion' ||
+        convertTarget.status === 'recibido';
+
+      const patchPayload: Record<string, any> = {
+        status: yaEstabaAprobado ? convertTarget.status : 'pendiente',
+        supplier_id: supplierIdEfectivo,
+        company_id: convertCompanyId || convertTarget.company_id || null,
+        empresa_pagadora_id: convertEmpresaPagadoraId || null,
+        empresa_pagadora_nombre: empPagadora?.name || null,
+        items: updatedItems,
+        note: convertNote.trim() || convertTarget.note || null,
+        observaciones: marcarObservacionesComoConvertidaEnReq(convertTarget.observaciones),
+        decision_note: '[CONVERTIDO_EN_REQ] Solicitud convertida en Requerimiento oficial.',
+      };
+
+      let { error } = await supabase
         .from('inventory_requirements')
-        .update({
-          status: 'aprobado', // Oficializado / Aprobado para emisión de orden de compra
-          supplier_id: convertSupplierId || null,
-          company_id: convertCompanyId || null,
-          empresa_pagadora_id: convertEmpresaPagadoraId || null,
-          empresa_pagadora_nombre: empPagadora?.name || null,
-          items: updatedItems,
-          note: convertNote.trim() || convertTarget.note || null,
-          decided_by: session?.user?.id || null,
-          decided_by_name: fullName || 'Compras',
-          decided_at: nowISO(),
-          decision_note: 'Solicitud convertida a Requerimiento oficial de compra.',
-        })
+        .update(patchPayload)
         .eq('id', convertTarget.id);
+
+      // Si alguna columna opcional aún no existe en la caché de esquema de Supabase, reintenta sin ella
+      for (let retry = 0; retry < 4 && error; retry++) {
+        const msg = String(error.message || '');
+        const colMatch = msg.match(/'([a-zA-Z0-9_]+)'\s+column/i) || msg.match(/column\s+"?([a-zA-Z0-9_]+)"?/i);
+        if (colMatch && colMatch[1] && colMatch[1] in patchPayload) {
+          delete patchPayload[colMatch[1]];
+          if (colMatch[1].startsWith('empresa_pagadora')) {
+            delete patchPayload.empresa_pagadora_id;
+            delete patchPayload.empresa_pagadora_nombre;
+          }
+          ({ error } = await supabase.from('inventory_requirements').update(patchPayload).eq('id', convertTarget.id));
+        } else {
+          break;
+        }
+      }
 
       if (error) throw error;
 
+      // Guardar prioridad en update aparte (si fue seleccionada o cambió) y sincronizar con cuenta por pagar
+      const prioAntes = esPrioridadCompra(convertTarget.prioridad) ? convertTarget.prioridad : null;
+      if (convertPrioridad !== prioAntes) {
+        try {
+          await supabase.from('inventory_requirements').update({ prioridad: convertPrioridad }).eq('id', convertTarget.id);
+          await supabase.from('cuentas').update({ prioridad: convertPrioridad, updated_at: nowISO() }).eq('inventory_requirement_id', convertTarget.id);
+        } catch {}
+      }
+
       toast.success(
-        `¡Solicitud ${convertTarget.code} convertida en Requerimiento oficial de compra!`
+        `¡Solicitud ${convertTarget.code} convertida en Requerimiento! Ahora aparece en la pestaña 📝 Requerimiento para su revisión y aprobación.`
       );
       setConvertTarget(null);
       refetch();
@@ -232,7 +788,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
     setRechazoBusy(true);
 
     try {
-      const { error } = await supabase
+      const { data: upd, error } = await supabase
         .from('inventory_requirements')
         .update({
           status: 'rechazado',
@@ -241,9 +797,14 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           decided_by_name: fullName || 'Compras',
           decided_at: nowISO(),
         })
-        .eq('id', rechazoTarget.id);
+        .eq('id', rechazoTarget.id)
+        .select('id');
 
       if (error) throw error;
+      // 31-oct-2026: 0 filas = la base no dejó (permiso). Se dice; no se finge el éxito.
+      if (!upd || upd.length === 0) {
+        throw new Error(`No se rechazó ${rechazoTarget.code}: la base no lo permitió (falta permiso de escritura en Compras).`);
+      }
 
       toast.success(`Solicitud ${rechazoTarget.code} rechazada.`);
       setRechazoTarget(null);
@@ -252,6 +813,595 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       toast.error(e?.message ?? 'No se pudo rechazar la solicitud.');
     } finally {
       setRechazoBusy(false);
+    }
+  };
+
+  // 🗑️ Eliminar (31-oct-2026): solo una solicitud que NO pasó a Requerimiento, sin pago
+  //    ni factura. Lo convertido se gestiona desde 📝 Requerimiento. Se verifica que la
+  //    base de verdad borró (la RLS rechaza con 0 filas y sin error).
+  const puedeEliminarSolicitud = (r: InventoryRequirement) =>
+    canWrite &&
+    !estaSolicitudConvertidaEnRequerimiento(r) &&
+    !['recibido', 'pagado', 'esperando_recepcion', 'aprobado'].includes(String(r.status)) &&
+    !(r as any).pagado &&
+    !(r as any).factura_numero;
+
+  const eliminarSolicitud = async (r: InventoryRequirement) => {
+    if (!puedeEliminarSolicitud(r)) {
+      return toast.error('Esta solicitud ya avanzó (requerimiento, aprobación o pago): recházala en vez de borrarla.');
+    }
+    const ok = await confirm({
+      title: 'Eliminar solicitud',
+      message: `¿Eliminar la solicitud ${r.code ?? ''}? Esta acción no se puede deshacer.\n\nSi solo quieres que no siga, usa «✕ Rechazar»: queda en el histórico.`,
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    const { data: borradas, error } = await supabase
+      .from('inventory_requirements')
+      .delete()
+      .eq('id', r.id)
+      .select('id');
+    if (error) return toast.error(error.message);
+    if (!borradas || borradas.length === 0) {
+      return toast.error(`No se eliminó ${r.code ?? 'la solicitud'}: la base no lo permitió (falta permiso de escritura en Compras).`);
+    }
+    toast.success(`Solicitud ${r.code ?? ''} eliminada.`);
+    refetch();
+  };
+
+  // ── EDICIÓN DE SOLICITUD DE COMPRA ─────────────────────────────────────────
+  const abrirEditar = (r: InventoryRequirement) => {
+    setEditTarget(r);
+    setEditTitle(r.title || '');
+    setEditSolicitante(r.solicitante_nombre || r.requested_by_name || '');
+    setEditArea(r.area || '');
+    setEditDestinoTipo((r.destino_tipo as any) || 'maquinaria');
+
+    let destText = '';
+    const obsLimpia = limpiarMarcadoresSolicitudDeTexto(r.observaciones);
+    if (r.title && r.title.includes('para ')) {
+      destText = r.title.split('para ')[1]?.trim();
+    } else if (obsLimpia && obsLimpia.includes('para ')) {
+      destText = obsLimpia.split('para ')[1]?.trim();
+    } else if (obsLimpia) {
+      destText = obsLimpia;
+    }
+    // 31-oct-2026: sin [CONDICIONES_PAGO…], [[FORMATOS_ADJUNTOS…]] ni otras marcas en la caja.
+    destText = quitarTodasLasMarcasDeTexto(destText);
+    setEditDestinoTexto(destText);
+    setEditDestinoOrig(destText);
+    setEditMachineSearch('');
+    setEditVehicleSearch('');
+    setEditNote(r.note || '');
+
+    setEditItems(
+      (r.items || []).map((it, idx) => ({
+        key: `edit-item-${Date.now()}-${idx}`,
+        product_id: it.product_id || null,
+        name: it.name || '',
+        qty: String(it.qty ?? 1),
+        unit: (it.unit || 'UND').toUpperCase(),
+        note: it.note || '',
+        image_url: it.image_url || '',
+        est_price: it.est_price ? String(it.est_price) : '',
+        currency: (it.currency as 'USD' | 'VES') || 'USD',
+        supplier_id: it.supplier_id || null,
+        supplier_name: it.supplier_name || null,
+        orig: it,
+      }))
+    );
+  };
+
+  const agregarRenglonEdicion = () => {
+    setEditItems((prev) => [
+      ...prev,
+      {
+        key: `edit-item-${Date.now()}-${prev.length}`,
+        name: '',
+        qty: '1',
+        unit: 'UND',
+        note: '',
+        image_url: '',
+        est_price: '',
+        currency: 'USD',
+      },
+    ]);
+  };
+
+  const eliminarRenglonEdicion = (idx: number) => {
+    if (editItems.length <= 1) {
+      toast.error('La solicitud debe tener al menos un renglón.');
+      return;
+    }
+    setEditItems((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const actualizarItemEdicion = (idx: number, campo: string, valor: any) => {
+    setEditItems((prev) => {
+      const copia = [...prev];
+      copia[idx] = { ...copia[idx], [campo]: valor };
+      return copia;
+    });
+  };
+
+  const subirFotoRenglon = async (idx: number) => {
+    if (!editTarget) return;
+    const it = editItems[idx];
+    setSubiendoFotoKey(it.key);
+    try {
+      const res = await pickAndUploadRequirementFile(editTarget.id);
+      if (res.ok && res.url) {
+        actualizarItemEdicion(idx, 'image_url', res.url);
+        toast.success('Foto cargada correctamente.');
+      } else if (res.error && !res.error.includes('cancel')) {
+        toast.error(res.error || 'No se pudo subir la foto.');
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Error al subir la foto.');
+    } finally {
+      setSubiendoFotoKey(null);
+    }
+  };
+
+  const guardarEdicion = async () => {
+    if (!editTarget) return;
+
+    if (!editTitle.trim()) {
+      return toast.error('Ingresa un título o descripción general para la solicitud.');
+    }
+    if (editItems.length === 0) {
+      return toast.error('Debe haber al menos 1 renglón en la solicitud.');
+    }
+    for (let i = 0; i < editItems.length; i++) {
+      const it = editItems[i];
+      if (!it.name.trim()) {
+        return toast.error(`El renglón #${i + 1} no tiene nombre del repuesto/material.`);
+      }
+      const q = parseNum(it.qty);
+      if (q <= 0) {
+        return toast.error(`El renglón #${i + 1} («${it.name}») debe tener una cantidad mayor a 0.`);
+      }
+    }
+
+    setEditBusy(true);
+    try {
+      // ⚠️ 31-oct-2026: cada línea parte de la guardada (`orig`). Antes se rearmaba solo
+      //    con estos campos y se perdían price_usd, totales y cotizaciones: al borrar o
+      //    editar un renglón, los precios de TODO el requerimiento cambiaban.
+      const finalItems: RequirementLine[] = editItems.map((it) => {
+        const qty = parseNum(it.qty);
+        const linea: RequirementLine = {
+          ...(it.orig || {}),
+          product_id: it.product_id || null,
+          name: it.name.trim(),
+          qty,
+          unit: (it.unit || 'UND').trim().toUpperCase(),
+          est_price: it.est_price ? parseNum(it.est_price) : 0,
+          currency: it.currency || 'USD',
+          note: it.note.trim() || null,
+          image_url: it.image_url.trim() || null,
+          supplier_id: it.supplier_id || null,
+          supplier_name: it.supplier_name || null,
+        } as RequirementLine;
+        // Si cambió la cantidad, los totales se recalculan con la misma regla del requerimiento.
+        if (it.orig && Number(it.orig.qty) !== qty && qty > 0) {
+          const l = linea as any;
+          if ((l.modo_precio || 'unidad') === 'total') {
+            if (Number(l.total_usd) > 0) l.price_usd = Math.round((Number(l.total_usd) / qty) * 10000) / 10000;
+            if (Number(l.total_bs) > 0) l.price_bs = Math.round((Number(l.total_bs) / qty) * 100) / 100;
+          } else {
+            if (Number(l.price_usd) > 0) l.total_usd = Math.round(Number(l.price_usd) * qty * 100) / 100;
+            if (Number(l.price_bs) > 0) l.total_bs = Math.round(Number(l.price_bs) * qty * 100) / 100;
+          }
+        }
+        return linea;
+      });
+
+      // 📷 La foto de un renglón es SOLO de ese renglón (28-oct-2026): con UN renglón su foto
+      //    sirve también como foto de la solicitud; con varios no se copia a la solicitud.
+      const firstPhoto = finalItems.length === 1 ? (finalItems[0].image_url || null) : null;
+
+      // 🧷 31-oct-2026: si el destino no se tocó, las observaciones quedan como estaban. Si se
+      //    tocó, se reescriben conservando TODAS las marcas (antes se perdían los formatos
+      //    adjuntos, las condiciones de pago, el IVA y la aprobación de CxP).
+      const destinoCambio = editDestinoTexto.trim() !== editDestinoOrig.trim();
+      let obsNueva: string | null = destinoCambio
+        ? preservarTodasLasMarcasEnObservaciones(
+            editTarget.observaciones,
+            editDestinoTexto.trim() ? editDestinoTexto.trim() : limpiarMarcadoresSolicitudDeTexto(editTarget.observaciones)
+          )
+        : editTarget.observaciones ?? null;
+
+      // 📜 31-oct-2026: la edición queda en el Histórico. Antes este guardado no anotaba
+      //    nada y en el expediente solo se veía «Solicitud creada» y «Convertida».
+      const autorEd = fullName || session?.user?.email || 'Compras';
+      const diffItems = calcularDiffItemsCompra({
+        itemsAntes: editTarget.items || [],
+        itemsDespues: finalItems,
+        autor: autorEd,
+        modulo: 'Solicitudes',
+      });
+      const cambiosCab = resumirCambiosCabeceraCompra([
+        { etiqueta: 'Título', antes: editTarget.title, despues: editTitle },
+        { etiqueta: 'Solicitante', antes: editTarget.solicitante_nombre || editTarget.requested_by_name, despues: editSolicitante },
+        { etiqueta: 'Área', antes: editTarget.area, despues: editArea },
+        { etiqueta: 'Tipo de destino', antes: editTarget.destino_tipo, despues: editDestinoTipo },
+        { etiqueta: 'Destino', antes: editDestinoOrig, despues: editDestinoTexto },
+        { etiqueta: 'Nota', antes: editTarget.note, despues: editNote },
+      ]);
+      const baseEv = {
+        by: autorEd,
+        byId: session?.user?.id || null,
+        modulo: 'Solicitudes' as const,
+        reqId: editTarget.id,
+        reqCode: editTarget.code,
+      };
+      if (diffItems.hayCambios) {
+        obsNueva = anexarEventoHistorial(obsNueva, {
+          ...baseEv,
+          tipo: 'items_modificados',
+          titulo: 'Modificación de ítems en Solicitud',
+          detalle: diffItems.resumenDetalle,
+          montoAntesUsd: diffItems.montoAntesUsd,
+          montoDespuesUsd: diffItems.montoDespuesUsd,
+          cambiosItems: diffItems.cambiosItems,
+        });
+      }
+      if (cambiosCab.length > 0) {
+        obsNueva = anexarEventoHistorial(obsNueva, {
+          ...baseEv,
+          tipo: 'solicitud_editada',
+          titulo: 'Solicitud editada',
+          detalle: `${autorEd} desde Solicitudes: ${cambiosCab.join(' · ')}`,
+        });
+      }
+
+      const payload: Record<string, any> = {
+        title: editTitle.trim(),
+        solicitante_nombre: editSolicitante.trim() || null,
+        area: editArea.trim() || null,
+        destino_tipo: editDestinoTipo,
+        observaciones: obsNueva,
+        note: editNote.trim() || null,
+        items: finalItems,
+        // Sin `updated_at`: inventory_requirements NO tiene esa columna y mandarla hacía
+        // fallar el guardado entero («Could not find the 'updated_at' column…», 28-oct-2026).
+      };
+      if (firstPhoto) {
+        payload.attachment_url = firstPhoto;
+        payload.attachment_type = 'image';
+      }
+
+      const { data: upd, error } = await supabase
+        .from('inventory_requirements')
+        .update(payload)
+        .eq('id', editTarget.id)
+        .select('id');
+
+      if (error) throw error;
+      // 0 filas = la base no dejó guardar (permiso): se dice, no se finge el éxito.
+      if (!upd || upd.length === 0) throw new Error('No se guardó: no tienes permiso para editar esta solicitud.');
+
+      toast.success(`Solicitud ${editTarget.code} actualizada correctamente.`);
+      setEditTarget(null);
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al actualizar la solicitud.');
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  // ── Factura de Compra ──
+  const abrirSubirFactura = (r: InventoryRequirement) => {
+    setFacturaTarget(r);
+    const fac = extraerFactura(r);
+    const provDefecto =
+      suppliers.find((s) => s.id === r.supplier_id)?.name ||
+      r.items?.map((it) => it.supplier_name || suppliers.find((s) => s.id === it.supplier_id)?.name).find(Boolean) ||
+      '';
+    setFacturaProvSearch('');
+    setFacturaProvOpen(false);
+    if (fac) {
+      setFacturaNumero(fac.numero || '');
+      const empGuardada =
+        fac.empresa && fac.empresa !== 'Inversiones Las Ilusiones' && fac.empresa !== 'Golden Touch'
+          ? fac.empresa
+          : provDefecto || fac.empresa || '';
+      setFacturaEmpresa(empGuardada);
+      setFacturaFecha(fac.fecha || new Date().toISOString().slice(0, 10));
+      setFacturaUrl(fac.url || null);
+      setFacturaTipo(fac.tipo || 'image');
+      setFacturaNombre(fac.nombre || null);
+      setFacturaNota(fac.nota || '');
+    } else {
+      setFacturaNumero('');
+      setFacturaEmpresa(provDefecto);
+      setFacturaFecha(new Date().toISOString().slice(0, 10));
+      setFacturaUrl(null);
+      setFacturaTipo('image');
+      setFacturaNombre(null);
+      setFacturaNota('');
+    }
+    setFacturaModalOpen(true);
+  };
+
+  const subirArchivoFactura = async () => {
+    if (!facturaTarget) return;
+    setSubiendoFactura(true);
+    try {
+      const res = await pickAndUploadRequirementFile(`facturas/${facturaTarget.id}`);
+      if (!res.ok) {
+        if (res.error) toast.error(res.error);
+        return;
+      }
+      setFacturaUrl(res.url || null);
+      setFacturaTipo(res.kind || 'image');
+      setFacturaNombre(res.name || 'factura');
+      toast.success('Archivo de factura cargado.');
+    } catch (e: any) {
+      toast.error('Error al subir archivo: ' + (e?.message ?? e));
+    } finally {
+      setSubiendoFactura(false);
+    }
+  };
+
+  const tomarFotoFactura = async () => {
+    if (!facturaTarget) return;
+    setSubiendoFactura(true);
+    try {
+      const res = await captureAndUploadPhoto(`facturas/${facturaTarget.id}`);
+      if (!res.ok) {
+        if (res.error) toast.error(res.error);
+        return;
+      }
+      setFacturaUrl(res.url || null);
+      setFacturaTipo('image');
+      setFacturaNombre('Foto Factura');
+      toast.success('Foto de factura capturada.');
+    } catch (e: any) {
+      toast.error('Error al capturar foto: ' + (e?.message ?? e));
+    } finally {
+      setSubiendoFactura(false);
+    }
+  };
+
+  const guardarFacturaModal = async () => {
+    if (!facturaTarget) return;
+    if (!facturaNumero.trim() && !facturaUrl && !facturaNota.trim() && !facturaEmpresa.trim()) {
+      toast.error('Indica al menos el proveedor, número de factura, archivo o una nota.');
+      return;
+    }
+    setGuardandoFactura(true);
+    try {
+      const provDefault =
+        suppliers.find((s) => s.id === facturaTarget.supplier_id)?.name || 'Proveedor';
+      const dataFac: FacturaData = {
+        numero: facturaNumero.trim() || (facturaUrl ? 'ADJ-FACT' : 'S/N'),
+        empresa: facturaEmpresa.trim() || provDefault,
+        fecha: facturaFecha || new Date().toISOString().slice(0, 10),
+        url: facturaUrl || null,
+        tipo: facturaTipo || 'image',
+        nombre: facturaNombre || null,
+        nota: facturaNota.trim() || null,
+        subidaPor: fullName || session?.user?.email || 'Administración',
+        subidaAt: nowISO(),
+      };
+
+      const nuevaObs = inyectarFacturaEnObservaciones(facturaTarget.observaciones, dataFac);
+      const patchPayload: Record<string, any> = {
+        observaciones: nuevaObs,
+      };
+      if (dataFac.url && !facturaTarget.attachment_url) {
+        patchPayload.attachment_url = dataFac.url;
+        patchPayload.attachment_type = dataFac.tipo || 'image';
+        patchPayload.attachment_name = dataFac.nombre || `Factura ${dataFac.numero}`;
+      }
+
+      const { error } = await supabase
+        .from('inventory_requirements')
+        .update(patchPayload)
+        .eq('id', facturaTarget.id);
+
+      if (error) throw error;
+
+      // Sincronizar también factura con Cuenta por Pagar vinculada (si existe)
+      try {
+        await supabase
+          .from('cuentas')
+          .update({
+            ...(dataFac.url ? { factura_url: dataFac.url } : {}),
+            ...(dataFac.numero ? { documento: dataFac.numero } : {}),
+            updated_at: nowISO(),
+          })
+          .eq('inventory_requirement_id', facturaTarget.id);
+      } catch {}
+
+      setFacturaModalOpen(false);
+      setFacturaTarget(null);
+      refetch();
+      toast.success(`Factura N° ${dataFac.numero} (${dataFac.empresa}) registrada.`);
+    } catch (e: any) {
+      toast.error('Error al guardar factura: ' + (e?.message ?? e));
+    } finally {
+      setGuardandoFactura(false);
+    }
+  };
+
+  const abrirVisorFactura = (url?: string | null, tipo?: 'image' | 'pdf' | null, nombre?: string | null) => {
+    if (!url) return;
+    if (Platform.OS === 'web' && tipo === 'pdf') {
+      window.open(url, '_blank');
+      return;
+    }
+    setFacturaViewerUrl(url);
+    setFacturaViewerTipo(tipo || 'image');
+    setFacturaViewerNombre(nombre || 'Factura');
+    setFacturaViewerOpen(true);
+  };
+
+  // ── Despacho Almacén (Falta 3) ──
+  const abrirDespachoModal = (r: InventoryRequirement) => {
+    setDespachoTarget(r);
+    const desp = extraerDespacho(r);
+    setRetiradoPor(desp.retiradoPor || r.solicitante_nombre || '');
+    setRetiradoCedula(desp.retiradoCedula || '');
+    setRetiradoCargo(desp.retiradoCargo || '');
+    setRetiradoEmployeeId(desp.retiradoEmployeeId || null);
+    setDespachadoPor(desp.despachadoPor || fullName || 'Almacén');
+    setDespachoFecha(desp.fecha || new Date().toISOString());
+    setDespachoNota(desp.nota || '');
+    setEmpBusquedaQ('');
+    setMaqBusquedaQ('');
+
+    if (desp.maquinariaCodigo) {
+      const maqEncontrada = machines.find((m) => m.code === desp.maquinariaCodigo);
+      if (maqEncontrada) setDespachoMaquinariaId(maqEncontrada.id);
+    } else {
+      setDespachoMaquinariaId(null);
+    }
+
+    setDespachoModalOpen(true);
+  };
+
+  const guardarDespachoModal = async () => {
+    if (!despachoTarget) return;
+    if (!retiradoPor.trim()) {
+      toast.error('Indica quién retiró físicamente el material (mecánico o chofer).');
+      return;
+    }
+    setGuardandoDespacho(true);
+    try {
+      const maqObj = machines.find((m) => m.id === despachoMaquinariaId);
+      const dataDespacho: DespachoAlmacenData = {
+        estado: 'retirado',
+        retiradoPor: retiradoPor.trim(),
+        retiradoCedula: retiradoCedula.trim() || null,
+        retiradoCargo: retiradoCargo.trim() || null,
+        retiradoEmployeeId: retiradoEmployeeId || null,
+        despachadoPor: fullName || despachadoPor || 'Almacén',
+        fecha: despachoFecha || nowISO(),
+        nota: despachoNota.trim() || null,
+        maquinariaCodigo: maqObj?.code || null,
+        maquinariaPlaca: maqObj?.plate || null,
+      };
+
+      const nuevaObs = inyectarDespachoEnObservaciones(despachoTarget.observaciones, dataDespacho);
+      const { error } = await supabase
+        .from('inventory_requirements')
+        .update({ observaciones: nuevaObs })
+        .eq('id', despachoTarget.id);
+
+      if (error) throw error;
+      setDespachoModalOpen(false);
+      setDespachoTarget(null);
+      refetch();
+      toast.success(`Retiro físico registrado a nombre de ${dataDespacho.retiradoPor}.`);
+    } catch (e: any) {
+      toast.error('Error al registrar retiro: ' + (e?.message ?? e));
+    } finally {
+      setGuardandoDespacho(false);
+    }
+  };
+
+  // ── Expediente Completo (PDF - Falta 2) ──
+  const descargarExpediente = async (r: InventoryRequirement) => {
+    try {
+      toast.info('Generando Expediente Completo de Compra...');
+      const factura = extraerFactura(r);
+      const despacho = extraerDespacho(r);
+
+      const prov = suppliers.find((s) => s.id === r.supplier_id);
+      let provDatosPago: string | null = null;
+      if (prov) {
+        const parts = [
+          prov.bank_name || prov.account_number ? `🏦 ${prov.bank_name ?? ''} Cta: ${prov.account_number ?? ''}${prov.account_holder ? ` (${prov.account_holder} ${prov.account_id_doc ?? ''})` : ''}`.trim() : '',
+          prov.pago_movil_phone ? `📱 PM: ${prov.pago_movil_bank ?? ''} - ${prov.pago_movil_phone} (${prov.pago_movil_id ?? ''})` : '',
+          prov.binance_id ? `🟡 Binance: ${prov.binance_id}` : '',
+        ].filter(Boolean);
+        provDatosPago = parts.join(' · ');
+      }
+
+      let pagoInfo: any = null;
+      try {
+        const { data: cuentaRows } = await supabase
+          .from('cuentas')
+          .select('id, estado, monto, concepto')
+          .eq('inventory_requirement_id', r.id)
+          .limit(1);
+
+        if (cuentaRows && cuentaRows[0]) {
+          const c = cuentaRows[0];
+          const { data: abonoRows } = await supabase
+            .from('cuenta_abonos')
+            .select('fecha, monto, metodo, referencia, nota')
+            .eq('cuenta_id', c.id)
+            .order('fecha', { ascending: true });
+
+          const abonos = abonoRows || [];
+          const pagado = abonos.reduce((sum: number, ab: any) => sum + (Number(ab.monto) || 0), 0);
+          pagoInfo = {
+            estadoCuenta: c.estado,
+            montoTotal: Number(c.monto) || 0,
+            montoPagado: pagado,
+            saldoPendiente: Math.max(0, (Number(c.monto) || 0) - pagado),
+            concepto: c.concepto,
+            abonos,
+          };
+        }
+      } catch (e) {
+        console.warn('No se pudo cargar cuentas:', e);
+      }
+
+      let maqLabel = '';
+      if (despacho.maquinariaCodigo) {
+        maqLabel = `${despacho.maquinariaCodigo}${despacho.maquinariaPlaca ? ` · Placa ${despacho.maquinariaPlaca}` : ''}`;
+      } else if (r.title && r.title.includes('para ')) {
+        maqLabel = r.title.split('para ')[1]?.trim();
+      } else if (r.area) {
+        maqLabel = r.area;
+      }
+
+      const itemsConImagenes = await Promise.all(
+        (r.items || []).map(async (it) => ({
+          name: it.name,
+          unit: it.unit,
+          qty: it.qty,
+          est_price: it.est_price,
+          price_usd: it.price_usd,
+          total_usd: it.total_usd,
+          modo_precio: it.modo_precio,
+          currency: it.currency || 'USD',
+          note: it.note,
+          image_url: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
+          supplier_name: it.supplier_name,
+        }))
+      );
+
+      let facturaParaPdf = factura;
+      if (factura && factura.url && factura.tipo === 'image') {
+        const dataUri = await urlToDataUri(factura.url);
+        facturaParaPdf = { ...factura, url: dataUri || factura.url };
+      }
+
+      const html = expedienteCompletoHtml({
+        req: r,
+        factura: facturaParaPdf,
+        despacho,
+        pagoInfo,
+        proveedorNombre: prov?.name ?? null,
+        proveedorRif: prov?.rif ?? null,
+        proveedorDatosPago: provDatosPago,
+        maquinariaLabel: maqLabel || 'Destino asignado',
+        itemsConImagenes,
+      });
+
+      await exportPdf(html, `Expediente-${r.code || 'REQ'}`);
+      toast.success('Expediente generado exitosamente.');
+    } catch (err: any) {
+      toast.error('Error al generar expediente: ' + (err?.message ?? err));
     }
   };
 
@@ -280,25 +1430,191 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         </Text>
       </View>
 
+      {/* Filtro por Empresa (una o varias) */}
+      <View
+        style={{
+          marginBottom: spacing.sm,
+          padding: 8,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surfaceAlt,
+          gap: 6,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+          <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.text }}>
+            🏢 Filtrar por Empresa {empresaSel.length > 0 ? `(${empresaSel.length} seleccionada${empresaSel.length > 1 ? 's' : ''})` : '(Todas)'}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {empresaSel.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => setEmpresaSel([])}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: radius.pill,
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.danger }}>✕ Limpiar</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              onPress={() => setEmpresasOpen((v) => !v)}
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: radius.pill,
+                backgroundColor: empresasOpen ? colors.brand : colors.surface,
+                borderWidth: 1,
+                borderColor: empresasOpen ? colors.brand : colors.border,
+              }}
+            >
+              <Text style={{ fontSize: 10.5, fontWeight: '700', color: empresasOpen ? colors.brandContrast : colors.text }}>
+                {empresasOpen ? '▲ Ocultar buscador' : '🔍 Buscar / Más empresas'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          <TouchableOpacity
+            onPress={() => setEmpresaSel([])}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: radius.pill,
+              backgroundColor: empresaSel.length === 0 ? colors.brand : colors.surface,
+              borderWidth: 1,
+              borderColor: empresaSel.length === 0 ? colors.brand : colors.border,
+            }}
+          >
+            <Text style={{ color: empresaSel.length === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+              Todas ({solicitudesBase.length})
+            </Text>
+          </TouchableOpacity>
+          {empresaCounts.map((emp) => {
+            const sel = empresaSel.includes(emp.id);
+            return (
+              <TouchableOpacity
+                key={emp.id}
+                onPress={() => toggleEmpresa(emp.id)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: radius.pill,
+                  backgroundColor: sel ? colors.brand : colors.surface,
+                  borderWidth: 1,
+                  borderColor: sel ? colors.brand : colors.border,
+                }}
+              >
+                <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                  {sel ? '✓ ' : ''}{emp.name} ({emp.count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {empresasOpen ? (
+          <View style={{ gap: 6, marginTop: 4 }}>
+            <TextInput
+              value={empresaQ}
+              onChangeText={setEmpresaQ}
+              placeholder="Buscar empresa por nombre..."
+              placeholderTextColor={colors.muted}
+              style={[inp, { paddingVertical: 6, fontSize: 12 }]}
+            />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {companies
+                .filter((c) => !empresaQ.trim() || norm(c.name).includes(norm(empresaQ)))
+                .map((c) => {
+                  const sel = empresaSel.includes(c.id);
+                  const cnt = empresaCounts.find((x) => x.id === c.id)?.count || 0;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      onPress={() => toggleEmpresa(c.id)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: radius.md,
+                        backgroundColor: sel ? colors.brand : colors.surface,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.brand : colors.border,
+                      }}
+                    >
+                      <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
+                        {sel ? '☑ ' : '☐ '}{c.name} ({cnt})
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+            </View>
+          </View>
+        ) : null}
+      </View>
+
       {/* Buscador */}
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="🔍 Buscar por código, repuesto, solicitante, medidas, máquina…"
+        placeholder="🔍 Buscar por código, repuesto, solicitante, empresa, medidas, máquina…"
         placeholderTextColor={colors.muted}
-        style={[inp, { marginBottom: spacing.sm }]}
+        style={[inp, { marginBottom: spacing.xs }]}
       />
+
+      {/* Check estilo Por Pagar: ocultar por defecto las solicitudes que ya se volvieron un Requerimiento o fueron rechazadas */}
+      <TouchableOpacity
+        onPress={() => {
+          setVerConvertidas((prev) => {
+            const next = !prev;
+            if (!next && (filterEstado === 'convertido' || filterEstado === 'rechazado' || filterEstado === 'esperando_aprobacion_gg' || filterEstado === 'esperando_pago')) {
+              setFilterEstado('todos');
+            }
+            return next;
+          });
+        }}
+        style={{
+          alignSelf: 'flex-start',
+          marginBottom: spacing.sm,
+          borderRadius: radius.pill,
+          borderWidth: 1,
+          borderColor: mostrarOcultasEfectivo ? colors.brand : colors.border,
+          backgroundColor: mostrarOcultasEfectivo ? colors.brand : colors.surfaceAlt,
+          paddingHorizontal: spacing.md,
+          paddingVertical: 5,
+        }}
+      >
+        <Text style={{ color: mostrarOcultasEfectivo ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>
+          {mostrarOcultasEfectivo
+            ? `✓ Mostrando también ya en Requerimientos y rechazadas (${countOcultasConvertidas})`
+            : `Mostrar también ya en Requerimientos y rechazadas (${countOcultasConvertidas})`}
+        </Text>
+      </TouchableOpacity>
 
       {/* Chips de filtro por estado */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: spacing.md }}>
         {[
-          { key: 'todos', label: `Todos (${solicitudes.length})` },
-          { key: 'pendiente', label: `⏳ Pendientes (${countPendientes})` },
+          { key: 'todos', label: `Todos (${countTodos})` },
+          { key: 'por_cotizar', label: `📋 Pendientes por Convertir (${countPorCotizar})` },
           { key: 'aclaratoria', label: `⚠️ En Aclaratoria (${countAclaratorias})` },
-          { key: 'convertido', label: '✅ Convertidos a Requerimiento' },
-          { key: 'rechazado', label: '❌ Rechazados' },
+          ...(mostrarOcultasEfectivo
+            ? [
+                { key: 'convertido', label: `🔄 Ya en Requerimientos (${countConvertidos})` },
+                {
+                  key: 'esperando_aprobacion_gg',
+                  label: `👔 En Por Pagar · Esperando Aprobación (${countEsperandoAprobacion})`,
+                },
+                { key: 'esperando_pago', label: `💳 En Gestión / Por Pagar (${countEsperandoPago})` },
+                { key: 'rechazado', label: `❌ Rechazados (${countRechazados})` },
+              ]
+            : []),
         ].map((f) => {
-          const sel = filterEstado === f.key;
+          const sel = filterEstado === f.key || (f.key === 'por_cotizar' && filterEstado === 'pendiente');
           return (
             <TouchableOpacity
               key={f.key}
@@ -320,6 +1636,41 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         })}
       </ScrollView>
 
+      {/* Barra de conteo y controles de acordeón masivo */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs, flexWrap: 'wrap', gap: 6 }}>
+        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>
+          Mostrando {solicitudes.length} {solicitudes.length === 1 ? 'solicitud' : 'solicitudes'}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <TouchableOpacity
+            onPress={expandirTodas}
+            style={{
+              backgroundColor: colors.surfaceAlt,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📂 Desplegar todas</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={plegarTodas}
+            style={{
+              backgroundColor: colors.surfaceAlt,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📁 Plegar todas</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* Lista de Solicitudes */}
       {loading ? (
         <SkeletonList count={4} />
@@ -334,31 +1685,132 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         />
       ) : (
         solicitudes.map((r) => {
-          const est = ESTADOS_SOLICITUD[r.status] || ESTADOS_SOLICITUD.pendiente;
+          const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+          const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
+          const yaConvertida = estaSolicitudConvertidaEnRequerimiento(r);
           const primerItem = r.items[0];
-          const tieneFoto = r.attachment_url || primerItem?.image_url;
+          // 📷 Foto GENERAL de la solicitud (28-oct-2026): con un renglón, la de ese renglón; con
+          //    varios, solo un adjunto propio de la solicitud, nunca la COPIA de la foto de un
+          //    renglón (esa ya sale en su renglón y parecía la foto de todos).
+          const esFotoDeRenglon = (url?: string | null) => !!url && r.items.some((x) => (x.image_url || '') === url);
+          const tieneFoto = r.items.length <= 1
+            ? (r.attachment_url || primerItem?.image_url)
+            : (r.attachment_url && !esFotoDeRenglon(r.attachment_url) ? r.attachment_url : null);
+          const isAbierto = expandedIds.has(r.id);
+          const empresaPagadora = r.empresa_pagadora_nombre || companies.find((c) => c.id === r.empresa_pagadora_id)?.name;
 
           return (
-            <Card key={r.id} style={{ gap: 8, marginBottom: spacing.xs }}>
-              {/* Encabezado: Código y Estado */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View style={{ flex: 1, paddingRight: spacing.sm }}>
+            <Card key={r.id} style={{ gap: 8, marginBottom: spacing.sm, borderWidth: 1, borderColor: isAbierto ? colors.brand : colors.border }}>
+              {/* Encabezado Responsivo: Código, Título, Estado y Botón Plegar/Desplegar */}
+              <TouchableOpacity
+                onPress={() => toggleExpand(r.id)}
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <View style={{ flex: 1, minWidth: 200 }}>
                   <Text style={{ fontWeight: '900', fontSize: 15, color: colors.text }}>
-                    {r.code} · {primerItem ? primerItem.name : r.title || 'Solicitud de Compra'}
+                    {r.code} · {r.items.length === 1 ? primerItem?.name : `Solicitud Multi-Ítem (${r.items.length} Renglones)`}
                   </Text>
                   {r.title && r.title !== primerItem?.name ? (
                     <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }}>{r.title}</Text>
                   ) : null}
                 </View>
 
-                <View style={{ backgroundColor: est.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill }}>
-                  <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }}>
-                    {est.icon} {est.label}
-                  </Text>
-                </View>
-              </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {yaConvertida ? (
+                    <View
+                      style={{
+                        backgroundColor: '#DBEAFE',
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: '#2563EB',
+                      }}
+                    >
+                      <Text style={{ color: '#1E40AF', fontWeight: '800', fontSize: 10.5 }} numberOfLines={1}>
+                        🔄 Convertida en Requerimiento
+                      </Text>
+                    </View>
+                  ) : r.status !== 'rechazado' && r.status !== 'aclaratoria_solicitada' ? (
+                    <View
+                      style={{
+                        backgroundColor: '#FEF3C7',
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: '#D97706',
+                      }}
+                    >
+                      <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 10.5 }} numberOfLines={1}>
+                        📥 Solicitud (Sin convertir a Req.)
+                      </Text>
+                    </View>
+                  ) : null}
 
-              {/* Fila destacada de Metadatos Obligatorios (Quién, Fecha/Hora, Destino) */}
+                  <View
+                    style={{
+                      backgroundColor: est.bg,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: est.color + '40',
+                      maxWidth: 240,
+                    }}
+                  >
+                    <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }} numberOfLines={1}>
+                      {/* La etiqueta de `calcularEstadoRequerimiento` ya trae su icono: no se repite. */}
+                      {est.label.startsWith(est.icon) ? est.label : `${est.icon} ${est.label}`}
+                    </Text>
+                  </View>
+
+                  <View
+                    style={{
+                      backgroundColor: isAbierto ? colors.surfaceAlt : colors.brand,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: isAbierto ? colors.border : colors.brand,
+                    }}
+                  >
+                    <Text style={{ color: isAbierto ? colors.text : colors.brandContrast, fontSize: 11, fontWeight: '800' }}>
+                      {isAbierto ? '▲ Plegar' : `▼ Ver ${r.items.length} ${r.items.length === 1 ? 'ítem' : 'ítems'}`}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* 🔺 Prioridad: cuando la solicitud ya fue aceptada o convertida en requerimiento (29-oct-2026) */}
+              {(yaConvertida || ESTADOS_REQ_ACEPTADO.includes(r.status) || est.tieneCotizacionCompleta) && (canWrite || esPrioridadCompra(r.prioridad)) ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>Prioridad:</Text>
+                  {PRIORIDADES_COMPRA.filter((p) => canWrite || r.prioridad === p).map((p) => {
+                    const on = r.prioridad === p;
+                    const t = colorPrioridad(colors, p);
+                    return (
+                      <TouchableOpacity key={p} disabled={!canWrite} onPress={() => ponerPrioridad(r, on ? null : p)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? t.border : colors.border, backgroundColor: on ? t.bg : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                        <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 11.5 }}>{PRIORIDAD_COMPRA_INFO[p].label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {canWrite && esPrioridadCompra(r.prioridad) ? (
+                    <TouchableOpacity onPress={() => ponerPrioridad(r, null)} style={{ paddingHorizontal: spacing.xs, paddingVertical: 3 }}>
+                      <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 11.5 }}>Quitar ✕</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {/* Fila de Metadatos Obligatorios (Quién, Fecha/Hora, Destino, Área) */}
               <View
                 style={{
                   backgroundColor: colors.surfaceAlt,
@@ -412,47 +1864,238 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                       📍 <Text style={{ fontWeight: '700' }}>Área:</Text> {r.area}
                     </Text>
                   ) : null}
+
+                  {(() => {
+                    const empInfo = resolverEmpresaRequerimiento(r, companies);
+                    if (empInfo.id === ID_SIN_EMPRESA_REQ) return null;
+                    return (
+                      <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '700' }}>
+                        🏢 <Text style={{ fontWeight: '800' }}>Empresa:</Text> {empInfo.name}
+                      </Text>
+                    );
+                  })()}
                 </View>
+
+                {/* Sincronización comercial con Requerimientos: Proveedor asignado, Pagadora y Cotización */}
+                {(provGeneral?.name || est.proveedoresNombres.length > 0 || empresaPagadora || est.totalUSD > 0) ? (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                      marginTop: 2,
+                      paddingTop: 4,
+                      borderTopWidth: 1,
+                      borderTopColor: colors.border,
+                    }}
+                  >
+                    {provGeneral?.name || est.proveedoresNombres.length > 0 ? (
+                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                        🏢 <Text style={{ fontWeight: '700' }}>Proveedor:</Text>{' '}
+                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>
+                          {provGeneral?.name || est.proveedoresNombres.join(', ')}
+                        </Text>
+                      </Text>
+                    ) : null}
+
+                    {empresaPagadora ? (
+                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                        💳 <Text style={{ fontWeight: '700' }}>Pagadora:</Text>{' '}
+                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>{empresaPagadora}</Text>
+                      </Text>
+                    ) : null}
+
+                    {est.totalUSD > 0 ? (
+                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                        💵 <Text style={{ fontWeight: '700' }}>Cotizado:</Text>{' '}
+                        <Text style={{ color: '#059669', fontWeight: '800' }}>
+                          ${est.totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                          {rate ? ` (~ ${fmtBs(est.totalUSD * rate)})` : ''}
+                        </Text>
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
 
-              {/* Renglones y Especificaciones Técnicas Obligatorias */}
-              <View style={{ gap: 6 }}>
-                {r.items.map((it, idx) => (
+              {/* 🏬 Ficha de Proveedor Propuesto por el Solicitante (si existe) */}
+              {(() => {
+                const match = (r.observaciones || '').match(/\[PROVEEDOR SUGERIDO(?:\s*\([^)]*\))?: Nombre:\s*([^|]+)\|\s*Tel:\s*([^|]+)\|\s*Dirección:\s*([^\]]+)\]/i);
+                if (!match) return null;
+                const nombre = match[1].trim() === 'No indicado' ? '' : match[1].trim();
+                const telefono = match[2].trim() === 'No indicado' ? '' : match[2].trim();
+                const direccion = match[3].trim() === 'No indicada' ? '' : match[3].trim();
+                if (!nombre && !telefono && !direccion) return null;
+
+                return (
                   <View
-                    key={idx}
                     style={{
-                      borderWidth: 1,
-                      borderColor: '#93C5FD',
-                      backgroundColor: '#EFF6FF',
+                      backgroundColor: '#FEF3C7',
+                      borderWidth: 1.5,
+                      borderColor: '#F59E0B',
+                      borderRadius: radius.md,
                       padding: spacing.sm,
-                      borderRadius: radius.sm,
                       gap: 4,
                     }}
                   >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                        {idx + 1}. {it.name}
-                      </Text>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
-                        Cant: {qtyFmt(it.qty)} {it.unit || 'UND'}
-                      </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 16 }}>🏬</Text>
+                        <Text style={{ color: '#92400E', fontWeight: '900', fontSize: 12.5 }}>
+                          PROVEEDOR PROPUESTO POR EL SOLICITANTE
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 4 }}>
+                        {telefono ? (
+                          <>
+                            <TouchableOpacity
+                              onPress={() => Linking.openURL(`tel:${telefono.replace(/\s+/g, '')}`)}
+                              style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#D97706', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
+                            >
+                              <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '800' }}>📞 Llamar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => {
+                                const clean = telefono.replace(/\D/g, '');
+                                const wa = clean.startsWith('58') ? clean : clean.startsWith('0') ? '58' + clean.slice(1) : clean;
+                                Linking.openURL(`https://wa.me/${wa}`);
+                              }}
+                              style={{ backgroundColor: '#059669', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}
+                            >
+                              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>💬 WhatsApp</Text>
+                            </TouchableOpacity>
+                          </>
+                        ) : null}
+                      </View>
                     </View>
 
-                    {/* Especificaciones / Medidas técnicas del taller */}
-                    {it.note ? (
-                      <View style={{ marginTop: 2, backgroundColor: '#fff', padding: 6, borderRadius: 4, borderWidth: 1, borderColor: '#BFDBFE' }}>
-                        <Text style={{ color: '#1E40AF', fontSize: 11.5, fontWeight: '700' }}>
-                          📐 Especificaciones y Medidas Técnicas:
-                        </Text>
-                        <Text style={{ color: '#1E3A8A', fontSize: 12, marginTop: 1 }}>{it.note}</Text>
-                      </View>
+                    {nombre ? (
+                      <Text style={{ color: '#78350F', fontSize: 12.5 }}>
+                        🏢 <Text style={{ fontWeight: '800' }}>Nombre / Tienda:</Text> {nombre}
+                      </Text>
+                    ) : null}
+                    {telefono ? (
+                      <Text style={{ color: '#78350F', fontSize: 12 }}>
+                        📞 <Text style={{ fontWeight: '800' }}>Teléfono:</Text> {telefono}
+                      </Text>
+                    ) : null}
+                    {direccion ? (
+                      <Text style={{ color: '#78350F', fontSize: 12 }}>
+                        📍 <Text style={{ fontWeight: '800' }}>Dirección / Ubicación:</Text> {direccion}
+                      </Text>
                     ) : null}
                   </View>
-                ))}
-              </View>
+                );
+              })()}
 
-              {/* Foto adjunta de la pieza */}
-              {tieneFoto ? (
+              {/* Vista compacta cuando está PLEGADO */}
+              {!isAbierto && (
+                <TouchableOpacity
+                  onPress={() => toggleExpand(r.id)}
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    padding: 8,
+                    borderRadius: radius.sm,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                    📦 Renglones ({r.items.length}):{' '}
+                    <Text style={{ color: colors.muted, fontWeight: '500' }}>
+                      {r.items.map((it, idx) => `${idx + 1}. ${it.name}`).join('  |  ')}
+                    </Text>
+                  </Text>
+                  <Text style={{ color: colors.brand, fontSize: 11, fontWeight: '700', marginTop: 3 }}>
+                    Toque para desplegar medidas técnicas y desglose detallado ➔
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Desglose Detallado por Renglón cuando está DESPLEGADO */}
+              {isAbierto && (
+                <View style={{ gap: 8, marginTop: 2 }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>
+                    📋 Desglose Técnico por Renglón ({r.items.length} {r.items.length === 1 ? 'ítem' : 'ítems'}):
+                  </Text>
+                  {r.items.map((it, idx) => {
+                    const tieneNota = Boolean(it.note && it.note.trim());
+                    return (
+                      <View
+                        key={idx}
+                        style={{
+                          borderWidth: 1.5,
+                          borderColor: tieneNota ? '#3B82F6' : colors.border,
+                          backgroundColor: colors.surfaceAlt,
+                          padding: spacing.sm,
+                          borderRadius: radius.md,
+                          gap: 6,
+                        }}
+                      >
+                        {/* Cabecera del renglón con alto contraste */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                            <View style={{ backgroundColor: '#2563EB', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}>
+                              <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 11 }}>#{idx + 1}</Text>
+                            </View>
+                            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13.5, flexShrink: 1 }}>
+                              {it.name}
+                            </Text>
+                          </View>
+                          <View style={{ backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                              Cantidad: <Text style={{ color: colors.brandText }}>{qtyFmt(it.qty)} {it.unit || 'UND'}</Text>
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Caja Destacada de Especificación Técnica / Medidas */}
+                        <View
+                          style={{
+                            backgroundColor: isDark ? '#0F172A' : '#EFF6FF',
+                            borderWidth: 1,
+                            borderColor: tieneNota ? '#60A5FA' : colors.border,
+                            borderRadius: radius.sm,
+                            padding: 8,
+                            gap: 3,
+                          }}
+                        >
+                          <Text style={{ color: tieneNota ? '#38BDF8' : colors.muted, fontSize: 11, fontWeight: '900', letterSpacing: 0.3 }}>
+                            📐 ESPECIFICACIÓN Y MEDIDAS TÉCNICAS DEL ÍTEM #{idx + 1}:
+                          </Text>
+                          {tieneNota ? (
+                            <Text style={{ color: isDark ? '#F8FAFC' : '#1E293B', fontSize: 13, fontWeight: '700', lineHeight: 18 }}>
+                              {it.note}
+                            </Text>
+                          ) : (
+                            <Text style={{ color: colors.muted, fontSize: 11.5, fontStyle: 'italic' }}>
+                              Sin especificación ni medidas técnicas adicionales registradas para este artículo.
+                            </Text>
+                          )}
+                        </View>
+
+                        {/* Proveedor individual asignado a este renglón (si existe) */}
+                        {it.supplier_name ? (
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
+                            🏢 Proveedor exclusivo del ítem: {it.supplier_name}
+                          </Text>
+                        ) : null}
+
+                        {/* Foto propia del ítem */}
+                        {it.image_url ? (
+                          <TouchableOpacity onPress={() => setFotoModalUrl(it.image_url || null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                            <Image source={{ uri: it.image_url }} style={{ width: 38, height: 38, borderRadius: radius.sm, backgroundColor: colors.surface }} />
+                            <Text style={{ color: colors.brand, fontSize: 11, fontWeight: '700' }}>Ver muestra técnica adjunta ➔</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* Foto general adjunta de la solicitud */}
+              {tieneFoto && isAbierto ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 }}>
                   <TouchableOpacity onPress={() => setFotoModalUrl(tieneFoto)}>
                     <Image
@@ -522,16 +2165,271 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               ) : null}
 
+              {/* 🧾 Si la cuenta en Por Pagar ya tiene factura cargada, se muestra solo como referencia de lectura (las facturas y pagos solo se suben desde 💸 Por Pagar) */}
+              {(() => {
+                const fac = extraerFactura(r);
+                const tieneFac = Boolean(fac && (fac.numero || fac.url || fac.nota || (fac.archivos && fac.archivos.length > 0)));
+                if (!tieneFac) return null;
+                const archivosFac = fac?.archivos && fac.archivos.length > 0
+                  ? fac.archivos
+                  : fac?.url
+                    ? [{ url: fac.url, tipo: (fac.tipo === 'pdf' ? 'pdf' : 'image') as 'image' | 'pdf', nombre: fac.nombre || 'Factura' }]
+                    : [];
+                return (
+                  <View
+                    style={{
+                      marginTop: spacing.sm,
+                      backgroundColor: colors.surfaceAlt,
+                      borderRadius: radius.md,
+                      borderWidth: 1.5,
+                      borderColor: '#6366F1',
+                      padding: spacing.sm,
+                      gap: 6,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 14 }}>🧾</Text>
+                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                          Factura Registrada en Por Pagar ({archivosFac.length || 1})
+                        </Text>
+                      </View>
+                      {fac?.empresa ? (
+                        <View
+                          style={{
+                            backgroundColor: '#E0E7FF',
+                            borderColor: '#6366F1',
+                            borderWidth: 1,
+                            paddingHorizontal: 8,
+                            paddingVertical: 2,
+                            borderRadius: radius.pill,
+                          }}
+                        >
+                          <Text style={{ color: '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
+                            🏭 {fac.empresa}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                      <Text style={{ fontSize: 12, color: colors.text }}>
+                        <Text style={{ fontWeight: '700' }}>N° Factura:</Text>{' '}
+                        <Text style={{ fontWeight: '900', color: colors.brandText }}>{fac?.numero || 'S/N'}</Text>
+                      </Text>
+                      {fac?.fecha ? (
+                        <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                          📅 Fecha: {fac.fecha}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {fac?.nota ? (
+                      <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic' }}>
+                        📝 Nota factura: {fac.nota}
+                      </Text>
+                    ) : null}
+                    {archivosFac.length > 0 ? (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                        {archivosFac.map((arch, aIdx) => (
+                          <TouchableOpacity
+                            key={aIdx}
+                            onPress={() => abrirVisorFactura(arch.url, arch.tipo, arch.nombre || `Factura #${aIdx + 1}`)}
+                            style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.brand,
+                              borderRadius: radius.sm,
+                              paddingHorizontal: spacing.sm,
+                              paddingVertical: 4,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Text style={{ fontSize: 11 }}>👁️</Text>
+                            <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>
+                              {archivosFac.length > 1 ? `Ver Factura #${aIdx + 1}` : 'Ver Factura Adjunta'}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })()}
+
+              {/* 📦 Sección Dedicada: Control Físico de Almacén (Falta 3) */}
+              {r.status === 'recibido' && (() => {
+                const desp = extraerDespacho(r);
+                const esRetirado = desp.estado === 'retirado';
+                return (
+                  <View
+                    style={{
+                      marginTop: spacing.sm,
+                      backgroundColor: esRetirado ? '#F8FAFC' : '#F0FDF4',
+                      borderRadius: radius.md,
+                      borderWidth: 1.5,
+                      borderColor: esRetirado ? '#3B82F6' : '#22C55E',
+                      padding: spacing.sm,
+                      gap: 6,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 14 }}>{esRetirado ? '📦' : '🟢'}</Text>
+                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.text }}>
+                          Control Físico en Almacén: {esRetirado ? 'Retirado / Despachado' : 'Disponible en Almacén'}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          backgroundColor: esRetirado ? '#DBEAFE' : '#DCFCE7',
+                          borderColor: esRetirado ? '#2563EB' : '#16A34A',
+                          borderWidth: 1,
+                          paddingHorizontal: 8,
+                          paddingVertical: 2,
+                          borderRadius: radius.pill,
+                        }}
+                      >
+                        <Text style={{ color: esRetirado ? '#1E40AF' : '#15803D', fontSize: 10.5, fontWeight: '800' }}>
+                          {esRetirado ? 'DESPACHADO' : 'LISTO PARA ENTREGA'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {esRetirado ? (
+                      <View style={{ gap: 4 }}>
+                        <Text style={{ fontSize: 12, color: colors.text }}>
+                          👤 <Text style={{ fontWeight: '700' }}>Retirado por:</Text>{' '}
+                          <Text style={{ fontWeight: '800', color: colors.brandText }}>{desp.retiradoPor}</Text>
+                          {desp.retiradoCedula ? ` (CI: ${desp.retiradoCedula})` : ''}
+                          {desp.retiradoCargo ? ` · ${desp.retiradoCargo}` : ''}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                          {desp.fecha ? (
+                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                              🕒 Fecha: {fmtDate(desp.fecha)}
+                            </Text>
+                          ) : null}
+                          {desp.despachadoPor ? (
+                            <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                              📦 Entregó: {desp.despachadoPor}
+                            </Text>
+                          ) : null}
+                        </View>
+                        {desp.maquinariaCodigo || desp.maquinariaPlaca ? (
+                          <Text style={{ fontSize: 11.5, color: '#1E3A5F', fontWeight: '700' }}>
+                            🚜 Destino: {desp.maquinariaCodigo || ''} · Placa: {desp.maquinariaPlaca || 'Sin placa'}
+                          </Text>
+                        ) : null}
+                        {desp.nota ? (
+                          <Text style={{ fontSize: 11.5, color: colors.text, fontStyle: 'italic', backgroundColor: colors.surface, padding: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                            "{desp.nota}"
+                          </Text>
+                        ) : null}
+                        {canWrite ? (
+                          <TouchableOpacity
+                            onPress={() => abrirDespachoModal(r)}
+                            style={{
+                              alignSelf: 'flex-start',
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              borderRadius: radius.sm,
+                              paddingHorizontal: spacing.sm,
+                              paddingVertical: 4,
+                              marginTop: 2,
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
+                              ✏️ Editar Registro de Retiro
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <Text style={{ fontSize: 11.5, color: '#166534', fontWeight: '600', flex: 1 }}>
+                          El repuesto ya está físicamente en el estante de almacén listo para ser retirado.
+                        </Text>
+                        {canWrite ? (
+                          <TouchableOpacity
+                            onPress={() => abrirDespachoModal(r)}
+                            style={{
+                              backgroundColor: '#16A34A',
+                              borderRadius: radius.sm,
+                              paddingHorizontal: spacing.sm,
+                              paddingVertical: 6,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12 }}>📦</Text>
+                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11.5 }}>
+                              Registrar Retiro / Despacho
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
+
               {/* Botones de Acción para el comprador / Admin */}
-              {canWrite && (
-                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4, flexWrap: 'wrap' }}>
-                  {/* Botón 1: Convertir en Requerimiento Oficial */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4, flexWrap: 'wrap' }}>
+                {/* Botón Expediente Completo Oficial (Falta 2) */}
+                <TouchableOpacity
+                  onPress={() => descargarExpediente(r)}
+                  style={{
+                    paddingVertical: 9,
+                    paddingHorizontal: spacing.md,
+                    backgroundColor: '#1E3A5F',
+                    borderRadius: radius.md,
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Text style={{ fontSize: 13 }}>📑</Text>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                    Expediente Completo
+                  </Text>
+                </TouchableOpacity>
+
+                {canWrite && r.status !== 'recibido' && r.status !== 'rechazado' && (
+                  <TouchableOpacity
+                    onPress={() => abrirEditar(r)}
+                    style={{
+                      paddingVertical: 9,
+                      paddingHorizontal: spacing.md,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1.5,
+                      borderColor: colors.brand,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={{ fontSize: 13 }}>✏️</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                      Editar
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {canWrite && r.status !== 'rechazado' && (
                   <TouchableOpacity
                     onPress={() => abrirConvertir(r)}
                     style={{
                       flex: 2,
                       minWidth: 160,
-                      backgroundColor: colors.brand,
+                      backgroundColor: yaConvertida ? colors.surfaceAlt : colors.brand,
+                      borderWidth: yaConvertida ? 1.5 : 0,
+                      borderColor: colors.brand,
                       paddingVertical: 9,
                       paddingHorizontal: spacing.sm,
                       borderRadius: radius.md,
@@ -542,12 +2440,13 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     }}
                   >
                     <Text style={{ fontSize: 14 }}>🔄</Text>
-                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
-                      Convertir a Requerimiento
+                    <Text style={{ color: yaConvertida ? colors.brandText : colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                      {yaConvertida ? 'Actualizar Requerimiento' : 'Convertir a Requerimiento'}
                     </Text>
                   </TouchableOpacity>
+                )}
 
-                  {/* Botón 2: Pedir Aclaratoria Técnica al solicitante */}
+                {canWrite && r.status !== 'rechazado' && (
                   <TouchableOpacity
                     onPress={() => abrirAclaratoria(r)}
                     style={{
@@ -570,28 +2469,42 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                       Pedir Aclaratoria
                     </Text>
                   </TouchableOpacity>
+                )}
 
-                  {/* Botón 3: Rechazar si no procede */}
-                  {r.status !== 'rechazado' && (
-                    <TouchableOpacity
-                      onPress={() => abrirRechazar(r)}
-                      style={{
-                        paddingVertical: 9,
-                        paddingHorizontal: spacing.md,
-                        backgroundColor: colors.surfaceAlt,
-                        borderWidth: 1,
-                        borderColor: colors.danger,
-                        borderRadius: radius.md,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>
-                        ✕ Rechazar
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
+                {canWrite && r.status !== 'rechazado' && (
+                  <TouchableOpacity
+                    onPress={() => abrirRechazar(r)}
+                    style={{
+                      paddingVertical: 9,
+                      paddingHorizontal: spacing.md,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.danger,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>
+                      ✕ Rechazar
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {puedeEliminarSolicitud(r) && (
+                  <TouchableOpacity
+                    onPress={() => eliminarSolicitud(r)}
+                    style={{
+                      paddingVertical: 9,
+                      paddingHorizontal: spacing.md,
+                      backgroundColor: colors.danger,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </Card>
           );
         })
@@ -619,48 +2532,117 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 <Text style={{ fontWeight: '800', color: colors.text }}>{convertTarget?.code}</Text>.
               </Text>
 
-              {/* Proveedor cotizado */}
+              {/* Proveedor cotizado General con Buscador */}
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
-                Proveedor Sugerido / Cotizado:
+                Proveedor General Sugerido / Cotizado:
               </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: spacing.sm, paddingVertical: 2 }}>
-                <TouchableOpacity
-                  onPress={() => setConvertSupplierId(null)}
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: radius.pill,
-                    backgroundColor: !convertSupplierId ? colors.brand : colors.surfaceAlt,
-                    borderWidth: 1,
-                    borderColor: !convertSupplierId ? colors.brand : colors.border,
-                  }}
-                >
-                  <Text style={{ color: !convertSupplierId ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
-                    Por cotizar
+              <TouchableOpacity
+                onPress={() => setConvertSupOpen((v) => !v)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderWidth: 1,
+                  borderColor: convertSupplierId ? colors.brand : colors.border,
+                  backgroundColor: colors.surfaceAlt,
+                  borderRadius: radius.md,
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: spacing.sm,
+                  marginBottom: spacing.xs,
+                }}
+              >
+                <Text style={{ color: convertSupplierId ? colors.text : colors.muted, fontWeight: '700', fontSize: 12.5 }} numberOfLines={1}>
+                  {convertSupplierId ? (suppliers.find((s) => s.id === convertSupplierId)?.name ?? '—') : 'Por cotizar (Sin proveedor general)'}
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{convertSupOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+
+              {convertSupOpen ? (
+                <View style={{ marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface }}>
+                  <TextInput
+                    value={convertSupQ}
+                    onChangeText={setConvertSupQ}
+                    placeholder="🔍 Buscar proveedor por nombre o RIF…"
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { margin: 6, fontSize: 12 }]}
+                  />
+                  <View style={{ maxHeight: 180 }}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      <TouchableOpacity
+                        onPress={() => { setConvertSupplierId(null); setConvertSupOpen(false); setConvertSupQ(''); }}
+                        style={{
+                          paddingVertical: 8,
+                          paddingHorizontal: spacing.md,
+                          borderBottomWidth: 1,
+                          borderBottomColor: colors.border,
+                          backgroundColor: !convertSupplierId ? colors.brand : 'transparent',
+                        }}
+                      >
+                        <Text style={{ color: !convertSupplierId ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                          Por cotizar (Sin proveedor general)
+                        </Text>
+                      </TouchableOpacity>
+                      {suppliers
+                        .filter((s) => !convertSupQ.trim() || norm(s.name).includes(norm(convertSupQ)) || (s.rif && norm(s.rif).includes(norm(convertSupQ))))
+                        .map((s) => {
+                          const on = convertSupplierId === s.id;
+                          return (
+                            <TouchableOpacity
+                              key={s.id}
+                              onPress={() => { setConvertSupplierId(s.id); setConvertSupOpen(false); setConvertSupQ(''); }}
+                              style={{
+                                paddingVertical: 8,
+                                paddingHorizontal: spacing.md,
+                                borderBottomWidth: 1,
+                                borderBottomColor: colors.border,
+                                backgroundColor: on ? colors.brand : 'transparent',
+                                flexDirection: 'row',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <View style={{ flex: 1, marginRight: 6 }}>
+                                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
+                                  🏭 {s.name}
+                                </Text>
+                                {s.rif ? <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 10 }}>{s.rif}</Text> : null}
+                              </View>
+                              {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                            </TouchableOpacity>
+                          );
+                        })}
+                    </ScrollView>
+                  </View>
+                </View>
+              ) : null}
+
+              {/* Asignación individual de proveedores por renglón con CHECK y BUSCADOR (Compras consolidadas multi-proveedor) */}
+              {convertTarget && convertTarget.items.length > 1 && (
+                <View style={{ marginBottom: spacing.sm, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: 2 }}>
+                    🏢 Asignación individual de proveedor por artículo (opcional):
                   </Text>
-                </TouchableOpacity>
-                {suppliers.map((s) => {
-                  const sel = convertSupplierId === s.id;
-                  return (
-                    <TouchableOpacity
-                      key={s.id}
-                      onPress={() => setConvertSupplierId(s.id)}
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 6,
-                        borderRadius: radius.pill,
-                        backgroundColor: sel ? colors.brand : colors.surfaceAlt,
-                        borderWidth: 1,
-                        borderColor: sel ? colors.brand : colors.border,
-                      }}
-                    >
-                      <Text style={{ color: sel ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
-                        🏭 {s.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 8 }}>
+                    Si activas el check de un artículo, podrás buscar y asignarle un proveedor diferente al principal.
+                  </Text>
+                  {convertTarget.items.map((it, idx) => {
+                    const currentSupId = convertItemSuppliers[idx] !== undefined ? convertItemSuppliers[idx] : convertSupplierId;
+                    return (
+                      <ConvertItemSupplierPicker
+                        key={idx}
+                        itemIndex={idx}
+                        itemName={it.name}
+                        itemQty={it.qty}
+                        itemUnit={it.unit}
+                        generalSupplierId={convertSupplierId}
+                        currentSupplierId={currentSupId}
+                        suppliers={suppliers}
+                        onSelectSupplier={(supId) => setConvertItemSuppliers((prev) => ({ ...prev, [idx]: supId }))}
+                      />
+                    );
+                  })}
+                </View>
+              )}
 
               {/* Empresa Pagadora */}
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
@@ -708,7 +2690,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               {/* Precio estimado / cotizado */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
                 <View style={{ flex: 2 }}>
-                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Precio Unitario Estimado:</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Precio unitario para las líneas SIN precio:</Text>
                   <TextInput
                     value={convertPrice}
                     onChangeText={(t) => setConvertPrice(onlyDecimal(t))}
@@ -746,6 +2728,43 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     })}
                   </View>
                 </View>
+              </View>
+
+              {/* 🔺 Prioridad del requerimiento (se sincroniza con Por Pagar) */}
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                🔺 Nivel de Prioridad (se sincroniza con Por Pagar):
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: spacing.sm }}>
+                {PRIORIDADES_COMPRA.map((p) => {
+                  const on = convertPrioridad === p;
+                  const t = colorPrioridad(colors, p);
+                  return (
+                    <TouchableOpacity
+                      key={p}
+                      onPress={() => setConvertPrioridad(on ? null : p)}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: on ? t.border : colors.border,
+                        backgroundColor: on ? t.bg : colors.surfaceAlt,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 6,
+                      }}
+                    >
+                      <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 12 }}>
+                        {PRIORIDAD_COMPRA_INFO[p].label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {convertPrioridad ? (
+                  <TouchableOpacity
+                    onPress={() => setConvertPrioridad(null)}
+                    style={{ paddingHorizontal: spacing.sm, paddingVertical: 6 }}
+                  >
+                    <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Quitar ✕</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               {/* Notas de compra */}
@@ -950,6 +2969,1023 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* ── MODAL: EDITAR SOLICITUD DE COMPRA ─────────────────────────────────── */}
+      <Modal visible={Boolean(editTarget)} animationType="slide" onRequestClose={() => setEditTarget(null)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: spacing.xl }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <SectionTitle>✏️ Editar Solicitud {editTarget?.code}</SectionTitle>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  Corrige los renglones, medidas técnicas, cantidades, solicitante o equipo destino.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setEditTarget(null)}
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 13 }}>✕ Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* TARJETA 1: DATOS GENERALES */}
+            <Card style={{ marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: spacing.sm }}>
+                📌 Información General de la Solicitud
+              </Text>
+
+              {/* Título */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                Título / Descripción Principal *
+              </Text>
+              <TextInput
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="Ej. PEDIDO TÉCNICO: FILTROS Y CORREAS PARA PAYLOADER"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                    👤 Solicitado por:
+                  </Text>
+                  <TextInput
+                    value={editSolicitante}
+                    onChangeText={setEditSolicitante}
+                    placeholder="Ej. Osmar Zambrano"
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                    📍 Área operativa:
+                  </Text>
+                  <TextInput
+                    value={editArea}
+                    onChangeText={setEditArea}
+                    placeholder="Ej. Taller, Cantera, Mina..."
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+              </View>
+
+              {/* Destino Tipo */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                Tipo de Destino / Equipo:
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.xs }}>
+                {[
+                  { key: 'maquinaria', label: '🚜 Maquinaria' },
+                  { key: 'vehiculo', label: '🚗 Vehículo' },
+                  { key: 'area', label: '📍 Área / Planta' },
+                  { key: 'otro', label: '🏷️ Otro' },
+                ].map((t) => {
+                  const on = editDestinoTipo === t.key;
+                  return (
+                    <TouchableOpacity
+                      key={t.key}
+                      onPress={() => setEditDestinoTipo(t.key as any)}
+                      style={{
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: on ? colors.brand : colors.border,
+                        backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 5,
+                      }}
+                    >
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                        {t.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Selector interactivo para Maquinaria con CÓDIGO y PLACA */}
+              {editDestinoTipo === 'maquinaria' && (
+                <View style={{ marginTop: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4, fontWeight: '700' }}>
+                    🚜 Seleccionar Maquinaria (con Código y Placa):
+                  </Text>
+                  <TextInput
+                    value={editMachineSearch}
+                    onChangeText={setEditMachineSearch}
+                    placeholder="🔍 Buscar por código, tipo o placa…"
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { fontSize: 12, paddingVertical: 6, marginBottom: 6 }]}
+                  />
+                  <View style={{ maxHeight: 140 }}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {machines
+                        .filter((m) => {
+                          if (!editMachineSearch.trim()) return true;
+                          const q = norm(editMachineSearch);
+                          return (
+                            norm(m.code).includes(q) ||
+                            (m.plate && norm(m.plate).includes(q)) ||
+                            (m.description && norm(m.description).includes(q)) ||
+                            (m.machinery_type && norm(m.machinery_type).includes(q))
+                          );
+                        })
+                        .map((m) => (
+                          <TouchableOpacity
+                            key={m.id}
+                            onPress={() => {
+                              setEditDestinoTexto(
+                                `MAQUINARIA ${m.code} - ${m.description || m.machinery_type || ''} (PLACA: ${m.plate || 'S/P'}${m.serial ? ` · SERIAL: ${m.serial}` : ''})`
+                              );
+                              setEditMachineSearch('');
+                            }}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 8,
+                              borderBottomWidth: 1,
+                              borderBottomColor: colors.border,
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+                              🚜 {m.code} - {m.description || m.machinery_type || 'Maquinaria'}
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                              Placa: <Text style={{ color: colors.brandText, fontWeight: '800' }}>{m.plate || 'Sin Placa'}</Text>
+                              {m.serial ? ` · Serial: ${m.serial}` : ''}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                  </View>
+                </View>
+              )}
+
+              {/* Selector interactivo para Vehículo con MARCA y PLACA */}
+              {editDestinoTipo === 'vehiculo' && (
+                <View style={{ marginTop: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4, fontWeight: '700' }}>
+                    🚗 Seleccionar Vehículo (con Marca y Placa):
+                  </Text>
+                  <TextInput
+                    value={editVehicleSearch}
+                    onChangeText={setEditVehicleSearch}
+                    placeholder="🔍 Buscar por placa, marca o modelo…"
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { fontSize: 12, paddingVertical: 6, marginBottom: 6 }]}
+                  />
+                  <View style={{ maxHeight: 140 }}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {vehicles
+                        .filter((v) => {
+                          if (!editVehicleSearch.trim()) return true;
+                          const q = norm(editVehicleSearch);
+                          return (
+                            (v.plate && norm(v.plate).includes(q)) ||
+                            (v.brand && norm(v.brand).includes(q)) ||
+                            (v.model && norm(v.model).includes(q))
+                          );
+                        })
+                        .map((v) => (
+                          <TouchableOpacity
+                            key={v.id}
+                            onPress={() => {
+                              setEditDestinoTexto(`VEHÍCULO ${v.brand || ''} ${v.model || ''} (PLACA: ${v.plate || 'S/P'})`);
+                              setEditVehicleSearch('');
+                            }}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 8,
+                              borderBottomWidth: 1,
+                              borderBottomColor: colors.border,
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+                              🚗 {v.brand || 'Vehículo'} {v.model || ''}
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                              Placa: <Text style={{ color: colors.brandText, fontWeight: '800' }}>{v.plate || 'Sin Placa'}</Text>
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                  </View>
+                </View>
+              )}
+
+              {/* Campo para editar el texto final del destino */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>
+                Texto detallado del Destino / Equipo:
+              </Text>
+              <TextInput
+                value={editDestinoTexto}
+                onChangeText={setEditDestinoTexto}
+                placeholder="Ej. MAQUINARIA PAYLOADER - SERIAL: XUG0050GNRKL10889 (PLACA: S/P)"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+                Nota / Justificación Adicional (opcional):
+              </Text>
+              <TextInput
+                value={editNote}
+                onChangeText={setEditNote}
+                placeholder="Motivo de la solicitud, urgencia, observaciones..."
+                placeholderTextColor={colors.muted}
+                multiline
+                numberOfLines={2}
+                style={[inp, { minHeight: 50, textAlignVertical: 'top' }]}
+              />
+            </Card>
+
+            {/* TARJETA 2: RENGLONES Y MEDIDAS TÉCNICAS */}
+            <Card style={{ marginBottom: spacing.md }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+                <View>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>
+                    📦 Renglones y Medidas Técnicas ({editItems.length})
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    Edita el nombre, cantidades, medidas exactas o fotos de muestra.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={agregarRenglonEdicion}
+                  style={{
+                    backgroundColor: colors.brand,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: radius.md,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                    ➕ Agregar Renglón
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ gap: spacing.md }}>
+                {editItems.map((it, idx) => {
+                  const tieneFoto = Boolean(it.image_url && it.image_url.trim());
+                  const estaSubiendo = subiendoFotoKey === it.key;
+
+                  return (
+                    <View
+                      key={it.key}
+                      style={{
+                        borderWidth: 1.5,
+                        borderColor: colors.border,
+                        borderRadius: radius.md,
+                        backgroundColor: colors.surfaceAlt,
+                        padding: spacing.sm,
+                        gap: 8,
+                      }}
+                    >
+                      {/* Cabecera del renglón */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ backgroundColor: colors.brand, paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm }}>
+                            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 11 }}>#{idx + 1}</Text>
+                          </View>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                            Renglón #{idx + 1}
+                          </Text>
+                        </View>
+
+                        {editItems.length > 1 && (
+                          <TouchableOpacity
+                            onPress={() => eliminarRenglonEdicion(idx)}
+                            style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.danger,
+                              paddingHorizontal: 8,
+                              paddingVertical: 3,
+                              borderRadius: radius.sm,
+                            }}
+                          >
+                            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>
+                              🗑️ Eliminar
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
+                      {/* Nombre del repuesto / material */}
+                      <View>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>
+                          Nombre del Repuesto / Material *
+                        </Text>
+                        <TextInput
+                          value={it.name}
+                          onChangeText={(v) => actualizarItemEdicion(idx, 'name', v)}
+                          placeholder="Ej. PROTECTOR DE TRIPA, FILTRO DE AIRE..."
+                          placeholderTextColor={colors.muted}
+                          style={[inp, { backgroundColor: colors.surface, fontWeight: '700' }]}
+                        />
+                      </View>
+
+                      {/* Cantidad y Unidad */}
+                      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                        <View style={{ flex: 1.2 }}>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>
+                            Cantidad *
+                          </Text>
+                          <TextInput
+                            value={it.qty}
+                            onChangeText={(v) => actualizarItemEdicion(idx, 'qty', onlyDecimal(v))}
+                            placeholder="1"
+                            keyboardType="numeric"
+                            placeholderTextColor={colors.muted}
+                            style={[inp, { backgroundColor: colors.surface, fontWeight: '700' }]}
+                          />
+                        </View>
+
+                        <View style={{ flex: 1.2 }}>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>
+                            Unidad
+                          </Text>
+                          <TextInput
+                            value={it.unit}
+                            onChangeText={(v) => actualizarItemEdicion(idx, 'unit', v.toUpperCase())}
+                            placeholder="UND"
+                            placeholderTextColor={colors.muted}
+                            autoCapitalize="characters"
+                            style={[inp, { backgroundColor: colors.surface }]}
+                          />
+                        </View>
+                      </View>
+
+                      {/* Chips rápidos de unidad */}
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                        {['UND', 'JUEGO', 'MTS', 'LTS', 'KG', 'PZA', 'PAQ'].map((u) => (
+                          <TouchableOpacity
+                            key={u}
+                            onPress={() => actualizarItemEdicion(idx, 'unit', u)}
+                            style={{
+                              backgroundColor: it.unit === u ? colors.brand : colors.surface,
+                              borderWidth: 1,
+                              borderColor: it.unit === u ? colors.brand : colors.border,
+                              borderRadius: radius.pill,
+                              paddingHorizontal: 7,
+                              paddingVertical: 2,
+                            }}
+                          >
+                            <Text style={{ color: it.unit === u ? colors.brandContrast : colors.text, fontSize: 10, fontWeight: '700' }}>
+                              {u}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+
+                      {/* Medidas Técnicas / Especificaciones Obligatorias */}
+                      <View
+                        style={{
+                          backgroundColor: isDark ? '#0F172A' : '#EFF6FF',
+                          borderWidth: 1.5,
+                          borderColor: '#3B82F6',
+                          borderRadius: radius.sm,
+                          padding: 8,
+                          gap: 4,
+                        }}
+                      >
+                        <Text style={{ color: '#1D4ED8', fontSize: 11, fontWeight: '800' }}>
+                          📐 Especificaciones y Medidas Técnicas:
+                        </Text>
+                        <TextInput
+                          value={it.note}
+                          onChangeText={(v) => actualizarItemEdicion(idx, 'note', v)}
+                          placeholder="Ej. Medidas 23.5-25, paso fino, calibre 1/2 pulgada, serial de parte..."
+                          placeholderTextColor={colors.muted}
+                          multiline
+                          numberOfLines={2}
+                          style={{
+                            backgroundColor: colors.surface,
+                            color: colors.text,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            borderRadius: radius.sm,
+                            padding: 6,
+                            fontSize: 12,
+                            minHeight: 46,
+                            textAlignVertical: 'top',
+                          }}
+                        />
+                      </View>
+
+                      {/* Foto / Muestra Técnica */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {tieneFoto ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Image
+                              source={{ uri: it.image_url }}
+                              style={{ width: 50, height: 50, borderRadius: radius.sm, backgroundColor: '#000' }}
+                            />
+                            <TouchableOpacity
+                              onPress={() => setFotoModalUrl(it.image_url)}
+                              style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
+                                🔍 Ver Ampliada
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => actualizarItemEdicion(idx, 'image_url', '')}
+                              style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.danger,
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>
+                                ✕ Quitar
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            onPress={() => subirFotoRenglon(idx)}
+                            disabled={estaSubiendo}
+                            style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              borderRadius: radius.sm,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 6,
+                              opacity: estaSubiendo ? 0.6 : 1,
+                            }}
+                          >
+                            {estaSubiendo ? (
+                              <ActivityIndicator size="small" color={colors.brand} />
+                            ) : (
+                              <Text style={{ fontSize: 13 }}>📷</Text>
+                            )}
+                            <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                              {estaSubiendo ? 'Subiendo imagen…' : 'Subir Foto de Muestra'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <TouchableOpacity
+                onPress={agregarRenglonEdicion}
+                style={{
+                  marginTop: spacing.md,
+                  borderWidth: 1,
+                  borderColor: colors.brand,
+                  borderStyle: 'dashed',
+                  borderRadius: radius.md,
+                  paddingVertical: 10,
+                  alignItems: 'center',
+                  backgroundColor: colors.surfaceAlt,
+                }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                  ➕ Agregar otro repuesto a la solicitud
+                </Text>
+              </TouchableOpacity>
+            </Card>
+
+            {/* BOTONES FINALES DE GUARDADO */}
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+              <TouchableOpacity
+                onPress={() => setEditTarget(null)}
+                disabled={editBusy}
+                style={{
+                  flex: 1,
+                  paddingVertical: 12,
+                  borderRadius: radius.md,
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
+                  Cancelar
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={guardarEdicion}
+                disabled={editBusy}
+                style={{
+                  flex: 2,
+                  paddingVertical: 12,
+                  borderRadius: radius.md,
+                  backgroundColor: colors.brand,
+                  alignItems: 'center',
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: 8,
+                  opacity: editBusy ? 0.6 : 1,
+                }}
+              >
+                {editBusy ? (
+                  <ActivityIndicator size="small" color={colors.brandContrast} />
+                ) : (
+                  <Text style={{ fontSize: 15 }}>💾</Text>
+                )}
+                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 14 }}>
+                  {editBusy ? 'Guardando cambios…' : 'Guardar Cambios'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Carga de Factura Fiscal / Comercial ── */}
+      <Modal visible={facturaModalOpen} animationType="slide" onRequestClose={() => setFacturaModalOpen(false)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>🧾 Carga de Factura de Compra</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Requerimiento {facturaTarget?.code ?? ''}: Busca un proveedor registrado o escribe su nombre manualmente, e ingresa los datos o nota de la factura.
+            </Text>
+
+            <Card>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', gap: 6 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                  🏭 Proveedor / Emisor de la Factura (buscar o escribir manualmente):
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setFacturaProvOpen((v) => !v)}
+                  style={{
+                    backgroundColor: facturaProvOpen ? colors.brand : colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: facturaProvOpen ? colors.brand : colors.border,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: radius.pill,
+                  }}
+                >
+                  <Text style={{ color: facturaProvOpen ? colors.brandContrast : colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                    {facturaProvOpen ? '▲ Cerrar lista de proveedores' : `🔍 Buscar en proveedores (${suppliers.length})`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TextInput
+                value={facturaEmpresa}
+                onChangeText={(txt) => {
+                  setFacturaEmpresa(txt);
+                  if (facturaProvOpen) setFacturaProvSearch(txt);
+                }}
+                placeholder="Escribe manualmente el proveedor/emisor o búscalo en el catálogo..."
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.xs }]}
+              />
+
+              {facturaProvOpen ? (
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceAlt,
+                    borderWidth: 1,
+                    borderColor: colors.brand,
+                    borderRadius: radius.md,
+                    padding: spacing.xs,
+                    marginBottom: spacing.sm,
+                    maxHeight: 210,
+                  }}
+                >
+                  <TextInput
+                    value={facturaProvSearch}
+                    onChangeText={setFacturaProvSearch}
+                    placeholder="🔍 Filtrar proveedor por nombre o RIF..."
+                    placeholderTextColor={colors.muted}
+                    style={[inp, { backgroundColor: colors.surface, paddingVertical: 6, fontSize: 12, marginBottom: 6 }]}
+                  />
+                  <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+                    {suppliers
+                      .filter((s) => {
+                        if (!facturaProvSearch.trim()) return true;
+                        const q = norm(facturaProvSearch);
+                        return norm(s.name).includes(q) || (s.rif && norm(s.rif).includes(q));
+                      })
+                      .slice(0, 40)
+                      .map((s) => {
+                        const sel = norm(facturaEmpresa) === norm(s.name);
+                        return (
+                          <TouchableOpacity
+                            key={s.id}
+                            onPress={() => {
+                              setFacturaEmpresa(s.name);
+                              setFacturaProvOpen(false);
+                            }}
+                            style={{
+                              paddingVertical: 7,
+                              paddingHorizontal: 8,
+                              borderRadius: radius.sm,
+                              backgroundColor: sel ? colors.brand + '22' : 'transparent',
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: colors.border,
+                              flexDirection: 'row',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ color: sel ? colors.brandText : colors.text, fontWeight: sel ? '800' : '600', fontSize: 12 }}>
+                              🏭 {s.name}
+                            </Text>
+                            {s.rif ? (
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>{s.rif}</Text>
+                            ) : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>N° de Factura / Control</Text>
+              <TextInput
+                value={facturaNumero}
+                onChangeText={setFacturaNumero}
+                placeholder="Ej. FACT-00892 o 0001248"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Fecha de Emisión (AAAA-MM-DD)</Text>
+              <TextInput
+                value={facturaFecha}
+                onChangeText={setFacturaFecha}
+                placeholder="2026-10-26"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: spacing.sm }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nota de la Factura (Opcional)</Text>
+              <TextInput
+                value={facturaNota}
+                onChangeText={setFacturaNota}
+                placeholder="Ej. Factura entregada en físico, pendiente retención, observación..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { marginBottom: spacing.sm, minHeight: 54, textAlignVertical: 'top' }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Documento Adjunto (PDF o Imagen de la Factura)</Text>
+              {facturaUrl ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surfaceAlt, padding: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm }}>
+                  <Text style={{ fontSize: 22 }}>{facturaTipo === 'pdf' ? '📄' : '🖼️'}</Text>
+                  <Text style={{ flex: 1, fontSize: 12, color: colors.text }} numberOfLines={1}>
+                    {facturaNombre || 'Factura adjunta'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => abrirVisorFactura(facturaUrl, facturaTipo, facturaNombre)}
+                    style={{ backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                  >
+                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => { setFacturaUrl(null); setFacturaNombre(null); }}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>Quitar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={tomarFotoFactura}
+                    disabled={subiendoFactura}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', opacity: subiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                      {subiendoFactura ? '⏳ Subiendo…' : '📷 Tomar Foto'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={subirArchivoFactura}
+                    disabled={subiendoFactura}
+                    style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', opacity: subiendoFactura ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>
+                      {subiendoFactura ? '⏳ Subiendo…' : '📎 Subir Archivo/PDF'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Card>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity
+                onPress={() => setFacturaModalOpen(false)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={guardarFacturaModal}
+                disabled={guardandoFactura}
+                style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoFactura ? 0.6 : 1 }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>
+                  {guardandoFactura ? 'Guardando…' : '💾 Guardar Factura'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Modal: Visor de Factura Adjunta ── */}
+      <Modal visible={facturaViewerOpen} animationType="fade" transparent onRequestClose={() => setFacturaViewerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%', overflow: 'hidden' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
+                🧾 {facturaViewerNombre || 'Factura'}
+              </Text>
+              <TouchableOpacity onPress={() => setFacturaViewerOpen(false)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ padding: spacing.md }}>
+              {facturaViewerUrl ? (
+                facturaViewerTipo === 'pdf' ? (
+                  Platform.OS === 'web'
+                    ? React.createElement('iframe', { src: facturaViewerUrl, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
+                    : <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginVertical: 20 }}>Toca "⬇️ Descargar / Abrir" para ver el PDF.</Text>
+                ) : (
+                  <Image source={{ uri: facturaViewerUrl }} style={{ width: '100%', height: 420, borderRadius: radius.md }} resizeMode="contain" />
+                )
+              ) : null}
+            </ScrollView>
+            <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', gap: spacing.sm }}>
+              <TouchableOpacity
+                onPress={() => setFacturaViewerOpen(false)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+              </TouchableOpacity>
+              {facturaViewerUrl ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      window.open(facturaViewerUrl, '_blank');
+                    } else {
+                      Linking.openURL(facturaViewerUrl);
+                    }
+                  }}
+                  style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Abrir / Descargar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal: Control Físico de Retiro en Almacén (Falta 3) ── */}
+      <Modal visible={despachoModalOpen} animationType="slide" onRequestClose={() => setDespachoModalOpen(false)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>📦 Retiro / Despacho Físico de Almacén</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Requerimiento {despachoTarget?.code ?? ''}: Registra a qué mecánico o chofer se le entregó el material y para cuál maquinaria o vehículo (código y placa).
+            </Text>
+
+            {/* Persona que retira */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                👤 Personal que Retira (Mecánico / Chofer)
+              </Text>
+              <TextInput
+                value={empBusquedaQ}
+                onChangeText={setEmpBusquedaQ}
+                placeholder="🔎 Buscar en nómina (nombre, cargo, cédula)…"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6, fontSize: 12 }]}
+              />
+              {empBusquedaQ.trim().length > 0 ? (
+                <View style={{ maxHeight: 150, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, marginBottom: 8, overflow: 'hidden' }}>
+                  <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                    {employees
+                      .map((e) => ({
+                        e,
+                        fullName: [e.first_name, e.last_name].filter(Boolean).join(' ') || 'Sin Nombre',
+                      }))
+                      .filter(({ e, fullName }) => {
+                        const q = norm(empBusquedaQ);
+                        return norm(fullName).includes(q) || (e.cedula && norm(e.cedula).includes(q)) || (e.cargo && norm(e.cargo).includes(q));
+                      })
+                      .map(({ e, fullName }) => (
+                        <TouchableOpacity
+                          key={e.id}
+                          onPress={() => {
+                            setRetiradoPor(fullName);
+                            setRetiradoCedula(e.cedula || '');
+                            setRetiradoCargo(e.cargo || '');
+                            setRetiradoEmployeeId(e.id);
+                            setEmpBusquedaQ('');
+                          }}
+                          style={{ padding: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{fullName}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            {e.cedula ? `CI: ${e.cedula} · ` : ''}{e.cargo || 'Personal'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nombre Completo de quien retira</Text>
+              <TextInput
+                value={retiradoPor}
+                onChangeText={setRetiradoPor}
+                placeholder="Nombre y Apellido"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6 }]}
+              />
+
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: 6 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula</Text>
+                  <TextInput
+                    value={retiradoCedula}
+                    onChangeText={setRetiradoCedula}
+                    placeholder="V-12345678"
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cargo / Rol</Text>
+                  <TextInput
+                    value={retiradoCargo}
+                    onChangeText={setRetiradoCargo}
+                    placeholder="Ej. Mecánico, Chofer"
+                    placeholderTextColor={colors.muted}
+                    style={inp}
+                  />
+                </View>
+              </View>
+            </Card>
+
+            {/* Maquinaria o Vehículo de Destino (con PLACA y Buscador) */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                🚜 Maquinaria o Vehículo de Destino
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 6 }}>
+                Identifica la unidad que recibirá el repuesto mostrando siempre Código y Placa.
+              </Text>
+
+              {despachoMaquinariaId ? (() => {
+                const selMaq = machines.find((m) => m.id === despachoMaquinariaId);
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#3B82F6', borderRadius: radius.md, padding: 8, marginBottom: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#1E3A8A', fontWeight: '800', fontSize: 12.5 }}>
+                        🚜 {selMaq ? machineLabel(selMaq) : 'Maquinaria seleccionada'}
+                      </Text>
+                      <Text style={{ color: '#2563EB', fontSize: 11 }}>
+                        Placa: {selMaq?.plate || 'Sin placa'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setDespachoMaquinariaId(null)}>
+                      <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Cambiar</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })() : null}
+
+              <TextInput
+                value={maqBusquedaQ}
+                onChangeText={setMaqBusquedaQ}
+                placeholder="🔎 Buscar maquinaria por código, placa, serial…"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6, fontSize: 12 }]}
+              />
+              <View style={{ maxHeight: 180, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, overflow: 'hidden' }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {machines
+                    .filter((m) => machineMatches(m, maqBusquedaQ))
+                    .map((m) => {
+                      const isSel = m.id === despachoMaquinariaId;
+                      return (
+                        <TouchableOpacity
+                          key={m.id}
+                          onPress={() => {
+                            setDespachoMaquinariaId(m.id);
+                            setMaqBusquedaQ('');
+                          }}
+                          style={{
+                            padding: 8,
+                            borderBottomWidth: 1,
+                            borderBottomColor: colors.border,
+                            backgroundColor: isSel ? '#DBEAFE' : 'transparent',
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                              {machineLabel(m)}
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>
+                              Placa: <Text style={{ fontWeight: '700', color: colors.brandText }}>{m.plate || 'Sin placa'}</Text>{m.serial ? ` · Serial: ${m.serial}` : ''}
+                            </Text>
+                          </View>
+                          {isSel ? <Text style={{ color: '#2563EB', fontWeight: '900', fontSize: 14 }}>✓</Text> : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                </ScrollView>
+              </View>
+            </Card>
+
+            {/* Detalles de Almacén */}
+            <Card>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                📋 Trazabilidad de Entrega
+              </Text>
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Almacenista que Despacha</Text>
+              <TextInput
+                value={despachadoPor}
+                onChangeText={setDespachadoPor}
+                placeholder="Nombre del almacenista"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6 }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Fecha / Hora de Retiro</Text>
+              <TextInput
+                value={despachoFecha}
+                onChangeText={setDespachoFecha}
+                placeholder="2026-10-26T14:30:00Z"
+                placeholderTextColor={colors.muted}
+                style={[inp, { marginBottom: 6 }]}
+              />
+
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Observaciones / Notas de Entrega</Text>
+              <TextInput
+                value={despachoNota}
+                onChangeText={setDespachoNota}
+                placeholder="Ej. Entregado en galpón principal, verificado con mecánico..."
+                placeholderTextColor={colors.muted}
+                multiline
+                style={[inp, { minHeight: 60, textAlignVertical: 'top' }]}
+              />
+            </Card>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity
+                onPress={() => setDespachoModalOpen(false)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={guardarDespachoModal}
+                disabled={guardandoDespacho}
+                style={{ flex: 2, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: guardandoDespacho ? 0.6 : 1 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>
+                  {guardandoDespacho ? 'Guardando…' : '📦 Confirmar Despacho Físico'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
       </Modal>
     </Screen>
   );

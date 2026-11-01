@@ -199,9 +199,7 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
         lineas: lineasPdf,
         eje: ejePdf,
         filtro: filtroPdf,
-        // Un papel filtrado SIEMPRE dice que lo está, aunque hayan apagado el alcance:
-        // un total parcial que se lee como el pago completo es el error más caro posible.
-        opciones: pdfFiltrado ? { ...opcionesPdf, sinAlcance: false } : opcionesPdf,
+        opciones: opcionesPdf,
         unidad,
         nombresEmpresa: datos?.empresas ?? new Map(),
         fichas: datos?.fichas,

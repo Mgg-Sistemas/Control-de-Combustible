@@ -265,6 +265,99 @@ const FR = loadTs(path.join(ROOT, 'src/lib/fotoRemota.ts'));
     /Promise\.race\(\[[\s\S]*?ultimaFotoHorometro\(m\.id\)\.catch\(\(\) => null\)[\s\S]*?setTimeout\(\(\) => res\(null\), 4000\)/.test(scr));
 }
 
+// ── 5) 📋 RENGLONES PERSONALIZADOS Y PENDIENTES (28-oct-2026) ───────────────
+{
+  // Caso normal: etiqueta + valor + columna elegida
+  const r1 = F.resolverNuevoRenglon({
+    categoriaSeleccionada: 'Datos Generales',
+    etiqueta: 'Capacidad cucharón',
+    valor: '1.2 m³',
+    id: 'r-test-1',
+  });
+  eq('renglón normal: toma etiqueta, valor y categoría seleccionada', r1, {
+    id: 'r-test-1',
+    categoria: 'Datos Generales',
+    etiqueta: 'Capacidad cucharón',
+    valor: '1.2 m³',
+  });
+
+  // Caso en que el usuario escribió el nombre del campo en la primera casilla (categoria) y el valor abajo
+  const r2 = F.resolverNuevoRenglon({
+    categoriaSeleccionada: 'Componentes Principales',
+    categoria: 'Motor Diesel',
+    etiqueta: '',
+    valor: 'Cummins 6BT 135 kW',
+    id: 'r-test-2',
+  });
+  eq('renglón tolerante: si llenó 1ra casilla y valor, toma 1ra casilla como etiqueta', r2, {
+    id: 'r-test-2',
+    categoria: 'Componentes Principales',
+    etiqueta: 'Motor Diesel',
+    valor: 'Cummins 6BT 135 kW',
+  });
+
+  // Caso en que el usuario escribió en las dos casillas de arriba (categoria y etiqueta) dejando valor vacío
+  const r3 = F.resolverNuevoRenglon({
+    categoriaSeleccionada: 'Componentes Principales',
+    categoria: 'Sistema Hidráulico',
+    etiqueta: 'Kawasaki K3V112DT',
+    valor: '',
+    id: 'r-test-3',
+  });
+  eq('renglón tolerante: si llenó las dos primeras casillas, toma 1ra como etiqueta y 2da como valor', r3, {
+    id: 'r-test-3',
+    categoria: 'Componentes Principales',
+    etiqueta: 'Sistema Hidráulico',
+    valor: 'Kawasaki K3V112DT',
+  });
+
+  // Vuelco automático de pendientes al pulsar Guardar o Exportar PDF sin pulsar "Añadir"
+  const baseFicha = {
+    titulo: 'XCMG XE225BR',
+    renglones: [
+      { id: 'r-marca', categoria: 'Datos Generales', etiqueta: 'Fabricante / Marca', valor: 'XCMG' },
+      { id: 'r-serial', categoria: 'Componentes Principales', etiqueta: 'Número de Serie', valor: 'XUG00225' },
+    ],
+    metricas: [],
+    observaciones: [],
+  };
+  const { data: fichaConPend, agregados } = F.aplicarPendientesFicha(baseFicha, {
+    categoriaSeleccionada: 'Componentes Principales',
+    nuevoCampoEtq: 'Filtro de Aceite',
+    nuevoCampoVal: 'P627763',
+    nuevaMetricaTit: 'POTENCIA DEL MOTOR',
+    nuevaMetricaVal: '135 kW / 181 HP',
+    nuevaObsTit: 'Condición General',
+    nuevaObsTxt: 'Unidad operativa en frente de excavación',
+  });
+  ok('⭐⭐ aplicarPendientesFicha vuelca renglón, métrica y observación escritos sin pulsar Añadir',
+    agregados.renglon && agregados.metrica && agregados.observacion
+    && fichaConPend.renglones.length === 3
+    && fichaConPend.renglones[2].etiqueta === 'Filtro de Aceite'
+    && fichaConPend.renglones[2].valor === 'P627763');
+
+  // El HTML exportado incluye todos los renglones añadidos en su columna correspondiente
+  const htmlCustom = F.fichaTecnicaMaquinaHtml(XCMG, { personalizada: fichaConPend });
+  ok('⭐⭐ el PDF exportado imprime los renglones añadidos por el usuario',
+    htmlCustom.includes('Filtro de Aceite')
+    && htmlCustom.includes('P627763')
+    && htmlCustom.includes('Fabricante / Marca')
+    && htmlCustom.includes('Número de Serie'));
+
+  // Sincronización con catálogo cuando se cargan campos nuevos en la máquina
+  const inicialNueva = {
+    ...baseFicha,
+    renglones: [
+      ...baseFicha.renglones,
+      { id: 'r-peso', categoria: 'Datos Generales', etiqueta: 'Peso operativo', valor: '22,04 t (22.040 kg)' },
+    ],
+  };
+  const sincronizada = F.sincronizarFichaConCatalogo(fichaConPend, inicialNueva);
+  ok('⭐⭐ sincronizarFichaConCatalogo conserva los renglones del usuario e incorpora los nuevos del catálogo',
+    sincronizada.renglones.some((r) => r.etiqueta === 'Filtro de Aceite')
+    && sincronizada.renglones.some((r) => r.etiqueta === 'Peso operativo'));
+}
+
 // ── Resultado ───────────────────────────────────────────────────────────────
 console.log('\nFICHA TÉCNICA DEL CATÁLOGO — documento y botón\n');
 if (failures.length) console.log(failures.join('\n'));

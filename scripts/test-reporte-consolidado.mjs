@@ -253,7 +253,7 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     C.cuerpoConsolidado(D, { ...OP, agruparPor: 'categoria' }).includes('Subtotal Sin clasificación'));
   const card = leer('src/components/ReporteConsolidadoCard.tsx');
   ok('⭐ la pantalla carga la clasificación del catálogo y el frente VIGENTE al final del rango',
-    /selectAllRows\('machinery', 'id, clasificacion(?:, encargado)?'\)/.test(card)
+    /selectAllRows\('machinery', 'id, clasificacion(?:, encargado)?(?:, operational, en_espera, active, transferida)?'\)/.test(card)
     && /listAsignacionesHasta\(hasta, FRENTES_MAQUINARIA\)/.test(card)
     && /vigentesAlDia\(\(asigsFrente as any\)\.asignaciones \?\? \[\], hasta\)/.test(card));
   // ⛏️🚛 20-oct-2026 (2.ª vuelta): los CAMIONES se asignan en el módulo de
@@ -263,6 +263,32 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     /listAsignacionesHasta\(hasta, FRENTES_VIAJES\)/.test(card)
     && /vigentesAlDia\(\(asigsFrenteViajes as any\)\.asignaciones \?\? \[\], hasta\)/.test(card)
     && /if \(!frentePorId\.get\(id\)\) frentePorId\.set\(id,/.test(card));
+  // ⚙️ 27-oct-2026: filtro por estado de maquinaria (Operativa, En espera, Inoperativa / Parada, Inactiva)
+  const F_EST = [
+    { id: 'm1', code: 'M1', placa: 'P1', empresa: 'A', estado: 'Operativa', montos: { jornadas: 100 }, cant: { jornadas: 10 } },
+    { id: 'm2', code: 'M2', placa: 'P2', empresa: 'A', estado: 'En espera', montos: { jornadas: 50 }, cant: { jornadas: 5 } },
+    { id: 'm3', code: 'M3', placa: 'P3', empresa: 'A', estado: 'Inoperativa / Parada', montos: { jornadas: 20 }, cant: { jornadas: 2 } },
+  ];
+  eq('⚙️ filtro soloEstados: solo Operativa', C.filasElegidas(F_EST, { ...OP, soloEstados: ['Operativa'] }).map((f) => f.id), ['m1']);
+  eq('⚙️ filtro soloEstados: varias (En espera + Parada)', C.filasElegidas(F_EST, { ...OP, soloEstados: ['En espera', 'Inoperativa / Parada'] }).map((f) => f.id), ['m2', 'm3']);
+  ok('⚙️ sufijoArchivoConsolidado nombra el estado',
+    /solo operativa/i.test(C.sufijoArchivoConsolidado({ ...OP, soloEstados: ['Operativa'] }))
+    && /solo 2 estados/.test(C.sufijoArchivoConsolidado({ ...OP, soloEstados: ['Operativa', 'En espera'] })));
+  ok('⚙️ la tarjeta tiene la pastilla SOLO ESTOS ESTADOS',
+    /SOLO ESTOS ESTADOS/.test(card) && /soloEstados/.test(card));
+  // ⏱️ 27-oct-2026: sinPagos y personalización de título
+  const F_HORAS = [
+    { id: 'h1', code: 'JUMBO 330', placa: 'PL1', empresa: 'A', montos: { jornadas: 1500, horometros: 0 }, cant: { jornadas: 25 } },
+  ];
+  const cuerpoSinPagos = C.cuerpoConsolidado({ filas: F_HORAS, desde: '2026-10-01', hasta: '2026-10-07' }, { ...OP, sinPagos: true });
+  ok('⏱️ sinPagos: cabecera dice TOTAL HORAS en vez de TOTAL a secas', cuerpoSinPagos.includes('TOTAL HORAS'));
+  ok('⏱️ sinPagos: no imprime signo $ en la celda de la máquina', !cuerpoSinPagos.includes('$1.500') && cuerpoSinPagos.includes('25 h'));
+  ok('⏱️ sufijoArchivoConsolidado nombra solo horas', /solo horas/.test(C.sufijoArchivoConsolidado({ ...OP, sinPagos: true })));
+  ok('⏱️ sufijoArchivoConsolidado nombra sin título', /sin título/.test(C.sufijoArchivoConsolidado({ ...OP, sinTitulo: true })));
+  ok('⏱️ nombreArchivoConsolidado adopta título personalizado',
+    /Reporte Especial de Horas/.test(C.nombreArchivoConsolidado('2026-10-01', '2026-10-07', { ...OP, tituloDoc: 'Reporte Especial de Horas' })));
+  ok('⏱️ la tarjeta tiene el toggle sinPagos y título personalizado',
+    /Quitar columna de pagos/.test(card) && /TÍTULO DEL DOCUMENTO/.test(card) && /tituloDoc/.test(card));
   ok('…con sus pastillas de agrupar y el filtro por categoría',
     /🏷️ Por categoría/.test(card) && /⛏️ Por frente/.test(card) && /soloCategorias/.test(card));
 
@@ -843,6 +869,10 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     && !/con relleno automático por día/.test(C.sufijoArchivoConsolidado(AUTO)));
   ok('* apagar el aviso también se dice en el nombre (regla de la casa)',
     /sin aviso de huecos/.test(C.sufijoArchivoConsolidado({ ...AUTO, avisoHuecosHorometro: false })));
+  // 2 decimales de horas cuando existen (ej. 11,37 h no se recorta a 11,4 h), manteniendo enteros y 1 decimal limpios.
+  eq('⭐⭐ cantTexto muestra hasta 2 decimales en horas (11,37 h) sin ensuciar enteros (36 h) ni 1 decimal (10,5 h)',
+    [C.cantTexto('jornadas', 11.37), C.cantTexto('horometros', 11.11), C.cantTexto('jornadas', 36), C.cantTexto('horometros', 10.5)],
+    ['11,37 h', '11,11 h', '36 h', '10,5 h']);
 }
 
 if (fail) {

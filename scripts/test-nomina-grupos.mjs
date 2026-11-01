@@ -129,16 +129,19 @@ const muestra = [
 ];
 const cuenta = (f) => muestra.filter((e) => p(f, e)).length;
 eq('total de la muestra', muestra.length, 338);
-eq('TODOS ya no trae a los apartados', cuenta('todos'), 282);
+eq('TODOS ya no trae a los apartados ni inactivos', cuenta('todos'), 221);
 eq('ACTIVOS sin apartados', cuenta('activo'), 181);
-eq('INACTIVOS intacto', cuenta('inactivo'), 61);
+eq('INACTIVOS en su apartado', cuenta('inactivo'), 61);
 eq('OTRO intacto', cuenta('otro'), 40);
 eq('CARBOZULIA', cuenta('carbozulia'), 40);
 eq('SEGURIDAD', cuenta('seguridad'), 16);
-// Todos + los dos grupos = la plantilla completa (nadie se pierde por el camino)
-eq('todos + grupos = plantilla', cuenta('todos') + cuenta('carbozulia') + cuenta('seguridad'), muestra.length);
-// Y dentro de "todos", las tres sub-pestañas siguen sumando
-eq('activos + inactivos + otro = todos', cuenta('activo') + cuenta('inactivo') + cuenta('otro'), cuenta('todos'));
+// Todos (vigentes) + inactivos + los dos grupos = la plantilla completa (nadie se pierde por el camino)
+eq('todos + inactivos + grupos = plantilla', cuenta('todos') + cuenta('inactivo') + cuenta('carbozulia') + cuenta('seguridad'), muestra.length);
+// Y dentro de "todos" (vigentes), activos + otro = todos
+eq('activos + otro = todos (vigentes)', cuenta('activo') + cuenta('otro'), cuenta('todos'));
+// Si un empleado de grupo apartado pasa a inactivo, sale del grupo y va al apartado de inactivos
+eq('inactivo de carbozulia NO sale en carbozulia', p('carbozulia', { g: 'carbozulia', st: 'inactivo' }), false);
+eq('inactivo de carbozulia SI sale en inactivos', p('inactivo', { g: 'carbozulia', st: 'inactivo' }), true);
 // Ningún empleado cae en dos pestañas a la vez
 const PESTANAS = ['todos', 'activo', 'inactivo', 'otro', 'carbozulia', 'seguridad'];
 const enDosGrupos = muestra.filter((e) => ['carbozulia', 'seguridad'].filter((f) => p(f, e)).length > 1).length;
