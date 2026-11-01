@@ -233,6 +233,46 @@ export function puedeCancelarSolicitudCompra(
   return { ok: true };
 }
 
+/**
+ * ¿Puede quien pidió material EDITAR su solicitud de compra técnica desde
+ * «Pedir Material»? (01-nov-2026). Antes la base solo dejaba modificar a Compras
+ * o Inventario, y al solicitante se le pedía un permiso que no le corresponde.
+ *
+ * Es el mismo criterio que la función `solicitud_propia_editar` de la base:
+ * - escritura en «Pedir Material / Repuestos» (`puedeEscribir`);
+ * - es SUYA por id de usuario (el nombre no basta para editar);
+ * - sigue «en solicitud»: pendiente o en aclaratoria, y no convertida en requerimiento;
+ * - Compras todavía no le puso precios (si ya cotizó, el cambio se le pide a Compras).
+ */
+export function puedeEditarSolicitudCompraPropia(
+  req: any,
+  uid?: string | null,
+  puedeEscribir = false
+): { ok: boolean; reason?: string } {
+  if (!req) return { ok: false, reason: 'Solicitud inválida.' };
+  if (!puedeEscribir) {
+    return { ok: false, reason: 'No tienes permiso de escritura en Pedir Material / Repuestos.' };
+  }
+  if (!uid || req.requested_by !== uid) {
+    return { ok: false, reason: 'Solo quien hizo la solicitud puede editarla desde aquí.' };
+  }
+  if (req.status !== 'pendiente' && req.status !== 'aclaratoria_solicitada') {
+    return { ok: false, reason: 'Ya no se puede editar: la solicitud ya no está en revisión.' };
+  }
+  const marcas = [req.observaciones, req.note, req.decision_note].map((s) => String(s ?? '')).join(' ');
+  if (marcas.includes('[CONVERTIDO_EN_REQ]')) {
+    return { ok: false, reason: 'Ya no se puede editar: Compras ya la convirtió en requerimiento.' };
+  }
+  const items: any[] = Array.isArray(req.items) ? req.items : [];
+  const tienePrecio = items.some(
+    (it) => Number(it?.est_price) > 0 || Number(it?.price_usd) > 0 || Number(it?.total_usd) > 0
+  );
+  if (tienePrecio) {
+    return { ok: false, reason: 'Ya no se puede editar: Compras ya le puso precios. Pide el cambio a Compras.' };
+  }
+  return { ok: true };
+}
+
 // ── Agrupación de solicitudes de stock por pedido ──────────────────────────────
 export interface GrupoSolicitudStock {
   id: string;
