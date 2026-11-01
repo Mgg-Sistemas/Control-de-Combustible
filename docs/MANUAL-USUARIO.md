@@ -420,6 +420,40 @@ fecha y de qué turno era. Sin foto subida, la ficha sale sin ella.
 > 5. **Fotos adicionales:** permite adjuntar fotos complementarias con su propia leyenda explicativa.
 > 6. **Persistencia y seguridad:** las personalizaciones se guardan de forma local en el dispositivo por equipo; no modifican la tabla `machinery` ni interrumpen las jornadas. Si se desea volver a los datos originales del catálogo, basta con pulsar **«Restablecer»**. Al tocar **«Exportar PDF»** se genera de inmediato el documento en alta resolución con el nuevo estilo.
 
+> **📋 Ficha técnica con los campos ya puestos (01/11/2026):**
+> El equipo pidió no tener que añadir uno por uno, con «+ Añadir», los datos que **toda** ficha
+> lleva. Ahora, al abrir **«📄 Ficha técnica»** de un equipo, el formulario ya trae, en el orden
+> de las fichas de referencia hechas a mano (excavadora XCMG XE225BR y camión taller Sinotruk Howo):
+>
+> | Parte del PDF | Qué trae ya puesto | De dónde sale |
+> |---|---|---|
+> | Cabecera | **FICHA TÉCNICA**, subtítulo (clase de equipo + marca + modelo) y el sello con el **estado en vivo** (ej. *OPERATIVA*) | Catálogo y estado actual |
+> | Tarjetas | **Horómetro / Kilometraje**, **Capacidad / Peso operativo**, **Estado general** | Horómetro, peso y estado, si se saben |
+> | Especificaciones | **Fabricante**, **Modelo / Serie**, **Número de Placa / Identificación**, **Horómetro** | Precargados del Catálogo |
+> | Especificaciones | **Tipo / Combustible**, **Año de Fabricación**, **Configuración de Ejes / Tren**, **Capacidad Nominal de Carga**, **Equipamiento Integrado**, **País de Origen** | Se teclean (cada casilla muestra un ejemplo en gris) |
+> | Observaciones | **Estado General**, **Componentes**, **Anexo** | Se teclean |
+>
+> Debajo siguen los demás datos del Catálogo (código, clasificación, peso, dimensiones, empresa,
+> encargado, aceite, tapa…) y todo lo que se quiera añadir con «+ Añadir», como antes.
+>
+> - **Lo vacío no sale:** un campo, tarjeta u observación que se deje en blanco **no aparece en el PDF**
+>   (tampoco las filas «Nuevo campo» sin valor). Basta con no llenarlo.
+> - **Todo se edita en su sitio:** el nombre del campo también (un camión dice «Configuración de Ejes»
+>   y una excavadora «Tren»), el valor de cada tarjeta y el texto de cada observación.
+> - **«En el PDF: Una sola tabla / Columnas por sección»:** por defecto la tabla sale **una sola**, en el
+>   orden del formulario, como las fichas de referencia. El diseño de dos columnas (*Datos Generales* /
+>   *Componentes Principales*) sigue disponible eligiendo **«Columnas por sección»**; solo entonces aparece
+>   en cada renglón el botón para cambiarlo de columna.
+> - **Fichas que ya estaban guardadas:** reciben los campos nuevos que les falten, vacíos, **sin perder nada**
+>   de lo que tenían (renglones, tarjetas y observaciones propias). Si ya tenían «Fabricante / Marca» o
+>   «Modelo», no se les añade el campo fijo equivalente para no repetir el dato.
+> - **Dónde se guarda (corrige el punto 6):** la ficha se guarda en el teléfono **y en la nube**, un momento
+>   después de dejar de escribir y al pulsar **«Guardar»** o **«Exportar PDF»**. Cada equipo se guarda por su
+>   cuenta: dos personas editando fichas de equipos distintos ya no se pisan. Si la nube no la acepta
+>   (sin conexión o sin permiso), la pantalla **lo avisa**: «La ficha quedó guardada solo en este dispositivo».
+>   Puede guardar fichas quien puede editar el **Catálogo (equipos)** y quien ya podía con **Viajes de camiones**.
+> - Guardar la **configuración del tique** ya no borra las fichas técnicas (comparten el mismo registro en la base).
+
 **Los vehículos también:** la tarjeta de cada 🚗 vehículo tiene su mismo botón
 **«📄 Ficha técnica»** — abre el mismo editor y permite exportar con sus datos (marca, modelo, placa, serial, capacidad del
 tanque en L, rendimiento en km/L, empresa, encargado y sus fotos). Lo que un vehículo no
