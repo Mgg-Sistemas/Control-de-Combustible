@@ -59,8 +59,29 @@ export type FichaObservacion = {
 export type FichaFoto = {
   id: string;
   url: string;
-  leyenda?: string;
+  leyenda?: string;        // Título de la foto, sale en negrita debajo (ej. «FILTRO DE AIRE»)
+  descripcion?: string;    // Subtítulo explicativo opcional, debajo del título
 };
+
+/** 📎 Una sección del anexo fotográfico (01-nov-2026), como en la ficha hecha a
+ *  mano: «1. VISTAS ESTRUCTURALES Y TREN DE RODAJE», «2. CABINA DE MANDO…».
+ *  Cada sección empieza en página nueva, numerada, con sus fotos en 2 o 3
+ *  columnas y cada foto con su título y su explicación. */
+export type FichaAnexo = {
+  id: string;
+  titulo: string;
+  subtitulo?: string | null;   // Texto explicativo de la sección, debajo del título
+  columnas?: 2 | 3;
+  fotos: FichaFoto[];
+};
+
+/** Títulos de sección del anexo que trae la ficha de referencia (para elegir rápido). */
+export const SECCIONES_ANEXO_SUGERIDAS = [
+  'Vistas estructurales y tren de rodaje',
+  'Cabina de mando y panel de instrumentos',
+  'Compartimento de motor, filtros y refrigeración',
+  'Placa de identificación y horómetro',
+];
 
 export type FichaPersonalizada = {
   titulo?: string | null;         // Título principal en la cabecera (ej. "GRUPO ELECTRÓGENO DIESEL")
@@ -87,6 +108,13 @@ export type FichaPersonalizada = {
   //    'columnas' → una columna por categoría (Datos Generales / Componentes…),
   //                 el diseño anterior, que sigue disponible.
   diseno?: 'tabla' | 'columnas';
+  // 📝 Título del recuadro de observaciones (por defecto «OBSERVACIONES DE INSPECCIÓN»).
+  seccionObsTitulo?: string | null;
+  // 📎 Anexo fotográfico por secciones (ver FichaAnexo).
+  anexos?: FichaAnexo[];
+  // 📄 Texto del pie de cada página, a la izquierda (a la derecha va «Página X de Y»).
+  //    null/undefined = «Ficha Técnica - <equipo>»; '' = sin pie.
+  pieTexto?: string | null;
   // 🕒 Cuándo se guardó esta versión (ISO). Sirve para decidir entre la copia
   //    del teléfono y la de la nube: gana la más reciente, no «la más larga».
   actualizadoEn?: string | null;
@@ -159,6 +187,41 @@ export function elegirFichaMasReciente(
     fotoPrincipalUrl: base.fotoPrincipalUrl ?? local.fotoPrincipalUrl ?? null,
     fotoSecundariaUrl: base.fotoSecundariaUrl ?? local.fotoSecundariaUrl ?? null,
     fotosExtra: (base.fotosExtra && base.fotosExtra.length > 0) ? base.fotosExtra : (local.fotosExtra ?? []),
+  };
+}
+
+/**
+ * ↕ Pone los renglones en el orden de la ficha de referencia (01-nov-2026): los
+ * campos fijos primero, en su orden, y cada renglón viejo equivalente en el
+ * lugar de su campo (r-marca donde va Fabricante, r-modelo y r-serial donde va
+ * Modelo / Serie, r-placa donde va la Placa). Lo demás queda después, en el
+ * orden que tenía. No borra ni cambia ningún valor.
+ */
+export function ordenarRenglonesComoReferencia(renglones: FichaRenglon[]): FichaRenglon[] {
+  const lugar = new Map<string, number>();
+  CAMPOS_FIJOS_FICHA.forEach((c, i) => {
+    lugar.set(c.id, i);
+    (c.equivalentes ?? []).forEach((eq) => lugar.set(eq, i));
+  });
+  lugar.set('r-serial', CAMPOS_FIJOS_FICHA.findIndex((c) => c.id === 'f-modelo-serie') + 0.5);
+  return (renglones ?? [])
+    .map((r, idx) => ({ r, idx, pos: lugar.has(r.id) ? lugar.get(r.id)! : 1000 + idx }))
+    .sort((a, b) => a.pos - b.pos || a.idx - b.idx)
+    .map((x) => x.r);
+}
+
+/** Quita lo que no debe subir a la nube: fotos que solo existen en el teléfono
+ *  (dataURL), también dentro de las secciones del anexo. */
+export function limpiarFichaParaNube(data: FichaPersonalizada): FichaPersonalizada {
+  const esDataUrl = (u?: string | null) => typeof u === 'string' && u.startsWith('data:');
+  return {
+    ...data,
+    fotoPrincipalUrl: esDataUrl(data.fotoPrincipalUrl) ? undefined : data.fotoPrincipalUrl,
+    fotoSecundariaUrl: esDataUrl(data.fotoSecundariaUrl) ? undefined : data.fotoSecundariaUrl,
+    fotosExtra: (data.fotosExtra ?? []).filter((f) => !esDataUrl(f.url)),
+    ...(data.anexos
+      ? { anexos: data.anexos.map((a) => ({ ...a, fotos: (a.fotos ?? []).filter((f) => !esDataUrl(f.url)) })) }
+      : {}),
   };
 }
 
@@ -341,11 +404,12 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   const metricasValidas = (p?.metricas ?? []).filter((c) => c && !vacioEnFicha(c.valor));
   let tarjetasHtml = '';
   if (p?.metricas && p.metricas.length > 0) {
+    // Título arriba y valor grande debajo, como la ficha de referencia (01-nov-2026).
     tarjetasHtml = metricasValidas.length === 0 ? '' : `<div class="cards">${metricasValidas.map((c) =>
       `<div class="card">
-        <div class="cv">${esc(c.valor)}</div>
         <div class="ct">${esc(c.titulo)}</div>
         ${c.subtitulo ? `<div class="cs">${esc(c.subtitulo)}</div>` : ''}
+        <div class="cv">${esc(c.valor)}</div>
       </div>`
     ).join('')}</div>`;
   } else if (tarjetasAuto.length) {
@@ -354,8 +418,10 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   }
 
   // Especificaciones
+  // Como la ficha de referencia: una franja celeste con el título y, entre
+  // paréntesis, la etiqueta («… PRINCIPALES (PLACA DE IDENTIFICACIÓN)»).
   const secTitle = p?.seccionTitulo ? esc(p.seccionTitulo) : 'Especificaciones técnicas principales';
-  const secTagHtml = p?.seccionTag ? `<span class="sec-tag">${esc(p.seccionTag)}</span>` : '';
+  const secTagHtml = p?.seccionTag ? `<span class="sec-tag">(${esc(p.seccionTag)})</span>` : '';
 
   let specsHtml = '';
   // Lo vacío no sale (01-nov-2026): un renglón sin valor no se imprime, aunque
@@ -419,21 +485,20 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
       : '<div class="vacia">Esta máquina no tiene características cargadas en el catálogo todavía.</div>';
   }
 
-  // Observaciones y cuadros de texto con borde dorado lateral
+  // Observaciones: como la ficha de referencia (01-nov-2026), UN recuadro en la
+  // primera página, debajo de las especificaciones, con un párrafo por
+  // observación: «**Estado General:** texto». Lo vacío no sale.
   let obsHtml = '';
-  // Lo vacío no sale: un cuadro sin texto no se imprime (01-nov-2026).
   const obsValidas = (p?.observaciones ?? []).filter((o) => o && !vacioEnFicha(o.texto));
   if (obsValidas.length > 0) {
+    const obsTitulo = String(p?.seccionObsTitulo ?? '').trim() || 'OBSERVACIONES DE INSPECCIÓN';
     obsHtml = `
       <div class="sec-hd">
-        <div class="sec-title">OBSERVACIONES Y CONDICIONES TÉCNICAS</div>
+        <div class="sec-title">${esc(obsTitulo)}</div>
       </div>
-      ${obsValidas.map((o) => `
-        <div class="obs-box">
-          ${o.titulo ? `<div class="obs-title">${esc(o.titulo)}</div>` : ''}
-          <div class="obs-body">${esc(o.texto)}</div>
-        </div>
-      `).join('')}
+      <div class="obs-box">
+        ${obsValidas.map((o) => `<p class="obs-p">${o.titulo ? `<b>${esc(o.titulo)}:</b> ` : ''}${esc(o.texto)}</p>`).join('')}
+      </div>
     `;
   }
 
@@ -443,8 +508,11 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   // 2) m.photo_url (la foto que ya tiene cargada la máquina o vehículo en el catálogo)
   // 3) La primera foto de fotosExtra (si el usuario subió fotos en el modal)
   const foto1 = p?.fotoPrincipalUrl || m.photo_url || (p?.fotosExtra && p.fotosExtra[0]?.url) || null;
-  const leyenda1 = p?.fotoPrincipalLeyenda
-    || (p?.fotoPrincipalUrl ? 'Registro visual de la condición exterior del equipo en terreno'
+  // En una ficha personalizada la leyenda es la que se escribió: vacía = sin
+  // leyenda (la foto de la ficha de referencia va sola, a todo lo ancho).
+  const leyenda1 = p && p.fotoPrincipalLeyenda !== undefined
+    ? String(p.fotoPrincipalLeyenda ?? '').trim()
+    : (p?.fotoPrincipalUrl ? 'Registro visual de la condición exterior del equipo en terreno'
       : (m.photo_url ? 'Registro visual de la condición exterior del equipo en terreno'
         : (p?.fotosExtra && p.fotosExtra[0]?.leyenda) || 'Registro visual del equipo'));
 
@@ -472,66 +540,102 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   const fotosUsadasP1 = new Set([foto1, foto2].filter(Boolean));
   const fotosComponentes = (p?.fotosExtra ?? []).filter((f) => !fotosUsadasP1.has(f.url));
 
-  const secFotosTitulo = p?.seccionFotosTitulo ? esc(p.seccionFotosTitulo) : 'VISTA GENERAL DEL EQUIPO';
-  const secFotosTagHtml = p?.seccionFotosTag ? `<span class="sec-tag">${esc(p.seccionFotosTag)}</span>` : '';
+  // El título de la sección de fotos: en una ficha personalizada, vacío = sin
+  // franja (la ficha de referencia pone la foto sola, debajo de las observaciones).
+  const secFotosTituloTxt = p && p.seccionFotosTitulo !== undefined
+    ? String(p.seccionFotosTitulo ?? '').trim()
+    : 'VISTA GENERAL DEL EQUIPO';
+  const secFotosTagHtml = p?.seccionFotosTag ? `<span class="sec-tag">(${esc(p.seccionFotosTag)})</span>` : '';
+  const secFotosHd = secFotosTituloTxt
+    ? `<div class="sec-hd"><div class="sec-title">${esc(secFotosTituloTxt)}</div>${secFotosTagHtml}</div>`
+    : '';
+  const capHtml = (t: string) => (t ? `<div class="foto-p1-cap">${esc(t)}</div>` : '');
 
   const imgVista = imgPapel;
   let vistaGeneralHtml = '';
   if (foto1 && foto2) {
     vistaGeneralHtml = `
-      <div class="sec-hd">
-        <div class="sec-title">${secFotosTitulo}</div>
-        ${secFotosTagHtml}
-      </div>
+      ${secFotosHd}
       <div class="fotos-p1-grid">
         <div class="foto-p1-col">
           ${imgPapel(foto1)}
-          <div class="foto-p1-cap">${esc(leyenda1)}</div>
+          ${capHtml(leyenda1)}
         </div>
         <div class="foto-p1-col">
           ${imgVista(foto2)}
-          <div class="foto-p1-cap">${esc(leyenda2)}</div>
+          ${capHtml(leyenda2)}
         </div>
       </div>
     `;
   } else if (foto1) {
     vistaGeneralHtml = `
-      <div class="sec-hd">
-        <div class="sec-title">${secFotosTitulo}</div>
-        ${secFotosTagHtml}
-      </div>
+      ${secFotosHd}
       <div class="foto-p1-single">
         ${imgVista(foto1)}
-        <div class="foto-p1-cap">${esc(leyenda1)}</div>
+        ${capHtml(leyenda1)}
       </div>
     `;
   }
 
-  // Fotos de componentes añadidas para Página 2
-  let fotosComponentesHtml = '';
+  // ── ANEXO FOTOGRÁFICO POR SECCIONES (01-nov-2026) ─────────────────────────
+  // Como la ficha de referencia: «1. VISTAS ESTRUCTURALES Y TREN DE RODAJE»,
+  // «2. CABINA DE MANDO…», cada sección en página nueva, numerada, con sus
+  // fotos en 2 o 3 columnas y cada foto con su título en negrita y, si se
+  // escribió, su explicación debajo. Las fotos extra de antes (sin sección)
+  // salen como una sección más, para no perderlas.
+  const seccionesAnexo: FichaAnexo[] = (p?.anexos ?? [])
+    .map((a) => ({ ...a, fotos: (a?.fotos ?? []).filter((f) => f && String(f.url ?? '').trim()) }))
+    .filter((a) => a.fotos.length > 0);
   if (fotosComponentes.length > 0) {
-    const imgExtra = imgPapel;
-    fotosComponentesHtml = `
-      <div class="sec-hd">
-        <div class="sec-title">REGISTRO FOTOGRÁFICO DE COMPONENTES Y DETALLES</div>
-      </div>
-      <div class="foto-grid">
-        ${fotosComponentes.map((f) => `
-          <div class="foto-card">
-            ${imgExtra(f.url)}
-            ${f.leyenda ? `<div class="foto-cap">${esc(f.leyenda)}</div>` : ''}
-          </div>
-        `).join('')}
+    seccionesAnexo.push({
+      id: 'fotos-extra',
+      titulo: 'Registro fotográfico de componentes y detalles',
+      columnas: 2,
+      fotos: fotosComponentes,
+    });
+  }
+  const imgAnexo = imgPapel; // misma foto reducida (alias, como imgVista)
+  const anexosHtml = seccionesAnexo.map((a, i) => {
+    const cols = a.columnas === 3 ? 3 : 2;
+    return `
+      <div class="anx-sec">
+        <div class="sec-hd"><div class="sec-title">${i + 1}. ${esc(String(a.titulo ?? '').trim() || 'Registro fotográfico')}</div></div>
+        ${String(a.subtitulo ?? '').trim() ? `<div class="anx-sub">${esc(a.subtitulo)}</div>` : ''}
+        <div class="anx-grid c${cols}">
+          ${a.fotos.map((f) => `
+            <div class="anx-foto">
+              ${imgAnexo(f.url)}
+              ${String(f.leyenda ?? '').trim() ? `<div class="anx-cap">${esc(f.leyenda)}</div>` : ''}
+              ${String(f.descripcion ?? '').trim() ? `<div class="anx-desc">${esc(f.descripcion)}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
       </div>
     `;
-  }
+  }).join('');
+
+  // La foto de la placa y la del horómetro del catálogo van al anexo automático,
+  // salvo que el usuario ya las haya puesto en una sección (no se repiten).
+  const urlsEnAnexo = new Set(seccionesAnexo.flatMap((a) => a.fotos.map((f) => f.url)));
+  const fotoPlacaAuto = m.photo_serial_url && !urlsEnAnexo.has(m.photo_serial_url) ? m.photo_serial_url : null;
+  const fotoHorometroAuto = m.fotoHorometroUrl && !urlsEnAnexo.has(m.fotoHorometroUrl) ? m.fotoHorometroUrl : null;
+
+  // Pie de cada página (solo en la ficha personalizada): «Ficha Técnica - …» a
+  // la izquierda y «Página X de Y» a la derecha, como la ficha de referencia.
+  const cssStr = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/</g, '\\3C ').replace(/\r?\n/g, ' ')}"`;
+  const pieTexto = p ? (p.pieTexto == null ? `Ficha Técnica - ${nombre}` : String(p.pieTexto).trim()) : '';
+  const pageCss = p
+    ? `@page{size:letter;margin:10mm 12mm 14mm;
+        ${pieTexto ? `@bottom-left{content:${cssStr(pieTexto)};font-family:Arial,Helvetica,sans-serif;font-size:8.5px;color:#64748B;border-top:1px solid ${BORDE}}` : ''}
+        @bottom-right{content:"Página " counter(page) " de " counter(pages);font-family:Arial,Helvetica,sans-serif;font-size:8.5px;color:#64748B;border-top:1px solid ${BORDE}}}`
+    : '@page{size:letter;margin:10mm 12mm}';
 
   const pie = op.emitidoPor || op.fecha
     ? `<div class="pie">Ficha generada${op.fecha ? ` el ${esc(dmy(op.fecha))}` : ''}${op.emitidoPor ? ` por ${esc(op.emitidoPor)}` : ''} desde el Catálogo de maquinaria. Los datos son los cargados en el sistema.</div>`
     : '';
 
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>
-  @page{size:letter;margin:10mm 12mm}
+  ${pageCss}
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#1a1c20;margin:0;font-size:11px;line-height:1.4}
 
@@ -545,18 +649,19 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
     padding:6px 14px;border-radius:6px;white-space:nowrap;display:inline-block;box-shadow:0 2px 4px rgba(0,0,0,0.18)}
   .hd .subcode{color:#CBD5E1;font-size:10px;font-weight:800;letter-spacing:.8px;margin-top:4px}
 
-  .sec-hd{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid ${NAVY};padding-bottom:4px;margin:14px 0 8px;page-break-after:avoid}
-  .sec-title{font-size:12px;font-weight:900;color:${NAVY};text-transform:uppercase;letter-spacing:.4px}
-  .sec-tag{font-size:10.5px;font-weight:700;color:#2563EB}
+  /* 01-nov-2026: franja celeste con el título, como la ficha de referencia */
+  .sec-hd{display:flex;align-items:center;gap:6px;background:${CELESTE};border-radius:4px;padding:6px 12px;margin:14px 0 8px;page-break-after:avoid}
+  .sec-title{font-size:11.5px;font-weight:900;color:${NAVY};text-transform:uppercase;letter-spacing:.3px}
+  .sec-tag{font-size:11.5px;font-weight:900;color:${NAVY};text-transform:uppercase;letter-spacing:.3px}
 
   h2{font-size:12px;color:${NAVY};margin:14px 0 6px;padding-bottom:3px;
     border-bottom:2px solid ${NAVY};text-transform:uppercase;letter-spacing:.4px;page-break-after:avoid}
 
   .cards{display:flex;gap:8px;margin:10px 0 12px;flex-wrap:wrap}
-  .card{flex:1;min-width:105px;background:#F8FAFC;border:1px solid ${BORDE};border-top:3px solid ${NAVY};
-    border-radius:6px;padding:8px 10px;text-align:center}
-  .card .ct{font-size:8.5px;font-weight:800;letter-spacing:.3px;color:#47617D;text-transform:uppercase}
-  .card .cv{font-size:15px;font-weight:900;color:${NAVY};margin-top:2px}
+  .card{flex:1;min-width:105px;background:#F8FAFC;border:1.5px solid ${BORDE};
+    border-radius:4px;padding:8px 10px;text-align:center}
+  .card .ct{font-size:8.5px;font-weight:800;letter-spacing:.3px;color:#64748B;text-transform:uppercase}
+  .card .cv{font-size:15px;font-weight:900;color:#111827;margin-top:2px;text-transform:uppercase}
   .card .cs{font-size:8px;color:#64748B;margin-top:1px}
 
   .specs-dual{display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap}
@@ -564,20 +669,37 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   .specs-col-hdr{background:${CELESTE};color:${NAVY};font-size:10.5px;font-weight:800;padding:5px 8px;border:1px solid ${BORDE};border-bottom:none;border-radius:4px 4px 0 0}
 
   table{border-collapse:collapse;width:100%}
-  table.ft td{border:1px solid ${BORDE};padding:5px 8px;vertical-align:top;font-size:10.5px}
-  table.ft td.k{background:${CELESTE};color:#334155;width:40%;font-weight:700}
-  table.ft tr:nth-child(even) td:not(.k){background:#F8FAFC}
+  /* 01-nov-2026: tabla limpia como la ficha de referencia: sin rejilla, filas alternas */
+  table.ft td{padding:5px 12px;vertical-align:middle;font-size:10.5px;color:#334155}
+  table.ft td.k{color:#111827;width:38%;font-weight:700}
+  table.ft tr:nth-child(even) td{background:#F5F8FC}
 
   .fotos-p1-grid{display:flex;gap:10px;margin:8px 0;page-break-inside:avoid}
   .foto-p1-col{flex:1;min-width:0;border:1px solid ${BORDE};border-radius:6px;overflow:hidden;background:#FAFBFD;text-align:center}
   .foto-p1-col img{width:100%;height:165px;object-fit:cover;display:block;margin:0 auto}
-  .foto-p1-single{border:1px solid ${BORDE};border-radius:6px;overflow:hidden;background:#FAFBFD;text-align:center;margin:8px 0;page-break-inside:avoid}
-  .foto-p1-single img{max-width:100%;max-height:190px;object-fit:contain;display:block;margin:0 auto}
+  .foto-p1-single{border:1px solid ${BORDE};border-radius:4px;overflow:hidden;background:#FAFBFD;text-align:center;margin:10px 0;page-break-inside:avoid}
+  .foto-p1-single img{width:100%;height:260px;object-fit:cover;display:block;margin:0 auto}
   .foto-p1-cap{padding:4px 8px;font-size:9.5px;font-weight:600;color:#475569;background:#F1F5F9;border-top:1px solid #E2E8F0}
 
-  .obs-box{background:#FFFFFF;border:1px solid #E2E8F0;border-left:4px solid ${GOLD};border-radius:6px;padding:8px 12px;margin:8px 0;page-break-inside:avoid}
+  .obs-box{background:#FFFFFF;border:1.5px solid ${BORDE};border-radius:4px;padding:10px 14px;margin:8px 0;page-break-inside:avoid}
   .obs-title{font-size:11px;font-weight:800;color:${NAVY};margin-bottom:3px}
   .obs-body{font-size:10.5px;color:#334155;line-height:1.45;white-space:pre-wrap}
+  .obs-p{margin:0 0 5px;font-size:10px;color:#1F2937;line-height:1.45;white-space:pre-wrap}
+  .obs-p:last-child{margin-bottom:0}
+  .obs-p b{color:#111827}
+
+  /* 📎 Anexo fotográfico por secciones (01-nov-2026) */
+  .anx-sec{page-break-before:always}
+  .anx-sub{font-size:10px;color:#475569;margin:-2px 0 8px}
+  .anx-grid{display:flex;flex-wrap:wrap;gap:10px}
+  .anx-foto{page-break-inside:avoid;text-align:center}
+  .anx-grid.c2 .anx-foto{width:calc(50% - 5px)}
+  .anx-grid.c3 .anx-foto{width:calc(33.333% - 7px)}
+  .anx-foto img{width:100%;object-fit:cover;display:block;border-radius:3px}
+  .anx-grid.c2 .anx-foto img{height:290px}
+  .anx-grid.c3 .anx-foto img{height:190px}
+  .anx-cap{font-size:9px;font-weight:800;color:#111827;text-transform:uppercase;margin-top:5px;letter-spacing:.2px}
+  .anx-desc{font-size:8.5px;color:#64748B;margin-top:2px}
 
   .foto-grid{display:flex;gap:10px;margin:8px 0;page-break-inside:avoid;flex-wrap:wrap}
   .foto-card{flex:1;min-width:200px;border:1px solid ${BORDE};border-radius:6px;overflow:hidden;background:#FAFBFD;text-align:center}
@@ -613,39 +735,25 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   </div>
   ${specsHtml}
 
+  ${obsHtml}
+
   ${vistaGeneralHtml}
 
-  ${(obsHtml || fotosComponentesHtml) ? `
-    <div class="page2-block" style="${foto1 ? 'page-break-before:always;' : ''}">
-      ${foto1 ? `
-        <div class="hd" style="padding:10px 16px;margin-bottom:12px">
-          <div class="hd-left">
-            <div class="t" style="font-size:16px">${esc(tituloFinal)}</div>
-            <div class="s" style="font-size:10.5px">${esc(nombre)}${m.code ? ` · ${esc(m.code)}` : ''}</div>
-          </div>
-          <div class="hd-right">
-            <div class="badge" style="font-size:11px;padding:4px 10px">${esc(badgeFinal)}</div>
-          </div>
-        </div>
-      ` : ''}
-      ${obsHtml}
-      ${fotosComponentesHtml}
-    </div>
-  ` : ''}
+  ${anexosHtml}
 
-  ${m.photo_serial_url || m.fotoHorometroUrl ? `<div class="anexo">
+  ${fotoPlacaAuto || fotoHorometroAuto ? `<div class="anexo">
     <div class="hd">
       <div>
         <div class="t">ANEXO · REGISTRO FOTOGRÁFICO</div>
         <div class="s">${esc(nombre)}${m.code ? ` · ${esc(m.code)}` : ''}</div>
       </div>
     </div>
-    ${m.photo_serial_url ? `<div class="foto">
-      ${imgPapel(m.photo_serial_url)}
+    ${fotoPlacaAuto ? `<div class="foto">
+      ${imgPapel(fotoPlacaAuto)}
       <div class="cap">Detalle de la placa de identificación (serial / placa) del equipo</div>
     </div>` : ''}
-    ${m.fotoHorometroUrl ? `<div class="foto">
-      ${imgPapel(m.fotoHorometroUrl)}
+    ${fotoHorometroAuto ? `<div class="foto">
+      ${imgPapel(fotoHorometroAuto)}
       <div class="cap">Última foto del horómetro subida${m.fotoHorometroLeyenda ? ` (${esc(m.fotoHorometroLeyenda)})` : ''}</div>
     </div>` : ''}
   </div>` : ''}

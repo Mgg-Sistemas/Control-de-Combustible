@@ -30,6 +30,8 @@ import {
   METRICAS_FIJAS_FICHA,
   OBSERVACIONES_FIJAS_FICHA,
   elegirFichaMasReciente,
+  limpiarFichaParaNube,
+  SECCIONES_ANEXO_SUGERIDAS,
 } from './fichaTecnicaMaquina';
 import { dmy } from './informeTecnico';
 
@@ -38,15 +40,7 @@ export { resolverNuevoRenglon, aplicarPendientesFicha, sincronizarFichaConCatalo
 const PREFIX = '@ficha_tecnica_custom_';
 const TABLA_CONFIG = 'tique_config';
 
-function limpiarParaNube(data: FichaPersonalizada): FichaPersonalizada {
-  const esDataUrl = (u?: string | null) => typeof u === 'string' && u.startsWith('data:');
-  return {
-    ...data,
-    fotoPrincipalUrl: esDataUrl(data.fotoPrincipalUrl) ? undefined : data.fotoPrincipalUrl,
-    fotoSecundariaUrl: esDataUrl(data.fotoSecundariaUrl) ? undefined : data.fotoSecundariaUrl,
-    fotosExtra: (data.fotosExtra ?? []).filter((f) => !esDataUrl(f.url)),
-  };
-}
+const limpiarParaNube = limpiarFichaParaNube;
 
 /** Recupera la personalización guardada para una máquina, o null si no existe. */
 export async function getFichaPersonalizada(machineId: string): Promise<FichaPersonalizada | null> {
@@ -233,13 +227,24 @@ export function construirFichaInicial(
     subcodigo: m.code ? `CÓDIGO: ${m.code}` : null,
     seccionTitulo: 'ESPECIFICACIONES TÉCNICAS PRINCIPALES',
     seccionTag: 'Placa de Identificación',
-    seccionFotosTitulo: 'VISTA GENERAL DEL EQUIPO',
-    seccionFotosTag: m.clasificacion || 'Vista en Terreno',
+    // Como la ficha de referencia: la foto del equipo va sola, a todo lo ancho,
+    // debajo de las observaciones (sin franja de título ni leyenda; se pueden poner).
+    seccionFotosTitulo: '',
+    seccionFotosTag: null,
     fotoPrincipalUrl: m.photo_url || null,
-    fotoPrincipalLeyenda: m.photo_url ? 'Vista general de la unidad en campo operativo' : null,
+    fotoPrincipalLeyenda: null,
     fotoSecundariaUrl: null,
     fotoSecundariaLeyenda: null,
     diseno: 'tabla',
+    seccionObsTitulo: 'OBSERVACIONES DE INSPECCIÓN',
+    // El anexo arranca con las secciones de la ficha de referencia, vacías (las
+    // que no lleven fotos no salen en el PDF).
+    anexos: SECCIONES_ANEXO_SUGERIDAS.slice(0, 3).map((titulo, i) => ({
+      id: `a-${i + 1}`,
+      titulo: titulo.toUpperCase(),
+      columnas: i === 2 ? 3 : 2,
+      fotos: [],
+    })),
     metricas,
     renglones,
     observaciones: OBSERVACIONES_FIJAS_FICHA.map((o) => ({ id: o.id, titulo: o.titulo, texto: '' })),

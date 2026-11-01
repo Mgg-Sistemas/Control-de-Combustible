@@ -39,7 +39,11 @@ import {
   FichaFoto,
   MaquinaFichaTecnica,
   OpcionesFichaTecnica,
+  FichaAnexo,
   ayudaCampoFicha,
+  ordenarRenglonesComoReferencia,
+  SECCIONES_ANEXO_SUGERIDAS,
+  nombreDeMaquina,
 } from '../lib/fichaTecnicaMaquina';
 import {
   GuardadoFicha,
@@ -51,7 +55,7 @@ import {
   aplicarPendientesFicha,
   sincronizarFichaConCatalogo,
 } from '../lib/fichaTecnicaStorage';
-import { capturarFotoLocal, elegirFotoLocal } from '../lib/photo';
+import { capturarFotoLocal, elegirFotoLocal, takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../lib/photo';
 
 export function FichaTecnicaModal({
   visible,
@@ -93,6 +97,12 @@ export function FichaTecnicaModal({
   // Estados para foto extra
   const [fotoTomando, setFotoTomando] = useState(false);
   const [nuevaFotoLeyenda, setNuevaFotoLeyenda] = useState('');
+  // Sección del anexo que está subiendo una foto (para el aviso «Subiendo…»).
+  const [subiendoEn, setSubiendoEn] = useState<string | null>(null);
+  // La ficha que está abierta AHORA: si mientras sube una foto se cierra y se
+  // abre otra, la foto no debe caer en la ficha nueva.
+  const fichaAbiertaRef = useRef<string | null>(null);
+  fichaAbiertaRef.current = visible ? machineId : null;
 
   // Guardado diferido: se guarda ~0,8 s después de la última tecla, no en cada
   // una (cada guardado es una llamada a la base). El aviso de que la nube no lo
@@ -120,8 +130,10 @@ export function FichaTecnicaModal({
             ...sincronizada,
             fotoPrincipalUrl: saved.fotoPrincipalUrl !== undefined ? saved.fotoPrincipalUrl : (machine.photo_url || null),
             fotoPrincipalLeyenda: saved.fotoPrincipalLeyenda !== undefined ? saved.fotoPrincipalLeyenda : (machine.photo_url ? 'Vista general de la unidad en campo operativo' : null),
-            seccionFotosTitulo: saved.seccionFotosTitulo || 'VISTA GENERAL DEL EQUIPO',
-            seccionFotosTag: saved.seccionFotosTag || machine.clasificacion || 'Vista en Terreno',
+            // `??` y no `||`: un título vacío a propósito (sin franja, como la
+            // ficha de referencia) no debe volver al texto por defecto.
+            seccionFotosTitulo: saved.seccionFotosTitulo ?? 'VISTA GENERAL DEL EQUIPO',
+            seccionFotosTag: saved.seccionFotosTag ?? (machine.clasificacion || 'Vista en Terreno'),
           });
         } else {
           setData(inicial);
@@ -479,6 +491,114 @@ export function FichaTecnicaModal({
     setData((d) => (d ? { ...d, fotosExtra: (d.fotosExtra ?? []).filter((f) => f.id !== id) } : null));
   };
 
+  // ── 📎 ANEXO FOTOGRÁFICO POR SECCIONES (01-nov-2026) ──────────────────────
+  // Las fotos del anexo se SUBEN a la nube (Storage) al tomarlas: así la ficha
+  // sale igual desde cualquier equipo. Las fotos «de antes» quedaban solo en el
+  // teléfono que las tomó. (`subiendoEn` se declara arriba, con los demás estados.)
+
+  const cambiarAnexos = (fn: (a: FichaAnexo[]) => FichaAnexo[]) => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = { ...d, anexos: fn(d.anexos ?? []) };
+      programarGuardado(next);
+      return next;
+    });
+  };
+
+  const agregarSeccionAnexo = (titulo = '') => {
+    cambiarAnexos((as) => [
+      ...as,
+      { id: `a-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, titulo: titulo.toUpperCase(), columnas: 2, fotos: [] },
+    ]);
+  };
+
+  const actualizarSeccionAnexo = (id: string, patch: Partial<FichaAnexo>) =>
+    cambiarAnexos((as) => as.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+
+  const eliminarSeccionAnexo = (id: string) => cambiarAnexos((as) => as.filter((a) => a.id !== id));
+
+  const moverSeccionAnexo = (id: string, delta: -1 | 1) =>
+    cambiarAnexos((as) => {
+      const i = as.findIndex((a) => a.id === id);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= as.length) return as;
+      const copia = [...as];
+      [copia[i], copia[j]] = [copia[j], copia[i]];
+      return copia;
+    });
+
+  const agregarFotoASeccion = (secId: string, url: string, leyenda = '') =>
+    cambiarAnexos((as) =>
+      as.map((a) =>
+        a.id === secId
+          ? { ...a, fotos: [...(a.fotos ?? []), { id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, url, leyenda }] }
+          : a
+      )
+    );
+
+  const subirFotoASeccion = async (secId: string, via: 'camara' | 'galeria') => {
+    if (subiendoEn) return;
+    // La carpeta en la nube es el id del equipo; sin id no se sube (un código con
+    // espacios, tildes o «/» no sirve como nombre de carpeta).
+    if (!machineId) {
+      toast.error('No se puede subir la foto: falta identificar el equipo. Cierra y vuelve a abrir la ficha.');
+      return;
+    }
+    const fichaDeLaFoto = machineId;
+    setSubiendoEn(secId);
+    try {
+      const res = via === 'galeria'
+        ? await pickPhotoFromGalleryAndUpload(fichaDeLaFoto, 'ficha-anexo')
+        : await takePhotoAndUpload(fichaDeLaFoto, 'ficha-anexo');
+      if (fichaAbiertaRef.current !== fichaDeLaFoto) {
+        if (res.ok) toast.info('La foto se subió, pero la ficha ya se había cerrado: vuelve a agregarla.');
+        return;
+      }
+      if (res.ok && res.url) {
+        agregarFotoASeccion(secId, res.url);
+        toast.success('Foto agregada al anexo. Escríbele su título debajo.');
+      } else if (res.error) {
+        toast.error(res.error);
+      }
+    } finally {
+      setSubiendoEn(null);
+    }
+  };
+
+  const actualizarFotoAnexo = (secId: string, fotoId: string, patch: Partial<FichaFoto>) =>
+    cambiarAnexos((as) =>
+      as.map((a) => (a.id === secId ? { ...a, fotos: (a.fotos ?? []).map((f) => (f.id === fotoId ? { ...f, ...patch } : f)) } : a))
+    );
+
+  const eliminarFotoAnexo = (secId: string, fotoId: string) =>
+    cambiarAnexos((as) => as.map((a) => (a.id === secId ? { ...a, fotos: (a.fotos ?? []).filter((f) => f.id !== fotoId) } : a)));
+
+  const setSeccionObsTitulo = (t: string) =>
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = { ...d, seccionObsTitulo: t };
+      programarGuardado(next);
+      return next;
+    });
+
+  const setPieTexto = (t: string) =>
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = { ...d, pieTexto: t };
+      programarGuardado(next);
+      return next;
+    });
+
+  const ordenarComoReferencia = () => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = { ...d, renglones: ordenarRenglonesComoReferencia(d.renglones ?? []) };
+      programarGuardado(next);
+      return next;
+    });
+    toast.info('Renglones ordenados como la ficha de referencia.');
+  };
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={cerrar}>
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: spacing.md }}>
@@ -568,6 +688,18 @@ export function FichaTecnicaModal({
                     />
                   </View>
                 </View>
+
+                {/* 📄 Pie de cada página (01-nov-2026): a la derecha va solo «Página X de Y» */}
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, marginBottom: 2 }}>
+                  Pie de cada página (a la derecha sale «Página X de Y»; vacío = sin texto):
+                </Text>
+                <TextInput
+                  value={data.pieTexto ?? `Ficha Técnica - ${nombreDeMaquina(machine)}`}
+                  onChangeText={setPieTexto}
+                  placeholder="Ej. Ficha Técnica - Excavadora XCMG XE225BR"
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8, color: colors.text }}
+                />
               </View>
 
               {/* SECCIÓN 2: TARJETAS MÉTRICAS SUPERIORES */}
@@ -798,6 +930,14 @@ export function FichaTecnicaModal({
                   </ScrollView>
                 </View>
 
+                {/* ↕ 01-nov-2026: pone los campos en el orden de la ficha de referencia */}
+                <TouchableOpacity
+                  onPress={ordenarComoReferencia}
+                  style={{ alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 10, marginBottom: spacing.xs }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10.5 }}>↕ Ordenar como la ficha de referencia</Text>
+                </TouchableOpacity>
+
                 {/* Botones rápidos para insertar fila directo en cada columna */}
                 <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.xs, flexWrap: 'wrap' }}>
                   <TouchableOpacity
@@ -914,7 +1054,7 @@ export function FichaTecnicaModal({
                   </View>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
-                  Se muestran lado a lado debajo de las especificaciones principales (estilo catálogo oficial).
+                  Van debajo de las observaciones. Con una sola foto sale a todo lo ancho; con dos, lado a lado. Título y leyenda vacíos = la foto sale sola, como la ficha de referencia.
                 </Text>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
@@ -1041,16 +1181,24 @@ export function FichaTecnicaModal({
               {/* SECCIÓN 5: APARTADO DE OBSERVACIONES Y CUADROS DE TEXTO (PÁGINA 2) */}
               <View style={{ marginBottom: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                  <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' }}>
-                    📝 Observaciones y Condiciones Técnicas (Página 2)
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, textTransform: 'uppercase' }}>
+                    📝 Observaciones de inspección
                   </Text>
-                  <View style={{ backgroundColor: '#64748b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}>
-                    <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>PÁGINA 2</Text>
+                  <View style={{ backgroundColor: '#0284c7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}>
+                    <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>PÁGINA 1</Text>
                   </View>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
-                  Cuadros con borde dorado: Estado General, Componentes y Anexo ya vienen puestos; el que quede vacío no sale en el PDF.
+                  Salen en un solo recuadro debajo de las especificaciones, cada una como «Título: texto». Estado General, Componentes y Anexo ya vienen puestos; la que quede vacía no sale en el PDF.
                 </Text>
+                <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 2 }}>Título del recuadro:</Text>
+                <TextInput
+                  value={data.seccionObsTitulo ?? 'OBSERVACIONES DE INSPECCIÓN'}
+                  onChangeText={setSeccionObsTitulo}
+                  placeholder="OBSERVACIONES DE INSPECCIÓN"
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, color: colors.text, marginBottom: spacing.xs }}
+                />
 
                 {(data.observaciones ?? []).map((o) => (
                   <View
@@ -1117,7 +1265,152 @@ export function FichaTecnicaModal({
                 </View>
               </View>
 
-              {/* SECCIÓN 6: FOTOS EXTRAS DE COMPONENTES (PÁGINA 2 / ANEXO) */}
+              {/* SECCIÓN 6: 📎 ANEXO FOTOGRÁFICO POR SECCIONES (01-nov-2026) */}
+              <View style={{ marginBottom: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, textTransform: 'uppercase' }}>
+                    📎 Anexo fotográfico por secciones
+                  </Text>
+                  <View style={{ backgroundColor: '#64748b', paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}>
+                    <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>PÁGINA 2 EN ADELANTE</Text>
+                  </View>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
+                  Cada sección sale en su propia página, numerada («1. VISTAS ESTRUCTURALES…»), con sus fotos en 2 o 3 columnas. A cada foto ponle un título (sale en negrita debajo) y, si hace falta, una explicación. Las fotos se suben a la nube; la sección sin fotos no sale.
+                </Text>
+
+                {(data.anexos ?? []).map((a, ai) => (
+                  <View
+                    key={a.id}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8, marginBottom: 8, gap: 6 }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ color: colors.text, fontWeight: '900', fontSize: 12 }}>{ai + 1}.</Text>
+                      <TextInput
+                        value={a.titulo}
+                        onChangeText={(t) => actualizarSeccionAnexo(a.id, { titulo: t })}
+                        placeholder="Título de la sección (ej. CABINA DE MANDO Y PANEL DE INSTRUMENTOS)"
+                        placeholderTextColor={colors.muted}
+                        autoCapitalize="characters"
+                        style={{ flex: 1, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 11, fontWeight: '800', color: colors.text }}
+                      />
+                      <TouchableOpacity onPress={() => moverSeccionAnexo(a.id, -1)} disabled={ai === 0} style={{ padding: 4, opacity: ai === 0 ? 0.3 : 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '900' }}>▲</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => moverSeccionAnexo(a.id, 1)} disabled={ai === (data.anexos ?? []).length - 1} style={{ padding: 4, opacity: ai === (data.anexos ?? []).length - 1 ? 0.3 : 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '900' }}>▼</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => eliminarSeccionAnexo(a.id)} style={{ padding: 4 }}>
+                        <Text style={{ color: colors.danger, fontWeight: '900' }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <TextInput
+                      value={a.subtitulo ?? ''}
+                      onChangeText={(t) => actualizarSeccionAnexo(a.id, { subtitulo: t })}
+                      placeholder="Explicación de la sección (opcional)"
+                      placeholderTextColor={colors.muted}
+                      style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 10.5, color: colors.text }}
+                    />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={{ color: colors.muted, fontSize: 10 }}>Fotos por fila:</Text>
+                      {([2, 3] as const).map((n) => {
+                        const activo = (a.columnas === 3 ? 3 : 2) === n;
+                        return (
+                          <TouchableOpacity
+                            key={n}
+                            onPress={() => actualizarSeccionAnexo(a.id, { columnas: n })}
+                            style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: activo ? '#16324F' : colors.surfaceAlt, borderWidth: 1, borderColor: activo ? '#16324F' : colors.border }}
+                          >
+                            <Text style={{ color: activo ? '#fff' : colors.text, fontSize: 10, fontWeight: '700' }}>{n}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    {(a.fotos ?? []).map((f) => (
+                      <View key={f.id} style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6 }}>
+                        <Image source={{ uri: f.url }} style={{ width: 72, height: 56, borderRadius: radius.sm, backgroundColor: colors.background }} />
+                        <View style={{ flex: 1, gap: 4 }}>
+                          <TextInput
+                            value={f.leyenda ?? ''}
+                            onChangeText={(t) => actualizarFotoAnexo(a.id, f.id, { leyenda: t })}
+                            placeholder="Título de la foto (ej. FILTRO DE AIRE)"
+                            placeholderTextColor={colors.muted}
+                            autoCapitalize="characters"
+                            style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, fontWeight: '700', color: colors.text }}
+                          />
+                          <TextInput
+                            value={f.descripcion ?? ''}
+                            onChangeText={(t) => actualizarFotoAnexo(a.id, f.id, { descripcion: t })}
+                            placeholder="Qué se ve (opcional, ej. Parte N° 800194923)"
+                            placeholderTextColor={colors.muted}
+                            style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, color: colors.text }}
+                          />
+                        </View>
+                        <TouchableOpacity onPress={() => eliminarFotoAnexo(a.id, f.id)} style={{ padding: 4 }}>
+                          <Text style={{ color: colors.danger, fontWeight: '900' }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      <TouchableOpacity
+                        onPress={() => subirFotoASeccion(a.id, 'camara')}
+                        disabled={!!subiendoEn}
+                        style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 8 }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 10.5 }}>{subiendoEn === a.id ? 'Subiendo…' : '📷 Cámara'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => subirFotoASeccion(a.id, 'galeria')}
+                        disabled={!!subiendoEn}
+                        style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 8 }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 10.5 }}>🖼️ Galería</Text>
+                      </TouchableOpacity>
+                      {machine.photo_serial_url ? (
+                        <TouchableOpacity
+                          onPress={() => agregarFotoASeccion(a.id, machine.photo_serial_url!, 'PLACA DE IDENTIFICACIÓN DEL EQUIPO')}
+                          style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 8 }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 10.5 }}>🔖 Foto de la placa (catálogo)</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {machine.fotoHorometroUrl ? (
+                        <TouchableOpacity
+                          onPress={() => agregarFotoASeccion(a.id, machine.fotoHorometroUrl!, 'LECTURA DEL HORÓMETRO')}
+                          style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 8 }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 10.5 }}>⏱️ Última foto del horómetro</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                ))}
+
+                <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 4 }}>+ Agregar sección:</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {SECCIONES_ANEXO_SUGERIDAS.map((t) => (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => agregarSeccionAnexo(t)}
+                      style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingVertical: 4, paddingHorizontal: 10 }}
+                    >
+                      <Text style={{ color: colors.text, fontSize: 10.5, fontWeight: '700' }}>{t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    onPress={() => agregarSeccionAnexo('')}
+                    style={{ backgroundColor: '#16324F', borderRadius: radius.pill, paddingVertical: 4, paddingHorizontal: 10 }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 10.5, fontWeight: '800' }}>+ Sección en blanco</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* SECCIÓN 7: FOTOS EXTRAS DE ANTES (sin sección). Solo aparece si la
+                  ficha todavía tiene alguna; en el PDF salen como una sección más del anexo. */}
+              {(data.fotosExtra ?? []).length > 0 ? (
               <View style={{ marginBottom: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                   <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' }}>
@@ -1180,6 +1473,7 @@ export function FichaTecnicaModal({
                   </View>
                 </View>
               </View>
+              ) : null}
             </ScrollView>
           )}
 
