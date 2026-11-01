@@ -2328,6 +2328,23 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > (qué se agregó, quitó o cambió) y cabecera (título, nota, proveedor, área, condiciones de pago…). Editar el
 > destino de una solicitud ya no borra los adjuntos, las condiciones de pago ni el IVA.
 
+> **✏️ Editar mi solicitud desde Pedir Material** *(01/11/2026)*. Quien pidió un repuesto **corrige su propia
+> solicitud** de compra técnica con el botón **«✏️ Editar mi solicitud»** de 🛒 Pedir Material → Mis solicitudes,
+> **sin necesitar permiso de Compras ni de Inventario** (antes la base solo dejaba modificar a esos dos módulos y
+> el aviso nombraba la tabla `inventory_requirements`, que se leía como «Inventario»). El botón sale solo si:
+>
+> - la solicitud es **suya** (la registró con su usuario);
+> - sigue **en solicitud**: pendiente o en aclaratoria, y Compras **no la convirtió** en requerimiento;
+> - Compras **todavía no le puso precios** (si ya cotizó, el cambio se le pide a Compras);
+> - tiene **«Pedir Material / Repuestos» en Escritura** (o Total).
+>
+> Se puede cambiar el **título**, el **motivo y especificaciones**, el **área** (si el destino es un área) y los
+> **repuestos** (nombre, cantidad, unidad y medidas; agregar o quitar renglones). No se cambian precios,
+> proveedor, prioridad ni el estado. Cada edición queda en el **Histórico** con el solicitante como autor. Si
+> Compras la tomó mientras se editaba, al guardar avisa «Ya no se puede editar». Compras e Inventario siguen
+> editando como antes desde **Compras → Solicitudes**. De paso, **responder una aclaratoria** ya no dice
+> «enviada» cuando la base no guardó nada.
+
 > **🔓 El coordinador de inspectores ya puede guardar** *(31/10/2026)*. Antes la base solo dejaba registrar
 > visitas, cambiar el estado de las máquinas y resolver autorizaciones a un administrador o a un inspector;
 > con el rol «coordinador de inspectores» salía «no tienes permiso» al guardar. Ahora ese rol pasa por los
