@@ -142,6 +142,86 @@ eq('filtrar por empresa + categoría (Savanna + Manejo de carga)', L.filtrarCata
 eq('filtrar por empresa + estado actual (Savanna + Averiada)', L.filtrarCatalogoPersonalizado({ catalogo: catDemo, empresasSel: ['Savanna'], estadosSel: ['Averiada'] }).map((m) => m.id), ['m2']);
 eq('filtrar por varios estados actuales (Operativa + Parada)', L.filtrarCatalogoPersonalizado({ catalogo: catDemo, estadosSel: ['Operativa', 'Parada'] }).map((m) => m.id), ['m1', 'm3', 'veh-v1']);
 
+// ——— 5b. Histórico de reportes personalizados (guardar, reimprimir, reusar y borrar) ———
+const reg1 = L.crearRegistroHistorialPersonalizado({
+  id: 'hist-1',
+  createdAt: '2026-11-02T16:00:00.000Z',
+  creadoPorNombre: 'Coordinador',
+  origen: 'impresion',
+  etiqueta: 'Cierre Savanna',
+  titulo: 'Reporte de maquinaria',
+  subtitulo: 'Turno día',
+  nota: 'Nota congelada 1',
+  fechaEmision: '2026-11-02',
+  conRango: true,
+  desde: '2026-11-01',
+  hasta: '2026-11-02',
+  opciones: { ...L.OPCIONES_PERSONALIZADO_INICIAL, sinConsumo: false },
+  filas: [
+    { ...catDemo[0], litros: '120' },
+    { ...catDemo[1], litros: '80' },
+  ],
+  filtros: { fuente: 'maq', empresasSel: ['Savanna'], categoriasSel: ['Remoción y excavación'], estadosSel: ['Operativa'], busca: '' },
+  editadosManual: ['m1|litros'],
+  manuales: 1,
+});
+eq('histórico: guarda las filas congeladas exactas y sus litros', reg1.filas.map((f) => [f.id, f.litros]), [['m1', '120'], ['m2', '80']]);
+ok('histórico: la vista previa de equipos incluye SIEMPRE Código y Placa', reg1.resumen.previewEquipos.includes('JUMBO 320 · Placa: A11BC2D') && reg1.resumen.previewEquipos.includes('PAYLOADER · Placa: B22CD3E'));
+eq('histórico: resume litros y estado', [reg1.resumen.totalLitrosTexto, reg1.resumen.porEstadoTexto], ['200 L', '1 Averiada · 1 Operativa']);
+
+let estHist = L.agregarAlHistorialPersonalizado(L.ESTADO_HISTORIAL_VACIO, reg1);
+eq('histórico: agrega el primer reporte', estHist.items.length, 1);
+
+// Si se imprime exactamente el mismo reporte enseguida, no duplica entradas:
+const reg1Clon = L.crearRegistroHistorialPersonalizado({
+  ...reg1,
+  id: 'hist-1-clon',
+  createdAt: '2026-11-02T16:01:00.000Z',
+});
+estHist = L.agregarAlHistorialPersonalizado(estHist, reg1Clon);
+eq('histórico: imprimir idéntico seguido actualiza el tope sin duplicar basura', estHist.items.length, 1);
+
+// Un segundo reporte con otra selección entra como nueva entrada en el tope:
+const reg2 = L.crearRegistroHistorialPersonalizado({
+  id: 'hist-2',
+  createdAt: '2026-11-02T17:00:00.000Z',
+  creadoPorNombre: 'Coordinador',
+  origen: 'manual',
+  etiqueta: '',
+  titulo: 'Reporte Costa Brava',
+  subtitulo: 'Reporte personalizado',
+  nota: '',
+  fechaEmision: '2026-11-02',
+  conRango: false,
+  desde: '2026-11-02',
+  hasta: '2026-11-02',
+  opciones: L.OPCIONES_PERSONALIZADO_INICIAL,
+  filas: [catDemo[2], catDemo[3]],
+  filtros: { fuente: 'todos', empresasSel: ['Costa Brava'], categoriasSel: [], estadosSel: [], busca: '' },
+});
+estHist = L.agregarAlHistorialPersonalizado(estHist, reg2);
+eq('histórico: el más nuevo queda primero (#1)', estHist.items.map((x) => x.id), ['hist-2', 'hist-1']);
+
+// Buscador del histórico (busca por etiqueta, empresa, código o placa):
+eq('histórico: buscar por placa de máquina (C33DE4F) encuentra el reporte donde salió', L.filtrarHistorialPersonalizado(estHist.items, 'c33de4f').map((x) => x.id), ['hist-2']);
+eq('histórico: buscar por etiqueta (Cierre Savanna)', L.filtrarHistorialPersonalizado(estHist.items, 'cierre savanna').map((x) => x.id), ['hist-1']);
+
+// Renombrar y contar reimpresiones:
+estHist = L.renombrarEnHistorialPersonalizado(estHist, 'hist-2', 'Flota Costa Brava Lunes', '2026-11-02T17:05:00.000Z');
+estHist = L.marcarReimpresoEnHistorialPersonalizado(estHist, 'hist-2', '2026-11-02T17:06:00.000Z');
+eq('histórico: renombrar y contar reimpresión', [estHist.items[0].etiqueta, estHist.items[0].vecesReimpreso], ['Flota Costa Brava Lunes', 1]);
+
+// Borrar un reporte individual y verificar que no resucite al hacer merge con copia remota vieja:
+const copiaAntesDeBorrar = JSON.parse(JSON.stringify(estHist));
+estHist = L.quitarDelHistorialPuro(estHist, 'hist-1', '2026-11-02T17:10:00.000Z');
+eq('histórico: borrar quita el reporte y deja el otro', estHist.items.map((x) => x.id), ['hist-2']);
+const fusionado = L.mergeHistorialPersonalizado(estHist, copiaAntesDeBorrar);
+eq('histórico: el reporte borrado NO resucita al sincronizar con otro dispositivo', fusionado.items.map((x) => x.id), ['hist-2']);
+
+// Vaciar todo el histórico:
+const vaciado = L.vaciarHistorialPuro(fusionado, '2026-11-02T18:00:00.000Z');
+eq('histórico: vaciar deja 0 reportes y no resucita al fusionar con antes', L.mergeHistorialPersonalizado(vaciado, copiaAntesDeBorrar).items.length, 0);
+
 // ——— 6. Candados sobre el código fuente ———
 const srcLib = fs.readFileSync(path.join(ROOT, 'src/lib/reporteMaquinariaPersonalizado.ts'), 'utf8');
 ok('⭐⭐ la librería es PURA (sin imports): se prueba sola', !/^\s*import\s/m.test(srcLib));
@@ -171,6 +251,12 @@ ok('🏢 hay filtro por una o varias empresas, categorías de maquinaria y estad
 ok('vaciar el papel pide confirmación (doble toque)', srcCard.includes('¿Seguro? Toca otra vez'));
 ok('el estado también se puede escribir libre', srcCard.includes('Estado libre…'));
 ok('hay fila manual en blanco', /filaVacia\(`manual-\$\{manuales \+ 1\}`\)/.test(srcCard));
+ok('🕒 hay histórico de reportes sacados con Reimprimir como estaba, Reusar y modificar, y Borrar',
+  srcCard.includes('Histórico de reportes sacados') &&
+  srcCard.includes('Reimprimir como estaba') &&
+  srcCard.includes('Reusar y modificar') &&
+  srcCard.includes('🗑️ Borrar') &&
+  srcCard.includes('Limpiar histórico'));
 
 const srcPdf = fs.readFileSync(path.join(ROOT, 'src/lib/pdf.ts'), 'utf8');
 ok('⭐ pdf.ts: sin pasar «emitida», los demás reportes no cambian (nowStamp de siempre)',

@@ -567,3 +567,762 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
 
   return partes.join('\n');
 }
+
+// ============================================================================
+// 🕒 HISTÓRICO DE REPORTES PERSONALIZADOS SACADOS — lógica 100% pura (02-nov-2026)
+// ============================================================================
+//
+// Reglas de diseño (consenso de los 4 agentes):
+// 1. CERO Base64 / CERO HTML crudo: en vez de guardar ~400 KB de logos en Base64
+//    por reporte, se guarda el snapshot estructurado de las `filas` congeladas y
+//    sus `opciones`, `logos` (5 booleanos), encabezados y filtros (~3-5 KB).
+// 2. Opción A (🖨️ Reimprimir como estaba): reconstruye el PDF idéntico con las
+//    `filas` congeladas, la `emitida` congelada y las opciones exactas de ese día.
+// 3. Opción B (✏️ Reusar y modificar): devuelve todo el estado al taller de papel
+//    (incluyendo filtros y celdas editadas a mano) para modificarlo y sacar otro.
+// 4. Opción C (🗑️ Borrar individual o vaciar todo): soporta tombstones (`deletedIds`
+//    y `clearedBefore`) para que un reporte borrado no resucite al sincronizar.
+
+export const MAX_HISTORIAL_PERSONALIZADO = 40;
+export const MAX_DELETED_HISTORIAL = 100;
+
+export type LogosPersonalizado = {
+  bcv: boolean;
+  sos: boolean;
+  golden: boolean;
+  renace: boolean;
+  jhenzaen: boolean;
+};
+
+export const LOGOS_PERSONALIZADO_INICIAL: LogosPersonalizado = {
+  bcv: true,
+  sos: true,
+  golden: false,
+  renace: false,
+  jhenzaen: false,
+};
+
+export type FiltrosCatalogoPersonalizado = {
+  fuente: 'todos' | 'maq' | 'veh';
+  empresasSel: string[];
+  categoriasSel: string[];
+  estadosSel: string[];
+  busca: string;
+};
+
+export type ResumenHistorialPersonalizado = {
+  /** Etiqueta autodescriptiva si el usuario no escribió un nombre propio */
+  etiquetaAuto: string;
+  totalEquipos: number;
+  totalMaquinas: number;
+  totalVehiculos: number;
+  totalManuales: number;
+  porEstadoTexto: string;
+  empresasTexto: string;
+  categoriasTexto: string;
+  rangoTexto: string;
+  totalLitrosTexto: string;
+  /** Vista previa de los primeros equipos SIEMPRE con Código + Placa (regla GEMINI.md) */
+  previewEquipos: string;
+};
+
+export type RegistroHistorialPersonalizado = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  cuandoTexto: string;
+  creadoPorNombre: string;
+  origen: 'impresion' | 'manual';
+  etiqueta: string;
+  nombreArchivo: string;
+  vecesReimpreso: number;
+  fingerprint: string;
+
+  // ── Snapshot congelado del papel (garantiza Reimprimir como estaba) ──
+  titulo: string;
+  subtitulo: string;
+  subtituloPapel: string;
+  nota: string;
+  fechaEmision: string;
+  emitida: string;
+  conRango: boolean;
+  desde: string;
+  hasta: string;
+  opciones: OpcionesPersonalizado;
+  logos: LogosPersonalizado;
+  marcaTexto: boolean;
+  filas: FilaPersonalizada[];
+
+  // ── Estado adicional del taller (para Reusar y modificar) ──
+  filtros: FiltrosCatalogoPersonalizado;
+  editadosManual: string[];
+  manuales: number;
+
+  // ── Resumen precalculado para identificar rápido "cuál fue que saqué" ──
+  resumen: ResumenHistorialPersonalizado;
+};
+
+export type EstadoHistorialPersonalizado = {
+  items: RegistroHistorialPersonalizado[];
+  deletedIds: Record<string, string>;
+  clearedBefore: string | null;
+};
+
+export const ESTADO_HISTORIAL_VACIO: EstadoHistorialPersonalizado = {
+  items: [],
+  deletedIds: {},
+  clearedBefore: null,
+};
+
+/** Formatea una fecha ISO en hora de Caracas (DD/MM/AAAA · hh:mm a. m./p. m.). */
+export function fechaHoraCaracasHistorial(iso?: string | null): string {
+  const raw = String(iso ?? '').trim();
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  try {
+    const fmt = new Intl.DateTimeFormat('es-VE', {
+      timeZone: 'America/Caracas',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+    return fmt.format(d);
+  } catch {
+    return d.toISOString().slice(0, 16).replace('T', ' ');
+  }
+}
+
+/** Formatea la identificación de un equipo en el histórico cumpliendo regla de Código + Placa. */
+export function etiquetaEquipoHistorial(f: Pick<FilaPersonalizada, 'id' | 'code' | 'plate'>): string {
+  const esVeh = String(f.id ?? '').startsWith('veh-');
+  const code = String(f.code ?? '').trim() || '(sin código)';
+  const plate = String(f.plate ?? '').trim() || 'S/P';
+  return `${esVeh ? '🚗 ' : '🚜 '}${code} · Placa: ${plate}`;
+}
+
+function cortarTextoSeguro(v: unknown, max = 300): string {
+  const s = String(v ?? '').trim();
+  if (s.startsWith('data:')) return '';
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+function clonarFilaSegura(f: FilaPersonalizada): FilaPersonalizada {
+  return {
+    id: cortarTextoSeguro(f?.id, 120) || 'fila',
+    code: cortarTextoSeguro(f?.code, 120),
+    marca: cortarTextoSeguro(f?.marca, 120),
+    modelo: cortarTextoSeguro(f?.modelo, 120),
+    clasificacion: cortarTextoSeguro(f?.clasificacion, 140),
+    serial: cortarTextoSeguro(f?.serial, 120),
+    plate: cortarTextoSeguro(f?.plate, 80),
+    empresa: cortarTextoSeguro(f?.empresa, 140),
+    zona: cortarTextoSeguro(f?.zona, 160),
+    encargado: cortarTextoSeguro(f?.encargado, 140),
+    estado: cortarTextoSeguro(f?.estado, 80),
+    horometro: cortarTextoSeguro(f?.horometro, 60),
+    peso: cortarTextoSeguro(f?.peso, 60),
+    medidas: cortarTextoSeguro(f?.medidas, 120),
+    nota: cortarTextoSeguro(f?.nota, 400),
+    litros: cortarTextoSeguro(f?.litros, 60),
+    cardinal: cortarTextoSeguro(f?.cardinal, 120),
+  };
+}
+
+/** Calcula la huella canónica del reporte para no duplicar impresiones idénticas seguidas. */
+export function huellaReportePersonalizado(params: {
+  titulo: string;
+  subtitulo: string;
+  nota: string;
+  fechaEmision: string;
+  conRango: boolean;
+  desde: string;
+  hasta: string;
+  opciones: OpcionesPersonalizado;
+  logos: LogosPersonalizado;
+  marcaTexto: boolean;
+  filas: FilaPersonalizada[];
+}): string {
+  const payload = {
+    t: cortarTextoSeguro(params.titulo, 160),
+    s: cortarTextoSeguro(params.subtitulo, 200),
+    n: cortarTextoSeguro(params.nota, 500),
+    fe: cortarTextoSeguro(params.fechaEmision, 20),
+    cr: Boolean(params.conRango),
+    d: cortarTextoSeguro(params.desde, 20),
+    h: cortarTextoSeguro(params.hasta, 20),
+    o: { ...OPCIONES_PERSONALIZADO_INICIAL, ...(params.opciones || {}) },
+    l: { ...LOGOS_PERSONALIZADO_INICIAL, ...(params.logos || {}) },
+    m: Boolean(params.marcaTexto),
+    f: (params.filas || []).map((f) => [
+      f.id, f.code, f.marca, f.modelo, f.clasificacion, f.serial, f.plate,
+      f.empresa, f.zona, f.encargado, f.estado, f.horometro, f.peso,
+      f.medidas, f.nota, f.litros, f.cardinal,
+    ]),
+  };
+  return JSON.stringify(payload);
+}
+
+/** Construye el resumen autodescriptivo para saber de un vistazo qué tenía el reporte. */
+export function armarResumenHistorialPersonalizado(params: {
+  titulo: string;
+  subtitulo: string;
+  fechaEmision: string;
+  conRango: boolean;
+  desde: string;
+  hasta: string;
+  opciones: OpcionesPersonalizado;
+  filas: FilaPersonalizada[];
+  filtros?: Partial<FiltrosCatalogoPersonalizado>;
+}): ResumenHistorialPersonalizado {
+  const filas = Array.isArray(params.filas) ? params.filas : [];
+  const o = { ...OPCIONES_PERSONALIZADO_INICIAL, ...(params.opciones || {}) };
+  let totalMaquinas = 0;
+  let totalVehiculos = 0;
+  let totalManuales = 0;
+
+  const porEstado = new Map<string, { label: string; n: number }>();
+  const empresas = new Map<string, string>();
+  const categorias = new Map<string, string>();
+
+  filas.forEach((f) => {
+    const id = String(f.id ?? '');
+    if (id.startsWith('manual-')) totalManuales += 1;
+    else if (id.startsWith('veh-')) totalVehiculos += 1;
+    else totalMaquinas += 1;
+
+    const est = String(f.estado ?? '').trim() || 'Sin estado';
+    const estK = est.toLowerCase();
+    const prevEst = porEstado.get(estK);
+    if (prevEst) prevEst.n += 1;
+    else porEstado.set(estK, { label: est, n: 1 });
+
+    const emp = String(f.empresa ?? '').trim();
+    if (emp && !empresas.has(emp.toLowerCase())) empresas.set(emp.toLowerCase(), emp);
+
+    const cat = String(f.clasificacion ?? '').trim();
+    if (cat && !categorias.has(cat.toLowerCase())) categorias.set(cat.toLowerCase(), cat);
+  });
+
+  const porEstadoTexto = Array.from(porEstado.values())
+    .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, 'es'))
+    .map((e) => `${e.n} ${e.label}`)
+    .join(' · ') || 'Sin equipos';
+
+  const listaEmp = (params.filtros?.empresasSel && params.filtros.empresasSel.length > 0)
+    ? params.filtros.empresasSel
+    : Array.from(empresas.values());
+  const empresasTexto = listaEmp.length === 0
+    ? 'Todas las empresas'
+    : listaEmp.length <= 2
+      ? listaEmp.join(', ')
+      : `${listaEmp.slice(0, 2).join(', ')} (+${listaEmp.length - 2})`;
+
+  const listaCat = (params.filtros?.categoriasSel && params.filtros.categoriasSel.length > 0)
+    ? params.filtros.categoriasSel
+    : Array.from(categorias.values());
+  const categoriasTexto = listaCat.length === 0
+    ? 'Todas las categorías'
+    : listaCat.length <= 2
+      ? listaCat.join(', ')
+      : `${listaCat.slice(0, 2).join(', ')} (+${listaCat.length - 2})`;
+
+  const usaRango = Boolean(params.conRango) || usaRangoPersonalizado(o);
+  const r = rangoOrdenado(params.desde, params.hasta);
+  const rangoTexto = usaRango && r.desde
+    ? (r.desde === r.hasta
+      ? `Día ${dmyPersonalizado(r.desde)}`
+      : `Del ${dmyPersonalizado(r.desde)} al ${dmyPersonalizado(r.hasta)}`)
+    : (params.fechaEmision ? `Emitido ${dmyPersonalizado(params.fechaEmision)}` : 'Fecha actual');
+
+  const totalLitros = !o.sinConsumo ? totalLitrosPersonalizado(filas) : 0;
+  const totalLitrosTexto = !o.sinConsumo ? `${litrosTexto(totalLitros) || '0'} L` : '';
+
+  const primeros = filas.slice(0, 3).map((f) => etiquetaEquipoHistorial(f));
+  const previewEquipos = primeros.length === 0
+    ? 'Sin equipos'
+    : `${primeros.join(' · ')}${filas.length > 3 ? ` (+${filas.length - 3} más)` : ''}`;
+
+  // Etiqueta autodescriptiva inteligente
+  const partesEtiqueta: string[] = [];
+  const tit = String(params.titulo ?? '').trim();
+  const sub = String(params.subtitulo ?? '').trim();
+  if (tit && tit.toLowerCase() !== 'reporte de maquinaria') {
+    partesEtiqueta.push(tit);
+  } else if (sub && sub.toLowerCase() !== 'reporte personalizado') {
+    partesEtiqueta.push(sub);
+  }
+  if (params.filtros?.empresasSel && params.filtros.empresasSel.length > 0) {
+    partesEtiqueta.push(`🏢 ${empresasTexto}`);
+  }
+  if (params.filtros?.categoriasSel && params.filtros.categoriasSel.length > 0) {
+    partesEtiqueta.push(`🔶 ${categoriasTexto}`);
+  }
+  if (!o.sinConsumo) {
+    partesEtiqueta.push(`⛽ ${totalLitrosTexto}`);
+  }
+  if (!o.sinCardinal) {
+    partesEtiqueta.push('🧭 Este/Oeste');
+  }
+  partesEtiqueta.push(`${filas.length} eq.`);
+  partesEtiqueta.push(rangoTexto);
+
+  return {
+    etiquetaAuto: partesEtiqueta.join(' · '),
+    totalEquipos: filas.length,
+    totalMaquinas,
+    totalVehiculos,
+    totalManuales,
+    porEstadoTexto,
+    empresasTexto,
+    categoriasTexto,
+    rangoTexto,
+    totalLitrosTexto,
+    previewEquipos,
+  };
+}
+
+/** Crea un registro normalizado listo para guardarse en el histórico. */
+export function crearRegistroHistorialPersonalizado(params: {
+  id?: string;
+  createdAt?: string;
+  creadoPorNombre?: string | null;
+  origen?: 'impresion' | 'manual';
+  etiqueta?: string;
+  nombreArchivo?: string;
+  titulo: string;
+  subtitulo: string;
+  subtituloPapel?: string;
+  nota: string;
+  fechaEmision: string;
+  emitida?: string;
+  conRango: boolean;
+  desde: string;
+  hasta: string;
+  opciones: OpcionesPersonalizado;
+  logos?: Partial<LogosPersonalizado>;
+  marcaTexto?: boolean;
+  filas: FilaPersonalizada[];
+  filtros?: Partial<FiltrosCatalogoPersonalizado>;
+  editadosManual?: string[];
+  manuales?: number;
+}): RegistroHistorialPersonalizado {
+  const ahora = String(params.createdAt ?? '').trim() || new Date().toISOString();
+  const id = String(params.id ?? '').trim() || `rp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const opciones: OpcionesPersonalizado = {
+    ...OPCIONES_PERSONALIZADO_INICIAL,
+    ...(params.opciones || {}),
+  };
+  const logos: LogosPersonalizado = {
+    ...LOGOS_PERSONALIZADO_INICIAL,
+    ...(params.logos || {}),
+  };
+  const marcaTexto = params.marcaTexto !== false;
+  const filas = (Array.isArray(params.filas) ? params.filas : []).slice(0, 300).map(clonarFilaSegura);
+  const titulo = cortarTextoSeguro(params.titulo, 160) || 'Reporte de maquinaria';
+  const subtitulo = cortarTextoSeguro(params.subtitulo, 200);
+  const nota = cortarTextoSeguro(params.nota, 1000);
+  const fechaEmision = cortarTextoSeguro(params.fechaEmision, 20);
+  const conRango = Boolean(params.conRango);
+  const r = rangoOrdenado(params.desde, params.hasta);
+  const desde = r.desde || cortarTextoSeguro(params.desde, 20);
+  const hasta = r.hasta || cortarTextoSeguro(params.hasta, 20);
+
+  const usaRango = conRango || usaRangoPersonalizado(opciones);
+  const rangoStr = usaRango && desde
+    ? (desde === hasta
+      ? `Día ${dmyPersonalizado(desde)}`
+      : `Del ${dmyPersonalizado(desde)} al ${dmyPersonalizado(hasta)}`)
+    : '';
+  const subtituloPapel = cortarTextoSeguro(
+    params.subtituloPapel ?? ([subtitulo, rangoStr].filter(Boolean).join(' · ') || 'Reporte personalizado'),
+    260,
+  );
+  const emitida = cortarTextoSeguro(params.emitida ?? (emitidaTexto(fechaEmision) || fechaHoraCaracasHistorial(ahora)), 80);
+  const nombreArchivo = cortarTextoSeguro(
+    params.nombreArchivo ?? `${titulo} · ${sufijoArchivoPersonalizado(fechaEmision, opciones)}`,
+    200,
+  );
+
+  const filtros: FiltrosCatalogoPersonalizado = {
+    fuente: params.filtros?.fuente === 'maq' || params.filtros?.fuente === 'veh' ? params.filtros.fuente : 'todos',
+    empresasSel: Array.isArray(params.filtros?.empresasSel) ? params.filtros!.empresasSel.map((s) => cortarTextoSeguro(s, 140)).filter(Boolean) : [],
+    categoriasSel: Array.isArray(params.filtros?.categoriasSel) ? params.filtros!.categoriasSel.map((s) => cortarTextoSeguro(s, 140)).filter(Boolean) : [],
+    estadosSel: Array.isArray(params.filtros?.estadosSel) ? params.filtros!.estadosSel.map((s) => cortarTextoSeguro(s, 80)).filter(Boolean) : [],
+    busca: cortarTextoSeguro(params.filtros?.busca, 120),
+  };
+
+  const maxManualEnFilas = filas.reduce((acc, f) => {
+    const m = /^manual-(\d+)$/.exec(String(f.id ?? ''));
+    return m ? Math.max(acc, Number(m[1])) : acc;
+  }, 0);
+  const manuales = Math.max(Number(params.manuales) || 0, maxManualEnFilas);
+
+  const editadosManual = Array.isArray(params.editadosManual)
+    ? params.editadosManual.map((s) => cortarTextoSeguro(s, 140)).filter(Boolean)
+    : [];
+
+  const resumen = armarResumenHistorialPersonalizado({
+    titulo,
+    subtitulo,
+    fechaEmision,
+    conRango,
+    desde,
+    hasta,
+    opciones,
+    filas,
+    filtros,
+  });
+
+  const fingerprint = huellaReportePersonalizado({
+    titulo,
+    subtitulo,
+    nota,
+    fechaEmision,
+    conRango,
+    desde,
+    hasta,
+    opciones,
+    logos,
+    marcaTexto,
+    filas,
+  });
+
+  return {
+    id,
+    createdAt: ahora,
+    updatedAt: ahora,
+    cuandoTexto: fechaHoraCaracasHistorial(ahora),
+    creadoPorNombre: cortarTextoSeguro(params.creadoPorNombre, 120) || 'Usuario',
+    origen: params.origen === 'manual' ? 'manual' : 'impresion',
+    etiqueta: cortarTextoSeguro(params.etiqueta, 140),
+    nombreArchivo,
+    vecesReimpreso: 0,
+    fingerprint,
+    titulo,
+    subtitulo,
+    subtituloPapel,
+    nota,
+    fechaEmision,
+    emitida,
+    conRango,
+    desde,
+    hasta,
+    opciones,
+    logos,
+    marcaTexto,
+    filas,
+    filtros,
+    editadosManual,
+    manuales,
+    resumen,
+  };
+}
+
+/** Normaliza un objeto arbitrario leído de disco o red en un RegistroHistorialPersonalizado válido, o null si es inválido. */
+export function normalizarRegistroHistorialPersonalizado(raw: any): RegistroHistorialPersonalizado | null {
+  if (!raw || typeof raw !== 'object') return null;
+  if (!Array.isArray(raw.filas) || raw.filas.length === 0) return null;
+  const reg = crearRegistroHistorialPersonalizado({
+    id: raw.id,
+    createdAt: raw.createdAt || raw.creadoAt,
+    creadoPorNombre: raw.creadoPorNombre,
+    origen: raw.origen,
+    etiqueta: raw.etiqueta,
+    nombreArchivo: raw.nombreArchivo,
+    titulo: raw.titulo,
+    subtitulo: raw.subtitulo,
+    subtituloPapel: raw.subtituloPapel,
+    nota: raw.nota,
+    fechaEmision: raw.fechaEmision,
+    emitida: raw.emitida,
+    conRango: raw.conRango,
+    desde: raw.desde,
+    hasta: raw.hasta,
+    opciones: raw.opciones,
+    logos: raw.logos,
+    marcaTexto: raw.marcaTexto,
+    filas: raw.filas,
+    filtros: raw.filtros,
+    editadosManual: raw.editadosManual,
+    manuales: raw.manuales,
+  });
+  reg.updatedAt = cortarTextoSeguro(raw.updatedAt, 40) || reg.createdAt;
+  reg.vecesReimpreso = Math.max(0, Math.floor(Number(raw.vecesReimpreso) || 0));
+  return reg;
+}
+
+/** Normaliza el contenedor completo de estado del histórico. */
+export function normalizarEstadoHistorialPersonalizado(raw: any): EstadoHistorialPersonalizado {
+  if (!raw) return { ...ESTADO_HISTORIAL_VACIO, items: [], deletedIds: {} };
+  if (Array.isArray(raw)) {
+    const items = raw
+      .map(normalizarRegistroHistorialPersonalizado)
+      .filter((x): x is RegistroHistorialPersonalizado => x !== null)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+      .slice(0, MAX_HISTORIAL_PERSONALIZADO);
+    return { items, deletedIds: {}, clearedBefore: null };
+  }
+  if (typeof raw !== 'object') return { ...ESTADO_HISTORIAL_VACIO, items: [], deletedIds: {} };
+
+  const deletedIds: Record<string, string> = {};
+  if (raw.deletedIds && typeof raw.deletedIds === 'object' && !Array.isArray(raw.deletedIds)) {
+    Object.entries(raw.deletedIds).forEach(([k, v]) => {
+      if (k && typeof v === 'string') deletedIds[k] = v;
+    });
+  }
+  const clearedBefore = typeof raw.clearedBefore === 'string' && raw.clearedBefore.trim()
+    ? raw.clearedBefore.trim()
+    : null;
+
+  const items = (Array.isArray(raw.items) ? (raw.items as any[]) : [])
+    .map(normalizarRegistroHistorialPersonalizado)
+    .filter((x: RegistroHistorialPersonalizado | null): x is RegistroHistorialPersonalizado => {
+      if (!x) return false;
+      const stamp = x.updatedAt || x.createdAt;
+      if (deletedIds[x.id] && deletedIds[x.id] >= stamp) return false;
+      if (clearedBefore && stamp <= clearedBefore) return false;
+      return true;
+    })
+    .sort((a: RegistroHistorialPersonalizado, b: RegistroHistorialPersonalizado) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+    .slice(0, MAX_HISTORIAL_PERSONALIZADO);
+
+  return { items, deletedIds, clearedBefore };
+}
+
+/**
+ * Agrega un reporte al histórico.
+ * Si el reporte más reciente tiene exactamente la misma `fingerprint` (mismas filas,
+ * fechas, opciones y textos) y la misma etiqueta (o el nuevo trae una etiqueta),
+ * actualiza ese registro en el tope en vez de duplicarlo.
+ */
+export function agregarAlHistorialPersonalizado(
+  estadoActual: EstadoHistorialPersonalizado,
+  nuevo: RegistroHistorialPersonalizado,
+  max = MAX_HISTORIAL_PERSONALIZADO,
+): EstadoHistorialPersonalizado {
+  const base = normalizarEstadoHistorialPersonalizado(estadoActual);
+  const tope = base.items[0];
+  let lista: RegistroHistorialPersonalizado[];
+
+  if (
+    tope &&
+    tope.fingerprint === nuevo.fingerprint &&
+    (!tope.etiqueta || !nuevo.etiqueta || tope.etiqueta === nuevo.etiqueta)
+  ) {
+    const actualizado: RegistroHistorialPersonalizado = {
+      ...nuevo,
+      id: tope.id,
+      createdAt: nuevo.createdAt,
+      updatedAt: nuevo.updatedAt,
+      cuandoTexto: nuevo.cuandoTexto,
+      etiqueta: nuevo.etiqueta || tope.etiqueta,
+      vecesReimpreso: tope.vecesReimpreso,
+    };
+    lista = [actualizado, ...base.items.slice(1)];
+  } else {
+    lista = [nuevo, ...base.items.filter((i) => i.id !== nuevo.id)];
+  }
+
+  const nextDeleted = { ...base.deletedIds };
+  delete nextDeleted[nuevo.id];
+
+  return {
+    items: lista.slice(0, Math.max(1, max)),
+    deletedIds: nextDeleted,
+    clearedBefore: base.clearedBefore,
+  };
+}
+
+/** Cambia la etiqueta personalizada de un reporte ya guardado en el histórico. */
+export function renombrarEnHistorialPersonalizado(
+  estadoActual: EstadoHistorialPersonalizado,
+  id: string,
+  nuevaEtiqueta: string,
+  ahoraIso?: string,
+): EstadoHistorialPersonalizado {
+  const base = normalizarEstadoHistorialPersonalizado(estadoActual);
+  const stamp = ahoraIso || new Date().toISOString();
+  const limpia = cortarTextoSeguro(nuevaEtiqueta, 140);
+  return {
+    ...base,
+    items: base.items.map((item) =>
+      item.id === id ? { ...item, etiqueta: limpia, updatedAt: stamp } : item
+    ),
+  };
+}
+
+/** Incrementa el contador de reimpresiones de un reporte del histórico. */
+export function marcarReimpresoEnHistorialPersonalizado(
+  estadoActual: EstadoHistorialPersonalizado,
+  id: string,
+  ahoraIso?: string,
+): EstadoHistorialPersonalizado {
+  const base = normalizarEstadoHistorialPersonalizado(estadoActual);
+  const stamp = ahoraIso || new Date().toISOString();
+  return {
+    ...base,
+    items: base.items.map((item) =>
+      item.id === id
+        ? { ...item, vecesReimpreso: (item.vecesReimpreso || 0) + 1, updatedAt: stamp }
+        : item
+    ),
+  };
+}
+
+/** Elimina un reporte individual del histórico y guarda su tombstone para que no resucite. */
+export function quitarDelHistorialPuro(
+  estadoActual: EstadoHistorialPersonalizado,
+  id: string,
+  ahoraIso?: string,
+): EstadoHistorialPersonalizado {
+  const base = normalizarEstadoHistorialPersonalizado(estadoActual);
+  const stamp = ahoraIso || new Date().toISOString();
+  const pares = Object.entries({ ...base.deletedIds, [id]: stamp })
+    .sort((a, b) => b[1].localeCompare(a[1]))
+    .slice(0, MAX_DELETED_HISTORIAL);
+  const deletedIds: Record<string, string> = {};
+  pares.forEach(([k, v]) => {
+    deletedIds[k] = v;
+  });
+  return {
+    items: base.items.filter((item) => item.id !== id),
+    deletedIds,
+    clearedBefore: base.clearedBefore,
+  };
+}
+
+/** Vacía todo el histórico y registra `clearedBefore` para sincronizar el vaciado. */
+export function vaciarHistorialPuro(
+  estadoActual: EstadoHistorialPersonalizado,
+  ahoraIso?: string,
+): EstadoHistorialPersonalizado {
+  const base = normalizarEstadoHistorialPersonalizado(estadoActual);
+  const stamp = ahoraIso || new Date().toISOString();
+  const nextDeleted = { ...base.deletedIds };
+  base.items.forEach((i) => {
+    nextDeleted[i.id] = stamp;
+  });
+  const pares = Object.entries(nextDeleted)
+    .sort((a, b) => b[1].localeCompare(a[1]))
+    .slice(0, MAX_DELETED_HISTORIAL);
+  const deletedIds: Record<string, string> = {};
+  pares.forEach(([k, v]) => {
+    deletedIds[k] = v;
+  });
+  return {
+    items: [],
+    deletedIds,
+    clearedBefore: stamp,
+  };
+}
+
+/**
+ * Fusiona (merge) el estado local y remoto del histórico respetando los borrados
+ * individuales (`deletedIds`) y el vaciado total (`clearedBefore`).
+ */
+export function mergeHistorialPersonalizado(
+  localRaw: any,
+  remotoRaw: any,
+  max = MAX_HISTORIAL_PERSONALIZADO,
+): EstadoHistorialPersonalizado {
+  const local = normalizarEstadoHistorialPersonalizado(localRaw);
+  const remoto = normalizarEstadoHistorialPersonalizado(remotoRaw);
+
+  const todosDeleted: Record<string, string> = { ...remoto.deletedIds };
+  Object.entries(local.deletedIds).forEach(([id, ts]) => {
+    if (!todosDeleted[id] || ts > todosDeleted[id]) {
+      todosDeleted[id] = ts;
+    }
+  });
+  const paresDel = Object.entries(todosDeleted)
+    .sort((a, b) => b[1].localeCompare(a[1]))
+    .slice(0, MAX_DELETED_HISTORIAL);
+  const deletedIds: Record<string, string> = {};
+  paresDel.forEach(([k, v]) => {
+    deletedIds[k] = v;
+  });
+
+  const clearedBefore =
+    local.clearedBefore && remoto.clearedBefore
+      ? (local.clearedBefore > remoto.clearedBefore ? local.clearedBefore : remoto.clearedBefore)
+      : (local.clearedBefore || remoto.clearedBefore || null);
+
+  const porId = new Map<string, RegistroHistorialPersonalizado>();
+  [...remoto.items, ...local.items].forEach((item) => {
+    const prev = porId.get(item.id);
+    if (!prev) {
+      porId.set(item.id, item);
+      return;
+    }
+    const stampPrev = prev.updatedAt || prev.createdAt;
+    const stampNuevo = item.updatedAt || item.createdAt;
+    if (stampNuevo >= stampPrev) {
+      porId.set(item.id, {
+        ...item,
+        vecesReimpreso: Math.max(prev.vecesReimpreso || 0, item.vecesReimpreso || 0),
+        etiqueta: item.etiqueta || prev.etiqueta,
+      });
+    }
+  });
+
+  const items = Array.from(porId.values())
+    .filter((item) => {
+      const stamp = item.updatedAt || item.createdAt;
+      if (deletedIds[item.id] && deletedIds[item.id] >= stamp) return false;
+      if (clearedBefore && stamp <= clearedBefore) return false;
+      return true;
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+    .slice(0, Math.max(1, max));
+
+  return { items, deletedIds, clearedBefore };
+}
+
+/**
+ * Filtra las entradas del histórico por texto libre (busca en etiqueta, título,
+ * subtítulo, nota, fechas, autor, empresas, categorías, estados y en el código,
+ * placa o serial de cualquiera de las máquinas que salieron en ese reporte).
+ */
+export function filtrarHistorialPersonalizado(
+  items: RegistroHistorialPersonalizado[],
+  busca: string,
+): RegistroHistorialPersonalizado[] {
+  const q = String(busca ?? '').trim().toLowerCase();
+  if (!q) return items;
+  return items.filter((item) => {
+    const camposCabecera = [
+      item.etiqueta,
+      item.resumen?.etiquetaAuto,
+      item.titulo,
+      item.subtitulo,
+      item.subtituloPapel,
+      item.nota,
+      item.fechaEmision,
+      dmyPersonalizado(item.fechaEmision),
+      item.desde,
+      dmyPersonalizado(item.desde),
+      item.hasta,
+      dmyPersonalizado(item.hasta),
+      item.cuandoTexto,
+      item.creadoPorNombre,
+      item.resumen?.empresasTexto,
+      item.resumen?.categoriasTexto,
+      item.resumen?.porEstadoTexto,
+      ...(item.filtros?.empresasSel || []),
+      ...(item.filtros?.categoriasSel || []),
+      ...(item.filtros?.estadosSel || []),
+    ];
+    if (camposCabecera.some((v) => String(v ?? '').toLowerCase().includes(q))) {
+      return true;
+    }
+    return (item.filas || []).some((f) =>
+      [f.code, f.plate, f.serial, f.marca, f.modelo, f.empresa, f.clasificacion, f.estado, f.zona, f.nota]
+        .some((v) => String(v ?? '').toLowerCase().includes(q))
+    );
+  });
+}
+

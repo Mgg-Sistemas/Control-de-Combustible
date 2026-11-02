@@ -22,10 +22,11 @@
 // con la regla del reporte 📍 Ubicaciones. Las dos columnas nacen apagadas, se
 // ponen y se quitan con sus pastillas, y lo corregido a mano no se pisa.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { DateField } from './DateField';
 import { Toggle } from './CubicajeTab';
 import { useTheme } from '../theme/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 import { spacing, radius } from '../theme';
 import { selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
@@ -36,12 +37,21 @@ import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
 import { armarUbicaciones, cardinalPorMaquina } from '../lib/ubicacionesReporte';
 import {
   CSS_REPORTE_PERSONALIZADO, ESTADOS_PERSONALIZADO, FilaPersonalizada, OpcionesPersonalizado,
-  OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO,
+  OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO, RegistroHistorialPersonalizado,
   alternarPersonalizado, cuerpoReportePersonalizado, dmyPersonalizado, emitidaTexto, filaVacia,
   ocultosPersonalizadoEnPalabras, sufijoArchivoPersonalizado,
   empresasCatalogoPersonalizado, categoriasCatalogoPersonalizado, estadosCatalogoPersonalizado, filtrarCatalogoPersonalizado,
   aplicarDatosDelRango, cardinalTexto, litrosTexto, rangoOrdenado, totalLitrosPersonalizado, usaRangoPersonalizado,
+  crearRegistroHistorialPersonalizado, etiquetaEquipoHistorial, filtrarHistorialPersonalizado,
 } from '../lib/reporteMaquinariaPersonalizado';
+import {
+  cargarHistorialReportePersonalizado,
+  guardarEnHistorialReportePersonalizado,
+  limpiarTodoHistorialPersonalizado,
+  quitarRegistroHistorialPersonalizado,
+  registrarReimpresionHistorialPersonalizado,
+  renombrarHistorialReportePersonalizado,
+} from '../lib/reportePersonalizadoStorage';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 const n2 = (v: unknown) => Number(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -66,6 +76,17 @@ const MAX_PASTILLAS_CATALOGO = 40;
 
 export function ReporteMaquinariaPersonalizadoCard() {
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const esMovil = width < 720;
+
+  let usuarioActual = 'Usuario';
+  try {
+    const auth = useAuth();
+    if (auth?.fullName) usuarioActual = auth.fullName;
+    else if (auth?.session?.user?.email) usuarioActual = auth.session.user.email.split('@')[0];
+  } catch {
+    // Si se monta fuera de AuthProvider en pruebas, usa respaldo neutro
+  }
 
   // ⚡ Carga perezosa: este componente solo se monta al elegir la pestaña
   //    «Personalizado», así que Reportes no pide nada de esto al arrancar.
@@ -96,6 +117,21 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const [manuales, setManuales] = useState(0);
   const [confirmaVaciar, setConfirmaVaciar] = useState(false);
   const [descargando, setDescargando] = useState(false);
+
+  // 🕒 Histórico de reportes personalizados sacados (guardar, reimprimir, reusar y borrar):
+  const [historial, setHistorial] = useState<RegistroHistorialPersonalizado[]>([]);
+  const [historicoAbierto, setHistoricoAbierto] = useState(false);
+  const [etiquetaHistorico, setEtiquetaHistorico] = useState('');
+  const [buscaHistorico, setBuscaHistorico] = useState('');
+  const [expandidosEquiposIds, setExpandidosEquiposIds] = useState<string[]>([]);
+  const [renombrandoId, setRenombrandoId] = useState<string | null>(null);
+  const [textoRenombrar, setTextoRenombrar] = useState('');
+  const [confirmaBorrarId, setConfirmaBorrarId] = useState<string | null>(null);
+  const [confirmaLimpiarHistorico, setConfirmaLimpiarHistorico] = useState(false);
+  const [confirmaReusarId, setConfirmaReusarId] = useState<string | null>(null);
+  const [avisoHistorico, setAvisoHistorico] = useState<string | null>(null);
+  const [reusadoDesde, setReusadoDesde] = useState<{ id: string; etiqueta: string; cuando: string } | null>(null);
+  const [reimprimiendoId, setReimprimiendoId] = useState<string | null>(null);
 
   // ⛽🧭 Lo que el sistema trae para el rango (null = no cargado / columna apagada).
   const [litrosRango, setLitrosRango] = useState<Record<string, number> | null>(null);
@@ -329,9 +365,61 @@ export function ReporteMaquinariaPersonalizadoCard() {
     return partes.join(' · ');
   }, [rangoEnPapel, rango.desde, rango.hasta, subtitulo]);
 
+  useEffect(() => {
+    cargarHistorialReportePersonalizado()
+      .then((lista) => setHistorial(lista))
+      .catch(() => {});
+  }, []);
+
+  const mostrarAvisoTemporal = (msg: string) => {
+    setAvisoHistorico(msg);
+    setTimeout(() => {
+      setAvisoHistorico((actual) => (actual === msg ? null : actual));
+    }, 5000);
+  };
+
+  const guardarActualEnHistorico = async (origen: 'impresion' | 'manual', nombreArchivoForzado?: string) => {
+    if (filas.length === 0) return;
+    const nombreArch = nombreArchivoForzado || `Reporte personalizado ${sufijoArchivoPersonalizado(fechaEmision, opciones)}`.replace(/\//g, '-');
+    const reg = crearRegistroHistorialPersonalizado({
+      creadoPorNombre: usuarioActual,
+      origen,
+      etiqueta: limpio(etiquetaHistorico),
+      nombreArchivo: nombreArch,
+      titulo: limpio(titulo) || 'Reporte de maquinaria',
+      subtitulo: limpio(subtitulo),
+      subtituloPapel,
+      nota,
+      fechaEmision,
+      emitida: emitidaTexto(fechaEmision) || undefined,
+      conRango,
+      desde: rango.desde,
+      hasta: rango.hasta,
+      opciones,
+      logos,
+      marcaTexto,
+      filas,
+      filtros: {
+        fuente,
+        empresasSel,
+        categoriasSel,
+        estadosSel,
+        busca,
+      },
+      editadosManual: Array.from(editados.current),
+      manuales,
+    });
+    const lista = await guardarEnHistorialReportePersonalizado(reg);
+    setHistorial(lista);
+    if (origen === 'manual') {
+      mostrarAvisoTemporal('💾 Reporte guardado en el histórico. Puedes reimprimirlo como estaba o reusarlo y modificarlo cuando quieras.');
+    }
+  };
+
   const descargarPdf = async () => {
     setDescargando(true);
     try {
+      const nombreArchivo = `Reporte personalizado ${sufijoArchivoPersonalizado(fechaEmision, opciones)}`.replace(/\//g, '-');
       const html = pdfDocument({
         title: limpio(titulo) || 'Reporte de maquinaria',
         subtitle: subtituloPapel,
@@ -342,11 +430,143 @@ export function ReporteMaquinariaPersonalizadoCard() {
         emitida: emitidaTexto(fechaEmision) || undefined,
         body: cuerpoReportePersonalizado({ filas, opciones, nota }),
       });
-      await exportPdf(html, `Reporte personalizado ${sufijoArchivoPersonalizado(fechaEmision, opciones)}`.replace(/\//g, '-'));
+      await guardarActualEnHistorico('impresion', nombreArchivo);
+      await exportPdf(html, nombreArchivo);
     } finally {
       setDescargando(false);
     }
   };
+
+  // 🖨️ Opción A: Reimprimir tal cual estaba cuando se sacó (snapshot congelado).
+  const reimprimirDelHistorico = async (item: RegistroHistorialPersonalizado) => {
+    setReimprimiendoId(item.id);
+    try {
+      const html = pdfDocument({
+        title: limpio(item.titulo) || 'Reporte de maquinaria',
+        subtitle: item.subtituloPapel || limpio(item.subtitulo),
+        extraCss: CSS_REPORTE_PERSONALIZADO,
+        logos: item.logos,
+        marcaTexto: item.marcaTexto,
+        emitida: item.emitida || emitidaTexto(item.fechaEmision) || undefined,
+        body: cuerpoReportePersonalizado({ filas: item.filas, opciones: item.opciones, nota: item.nota }),
+      });
+      const nombreArch = (item.nombreArchivo || `Reporte personalizado ${sufijoArchivoPersonalizado(item.fechaEmision, item.opciones)}`).replace(/\//g, '-');
+      await exportPdf(html, nombreArch);
+      const lista = await registrarReimpresionHistorialPersonalizado(item.id);
+      setHistorial(lista);
+      mostrarAvisoTemporal(`🖨️ Reimpreso como estaba: «${item.etiqueta || item.resumen.etiquetaAuto}».`);
+    } finally {
+      setReimprimiendoId(null);
+    }
+  };
+
+  // ✏️ Opción B: Reusar y modificar (carga las filas, opciones, fechas y filtros en el taller).
+  const reusarDelHistorico = (item: RegistroHistorialPersonalizado) => {
+    if (filas.length > 0 && confirmaReusarId !== item.id) {
+      setConfirmaReusarId(item.id);
+      setTimeout(() => {
+        setConfirmaReusarId((actual) => (actual === item.id ? null : actual));
+      }, 3500);
+      return;
+    }
+    setConfirmaReusarId(null);
+    editados.current = new Set(item.editadosManual || []);
+    setFilas((item.filas || []).map((f) => ({ ...f })));
+    setTitulo(item.titulo || 'Reporte de maquinaria');
+    setSubtitulo(item.subtitulo || 'Reporte personalizado');
+    setNota(item.nota || '');
+    setFechaEmision(item.fechaEmision || caracasToday());
+    setConRango(Boolean(item.conRango));
+    setDesde(item.desde || caracasToday());
+    setHasta(item.hasta || caracasToday());
+    setOpciones({ ...OPCIONES_PERSONALIZADO_INICIAL, ...(item.opciones || {}) });
+    setLogos({ ...LOGOS_POR_DEFECTO, ...(item.logos || {}) });
+    setMarcaTexto(item.marcaTexto !== false);
+    setManuales(item.manuales || 0);
+    setEtiquetaHistorico(item.etiqueta || '');
+    if (item.filtros) {
+      setFuente(item.filtros.fuente || 'todos');
+      setEmpresasSel([...(item.filtros.empresasSel || [])]);
+      setCategoriasSel([...(item.filtros.categoriasSel || [])]);
+      setEstadosSel([...(item.filtros.estadosSel || [])]);
+      setBusca(item.filtros.busca || '');
+    }
+    const etiq = item.etiqueta || item.resumen?.etiquetaAuto || item.titulo;
+    setReusadoDesde({ id: item.id, etiqueta: etiq, cuando: item.cuandoTexto });
+    setHistoricoAbierto(false);
+    mostrarAvisoTemporal(`✏️ Cargado en el taller («${etiq}»): modifica lo que necesites y descarga el nuevo PDF.`);
+  };
+
+  // 🔄 Refrescar estados y datos de las filas cargadas contra el catálogo vivo de hoy
+  const refrescarFilasConCatalogoHoy = () => {
+    if (catalogo.length === 0 || filas.length === 0) return;
+    const porId = new Map(catalogo.map((m) => [m.id, m]));
+    setFilas((prev) =>
+      prev.map((f) => {
+        const vivo = porId.get(f.id);
+        if (!vivo) return f;
+        return aplicarDatosDelRango(
+          {
+            ...f,
+            estado: vivo.estado,
+            empresa: vivo.empresa || f.empresa,
+            zona: vivo.zona || f.zona,
+            encargado: vivo.encargado || f.encargado,
+            horometro: vivo.horometro || f.horometro,
+            plate: vivo.plate || f.plate,
+            serial: vivo.serial || f.serial,
+          },
+          datosRango,
+          editados.current,
+        );
+      }),
+    );
+    mostrarAvisoTemporal('🔄 Se actualizaron los estados, horómetros y ubicaciones de las filas con el catálogo de hoy.');
+  };
+
+  // 🗑️ Opción C: Borrar un reporte individual o limpiar todo el histórico
+  const borrarItemHistorico = async (id: string) => {
+    if (confirmaBorrarId !== id) {
+      setConfirmaBorrarId(id);
+      setTimeout(() => {
+        setConfirmaBorrarId((actual) => (actual === id ? null : actual));
+      }, 3500);
+      return;
+    }
+    setConfirmaBorrarId(null);
+    const lista = await quitarRegistroHistorialPersonalizado(id);
+    setHistorial(lista);
+    mostrarAvisoTemporal('🗑️ Reporte eliminado del histórico.');
+  };
+
+  const limpiarTodoElHistorico = async () => {
+    if (!confirmaLimpiarHistorico) {
+      setConfirmaLimpiarHistorico(true);
+      setTimeout(() => setConfirmaLimpiarHistorico(false), 3500);
+      return;
+    }
+    setConfirmaLimpiarHistorico(false);
+    const lista = await limpiarTodoHistorialPersonalizado();
+    setHistorial(lista);
+    mostrarAvisoTemporal('🧹 Se vació todo el histórico de reportes personalizados.');
+  };
+
+  const guardarRenombradoHistorico = async (id: string) => {
+    const lista = await renombrarHistorialReportePersonalizado(id, textoRenombrar);
+    setHistorial(lista);
+    setRenombrandoId(null);
+    setTextoRenombrar('');
+    mostrarAvisoTemporal('🏷️ Etiqueta del reporte actualizada en el histórico.');
+  };
+
+  const toggleExpandirEquipos = (id: string) => {
+    setExpandidosEquiposIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const historialFiltrado = useMemo(
+    () => filtrarHistorialPersonalizado(historial, buscaHistorico),
+    [historial, buscaHistorico],
+  );
 
   const pastilla = (key: string, label: string, on: boolean, onPress: () => void) => (
     <TouchableOpacity key={key} onPress={onPress}
@@ -382,7 +602,498 @@ export function ReporteMaquinariaPersonalizadoCard() {
       </Text>
       {error ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>⚠️ {error}</Text> : null}
 
+      {/* 🕒 HISTÓRICO DE REPORTES SACADOS (guardar, repetir/reimprimir como estaba, reusar/modificar y borrar) */}
+      <View
+        style={{
+          borderWidth: 1,
+          borderColor: historicoAbierto ? colors.brand : colors.border,
+          borderRadius: radius.md,
+          padding: spacing.sm,
+          marginTop: spacing.xs,
+          marginBottom: spacing.xs,
+          backgroundColor: colors.surfaceAlt,
+        }}
+      >
+        <View
+          style={{
+            flexDirection: esMovil ? 'column' : 'row',
+            alignItems: esMovil ? 'stretch' : 'center',
+            justifyContent: 'space-between',
+            gap: spacing.xs,
+          }}
+        >
+          <TouchableOpacity
+            onPress={() => setHistoricoAbierto((v) => !v)}
+            style={{ flex: 1 }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+              🕒 Histórico de reportes sacados ({historial.length}) {historicoAbierto ? '▲' : '▼'}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+              {historial.length === 0
+                ? 'Cada reporte que descargues en PDF (o guardes aquí) queda registrado para reimprimirlo como estaba o reusarlo y modificarlo.'
+                : `Último: ${historial[0].cuandoTexto} · «${historial[0].etiqueta || historial[0].resumen.etiquetaAuto}» (${historial[0].resumen.totalEquipos} eq.) — toca para ${historicoAbierto ? 'ocultar' : 'ver todo el histórico'}.`}
+            </Text>
+          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' }}>
+            {filas.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => { void guardarActualEnHistorico('manual'); }}
+                style={{
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 7,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: colors.brand,
+                  backgroundColor: colors.surface,
+                }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                  💾 Guardar actual en histórico
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              onPress={() => setHistoricoAbierto((v) => !v)}
+              style={{
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 7,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: historicoAbierto ? colors.brand : colors.border,
+                backgroundColor: historicoAbierto ? colors.brand : colors.surface,
+              }}
+            >
+              <Text style={{ color: historicoAbierto ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+                {historicoAbierto ? '▲ Ocultar histórico' : `▼ Ver histórico (${historial.length})`}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {avisoHistorico ? (
+          <View
+            style={{
+              marginTop: spacing.xs,
+              paddingHorizontal: spacing.sm,
+              paddingVertical: 6,
+              borderRadius: radius.sm,
+              borderWidth: 1,
+              borderColor: colors.brand,
+              backgroundColor: colors.surface,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{avisoHistorico}</Text>
+          </View>
+        ) : null}
+
+        {historicoAbierto ? (
+          <View style={{ marginTop: spacing.sm }}>
+            {historial.length === 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 12 }}>
+                Aún no hay reportes guardados en el histórico. Arma un reporte abajo y pulsa «📄 Descargar el reporte (PDF)» o «💾 Guardar actual en histórico».
+              </Text>
+            ) : (
+              <View>
+                <View
+                  style={{
+                    flexDirection: esMovil ? 'column' : 'row',
+                    alignItems: esMovil ? 'stretch' : 'center',
+                    gap: spacing.xs,
+                    marginBottom: spacing.xs,
+                  }}
+                >
+                  <TextInput
+                    value={buscaHistorico}
+                    onChangeText={setBuscaHistorico}
+                    placeholder="🔎 Buscar en el histórico por nombre, fecha, empresa, categoría, código o placa…"
+                    placeholderTextColor={colors.muted}
+                    style={{
+                      flex: 1,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      color: colors.text,
+                      fontSize: 12,
+                      backgroundColor: colors.surface,
+                    }}
+                  />
+                  {historial.length > 0 ? (
+                    <TouchableOpacity
+                      onPress={() => { void limpiarTodoElHistorico(); }}
+                      style={{
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 6,
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: colors.danger,
+                        backgroundColor: confirmaLimpiarHistorico ? colors.danger : colors.surface,
+                        alignSelf: esMovil ? 'flex-start' : 'center',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: confirmaLimpiarHistorico ? colors.brandContrast : colors.danger,
+                          fontWeight: '800',
+                          fontSize: 11,
+                        }}
+                      >
+                        {confirmaLimpiarHistorico
+                          ? `⚠️ ¿Borrar los ${historial.length} reportes? Toca otra vez`
+                          : `🧹 Limpiar histórico (${historial.length})`}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {historialFiltrado.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 12, marginVertical: spacing.xs }}>
+                    Ningún reporte del histórico coincide con «{buscaHistorico}».
+                  </Text>
+                ) : null}
+
+                {historialFiltrado.map((item, idx) => {
+                  const expandido = expandidosEquiposIds.includes(item.id);
+                  const renombrando = renombrandoId === item.id;
+                  const pidiendoBorrar = confirmaBorrarId === item.id;
+                  const pidiendoReusar = confirmaReusarId === item.id;
+                  const etiquetaVisible = item.etiqueta || item.resumen?.etiquetaAuto || item.titulo;
+
+                  return (
+                    <View
+                      key={item.id}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.md,
+                        padding: spacing.sm,
+                        marginTop: spacing.xs,
+                        backgroundColor: colors.surface,
+                      }}
+                    >
+                      {/* Encabezado de la tarjeta del histórico */}
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'flex-start',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: 6,
+                        }}
+                      >
+                        <View style={{ flex: 1, minWidth: 200 }}>
+                          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                            {idx + 1}. 📌 {etiquetaVisible}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                            📄 {item.titulo} · {item.subtituloPapel}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                            🕒 Sacado: {item.cuandoTexto} · 👤 Por: {item.creadoPorNombre || 'Usuario'} · 📅 Emitida: {dmyPersonalizado(item.fechaEmision) || item.fechaEmision}
+                            {item.vecesReimpreso > 0 ? ` · 🔁 Reimpreso ×${item.vecesReimpreso}` : ''}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (renombrando) {
+                              setRenombrandoId(null);
+                              setTextoRenombrar('');
+                            } else {
+                              setRenombrandoId(item.id);
+                              setTextoRenombrar(item.etiqueta || '');
+                            }
+                          }}
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            backgroundColor: colors.surfaceAlt,
+                          }}
+                        >
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
+                            {renombrando ? '✕ Cancelar' : '🏷️ Nombrar'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Editor en línea para ponerle o cambiarle etiqueta al reporte */}
+                      {renombrando ? (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs, alignItems: 'center' }}>
+                          <TextInput
+                            value={textoRenombrar}
+                            onChangeText={setTextoRenombrar}
+                            placeholder="Escribe un nombre para identificar este reporte (ej. Cierre semanal Savanna)…"
+                            placeholderTextColor={colors.muted}
+                            style={{
+                              flex: 1,
+                              minWidth: 180,
+                              borderWidth: 1,
+                              borderColor: colors.brand,
+                              borderRadius: radius.sm,
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                              color: colors.text,
+                              fontSize: 12,
+                              backgroundColor: colors.surfaceAlt,
+                            }}
+                          />
+                          <TouchableOpacity
+                            onPress={() => { void guardarRenombradoHistorico(item.id); }}
+                            style={{
+                              paddingHorizontal: spacing.sm,
+                              paddingVertical: 6,
+                              borderRadius: radius.sm,
+                              backgroundColor: colors.brand,
+                            }}
+                          >
+                            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>Guardar nombre</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+
+                      {/* Chips de qué contenía este reporte ("cuál fue que saqué") */}
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.xs }}>
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                          <Text style={{ color: colors.text, fontSize: 11, fontWeight: '800' }}>
+                            🚜 {item.resumen.totalEquipos} equipo(s) ({item.resumen.porEstadoTexto})
+                          </Text>
+                        </View>
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                          <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                            📅 {item.resumen.rangoTexto}
+                          </Text>
+                        </View>
+                        {item.resumen.empresasTexto && item.resumen.empresasTexto !== 'Todas las empresas' ? (
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                              🏢 {item.resumen.empresasTexto}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {item.resumen.categoriasTexto && item.resumen.categoriasTexto !== 'Todas las categorías' ? (
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                              🔶 {item.resumen.categoriasTexto}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {!item.opciones.sinConsumo ? (
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '800' }}>
+                              ⛽ Combustible: {item.resumen.totalLitrosTexto || '0 L'}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {!item.opciones.sinCardinal ? (
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                              🧭 Este / Oeste incluido
+                            </Text>
+                          </View>
+                        ) : null}
+                        {!item.opciones.sinPorEmpresa ? (
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                              📊 Cuadro por empresa
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+
+                      {/* Vista previa de las máquinas con Código + Placa (desplegable para ver todas) */}
+                      <View style={{ marginTop: 6 }}>
+                        <TouchableOpacity onPress={() => toggleExpandirEquipos(item.id)}>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            <Text style={{ fontWeight: '800', color: colors.text }}>Equipos en este reporte: </Text>
+                            {item.resumen.previewEquipos}{' '}
+                            <Text style={{ color: colors.brandText, fontWeight: '800' }}>
+                              {expandido ? '[▲ Ocultar lista]' : `[▼ Ver los ${item.filas.length} equipos]`}
+                            </Text>
+                          </Text>
+                        </TouchableOpacity>
+                        {expandido ? (
+                          <View
+                            style={{
+                              marginTop: 6,
+                              padding: spacing.xs,
+                              borderRadius: radius.sm,
+                              backgroundColor: colors.surfaceAlt,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                            }}
+                          >
+                            {item.filas.map((f, fIdx) => (
+                              <Text key={`${item.id}-${f.id}-${fIdx}`} style={{ color: colors.text, fontSize: 11, marginBottom: 2 }}>
+                                {fIdx + 1}. {etiquetaEquipoHistorial(f)}
+                                {f.clasificacion ? ` · ${f.clasificacion}` : ''}
+                                {f.empresa ? ` · ${f.empresa}` : ''}
+                                {f.estado ? ` [${f.estado}]` : ''}
+                                {!item.opciones.sinConsumo && f.litros ? ` · ⛽ ${f.litros} L` : ''}
+                                {!item.opciones.sinCardinal && f.cardinal ? ` · 🧭 ${f.cardinal}` : ''}
+                              </Text>
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+
+                      {/* Barra de 3 botones de acción responsivos (Móvil y PC): Reimprimir como estaba, Reusar y modificar, Borrar */}
+                      <View
+                        style={{
+                          flexDirection: esMovil ? 'column' : 'row',
+                          flexWrap: 'wrap',
+                          gap: spacing.xs,
+                          marginTop: spacing.sm,
+                        }}
+                      >
+                        <TouchableOpacity
+                          disabled={reimprimiendoId === item.id}
+                          onPress={() => { void reimprimirDelHistorico(item); }}
+                          style={{
+                            flexGrow: esMovil ? 0 : 1,
+                            paddingHorizontal: spacing.sm,
+                            paddingVertical: 8,
+                            borderRadius: radius.sm,
+                            backgroundColor: colors.brand,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                            {reimprimiendoId === item.id ? '🖨️ Armando PDF…' : '🖨️ Reimprimir como estaba'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <View style={{ flexDirection: 'row', flexGrow: 1, gap: spacing.xs }}>
+                          <TouchableOpacity
+                            onPress={() => reusarDelHistorico(item)}
+                            style={{
+                              flex: 2,
+                              paddingHorizontal: spacing.sm,
+                              paddingVertical: 8,
+                              borderRadius: radius.sm,
+                              borderWidth: 1,
+                              borderColor: colors.brand,
+                              backgroundColor: pidiendoReusar ? colors.brand : colors.surfaceAlt,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: pidiendoReusar ? colors.brandContrast : colors.brandText,
+                                fontWeight: '800',
+                                fontSize: 12,
+                              }}
+                            >
+                              {pidiendoReusar
+                                ? `⚠️ ¿Reemplazar las ${filas.length} actuales? Toca otra vez`
+                                : '✏️ Reusar y modificar'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() => { void borrarItemHistorico(item.id); }}
+                            style={{
+                              flex: 1,
+                              paddingHorizontal: spacing.sm,
+                              paddingVertical: 8,
+                              borderRadius: radius.sm,
+                              borderWidth: 1,
+                              borderColor: colors.danger,
+                              backgroundColor: pidiendoBorrar ? colors.danger : colors.surfaceAlt,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: pidiendoBorrar ? colors.brandContrast : colors.danger,
+                                fontWeight: '800',
+                                fontSize: 12,
+                              }}
+                            >
+                              {pidiendoBorrar ? '⚠️ ¿Seguro? Toca' : '🗑️ Borrar'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        ) : null}
+      </View>
+
+      {/* Banner activo cuando el usuario cargó un reporte del histórico para reusarlo y modificarlo */}
+      {reusadoDesde ? (
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: colors.brand,
+            borderRadius: radius.md,
+            padding: spacing.sm,
+            marginBottom: spacing.xs,
+            backgroundColor: colors.surfaceAlt,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+            <View style={{ flex: 1, minWidth: 200 }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 12 }}>
+                ✏️ Reusando reporte del histórico: «{reusadoDesde.etiqueta}» (sacado el {reusadoDesde.cuando})
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                Puedes agregar o quitar máquinas, cambiar fechas o editar cualquier celda. Si quieres traer los estados actuales de hoy conservando esta misma lista de máquinas, toca el botón de al lado.
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' }}>
+              <TouchableOpacity
+                onPress={refrescarFilasConCatalogoHoy}
+                style={{
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 6,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: colors.brand,
+                  backgroundColor: colors.surface,
+                }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                  🔄 Actualizar estados con el catálogo de hoy
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setReusadoDesde(null)}>
+                <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 11 }}>✕ Cerrar aviso</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       {rotulo('📝 ENCABEZADO DEL PAPEL (todo editable)')}
+      <View style={{ marginBottom: spacing.xs }}>
+        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>
+          🏷️ Nombre o etiqueta para identificar este reporte en el histórico (opcional; si lo dejas vacío se resume solo)
+        </Text>
+        <TextInput
+          value={etiquetaHistorico}
+          onChangeText={setEtiquetaHistorico}
+          placeholder="Ej.: Cierre viernes Savanna / Excavadoras operativas…"
+          placeholderTextColor={colors.muted}
+          style={{
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: radius.sm,
+            paddingHorizontal: 8,
+            paddingVertical: 6,
+            color: colors.text,
+            fontSize: 12,
+            backgroundColor: colors.surface,
+          }}
+        />
+      </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
         <View style={{ flexGrow: 1, flexBasis: '45%', minWidth: 160 }}>
           <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>Título</Text>
@@ -678,12 +1389,31 @@ export function ReporteMaquinariaPersonalizadoCard() {
       ))}
       <Toggle on={marcaTexto} label="Marca en texto «BCV / SOS La Guaira» (línea y pie)" onPress={() => setMarcaTexto((v) => !v)} />
 
-      <TouchableOpacity
-        disabled={descargando || cargando || cargandoLitros || cargandoCardinal || filas.length === 0}
-        onPress={descargarPdf}
-        style={{ marginTop: spacing.sm, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', backgroundColor: descargando || cargando || cargandoLitros || cargandoCardinal || filas.length === 0 ? colors.border : colors.brand }}>
-        <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{descargando ? 'Armando el papel…' : cargandoLitros || cargandoCardinal ? 'Leyendo los datos del rango…' : '📄 Descargar el reporte (PDF)'}</Text>
-      </TouchableOpacity>
+      <View style={{ flexDirection: esMovil ? 'column' : 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+        <TouchableOpacity
+          disabled={descargando || cargando || cargandoLitros || cargandoCardinal || filas.length === 0}
+          onPress={descargarPdf}
+          style={{ flex: esMovil ? 0 : 2, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', backgroundColor: descargando || cargando || cargandoLitros || cargandoCardinal || filas.length === 0 ? colors.border : colors.brand }}>
+          <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{descargando ? 'Armando el papel…' : cargandoLitros || cargandoCardinal ? 'Leyendo los datos del rango…' : '📄 Descargar el reporte (PDF)'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          disabled={cargando || cargandoLitros || cargandoCardinal || filas.length === 0}
+          onPress={() => { void guardarActualEnHistorico('manual'); }}
+          style={{
+            flex: esMovil ? 0 : 1,
+            borderRadius: radius.md,
+            paddingVertical: spacing.md,
+            paddingHorizontal: spacing.sm,
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: filas.length === 0 ? colors.border : colors.brand,
+            backgroundColor: colors.surface,
+          }}>
+          <Text style={{ color: filas.length === 0 ? colors.muted : colors.brandText, fontWeight: '800' }}>
+            💾 Guardar en el histórico
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
