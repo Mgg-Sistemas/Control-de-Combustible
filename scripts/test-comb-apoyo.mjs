@@ -27,7 +27,7 @@ const check = (nombre, cond) => {
 };
 
 // Interruptor apagado hasta que exista la base
-check('APOYO_ACTIVO en false', L.APOYO_ACTIVO === false);
+check('APOYO_ACTIVO encendido (columnas creadas el 02-nov)', L.APOYO_ACTIVO === true);
 
 // esDeApoyo
 check('apoyo sin máquina ni vehículo', L.esDeApoyo({ machinery_id: null, vehicle_id: null, apoyo_nombre: 'Retro prestada' }));

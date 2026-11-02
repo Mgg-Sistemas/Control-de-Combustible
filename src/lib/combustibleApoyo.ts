@@ -6,12 +6,12 @@
 // sus datos en las columnas apoyo_* y las fotos de la máquina en apoyo_fotos.
 // Las fotos de lo surtido van en photos, como cualquier surtido.
 //
-// Esas columnas todavía NO existen en la base: todo queda detrás del interruptor
-// APOYO_ACTIVO. Con el interruptor en false nada consulta ni escribe apoyo_*.
+// Columnas creadas y verificadas el 02-nov-2026. El interruptor APOYO_ACTIVO queda
+// por si hubiera que apagarlo: en false nada consulta ni escribe apoyo_*.
 // El trigger del tanque descuenta los litros como en cualquier surtido.
 
 /** Enciende el surtido a máquinas de apoyo (requiere las columnas apoyo_* en dispatches). */
-export const APOYO_ACTIVO = false;
+export const APOYO_ACTIVO = true;
 
 export type DespachoConApoyo = {
   machinery_id?: string | null;

@@ -3,7 +3,7 @@
 // Muestra lo que cargó el inspector (solo lectura) y deja escribir una corrección
 // inicial/final + nota que SOLO vale para los reportes de Combustible. Nunca toca
 // machine_rounds. Solo se abre con 'full' en Consumos y con
-// HOROMETRO_AJUSTES_ACTIVOS encendido (la tabla todavía no existe en la base).
+// HOROMETRO_AJUSTES_ACTIVOS encendido (la RLS lo vuelve a comprobar).
 import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';

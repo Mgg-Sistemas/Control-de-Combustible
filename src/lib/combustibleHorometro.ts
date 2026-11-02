@@ -7,8 +7,8 @@
 // CORRECCIÓN: quien tiene 'full' en Consumos puede corregir el horómetro que sale
 // en los papeles de combustible. La corrección vive aparte, en
 // combustible_horometro_ajustes (máquina + fecha), y gana sobre lo del inspector
-// SOLO en estos reportes. Esa tabla todavía no existe: queda detrás del
-// interruptor HOROMETRO_AJUSTES_ACTIVOS hasta que se cree en la base.
+// SOLO en estos reportes. Tabla creada y verificada el 02-nov-2026 (RLS: la ven
+// los de Combustible, escribe solo full en Consumos); interruptor HOROMETRO_AJUSTES_ACTIVOS.
 //
 // FECHA: la jornada va de 7am a 7am. Un surtido a las 3am del día D pertenece a
 // la jornada D-1 (ver jornadaDeDespacho).
@@ -16,7 +16,7 @@ import { selectAllRows, supabase } from './supabase';
 import { caracasParts } from './jornada';
 
 /** Enciende la lectura/escritura de combustible_horometro_ajustes. */
-export const HOROMETRO_AJUSTES_ACTIVOS = false;
+export const HOROMETRO_AJUSTES_ACTIVOS = true;
 
 export type FuenteHorometro = 'inspector' | 'ajuste' | 'ninguno';
 

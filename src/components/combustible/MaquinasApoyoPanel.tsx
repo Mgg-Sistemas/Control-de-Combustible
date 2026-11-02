@@ -4,7 +4,7 @@
 // y sus fotos (de la máquina y de lo surtido). Quien tiene 'full' en Consumos
 // puede agregar o quitar fotos de los dos juegos.
 //
-// Depende de las columnas apoyo_* de dispatches, que todavía no existen: con
+// Depende de las columnas apoyo_* de dispatches (creadas el 02-nov-2026); con
 // APOYO_ACTIVO en false el panel solo muestra un aviso y no consulta nada.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Image, Modal, ActivityIndicator } from 'react-native';
