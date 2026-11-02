@@ -1200,6 +1200,8 @@ export interface FuelIntake {
 
 export interface Dispatch {
   id: string;
+  /** 02-nov-2026: registro viejo con tanque que NO descuenta del stock. */
+  sin_descuento?: boolean | null;
   dispatch_date: string;
   asset_kind: AssetKind;
   vehicle_id: string | null;

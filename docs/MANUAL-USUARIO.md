@@ -2383,6 +2383,11 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **punto o coma**. El **comprobante por WhatsApp** ya no muestra rombos con «?» en lugar de los emojis: cada
 > dato va en su línea.
 
+> **🗂️ Consumos viejos sin tanque: asignar sin descontar** *(02/11/2026)*. En Consumos, junto a «⚡ Auto-asignar
+> tanques por Conductor» está **«🗂️ Asignar sin descontar (registros viejos)»** (y en cada consumo, «🗂️ Sin descontar»):
+> le pone el tanque de su responsable pero **no baja el stock**. Esos consumos muestran «🗂️ Registro viejo» y la
+> Conciliación no los cuenta como salida del tanque. Un consumo que ya descontó no se puede pasar a «sin descontar».
+
 > **🆘 Combustible: máquinas de apoyo y horómetro en el parte diario** *(02/11/2026)*. En **📱 Surtidor (Móvil)** →
 > Surtir aparece la opción **«🆘 Apoyo»** para echarle combustible a una máquina que **no está en el catálogo**:
 > se escribe su **nombre o descripción** (obligatorio), y si se tienen, **placa, serial y empresa**; se le toman

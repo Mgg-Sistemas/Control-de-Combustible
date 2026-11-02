@@ -176,7 +176,9 @@ export default function DispatchesPilot() {
   const [autoAssignMsg, setAutoAssignMsg] = useState<string | null>(null);
   const [assigningRowId, setAssigningRowId] = useState<string | null>(null);
 
-  const autoAsignarTanques = async (items: Dispatch[]) => {
+  // 02-nov-2026: sinDescontar = registro viejo: lleva el tanque del responsable pero NO
+  // descuenta del stock (dispatches.sin_descuento; el trigger del tanque lo respeta).
+  const autoAsignarTanques = async (items: Dispatch[], sinDescontar = false) => {
     if (autoAssigning) return;
     const sinTanque = items.filter((r) => !r.tank_id);
     if (sinTanque.length === 0) return;
@@ -190,11 +192,12 @@ export default function DispatchesPilot() {
       for (const d of sinTanque) {
         const matched = findTankForDriver(d.driver_operator);
         if (matched) {
-          const { error } = await supabase
+          const { data, error } = await supabase
             .from('dispatches')
-            .update({ tank_id: matched.id })
-            .eq('id', d.id);
-          if (!error) {
+            .update(sinDescontar ? { tank_id: matched.id, sin_descuento: true } : { tank_id: matched.id })
+            .eq('id', d.id)
+            .select('id');
+          if (!error && data && data.length > 0) {
             asignados++;
           }
         } else {
@@ -202,7 +205,9 @@ export default function DispatchesPilot() {
         }
       }
       if (asignados > 0) {
-        const msg = `✅ Se auto-asignaron ${asignados} consumo(s) a sus tanques y se descontó el stock.`;
+        const msg = sinDescontar
+          ? `✅ Se asignaron ${asignados} consumo(s) a sus tanques SIN descontar del stock (registros viejos).`
+          : `✅ Se auto-asignaron ${asignados} consumo(s) a sus tanques y se descontó el stock.`;
         setAutoAssignMsg(msg);
         toast?.success?.(msg);
       } else {
@@ -215,18 +220,21 @@ export default function DispatchesPilot() {
     }
   };
 
-  const asignarUnConsumo = async (dispatchId: string, tankId: string) => {
+  const asignarUnConsumo = async (dispatchId: string, tankId: string, sinDescontar = false) => {
     if (assigningRowId) return;
     setAssigningRowId(dispatchId);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('dispatches')
-        .update({ tank_id: tankId })
-        .eq('id', dispatchId);
+        .update(sinDescontar ? { tank_id: tankId, sin_descuento: true } : { tank_id: tankId })
+        .eq('id', dispatchId)
+        .select('id');
       if (error) {
         toast?.error?.(`Error: ${error.message}`);
+      } else if (!data || data.length === 0) {
+        toast?.error?.('No se guardó: no tienes permiso para editar este consumo.');
       } else {
-        toast?.success?.('Tanque asignado con éxito. Stock sincronizado.');
+        toast?.success?.(sinDescontar ? 'Tanque asignado sin descontar del stock (registro viejo).' : 'Tanque asignado con éxito. Stock sincronizado.');
       }
     } catch (e: any) {
       toast?.error?.(`Error: ${e?.message || e}`);
@@ -353,9 +361,25 @@ export default function DispatchesPilot() {
                         {autoAssigning ? 'Asignando tanques…' : '⚡ Auto-asignar tanques por Conductor'}
                       </Text>
                     </Pressable>
+                    {/* 02-nov-2026: registros viejos — tanque del responsable SIN tocar el stock. */}
+                    <Pressable
+                      onPress={() => autoAsignarTanques(shown, true)}
+                      disabled={autoAssigning}
+                      style={{
+                        backgroundColor: '#fff',
+                        borderWidth: 1.5,
+                        borderColor: '#DC2626',
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 7,
+                        borderRadius: radius.pill,
+                        opacity: autoAssigning ? 0.6 : 1,
+                      }}
+                    >
+                      <Text style={{ color: '#B91C1C', fontWeight: '800', fontSize: 12 }}>🗂️ Asignar sin descontar (registros viejos)</Text>
+                    </Pressable>
                   </View>
                   <Text style={{ color: '#7F1D1D', fontSize: 12, marginTop: 2 }}>
-                    Los tanques no descuentan stock hasta tener su tanque de origen. Pulsa el botón rojo para auto-asignarlos al tanque asignado de cada conductor (o tócalos abajo para asignar individualmente).
+                    Los tanques no descuentan stock hasta tener su tanque de origen. Pulsa el botón rojo para auto-asignarlos al tanque asignado de cada conductor (o tócalos abajo para asignar individualmente). Si son registros viejos que no deben bajar el tanque, usa «🗂️ Asignar sin descontar».
                   </Text>
                   {autoAssignMsg ? (
                     <Text style={{ color: '#15803D', fontWeight: '700', fontSize: 12, marginTop: 4 }}>
@@ -481,6 +505,13 @@ export default function DispatchesPilot() {
                             ⚡ Asignar a su tanque
                           </Text>
                         </Pressable>
+                        <Pressable
+                          onPress={() => asignarUnConsumo(d.id, suggestedTank.id, true)}
+                          disabled={isRowBusy}
+                          style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#DC2626', paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, opacity: isRowBusy ? 0.6 : 1 }}
+                        >
+                          <Text style={{ color: '#B91C1C', fontSize: 11, fontWeight: '800' }}>🗂️ Sin descontar</Text>
+                        </Pressable>
                       </View>
                     ) : (
                       <Text style={{ color: '#DC2626', fontSize: 10.5, marginTop: 1 }}>
@@ -489,6 +520,11 @@ export default function DispatchesPilot() {
                     )}
                   </View>
                 )}
+                {(d as any).sin_descuento ? (
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginVertical: 2 }}>
+                    🗂️ Registro viejo: lleva su tanque pero no descontó del stock.
+                  </Text>
+                ) : null}
                 {mach ? (
                   <>
                     <RRow label="Máquina" value={mach.code || '—'} mono />

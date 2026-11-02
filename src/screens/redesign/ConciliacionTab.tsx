@@ -208,9 +208,10 @@ export default function ConciliacionTab() {
         .filter((i) => i.tank_id === t.id && i.intake_date >= desde && i.intake_date <= hasta && !esRegistroAjusteTanque(i))
         .reduce((s, i) => s + (Number(i.liters) || 0), 0);
 
-      // Despachos desde el tanque en el período (excluyendo ajustes internos de tanque)
+      // Despachos desde el tanque en el período (excluyendo ajustes internos de tanque y los
+      // registros viejos sin_descuento, que no movieron el stock — 02-nov-2026)
       const desp = (dispatches || [])
-        .filter((d) => d.tank_id === t.id && d.dispatch_date >= desde && d.dispatch_date <= hasta && !esRegistroAjusteTanque(d))
+        .filter((d) => d.tank_id === t.id && d.dispatch_date >= desde && d.dispatch_date <= hasta && !esRegistroAjusteTanque(d) && !d.sin_descuento)
         .reduce((s, d) => s + (Number(d.liters) || 0), 0);
 
       // Traslados: entradas (+ destino) y salidas (- origen)

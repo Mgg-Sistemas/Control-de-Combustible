@@ -37,6 +37,8 @@ export type FilaConsumoDesglose = {
   horometroFuente: 'inspector' | 'ajuste' | 'ninguno';
   autorizado: string;
   nota: string;
+  /** Registro viejo que no descontó del tanque (02-nov-2026). */
+  sinDescuento: boolean;
 };
 
 export type FilaEntradaDesglose = {
@@ -162,6 +164,7 @@ export function armarDesgloseRango(p: EntradaDesglose): DesgloseRango {
       horometroFuente: h?.fuente ?? 'ninguno',
       autorizado: txt(d.authorized_by || d.driver_operator),
       nota: txt(d.notes),
+      sinDescuento: !!d.sin_descuento,
     });
   }
   consumos.sort((a, b) => (a.fecha + (a.hora || '99')).localeCompare(b.fecha + (b.hora || '99')));
@@ -195,7 +198,8 @@ export function armarDesgloseRango(p: EntradaDesglose): DesgloseRango {
     return t;
   };
   for (const e of entradas) tot(e.tanque).entro += e.litros;
-  for (const c of consumos) tot(c.tanque).salio += c.litros;
+  // Los registros viejos sin_descuento no bajaron el tanque: no cuentan como «salió».
+  for (const c of consumos) if (!c.sinDescuento) tot(c.tanque).salio += c.litros;
 
   // Horas por equipo: una sola vez por máquina y jornada (varios surtidos el mismo día no las repiten).
   const equipos = new Map<string, TotalEquipoDesglose>();
