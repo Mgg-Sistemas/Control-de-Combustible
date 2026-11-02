@@ -2366,6 +2366,14 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > los **montos de los servicios** (precio, total, subtotal, total y equivalente en Bs), ocultar el **identificador de
 > servicio** (la etiqueta «Servicio» y la unidad «SERV»), y elegir o quitar el **logo** de la izquierda y un segundo logo
 > junto al número. Lo oculto no se anuncia en el papel. Cada persona encuentra sus opciones como las dejó la última vez.
+> **📲 Por Pagar: mensaje y PDF de pago** *(02/11/2026)*. Cada cuenta por pagar tiene **«📲 Mensaje / PDF de pago»**,
+> y si marcas varias sale **«📲 Mensaje / PDF de marcadas»**. Arma solo el texto para quien paga: orden, prioridad,
+> proveedor, detalle, nota del requerimiento, quién solicita, la analista de compras, quién autorizó, condiciones,
+> total en $, lo que falta si ya hubo abonos, el **monto en Bs** (los escritos en el requerimiento, o el equivalente con
+> la tasa de hoy) y los **datos bancarios** del proveedor (transferencia, pago móvil, Binance). Se **copia**, se envía por
+> **WhatsApp** o se descarga en **PDF**. En ⚙️ Opciones apagas lo que no quieras (incluidos los logos del PDF); lo
+> apagado no sale y la pantalla recuerda cómo la dejaste.
+
 > **💱 El monto en Bs del requerimiento no cambia al guardar** *(02/11/2026)*. El total en Bs de la tarjeta del
 > requerimiento es la suma de los **Bs que escribiste** en cada renglón (más su IVA). Antes se volvía a calcular con los
 > dólares redondeados por la tasa del día y salía con céntimos de diferencia (por ejemplo 150.801,60 en vez de 150.800),

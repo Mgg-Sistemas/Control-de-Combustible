@@ -112,6 +112,9 @@ import {
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
 import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
+import { MensajeCuentaModal } from '../components/MensajeCuentaModal';
+import { DatosMensajeCuenta } from '../lib/cuentaMensaje';
+import { quitarTodasLasMarcasDeTexto } from '../lib/requerimientoFlujo';
 
 // Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
 type Prioridad = 'alta' | 'media' | 'baja';
@@ -821,6 +824,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   // 📄 Reporte (28-oct-2026): cuentas MARCADAS por id. La marca sobrevive a
   // filtrar y buscar; el reporte puede salir de ellas o de toda la lista.
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
+  // 📲 02-nov-2026: mensaje / PDF de pago de una cuenta o de las marcadas.
+  const [mensajeDe, setMensajeDe] = useState<CuentaCalc[] | null>(null);
   const [reporteOpen, setReporteOpen] = useState(false);
   const alternarMarca = (id: string) => setMarcadas((prev) => {
     const n = new Set(prev);
@@ -2037,6 +2042,40 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   }, [ordenadas, lista, marcadas]);
 
   // ── Portapapeles y Modal Rápido de Métodos y Datos de Pago en Por Pagar ────
+  // 📲 02-nov-2026: los datos del mensaje de pago salen de lo que ya calcula Por Pagar
+  // (traza del requerimiento, Bs del requerimiento y datos bancarios del proveedor).
+  const datosMensajeDe = (c: CuentaCalc): DatosMensajeCuenta => {
+    const t = c.traza;
+    const req: any = t?.req || t?.reqVinculado || null;
+    const bs = bsDe(c);
+    const monto = Number(c.monto) || 0;
+    const db = c.infoPago?.datosBancarios;
+    const notaReq = req ? quitarTodasLasMarcasDeTexto(req.observaciones) : '';
+    return {
+      orden: t?.reqCode || c.documento || ('CTA-' + String(c.id).slice(0, 8).toUpperCase()),
+      prioridad: (c as any).prioridad ?? req?.prioridad ?? null,
+      proveedor: t?.proveedorNombre || c.contraparte,
+      detalle: t?.tituloReq || c.concepto,
+      nota: notaReq || (req ? '' : c.notaLimpia),
+      solicita: t?.areaTexto || req?.area || t?.destinoTexto || t?.solicitadoPor || null,
+      analista: t?.registradoPor || t?.enviadoPorPagarPor || null,
+      autorizo: t?.aprobadoGerenciaPor || c.aprobacionInfo?.aprobadoPor || (c as any).aprobado_por_nombre || t?.autorizadoPor || null,
+      condiciones: c.condicionesPago || c.infoPago?.condicionesPago || null,
+      totalUsd: monto,
+      saldoUsd: c.saldo,
+      totalBs: bs.montoBs,
+      saldoBs: bs.saldoBs,
+      tasaBs: bs.fijo ? (monto > 0 ? Math.round((bs.montoBs / monto) * 100) / 100 : null) : tasaBcv,
+      bsFijos: bs.fijo,
+      banco: db ? {
+        titular: db.titular, rifTitular: db.rifTitular, banco: db.banco, numeroCuenta: db.numeroCuenta, tipoCuenta: db.tipoCuenta,
+        pagoMovilBanco: db.pagoMovilBanco, pagoMovilTelefono: db.pagoMovilTelefono, pagoMovilCedulaRif: db.pagoMovilCedulaRif,
+        binanceId: db.binanceId, instruccionesPago: db.instruccionesPago,
+      } : null,
+      empresa: t?.empresaPagadoraNombre || c.empresaNombre || null,
+    };
+  };
+
   const copiarTextoPortapapeles = async (texto: string, msgExito = '📋 Datos de pago copiados al portapapeles.') => {
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
@@ -2851,6 +2890,14 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 </TouchableOpacity>
               );
             })()
+          ) : null}
+          {tipo === 'por_pagar' && nMarcadas > 0 ? (
+            <TouchableOpacity
+              onPress={() => setMensajeDe(ordenadas.filter((c) => marcadas.has(c.id)))}
+              style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: '#16A34A', backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: 4 }}
+            >
+              <Text style={{ color: '#15803D', fontWeight: '900', fontSize: 11 }}>📲 Mensaje / PDF de marcadas ({nMarcadas})</Text>
+            </TouchableOpacity>
           ) : null}
           <Text style={{ color: nMarcadas > 0 ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 12 }}>
             {nMarcadas} marcada{nMarcadas === 1 ? '' : 's'}{nMarcadasFuera > 0 ? ` (${nMarcadasFuera} fuera de la lista de ahora)` : ''}
@@ -3839,6 +3886,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   <TouchableOpacity onPress={() => generarRecibo(c)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
                     <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 {tipo === 'por_cobrar' ? 'Recibo de cobro' : 'Recibo de pago'}</Text>
                   </TouchableOpacity>
+                  {tipo === 'por_pagar' ? (
+                    <TouchableOpacity onPress={() => setMensajeDe([c])} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
+                      <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 13 }}>📲 Mensaje / PDF de pago</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
 
                 {puedeOperarCxp ? (
@@ -5635,6 +5687,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             return m.fijo ? m.saldoBs : null;
           }}
           onClose={() => setReporteOpen(false)}
+        />
+      ) : null}
+      {/* Al final: en web gana el último modal montado. */}
+      {mensajeDe ? (
+        <MensajeCuentaModal
+          visible
+          datos={mensajeDe.map(datosMensajeDe)}
+          usuarioId={session?.user?.id}
+          onClose={() => setMensajeDe(null)}
+          copiar={copiarTextoPortapapeles}
         />
       ) : null}
     </Screen>
