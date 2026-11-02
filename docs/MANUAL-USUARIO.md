@@ -2366,6 +2366,11 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > los **montos de los servicios** (precio, total, subtotal, total y equivalente en Bs), ocultar el **identificador de
 > servicio** (la etiqueta «Servicio» y la unidad «SERV»), y elegir o quitar el **logo** de la izquierda y un segundo logo
 > junto al número. Lo oculto no se anuncia en el papel. Cada persona encuentra sus opciones como las dejó la última vez.
+> **💱 El monto en Bs del requerimiento no cambia al guardar** *(02/11/2026)*. El total en Bs de la tarjeta del
+> requerimiento es la suma de los **Bs que escribiste** en cada renglón (más su IVA). Antes se volvía a calcular con los
+> dólares redondeados por la tasa del día y salía con céntimos de diferencia (por ejemplo 150.801,60 en vez de 150.800),
+> y cambiaba cada día. Si un renglón se cargó solo en dólares, ese sí se pasa a Bs con la tasa.
+
 > **⛽ Combustible: foto, nota y decimales** *(01/11/2026)*. Quien tiene permiso **full** en Consumos (o en
 > Ingresos) ve **«🖼️ Editar foto / nota»** en cada consumo o entrada ya registrados: quita fotos o agrega nuevas
 > con **📷 Cámara** o **🖼️ Galería** y escribe una **nota u observación** (opcional). Al registrar también hay un

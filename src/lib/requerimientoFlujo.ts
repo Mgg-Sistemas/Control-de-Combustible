@@ -477,6 +477,40 @@ export function totalUsdLinea(
 }
 
 /**
+ * TOTAL EN Bs DE UN RENGLÓN (02-nov-2026). Manda el monto en Bs que escribió la
+ * persona (total_bs en modo total, price_bs × cantidad, o est_price si el renglón
+ * está en Bs). Solo si el renglón no trae Bs se pasa el US$ con la tasa. Antes el
+ * total salía de (US$ redondeado × tasa de HOY): Bs 130.000 + 20.800 = 150.800 se
+ * mostraba como 150.801,60 y además cambiaba cada día con la tasa.
+ */
+export function totalBsLinea(
+  it: Parameters<typeof precioUnitarioUsdLinea>[0] & { price_bs?: number | string | null; total_bs?: number | string | null },
+  rateBcv?: number | null
+): number {
+  const qty = Number(it.qty) || 0;
+  if (it.modo_precio === 'total' && Number(it.total_bs) > 0) return Number(it.total_bs);
+  if (Number(it.price_bs) > 0) return Math.round(Number(it.price_bs) * qty * 100) / 100;
+  if (it.currency === 'VES' && !(Number(it.price_usd) > 0) && Number(it.est_price) > 0) {
+    return Math.round(Number(it.est_price) * qty * 100) / 100;
+  }
+  const rate = Number(rateBcv) || 0;
+  return rate > 0 ? Math.round(totalUsdLinea(it, rateBcv) * rate * 100) / 100 : 0;
+}
+
+/** Subtotal, IVA y total en Bs con los montos en Bs de cada renglón. */
+export function calcularTotalesReqBs(
+  items: (Parameters<typeof totalBsLinea>[0] & { exento?: boolean | null })[],
+  rateBcv: number | null | undefined,
+  alicuotaIva: number
+): { subtotalBs: number; ivaBs: number; totalBs: number } {
+  const sub = (items || []).reduce((s, it) => s + totalBsLinea(it, rateBcv), 0);
+  const base = (items || []).reduce((s, it) => s + (it.exento ? 0 : totalBsLinea(it, rateBcv)), 0);
+  const alic = Math.min(100, Math.max(0, Number(alicuotaIva) || 0));
+  const ivaBs = alic > 0 ? Math.round(base * (alic / 100) * 100) / 100 : 0;
+  return { subtotalBs: Math.round(sub * 100) / 100, ivaBs, totalBs: Math.round((sub + ivaBs) * 100) / 100 };
+}
+
+/**
  * Calcula el monto total en USD de una lista de renglones de requerimiento,
  * considerando ítems exentos y alícuota de IVA si aplica.
  */

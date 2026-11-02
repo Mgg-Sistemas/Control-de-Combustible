@@ -78,6 +78,7 @@ import {
   esRequerimientoVisibleEnBandejaRequerimientos,
   preservarMarcadoresSolicitudEnObservaciones,
   limpiarMarcadoresSolicitudDeTexto,
+  calcularTotalesReqBs,
   type InfoEstadoRequerimiento,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
@@ -3853,7 +3854,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                                       <Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text>
                                       <Text style={{ color: colors.brandText, fontWeight: '900' }}>
-                                        {usd(totalConIvaUsd)}{rate ? ` · ${fmtBs(bsFromUsd(totalConIvaUsd, rate))}` : ''}
+                                        {usd(totalConIvaUsd)}{(() => {
+                                          // 02-nov-2026: los Bs que escribió la persona, no US$ redondeado × tasa de hoy.
+                                          const { totalBs } = calcularTotalesReqBs(r.items, rate, alic);
+                                          return totalBs > 0 ? ` · ${fmtBs(totalBs)}` : '';
+                                        })()}
                                       </Text>
                                     </View>
                                   </View>
