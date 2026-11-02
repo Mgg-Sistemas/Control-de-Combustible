@@ -191,6 +191,8 @@ type RListProps<T> = {
   baseFilter?: (item: T) => boolean;
   /** Callback opcional cuando cambian las filas crudas de la tabla. */
   onDataLoaded?: (rows: T[], refetch: () => void) => void;
+  /** 02-nov-2026: hay un filtro de afuera (equipos / tanques elegidos): no se limita a HOY. */
+  filtroActivo?: boolean;
 };
 
 /** Lista genérica restilizada. Misma API que ListScreen; look del rediseño. */
@@ -199,7 +201,7 @@ export function RList<T extends { id: string }>({
   editable = false, dateField, formFields, formTitle, autoUserField,
   addLabel = '+ Nuevo', emptyTitle, emptySubtitle, emptyIcon,
   renderItem, subtitle, headerExtra, searchText, searchPlaceholder = 'Buscar…', defaultToday = false,
-  baseFilter, onDataLoaded,
+  baseFilter, onDataLoaded, filtroActivo = false,
 }: RListProps<T>) {
   const { colors } = useTheme();
   const { data, loading, refetch } = useTable<T>(table, {
@@ -225,7 +227,7 @@ export function RList<T extends { id: string }>({
     const nq = norm(q.trim());
     // Vista por defecto = SOLO HOY (si defaultToday y no hay rango ni búsqueda). Así un
     // movimiento recién registrado se ve de una y no se carga todo el histórico.
-    const soloHoy = defaultToday && !!dateField && !from && !to && !nq;
+    const soloHoy = defaultToday && !!dateField && !from && !to && !nq && !filtroActivo;
     return data.filter((item) => {
       if (baseFilter && !baseFilter(item)) return false;
       if (dateField && (from || to)) {
@@ -240,7 +242,7 @@ export function RList<T extends { id: string }>({
       if (nq && searchText && !norm(searchText(item)).includes(nq)) return false;
       return true;
     });
-  }, [data, dateField, from, to, q, searchText, defaultToday, todayIso]);
+  }, [data, dateField, from, to, q, searchText, defaultToday, todayIso, baseFilter, filtroActivo]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (item: T) => { setEditing(item); setFormOpen(true); };

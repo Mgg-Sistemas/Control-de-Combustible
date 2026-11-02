@@ -12,6 +12,8 @@ import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { caracasParts } from '../../lib/jornada';
 import { OpcionReporte, OpcionesActivas, diaAnterior, esFechaValida, mezclarOpciones } from '../../lib/combustibleReportes';
+import SelectorMultiple from './SelectorMultiple';
+import { OpcionSeleccion } from '../../lib/combustibleEquipos';
 
 type Props = {
   visible: boolean;
@@ -21,10 +23,12 @@ type Props = {
   storageKey: string;
   usuarioId?: string | null;
   onClose: () => void;
-  onGenerar: (p: { desde: string; hasta: string; opciones: OpcionesActivas }) => Promise<void> | void;
+  /** 02-nov-2026: elegir uno o varios equipos / tanques (vacío = todos). */
+  seleccion?: { titulo: string; todosTexto: string; opciones: OpcionSeleccion[] } | null;
+  onGenerar: (p: { desde: string; hasta: string; opciones: OpcionesActivas; seleccion: string[] }) => Promise<void> | void;
 };
 
-export default function OpcionesReporteCombustibleModal({ visible, titulo, opciones, storageKey, usuarioId, onClose, onGenerar }: Props) {
+export default function OpcionesReporteCombustibleModal({ visible, titulo, opciones, storageKey, usuarioId, onClose, onGenerar, seleccion }: Props) {
   const { colors } = useTheme();
   const hoy = caracasParts(new Date()).iso;
   const [desde, setDesde] = useState(hoy);
@@ -32,6 +36,7 @@ export default function OpcionesReporteCombustibleModal({ visible, titulo, opcio
   const [rango, setRango] = useState(false);
   const [activas, setActivas] = useState<OpcionesActivas>(() => mezclarOpciones(opciones, null));
   const [generando, setGenerando] = useState(false);
+  const [elegidos, setElegidos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const clave = `${storageKey}:${usuarioId || 'anon'}`;
 
@@ -64,7 +69,7 @@ export default function OpcionesReporteCombustibleModal({ visible, titulo, opcio
     setError(null);
     setGenerando(true);
     try {
-      await onGenerar({ desde: a, hasta: b, opciones: activas });
+      await onGenerar({ desde: a, hasta: b, opciones: activas, seleccion: elegidos });
     } catch (e: any) {
       setError(`No se pudo generar: ${e?.message || e}`);
     } finally {
@@ -103,6 +108,9 @@ export default function OpcionesReporteCombustibleModal({ visible, titulo, opcio
                 </>
               ) : null}
             </View>
+            {seleccion ? (
+              <SelectorMultiple titulo={seleccion.titulo} todosTexto={seleccion.todosTexto} opciones={seleccion.opciones} seleccion={elegidos} onChange={setElegidos} />
+            ) : null}
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.xs }}>Qué sale en el reporte</Text>
             {opciones.map((o) => (
               <View key={o.key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: 2 }}>

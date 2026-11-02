@@ -35,6 +35,8 @@ import { useToast } from '../ToastProvider';
 // 02-nov-2026: máquina de apoyo (fuera del catálogo) y horómetro del inspector en el parte diario.
 import { APOYO_ACTIVO, armarFilaApoyo, validarApoyo, esDeApoyo, etiquetaEquipo } from '../../lib/combustibleApoyo';
 import { cargarHorometros, claveHorometro, jornadaDeDespacho, horasHorometro } from '../../lib/combustibleHorometro';
+import SelectorMultiple from './SelectorMultiple';
+import { filtrarPorEquipos, opcionesEquipos } from '../../lib/combustibleEquipos';
 import { norm, cmpText } from '../../lib/text';
 
 interface SurtidorMovilProps {
@@ -157,6 +159,8 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportDate, setReportDate] = useState(todayIso());
   const [generatingReport, setGeneratingReport] = useState(false);
+  // 🚜 02-nov-2026: parte diario de uno o varios equipos (vacío = todos).
+  const [reportEquipos, setReportEquipos] = useState<string[]>([]);
 
   // Último contador registrado en el tanque seleccionado
   useEffect(() => {
@@ -558,7 +562,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
     try {
       const dayDispatches = (dispatches || []).filter(
         (d) => String(d.dispatch_date).slice(0, 10) === reportDate && !esRegistroAjusteTanque(d)
-      );
+      ).filter((d) => filtrarPorEquipos([d], reportEquipos).length > 0);
 
       if (dayDispatches.length === 0) {
         toast.info('No hay despachos registrados en la fecha ' + reportDate);
@@ -2193,6 +2197,16 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                   fontSize: 14,
                   color: colors.text,
                 }}
+              />
+            </View>
+
+            <View style={{ marginBottom: spacing.md }}>
+              <SelectorMultiple
+                titulo="🚜 Equipos"
+                todosTexto="todos"
+                opciones={opcionesEquipos(machineryList, vehiclesList, dispatches)}
+                seleccion={reportEquipos}
+                onChange={setReportEquipos}
               />
             </View>
 

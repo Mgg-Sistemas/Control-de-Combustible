@@ -5,7 +5,9 @@ import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText, norm } from '../../lib/text';
 import { caracasParts } from '../../lib/jornada';
-import { Dispatch, Tank } from '../../types/database';
+import { Dispatch, Tank, Machinery, Vehicle } from '../../types/database';
+import SelectorMultiple from '../../components/combustible/SelectorMultiple';
+import { claveEquipo, filtrarPorEquipos, opcionesEquipos } from '../../lib/combustibleEquipos';
 import { useAuth } from '../../context/AuthContext';
 import { useTable } from '../../hooks/useTable';
 import { supabase, selectAllRows } from '../../lib/supabase';
@@ -111,15 +113,21 @@ export default function DispatchesPilot() {
   // 02-nov-2026: reporte personalizable de consumos (día o rango, con gráficas y
   // horómetro del inspector, solo lectura). Las opciones se recuerdan por persona.
   const [verReporte, setVerReporte] = useState(false);
-  const generarReporte = useCallback(async ({ desde, hasta, opciones }: { desde: string; hasta: string; opciones: Record<string, boolean> }) => {
+  // 🚜 02-nov-2026: uno o varios equipos (máquinas, camiones, vehículos, apoyo). Vacío = todos.
+  const [selEquipos, setSelEquipos] = useState<string[]>([]);
+  const [filasCargadas, setFilasCargadas] = useState<Dispatch[]>([]);
+  const { data: machineryCat } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  const { data: vehiclesCat } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
+  const opcionesEq = useMemo(() => opcionesEquipos(machineryCat, vehiclesCat, filasCargadas), [machineryCat, vehiclesCat, filasCargadas]);
+  const generarReporte = useCallback(async ({ desde, hasta, opciones, seleccion }: { desde: string; hasta: string; opciones: Record<string, boolean>; seleccion: string[] }) => {
     const filas = await selectAllRows(
       'dispatches',
       '*, machine:machinery_id(code, plate, serial, identifier, tipo), vehicle:vehicle_id(plate, name, model, serial, identifier), tank:tank_id(id, name, fuel, is_mobile, responsable, chofer)',
       (q) => q.gte('dispatch_date', desde).lte('dispatch_date', hasta),
     );
-    const consumos = filtrarConsumos(filas as any[], desde, hasta);
+    const consumos = filtrarPorEquipos(filtrarConsumos(filas as any[], desde, hasta), seleccion);
     if (consumos.length === 0) {
-      toast.info(`Sin consumos en ${desde === hasta ? desde : `${desde} al ${hasta}`}: no hay nada que imprimir.`);
+      toast.info(`Sin consumos${seleccion.length ? ' de los equipos elegidos' : ''} en ${desde === hasta ? desde : `${desde} al ${hasta}`}: no hay nada que imprimir.`);
       return;
     }
     // Un surtido antes de las 7am pertenece a la jornada del día anterior.
@@ -272,7 +280,14 @@ export default function DispatchesPilot() {
     []
   );
 
-  const filtrarConsumosReales = useCallback((d: Dispatch) => !esRegistroAjusteTanque(d), []);
+  const filtrarConsumosReales = useCallback(
+    (d: Dispatch) => !esRegistroAjusteTanque(d) && (selEquipos.length === 0 || selEquipos.includes(claveEquipo(d))),
+    [selEquipos],
+  );
+  const alCargar = useCallback((rows: Dispatch[], refetch: () => void) => {
+    setFilasCargadas(rows);
+    limpiarAjustesVisiblesLegados(rows, refetch);
+  }, [limpiarAjustesVisiblesLegados]);
 
   return (
     <>
@@ -286,7 +301,8 @@ export default function DispatchesPilot() {
         dateField="dispatch_date"
         defaultToday
         baseFilter={filtrarConsumosReales}
-        onDataLoaded={limpiarAjustesVisiblesLegados}
+        filtroActivo={selEquipos.length > 0}
+        onDataLoaded={alCargar}
         emptyIcon="⛽"
         emptyTitle="Sin consumos"
         emptySubtitle="Registra los despachos a vehículos o maquinaria."
@@ -324,6 +340,7 @@ export default function DispatchesPilot() {
           const sinTanque = sinTanqueList.length;
           return (
             <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
+              <SelectorMultiple titulo="🚜 Equipos" todosTexto="todos" opciones={opcionesEq} seleccion={selEquipos} onChange={setSelEquipos} />
               <Pressable onPress={() => setVerReporte(true)} style={{ alignSelf: 'flex-start', paddingVertical: 7, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🖨️ Reporte</Text>
               </Pressable>
@@ -608,6 +625,7 @@ export default function DispatchesPilot() {
         titulo="Reporte de consumos"
         opciones={OPCIONES_REPORTE_CONSUMOS}
         storageKey="combustible:reporte-consumos"
+        seleccion={{ titulo: '🚜 Equipos', todosTexto: 'todos', opciones: opcionesEq }}
         usuarioId={session?.user?.id}
         onClose={() => setVerReporte(false)}
         onGenerar={generarReporte}

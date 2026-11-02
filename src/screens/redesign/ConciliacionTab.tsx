@@ -19,6 +19,8 @@ import {
 } from '../../lib/combustibleDesglose';
 import { cargarHorometros, claveHorometro, HorometroDia, HOROMETRO_AJUSTES_ACTIVOS } from '../../lib/combustibleHorometro';
 import HorometroCombustibleModal from '../../components/combustible/HorometroCombustibleModal';
+import SelectorMultiple from '../../components/combustible/SelectorMultiple';
+import { filtrarPorEquipos, filtrarPorTanques, opcionesEquipos, opcionesTanques } from '../../lib/combustibleEquipos';
 
 // 02-nov-2026: interruptores del «🧾 Desglose del rango». Se recuerdan por persona.
 const ETIQUETAS_OPCIONES_DESGLOSE: { k: keyof OpcionesDesglose; t: string }[] = [
@@ -57,6 +59,7 @@ export default function ConciliacionTab() {
   // 02-nov-2026: catálogo para nombrar los equipos del desglose.
   const { data: machineryList } = useTable<Machinery>('machinery', { realtimeFrom: ['machinery'], orderBy: 'code' });
   const { data: vehiclesList } = useTable<Vehicle>('vehicles', { realtimeFrom: ['vehicles'], orderBy: 'plate' });
+  const opcionesEq = useMemo(() => opcionesEquipos(machineryList, vehiclesList, dispatches), [machineryList, vehiclesList, dispatches]);
 
   const [desde, setDesde] = useState(daysAgoIso(7));
   const [hasta, setHasta] = useState(todayIso());
@@ -70,7 +73,14 @@ export default function ConciliacionTab() {
   // Mediciones físicas auditadas por tanque (ingresadas por el encargado/auditor)
   const [medicionesFisicas, setMedicionesFisicas] = useState<Record<string, string>>({});
 
-  const activeTanks = useMemo(() => (tanks || []).filter((t) => t.active !== false), [tanks]);
+  // 🛢🚜 02-nov-2026: uno o varios tanques (tabla y desglose) y equipos (desglose). Vacío = todos.
+  const [selTanques, setSelTanques] = useState<string[]>([]);
+  const [selEquipos, setSelEquipos] = useState<string[]>([]);
+  const activeTanks = useMemo(
+    () => (tanks || []).filter((t) => t.active !== false && (selTanques.length === 0 || selTanques.includes(t.id))),
+    [tanks, selTanques],
+  );
+  const opcionesTq = useMemo(() => opcionesTanques((tanks || []).filter((t) => t.active !== false)), [tanks]);
 
   // ── 🧾 Desglose del rango (02-nov-2026) ───────────────────────────────────
   // Lo mismo que el parte diario del Surtidor, pero para el rango desde–hasta de
@@ -150,8 +160,9 @@ export default function ConciliacionTab() {
   const desglose = useMemo(() => {
     if (!desgloseAbierto || !rangoValido) return null;
     return armarDesgloseRango({
-      dispatches: dispatches || [],
-      intakes: intakes || [],
+      dispatches: filtrarPorEquipos(filtrarPorTanques(dispatches || [], selTanques), selEquipos),
+      // Con equipos elegidos las entradas no aplican (no son de un equipo): solo se filtran por tanque.
+      intakes: selEquipos.length ? [] : filtrarPorTanques(intakes || [], selTanques),
       maquinas: machineryList || [],
       vehiculos: vehiclesList || [],
       tanques: tanks || [],
@@ -159,7 +170,7 @@ export default function ConciliacionTab() {
       desde,
       hasta,
     });
-  }, [desgloseAbierto, rangoValido, dispatches, intakes, machineryList, vehiclesList, tanks, horometros, desde, hasta]);
+  }, [desgloseAbierto, rangoValido, dispatches, intakes, machineryList, vehiclesList, tanks, horometros, desde, hasta, selTanques, selEquipos]);
 
   const handleDesglosePdf = async () => {
     if (!desglose) return;
@@ -433,6 +444,9 @@ export default function ConciliacionTab() {
         </View>
       </View>
 
+      {/* 🛢 02-nov-2026: uno o varios tanques (vacío = todos) */}
+      <SelectorMultiple titulo="🛢 Tanques" todosTexto="todos" opciones={opcionesTq} seleccion={selTanques} onChange={setSelTanques} placeholder="Buscar por tanque o responsable…" />
+
       {/* Tabla de Conciliación por Tanque */}
       <View
         style={{
@@ -633,6 +647,10 @@ export default function ConciliacionTab() {
             {desgloseAbierto ? '▲ Cerrar desglose del rango' : '🧾 Desglose del rango'}
           </Text>
         </TouchableOpacity>
+
+        {desgloseAbierto ? (
+          <SelectorMultiple titulo="🚜 Equipos del desglose" todosTexto="todos" opciones={opcionesEq} seleccion={selEquipos} onChange={setSelEquipos} />
+        ) : null}
 
         {desgloseAbierto && !rangoValido ? (
           <Text style={{ fontSize: 12, color: colors.danger }}>

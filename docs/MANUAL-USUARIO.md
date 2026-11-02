@@ -2400,6 +2400,12 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **punto o coma**. El **comprobante por WhatsApp** ya no muestra rombos con «?» en lugar de los emojis: cada
 > dato va en su línea.
 
+> **🚜 Combustible: uno o varios equipos o tanques** *(02/11/2026)*. En Consumos (lista y 🖨️ Reporte), en el desglose de
+> Conciliación y en el parte diario del Surtidor aparece **«🚜 Equipos ▾ Elegir»**: buscas por código, placa, serial o nombre y
+> marcas una o varias máquinas, camiones, vehículos o máquinas de apoyo; solo sale lo de esos equipos. En Ingresos y en la tabla
+> de Conciliación se eligen **«🛢 Tanques»**. Sin nada elegido salen todos; «✕ Limpiar» vuelve a todos. En la lista de Consumos
+> o Ingresos, al elegir algo se ve todo su historial (no solo hoy).
+
 > **🗂️ Consumos viejos sin tanque: asignar sin descontar** *(02/11/2026)*. En Consumos, junto a «⚡ Auto-asignar
 > tanques por Conductor» está **«🗂️ Asignar sin descontar (registros viejos)»** (y en cada consumo, «🗂️ Sin descontar»):
 > le pone el tanque de su responsable pero **no baja el stock**. Esos consumos muestran «🗂️ Registro viejo» y la

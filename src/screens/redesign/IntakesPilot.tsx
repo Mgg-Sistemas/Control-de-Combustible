@@ -7,6 +7,8 @@ import { INGRESOS_NOTAS_ACTIVAS, INGRESOS_FOTOS_ACTIVAS } from '../../lib/combus
 import EditarFotosCombustibleModal from '../../components/combustible/EditarFotosCombustibleModal';
 import { RList, RRow, RAmount, RPill } from '../../components/redesign/RList';
 import { FuelIntake, Tank } from '../../types/database';
+import SelectorMultiple from '../../components/combustible/SelectorMultiple';
+import { filtrarPorTanques, opcionesTanques } from '../../lib/combustibleEquipos';
 import { useAuth } from '../../context/AuthContext';
 import { useTable } from '../../hooks/useTable';
 import { norm } from '../../lib/text';
@@ -52,11 +54,14 @@ export default function IntakesPilot() {
   // 02-nov-2026: reporte personalizable de entradas (día o rango, gráficas por
   // tanque y por proveedor). Las opciones se recuerdan por persona.
   const [verReporte, setVerReporte] = useState(false);
-  const generarReporte = useCallback(async ({ desde, hasta, opciones }: { desde: string; hasta: string; opciones: Record<string, boolean> }) => {
+  // 🛢 02-nov-2026: uno o varios tanques. Vacío = todos.
+  const [selTanques, setSelTanques] = useState<string[]>([]);
+  const opcionesTq = useMemo(() => opcionesTanques(tanks), [tanks]);
+  const generarReporte = useCallback(async ({ desde, hasta, opciones, seleccion }: { desde: string; hasta: string; opciones: Record<string, boolean>; seleccion: string[] }) => {
     const filas = await selectAllRows('fuel_intakes', '*', (q) => q.gte('intake_date', desde).lte('intake_date', hasta));
-    const entradas = filtrarEntradas(filas as any[], desde, hasta);
+    const entradas = filtrarPorTanques(filtrarEntradas(filas as any[], desde, hasta), seleccion);
     if (entradas.length === 0) {
-      toast.info(`Sin entradas en ${desde === hasta ? desde : `${desde} al ${hasta}`}: no hay nada que imprimir.`);
+      toast.info(`Sin entradas${seleccion.length ? ' de los tanques elegidos' : ''} en ${desde === hasta ? desde : `${desde} al ${hasta}`}: no hay nada que imprimir.`);
       return;
     }
     const nombres = new Map((tanks || []).map((t) => [t.id, t.name] as [string, string]));
@@ -112,7 +117,10 @@ export default function IntakesPilot() {
     if (changed) refetch();
   }, []);
 
-  const filtrarIngresosReales = useCallback((i: FuelIntake) => !esRegistroAjusteTanque(i), []);
+  const filtrarIngresosReales = useCallback(
+    (i: FuelIntake) => !esRegistroAjusteTanque(i) && (selTanques.length === 0 || selTanques.includes(String(i.tank_id ?? ''))),
+    [selTanques],
+  );
 
   return (
     <>
@@ -123,6 +131,7 @@ export default function IntakesPilot() {
       editable
       dateField="intake_date"
       baseFilter={filtrarIngresosReales}
+      filtroActivo={selTanques.length > 0}
       onDataLoaded={limpiarAjustesIngresos}
       emptyIcon="⬇️"
       emptyTitle="Sin ingresos"
@@ -134,9 +143,12 @@ export default function IntakesPilot() {
       }}
       formFields={formFields}
       headerExtra={() => (
-        <Pressable onPress={() => setVerReporte(true)} style={{ alignSelf: 'flex-start', marginBottom: spacing.sm, paddingVertical: 7, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🖨️ Reporte</Text>
-        </Pressable>
+        <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
+          <SelectorMultiple titulo="🛢 Tanques" todosTexto="todos" opciones={opcionesTq} seleccion={selTanques} onChange={setSelTanques} placeholder="Buscar por tanque o responsable…" />
+          <Pressable onPress={() => setVerReporte(true)} style={{ alignSelf: 'flex-start', paddingVertical: 7, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🖨️ Reporte</Text>
+          </Pressable>
+        </View>
       )}
       renderItem={(i) => (
         <>
@@ -179,6 +191,7 @@ export default function IntakesPilot() {
       titulo="Reporte de entradas"
       opciones={OPCIONES_REPORTE_ENTRADAS}
       storageKey="combustible:reporte-entradas"
+      seleccion={{ titulo: '🛢 Tanques', todosTexto: 'todos', opciones: opcionesTq }}
       usuarioId={session?.user?.id}
       onClose={() => setVerReporte(false)}
       onGenerar={generarReporte}
