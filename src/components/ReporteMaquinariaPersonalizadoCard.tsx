@@ -36,6 +36,9 @@ import { loadFuelByMachine } from '../lib/fuelPerMachine';
 import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
 import { armarUbicaciones, cardinalPorMaquina } from '../lib/ubicacionesReporte';
 import {
+  ESTADO_CONTEO_INFO, estadoConteoDe, fetchAveriaCat, fetchInspByShift, fetchJornadaCat, makeLiveStatusOf, type AveriaEntry,
+} from '../lib/machineLiveStatus';
+import {
   CSS_REPORTE_PERSONALIZADO, ESTADOS_PERSONALIZADO, FilaPersonalizada, OpcionesPersonalizado,
   OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO, RegistroHistorialPersonalizado,
   alternarPersonalizado, cuerpoReportePersonalizado, dmyPersonalizado, emitidaTexto, filaVacia,
@@ -107,7 +110,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const [logos, setLogos] = useState<Logos>(LOGOS_POR_DEFECTO);
   const [marcaTexto, setMarcaTexto] = useState(true);
   const [busca, setBusca] = useState('');
-  const [fuente, setFuente] = useState<'todos' | 'maq' | 'veh'>('todos');
+  const [fuente, setFuente] = useState<'todos' | 'maq' | 'veh'>('maq');
   const [empresasSel, setEmpresasSel] = useState<string[]>([]);
   const [categoriasSel, setCategoriasSel] = useState<string[]>([]);
   const [estadosSel, setEstadosSel] = useState<string[]>([]);
@@ -147,14 +150,22 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const cargar = useCallback(async () => {
     setCargando(true); setError(null);
     try {
-      const [maqs, averias, vehs] = await Promise.all([
+      const [maqs, averias, averiaCatVivo, jornadaCat, inspByShift, vehs] = await Promise.all([
         selectAllRows(
           'machinery',
-          'id, code, marca, modelo, clasificacion, serial, plate, zona, location, encargado, operational, en_espera, active, weight_ton, length_m, width_m, height_m, last_horometro, company:company_id(name)',
+          'id, code, marca, modelo, clasificacion, serial, plate, zona, location, encargado, operational, en_espera, active, transferida, weight_ton, length_m, width_m, height_m, last_horometro, company:company_id(name)',
+        ).catch(() =>
+          selectAllRows(
+            'machinery',
+            'id, code, marca, modelo, clasificacion, serial, plate, zona, location, encargado, operational, en_espera, active, weight_ton, length_m, width_m, height_m, last_horometro, company:company_id(name)',
+          ),
         ),
-        // Las averías solo SUGIEREN el estado: si este rol no puede leerlas
-        // (RLS de otro módulo), el papel sale igual, con «Operativa» de base.
+        // Respaldo de averías pendientes si falla fetchAveriaCat:
         selectAllRows('maintenance_requests', 'machinery_id, material', (q: any) => q.eq('status', 'pendiente')).catch(() => [] as any[]),
+        // ⭐ Misma fuente en vivo que el Catálogo (EquiposScreen) y Conteo de equipos:
+        fetchAveriaCat().catch(() => null),
+        fetchJornadaCat().catch(() => ({} as Awaited<ReturnType<typeof fetchJornadaCat>>)),
+        fetchInspByShift().catch(() => ({} as Awaited<ReturnType<typeof fetchInspByShift>>)),
         // 🚗 Vehículos (09-oct-2026, a pedido): entran al taller igual que las
         //    máquinas. Algunas columnas de su ficha llegaron por SQL opcional,
         //    así que si el select completo falla se cae a lo básico, y si ni
@@ -162,14 +173,36 @@ export function ReporteMaquinariaPersonalizadoCard() {
         selectAllRows('vehicles', 'id, plate, name, brand, model, vehicle_type, clasificacion, serial, encargado, en_espera, active, company:company_id(name)')
           .catch(() => selectAllRows('vehicles', 'id, plate, brand, model, vehicle_type, active').catch(() => [] as any[])),
       ]);
-      // Avería pendiente → sugiere Parada (si fue «MÁQUINA PARADA») o Averiada.
-      const averiaDe = new Map<string, string>();
+      // Respaldo si fetchAveriaCat no estuvo disponible:
+      const averiaCatRespaldo: Record<string, AveriaEntry> = {};
       (averias as any[]).forEach((a) => {
-        const prev = averiaDe.get(String(a.machinery_id));
-        const esta = limpio(a.material) === 'MÁQUINA PARADA' ? 'Parada' : 'Averiada';
-        if (prev !== 'Averiada') averiaDe.set(String(a.machinery_id), prev === 'Parada' && esta === 'Averiada' ? 'Averiada' : esta);
+        const id = String(a.machinery_id ?? '');
+        if (!id) return;
+        const tipo: 'averia' | 'parada' = limpio(a.material) === 'MÁQUINA PARADA' ? 'parada' : 'averia';
+        const prev = averiaCatRespaldo[id];
+        if (!prev || (prev.tipo === 'parada' && tipo === 'averia')) {
+          averiaCatRespaldo[id] = { tipo, motivo: null, createdMs: 0 };
+        }
       });
-      const filasMaq = (((maqs as any[]) ?? []).map((m) => ({
+      const listaMaqs = (maqs as any[]) ?? [];
+      const retiredIds = new Set<string>(listaMaqs.filter((m) => m.operational === false).map((m) => String(m.id)));
+      const statusOf = makeLiveStatusOf({
+        jornadaCat,
+        averiaCat: averiaCatVivo ?? averiaCatRespaldo,
+        inspByShift,
+        retiredIds,
+        nowTick: Date.now(),
+      });
+      // ⭐ El MISMO clasificador de los 6 cubos excluyentes del Catálogo (estadoConteoDe):
+      //    retirada / transferida (operational=false) > esperando (en_espera)
+      //    > averiada / parada (vigente en vivo, respetando reactivación por jornada nueva)
+      //    > operativa.
+      const estadoRealDe = (m: any): string => {
+        const est = estadoConteoDe(m, statusOf(String(m.id)).estado);
+        if (est === 'transferida') return 'Transferido a otros';
+        return ESTADO_CONTEO_INFO[est].label;
+      };
+      const filasMaq = (listaMaqs.map((m) => ({
         id: String(m.id),
         code: limpio(m.code),
         marca: limpio(m.marca),
@@ -180,11 +213,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         empresa: limpio(m.company?.name),
         zona: limpio(m.location) || limpio(m.zona),
         encargado: limpio(m.encargado),
-        // El mismo orden de prioridad del conteo de Equipos:
-        estado: m.active === false ? 'Inactiva'
-          : m.operational === false ? 'Retirada'
-          : m.en_espera === true ? 'Esperando instrucciones'
-          : averiaDe.get(String(m.id)) ?? 'Operativa',
+        estado: estadoRealDe(m),
         horometro: Number.isFinite(Number(m.last_horometro)) && Number(m.last_horometro) > 0 ? n2(m.last_horometro) : '',
         peso: Number.isFinite(Number(m.weight_ton)) && Number(m.weight_ton) > 0 ? `${n2(m.weight_ton)} t` : '',
         medidas: medidasFicha(m.height_m, m.length_m, m.width_m),

@@ -101,7 +101,12 @@ eq('con cambios: los nombra («con» para lo que nace oculto)',
 eq('alternar cambia solo esa llave', L.alternarPersonalizado(L.OPCIONES_PERSONALIZADO_INICIAL, 'sinSerial').sinSerial, true);
 eq('sufijo del archivo: la fecha sola si no hay cambios', L.sufijoArchivoPersonalizado('2026-10-09', L.OPCIONES_PERSONALIZADO_INICIAL), '09/10/2026');
 eq('sufijo del archivo: nombra los cambios', L.sufijoArchivoPersonalizado('2026-10-09', o({ sinPorEmpresa: false })), '09/10/2026 · con empresas');
-eq('los seis estados sugeridos del sistema', [...L.ESTADOS_PERSONALIZADO], ['Operativa', 'Averiada', 'Parada', 'Esperando instrucciones', 'Retirada', 'Inactiva']);
+eq('los seis estados sugeridos del sistema (los mismos 6 cubos reales del Catálogo)', [...L.ESTADOS_PERSONALIZADO], ['Operativa', 'Averiada', 'Parada', 'Esperando instrucciones', 'Retirada', 'Transferido a otros']);
+eq('nombreEstadoCatalogo normaliza Transferida(s) a otros → Transferido a otros', [
+  L.nombreEstadoCatalogo('Transferida a otros'),
+  L.nombreEstadoCatalogo('Transferidas a otros'),
+  L.nombreEstadoCatalogo('Transferido a otros'),
+], ['Transferido a otros', 'Transferido a otros', 'Transferido a otros']);
 
 // ——— 5b. Filtros de catálogo por Empresa, Categoría y Estado Actual ———
 const catDemo = [
@@ -233,6 +238,12 @@ ok('⭐⭐⭐ RECIBE PERO NO ENVÍA: ni un insert/update/delete/upsert/rpc en la
 ok('solo lee con selectAllRows', /import \{ selectAllRows \} from '\.\.\/lib\/supabase';/.test(srcCard));
 ok('lee el catálogo (machinery) y las averías pendientes para sugerir el estado',
   /selectAllRows\(\s*'machinery'/.test(srcCard) && /selectAllRows\('maintenance_requests'/.test(srcCard) && /eq\('status', 'pendiente'\)/.test(srcCard));
+ok('⭐ usa el clasificador real en vivo del Catálogo (makeLiveStatusOf + estadoConteoDe + transferida)',
+  srcCard.includes("from '../lib/machineLiveStatus'") &&
+  srcCard.includes('makeLiveStatusOf(') &&
+  srcCard.includes('estadoConteoDe(') &&
+  srcCard.includes('transferida') &&
+  srcCard.includes("'Transferido a otros'"));
 ok('⭐ la fecha de emisión elegida viaja al membrete', /emitida: emitidaTexto\(fechaEmision\) \|\| undefined/.test(srcCard));
 // 🚗 Vehículos (09-oct-2026, a pedido: «también podría incluir vehículos»):
 ok('🚗 los vehículos también entran al taller', /selectAllRows\('vehicles'/.test(srcCard));

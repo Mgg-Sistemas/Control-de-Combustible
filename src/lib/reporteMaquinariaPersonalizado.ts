@@ -41,7 +41,7 @@ export type FilaPersonalizada = {
   cardinal: string;
 };
 
-/** Estados sugeridos (los mismos rótulos que usa el sistema). El campo acepta
+/** Estados sugeridos (los mismos 6 cubos reales del Catálogo). El campo acepta
  *  cualquier texto: estas pastillas son atajos. */
 export const ESTADOS_PERSONALIZADO = [
   'Operativa',
@@ -49,7 +49,7 @@ export const ESTADOS_PERSONALIZADO = [
   'Parada',
   'Esperando instrucciones',
   'Retirada',
-  'Inactiva',
+  'Transferido a otros',
 ] as const;
 
 /** Fila en blanco para «➕ Agregar fila manual». */
@@ -308,9 +308,12 @@ export function nombreCategoriaCatalogo(clasificacion?: string | null): string {
   return String(clasificacion ?? '').trim() || 'Sin categoría';
 }
 
-/** Clave normalizada de estado (vacía → 'Sin estado'). */
+/** Clave normalizada de estado (vacía → 'Sin estado'; 'Transferida(s) a otros' → 'Transferido a otros'). */
 export function nombreEstadoCatalogo(estado?: string | null): string {
-  return String(estado ?? '').trim() || 'Sin estado';
+  const t = String(estado ?? '').trim();
+  if (!t) return 'Sin estado';
+  if (/^transferid[ao]s?\s+a\s+otros$/i.test(t)) return 'Transferido a otros';
+  return t;
 }
 
 /** Lista ordenada de empresas únicas del catálogo con su cantidad de equipos. */

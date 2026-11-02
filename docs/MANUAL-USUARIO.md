@@ -2391,6 +2391,11 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > (lista, ficha, abonar, pagar y reporte PDF); si ya tiene abonos, el saldo en Bs es la parte que falta. Las cuentas
 > cargadas en dólares siguen con su equivalente aproximado (≈) con la tasa de hoy.
 
+> **📋 Reporte personalizado de maquinaria: estados reales** *(02/11/2026)*. El estado de cada máquina sale igual que en
+> los cubos del Catálogo: Operativa, Averiada, Parada, Esperando instrucciones, Retirada y **«Transferido a otros»** (antes
+> no aparecía y una avería ya resuelta podía seguir saliendo). Las pastillas de estado traen «Transferido a otros» en vez de
+> «Inactiva». El reporte abre mostrando solo maquinaria; los vehículos se eligen con su pastilla.
+
 > **⛽ Combustible: foto, nota y decimales** *(01/11/2026)*. Quien tiene permiso **full** en Consumos (o en
 > Ingresos) ve **«🖼️ Editar foto / nota»** en cada consumo o entrada ya registrados: quita fotos o agrega nuevas
 > con **📷 Cámara** o **🖼️ Galería** y escribe una **nota u observación** (opcional). Al registrar también hay un
