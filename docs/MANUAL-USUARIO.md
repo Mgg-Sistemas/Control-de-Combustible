@@ -2370,6 +2370,9 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > requerimiento es la suma de los **Bs que escribiste** en cada renglón (más su IVA). Antes se volvía a calcular con los
 > dólares redondeados por la tasa del día y salía con céntimos de diferencia (por ejemplo 150.801,60 en vez de 150.800),
 > y cambiaba cada día. Si un renglón se cargó solo en dólares, ese sí se pasa a Bs con la tasa.
+> **En Por Pagar** pasa lo mismo: la cuenta que viene de un requerimiento cargado en Bs muestra **esos mismos Bs**
+> (lista, ficha, abonar, pagar y reporte PDF); si ya tiene abonos, el saldo en Bs es la parte que falta. Las cuentas
+> cargadas en dólares siguen con su equivalente aproximado (≈) con la tasa de hoy.
 
 > **⛽ Combustible: foto, nota y decimales** *(01/11/2026)*. Quien tiene permiso **full** en Consumos (o en
 > Ingresos) ve **«🖼️ Editar foto / nota»** en cada consumo o entrada ya registrados: quita fotos o agrega nuevas

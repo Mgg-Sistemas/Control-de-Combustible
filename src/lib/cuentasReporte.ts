@@ -400,6 +400,8 @@ export function armarReporteCuentas(args: {
   tasaBcv: number | null | undefined;
   hoyISO: string;
   filtrado: boolean;
+  /** 02-nov-2026: saldo en Bs ya fijado (Bs escritos en el requerimiento); null = US$ × tasa. */
+  saldoBsDe?: (c: CuentaParaReporte, saldoUsd: number) => number | null;
 }): ReporteCuentasArmado {
   const { tipo, cuentas, op, hoyISO, filtrado } = args;
   const tasa = conBs(op, args.tasaBcv) ? Number(args.tasaBcv) : null;
@@ -414,8 +416,15 @@ export function armarReporteCuentas(args: {
   const grupos = agruparCuentas(cuentas, op.agrupar, tipo);
   const total = totalesDe(cuentas);
 
-  const celdasDinero = (t: { monto: number; abonado: number; saldo: number }) => colsDinero.map(([k]) => {
-    if (k === 'bs') return `<td class="r">${esc(bsTexto((t.saldo || 0) * (tasa as number)))}</td>`;
+  // Saldo en Bs de una cuenta: el fijado del requerimiento si lo hay; si no, US$ × tasa de hoy.
+  const bsSaldo = (c: CuentaParaReporte, saldoUsd: number) => {
+    const fijo = args.saldoBsDe ? args.saldoBsDe(c, saldoUsd) : null;
+    return fijo != null ? fijo : saldoUsd * (tasa as number);
+  };
+  const sumaBs = (lista: CuentaParaReporte[]) =>
+    Math.round(lista.reduce((s, c) => s + (c.situacion === 'anulada' ? 0 : bsSaldo(c, aporteDe(c).saldo)), 0) * 100) / 100;
+  const celdasDinero = (t: { monto: number; abonado: number; saldo: number }, lista: CuentaParaReporte[]) => colsDinero.map(([k]) => {
+    if (k === 'bs') return `<td class="r">${esc(bsTexto(sumaBs(lista)))}</td>`;
     return `<td class="r">${esc(usdTexto(t[k as 'monto' | 'abonado' | 'saldo']))}</td>`;
   }).join('');
 
@@ -441,7 +450,7 @@ export function armarReporteCuentas(args: {
       case 'monto': return `<td class="r">${esc(usdTexto(Number(c.monto) || 0))}</td>`;
       case 'abonado': return `<td class="r">${esc(usdTexto(Number(c.abonado) || 0))}</td>`;
       case 'saldo': return `<td class="r">${esc(usdTexto(c.situacion === 'anulada' ? Number(c.saldo) || 0 : a.saldo))}</td>`;
-      case 'bs': return `<td class="r">${esc(bsTexto((c.situacion === 'anulada' ? Number(c.saldo) || 0 : a.saldo) * (tasa as number)))}</td>`;
+      case 'bs': return `<td class="r">${esc(bsTexto(bsSaldo(c, c.situacion === 'anulada' ? Number(c.saldo) || 0 : a.saldo)))}</td>`;
       default: return '';
     }
   };
@@ -457,14 +466,14 @@ export function armarReporteCuentas(args: {
       return `<tr${c.situacion === 'anulada' ? ' class="cx-anulada"' : ''}><td class="n">${n}</td>${cols.map(([k]) => celda(k, c)).join('')}</tr>`;
     }).join('');
     const sub = agrupado
-      ? `<tr class="cx-sub"><td colspan="${antesDelDinero}" class="r">Subtotal ${esc(g.etiqueta)}</td>${celdasDinero(g.totales)}</tr>`
+      ? `<tr class="cx-sub"><td colspan="${antesDelDinero}" class="r">Subtotal ${esc(g.etiqueta)}</td>${celdasDinero(g.totales, g.cuentas)}</tr>`
       : '';
     return cab + cuerpoG + sub;
   }).join('');
 
   const vacio = cuentas.length === 0 ? `<tr><td colspan="${nCols}" class="n">No hay cuentas en este reporte.</td></tr>` : '';
   const pie = cuentas.length > 0
-    ? `<tfoot><tr><td colspan="${antesDelDinero}" class="r">Total general · ${total.cantidad} cuenta(s)</td>${celdasDinero(total)}</tr></tfoot>`
+    ? `<tfoot><tr><td colspan="${antesDelDinero}" class="r">Total general · ${total.cantidad} cuenta(s)</td>${celdasDinero(total, cuentas)}</tr></tfoot>`
     : '';
 
   // Resumen de arriba: la cantidad siempre; cada total solo si su columna sale.
@@ -474,13 +483,16 @@ export function armarReporteCuentas(args: {
     kpi(String(total.cantidad), total.cantidad === 1 ? 'CUENTA' : 'CUENTAS'),
     ver('monto') ? kpi(usdTexto(total.monto), 'TOTAL MONTO', total.monto) : '',
     ver('abonado') ? kpi(usdTexto(total.abonado), 'TOTAL ABONADO', total.abonado) : '',
-    ver('saldo') ? kpi(usdTexto(total.saldo), 'TOTAL SALDO', total.saldo) : '',
+    ver('saldo') ? (tasa != null
+      ? `<div class="cx-kpi"><div class="v">${esc(usdTexto(total.saldo))}</div><div class="b">≈ ${esc(bsTexto(sumaBs(cuentas)))}</div><div class="t">TOTAL SALDO</div></div>`
+      : kpi(usdTexto(total.saldo), 'TOTAL SALDO')) : '',
     // Saldo en US$ apagado pero Bs prendido: solo el saldo en Bs (la columna que sí sale).
-    !ver('saldo') && tasa != null ? kpi(bsTexto(total.saldo * tasa), 'TOTAL SALDO ≈ BS') : '',
+    !ver('saldo') && tasa != null ? kpi(bsTexto(sumaBs(cuentas)), 'TOTAL SALDO ≈ BS') : '',
   ].join('');
 
+  const hayBsFijos = !!args.saldoBsDe && cuentas.some((c) => args.saldoBsDe!(c, aporteDe(c).saldo) != null);
   const lineaTasa = tasa != null
-    ? `<div class="cx-tasa">Equivalente en bolívares calculado con la tasa BCV de hoy: ${esc(`Bs ${tasaTexto(tasa)}`)} por US$ 1. Los montos de las cuentas están en US$.</div>`
+    ? `<div class="cx-tasa">Equivalente en bolívares calculado con la tasa BCV de hoy: ${esc(`Bs ${tasaTexto(tasa)}`)} por US$ 1${hayBsFijos ? ', salvo las cuentas de requerimientos cargados en Bs, que llevan sus propios Bs' : ''}. Los montos de las cuentas están en US$.</div>`
     : '';
   const notaAnuladas = total.anuladas > 0
     ? `<div class="cx-nota">Las cuentas anuladas (tachadas) se listan pero no suman en los subtotales ni en el total.</div>`

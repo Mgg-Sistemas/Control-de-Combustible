@@ -67,6 +67,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { matchNorm, norm, cmpText } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
 import { useBcvRate, fmtBs, bsFromUsd } from '../lib/bcv';
+import { montosBsCuenta } from '../lib/cuentasBs';
 import {
   extraerReciboPagoCuenta,
   inyectarReciboPagoEnNota,
@@ -380,6 +381,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: orders } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: requirements, refetch: refetchRequirements } = useTable<InventoryRequirement>('inventory_requirements');
+  // 💱 02-nov-2026: los Bs que se escribieron en el requerimiento mandan sobre «US$ × tasa de hoy».
+  const reqPorIdBs = useMemo(() => new Map((requirements || []).map((r) => [r.id, r] as [string, InventoryRequirement])), [requirements]);
+  const bsDe = (c: any) => montosBsCuenta(c, c?.inventory_requirement_id ? (reqPorIdBs.get(c.inventory_requirement_id) as any) : null, tasaBcv);
   const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
 
@@ -3011,7 +3015,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     ) : null}
                     {tasaBcv && c.saldo > 0 ? (
                       <Text selectable style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700', fontVariant: ['tabular-nums'] as any }}>
-                        ≈ {fmtBs(bsFromUsd(c.saldo, tasaBcv))}
+                        {bsDe(c).fijo && c.saldo >= (Number(c.monto) || 0) ? '' : '≈ '}{fmtBs(bsDe(c).saldoBs)}
                       </Text>
                     ) : null}
                   </View>
@@ -3601,7 +3605,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 {/* 💱 Los dos montos: el de la cuenta es en US$; su equivalente en Bs con la tasa BCV de hoy. */}
                 {tasaBcv ? (
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
-                    ≈ {fmtBs(bsFromUsd(Number(c.monto) || 0, tasaBcv))} · saldo ≈ {fmtBs(bsFromUsd(c.saldo, tasaBcv))} (tasa BCV de hoy: Bs {tasaBcv.toLocaleString('es-VE')} por $)
+                    {bsDe(c).fijo
+                      ? `${fmtBs(bsDe(c).montoBs)} (montos en Bs del requerimiento) · saldo ${c.saldo >= (Number(c.monto) || 0) ? '' : '≈ '}${fmtBs(bsDe(c).saldoBs)}`
+                      : `≈ ${fmtBs(bsDe(c).montoBs)} · saldo ≈ ${fmtBs(bsDe(c).saldoBs)} (tasa BCV de hoy: Bs ${tasaBcv.toLocaleString('es-VE')} por $)`}
                   </Text>
                 ) : null}
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Abonado: {usd(c.abonado)}</Text>
@@ -4407,7 +4413,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{abonoDe.concepto}</Text>
                   <Text style={{ color: colors.brandText, fontWeight: '800', marginTop: spacing.xs, fontVariant: ['tabular-nums'] as any }}>
                     Saldo actual: {usd(abonoDe.saldo)}
-                    {tasaBcv && abonoDe.saldo > 0 ? ` · ≈ ${fmtBs(bsFromUsd(abonoDe.saldo, tasaBcv))} (BCV: Bs ${tasaBcv.toLocaleString('es-VE')}/$)` : ''}
+                    {abonoDe.saldo > 0 && bsDe(abonoDe).fijo
+                      ? ` · ${abonoDe.saldo >= (Number(abonoDe.monto) || 0) ? '' : '≈ '}${fmtBs(bsDe(abonoDe).saldoBs)} (Bs del requerimiento)`
+                      : tasaBcv && abonoDe.saldo > 0 ? ` · ≈ ${fmtBs(bsFromUsd(abonoDe.saldo, tasaBcv))} (BCV: Bs ${tasaBcv.toLocaleString('es-VE')}/$)` : ''}
                   </Text>
                   {abonoDe.infoPago.tieneDatosBancarios || abonoDe.condicionesPago ? (
                     <View style={{ marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, gap: 3 }}>
@@ -5203,7 +5211,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </Text>
                   <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', marginTop: 4 }}>
                     Saldo por pagar: {usd(pagoModalCuenta.saldo)}
-                    {tasaBcv && pagoModalCuenta.saldo > 0
+                    {pagoModalCuenta.saldo > 0 && bsDe(pagoModalCuenta).fijo
+                      ? ` · ${pagoModalCuenta.saldo >= (Number(pagoModalCuenta.monto) || 0) ? '' : '≈ '}${fmtBs(bsDe(pagoModalCuenta).saldoBs)} (Bs del requerimiento)`
+                      : tasaBcv && pagoModalCuenta.saldo > 0
                       ? ` · ≈ ${fmtBs(bsFromUsd(pagoModalCuenta.saldo, tasaBcv))} (BCV: Bs ${tasaBcv.toLocaleString('es-VE')}/$)`
                       : ''}
                   </Text>
@@ -5620,6 +5630,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           marcadas={marcadas}
           tasaBcv={tasaBcv}
           hoy={hoy}
+          saldoBsDe={(c: any, saldoUsd: number) => {
+            const m = bsDe({ ...c, saldo: saldoUsd });
+            return m.fijo ? m.saldoBs : null;
+          }}
           onClose={() => setReporteOpen(false)}
         />
       ) : null}

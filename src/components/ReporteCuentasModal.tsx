@@ -46,7 +46,7 @@ function Pastilla({ on, label, onPress, disabled }: { on: boolean; label: string
   );
 }
 
-export function ReporteCuentasModal({ tipo, lista, todas, universo, marcadas, tasaBcv, hoy, onClose }: {
+export function ReporteCuentasModal({ tipo, lista, todas, universo, marcadas, tasaBcv, hoy, onClose, saldoBsDe }: {
   tipo: TipoCuentaReporte;
   /** Lo que se ve ahora en la pestaña (con sus filtros). */
   lista: CuentaParaReporte[];
@@ -56,6 +56,8 @@ export function ReporteCuentasModal({ tipo, lista, todas, universo, marcadas, ta
   universo: CuentaParaReporte[];
   marcadas: ReadonlySet<string>;
   tasaBcv: number | null;
+  /** 02-nov-2026: saldo en Bs fijado por el requerimiento (null = US$ × tasa). */
+  saldoBsDe?: (c: any, saldoUsd: number) => number | null;
   hoy: string;
   onClose: () => void;
 }) {
@@ -112,7 +114,7 @@ export function ReporteCuentasModal({ tipo, lista, todas, universo, marcadas, ta
     }
     setGenerando(true);
     try {
-      const r = armarReporteCuentas({ tipo, cuentas: elegidas, op, tasaBcv, hoyISO: hoy, filtrado });
+      const r = armarReporteCuentas({ tipo, cuentas: elegidas, op, tasaBcv, hoyISO: hoy, filtrado, saldoBsDe });
       const html = pdfDocument({
         title: r.titulo,
         subtitle: r.subtitulo,
