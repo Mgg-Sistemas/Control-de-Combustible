@@ -92,6 +92,10 @@ ok('una cuenta pagada no cambia de plan', cxp.includes("if (c.situacion === 'pag
 ok('el requerimiento también define el plan', req.includes("from('inventory_requirements').update({ plan_pago: valor }"));
 ok('Por Pagar usa el plan del requerimiento si no tiene uno propio', cxp.includes('normalizarPlan(req?.plan_pago)'));
 ok('los modales del plan se montan al final', cxp.lastIndexOf('<PlanPagoModal') > cxp.lastIndexOf('<ReporteCuentasModal') && req.lastIndexOf('<PlanPagoModal') > req.lastIndexOf('<EditarSoporteReqModal'));
+ok('el FORMULARIO del requerimiento tiene su plan de pago', req.includes('📋 Plan de pago (opcional)') && req.includes('setPlanFormOpen(true)'));
+ok('el formulario no guarda si el plan no suma el total', req.includes('validarPlan(planForm.partes, createTotalUsd)') && req.includes('Edítalo o quítalo antes de guardar'));
+ok('el plan del formulario se guarda al crear y al editar', req.includes('await guardarPlanForm(editId)') && req.includes('await guardarPlanForm(insertedId)'));
+ok('al editar se carga el plan guardado', req.includes('setPlanForm(planGuardado)'));
 ok('interruptor presente', /export const PLAN_PAGO_ACTIVO = (true|false);/.test(lib));
 
 console.log(`\n${pass} ok, ${fail} fallas`);

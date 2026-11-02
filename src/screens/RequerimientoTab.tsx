@@ -54,7 +54,7 @@ import {
   type ArchivoSoporte,
 } from '../lib/requerimientoExpediente';
 import { PlanPagoModal } from '../components/PlanPagoModal';
-import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, lineaParte } from '../lib/planPago';
+import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, lineaParte, validarPlan } from '../lib/planPago';
 import { EditarSoporteReqModal, type TipoSoporteReq } from '../components/EditarSoporteReqModal';
 import { machineLabel, machineMatches } from '../lib/machineLabel';
 // 👤 Quién solicitó / quién autorizó, para qué (vehículo o maquinaria), a qué
@@ -694,6 +694,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [area, setArea] = useState<string>('');
   const [areaLibre, setAreaLibre] = useState(false);     // escribir un área que no está en la lista
   const [condicionesPago, setCondicionesPago] = useState('');
+  // 📋 02-nov-2026: plan de pago desde el FORMULARIO (se guarda junto con el requerimiento).
+  const [planForm, setPlanForm] = useState<PlanPago | null>(null);
+  const [planFormAntes, setPlanFormAntes] = useState('null');
+  const [planFormOpen, setPlanFormOpen] = useState(false);
   const [observaciones, setObservaciones] = useState('');
   const [personas, setPersonas] = useState<PersonaNomina[]>([]);
   const [contactosLista, setContactosLista] = useState<{ id: string; name: string }[]>([]);
@@ -1396,6 +1400,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setPrioridadReq(null); setMotoId(null); setMotoNombre(''); setExtrasAntes(null);
     setSolicitante(SIN_PERSONA); setAutorizado(SIN_PERSONA);
     setDestino(null); setArea(''); setAreaLibre(false); setCondicionesPago(''); setObservaciones('');
+    setPlanForm(null); setPlanFormAntes('null');
   };
 
   // 💳 Modal de edición rápida de datos financieros del proveedor
@@ -2186,8 +2191,29 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
+  // 📋 02-nov-2026: guarda el plan del formulario solo si cambió (update aparte: no
+  // toca los reintentos del guardado principal). Devuelve '' o lo que no se guardó.
+  const guardarPlanForm = async (id: string): Promise<string> => {
+    if (!PLAN_PAGO_ACTIVO) return '';
+    const ahora = JSON.stringify(planForm ? { partes: planForm.partes, nota: planForm.nota ?? null } : null);
+    if (ahora === planFormAntes) return '';
+    const valor = planForm ? { ...planForm, actualizado_por: fullName || null, actualizado_at: new Date().toISOString() } : null;
+    const { data, error } = await supabase.from('inventory_requirements').update({ plan_pago: valor } as any).eq('id', id).select('id');
+    if (error || !data || data.length === 0) return 'el plan de pago';
+    return '';
+  };
+
   const crear = async () => {
     setFormErr(null);
+    // 📋 El plan de pago debe sumar el total del requerimiento (con IVA).
+    if (PLAN_PAGO_ACTIVO && planForm) {
+      const errPlan = validarPlan(planForm.partes, createTotalUsd);
+      if (errPlan) {
+        const m = `📋 Plan de pago: ${errPlan} Edítalo o quítalo antes de guardar.`;
+        setFormErr(m);
+        return toast.error(m);
+      }
+    }
     const alicNum = Math.min(100, Math.max(0, parseNum(alicuotaIva) || 0));
     const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => {
       const supObj = x.supplier_id ? suppliers.find((s) => s.id === x.supplier_id) : (supplierId ? suppliers.find((s) => s.id === supplierId) : null);
@@ -2412,7 +2438,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         setFormErr(msgError);
         return toast.error(msgError);
       }
-      const extrasFalta = await guardarExtras(editId, extrasAntes);
+      const extrasFalta = [await guardarExtras(editId, extrasAntes), await guardarPlanForm(editId)].filter(Boolean).join(' ni ');
       setBusy(false);
       setCreateOpen(false); limpiarForm();
       refetch();
@@ -2472,7 +2498,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       setFormErr(error.message); return toast.error(error.message);
     }
     if (!saved) { setBusy(false); const m = 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.'; setFormErr(m); return toast.error(m); }
-    const extrasFaltaAlta = insertedId ? await guardarExtras(insertedId, null) : '';
+    const extrasFaltaAlta = insertedId ? [await guardarExtras(insertedId, null), await guardarPlanForm(insertedId)].filter(Boolean).join(' ni ') : '';
     setBusy(false);
     // 🔔 EL AVISO AL RESPONSABLE LO MANDA LA BASE, NO LA APP (18-oct-2026). El
     // trigger trg_notify_requirement_responsable (gemelo del que avisa a los admin)
@@ -2518,6 +2544,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setAreaLibre(false);
     setCondicionesPago(extraerCondicionesPago(r.observaciones));
     setObservaciones(limpiarObservacionesUsuario(r.observaciones ?? ''));
+    const planGuardado = normalizarPlan((r as any).plan_pago);
+    setPlanForm(planGuardado);
+    setPlanFormAntes(JSON.stringify(planGuardado ? { partes: planGuardado.partes, nota: planGuardado.nota ?? null } : null));
     const alicEditar = r.iva_alicuota != null ? String(r.iva_alicuota) : String(resolverAlicuotaIvaRequerimiento(r));
     setAlicuotaIva(alicEditar);
     setFormatos(extraerFormatosAdjuntos(r));
@@ -5603,6 +5632,33 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               />
             </Card>
 
+            {/* 📋 PLAN DE PAGO (02-nov-2026): cómo se paga cada parte (base en $, IVA en Bs, USDT…). Pasa solo a Por Pagar. */}
+            {PLAN_PAGO_ACTIVO ? (
+              <Card>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📋 Plan de pago (opcional)</Text>
+                  <TouchableOpacity onPress={() => setPlanFormOpen(true)} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingVertical: 5, paddingHorizontal: spacing.md }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{planForm ? '✏️ Editar plan' : '+ Definir cómo se paga'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                  Si una parte se paga en Bs y otra en $, USDT o Zelle (por ejemplo la base en $ y el IVA en Bs a tasa BCV). Pasa solo a Por Pagar y al mensaje de pago.
+                </Text>
+                {planForm ? (
+                  <View style={{ marginTop: spacing.xs, gap: 2 }}>
+                    {planForm.partes.map((pp, i) => (
+                      <Text key={pp.id} style={{ color: colors.text, fontSize: 12 }}>{i + 1}) {lineaParte(pp, createAlicuotaNum)}</Text>
+                    ))}
+                    {validarPlan(planForm.partes, createTotalUsd) ? (
+                      <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>
+                        ⚠️ {validarPlan(planForm.partes, createTotalUsd)} Edítalo: el total cambió.
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+              </Card>
+            ) : null}
+
             {/* 📝 OBSERVACIONES — al final, como se pidió: «un espacio de
                 observaciones para escribir cualquier cosa que necesite o
                 información adicional». Sale impreso al final del formato. */}
@@ -6954,6 +7010,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           proveedorNombre={suppliers.find((s) => s.id === soporteEdit.req.supplier_id)?.name || null}
           onClose={() => setSoporteEdit(null)}
           onSaved={() => { refetch(); refetchCuentas(); }}
+        />
+      ) : null}
+      {planFormOpen ? (
+        <PlanPagoModal
+          visible
+          titulo={title.trim() || 'Requerimiento'}
+          totalUsd={createTotalUsd}
+          alicuotaIva={createAlicuotaNum}
+          planInicial={planForm}
+          tasaBcv={rate}
+          onGuardar={async (plan) => { setPlanForm(plan); return true; }}
+          onClose={() => setPlanFormOpen(false)}
         />
       ) : null}
       {planReq ? (

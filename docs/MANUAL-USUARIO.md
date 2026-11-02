@@ -2368,7 +2368,7 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > junto al número. Lo oculto no se anuncia en el papel. Cada persona encuentra sus opciones como las dejó la última vez.
 > **📋 Por Pagar: plan de pago para pagos mixtos** *(02/11/2026)*. Cuando una cuenta se paga por partes y en monedas
 > distintas (base en $ e IVA en Bs, base en Bs a tasa USDT e IVA a tasa BCV, una parte en Zelle o USDT…), toca
-> **«📋 Plan de pago → + Definir cómo se paga»** en la cuenta de Por Pagar, o en la tarjeta del requerimiento (lo que
+> **«📋 Plan de pago → + Definir cómo se paga»** en la cuenta de Por Pagar, en el formulario del requerimiento (debajo de «Condiciones de pago») o en su tarjeta (lo que
 > defina la analista pasa solo a Por Pagar, salvo que Por Pagar tenga su propio plan). Hay **plantillas** de un toque
 > y cada parte lleva su monto en $, cómo se paga y, si es en Bs, su **tasa**: BCV (la de hoy, sola), USDT, Euro u otra
 > escrita; el sistema calcula los Bs. **No deja guardar si las partes no suman el total.** Al abonar eliges a qué parte
