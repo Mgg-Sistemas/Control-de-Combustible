@@ -321,3 +321,164 @@ export async function exportarJornadaSurtidorPdf(datos: DatosJornadaSurtidorPdf)
 
   await exportPdf(html, `Parte-Diario-Surtidor-${datos.fechaJornada}`);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🧾 Desglose del rango (02-nov-2026): consumos y entradas del rango escogido en
+// Conciliación. Lo que se apaga en las opciones no sale ni deja rastro (ni
+// columna vacía ni aviso).
+// ─────────────────────────────────────────────────────────────────────────────
+export interface DatosDesgloseRangoPdf {
+  desglose: import('./combustibleDesglose').DesgloseRango;
+  opciones: import('./combustibleDesglose').OpcionesDesglose;
+  elaboradoPor: string;
+}
+
+export async function exportarDesgloseRangoPdf(datos: DatosDesgloseRangoPdf): Promise<void> {
+  const { desglose: g, opciones: o } = datos;
+  const td = (v: string, extra = '') => `<td style="padding: 5px 6px; ${extra}">${v}</td>`;
+  const num = 'text-align: right; font-family: monospace;';
+  const fondo = (idx: number) => (idx % 2 === 0 ? '#ffffff' : '#f9fafb');
+
+  let consumosHtml = '';
+  if (o.consumos && g.consumos.length > 0) {
+    const heads = ['Fecha', 'Hora', 'Equipo'];
+    if (o.placa) heads.push('Placa');
+    if (o.serial) heads.push('Serial');
+    heads.push('Tanque', 'Litros');
+    if (o.contador) heads.push('Contador bomba');
+    if (o.horometro) heads.push('Horómetro (inspector)');
+    heads.push('Autorizó');
+    const filas = g.consumos
+      .map((c, idx) => {
+        const celdas = [td(esc(c.fecha)), td(esc(c.hora)), td(`<b>${esc(c.equipo)}</b>`)];
+        if (o.placa) celdas.push(td(esc(c.placa)));
+        if (o.serial) celdas.push(td(esc(c.serial)));
+        celdas.push(td(esc(c.tanque)), td(`${fmtNum(c.litros)} L`, num + ' font-weight: 800;'));
+        if (o.contador) {
+          celdas.push(td(c.contadorIni != null && c.contadorFin != null ? `${fmtNum(c.contadorIni)} ➔ ${fmtNum(c.contadorFin)}` : '', 'font-family: monospace; text-align: center;'));
+        }
+        if (o.horometro) {
+          const h = c.horometroIni != null || c.horometroFin != null
+            ? `${c.horometroIni != null ? fmtNum(c.horometroIni) : '?'} ➔ ${c.horometroFin != null ? fmtNum(c.horometroFin) : '?'}${c.horas != null ? ` (${fmtNum(c.horas)} h)` : ''}`
+            : '';
+          celdas.push(td(h, 'font-family: monospace; text-align: center;'));
+        }
+        celdas.push(td(esc(c.autorizado), 'color: #6b7280;'));
+        return `<tr style="background: ${fondo(idx)}; border-bottom: 1px solid #e5e7eb;">${celdas.join('')}</tr>`;
+      })
+      .join('');
+    consumosHtml = `
+      <h2 class="sec">Consumos (salidas)</h2>
+      <table>
+        <thead><tr>${heads.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr><td colspan="${heads.length}">TOTAL CONSUMIDO: ${fmtNum(g.totalConsumido)} L · ${g.consumos.length} surtidos</td></tr></tfoot>
+      </table>`;
+  }
+
+  let entradasHtml = '';
+  if (o.entradas && g.entradas.length > 0) {
+    const filas = g.entradas
+      .map((e, idx) => `<tr style="background: ${fondo(idx)}; border-bottom: 1px solid #e5e7eb;">${[
+        td(esc(e.fecha)), td(esc(e.proveedor)), td(esc(e.factura)), td(esc(e.tanque)),
+        td(`${fmtNum(e.litros)} L`, num + ' font-weight: 800;'),
+        td(e.costoUnitario != null ? fmtNum(e.costoUnitario) : '', num),
+        td(e.costoTotal != null ? fmtNum(e.costoTotal) : '', num),
+      ].join('')}</tr>`)
+      .join('');
+    entradasHtml = `
+      <h2 class="sec">Entradas</h2>
+      <table>
+        <thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Tanque</th><th>Litros</th><th>Costo unit.</th><th>Costo total</th></tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr><td colspan="7">TOTAL ENTRADO: ${fmtNum(g.totalEntrado)} L${g.totalCosto > 0 ? ` · ${fmtNum(g.totalCosto)} en costo` : ''}</td></tr></tfoot>
+      </table>`;
+  }
+
+  let equiposHtml = '';
+  if (o.consumos && o.totalesEquipo && g.porEquipo.length > 0) {
+    const heads = ['Equipo'];
+    if (o.placa) heads.push('Placa');
+    if (o.serial) heads.push('Serial');
+    heads.push('Surtidos', 'Litros');
+    if (o.horometro) heads.push('Horas (inspector)');
+    const filas = g.porEquipo
+      .map((e, idx) => {
+        const celdas = [td(`<b>${esc(e.equipo)}</b>`)];
+        if (o.placa) celdas.push(td(esc(e.placa)));
+        if (o.serial) celdas.push(td(esc(e.serial)));
+        celdas.push(td(String(e.surtidos), num), td(`${fmtNum(e.litros)} L`, num + ' font-weight: 800;'));
+        if (o.horometro) celdas.push(td(e.horas != null ? `${fmtNum(e.horas)} h` : '', num));
+        return `<tr style="background: ${fondo(idx)};">${celdas.join('')}</tr>`;
+      })
+      .join('');
+    equiposHtml = `<h2 class="sec">Totales por equipo</h2><table><thead><tr>${heads.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${filas}</tbody></table>`;
+  }
+
+  let tanquesHtml = '';
+  if (o.totalesTanque && g.porTanque.length > 0 && (o.consumos || o.entradas)) {
+    const heads = ['Tanque'];
+    if (o.entradas) heads.push('Entró');
+    if (o.consumos) heads.push('Salió');
+    const filas = g.porTanque
+      .map((t, idx) => {
+        const celdas = [td(`<b>${esc(t.tanque)}</b>`)];
+        if (o.entradas) celdas.push(td(`${fmtNum(t.entro)} L`, num));
+        if (o.consumos) celdas.push(td(`${fmtNum(t.salio)} L`, num));
+        return `<tr style="background: ${fondo(idx)};">${celdas.join('')}</tr>`;
+      })
+      .join('');
+    tanquesHtml = `<h2 class="sec">Totales por tanque</h2><table><thead><tr>${heads.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${filas}</tbody></table>`;
+  }
+
+  const meta: string[] = [`<div><strong>Período:</strong> ${esc(g.desde)} al ${esc(g.hasta)}</div>`];
+  if (o.entradas) meta.push(`<div><strong>Entradas:</strong> ${fmtNum(g.totalEntrado)} L</div>`);
+  if (o.consumos) meta.push(`<div><strong>Consumos:</strong> ${fmtNum(g.totalConsumido)} L</div>`);
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8" />
+      <title>Desglose-Combustible-${esc(g.desde)}-${esc(g.hasta)}</title>
+      <style>
+        @page { size: letter landscape; margin: 1cm; }
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 10.5px; color: #1f2937; margin: 0; padding: 0; }
+        .head { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; margin-bottom: 12px; }
+        .brand-logos { display: flex; align-items: center; gap: 12px; }
+        .logo { height: 42px; object-fit: contain; }
+        .title { font-size: 16px; font-weight: 900; color: #1E3A5F; margin: 0; text-transform: uppercase; }
+        .meta-strip { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; background: #F3F4F6; border: 1px solid #E5E7EB; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+        .sec { font-size: 12px; color: #1E3A5F; margin: 14px 0 6px; text-transform: uppercase; }
+        table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+        tr { page-break-inside: avoid; }
+        th { background: #1E3A5F; color: #ffffff; padding: 6px; text-align: left; font-weight: 700; text-transform: uppercase; font-size: 8.5px; }
+        tfoot td { background: #E5E7EB; font-weight: 900; padding: 7px 6px; border-top: 2px solid #1E3A5F; }
+      </style>
+    </head>
+    <body>
+      <div class="head">
+        <div class="brand-logos">
+          ${LOGO_DATA_URI ? `<img src="${LOGO_DATA_URI}" class="logo" alt="SOS" />` : ''}
+          ${BCV_LOGO_DATA_URI ? `<img src="${BCV_LOGO_DATA_URI}" class="logo" alt="BCV" />` : ''}
+          <div>
+            <div style="font-size: 12px; font-weight: 800; color: #1E3A5F;">${esc(REPORT_BRAND)}</div>
+            <div style="font-size: 9.5px; color: #6B7280;">CONTROL DE COMBUSTIBLE</div>
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <h1 class="title">Desglose de Combustible</h1>
+          <div style="font-size: 10px; color: #4B5563;">Emitido: ${esc(nowStamp())} · ${esc(datos.elaboradoPor)}</div>
+        </div>
+      </div>
+      <div class="meta-strip">${meta.join('')}</div>
+      ${consumosHtml}
+      ${entradasHtml}
+      ${equiposHtml}
+      ${tanquesHtml}
+    </body>
+    </html>
+  `;
+
+  await exportPdf(html, `Desglose-Combustible-${g.desde}-${g.hasta}`);
+}

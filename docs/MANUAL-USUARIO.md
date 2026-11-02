@@ -2388,6 +2388,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > inspector no cargó nada, el final cae al horómetro escrito en el surtido. El horómetro solo se lee. La opción
 > de apoyo y su pestaña **se encienden cuando se creen sus columnas en la base**; mientras tanto la pestaña
 > muestra un aviso.
+> **🧾 Conciliación: desglose del rango** *(02/11/2026)*. En Combustible → Conciliación, **«🧾 Desglose del rango»**
+> toma las fechas desde–hasta que escogiste y muestra, como el parte diario del Surtidor, cuánto se le surtió a cada
+> equipo (fecha, hora, placa, serial, tanque, litros, contador de bomba y **horómetro**) y además las **entradas**
+> (proveedor, factura, litros y costo), con totales por equipo y por tanque. Se descarga en **PDF**. Cada cosa se prende
+> o apaga con su interruptor y la pantalla recuerda cómo la dejaste; lo apagado no sale en el papel. El horómetro es el
+> que cargan los inspectores y aquí solo se lee; quien tiene **full** en Consumos podrá corregirlo para los papeles de
+> combustible (✏️) cuando la base tenga su tabla, sin tocar lo del inspector.
 
 > **✏️ Editar mi solicitud desde Pedir Material** *(01/11/2026)*. Quien pidió un repuesto **corrige su propia
 > solicitud** de compra técnica con el botón **«✏️ Editar mi solicitud»** de 🛒 Pedir Material → Mis solicitudes,
