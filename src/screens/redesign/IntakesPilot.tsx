@@ -10,7 +10,11 @@ import { FuelIntake, Tank } from '../../types/database';
 import { useAuth } from '../../context/AuthContext';
 import { useTable } from '../../hooks/useTable';
 import { norm } from '../../lib/text';
-import { supabase } from '../../lib/supabase';
+import { supabase, selectAllRows } from '../../lib/supabase';
+import { useToast } from '../../components/ToastProvider';
+import OpcionesReporteCombustibleModal from '../../components/combustible/OpcionesReporteCombustibleModal';
+import { OPCIONES_REPORTE_ENTRADAS, filtrarEntradas } from '../../lib/combustibleReportes';
+import { exportarReporteEntradasPdf } from '../../lib/combustibleReportesPdf';
 import {
   MARCADOR_AJUSTE_TANQUE,
   esAjusteManualVisibleLegado,
@@ -34,7 +38,8 @@ const FUEL_OPTIONS = [
  * tanque sin buscarlo. Reusa RList → RecordForm (lógica intacta).
  */
 export default function IntakesPilot() {
-  const { fullName, moduleLevel } = useAuth();
+  const { fullName, moduleLevel, session } = useAuth();
+  const toast = useToast();
   const { colors } = useTheme();
   // 01-nov-2026: con 'full' en Ingresos se edita la foto/nota de un ingreso ya
   // registrado. Queda detrás de los interruptores: fuel_intakes aún no tiene
@@ -43,6 +48,20 @@ export default function IntakesPilot() {
   const [editFotos, setEditFotos] = useState<any | null>(null);
   const refetchRef = useRef<(() => void) | null>(null);
   const { data: tanks } = useTable<Tank>('tanks');
+
+  // 02-nov-2026: reporte personalizable de entradas (día o rango, gráficas por
+  // tanque y por proveedor). Las opciones se recuerdan por persona.
+  const [verReporte, setVerReporte] = useState(false);
+  const generarReporte = useCallback(async ({ desde, hasta, opciones }: { desde: string; hasta: string; opciones: Record<string, boolean> }) => {
+    const filas = await selectAllRows('fuel_intakes', '*', (q) => q.gte('intake_date', desde).lte('intake_date', hasta));
+    const entradas = filtrarEntradas(filas as any[], desde, hasta);
+    if (entradas.length === 0) {
+      toast.info(`Sin entradas en ${desde === hasta ? desde : `${desde} al ${hasta}`}: no hay nada que imprimir.`);
+      return;
+    }
+    const nombres = new Map((tanks || []).map((t) => [t.id, t.name] as [string, string]));
+    await exportarReporteEntradasPdf({ desde, hasta, filas: entradas, nombreTanque: (id) => nombres.get(id) || '' }, opciones);
+  }, [tanks, toast]);
 
   // Tanque del encargado logueado: el que tenga `responsable` = su nombre (comparación
   // normalizada; exacto primero, luego "contiene"). undefined si no hay match → sin
@@ -114,6 +133,11 @@ export default function IntakesPilot() {
         return `${rows.length} ingreso(s) · ${l.toLocaleString()} L`;
       }}
       formFields={formFields}
+      headerExtra={() => (
+        <Pressable onPress={() => setVerReporte(true)} style={{ alignSelf: 'flex-start', marginBottom: spacing.sm, paddingVertical: 7, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🖨️ Reporte</Text>
+        </Pressable>
+      )}
       renderItem={(i) => (
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -149,6 +173,15 @@ export default function IntakesPilot() {
       carpetaId={editFotos?.tank_id || null}
       onClose={() => setEditFotos(null)}
       onSaved={() => refetchRef.current?.()}
+    />
+    <OpcionesReporteCombustibleModal
+      visible={verReporte}
+      titulo="Reporte de entradas"
+      opciones={OPCIONES_REPORTE_ENTRADAS}
+      storageKey="combustible:reporte-entradas"
+      usuarioId={session?.user?.id}
+      onClose={() => setVerReporte(false)}
+      onGenerar={generarReporte}
     />
     </>
   );

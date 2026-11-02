@@ -8,7 +8,11 @@ import { caracasParts } from '../../lib/jornada';
 import { Dispatch, Tank } from '../../types/database';
 import { useAuth } from '../../context/AuthContext';
 import { useTable } from '../../hooks/useTable';
-import { supabase } from '../../lib/supabase';
+import { supabase, selectAllRows } from '../../lib/supabase';
+import OpcionesReporteCombustibleModal from '../../components/combustible/OpcionesReporteCombustibleModal';
+import { OPCIONES_REPORTE_CONSUMOS, diaAnterior, equipoDeConsumo, filtrarConsumos } from '../../lib/combustibleReportes';
+import { exportarReporteConsumosPdf } from '../../lib/combustibleReportesPdf';
+import { cargarHorometros } from '../../lib/combustibleHorometro';
 import { useToast } from '../../components/ToastProvider';
 import { levelMeets } from '../../lib/permissions';
 import { CONSUMOS_NOTAS_ACTIVAS } from '../../lib/combustibleEdicion';
@@ -104,6 +108,26 @@ export default function DispatchesPilot() {
   const puedeEditarFotos = levelMeets(moduleLevel('consumos'), 'full');
   const [editFotos, setEditFotos] = useState<any | null>(null);
   const refetchRef = useRef<(() => void) | null>(null);
+  // 02-nov-2026: reporte personalizable de consumos (día o rango, con gráficas y
+  // horómetro del inspector, solo lectura). Las opciones se recuerdan por persona.
+  const [verReporte, setVerReporte] = useState(false);
+  const generarReporte = useCallback(async ({ desde, hasta, opciones }: { desde: string; hasta: string; opciones: Record<string, boolean> }) => {
+    const filas = await selectAllRows(
+      'dispatches',
+      '*, machine:machinery_id(code, plate, serial, identifier, tipo), vehicle:vehicle_id(plate, name, model, serial, identifier), tank:tank_id(id, name, fuel, is_mobile, responsable, chofer)',
+      (q) => q.gte('dispatch_date', desde).lte('dispatch_date', hasta),
+    );
+    const consumos = filtrarConsumos(filas as any[], desde, hasta);
+    if (consumos.length === 0) {
+      toast.info(`Sin consumos en ${desde === hasta ? desde : `${desde} al ${hasta}`}: no hay nada que imprimir.`);
+      return;
+    }
+    // Un surtido antes de las 7am pertenece a la jornada del día anterior.
+    const horometros = opciones.horometro
+      ? await cargarHorometros(consumos.map((d: any) => d.machinery_id).filter(Boolean), diaAnterior(desde), hasta)
+      : new Map();
+    await exportarReporteConsumosPdf({ desde, hasta, filas: consumos, horometros }, opciones);
+  }, [toast]);
 
   // Tanques activos del sistema para deducción y auto-asignación
   const { data: tanks } = useTable<Tank>('tanks', {
@@ -292,6 +316,9 @@ export default function DispatchesPilot() {
           const sinTanque = sinTanqueList.length;
           return (
             <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
+              <Pressable onPress={() => setVerReporte(true)} style={{ alignSelf: 'flex-start', paddingVertical: 7, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🖨️ Reporte</Text>
+              </Pressable>
               {sinTanque > 0 ? (
                 <View
                   style={{
@@ -376,6 +403,8 @@ export default function DispatchesPilot() {
           const suggestedTank = !tank ? findTankForDriver(d.driver_operator) : null;
           const isRowBusy = assigningRowId === d.id;
           const infoEquipo = etiquetaEquipoCombustible(d);
+          // 02-nov-2026: máquina de apoyo sin catálogo (la columna puede no existir aún).
+          const esApoyo = !mach && !veh && !d.machinery_id && !d.vehicle_id && !!String((d as any).apoyo_nombre ?? '').trim();
 
           return (
             <>
@@ -396,8 +425,12 @@ export default function DispatchesPilot() {
                 }}
               >
                 <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
-                  {d.asset_kind === 'maquinaria' ? '🚜 ' : '🚗 '}
-                  {infoEquipo.etiquetaGrafica}
+                  {esApoyo ? equipoDeConsumo(d).nombre : (
+                    <>
+                      {d.asset_kind === 'maquinaria' ? '🚜 ' : '🚗 '}
+                      {infoEquipo.etiquetaGrafica}
+                    </>
+                  )}
                 </Text>
               </View>
               <View style={{ marginTop: 6 }}>
@@ -532,6 +565,16 @@ export default function DispatchesPilot() {
         carpetaId={editFotos?.machinery_id || editFotos?.vehicle_id || null}
         onClose={() => setEditFotos(null)}
         onSaved={() => refetchRef.current?.()}
+      />
+
+      <OpcionesReporteCombustibleModal
+        visible={verReporte}
+        titulo="Reporte de consumos"
+        opciones={OPCIONES_REPORTE_CONSUMOS}
+        storageKey="combustible:reporte-consumos"
+        usuarioId={session?.user?.id}
+        onClose={() => setVerReporte(false)}
+        onGenerar={generarReporte}
       />
 
       {/* Visor de foto a pantalla completa. */}

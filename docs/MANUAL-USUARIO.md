@@ -2395,6 +2395,14 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > o apaga con su interruptor y la pantalla recuerda cómo la dejaste; lo apagado no sale en el papel. El horómetro es el
 > que cargan los inspectores y aquí solo se lee; quien tiene **full** en Consumos podrá corregirlo para los papeles de
 > combustible (✏️) cuando la base tenga su tabla, sin tocar lo del inspector.
+> **⛽ Combustible: reportes de Consumos y de Entradas** *(02/11/2026)*. En **Consumos** y en **Ingresos** hay un
+> botón **«🖨️ Reporte»**: eliges el día (hoy por defecto, «Ayer» o un **rango desde–hasta**) y, con interruptores,
+> qué sale en el PDF: gráficas, tabla, placa, serial, horómetro, contador, tanque, operador, precio y monto, nota y
+> totales en Consumos; gráficas por tanque y proveedor, tabla, proveedor, factura, tanque, combustible, costos, nota
+> y totales en Entradas. Lo que apagas simplemente no sale, y tus opciones se recuerdan para la próxima vez. El
+> **horómetro** es el que cargan los inspectores en la jornada (7am a 7am) y aquí solo se lee. Un consumo de una
+> máquina de apoyo sin catálogo sale como «🆘 nombre»; eso y la corrección del horómetro se encienden cuando se
+> creen en la base.
 
 > **✏️ Editar mi solicitud desde Pedir Material** *(01/11/2026)*. Quien pidió un repuesto **corrige su propia
 > solicitud** de compra técnica con el botón **«✏️ Editar mi solicitud»** de 🛒 Pedir Material → Mis solicitudes,
