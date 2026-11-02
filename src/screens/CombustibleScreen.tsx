@@ -14,6 +14,7 @@ import AuthorizationsPilot from './redesign/AuthorizationsPilot';
 import SurtidorMovil from '../components/combustible/SurtidorMovil';
 import CubicacionTab from './redesign/CubicacionTab';
 import ConciliacionTab from './redesign/ConciliacionTab';
+import MaquinasApoyoPanel from '../components/combustible/MaquinasApoyoPanel';
 
 // Un solo módulo "Combustible" integral con todos los apartados de gestión:
 // Tanques, Surtidor Móvil (Golden), Consumos, Ingresos, Traslados, Cubicación geométrica,
@@ -27,6 +28,8 @@ const TABS: { key: string; label: string; icon: string; Comp: React.ComponentTyp
   { key: 'cubicacion', label: 'Cubicación', icon: '📐', Comp: CubicacionTab },
   { key: 'conciliacion', label: 'Conciliación', icon: '📊', Comp: ConciliacionTab },
   { key: 'autorizaciones', label: 'Solicitudes', icon: '📋', Comp: AuthorizationsPilot },
+  // 02-nov-2026: consumo de las máquinas que no están en el catálogo (la ve quien ve Consumos).
+  { key: 'apoyo', label: 'Máquinas de apoyo', icon: '🆘', Comp: MaquinasApoyoPanel },
 ];
 
 export default function CombustibleScreen() {
@@ -39,7 +42,8 @@ export default function CombustibleScreen() {
       canSee(t.key) ||
       role === 'admin' ||
       role === 'supervisor' ||
-      (['surtidor', 'cubicacion', 'conciliacion', 'traslados'].includes(t.key) && canSee('tanques'))
+      (['surtidor', 'cubicacion', 'conciliacion', 'traslados'].includes(t.key) && canSee('tanques')) ||
+      (t.key === 'apoyo' && canSee('consumos'))
   );
   const [active, setActive] = useState<string>(tabs[0]?.key ?? 'tanques');
   const current = tabs.find((t) => t.key === active) ?? tabs[0];

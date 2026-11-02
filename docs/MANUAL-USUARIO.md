@@ -2375,6 +2375,20 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **punto o coma**. El **comprobante por WhatsApp** ya no muestra rombos con «?» en lugar de los emojis: cada
 > dato va en su línea.
 
+> **🆘 Combustible: máquinas de apoyo y horómetro en el parte diario** *(02/11/2026)*. En **📱 Surtidor (Móvil)** →
+> Surtir aparece la opción **«🆘 Apoyo»** para echarle combustible a una máquina que **no está en el catálogo**:
+> se escribe su **nombre o descripción** (obligatorio), y si se tienen, **placa, serial y empresa**; se le toman
+> **una o varias fotos a la máquina** y **una o varias fotos de lo surtido** (cada una con **📷 Cámara** o
+> **🖼️ Galería**), y los **litros se escriben a mano**. El tanque se descuenta igual que en cualquier surtido.
+> La pestaña nueva **«🆘 Máquinas de apoyo»** (la ve quien ve Consumos) muestra el consumo de esas máquinas por
+> rango de fechas, agrupado por máquina con su total de litros y cada surtido con toda su información y sus
+> fotos (se agrandan al tocarlas); quien tiene **full** en Consumos puede agregar o quitar fotos. Además, el
+> **parte diario** del Surtidor ya trae el **horómetro que cargan los inspectores** (inicial y final de la
+> jornada de 7am a 7am) y las **horas trabajadas salen de ese horómetro**, no del contador de la bomba; si el
+> inspector no cargó nada, el final cae al horómetro escrito en el surtido. El horómetro solo se lee. La opción
+> de apoyo y su pestaña **se encienden cuando se creen sus columnas en la base**; mientras tanto la pestaña
+> muestra un aviso.
+
 > **✏️ Editar mi solicitud desde Pedir Material** *(01/11/2026)*. Quien pidió un repuesto **corrige su propia
 > solicitud** de compra técnica con el botón **«✏️ Editar mi solicitud»** de 🛒 Pedir Material → Mis solicitudes,
 > **sin necesitar permiso de Compras ni de Inventario** (antes la base solo dejaba modificar a esos dos módulos y

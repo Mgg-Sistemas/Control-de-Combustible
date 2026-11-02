@@ -32,6 +32,9 @@ import {
 } from '../../lib/fuelRules';
 import { exportarJornadaSurtidorPdf, FilaDespachoSurtidorPdf } from '../../lib/combustiblePdf';
 import { useToast } from '../ToastProvider';
+// 02-nov-2026: máquina de apoyo (fuera del catálogo) y horómetro del inspector en el parte diario.
+import { APOYO_ACTIVO, armarFilaApoyo, validarApoyo, esDeApoyo, etiquetaEquipo } from '../../lib/combustibleApoyo';
+import { cargarHorometros, claveHorometro, jornadaDeDespacho, horasHorometro } from '../../lib/combustibleHorometro';
 import { norm, cmpText } from '../../lib/text';
 
 interface SurtidorMovilProps {
@@ -112,7 +115,14 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
   const [viewDetailMov, setViewDetailMov] = useState<Dispatch | null>(null);
 
   // Formulario de Surtido a Equipo
-  const [targetType, setTargetType] = useState<'maquinaria' | 'vehiculo'>('maquinaria');
+  const [targetType, setTargetType] = useState<'maquinaria' | 'vehiculo' | 'apoyo'>('maquinaria');
+  // 02-nov-2026: datos de la máquina de apoyo (solo con APOYO_ACTIVO).
+  const [apoyoNombre, setApoyoNombre] = useState('');
+  const [apoyoPlaca, setApoyoPlaca] = useState('');
+  const [apoyoSerial, setApoyoSerial] = useState('');
+  const [apoyoEmpresa, setApoyoEmpresa] = useState('');
+  const [apoyoFotos, setApoyoFotos] = useState<string[]>([]);
+  const [subiendoApoyo, setSubiendoApoyo] = useState(false);
   const [searchEquipQuery, setSearchEquipQuery] = useState('');
   const [selectedMachine, setSelectedMachine] = useState<Machinery | null>(null);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
@@ -251,6 +261,29 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
     setNota('');
     setPhotos([]);
     setSearchEquipQuery('');
+    setApoyoNombre('');
+    setApoyoPlaca('');
+    setApoyoSerial('');
+    setApoyoEmpresa('');
+    setApoyoFotos([]);
+  };
+
+  // 02-nov-2026: fotos de la máquina de apoyo (una o varias; cámara o galería).
+  const subirFotoApoyo = async (fuente: 'camara' | 'galeria') => {
+    setSubiendoApoyo(true);
+    try {
+      const r = fuente === 'camara'
+        ? await takePhotoAndUpload('combustible-apoyo', 'combustible')
+        : await pickPhotoFromGalleryAndUpload('combustible-apoyo', 'combustible');
+      if (r.ok && typeof r.url === 'string') {
+        const url = r.url;
+        setApoyoFotos((prev) => [...prev, url]);
+      } else if (r.error) {
+        toast.error(r.error);
+      }
+    } finally {
+      setSubiendoApoyo(false);
+    }
   };
 
   // Guardar Surtido
@@ -271,6 +304,17 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
       toast.error('Selecciona el vehículo a surtir.');
       return;
     }
+    if (targetType === 'apoyo') {
+      if (!APOYO_ACTIVO) {
+        toast.error('El surtido a máquinas de apoyo todavía no está activado.');
+        return;
+      }
+      const errApoyo = validarApoyo({ nombre: apoyoNombre, litros: litrosNum });
+      if (errApoyo) {
+        toast.error(errApoyo);
+        return;
+      }
+    }
 
     // Validación de horómetro
     const errHor = errorHorometro(hiNum, hfNum);
@@ -287,7 +331,28 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
       const price = pricePerLiter ? leerNumero(pricePerLiter) : null;
       const totalAmount = price ? Math.round(price * litrosNum * 100) / 100 : null;
 
-      const payload: any = {
+      const esApoyo = targetType === 'apoyo' && APOYO_ACTIVO;
+      const payload: any = esApoyo
+        ? armarFilaApoyo({
+            nombre: apoyoNombre,
+            placa: apoyoPlaca,
+            serial: apoyoSerial,
+            empresa: apoyoEmpresa,
+            fotosMaquina: apoyoFotos,
+            fotosSurtido: photos,
+            litros: litrosNum,
+            tankId: selectedTank.id,
+            fecha: todayIso(),
+            contadorIni: ciNum,
+            contadorFin: contadorFinalEfectivo,
+            horometro: hfNum,
+            autorizadoPor: autorizadoPor.trim() || currentUserName,
+            creadoPor: session?.user?.id || null,
+            precioLitro: price,
+            nota,
+            conNota: CONSUMOS_NOTAS_ACTIVAS,
+          })
+        : {
         dispatch_date: todayIso(),
         asset_kind: targetType,
         machinery_id: targetType === 'maquinaria' ? selectedMachine?.id : null,
@@ -331,9 +396,13 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
       const datosWhatsapp: DatosMensajeCombustible = {
         tipo: 'surtido',
         tanqueNombre: selectedTank.name,
-        equipoCodigo: selectedMachine ? selectedMachine.code : selectedVehicle?.name || 'Vehículo',
-        equipoPlaca: selectedMachine ? selectedMachine.plate : selectedVehicle?.plate,
-        equipoSerial: selectedMachine
+        equipoCodigo: esApoyo
+          ? `🆘 ${apoyoNombre.trim()}${apoyoEmpresa.trim() ? ` (${apoyoEmpresa.trim()})` : ''}`
+          : selectedMachine ? selectedMachine.code : selectedVehicle?.name || 'Vehículo',
+        equipoPlaca: esApoyo ? apoyoPlaca.trim() || null : selectedMachine ? selectedMachine.plate : selectedVehicle?.plate,
+        equipoSerial: esApoyo
+          ? apoyoSerial.trim() || null
+          : selectedMachine
           ? (selectedMachine as any).serial || (selectedMachine as any).identifier || null
           : (selectedVehicle as any)?.serial || (selectedVehicle as any)?.identifier || null,
         litros: litrosNum,
@@ -496,27 +565,37 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         return;
       }
 
+      // 02-nov-2026: horómetro que cargan los inspectores (solo lectura), por jornada 7am–7am.
+      // Antes las horas salían del CONTADOR de la bomba (litros), no del horómetro.
+      const jornadas = dayDispatches.filter((d: any) => d.machinery_id).map((d: any) => jornadaDeDespacho(d)).sort();
+      const horometros = jornadas.length > 0
+        ? await cargarHorometros(
+            dayDispatches.map((d: any) => d.machinery_id).filter(Boolean),
+            jornadas[0],
+            jornadas[jornadas.length - 1],
+          )
+        : new Map();
+
       const rows: FilaDespachoSurtidorPdf[] = dayDispatches.map((d: any) => {
         const m: any = (machineryList || []).find((x) => x.id === d.machinery_id);
         const v: any = (vehiclesList || []).find((x) => x.id === d.vehicle_id);
         const t = (activeTanks || []).find((x) => x.id === d.tank_id);
-        const horas =
-          d.fuel_start != null && d.fuel_end != null
-            ? Number(d.fuel_end) - Number(d.fuel_start)
-            : null;
+        const h = d.machinery_id ? horometros.get(claveHorometro(d.machinery_id, jornadaDeDespacho(d))) : undefined;
+        const horas = horasHorometro(h);
+        const apoyo = esDeApoyo(d);
 
         return {
           fecha: d.dispatch_date,
           hora: d.created_at ? new Date(d.created_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }) : '',
-          equipoCodigo: m ? m.code : v ? v.name || 'Vehículo' : 'General',
-          equipoPlaca: m ? m.plate || '' : v ? v.plate || '' : '',
-          equipoSerial: m ? m.serial || m.identifier || '' : v ? v.serial || v.identifier || '' : '',
+          equipoCodigo: etiquetaEquipo(d, machineryList as any, vehiclesList as any),
+          equipoPlaca: m ? m.plate || '' : v ? v.plate || '' : apoyo ? d.apoyo_placa || '' : '',
+          equipoSerial: m ? m.serial || m.identifier || '' : v ? v.serial || v.identifier || '' : apoyo ? d.apoyo_serial || '' : '',
           tanqueNombre: t ? t.name : 'Bomba directa',
           litros: Number(d.liters) || 0,
           contadorIni: d.fuel_start,
           contadorFin: d.fuel_end,
-          horometroIni: null,
-          horometroFin: d.hourmeter_h,
+          horometroIni: h?.inicial ?? null,
+          horometroFin: h?.final ?? (d.hourmeter_h != null ? Number(d.hourmeter_h) : null),
           horasTrabajadas: horas,
           autorizadoPor: d.driver_operator,
         };
@@ -1174,9 +1253,66 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                   🚗 Vehículo
                 </Text>
               </TouchableOpacity>
+              {APOYO_ACTIVO && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setTargetType('apoyo');
+                    setSelectedMachine(null);
+                    setSelectedVehicle(null);
+                    setHi('');
+                    setHf('');
+                  }}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    alignItems: 'center',
+                    borderRadius: radius.sm,
+                    backgroundColor: targetType === 'apoyo' ? colors.surface : 'transparent',
+                  }}
+                >
+                  <Text style={{ fontWeight: '800', fontSize: 13, color: targetType === 'apoyo' ? colors.primary : colors.muted }}>
+                    🆘 Apoyo
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
 
+            {/* 02-nov-2026: Máquina de apoyo (no está en el catálogo) */}
+            {APOYO_ACTIVO && targetType === 'apoyo' && (
+              <View style={{ backgroundColor: colors.surface, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: spacing.sm }}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text }}>🆘 Máquina de apoyo (no está en el catálogo)</Text>
+                <TextInput value={apoyoNombre} onChangeText={setApoyoNombre} placeholder="Nombre o descripción (obligatorio)" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, fontSize: 14, color: colors.text }} />
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                  <TextInput value={apoyoPlaca} onChangeText={setApoyoPlaca} placeholder="Placa (opcional)" placeholderTextColor={colors.muted} autoCapitalize="characters" style={[{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, fontSize: 14, color: colors.text }, { flexGrow: 1, flexBasis: 140 }]} />
+                  <TextInput value={apoyoSerial} onChangeText={setApoyoSerial} placeholder="Serial (opcional)" placeholderTextColor={colors.muted} autoCapitalize="characters" style={[{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, fontSize: 14, color: colors.text }, { flexGrow: 1, flexBasis: 140 }]} />
+                </View>
+                <TextInput value={apoyoEmpresa} onChangeText={setApoyoEmpresa} placeholder="Empresa o dueño (opcional)" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, fontSize: 14, color: colors.text }} />
+                <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>Fotos de la máquina ({apoyoFotos.length})</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                  <TouchableOpacity disabled={subiendoApoyo} onPress={() => subirFotoApoyo('camara')} style={{ flexGrow: 1, flexBasis: 120, alignItems: 'center', paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>📷 Cámara</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity disabled={subiendoApoyo} onPress={() => subirFotoApoyo('galeria')} style={{ flexGrow: 1, flexBasis: 120, alignItems: 'center', paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>🖼️ Galería</Text>
+                  </TouchableOpacity>
+                </View>
+                {subiendoApoyo && <ActivityIndicator color={colors.primary} />}
+                {apoyoFotos.length > 0 && (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {apoyoFotos.map((uri, idx) => (
+                      <TouchableOpacity key={uri + idx} onPress={() => setApoyoFotos(apoyoFotos.filter((_, i) => i !== idx))}>
+                        <Image source={{ uri }} style={{ width: 64, height: 64, borderRadius: radius.sm }} />
+                        <Text style={{ fontSize: 10, color: colors.danger, textAlign: 'center' }}>✕ quitar</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+                <Text style={{ fontSize: 11, color: colors.muted }}>Los litros se escriben a mano abajo; las fotos de lo surtido van en «Fotos de lo surtido».</Text>
+              </View>
+            )}
+
             {/* Selector con Buscador Obligatorio de Maquinaria (Código + PLACA + SERIAL) */}
+            {targetType !== 'apoyo' && (
             <View>
               <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text, marginBottom: 4 }}>
                 {targetType === 'maquinaria' ? 'Seleccionar Maquinaria (Buscador por Código, Placa o Serial)' : 'Seleccionar Vehículo (Buscador por Placa, Nombre o Serial)'}
@@ -1342,6 +1478,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                 </View>
               )}
             </View>
+            )}
 
             {/* Litros Dispensados */}
             <View>
@@ -1430,8 +1567,8 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
               </View>
             </View>
 
-            {/* Bloque de Horómetro (si es Maquinaria) o Odómetro (si es Vehículo) */}
-            {targetType === 'maquinaria' ? (
+            {/* Bloque de Horómetro (si es Maquinaria o de apoyo) o Odómetro (si es Vehículo) */}
+            {targetType !== 'vehiculo' ? (
               <View
                 style={{
                   backgroundColor: colors.surface,
@@ -1573,7 +1710,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
             <View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text }}>
-                  Fotos de respaldo ({photos.length})
+                  {targetType === 'apoyo' ? 'Fotos de lo surtido' : 'Fotos de respaldo'} ({photos.length})
                 </Text>
                 <TouchableOpacity
                   onPress={() => setPhotoSheetOpen(true)}
