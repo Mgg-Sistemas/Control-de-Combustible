@@ -113,6 +113,8 @@ import {
 } from '../lib/requerimientoFlujo';
 import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
 import { MensajeCuentaModal } from '../components/MensajeCuentaModal';
+import { PlanPagoModal } from '../components/PlanPagoModal';
+import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, estadoPartes, lineaParte, tituloParte } from '../lib/planPago';
 import { DatosMensajeCuenta } from '../lib/cuentaMensaje';
 import { quitarTodasLasMarcasDeTexto } from '../lib/requerimientoFlujo';
 
@@ -826,6 +828,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   // 📲 02-nov-2026: mensaje / PDF de pago de una cuenta o de las marcadas.
   const [mensajeDe, setMensajeDe] = useState<CuentaCalc[] | null>(null);
+  // 📋 02-nov-2026: plan de pago (pagos mixtos: base en $, IVA en Bs, USDT…).
+  const [planDe, setPlanDe] = useState<CuentaCalc | null>(null);
   const [reporteOpen, setReporteOpen] = useState(false);
   const alternarMarca = (id: string) => setMarcadas((prev) => {
     const n = new Set(prev);
@@ -880,6 +884,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [abMetodo, setAbMetodo] = useState('');
   const [abRef, setAbRef] = useState('');
   const [abComprobanteUrl, setAbComprobanteUrl] = useState<string | null>(null);
+  /** 📋 02-nov-2026: a qué parte del plan de pago va el abono (null = sin parte). */
+  const [abParteId, setAbParteId] = useState<string | null>(null);
   const [subiendoAbComprobante, setSubiendoAbComprobante] = useState(false);
 
   // ── Subir Factura(s) directo desde la tarjeta de Por Pagar (1 o más fotos/PDFs) ──
@@ -1781,7 +1787,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const abrirAbono = (c: CuentaCalc) => {
     setAbonoDe(c); setAbMonto(String(c.saldo || '')); setAbFecha(hoy); setAbMetodo(''); setAbRef('');
-    setAbComprobanteUrl(null);
+    setAbComprobanteUrl(null); setAbParteId(null);
   };
 
   const guardarAbono = async () => {
@@ -1800,6 +1806,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       metodo: abMetodo.trim() || null, referencia: abRef.trim() || null,
       nota: notaAbonoFinal,
       created_by: session?.user?.id ?? null,
+      ...(PLAN_PAGO_ACTIVO && abParteId ? { parte_id: abParteId } : {}),
     });
     setBusy(false);
     if (error) return toast.error(error.message);
@@ -2042,6 +2049,32 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   }, [ordenadas, lista, marcadas]);
 
   // ── Portapapeles y Modal Rápido de Métodos y Datos de Pago en Por Pagar ────
+  // 📋 02-nov-2026: el plan de la cuenta; si no tiene uno propio, el que puso la
+  // analista en el requerimiento. Con el interruptor apagado no hay plan.
+  const planDeCuenta = (c: CuentaCalc): { plan: PlanPago; delReq: boolean } | null => {
+    if (!PLAN_PAGO_ACTIVO) return null;
+    const propio = normalizarPlan((c as any).plan_pago);
+    if (propio) return { plan: propio, delReq: false };
+    const req: any = c.traza?.req || c.traza?.reqVinculado || null;
+    const delReq = normalizarPlan(req?.plan_pago);
+    return delReq ? { plan: delReq, delReq: true } : null;
+  };
+  const estadosPlanDe = (c: CuentaCalc, plan: PlanPago) =>
+    estadoPartes(plan.partes, (abonos || []).filter((a) => a.cuenta_id === c.id) as any[]);
+  const alicuotaDe = (c: CuentaCalc): number | null =>
+    (c as any).alicuota_iva != null ? Number((c as any).alicuota_iva) || null : (c.desgloseIva as any)?.alicuota ?? null;
+
+  const guardarPlanCuenta = async (c: CuentaCalc, plan: PlanPago | null): Promise<boolean> => {
+    if (c.situacion === 'pagada') { toast.error('La cuenta ya está pagada: su plan no se cambia.'); return false; }
+    const valor = plan ? { ...plan, actualizado_por: miPerfil?.full_name || fullName || null, actualizado_at: nowISO() } : null;
+    const { data, error } = await supabase.from('cuentas').update({ plan_pago: valor, updated_at: nowISO() }).eq('id', c.id).select('id');
+    if (error) { toast.error(error.message); return false; }
+    if (!data || data.length === 0) { toast.error('No se guardó: no tienes permiso para editar esta cuenta.'); return false; }
+    toast.success(plan ? '📋 Plan de pago guardado.' : 'Plan de pago quitado.');
+    refetch();
+    return true;
+  };
+
   // 📲 02-nov-2026: los datos del mensaje de pago salen de lo que ya calcula Por Pagar
   // (traza del requerimiento, Bs del requerimiento y datos bancarios del proveedor).
   const datosMensajeDe = (c: CuentaCalc): DatosMensajeCuenta => {
@@ -2073,6 +2106,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         binanceId: db.binanceId, instruccionesPago: db.instruccionesPago,
       } : null,
       empresa: t?.empresaPagadoraNombre || c.empresaNombre || null,
+      plan: (() => {
+        const pl = planDeCuenta(c);
+        return pl ? { partes: pl.plan.partes, alicuotaIva: alicuotaDe(c), estados: estadosPlanDe(c, pl.plan) } : null;
+      })(),
     };
   };
 
@@ -3824,6 +3861,34 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </View>
                 ) : null}
 
+                {/* 📋 02-nov-2026: plan de pago (pagos mixtos) */}
+                {tipo === 'por_pagar' && PLAN_PAGO_ACTIVO ? (() => {
+                  const pl = planDeCuenta(c);
+                  if (!pl && !puedeOperarCxp) return null;
+                  const est = pl ? estadosPlanDe(c, pl.plan) : [];
+                  return (
+                    <View style={{ marginTop: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, gap: 3 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 12 }}>
+                          📋 Plan de pago{pl?.delReq ? ' (del requerimiento)' : ''}
+                        </Text>
+                        {puedeOperarCxp && c.situacion !== 'pagada' ? (
+                          <TouchableOpacity onPress={() => setPlanDe(c)}>
+                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{pl ? '✏️ Editar' : '+ Definir cómo se paga'}</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      {pl ? pl.plan.partes.map((p, i) => (
+                        <Text key={p.id} style={{ color: est[i]?.pagada ? colors.success : colors.text, fontSize: 12 }}>
+                          {i + 1}) {lineaParte(p, alicuotaDe(c), est[i])}
+                        </Text>
+                      )) : (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>Sin plan: se paga todo junto. Defínelo si una parte va en Bs y otra en $, USDT o Zelle.</Text>
+                      )}
+                    </View>
+                  );
+                })() : null}
+
                 {/* Subir Factura(s), Subir Comprobante(s) de Pago + Recibo (PDF) */}
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                   {puedeOperarCxp ? (
@@ -4469,6 +4534,31 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       ? ` · ${abonoDe.saldo >= (Number(abonoDe.monto) || 0) ? '' : '≈ '}${fmtBs(bsDe(abonoDe).saldoBs)} (Bs del requerimiento)`
                       : tasaBcv && abonoDe.saldo > 0 ? ` · ≈ ${fmtBs(bsFromUsd(abonoDe.saldo, tasaBcv))} (BCV: Bs ${tasaBcv.toLocaleString('es-VE')}/$)` : ''}
                   </Text>
+                  {(() => {
+                    // 📋 02-nov-2026: con plan de pago, el abono se marca contra su parte.
+                    const pl = planDeCuenta(abonoDe);
+                    if (!pl) return null;
+                    const est = estadosPlanDe(abonoDe, pl.plan);
+                    return (
+                      <View style={{ marginTop: 6, gap: 4 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>¿A qué parte va este abono?</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                          {est.map((e, i) => {
+                            const on = abParteId === e.parte.id;
+                            return (
+                              <TouchableOpacity key={e.parte.id} disabled={e.pagada}
+                                onPress={() => { setAbParteId(on ? null : e.parte.id); if (!on) setAbMonto(String(Math.min(e.faltaUsd, abonoDe.saldo))); }}
+                                style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingVertical: 5, paddingHorizontal: spacing.sm, opacity: e.pagada ? 0.5 : 1 }}>
+                                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11 }}>
+                                  {e.pagada ? '✅ ' : ''}{i + 1}) {tituloParte(e.parte, alicuotaDe(abonoDe))} · falta {usd(e.faltaUsd)}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    );
+                  })()}
                   {abonoDe.infoPago.tieneDatosBancarios || abonoDe.condicionesPago ? (
                     <View style={{ marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, gap: 3 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
@@ -5690,6 +5780,18 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         />
       ) : null}
       {/* Al final: en web gana el último modal montado. */}
+      {planDe ? (
+        <PlanPagoModal
+          visible
+          titulo={planDe.traza?.reqCode || planDe.documento || planDe.contraparte}
+          totalUsd={Number(planDe.monto) || 0}
+          alicuotaIva={alicuotaDe(planDe)}
+          planInicial={planDeCuenta(planDe)?.plan ?? null}
+          tasaBcv={tasaBcv}
+          onGuardar={(plan) => guardarPlanCuenta(planDe, plan)}
+          onClose={() => setPlanDe(null)}
+        />
+      ) : null}
       {mensajeDe ? (
         <MensajeCuentaModal
           visible

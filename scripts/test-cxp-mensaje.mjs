@@ -13,10 +13,12 @@ const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name
 const raiz = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cxp-msg-'));
 fs.writeFileSync(path.join(tmp, 'pdf.mjs'), 'export function pdfDocument(o) { return JSON.stringify({ title: o.title, logos: o.logos, marcaTexto: o.marcaTexto }) + o.body; }');
-const src = fs.readFileSync(path.join(raiz, 'src/lib/cuentaMensaje.ts'), 'utf8');
-let js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ES2020, target: ts.ScriptTarget.ES2020 } }).outputText;
-js = js.replace(/from '\.\/(\w+)'/g, "from './$1.mjs'");
-fs.writeFileSync(path.join(tmp, 'cuentaMensaje.mjs'), js);
+for (const f of ['cuentaMensaje', 'planPago']) {
+  const src = fs.readFileSync(path.join(raiz, 'src/lib', `${f}.ts`), 'utf8');
+  let js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ES2020, target: ts.ScriptTarget.ES2020 } }).outputText;
+  js = js.replace(/from '\.\/(\w+)'/g, "from './$1.mjs'");
+  fs.writeFileSync(path.join(tmp, `${f}.mjs`), js);
+}
 const M = await import(pathToFileURL(path.join(tmp, 'cuentaMensaje.mjs')).href);
 const OP = M.OPCIONES_MENSAJE_DEFECTO;
 

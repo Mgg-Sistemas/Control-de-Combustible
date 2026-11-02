@@ -53,6 +53,8 @@ import {
   type EmpresaFactura,
   type ArchivoSoporte,
 } from '../lib/requerimientoExpediente';
+import { PlanPagoModal } from '../components/PlanPagoModal';
+import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, lineaParte } from '../lib/planPago';
 import { EditarSoporteReqModal, type TipoSoporteReq } from '../components/EditarSoporteReqModal';
 import { machineLabel, machineMatches } from '../lib/machineLabel';
 // 👤 Quién solicitó / quién autorizó, para qué (vehículo o maquinaria), a qué
@@ -765,6 +767,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const recvFacturaNombre = recvFacturaArchivos[0]?.nombre ?? null;
   const [recvSubiendoFactura, setRecvSubiendoFactura] = useState(false);
   // ✏️ Editor de factura / comprobante ya subidos (desde la tarjeta del requerimiento)
+  // 📋 02-nov-2026: plan de pago definido por la analista (Por Pagar lo usa si la cuenta no tiene uno propio).
+  const [planReq, setPlanReq] = useState<{ req: InventoryRequirement; totalUsd: number; alic: number } | null>(null);
+  const guardarPlanReq = async (r: InventoryRequirement, plan: PlanPago | null): Promise<boolean> => {
+    const valor = plan ? { ...plan, actualizado_por: fullName || null, actualizado_at: new Date().toISOString() } : null;
+    const { data, error } = await supabase.from('inventory_requirements').update({ plan_pago: valor } as any).eq('id', r.id).select('id');
+    if (error) { toast.error(error.message); return false; }
+    if (!data || data.length === 0) { toast.error('No se guardó: no tienes permiso para editar este requerimiento.'); return false; }
+    toast.success(plan ? '📋 Plan de pago guardado: Por Pagar lo usará.' : 'Plan de pago quitado.');
+    refetch();
+    return true;
+  };
   const [soporteEdit, setSoporteEdit] = useState<{ req: InventoryRequirement; tipo: TipoSoporteReq; archivos: ArchivoSoporte[] } | null>(null);
   const [recvNota, setRecvNota] = useState('');
 
@@ -3861,6 +3874,33 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                         })()}
                                       </Text>
                                     </View>
+                                    {/* 📋 02-nov-2026: plan de pago (pagos mixtos) definido por la analista */}
+                                    {PLAN_PAGO_ACTIVO ? (() => {
+                                      const plan = normalizarPlan((r as any).plan_pago);
+                                      const cta: any = (cuentasData || []).find((c: any) => c.inventory_requirement_id === r.id);
+                                      const ctaPropio = !!normalizarPlan(cta?.plan_pago);
+                                      if (!plan && !canWrite) return null;
+                                      return (
+                                        <View style={{ marginTop: spacing.xs, padding: spacing.xs, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, gap: 2 }}>
+                                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📋 Plan de pago</Text>
+                                            {canWrite ? (
+                                              <TouchableOpacity onPress={() => setPlanReq({ req: r, totalUsd: totalConIvaUsd, alic })}>
+                                                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{plan ? '✏️ Editar' : '+ Definir cómo se paga'}</Text>
+                                              </TouchableOpacity>
+                                            ) : null}
+                                          </View>
+                                          {plan ? plan.partes.map((p, i) => (
+                                            <Text key={p.id} style={{ color: colors.text, fontSize: 11.5 }}>{i + 1}) {lineaParte(p, alic)}</Text>
+                                          )) : (
+                                            <Text style={{ color: colors.muted, fontSize: 11 }}>Sin plan: se paga todo junto.</Text>
+                                          )}
+                                          {ctaPropio ? (
+                                            <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic' }}>Por Pagar ya tiene su propio plan para esta cuenta: manda el de Por Pagar.</Text>
+                                          ) : null}
+                                        </View>
+                                      );
+                                    })() : null}
                                   </View>
                                 );
                               })()}
@@ -6914,6 +6954,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           proveedorNombre={suppliers.find((s) => s.id === soporteEdit.req.supplier_id)?.name || null}
           onClose={() => setSoporteEdit(null)}
           onSaved={() => { refetch(); refetchCuentas(); }}
+        />
+      ) : null}
+      {planReq ? (
+        <PlanPagoModal
+          visible
+          titulo={planReq.req.code || planReq.req.title || 'Requerimiento'}
+          totalUsd={planReq.totalUsd}
+          alicuotaIva={planReq.alic}
+          planInicial={normalizarPlan((planReq.req as any).plan_pago)}
+          tasaBcv={rate}
+          onGuardar={(plan) => guardarPlanReq(planReq.req, plan)}
+          onClose={() => setPlanReq(null)}
         />
       ) : null}
     </Screen>

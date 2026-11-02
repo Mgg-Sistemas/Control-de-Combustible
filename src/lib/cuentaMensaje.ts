@@ -10,9 +10,11 @@
 // requerimiento cuando existen (montosBsCuenta), si no el equivalente con la tasa
 // de hoy, y se dice cuál tasa se usó.
 //
-// Fase 2 (pendiente): el «plan de pago» (base en $, IVA en Bs, USDT…) reemplazará
-// el bloque único de total / Bs por el desglose de cada parte.
+// Si la cuenta tiene PLAN DE PAGO (base en $, IVA en Bs, USDT…), el bloque único
+// de «En Bs» se cambia por «Forma de pago» con cada parte, y de los datos bancarios
+// salen solo los de los métodos que el plan usa.
 import { pdfDocument } from './pdf';
+import { PartePlan, EstadoParte, lineaParte, bloquesBancoDelPlan } from './planPago';
 
 export type PrioridadCuenta = 'alta' | 'media' | 'baja' | null | undefined;
 
@@ -50,6 +52,8 @@ export type DatosMensajeCuenta = {
   bsFijos?: boolean;
   banco?: DatosBancariosMensaje | null;
   empresa?: string | null;
+  /** Plan de pago (si lo hay): reemplaza el bloque «En Bs». */
+  plan?: { partes: PartePlan[]; alicuotaIva?: number | null; estados?: EstadoParte[] | null } | null;
 };
 
 export type OpcionesMensajeCuenta = {
@@ -110,9 +114,10 @@ export function prioridadTexto(p: PrioridadCuenta): { icono: string; texto: stri
   return { icono: '🟢', texto: 'Normal' };
 }
 
-/** Líneas de datos bancarios (solo las que existen). */
-export function lineasBanco(b: DatosBancariosMensaje | null | undefined): { titulo: string; lineas: string[] }[] {
+/** Líneas de datos bancarios (solo las que existen; con plan, solo las de sus métodos). */
+export function lineasBanco(b: DatosBancariosMensaje | null | undefined, plan?: { partes: PartePlan[] } | null): { titulo: string; lineas: string[] }[] {
   if (!b) return [];
+  const usa = plan && plan.partes.length > 0 ? bloquesBancoDelPlan(plan.partes) : { transferencia: true, pagoMovil: true, binance: true };
   const bloques: { titulo: string; lineas: string[] }[] = [];
   const transf = [
     txt(b.titular) && `Titular: ${txt(b.titular)}`,
@@ -120,14 +125,14 @@ export function lineasBanco(b: DatosBancariosMensaje | null | undefined): { titu
     txt(b.banco) && `Banco: ${txt(b.banco)}`,
     txt(b.numeroCuenta) && `Cuenta${txt(b.tipoCuenta) ? ` (${txt(b.tipoCuenta)})` : ''}: ${txt(b.numeroCuenta)}`,
   ].filter(Boolean) as string[];
-  if (txt(b.numeroCuenta) || txt(b.banco)) bloques.push({ titulo: '💳 Transferencia', lineas: transf });
+  if (usa.transferencia && (txt(b.numeroCuenta) || txt(b.banco))) bloques.push({ titulo: '💳 Transferencia', lineas: transf });
   const pm = [
     txt(b.pagoMovilBanco) && `Banco: ${txt(b.pagoMovilBanco)}`,
     txt(b.pagoMovilTelefono) && `Teléfono: ${txt(b.pagoMovilTelefono)}`,
     txt(b.pagoMovilCedulaRif) && `CI/RIF: ${txt(b.pagoMovilCedulaRif)}`,
   ].filter(Boolean) as string[];
-  if (txt(b.pagoMovilTelefono)) bloques.push({ titulo: '📲 Pago móvil', lineas: pm });
-  if (txt(b.binanceId)) bloques.push({ titulo: '🪙 Binance / USDT', lineas: [`ID: ${txt(b.binanceId)}`] });
+  if (usa.pagoMovil && txt(b.pagoMovilTelefono)) bloques.push({ titulo: '📲 Pago móvil', lineas: pm });
+  if (usa.binance && txt(b.binanceId)) bloques.push({ titulo: '🪙 Binance / USDT', lineas: [`ID: ${txt(b.binanceId)}`] });
   if (txt(b.instruccionesPago)) bloques.push({ titulo: '📝 Instrucciones de pago', lineas: [txt(b.instruccionesPago)] });
   return bloques;
 }
@@ -152,7 +157,13 @@ function cuerpoCuenta(d: DatosMensajeCuenta, op: OpcionesMensajeCuenta): string[
   const parcial = saldo > 0 && saldo < total - 0.005;
   L.push(`💵 *Total:* $${montoEs(total)}`);
   if (parcial) L.push(`⏳ *Falta por pagar:* $${montoEs(saldo)}`);
-  if (op.bs) {
+  if (d.plan && d.plan.partes.length > 0) {
+    L.push('💳 *Forma de pago:*');
+    d.plan.partes.forEach((p, i) => {
+      const est = d.plan?.estados?.find((e) => e.parte.id === p.id) ?? null;
+      L.push(`${i + 1}) ${lineaParte(p, d.plan?.alicuotaIva, est)}`);
+    });
+  } else if (op.bs) {
     const bs = parcial ? Number(d.saldoBs) || 0 : Number(d.totalBs) || 0;
     if (bs > 0) {
       const tasa = Number(d.tasaBs) || 0;
@@ -161,7 +172,7 @@ function cuerpoCuenta(d: DatosMensajeCuenta, op: OpcionesMensajeCuenta): string[
     }
   }
   if (op.banco) {
-    for (const b of lineasBanco(d.banco)) {
+    for (const b of lineasBanco(d.banco, d.plan)) {
       L.push(`${b.titulo}:`);
       for (const x of b.lineas) L.push(`• ${x}`);
     }
@@ -220,14 +231,19 @@ export function mensajeCuentasHtml(lista: DatosMensajeCuenta[], op: OpcionesMens
     if (op.condiciones && txt(d.condiciones)) filas.push(fila('Condiciones', txt(d.condiciones)));
     filas.push(fila('Total', `$${montoEs(total)}`));
     if (parcial) filas.push(fila('Falta por pagar', `$${montoEs(saldo)}`));
-    if (op.bs) {
+    if (d.plan && d.plan.partes.length > 0) {
+      d.plan.partes.forEach((p, i) => {
+        const est = d.plan?.estados?.find((e) => e.parte.id === p.id) ?? null;
+        filas.push(fila(i === 0 ? 'Forma de pago' : '', `${i + 1}) ${lineaParte(p, d.plan?.alicuotaIva, est)}`));
+      });
+    } else if (op.bs) {
       const bs = parcial ? Number(d.saldoBs) || 0 : Number(d.totalBs) || 0;
       const tasa = Number(d.tasaBs) || 0;
       if (bs > 0) filas.push(fila(parcial ? 'Falta en Bs' : 'En Bs', `Bs ${montoEs(bs)}${tasa > 0 ? ` (tasa ${d.bsFijos ? '' : 'BCV de hoy '}${montoEs(tasa)})` : ''}`));
     }
     if (op.empresa && txt(d.empresa)) filas.push(fila('Empresa', txt(d.empresa)));
     const banco = op.banco
-      ? lineasBanco(d.banco).map((b) => `<div class="bq"><b>${esc(b.titulo)}</b>${b.lineas.map((x) => `<div>${esc(x)}</div>`).join('')}</div>`).join('')
+      ? lineasBanco(d.banco, d.plan).map((b) => `<div class="bq"><b>${esc(b.titulo)}</b>${b.lineas.map((x) => `<div>${esc(x)}</div>`).join('')}</div>`).join('')
       : '';
     return `<div class="cm"><div class="ord">${esc(pr.icono)} ORDEN ${esc(txt(d.orden))}</div><table class="t">${filas.join('')}</table>${banco ? `<div class="bancos">${banco}</div>` : ''}</div>`;
   };
