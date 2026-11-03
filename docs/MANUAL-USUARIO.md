@@ -4618,6 +4618,13 @@ u Oeste, y poder colocarlo o quitarlo del reporte».
   se tecleó. Una máquina sin surtidos en el rango sale con **0**. Al pie de la columna va el
   **total de litros**, y en el resumen un cuadro «Litros de combustible» (los dos se apagan con
   «🚫 Total de litros»).
+- **📅 Promedio por día** *(03/11/2026)*. Con la columna de combustible sale también **«Promedio por día (L)»**:
+  los litros de cada fila (los que trajo el sistema o los que escribiste a mano) **÷ los días del rango elegido**,
+  sea cual sea el rango (los dos extremos cuentan: del 01 al 31 = 31 días). Al pie va el **promedio por día del
+  total** (total de litros ÷ días) y en el resumen un cuadro «Promedio por día». Se ocultan por separado con las
+  pastillas **🚫 Promedio por día** (la columna) y **🚫 Promedio por día del total**; si ocultas la columna pero no
+  el del total, este sale junto al total de litros. Un reporte guardado antes en el histórico se reimprime como
+  estaba, sin promedio.
 - **🧭 Este / Oeste:** sale con la regla del reporte 📍 Ubicaciones — la última ubicación de la
   máquina en el rango (GPS, obra del inspector…), con su área («Este · Macuto»). Si la máquina no
   tuvo actividad en el rango, se usa su ficha de hoy (GPS, obra o la columna Este/Oeste); si nada

@@ -86,6 +86,11 @@ export type OpcionesPersonalizado = {
   sinConsumo: boolean;
   /** ⛽ Total de litros (al pie de la tabla y en el resumen). Solo aplica con la columna. */
   sinTotalConsumo: boolean;
+  /** ⛽📅 Columna «Promedio por día» (03-nov-2026): los litros de la fila ÷ los días del
+   *  rango elegido. Solo aplica con la columna de combustible. */
+  sinPromedioDia: boolean;
+  /** ⛽📅 El promedio por día del TOTAL (al pie y en el resumen): total de litros ÷ días. */
+  sinTotalPromedioDia: boolean;
   /** 🧭 Columna Este / Oeste del rango (30-oct-2026). */
   sinCardinal: boolean;
 };
@@ -99,7 +104,13 @@ export const OPCIONES_PERSONALIZADO_INICIAL: OpcionesPersonalizado = {
   sinEncargado: true, sinHorometro: true, sinPeso: true, sinMedidas: true, sinNotas: true,
   // Lo nuevo nace apagado: el papel de siempre no cambia hasta que se pida.
   sinConsumo: true, sinTotalConsumo: false, sinCardinal: true,
+  // El promedio sale junto con la columna de combustible (que nace apagada); cada uno se oculta aparte.
+  sinPromedioDia: false, sinTotalPromedioDia: false,
 };
+
+/** ⛽📅 Las opciones que llegaron DESPUÉS: un reporte guardado antes no las tenía, y
+ *  reimprimirlo «como estaba» no puede sumarle columnas. Sin la llave = oculto. */
+const OPCIONES_NUEVAS_OCULTAS: (keyof OpcionesPersonalizado)[] = ['sinPromedioDia', 'sinTotalPromedioDia'];
 
 export const PASTILLAS_PERSONALIZADO: { key: keyof OpcionesPersonalizado; chip: string; largo: string; archivo: string }[] = [
   { key: 'sinResumen', chip: '🚫 Resumen por estado', largo: 'resumen por estado', archivo: 'sin resumen' },
@@ -119,6 +130,8 @@ export const PASTILLAS_PERSONALIZADO: { key: keyof OpcionesPersonalizado; chip: 
   { key: 'sinNotas', chip: '🚫 Notas', largo: 'columna de notas', archivo: 'con notas' },
   { key: 'sinConsumo', chip: '🚫 Consumo de combustible', largo: 'consumo de combustible', archivo: 'con combustible' },
   { key: 'sinTotalConsumo', chip: '🚫 Total de litros', largo: 'total de litros', archivo: 'sin total de litros' },
+  { key: 'sinPromedioDia', chip: '🚫 Promedio por día', largo: 'promedio de litros por día', archivo: 'sin promedio por dia' },
+  { key: 'sinTotalPromedioDia', chip: '🚫 Promedio por día del total', largo: 'promedio por día del total', archivo: 'sin promedio del total' },
   { key: 'sinCardinal', chip: '🚫 Este / Oeste', largo: 'Este / Oeste', archivo: 'con este-oeste' },
 ];
 
@@ -195,6 +208,30 @@ export function leerLitros(texto: unknown): number {
   }
   const n = Number(t);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** ⛽📅 Cuántos días tiene el rango (los dos extremos cuentan). Sin fechas válidas → 0. */
+export function diasDelRangoPersonalizado(desde: string, hasta: string): number {
+  const r = rangoOrdenado(desde, hasta);
+  if (!r.desde) return 0;
+  const a = Date.parse(`${r.desde}T12:00:00Z`), b = Date.parse(`${r.hasta}T12:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  return Math.round((b - a) / 86400000) + 1;
+}
+
+/** ⛽📅 Litros por día: lo que diga la celda ÷ los días del rango (sea cual sea el rango).
+ *  Sin días o sin litros escritos → null (la celda sale «—»). */
+export function promedioLitrosDia(litros: unknown, dias: number): number | null {
+  if (!(dias > 0)) return null;
+  const t = String(litros ?? '').trim();
+  if (!t) return null;
+  return Math.round((leerLitros(t) / dias) * 100) / 100;
+}
+
+/** ⛽📅 El promedio por día de un total ya sumado (número, no texto). */
+export function promedioDeTotal(total: number, dias: number): number | null {
+  if (!(dias > 0) || !Number.isFinite(Number(total))) return null;
+  return Math.round((Number(total) / dias) * 100) / 100;
 }
 
 /** Suma de la columna de litros, tal como quedó en el papel (con lo corregido a mano). */
@@ -485,12 +522,20 @@ export type DatosPapelPersonalizado = {
   opciones: OpcionesPersonalizado;
   /** Nota libre del encabezado (sale tal cual debajo del resumen). */
   nota?: string | null;
+  /** ⛽📅 Días del rango elegido (para el promedio por día). Sin él, el promedio no sale. */
+  dias?: number;
 };
 
 /** El cuerpo del PDF. Solo arma HTML: no lee ni escribe nada. */
 export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
   const o = d.opciones;
   const partes: string[] = [];
+  // ⛽📅 El promedio por día: solo con la columna de combustible y con días. Una opción
+  //    que no venga (reporte guardado antes) cuenta como oculta: se reimprime como estaba.
+  const dias = Number(d.dias) > 0 ? Number(d.dias) : 0;
+  const conPromedio = !o.sinConsumo && o.sinPromedioDia === false && dias > 0;
+  const conTotalPromedio = !o.sinConsumo && o.sinTotalPromedioDia === false && dias > 0;
+  const totalPromedioTexto = () => `${litrosTexto(promedioDeTotal(totalLitrosPersonalizado(d.filas), dias)) || '0'} L/día`;
 
   if (!o.sinResumen) {
     const r = resumenPersonalizado(d.filas);
@@ -500,6 +545,9 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
     ];
     if (!o.sinConsumo && !o.sinTotalConsumo) {
       tiles.push(`<div class="tile"><div class="t">${esc(litrosTexto(totalLitrosPersonalizado(d.filas)) || '0')}</div><div class="s">Litros de combustible</div></div>`);
+    }
+    if (conTotalPromedio) {
+      tiles.push(`<div class="tile"><div class="t">${esc(totalPromedioTexto())}</div><div class="s">Promedio por día (${dias} día${dias === 1 ? '' : 's'})</div></div>`);
     }
     partes.push(`<div class="tiles">${tiles.join('')}</div>`);
   }
@@ -524,6 +572,8 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
     // Dónde cae la columna de litros (para poner el total justo debajo).
     const colLitros = o.sinConsumo ? -1 : cab.length;
     if (!o.sinConsumo) cab.push('<th>Combustible (L)</th>');
+    const colPromedio = conPromedio ? cab.length : -1;
+    if (conPromedio) cab.push('<th>Promedio por día (L)</th>');
     if (!o.sinNotas) cab.push('<th>Notas</th>');
     const filas = d.filas.map((f) => {
       const c: string[] = [`<td class="b">${celda(f.code)}</td>`];
@@ -540,16 +590,26 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
       if (!o.sinPeso) c.push(`<td class="c">${celda(f.peso)}</td>`);
       if (!o.sinMedidas) c.push(`<td>${celda(f.medidas)}</td>`);
       if (!o.sinConsumo) c.push(`<td class="c">${celda(f.litros)}</td>`);
+      if (conPromedio) c.push(`<td class="c">${celda(litrosTexto(promedioLitrosDia(f.litros, dias)))}</td>`);
       if (!o.sinNotas) c.push(`<td>${celda(f.nota)}</td>`);
       return `<tr>${c.join('')}</tr>`;
     });
     const rotuloTotal = `TOTAL: ${d.filas.length} equipo(s)`;
     let total = `<tr class="total"><td colspan="${cab.length}">${rotuloTotal}</td></tr>`;
-    if (colLitros > 0 && !o.sinTotalConsumo) {
-      // El total de litros cae debajo de su columna; el rótulo ocupa las de antes.
-      const despues = cab.length - colLitros - 1;
+    const conTotalLitros = colLitros > 0 && !o.sinTotalConsumo;
+    if (conTotalLitros || (colLitros > 0 && conTotalPromedio)) {
+      // El total de litros cae debajo de su columna, y el promedio del total debajo de la
+      // suya (si la columna de promedio está oculta, va junto al total). El rótulo ocupa
+      // las de antes.
+      const enCeldaLitros = [
+        conTotalLitros ? `${esc(litrosTexto(totalLitrosPersonalizado(d.filas)) || '0')} L` : '',
+        conTotalPromedio && !conPromedio ? esc(totalPromedioTexto()) : '',
+      ].filter(Boolean).join(' · ');
+      const hasta = conPromedio ? colPromedio : colLitros;
+      const despues = cab.length - hasta - 1;
       total = `<tr class="total"><td colspan="${colLitros}">${rotuloTotal}</td>`
-        + `<td class="c">${esc(litrosTexto(totalLitrosPersonalizado(d.filas)) || '0')} L</td>`
+        + `<td class="c">${enCeldaLitros}</td>`
+        + (conPromedio ? `<td class="c">${conTotalPromedio ? esc(totalPromedioTexto()) : ''}</td>` : '')
         + (despues > 0 ? `<td colspan="${despues}"></td>` : '') + '</tr>';
     }
     partes.push(`<table><thead><tr>${cab.join('')}</tr></thead><tbody>${filas.join('')}</tbody><tfoot>${total}</tfoot></table>`);
@@ -919,6 +979,9 @@ export function crearRegistroHistorialPersonalizado(params: {
     ...OPCIONES_PERSONALIZADO_INICIAL,
     ...(params.opciones || {}),
   };
+  for (const k of OPCIONES_NUEVAS_OCULTAS) {
+    if (!params.opciones || !(k in (params.opciones as object))) (opciones as any)[k] = true;
+  }
   const logos: LogosPersonalizado = {
     ...LOGOS_PERSONALIZADO_INICIAL,
     ...(params.logos || {}),

@@ -199,6 +199,36 @@ ok('con columnas del rango encendidas, el rango va al subtítulo', /const rangoE
 const srcFuel = fs.readFileSync(path.join(ROOT, 'src/lib/fuelPerMachine.ts'), 'utf8');
 ok('loadFuelByMachine sigue filtrando por dispatch_date (fecha del surtido)', /gte\('dispatch_date', fromDate\)\.lte\('dispatch_date', to\)/.test(srcFuel));
 
+// ——— 9. ⛽📅 Promedio por día (03-nov-2026) ———
+eq('días del rango: los dos extremos cuentan', L.diasDelRangoPersonalizado('2026-10-01', '2026-10-31'), 31);
+eq('días: rango al revés y de un día', [L.diasDelRangoPersonalizado('2026-10-10', '2026-10-01'), L.diasDelRangoPersonalizado('2026-10-05', '2026-10-05')], [10, 1]);
+eq('días: sin fechas = 0', L.diasDelRangoPersonalizado('', ''), 0);
+eq('promedio de una fila: litros ÷ días del rango', L.promedioLitrosDia('1.240', 31), 40);
+eq('promedio con decimales a mano', L.promedioLitrosDia('100,5', 3), 33.5);
+eq('sin litros o sin días → sin promedio', [L.promedioLitrosDia('', 5), L.promedioLitrosDia('100', 0)], [null, null]);
+eq('promedio del total: número, no texto (1,234 L no se lee como mil)', L.promedioDeTotal(1.234, 2), 0.62);
+{
+  const op = { ...L.OPCIONES_PERSONALIZADO_INICIAL, sinConsumo: false };
+  const filasP = [{ ...L.filaVacia('a'), code: 'JUMBO 1', litros: '310' }, { ...L.filaVacia('b'), code: 'JUMBO 2', litros: '' }];
+  const h = L.cuerpoReportePersonalizado({ filas: filasP, opciones: op, dias: 31 });
+  ok('⭐ la columna «Promedio por día (L)» sale con la de combustible', h.includes('Promedio por día (L)') && h.includes('>10<'));
+  ok('⭐ el promedio del total sale al pie y en el resumen', h.includes('10 L/día') && h.includes('Promedio por día (31 días)'));
+  const sinCol = L.cuerpoReportePersonalizado({ filas: filasP, opciones: { ...op, sinPromedioDia: true }, dias: 31 });
+  ok('🚫 ocultar la columna: no sale, y el promedio del total va junto al total de litros', !sinCol.includes('Promedio por día (L)') && sinCol.includes('310 L · 10 L/día'));
+  const sinTot = L.cuerpoReportePersonalizado({ filas: filasP, opciones: { ...op, sinTotalPromedioDia: true }, dias: 31 });
+  ok('🚫 ocultar el promedio del total: la columna sigue, el total promedio no', sinTot.includes('Promedio por día (L)') && !sinTot.includes('L/día') && !sinTot.includes('Promedio por día (31'));
+  const sinComb = L.cuerpoReportePersonalizado({ filas: filasP, opciones: { ...op, sinConsumo: true }, dias: 31 });
+  ok('sin la columna de combustible no hay promedio', !sinComb.includes('Promedio por día'));
+  const sinDias = L.cuerpoReportePersonalizado({ filas: filasP, opciones: op });
+  ok('sin días (papel viejo) no hay promedio', !sinDias.includes('Promedio por día'));
+  const viejo = L.crearRegistroHistorialPersonalizado({ titulo: 't', subtitulo: 's', nota: '', fechaEmision: '2026-10-01', conRango: true, desde: '2026-10-01', hasta: '2026-10-31', opciones: { sinConsumo: false }, filas: filasP });
+  ok('⭐ un reporte guardado ANTES se reimprime como estaba (sin promedio)', viejo.opciones.sinPromedioDia === true && viejo.opciones.sinTotalPromedioDia === true);
+  const nuevo = L.crearRegistroHistorialPersonalizado({ titulo: 't', subtitulo: 's', nota: '', fechaEmision: '2026-10-01', conRango: true, desde: '2026-10-01', hasta: '2026-10-31', opciones: op, filas: filasP });
+  ok('uno nuevo guarda lo que se eligió', nuevo.opciones.sinPromedioDia === false);
+  ok('las dos pastillas existen para ocultarlos', L.PASTILLAS_PERSONALIZADO.some((p) => p.key === 'sinPromedioDia') && L.PASTILLAS_PERSONALIZADO.some((p) => p.key === 'sinTotalPromedioDia'));
+}
+ok('la tarjeta le pasa los días del rango al papel (también al reimprimir)', /dias: diasDelRangoPersonalizado\(desde, hasta\)/.test(srcCard) && /dias: diasDelRangoPersonalizado\(item\.desde, item\.hasta\)/.test(srcCard));
+
 console.log(`\n⛽🧭 Reporte personalizado · combustible y Este/Oeste: ${pass} OK · ${fail} FALLO(S)`);
 if (fail) {
   failures.forEach((f) => console.log(`  ✗ ${f}`));

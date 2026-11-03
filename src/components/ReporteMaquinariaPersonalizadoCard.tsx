@@ -41,7 +41,7 @@ import {
 import {
   CSS_REPORTE_PERSONALIZADO, ESTADOS_PERSONALIZADO, FilaPersonalizada, OpcionesPersonalizado,
   OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO, RegistroHistorialPersonalizado,
-  alternarPersonalizado, cuerpoReportePersonalizado, dmyPersonalizado, emitidaTexto, filaVacia,
+  alternarPersonalizado, cuerpoReportePersonalizado, diasDelRangoPersonalizado, dmyPersonalizado, emitidaTexto, filaVacia, promedioDeTotal,
   ocultosPersonalizadoEnPalabras, sufijoArchivoPersonalizado,
   empresasCatalogoPersonalizado, categoriasCatalogoPersonalizado, estadosCatalogoPersonalizado, filtrarCatalogoPersonalizado,
   aplicarDatosDelRango, cardinalTexto, litrosTexto, rangoOrdenado, totalLitrosPersonalizado, usaRangoPersonalizado,
@@ -457,7 +457,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         marcaTexto,
         // 📅 La fecha de emisión que eligió el usuario; si no sirve, la real.
         emitida: emitidaTexto(fechaEmision) || undefined,
-        body: cuerpoReportePersonalizado({ filas, opciones, nota }),
+        body: cuerpoReportePersonalizado({ filas, opciones, nota, dias: diasDelRangoPersonalizado(desde, hasta) }),
       });
       await guardarActualEnHistorico('impresion', nombreArchivo);
       await exportPdf(html, nombreArchivo);
@@ -477,7 +477,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         logos: item.logos,
         marcaTexto: item.marcaTexto,
         emitida: item.emitida || emitidaTexto(item.fechaEmision) || undefined,
-        body: cuerpoReportePersonalizado({ filas: item.filas, opciones: item.opciones, nota: item.nota }),
+        body: cuerpoReportePersonalizado({ filas: item.filas, opciones: item.opciones, nota: item.nota, dias: diasDelRangoPersonalizado(item.desde, item.hasta) }),
       });
       const nombreArch = (item.nombreArchivo || `Reporte personalizado ${sufijoArchivoPersonalizado(item.fechaEmision, item.opciones)}`).replace(/\//g, '-');
       await exportPdf(html, nombreArch);
@@ -1169,6 +1169,9 @@ export function ReporteMaquinariaPersonalizadoCard() {
             ? 'Leyendo los datos del rango…'
             : [
                 !opciones.sinConsumo && litrosRango ? `⛽ ${litrosTexto(totalLitros) || '0'} L en las ${filas.length} fila(s) del papel (despachos por fecha del surtido, ambos días incluidos).` : '',
+                !opciones.sinConsumo && diasDelRangoPersonalizado(desde, hasta) > 0
+                  ? `📅 Promedio por día: ${litrosTexto(promedioDeTotal(totalLitros, diasDelRangoPersonalizado(desde, hasta))) || '0'} L/día en total (${diasDelRangoPersonalizado(desde, hasta)} día(s) del rango; cada máquina: sus litros ÷ esos días).`
+                  : '',
                 !opciones.sinCardinal && cardinalRango ? '🧭 Este / Oeste: la última ubicación de la máquina en el rango (la regla del reporte 📍 Ubicaciones); sin actividad en el rango, la de su ficha.' : '',
               ].filter(Boolean).join(' ')}
         </Text>
