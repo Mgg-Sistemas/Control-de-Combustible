@@ -891,6 +891,39 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   eq('💲 una fila sin plata NI horas sigue sin salir', C.filasElegidas([{ id: 'z', code: 'X', placa: '', empresa: 'E', montos: { jornadas: 0 } }], opA).length, 0);
 }
 
+// 💲📅 03-nov-2026: el MISMO JUMBO 320 (HHKHN623HP0036592), caso real del
+// 26/10 al 01/11. Jornada SIN PRECIO (vale $0) los días 30, 31 y 01; el 01
+// tiene además horómetro (6,7 h, $446,67). Abajo (por máquina) salía bien:
+// 17,11 h de jornada + 6,7 h de horómetro. Arriba (día por día) el 01/11
+// sumaba la jornada (6,64 h) Y el horómetro: 6,64 h de más en el total.
+{
+  const ID = 'hhk';
+  const fila = (montos, cant) => ({ id: ID, code: 'JUMBO 320', placa: 'HHKHN623HP0036592', empresa: 'FERRECONSTRUCCIONES 3-G, C.A', montos, cant, sinPrecio: true });
+  const DIAS_H = [
+    { jornada: '2026-10-30', filas: [fila({ jornadas: 0 }, { jornadas: 7.28 })], viajes: [] },
+    { jornada: '2026-10-31', filas: [fila({ jornadas: 0 }, { jornadas: 9.83 })], viajes: [] },
+    { jornada: '2026-11-01', filas: [fila({ jornadas: 0, horometros: 446.67 }, { jornadas: 6.64, horometros: 6.7 })], viajes: [] },
+  ];
+  const RANGO_H = [fila({ jornadas: 0, horometros: 446.67 }, { jornadas: 23.75, horometros: 6.7 })];
+  const REL_H = { ...C.OPCIONES_CONSOLIDADO_POR_DEFECTO, rellenoAutomaticoDia: true };
+  const t = C.totalesConsolidado(RANGO_H, REL_H, DIAS_H);
+  eq('💲📅 abajo: 17,11 h de jornada (30 y 31) + 6,7 h de horómetro (01)',
+    [t.cantPorFuente.jornadas, t.cantPorFuente.horometros], [17.11, 6.7]);
+  const ds = C.diasConsolidados(DIAS_H, REL_H, RANGO_H);
+  const hJ = Math.round(ds.reduce((a, d) => a + (d.cant.jornadas ?? 0), 0) * 100) / 100;
+  const hH = Math.round(ds.reduce((a, d) => a + (d.cant.horometros ?? 0), 0) * 100) / 100;
+  eq('💲📅⭐⭐ arriba (día por día) cuadra con abajo: 17,11 h + 6,7 h (no 23,75 h + 6,7 h)', [hJ, hH], [17.11, 6.7]);
+  const d01 = ds.find((d) => d.jornada === '2026-11-01');
+  eq('💲📅 el 01/11 solo cuenta el horómetro (la jornada sin precio se descarta ese día)',
+    [d01.cant.jornadas ?? 0, d01.cant.horometros], [0, 6.7]);
+  eq('💲📅 la plata no cambia', Math.round(ds.reduce((a, d) => a + d.total, 0) * 100) / 100, t.total);
+  // Y sin relleno: TODA la jornada sin precio se descarta también en el día por día.
+  const AUTO_H = { ...C.OPCIONES_CONSOLIDADO_POR_DEFECTO, rellenoAutomaticoDia: false };
+  const dsA = C.diasConsolidados(DIAS_H, AUTO_H, RANGO_H);
+  eq('💲📅 sin relleno: arriba tampoco suma la jornada (igual que abajo)',
+    [Math.round(dsA.reduce((a, d) => a + (d.cant.jornadas ?? 0), 0) * 100) / 100, C.totalesConsolidado(RANGO_H, AUTO_H, DIAS_H).cantPorFuente.jornadas], [0, 0]);
+}
+
 if (fail) {
   console.error(failures.join('\n'));
   console.error(`\n✗ reporte consolidado: ${fail} fallo(s), ${pass} ok`);

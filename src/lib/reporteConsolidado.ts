@@ -105,6 +105,11 @@ export type FilaConsolidada = {
    *  la jornada no se suma — acá queda CUÁNTO era, para decirlo en el papel.
    *  Lo pone `filasElegidas`; una fila cruda no lo trae. */
   jornadaDescartada?: number;
+  /** 🤖 HORAS de jornada descartadas por la selección automática (03-nov-2026).
+   *  Va aparte del monto porque una jornada SIN PRECIO en Control vale $0: el
+   *  monto descartado es 0, pero las horas sí se descartaron, y el día por día
+   *  tiene que enterarse (si no, sumaba la jornada Y el horómetro del mismo día). */
+  jornadaHorasDescartadas?: number;
   /**
    * LO QUE RESPALDA cada monto, en la unidad natural de su fuente:
    * jornadas y horómetros en HORAS, viajes en VIAJES CON TARIFA, peso en KG.
@@ -553,18 +558,22 @@ function conSeleccionAutomatica(
     if (op.rellenoAutomaticoDia && dias?.length) {
       const hueco = huecosDeMaquina(f.id, dias);
       const descartado = r2(mJor - hueco.monto);
+      const horasDesc = r2((f.cant?.jornadas ?? 0) - hueco.horas);
       return {
         ...f,
         montos: { ...f.montos, jornadas: hueco.monto },
         cant: f.cant ? { ...f.cant, jornadas: hueco.horas } : f.cant,
         ...(descartado > 0 ? { jornadaDescartada: descartado } : {}),
+        ...(horasDesc > 0 ? { jornadaHorasDescartadas: horasDesc } : {}),
       };
     }
+    const horasDesc = r2(f.cant?.jornadas ?? 0);
     return {
       ...f,
       montos: { ...f.montos, jornadas: 0 },
       cant: f.cant ? { ...f.cant, jornadas: 0 } : f.cant,
       jornadaDescartada: r2(mJor),
+      ...(horasDesc > 0 ? { jornadaHorasDescartadas: horasDesc } : {}),
     };
   });
 }
@@ -915,7 +924,9 @@ export function diasConsolidados(
   if (op.seleccionAutomatica) {
     for (const f of filasElegidas(filasRango ?? [], op, dias)) {
       const ks: FuenteKey[] = [];
-      if ((f.jornadaDescartada ?? 0) !== 0) ks.push('jornadas');
+      // Monto O horas: una jornada sin precio en Control se descarta con $0 pero
+      // sus horas también se van (03-nov-2026: sumaba 6,64 h de más en el día).
+      if ((f.jornadaDescartada ?? 0) !== 0 || (f.jornadaHorasDescartadas ?? 0) !== 0) ks.push('jornadas');
       if (f.descartadoPorPeso && Object.values(f.descartadoPorPeso).some((v) => (v ?? 0) !== 0)) {
         for (const k of ['viajes', 'jornadas', 'horometros'] as FuenteKey[]) if (!ks.includes(k)) ks.push(k);
       }
