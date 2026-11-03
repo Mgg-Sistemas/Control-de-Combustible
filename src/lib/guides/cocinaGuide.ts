@@ -147,6 +147,30 @@ export async function generateCocinaGuide(): Promise<boolean> {
     )
   );
 
+  const step6Mock = phoneFrame(
+    appBar('🍽️ Cocina') +
+    mockupBody(
+      mockupCard(
+        '<div style="background:#B91C1C;color:#fff;font-weight:800;padding:4px 6px;border-radius:6px;margin-bottom:6px">⏳ FALTA POR PAGAR · $120,00</div>' +
+        '<div style="font-weight:800">🏢 EMPRESA EJEMPLO</div>' +
+        '<div style="color:#6b7280;font-size:11px;margin-bottom:6px">📅 Comidas del 01/10 al 31/10 · 30 comidas</div>' +
+        mockupBtn('💵 Ya pagó · registrar pago', 'primary')
+      )
+    )
+  );
+  const step6 = stepSection(6, 'Cuando una empresa o persona paga', 'Para que quede escrito quién pagó, cuánto, cómo y de qué días',
+    twoCol(
+      stepList([
+        'Toca el botón verde **🧾 Facturas de comida · ¿quién pagó?**',
+        'Busca la factura de quien te pagó: dice **a quién**, **de qué días** y **cuánto falta**.',
+        'Toca **💵 Ya pagó**, elige **cómo pagó** (efectivo, pago móvil, transferencia…) y escribe **cuánto**.',
+        'Si fue en bolívares, revisa la **tasa del día**. Si fue pago móvil o transferencia, escribe la **referencia** y toma la **foto** del comprobante.',
+        'Lee la pantalla **«¿Es correcto?»** y toca **✅ Sí, registrar el pago**. Debe salir **«Quedó registrado»**.',
+      ]) + calloutWarn('Las facturas las hace la <b>oficina</b>. Si alguien quiere pagar y no ves su factura, avisa a la oficina. Si te equivocaste en un pago, avisa: la oficina lo anula (no se borra, queda tachado).'),
+      step6Mock
+    )
+  );
+
   const summary = summaryPage({
     title: 'Resumen rápido',
     subtitle: 'Todo desde el teléfono',
@@ -156,11 +180,12 @@ export async function generateCocinaGuide(): Promise<boolean> {
       ['Alguien llega fuera de horario', 'Cambia a 🖐 **Elegir por persona** y marca la comida manualmente en su ficha.'],
       ['El carnet no lee', 'Busca por **cédula** en el campo y toca **Entregar**/**Abrir**.'],
       ['Escaneaste el QR de una empresa', 'Se abre el **registro masivo** de comidas de esa empresa, no una ficha personal.'],
+      ['Una empresa o persona te pagó', '🧾 **Facturas de comida** → su factura → 💵 **Ya pagó** → cómo y cuánto → ✅ **Sí, registrar**.'],
     ],
     closingCalloutHtml: calloutInfo('<b>Recuerda:</b> sin verificarte primero no puedes registrar comidas, y cada comida solo se entrega <b>una vez por persona por día</b>.'),
     guideTitle: 'Guía de Cocina',
   });
 
-  const html = guideDocument(cover + step1 + step2 + step3 + step4 + step5 + summary);
+  const html = guideDocument(cover + step1 + step2 + step3 + step4 + step5 + step6 + summary);
   return await exportGuide(html, 'Guía de Cocina - SOS La Guaira');
 }

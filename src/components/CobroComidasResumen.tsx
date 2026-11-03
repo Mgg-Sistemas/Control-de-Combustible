@@ -8,7 +8,7 @@
 //
 // ⭐ Solo lee. No cambia cómo registra la cocina ni los conteos de la pantalla.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Modal, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Plegable } from './Plegable';
 import { CobroComidasPrecios } from './CobroComidasPrecios';
 import { useTheme } from '../theme/ThemeContext';
@@ -32,6 +32,14 @@ import {
 import { cargarConfigCuentas, cargarEmpresaDePersonas, cargarEncargados, cargarPreciosComida, EncargadoCatalogo } from '../lib/cobroComidasDb';
 import { PlatoCatalogo, nombreDeOpcion, resolverPlatos } from '../lib/comidaPlatos';
 import { cargarPlatos } from '../lib/comidaPlatosDb';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
+import {
+  ESTADO_FACTURA, FacturaComida, PagoComida, diferenciaDesdeFactura, estadoFactura, facturasQueTocan, filaNuevaFactura,
+  numeroFactura, periodoTexto, sePuedeFacturar,
+} from '../lib/comidaFacturas';
+import { cargarFacturasYPagos, emitirFactura } from '../lib/comidaFacturasDb';
+import { FacturasComidaPanel } from './FacturasComidaPanel';
+import { PagoComidaModal } from './PagoComidaModal';
 
 type Props = {
   desde: string;
@@ -96,6 +104,37 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
   const [abierta, setAbierta] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [eje, setEje] = useState<EjeCobro>('cuenta');
+  // 🧾 Facturas y pagos (03-nov-2026): lo facturado se congela; acá se ve si se pagó.
+  const [facturas, setFacturas] = useState<FacturaComida[]>([]);
+  const [pagosF, setPagosF] = useState<PagoComida[]>([]);
+  const [sinTablaFact, setSinTablaFact] = useState(false);
+  const [facturasOpen, setFacturasOpen] = useState(false);
+  const [porFacturar, setPorFacturar] = useState<CuentaComida | null>(null);
+  const [notaFactura, setNotaFactura] = useState('');
+  const [emitiendo, setEmitiendo] = useState(false);
+  const [avisoFactura, setAvisoFactura] = useState<string | null>(null);
+  const [pagandoF, setPagandoF] = useState<FacturaComida | null>(null);
+  const cargarFacturas = useCallback(async () => {
+    try {
+      const r = await cargarFacturasYPagos();
+      setFacturas(r.facturas); setPagosF(r.pagos); setSinTablaFact(r.sinTabla);
+    } catch { /* sin facturas no se bloquea el cobro: solo no se ve el estado */ }
+  }, []);
+  useEffect(() => { cargarFacturas(); }, [cargarFacturas]);
+  useRealtimeRefresh(['comida_facturas', 'comida_pagos'], () => { cargarFacturas(); });
+
+  const facturar = async () => {
+    if (!porFacturar) return;
+    setEmitiendo(true);
+    setAvisoFactura(null);
+    const r = await emitirFactura(filaNuevaFactura(porFacturar, desde, hasta, etiquetaItem, notaFactura));
+    setEmitiendo(false);
+    if (!r.ok) { setAvisoFactura(`⚠️ ${r.error}`); return; }
+    setAvisoFactura(`✅ Factura ${numeroFactura(r.data.numero)} hecha: ${porFacturar.nombre}, ${usd(porFacturar.monto)}. Ya aparece en «🧾 Facturas y pagos».`);
+    setPorFacturar(null);
+    setNotaFactura('');
+    cargarFacturas();
+  };
 
   const idsPersonas = useMemo(
     () => Array.from(new Set(personas.map((p) => p.employee_id).filter(Boolean) as string[])).sort(),
@@ -223,7 +262,16 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
           {boton('💲 Precios y cuentas', () => setPanelOpen(true))}
           {boton(cargando ? 'Actualizando…' : '↻ Actualizar', cargar, false, cargando)}
           {boton('📄 PDF del cobro', descargarPdf, true, !!error || !cuentas.length)}
+          {boton('🧾 Facturas y pagos', () => setFacturasOpen(true))}
         </View>
+        {sinTablaFact ? (
+          <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs }}>
+            ⚠️ Las facturas y pagos todavía no están activos: falta crear sus tablas (SQL pendiente).
+          </Text>
+        ) : null}
+        {avisoFactura ? (
+          <Text style={{ color: avisoFactura.startsWith('✅') ? colors.success : colors.danger, fontWeight: '800', fontSize: 13, marginTop: spacing.xs }}>{avisoFactura}</Text>
+        ) : null}
 
         {error ? (
           <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoftBg, borderRadius: radius.md, padding: spacing.sm }}>
@@ -283,6 +331,40 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
                   <Text style={{ color: colors.muted, fontSize: 11 }}>{resumirDetalle(c.detalle)}</Text>
                 ) : null}
               </TouchableOpacity>
+              {eje === 'cuenta' && !sinTablaFact ? (() => {
+                const toca = facturasQueTocan(facturas, c.clave, desde, hasta);
+                if (!toca.length) {
+                  if (!sePuedeFacturar(c)) return null;
+                  return (
+                    <TouchableOpacity onPress={() => { setPorFacturar(c); setNotaFactura(''); setAvisoFactura(null); }}
+                      style={{ marginTop: 4, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.brand, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 Facturar {periodoTexto(desde, hasta)} · {usd(c.monto)}</Text>
+                    </TouchableOpacity>
+                  );
+                }
+                return toca.map((f) => {
+                  const e = estadoFactura(f, pagosF);
+                  const ui = ESTADO_FACTURA[e.estado];
+                  const dif = diferenciaDesdeFactura(f, desde, hasta, c.monto);
+                  return (
+                    <View key={f.id} style={{ marginTop: 4, borderWidth: 1, borderColor: ui.color, borderRadius: radius.md, padding: spacing.sm }}>
+                      <Text style={{ color: ui.color, fontWeight: '900', fontSize: 13 }}>
+                        {ui.icon} {ui.texto}{e.falta > 0 ? ` · faltan ${usd(e.falta)}` : ''} · {numeroFactura(f.numero)} {periodoTexto(f.desde, f.hasta)} · {usd(f.monto_usd)}
+                      </Text>
+                      {dif !== 0 ? (
+                        <Text style={{ color: colors.warning, fontSize: 12, marginTop: 2 }}>
+                          ⚠️ Desde que se facturó, lo entregado en estos días {dif > 0 ? 'subió' : 'bajó'} {usd(Math.abs(dif))} (hoy da {usd(c.monto)}). La factura sigue en {usd(f.monto_usd)}.
+                        </Text>
+                      ) : null}
+                      {e.estado === 'pendiente' || e.estado === 'parcial' ? (
+                        <TouchableOpacity onPress={() => setPagandoF(f)} style={{ marginTop: 6, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                          <Text style={{ color: '#fff', fontWeight: '900' }}>💵 Ya pagó · registrar pago</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  );
+                });
+              })() : null}
               {open ? (
                 <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
                   {c.detalle.length > 4 ? <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>{c.detalle.join(', ')}</Text> : null}
@@ -311,6 +393,50 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
         usuarioNombre={usuarioNombre}
         hoy={hoy}
         onChanged={cargar}
+      />
+
+      {/* 🧾 Confirmar la factura: lo que se congela, dicho en grande. */}
+      {porFacturar ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setPorFacturar(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.md, zIndex: 9999 }}>
+            <View style={{ backgroundColor: colors.background, borderRadius: radius.md, padding: spacing.md, maxWidth: 520, width: '100%', alignSelf: 'center' }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>🧾 Hacer la factura</Text>
+              <Text style={{ color: colors.text, fontSize: 16, marginTop: spacing.sm, lineHeight: 23 }}>
+                A <Text style={{ fontWeight: '900' }}>{porFacturar.nombre}</Text> por las comidas {periodoTexto(desde, hasta)}:{' '}
+                <Text style={{ fontWeight: '900' }}>{porFacturar.cobradas} comida(s) · {usd(porFacturar.monto)}</Text>.
+              </Text>
+              {porFacturar.sinPrecio ? (
+                <Text style={{ color: colors.warning, fontSize: 13, marginTop: 6 }}>
+                  ⚠️ Tiene {porFacturar.sinPrecio} comida(s) sin precio que NO entran en esta factura. Si deben cobrarse, ponles precio antes.
+                </Text>
+              ) : null}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>
+                Al hacerla, el monto queda fijo: si después se agregan o corrigen comidas de esos días, la factura no cambia y aquí se avisa la diferencia.
+                La cocina la verá en «🧾 Facturas» y podrá marcar cuando paguen.
+              </Text>
+              <TextInput value={notaFactura} onChangeText={setNotaFactura} placeholder="Nota (opcional)" placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm }} />
+              {avisoFactura && !avisoFactura.startsWith('✅') ? <Text style={{ color: colors.danger, fontWeight: '700', marginTop: 6 }}>{avisoFactura}</Text> : null}
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+                <TouchableOpacity onPress={() => setPorFacturar(null)} disabled={emitiendo} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={facturar} disabled={emitiendo} style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: emitiendo ? 0.6 : 1 }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '900' }}>{emitiendo ? 'Guardando…' : '✅ Sí, hacer la factura'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+
+      <FacturasComidaPanel visible={facturasOpen} onClose={() => { setFacturasOpen(false); cargarFacturas(); }} modo="control" hoy={hoy} />
+      <PagoComidaModal
+        factura={pagandoF}
+        falta={pagandoF ? estadoFactura(pagandoF, pagosF).falta : 0}
+        hoy={hoy}
+        onClose={() => setPagandoF(null)}
+        onGuardado={() => { cargarFacturas(); }}
       />
     </>
   );

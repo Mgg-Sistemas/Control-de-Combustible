@@ -5,6 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
+import { useEmpresasOcultasComida } from '../lib/comidaEmpresasOcultasDb';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import {
@@ -65,6 +66,8 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [companyName, setCompanyName] = useState('');
+  // 🙈 Oculta en cocina: NO se tranca la entrega (decisión del cliente), solo se avisa.
+  const { ocultas } = useEmpresasOcultasComida();
   const [machines, setMachines] = useState(0);
   const [meals, setMeals] = useState<FoodCompanyMeal[]>([]);
   const [extraItems, setExtraItems] = useState<FoodExtraItem[]>([]);
@@ -411,6 +414,11 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
           <Text style={{ color: colors.muted, fontSize: 12 }}>🍽️ Distribución de comida</Text>
           <Text style={{ color: colors.text, fontSize: 20, fontWeight: '900' }}>🏢 {companyName}</Text>
           <Text style={{ color: colors.muted, fontSize: 12, textTransform: 'capitalize' }}>{caracasNiceDate(today)}</Text>
+          {ocultas.has(String(companyId)) ? (
+            <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '800', marginTop: 4 }}>
+              🙈 Esta empresa está oculta en cocina. Puedes registrarle igual; avisa a la oficina si ya volvió a trabajar.
+            </Text>
+          ) : null}
         </View>
         {onExit ? (
           <TouchableOpacity onPress={onExit} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>

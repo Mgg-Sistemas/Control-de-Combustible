@@ -3083,6 +3083,44 @@ el reporte con firma y el recibo del inspector):
 El PDF sigue siendo una **foto del momento en que se genera** (no se refresca solo como la
 pantalla): si los datos cambian, se genera de nuevo.
 
+#### 🙈 Ocultar empresas solo en cocina (03/11/2026)
+
+En **Distribución de comida** (control, con permiso completo) está **«🙈 Empresas que se muestran en cocina»**.
+Toca **«🙈 Ocultar»** en las empresas que ya no se usan y **«👁️ Mostrar»** para devolverlas (pestaña «🙈 Ocultas»).
+
+- **No se borra nada** y la empresa **no cambia** en maquinaria, nómina ni compras.
+- Solo deja de ofrecerse en cocina: QR por empresa, agregar comidas en el editor y contactos nuevos.
+- Sus comidas ya registradas **siguen** en reportes, cobro y facturas.
+- Si alguien escanea el QR de una empresa oculta, **se deja registrar** con un aviso.
+- Queda quién la ocultó y cuándo.
+
+#### 🧾💵 Facturas de comida y quién pagó (03/11/2026)
+
+**Hacer la factura (oficina, permiso completo).** En **«💵 Cobro de comidas»** elige las fechas y, en cada empresa o
+contacto, toca **«🧾 Facturar del … al …»**. Se confirma y queda una factura con **número (COM-0001…)**, a quién, de qué
+días, cuántas comidas y **el monto de ese momento**, que ya no cambia. Si después se agregan o corrigen comidas de esos
+días, la tarjeta avisa la diferencia. Las comidas sin precio no entran (se avisa antes). La nómina propia (consumo
+interno) no se factura.
+
+**Ver si pagó.** Debajo de cada cuenta sale **✅ PAGADA**, **🟡 PAGADA EN PARTE** o **⏳ FALTA POR PAGAR**.
+**«🧾 Facturas y pagos»** lista todas (⏳ por cobrar, ✅ pagadas, 📋 todas, 🚫 anuladas), con buscador, totales de lo que
+falta por cobrar y lo ya cobrado, y el **📄 PDF** de cada factura con sus pagos.
+
+**Registrar un pago (oficina o cocina).** **«💵 Ya pagó · registrar pago»**:
+
+1. Cómo pagó: efectivo $ o Bs, pago móvil, transferencia, punto de venta, Zelle, USDT u otra.
+2. Cuánto, en dólares (trae lo que falta; se puede abonar una parte).
+3. Si fue en bolívares, la tasa del día (sale sola) y los Bs que equivalen.
+4. La referencia si fue pago móvil, transferencia, Zelle o USDT.
+5. El día del pago, la foto del comprobante (📷 cámara o 🖼️ galería) y una nota.
+6. La pantalla **«¿Es correcto?»** lo repite todo y, al guardar, dice **«✅ Quedó registrado»**.
+
+La cocina tiene en su teléfono el botón verde **«🧾 Facturas de comida · ¿quién pagó?»**: ve las facturas y registra
+pagos, pero no hace ni anula facturas.
+
+**Nada se borra.** Una factura o un pago equivocado se **anula** con motivo (solo con permiso completo) y queda a la
+vista, tachado. No deja hacer dos facturas de los mismos días a la misma cuenta ni pagar más de lo que falta.
+
 #### 🧺 Registrar varias comidas de una vez (05/10/2026)
 
 Antes, a una empresa se le registraba **una comida por vez** (desayuno, cerrar, abrir otra vez,

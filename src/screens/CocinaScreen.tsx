@@ -26,6 +26,9 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
+import { useEmpresasOcultasComida } from '../lib/comidaEmpresasOcultasDb';
+import { visiblesEnCocina } from '../lib/comidaEmpresasOcultas';
+import { FacturasComidaPanel } from '../components/FacturasComidaPanel';
 
 // Solo el personal de cocina/alimentación puede ingresar cantidades. Se valida por
 // el CARGO en nómina (ayudante de cocina, alimentación, cocinero, cocina, …).
@@ -135,6 +138,13 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   const [sinTablaContactos, setSinTablaContactos] = useState(false);
   const [empresas, setEmpresas] = useState<{ id: string; name: string }[]>([]);
   const [formAbierto, setFormAbierto] = useState(false);
+  // 🙈 Para dar de alta un contacto no se ofrecen las ocultas en cocina (03-nov-2026).
+  //    `empresas` sigue completa: con ella se ponen los nombres de lo ya registrado.
+  const ocultasCocina = useEmpresasOcultasComida();
+  const empresasParaElegir = React.useMemo(() => visiblesEnCocina(empresas, ocultasCocina.ocultas), [empresas, ocultasCocina.ocultas]);
+  // 🧾 Facturas de comida: la cocina ve quién debe y pone «ya pagó» (03-nov-2026).
+  const [facturasOpen, setFacturasOpen] = useState(false);
+  const puedeVerFacturas = role === 'cocina' || role === 'admin' || levelMeets(moduleLevel('comida'), 'full');
   // La cédula que se buscó y no apareció en ningún lado: con ella se abre el alta.
   const [cedulaNoHallada, setCedulaNoHallada] = useState('');
   // Cuántas comidas pide el contacto de una. Los de nómina siguen siendo 1 por día.
@@ -859,6 +869,14 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
         </>
       ) : null}
 
+      {puedeVerFacturas ? (
+        <TouchableOpacity onPress={() => setFacturasOpen(true)}
+          style={{ backgroundColor: colors.success, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>🧾 Facturas de comida · ¿quién pagó?</Text>
+          <Text style={{ color: '#fff', fontSize: 12, marginTop: 2 }}>Toca aquí cuando una empresa o persona pague</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {/* Seguridad: iniciar sesión con huella (disponible para todos los usuarios). */}
       <SectionTitle>Seguridad</SectionTitle>
       <BiometricToggle />
@@ -869,7 +887,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
         visible={formAbierto}
         onClose={() => setFormAbierto(false)}
         contactos={contactos}
-        empresas={empresas}
+        empresas={empresasParaElegir}
         cedulaInicial={cedulaNoHallada || cedula}
         canEdit={puedeCrearContactos}
         quien={{ id: uid || null, nombre: cook?.name || myName || null }}
@@ -881,6 +899,13 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
           setNotice(`✅ ${nombreDeContacto(c)} quedó registrado. Ya se le puede entregar.`);
         }}
         onYaExiste={(c) => { setFormAbierto(false); setCedula(''); abrirContacto(c); }}
+      />
+
+      <FacturasComidaPanel
+        visible={facturasOpen}
+        onClose={() => setFacturasOpen(false)}
+        modo={levelMeets(moduleLevel('comida'), 'full') ? 'control' : 'cocina'}
+        hoy={today}
       />
 
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>

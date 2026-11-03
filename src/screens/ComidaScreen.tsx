@@ -26,6 +26,9 @@ import { cargarPreciosComida } from '../lib/cobroComidasDb';
 import { PrecioComida } from '../lib/cobroComidas';
 import { PlatoCatalogo } from '../lib/comidaPlatos';
 import { cargarPlatos } from '../lib/comidaPlatosDb';
+import { useEmpresasOcultasComida } from '../lib/comidaEmpresasOcultasDb';
+import { visiblesEnCocina } from '../lib/comidaEmpresasOcultas';
+import { EmpresasOcultasCocina } from '../components/EmpresasOcultasCocina';
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -76,6 +79,10 @@ export default function ComidaScreen() {
   const [rows, setRows] = useState<FoodDistribution[]>([]);
   const [companyMeals, setCompanyMeals] = useState<FoodCompanyMeal[]>([]);
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  // 🙈 Las ocultas SOLO en cocina (03-nov-2026): no se ofrecen para entregas nuevas;
+  //    lo ya entregado sigue saliendo en reportes y cobro (eso sale de las entregas).
+  const ocultasCocina = useEmpresasOcultasComida();
+  const companiesCocina = useMemo(() => visiblesEnCocina(companies, ocultasCocina.ocultas), [companies, ocultasCocina.ocultas]);
   const [qrBusy, setQrBusy] = useState<string | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
   // ── Control por empresa (rango de fechas) ──
@@ -613,10 +620,20 @@ export default function ComidaScreen() {
           hoy={caracasToday()}
           entregasEmpresa={companyMeals}
           entregasPersona={rows}
-          empresas={companies}
+          empresas={companiesCocina}
           usuario={{ id: session?.user?.id ?? null, nombre: fullName }}
           platos={platos}
           onCambio={() => { load(true); cargarPlatosCatalogo(); }}
+        />
+      ) : null}
+
+      {canEditar ? (
+        <EmpresasOcultasCocina
+          empresas={companies}
+          ocultas={ocultasCocina.ocultas}
+          filas={ocultasCocina.filas}
+          sinTabla={ocultasCocina.sinTabla}
+          onCambio={ocultasCocina.recargar}
         />
       ) : null}
 
@@ -629,12 +646,12 @@ export default function ComidaScreen() {
       {qrOpen ? (
         <Card>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-            Descarga el QR de cada empresa como imagen (logo + QR + nombre) para imprimir y pegar. Las empresas desactivadas no aparecen.
+            Descarga el QR de cada empresa como imagen (logo + QR + nombre) para imprimir y pegar. Las empresas desactivadas o ocultas en cocina no aparecen.
           </Text>
-          {companies.length === 0 ? (
+          {companiesCocina.length === 0 ? (
             <Text style={{ color: colors.muted, fontSize: 12 }}>No hay empresas activas.</Text>
           ) : (
-            companies.map((c) => (
+            companiesCocina.map((c) => (
               <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
                 <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>🏢 {c.name}</Text>
                 <TouchableOpacity
