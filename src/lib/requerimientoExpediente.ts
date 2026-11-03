@@ -476,7 +476,9 @@ export function inyectarDespachoEnObservaciones(
   despacho: DespachoAlmacenData
 ): string {
   let base = (obs || '').replace(/\[DESPACHO ALMACEN:[^\]]+\]/gi, '').trim();
-  const tag = `[DESPACHO ALMACEN: Estado: ${despacho.estado} | RetiradoPor: ${despacho.retiradoPor || ''} | Cedula: ${despacho.retiradoCedula || ''} | Cargo: ${despacho.retiradoCargo || ''} | EmpId: ${despacho.retiradoEmployeeId || ''} | DespachadoPor: ${despacho.despachadoPor || ''} | Fecha: ${despacho.fecha || ''} | Nota: ${despacho.nota || ''} | MaqCod: ${despacho.maquinariaCodigo || ''} | MaqPlaca: ${despacho.maquinariaPlaca || ''}]`;
+  // Un «|» o «]» escrito a mano partiría la etiqueta y se leería mal (02-nov-2026).
+  const c = (x: string | null | undefined) => String(x ?? '').replace(/\|/g, '/').replace(/\]/g, ')');
+  const tag = `[DESPACHO ALMACEN: Estado: ${despacho.estado} | RetiradoPor: ${c(despacho.retiradoPor)} | Cedula: ${c(despacho.retiradoCedula)} | Cargo: ${c(despacho.retiradoCargo)} | EmpId: ${c(despacho.retiradoEmployeeId)} | DespachadoPor: ${c(despacho.despachadoPor)} | Fecha: ${c(despacho.fecha)} | Nota: ${c(despacho.nota)} | MaqCod: ${c(despacho.maquinariaCodigo)} | MaqPlaca: ${c(despacho.maquinariaPlaca)}]`;
   return base ? `${base}\n${tag}` : tag;
 }
 

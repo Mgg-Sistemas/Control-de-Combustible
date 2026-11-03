@@ -2366,6 +2366,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > los **montos de los servicios** (precio, total, subtotal, total y equivalente en Bs), ocultar el **identificador de
 > servicio** (la etiqueta «Servicio» y la unidad «SERV»), y elegir o quitar el **logo** de la izquierda y un segundo logo
 > junto al número. Lo oculto no se anuncia en el papel. Cada persona encuentra sus opciones como las dejó la última vez.
+> **📦 Retiro de almacén: quién retira** *(02/11/2026)*. En **«📦 Retiro / Despacho físico de almacén»** el buscador ya
+> trae a la gente: busca en la **nómina** y en los **choferes/operadores** asignados a máquinas, por nombre, cédula, cargo
+> o máquina (antes la lista llegaba vacía). Al tocar a alguien se llenan su nombre, cédula y cargo; si es operador de una
+> máquina y aún no elegiste destino, se propone su máquina. Si la persona no está, **escribe sus datos a mano: quedan solo
+> en ese retiro** y no se crea ni se cambia ningún empleado de nómina. Si cambias a mano el nombre de alguien elegido de
+> nómina, se suelta el vínculo con su ficha. Sin permiso para editar el requerimiento, ahora avisa en vez de fingir que se guardó.
+
 > **📋 Por Pagar: plan de pago para pagos mixtos** *(02/11/2026)*. Cuando una cuenta se paga por partes y en monedas
 > distintas (base en $ e IVA en Bs, base en Bs a tasa USDT e IVA a tasa BCV, una parte en Zelle o USDT…), toca
 > **«📋 Plan de pago → + Definir cómo se paga»** en la cuenta de Por Pagar, en el formulario del requerimiento (debajo de «Condiciones de pago») o en su tarjeta (lo que

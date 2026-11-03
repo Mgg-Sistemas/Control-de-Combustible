@@ -7,6 +7,7 @@
 // inventario. Solo los administradores aprueban/rechazan.
 import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform, Image, Linking } from 'react-native';
+import PersonaRetiroPicker from '../components/PersonaRetiroPicker';
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -477,7 +478,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   // 🚜 Catálogo de maquinaria y personal para selectores con buscador y placa
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
-  const { data: employees } = useTable<Employee>('employees', { orderBy: 'name' });
 
   // 🧾 Factura Fiscal / Comercial (Proveedor registrado o manual + Nota)
   const [facturaModalOpen, setFacturaModalOpen] = useState(false);
@@ -2009,12 +2009,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       };
 
       const nuevaObs = inyectarDespachoEnObservaciones(despachoTarget.observaciones, dataDespacho);
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('inventory_requirements')
         .update({ observaciones: nuevaObs })
-        .eq('id', despachoTarget.id);
+        .eq('id', despachoTarget.id)
+        .select('id');
 
       if (error) throw error;
+      if (!data || data.length === 0) throw new Error('no se guardó (no tienes permiso para editar este requerimiento).');
       setDespachoModalOpen(false);
       setDespachoTarget(null);
       refetch();
@@ -6784,78 +6786,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
                 👤 Personal que Retira (Mecánico / Chofer)
               </Text>
-              <TextInput
-                value={empBusquedaQ}
-                onChangeText={setEmpBusquedaQ}
-                placeholder="🔎 Buscar en nómina (nombre, cargo, cédula)…"
-                placeholderTextColor={colors.muted}
-                style={[inp, { marginBottom: 6, fontSize: 12 }]}
+              <PersonaRetiroPicker
+                valor={{ nombre: retiradoPor, cedula: retiradoCedula, cargo: retiradoCargo, employeeId: retiradoEmployeeId }}
+                onChange={(v) => { setRetiradoPor(v.nombre); setRetiradoCedula(v.cedula); setRetiradoCargo(v.cargo); setRetiradoEmployeeId(v.employeeId); }}
+                maquinas={machines}
+                onElegirMaquina={(id) => setDespachoMaquinariaId((cur) => cur ?? id)}
+                inputStyle={inp}
               />
-              {empBusquedaQ.trim().length > 0 ? (
-                <View style={{ maxHeight: 150, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, marginBottom: 8, overflow: 'hidden' }}>
-                  <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                    {employees
-                      .map((e) => ({
-                        e,
-                        fullName: [e.first_name, e.last_name].filter(Boolean).join(' ') || 'Sin Nombre',
-                      }))
-                      .filter(({ e, fullName }) => {
-                        const q = norm(empBusquedaQ);
-                        return norm(fullName).includes(q) || (e.cedula && norm(e.cedula).includes(q)) || (e.cargo && norm(e.cargo).includes(q));
-                      })
-                      .map(({ e, fullName }) => (
-                        <TouchableOpacity
-                          key={e.id}
-                          onPress={() => {
-                            setRetiradoPor(fullName);
-                            setRetiradoCedula(e.cedula || '');
-                            setRetiradoCargo(e.cargo || '');
-                            setRetiradoEmployeeId(e.id);
-                            setEmpBusquedaQ('');
-                          }}
-                          style={{ padding: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}
-                        >
-                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{fullName}</Text>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>
-                            {e.cedula ? `CI: ${e.cedula} · ` : ''}{e.cargo || 'Personal'}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                  </ScrollView>
-                </View>
-              ) : null}
-
-              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Nombre Completo de quien retira</Text>
-              <TextInput
-                value={retiradoPor}
-                onChangeText={setRetiradoPor}
-                placeholder="Nombre y Apellido"
-                placeholderTextColor={colors.muted}
-                style={[inp, { marginBottom: 6 }]}
-              />
-
-              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: 6 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cédula</Text>
-                  <TextInput
-                    value={retiradoCedula}
-                    onChangeText={setRetiradoCedula}
-                    placeholder="V-12345678"
-                    placeholderTextColor={colors.muted}
-                    style={inp}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cargo / Rol</Text>
-                  <TextInput
-                    value={retiradoCargo}
-                    onChangeText={setRetiradoCargo}
-                    placeholder="Ej. Mecánico, Chofer"
-                    placeholderTextColor={colors.muted}
-                    style={inp}
-                  />
-                </View>
-              </View>
             </Card>
 
             {/* Maquinaria o Vehículo de Destino (con PLACA y Buscador) */}
