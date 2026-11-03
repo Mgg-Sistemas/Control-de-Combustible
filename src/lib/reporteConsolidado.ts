@@ -111,6 +111,10 @@ export type FilaConsolidada = {
    * Opcional: una fila vieja sin cantidades sigue valiendo (salen solo montos).
    */
   cant?: Partial<Record<FuenteKey, number>>;
+  /** 💲 Tiene horas de JORNADA en días sin precio en Control (02-nov-2026):
+   *  esas horas salen en $0, igual que en Control de Pagos, pero la máquina
+   *  ya no desaparece del papel — sale con sus horas y la marca. */
+  sinPrecio?: boolean;
 };
 
 /** La cantidad en palabras del jefe: «36 h», «11,37 h», «12 viajes», «48,50 t». */
@@ -597,7 +601,9 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
     .filter((f) => frentes.size === 0 || frentes.has(idxF.clave(frenteDe(f))))
     .filter((f) => encargados.size === 0 || encargados.has(encargadoDe(f).toLowerCase()))
     .filter((f) => estados.size === 0 || estados.has(String(f.estado ?? 'Operativa').trim().toLowerCase()))
-    .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0)
+    // 💲 Con plata O con horas/viajes (02-nov-2026): una máquina con jornada
+    //    pero sin precio en Control salía en $0 y se botaba en silencio.
+    .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0 || (f.cant?.[k] ?? 0) !== 0)
       // 🕐 El camión pasado a jornada SIN jornada en el rango queda en $0, pero
       //    NO desaparece: el papel dice que se eligió así y cuánto se descartó.
       || (f.descartadoPorJornada != null && Object.values(f.descartadoPorJornada).some((v) => (v ?? 0) !== 0)))
@@ -1513,7 +1519,7 @@ export function cuerpoConsolidado(d: {
     const celdas = colsP.map((c) => `<td class="${clsCol(c)}">${celdaColumna(c, f.montos, f.cant, conCant, false, sinPagos)}</td>`).join('');
     const warn = solapeIds.has(f.id) && op.solapes && !sinPagos;
     const totVal = sinPagos ? cantTotalFila(f, op) : usd(totalFila(f, op));
-    return `<tr><td>${warn ? '⚠️ ' : ''}${esc(f.code)}</td>${op.sinPlaca ? '' : `<td>${esc(f.placa || '—')}</td>`}${op.sinMarcaModelo ? '' : `<td>${esc([f.marca, f.modelo].filter(Boolean).join(' ') || '—')}</td>`}${op.sinEmpresas || op.agruparPor === 'empresa' ? '' : `<td>${esc(f.empresa)}</td>`}${celdas}<td class="r b">${totVal}</td></tr>`;
+    return `<tr><td>${warn ? '⚠️ ' : ''}${esc(f.code)}${f.sinPrecio && !sinPagos ? '<div class="q">💲 sin precio en Control</div>' : ''}</td>${op.sinPlaca ? '' : `<td>${esc(f.placa || '—')}</td>`}${op.sinMarcaModelo ? '' : `<td>${esc([f.marca, f.modelo].filter(Boolean).join(' ') || '—')}</td>`}${op.sinEmpresas || op.agruparPor === 'empresa' ? '' : `<td>${esc(f.empresa)}</td>`}${celdas}<td class="r b">${totVal}</td></tr>`;
   };
   const filaTotales = (lista: FilaConsolidada[], etiqueta: string, clase: string) => {
     const cols = 1 + (op.sinPlaca ? 0 : 1) + (op.sinMarcaModelo ? 0 : 1) + (op.sinEmpresas || op.agruparPor === 'empresa' ? 0 : 1);

@@ -4508,6 +4508,11 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
     tabla sigue sumando exacto el total). Cambia la plata: va al nombre del archivo.
   - Las dos piden que el 📅 día por día esté cargado (si no, no hay cómo distinguir qué día tuvo o
     no horómetro) y que la 🤖 selección automática esté prendida.
+  - **💲 Máquina con jornada pero sin precio** *(02/11/2026)*. Si la máquina no tiene precio por
+    hora en Control, sus horas de jornada valen **$0** (igual que en Control de Pagos). Antes el
+    consolidado la escondía y parecía que no tenía jornada; ahora sale con sus horas, en $0, con la
+    marca **«💲 sin precio en Control»**, y arriba un aviso dice cuáles son. Para que sume plata,
+    ponle su precio por hora en Control de Maquinaria y vuelve a **Calcular**.
 
 #### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
 

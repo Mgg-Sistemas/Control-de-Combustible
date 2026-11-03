@@ -875,6 +875,22 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
     ['11,37 h', '11,11 h', '36 h', '10,5 h']);
 }
 
+// 💲 02-nov-2026: jornada con horas pero SIN PRECIO en Control (JUMBO 320 de
+// Ferreconstrucciones): salía en $0 y desaparecía del papel. Ahora sale con
+// sus horas, en $0, marcada; y el total en plata no cambia.
+{
+  const SP = { id: 'sp', code: 'JUMBO 320', placa: 'HHKHN623HP0036592', empresa: 'FERRECONSTRUCCIONES 3-G, C.A', montos: { jornadas: 0 }, cant: { jornadas: 23.75 }, sinPrecio: true };
+  const opA = { ...C.OPCIONES_CONSOLIDADO_POR_DEFECTO };
+  const el = C.filasElegidas([SP], { ...opA, soloMaquinas: ['sp'] });
+  eq('💲 la máquina sin precio NO desaparece', el.length, 1);
+  const t = C.totalesConsolidado([...F, SP], OP);
+  eq('💲 el total en plata no cambia', t.total, 2150);
+  eq('💲 sus horas sí se cuentan', t.cantPorFuente.jornadas, 23.75);
+  ok('💲 el papel la marca sin precio', C.cuerpoConsolidado({ filas: [SP], desde: '2026-10-26', hasta: '2026-11-01' }, opA).includes('sin precio en Control'));
+  ok('💲 en horas trabajadas no sale la marca de precio', !C.cuerpoConsolidado({ filas: [SP], desde: '2026-10-26', hasta: '2026-11-01' }, { ...opA, sinPagos: true }).includes('sin precio en Control'));
+  eq('💲 una fila sin plata NI horas sigue sin salir', C.filasElegidas([{ id: 'z', code: 'X', placa: '', empresa: 'E', montos: { jornadas: 0 } }], opA).length, 0);
+}
+
 if (fail) {
   console.error(failures.join('\n'));
   console.error(`\n✗ reporte consolidado: ${fail} fallo(s), ${pass} ok`);

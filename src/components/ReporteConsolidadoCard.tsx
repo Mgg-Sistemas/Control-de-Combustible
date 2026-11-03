@@ -202,7 +202,9 @@ export function ReporteConsolidadoCard() {
 
         // 🕐 Jornadas (receta de Control de Pagos) — el respaldo son sus HORAS
         for (const j of montosJornadaPorMaquina({ rounds: rounds as unknown as RondaJornada[], hist, desde: d1, hasta: d2 })) {
-          suma(fila(j.id, j.code, j.placa, j.empresa), 'jornadas', j.monto, j.horas);
+          const fj = fila(j.id, j.code, j.placa, j.empresa);
+          suma(fj, 'jornadas', j.monto, j.horas);
+          if (j.sinPrecio) fj.sinPrecio = true;
         }
         // ⚙️ Horómetros (con cierres: lo cerrado sale de la foto, como el panel) — HORAS
         for (const h of filasPagoHorometro({ maquinas: maqsH, lecturas, precios: precios.precios, desde: d1, hasta: d2, ajustes: ajustes.ajustes, cierres: cierres.cierres, cambios: cambios.cambios })) {
@@ -247,6 +249,13 @@ export function ReporteConsolidadoCard() {
       };
 
       const filasNuevas = armar(desde, hasta);
+      // 💲 Las que tienen jornada pero no precio en Control: salen en $0 (como en
+      //    Control de Pagos) y se avisa cuáles, para ponerles el precio.
+      const sinPrecio = filasNuevas.filter((f) => f.sinPrecio);
+      if (sinPrecio.length) {
+        const nombres = sinPrecio.slice(0, 8).map((f) => `${f.code.trim()}${f.placa ? ` (${f.placa})` : ''}`).join(', ');
+        nuevosAvisos.push(`💲 ${sinPrecio.length} máquina(s) con horas de jornada SIN PRECIO en Control (salen en $0): ${nombres}${sinPrecio.length > 8 ? '…' : ''}. Ponle el precio por hora en Control de Maquinaria y vuelve a calcular.`);
+      }
       setFilas(filasNuevas);
       setFilasAnt(armar(antDesde, antHasta));
       // 🕐 Lo elegido «por jornada» solo vale para camiones CON PESO de este rango:
