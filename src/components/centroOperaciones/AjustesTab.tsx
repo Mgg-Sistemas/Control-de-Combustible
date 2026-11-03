@@ -798,7 +798,8 @@ export default function AjustesTab({ sitio, nivel, alCambiarSitios }: Props) {
                       {datosDeItem(i) ? <Text style={ayuda}>{datosDeItem(i)}</Text> : null}
                       {!i.activo ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '700' }}>Desactivado</Text> : null}
                     </View>
-                    {puedeCambiar ? (
+                    {/* 🔐 Lo «de todos los sitios» no lo cambia quien solo tiene sus centros (la base tampoco). */}
+                    {puedeCambiar && !(soloSusCentros && i.sitioId === null) ? (
                       <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                         <TouchableOpacity disabled={ocupado} onPress={() => abrirItem(i)} style={boton('neutro')}>
                           <Text style={textoBoton('neutro')}>{i.clase === 'destino' || i.clase === 'material' ? '✏️ Editar' : '✏️'}</Text>
