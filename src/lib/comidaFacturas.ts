@@ -213,6 +213,23 @@ export function filaNuevoPago(facturaId: string, d: DatosPago & { nota?: string 
   };
 }
 
+/**
+ * La foto del comprobante solo se abre o se enlaza si es una foto NUESTRA (https, del
+ * almacenamiento de Supabase, carpeta comida-pagos). Cualquier otra cosa escrita a mano
+ * por fuera de la app (p. ej. `javascript:`) se ignora.
+ */
+export function urlComprobanteSegura(u: unknown): string | null {
+  const s = String(u ?? '').trim();
+  if (!s) return null;
+  try {
+    const url = new URL(s);
+    if (url.protocol !== 'https:') return null;
+    if (!/\.supabase\.co$/i.test(url.hostname)) return null;
+    if (!url.pathname.startsWith('/storage/v1/object/public/machinery/comida-pagos/')) return null;
+    return url.toString();
+  } catch { return null; }
+}
+
 /** Un pago en una línea que cualquiera entiende. */
 export function textoPago(p: PagoComida): string {
   const m = metodoDe(p.metodo);

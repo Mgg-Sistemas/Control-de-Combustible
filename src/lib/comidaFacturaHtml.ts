@@ -3,10 +3,10 @@
 // cuánto, cómo, cuándo y quién lo registró. Lo anulado sale tachado, no se esconde.
 // PURA: devuelve HTML; el que llama lo pasa por pdfDocument/exportPdf.
 import {
-  ESTADO_FACTURA, FacturaComida, PagoComida, dmy, estadoFactura, numeroFactura, pagosDe, periodoTexto, textoPago, usd,
+  ESTADO_FACTURA, FacturaComida, PagoComida, dmy, estadoFactura, numeroFactura, pagosDe, periodoTexto, textoPago, urlComprobanteSegura, usd,
 } from './comidaFacturas';
 
-const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 export const CSS_FACTURA_COMIDA = `
   .sello{border:3px solid;border-radius:10px;padding:10px 14px;margin:6px 0 12px;font-size:20px;font-weight:900;text-align:center}
@@ -40,7 +40,7 @@ export function cuerpoFacturaComida(f: FacturaComida, todosLosPagos: readonly Pa
   const det = (f.detalle ?? []).map((d) =>
     `<tr><td>${esc(d.etiqueta || d.plato || d.categoria)}</td><td class="r">${d.cantidad}</td><td class="r">${d.precio == null ? '—' : usd(d.precio)}</td><td class="r b">${usd(d.monto)}</td></tr>`).join('');
   const pagos = conAnulados.map((p) =>
-    `<tr${p.anulado_at ? ' class="anulado"' : ''}><td>${dmy(p.fecha_pago)}</td><td>${esc(textoPago(p))}</td><td>${esc(p.created_by_nombre || '—')}</td><td>${p.comprobante_url ? `<a href="${esc(p.comprobante_url)}">ver foto</a>` : '—'}</td></tr>`
+    `<tr${p.anulado_at ? ' class="anulado"' : ''}><td>${dmy(p.fecha_pago)}</td><td>${esc(textoPago(p))}</td><td>${esc(p.created_by_nombre || '—')}</td><td>${urlComprobanteSegura(p.comprobante_url) ? `<a href="${esc(urlComprobanteSegura(p.comprobante_url))}">ver foto</a>` : '—'}</td></tr>`
     + (p.anulado_at ? `<tr><td colspan="4"><p class="n">🚫 Pago anulado por ${esc(p.anulado_por_nombre || '—')}: ${esc(p.anulado_motivo || '')}</p></td></tr>` : '')).join('');
   return `
     <div class="sello" style="color:${ui.color};border-color:${ui.color}">${esc(sello)}</div>

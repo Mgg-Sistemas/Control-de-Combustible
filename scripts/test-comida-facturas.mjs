@@ -104,6 +104,11 @@ ok('PDF: el pago anulado sale tachado con motivo', html.includes('class="anulado
 ok('PDF: dice a quién y qué días', html.includes('CARBO PRUEBA') && html.includes('del 01/10/2026 al 31/10/2026'));
 ok('PDF: escapa el texto', !H.cuerpoFacturaComida({ ...fac, cuenta_nombre: '<script>' }, []).includes('<script>'));
 
+ok('comprobante: solo fotos nuestras', F.urlComprobanteSegura('https://abc.supabase.co/storage/v1/object/public/machinery/comida-pagos/f1/1.jpg') !== null);
+ok('comprobante: javascript: se ignora', F.urlComprobanteSegura('javascript:alert(1)') === null && F.urlComprobanteSegura('http://abc.supabase.co/storage/v1/object/public/machinery/comida-pagos/x.jpg') === null && F.urlComprobanteSegura('https://malo.com/storage/v1/object/public/machinery/comida-pagos/x.jpg') === null);
+ok('PDF: no enlaza un comprobante ajeno ni deja comillas sueltas', (() => { const h = H.cuerpoFacturaComida(fac, [pago('p1', 1, { comprobante_url: 'javascript:alert(1)' })]); return !h.includes('javascript:') && !h.includes('href='); })());
+ok('PDF: escapa comillas', H.cuerpoFacturaComida({ ...fac, nota: '"><img src=x>' }, []).includes('&quot;&gt;&lt;img'));
+
 // ── Pantallas ──
 const leer = (rel) => fs.readFileSync(path.join(raiz, rel), 'utf8');
 const comida = leer('src/screens/ComidaScreen.tsx');

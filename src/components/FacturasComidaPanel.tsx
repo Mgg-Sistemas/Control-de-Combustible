@@ -12,7 +12,7 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
   ESTADO_FACTURA, FacturaComida, FiltroFacturas, PagoComida, dmy, estadoFactura, filtrarFacturas, numeroFactura,
-  pagosDe, periodoTexto, resumenFacturas, textoPago, usd,
+  pagosDe, periodoTexto, resumenFacturas, textoPago, urlComprobanteSegura, usd,
 } from '../lib/comidaFacturas';
 import { anularFacturaComida, anularPagoComida, cargarFacturasYPagos, MSG_SIN_TABLA } from '../lib/comidaFacturasDb';
 import { CSS_FACTURA_COMIDA, cuerpoFacturaComida, tituloFacturaComida } from '../lib/comidaFacturaHtml';
@@ -163,8 +163,8 @@ export function FacturasComidaPanel({ visible, onClose, modo, hoy }: {
                         <Text style={{ color: colors.muted, fontSize: 12 }}>Lo registró {p.created_by_nombre || '—'}{p.nota ? ` · ${p.nota}` : ''}</Text>
                         {p.anulado_at ? <Text style={{ color: colors.muted, fontSize: 12 }}>Anulado por {p.anulado_por_nombre || '—'}: {p.anulado_motivo}</Text> : null}
                         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 2 }}>
-                          {p.comprobante_url ? (
-                            <TouchableOpacity onPress={() => Linking.openURL(p.comprobante_url!)}><Text style={{ color: colors.brandText, fontWeight: '800' }}>📎 Ver comprobante</Text></TouchableOpacity>
+                          {urlComprobanteSegura(p.comprobante_url) ? (
+                            <TouchableOpacity onPress={() => Linking.openURL(urlComprobanteSegura(p.comprobante_url)!)}><Text style={{ color: colors.brandText, fontWeight: '800' }}>📎 Ver comprobante</Text></TouchableOpacity>
                           ) : null}
                           {modo === 'control' && !p.anulado_at ? (
                             <TouchableOpacity onPress={() => { setAnulando({ tipo: 'pago', id: p.id, texto: textoPago(p) }); setMotivo(''); setAviso(null); }}><Text style={{ color: colors.danger, fontWeight: '800' }}>🚫 Anular pago</Text></TouchableOpacity>
