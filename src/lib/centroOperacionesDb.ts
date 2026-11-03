@@ -1201,3 +1201,68 @@ export async function guardarPatiosDelDia(sitioId: string, fecha: string, patios
     hechos.push(p.patio);
   }
 }
+
+// ══════════════════ 🔐 ACCESO POR CENTRO (03-nov-2026) ══════════════════
+//
+// Pedido: «yo como administrador le doy full control a UN centro de operaciones a una
+// persona, y ya: solo accede y tiene full control de ese centro». Tabla propia
+// `cop_sitio_accesos` (una fila por persona y sitio; quitar = activo false, nunca se
+// borra). La base decide con `cop_nivel(sitio)`: admin → todo; con acceso → full en SUS
+// sitios, lectura de lo «de todos los sitios», nada en los demás y no crea sitios; sin
+// acceso → el permiso del módulo, como siempre. Solo un admin da o quita accesos.
+
+/** El nombre de la tabla, para el tiempo real del AuthContext (que no debe nombrarla). */
+export const TABLA_ACCESOS_SITIO = 'cop_sitio_accesos';
+
+export type AccesoSitio = { id: string; sitioId: string; userId: string; nombre: string; rol: string; activo: boolean; dadoPor: string | null; actualizado: string | null };
+export type PersonaParaAcceso = { id: string; nombre: string; rol: string };
+
+/** Los sitios que un admin le asignó a esta persona (vacío si ninguno o si la tabla falta). */
+export async function cargarMisSitiosAsignados(uid: string): Promise<string[]> {
+  if (!uid) return [];
+  const { data, error } = await supabase.from('cop_sitio_accesos').select('sitio_id').eq('user_id', uid).eq('activo', true);
+  if (error) return [];
+  return ((data ?? []) as any[]).map((r) => String(r.sitio_id));
+}
+
+/** Quién entra a este sitio (activos e inactivos), con su nombre. Solo un admin lo ve todo. */
+export async function cargarAccesosSitio(sitioId: string): Promise<AccesoSitio[]> {
+  const { data, error } = await supabase.from('cop_sitio_accesos')
+    .select('id, sitio_id, user_id, activo, created_by_nombre, updated_by_nombre, updated_at')
+    .eq('sitio_id', sitioId);
+  if (error) throw errorDeLectura(error, 'los accesos del sitio');
+  const filas = (data ?? []) as any[];
+  const ids = Array.from(new Set(filas.map((f) => String(f.user_id))));
+  const nombres = new Map<string, { nombre: string; rol: string }>();
+  if (ids.length) {
+    const { data: ps } = await supabase.from('profiles').select('id, full_name, role').in('id', ids);
+    for (const p of (ps ?? []) as any[]) nombres.set(String(p.id), { nombre: String(p.full_name ?? '').trim() || 'Sin nombre', rol: String(p.role ?? '') });
+  }
+  return filas.map((f) => ({
+    id: String(f.id), sitioId: String(f.sitio_id), userId: String(f.user_id),
+    nombre: nombres.get(String(f.user_id))?.nombre ?? 'Sin nombre', rol: nombres.get(String(f.user_id))?.rol ?? '',
+    activo: f.activo !== false, dadoPor: f.updated_by_nombre ?? f.created_by_nombre ?? null, actualizado: f.updated_at ?? null,
+  })).sort((a, b) => Number(b.activo) - Number(a.activo) || cmpText(a.nombre, b.nombre));
+}
+
+/** Las personas a las que se les puede dar acceso (los admin ya ven todo). */
+export async function cargarPersonasParaAcceso(): Promise<PersonaParaAcceso[]> {
+  const filas = await selectAllRows('profiles', 'id, full_name, role').catch((e: any) => { throw errorDeLectura(e, 'las personas'); });
+  return (filas as any[])
+    .filter((p) => String(p.role ?? '') !== 'admin' && String(p.full_name ?? '').trim())
+    .map((p) => ({ id: String(p.id), nombre: String(p.full_name).trim(), rol: String(p.role ?? '') }))
+    .sort((a, b) => cmpText(a.nombre, b.nombre));
+}
+
+/** Da (o devuelve) a una persona el control total de un sitio. */
+export async function darAccesoSitio(sitioId: string, userId: string): Promise<void> {
+  await escribir(
+    supabase.from('cop_sitio_accesos').upsert({ sitio_id: sitioId, user_id: userId, activo: true } as any, { onConflict: 'sitio_id,user_id' }).select('id'),
+    'No se dio el acceso',
+  );
+}
+
+/** Le quita el acceso (la fila queda, inactiva: se sabe quién lo tuvo). */
+export async function quitarAccesoSitio(id: string): Promise<void> {
+  await escribir(supabase.from('cop_sitio_accesos').update({ activo: false } as any).eq('id', id).select('id'), 'No se quitó el acceso');
+}

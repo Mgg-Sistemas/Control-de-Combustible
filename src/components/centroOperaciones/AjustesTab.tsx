@@ -43,6 +43,8 @@ import { useConfirm } from '../ConfirmProvider';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { levelMeets } from '../../lib/permissions';
+import { useAuth } from '../../context/AuthContext';
+import AccesosSitio from './AccesosSitio';
 import { cmpText, norm } from '../../lib/text';
 import type { ClaseLista, ItemLista, Sitio } from '../../lib/centroOperaciones';
 import {
@@ -127,6 +129,12 @@ export default function AjustesTab({ sitio, nivel, alCambiarSitios }: Props) {
   const confirm = useConfirm();
   // ⭐ Solo Full cambia algo (la RLS también lo exige). Sin Full, todo se ve y nada se toca.
   const puedeCambiar = levelMeets(nivel, 'full');
+  // 🔐 Acceso por centro (03-nov-2026): quien tiene centros asignados trabaja con control
+  //    total SOLO en ellos; no crea centros ni toca lo «de todos los sitios» (la base
+  //    tampoco lo deja). Dar y quitar ese acceso es solo del administrador.
+  const { role, copSitiosAsignados } = useAuth();
+  const esAdmin = role === 'admin';
+  const soloSusCentros = !esAdmin && copSitiosAsignados.length > 0;
 
   const [cargando, setCargando] = useState(true);
   /** La carga falló: se dice, en vez de «Todavía no hay sitios» o «La lista está vacía»
@@ -299,8 +307,8 @@ export default function AjustesTab({ sitio, nivel, alCambiarSitios }: Props) {
     if (!nombre) { toast.error('Escribe el nombre.'); return; }
     if (activosClase.some((i) => mismoNombre(i.nombre, nombre))) { toast.error('Ese nombre ya está en la lista.'); return; }
     const ok = await hacer(
-      () => guardarItemLista({ sitioId: paraTodos ? null : sitio.id, clase, nombre, activo: true }),
-      `«${nombre}» agregado${paraTodos ? ' para todos los sitios' : ''}.`,
+      () => guardarItemLista({ sitioId: paraTodos && !soloSusCentros ? null : sitio.id, clase, nombre, activo: true }),
+      `«${nombre}» agregado${paraTodos && !soloSusCentros ? ' para todos los sitios' : ''}.`,
     );
     if (ok) setNuevoItem('');
   };
@@ -600,7 +608,7 @@ export default function AjustesTab({ sitio, nivel, alCambiarSitios }: Props) {
           </View>
         ))}
 
-        {puedeCambiar ? (
+        {puedeCambiar && !soloSusCentros ? (
           <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
             <Text style={rotulo}>➕ SITIO NUEVO</Text>
             <TextInput
@@ -623,6 +631,8 @@ export default function AjustesTab({ sitio, nivel, alCambiarSitios }: Props) {
           </View>
         ) : null}
       </Card>
+
+      {esAdmin && sitio ? <AccesosSitio key={sitio.id} sitio={sitio} /> : null}
 
       {!sitio ? (
         <Card>
@@ -827,12 +837,12 @@ export default function AjustesTab({ sitio, nivel, alCambiarSitios }: Props) {
                   style={input}
                   onSubmitEditing={crearItem}
                 />
-                <Toggle
+                {soloSusCentros ? null : <Toggle
                   on={paraTodos}
                   label="🌐 Para todos los sitios"
                   ayuda={paraTodos ? 'Sale en la lista de cada sitio.' : `Solo para ${sitio.nombre}.`}
                   onPress={() => setParaTodos((v) => !v)}
-                />
+                />}
                 <TouchableOpacity disabled={ocupado} onPress={crearItem} style={[boton('principal'), { alignItems: 'center', paddingVertical: spacing.sm }]}>
                   <Text style={textoBoton('principal')}>➕ Agregar</Text>
                 </TouchableOpacity>

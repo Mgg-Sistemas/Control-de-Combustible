@@ -279,7 +279,8 @@ eq('PD1: de la base: factor y km como texto → número', [D.filaAItemLista({ fa
 const srcCrudo = fs.readFileSync(SRC_DB, 'utf8');
 // Sin comentarios, para que una explicación no dispare (ni esconda) el candado.
 const src = srcCrudo.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-const AJENAS_PERMITIDAS = ['machinery', 'companies', 'viaje_frentes', 'ubicaciones_obra'];
+// 🔐 03-nov-2026: + profiles, SOLO para poner el nombre de quien tiene acceso a un centro (lectura).
+const AJENAS_PERMITIDAS = ['machinery', 'companies', 'viaje_frentes', 'ubicaciones_obra', 'profiles'];
 const ESCRITURA = /\.(insert|update|upsert|delete)\(/;
 
 // (`Array.from(` no es una consulta: se descuenta.)
@@ -299,14 +300,17 @@ ok('⭐ toda escritura termina en .select(\'id\') (la RLS rechaza sin error y co
   escrituras.every((c) => c.cadena.includes(".select('id')")));
 ok('⭐ no aparece .rpc(', !/\.rpc\(/.test(src));
 const ajenasFrom = cadenas.filter((c) => !c.tabla.startsWith('cop_'));
-ok('⭐ las únicas tablas ajenas en .from( son machinery, companies, viaje_frentes y ubicaciones_obra',
+ok('⭐ las únicas tablas ajenas en .from( son machinery, companies, viaje_frentes, ubicaciones_obra y profiles',
   ajenasFrom.every((c) => AJENAS_PERMITIDAS.includes(c.tabla)));
 ok('⭐ y a esas ajenas solo se les hace .select(', ajenasFrom.every((c) => c.cadena.includes('.select(') && !ESCRITURA.test(c.cadena)));
 const usosSAR = [...src.matchAll(/selectAllRows\(/g)].length;
 const sarLiterales = [...src.matchAll(/selectAllRows\(\s*'([^']+)'/g)].map((x) => x[1]);
 ok('⭐ todo selectAllRows( nombra su tabla con un texto fijo', usosSAR > 0 && usosSAR === sarLiterales.length);
-ok('⭐ selectAllRows solo lee cop_* o las cuatro ajenas permitidas',
+ok('⭐ selectAllRows solo lee cop_* o las ajenas permitidas',
   sarLiterales.every((t) => t.startsWith('cop_') || AJENAS_PERMITIDAS.includes(t)));
+ok('🔐 acceso por centro: dar es upsert sobre cop_sitio_accesos y quitar es activo false (nunca delete)',
+  /from\('cop_sitio_accesos'\)\.upsert\(/.test(src) && /from\('cop_sitio_accesos'\)\.update\(\{ activo: false \}/.test(src) && !/from\('cop_sitio_accesos'\)\.delete\(/.test(src));
+ok('🔐 a profiles solo se le lee (nombres)', cadenas.filter((c) => c.tabla === 'profiles').every((c) => !ESCRITURA.test(c.cadena)));
 const importos = [...src.matchAll(/^\s*import\s[^;]*?from\s+['"]([^'"]+)['"]/gm)].map((x) => x[1]);
 // ⭐ M3 (mesa de maquinaria §7): la lista cerrada suma SOLO ./machineLiveStatus (la regla única
 //    del estado de inspección), con los nombres exactos de abajo.
@@ -321,7 +325,7 @@ ok('importa solo ./supabase, ./centroOperaciones, ./text, el TIPO del Reporte Ge
   eq('⭐ M3: de ./machineLiveStatus importa por valor EXACTAMENTE las 8 piezas permitidas', [...porValor].sort(), [...NOMBRES_LIB].sort());
   eq('M3: * y por tipo solo EstadoConteo y NovedadInspeccion', [...deTipo].sort(), ['EstadoConteo', 'NovedadInspeccion']);
   eq('M3: * en un solo import de valor y uno de tipo (nada escondido)', [deLaLib.length, importos.filter((i) => i === './machineLiveStatus').length], [2, 2]);
-  ok('⭐ M3: AJENAS_PERMITIDAS sigue en cuatro (lo de inspección se lee por la librería, no con .from)', AJENAS_PERMITIDAS.length === 4);
+  ok('⭐ M3: AJENAS_PERMITIDAS no suma tablas de inspección (lo de inspección se lee por la librería, no con .from); la 5.ª es profiles, solo nombres', AJENAS_PERMITIDAS.length === 5 && AJENAS_PERMITIDAS[4] === 'profiles' && !AJENAS_PERMITIDAS.some((t) => /maintenance|machine_rounds|machine_inspectors/.test(t)));
 }
 ok('PD1: de ./centroOperacionesReporteGeneral solo se importa el TIPO (import type: no carga el lector)',
   [...src.matchAll(/^\s*import\s([^;]*?)from\s+['"]\.\/centroOperacionesReporteGeneral['"]/gm)].every((x) => /^type\s/.test(x[1])));

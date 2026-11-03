@@ -8700,7 +8700,12 @@ Las pestañas van en este orden: **📅 Parte diario · 📋 Registros · 🚛 F
 ⚙️ Ajustes · ✍️ Carga libre** (cada quien ve las de su nivel; se abre la primera).
 
 - La encargada del sitio va con **Full control**: es su módulo y puede hacer todo en él.
-- El acceso es **por módulo, no por sitio**: quien tiene el permiso ve **todos** los sitios.
+- Con el permiso del módulo se ven **todos** los sitios.
+- **🔐 Acceso a un solo centro** *(03/11/2026)*. Un administrador entra a **⚙️ Ajustes** del centro → **«🔐 Quién
+  entra a …»**, busca a la persona y toca **«＋ Dar control total»**. Esa persona entra al Centro de Operaciones con
+  **control total**, pero **solo a ese centro** (o a los que le den): no ve los demás, no crea centros nuevos ni cambia
+  las listas «de todos los sitios» (sí las ve). No hace falta darle el permiso del módulo en Usuarios. **«Quitar»** le
+  saca el acceso sin borrar nada de lo que cargó. La base lo exige también, no solo la pantalla.
 - ⚠️ La tarjeta está en **Más**. Los roles fijos **supervisor**, **operador** y **coordinador de
   inspectores** entran a pantallas sin «Más» y **no verían la tarjeta** aunque tengan el permiso:
   la persona necesita un rol que llegue a «Más». Un rol de app con solo este módulo cae en «Más»

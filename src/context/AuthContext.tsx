@@ -42,6 +42,10 @@ type AuthState = {
   moduleLevel: (moduleKey: string) => PermLevel;
   /** ¿el usuario puede ver/entrar al módulo? (nivel distinto de 'none'). */
   canSee: (moduleKey: string) => boolean;
+  /** 🏭 Centros de operaciones que un admin le asignó a esta persona (vacío = sin
+   *  acceso por centro: rige el permiso del módulo). Con alguno, entra al módulo
+   *  con control total, pero solo a esos centros (lo exige también la base). */
+  copSitiosAsignados: string[];
   /** Bloqueado a la espera de huella (sesión existe pero no se ha desbloqueado). */
   locked: boolean;
   /** Hay una sesión guardada tras la huella: se puede ENTRAR con huella desde el login. */
@@ -88,6 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [fullName, setFullName] = useState<string | null>(null);
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<Record<string, PermLevel>>({});
+  const [copSitiosAsignados, setCopSitiosAsignados] = useState<string[]>([]);
   const [bioLoginAvailable, setBioLoginAvailable] = useState(false);
 
   useEffect(() => {
@@ -270,6 +275,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
     loadPerms();
 
+    // 🏭 Centros de operaciones asignados (03-nov-2026). Si la tabla falta o falla la
+    //    lectura, queda vacío: rige el permiso del módulo, como antes.
+    //    La lectura vive en la capa de datos del módulo (aislamiento) y se carga a demanda
+    //    para no sumar el módulo al arranque.
+    const loadCop = () =>
+      import('../lib/centroOperacionesDb')
+        .then((m) => m.cargarMisSitiosAsignados(uid))
+        .then((ids) => { if (active) setCopSitiosAsignados(ids); }, () => { if (active) setCopSitiosAsignados([]); });
+    loadCop();
+    // En vivo: si un admin da o quita el acceso, se aplica sin cerrar sesión.
+    let copCh: ReturnType<typeof supabase.channel> | null = null;
+    import('../lib/centroOperacionesDb').then((m) => {
+      if (!active) return;
+      const topic = `cop-accesos-${uid}`;
+      supabase.getChannels().filter((c) => c.topic === topic || c.topic === `realtime:${topic}`).forEach((c) => supabase.removeChannel(c));
+      try {
+        copCh = supabase
+          .channel(topic)
+          .on('postgres_changes' as any, { event: '*', schema: 'public', table: m.TABLA_ACCESOS_SITIO, filter: `user_id=eq.${uid}` }, () => loadCop())
+          .subscribe();
+      } catch (e) {
+        console.warn('accesos por centro: realtime no disponible:', e);
+      }
+    }, () => {});
+
     // Realtime: si un admin cambia los permisos del usuario, se aplican EN VIVO
     // (sin necesidad de cerrar y volver a iniciar sesión).
     // Blindaje: si por cualquier razón quedó un canal previo con este mismo topic
@@ -333,6 +363,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
       if (permCh) supabase.removeChannel(permCh);
+      if (copCh) supabase.removeChannel(copCh);
       if (fichaCh) supabase.removeChannel(fichaCh);
       if (profileCh) supabase.removeChannel(profileCh);
       if (roleCh) supabase.removeChannel(roleCh);
@@ -510,6 +541,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const moduleLevel = (moduleKey: string): PermLevel => {
     if (role === 'admin') return 'full';
+    // 🏭 Con un centro de operaciones asignado entra con CONTROL TOTAL (a esos centros:
+    //    la base no le deja ver ni tocar los demás ni crear sitios).
+    if (moduleKey === 'centro_operaciones' && copSitiosAsignados.length > 0) return 'full';
     // Permiso EXPLÍCITO por módulo que un admin le asignó a este usuario (matriz de
     // "Permisos por módulo"). Solo existe si el admin lo marcó (sin default aquí).
     const explicit = permissions[moduleKey];
@@ -571,6 +605,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         rememberBiometricSession,
         moduleLevel,
         canSee,
+        copSitiosAsignados,
         signIn,
         signInWithCedula,
         signInWithUsername,
