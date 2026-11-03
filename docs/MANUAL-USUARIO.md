@@ -4962,6 +4962,12 @@ también lo dice en el detalle día por día.
 modal, con doble toque). Anularlo quita sus ± horas pero **no** toca la lectura del día (esa se
 corrige aparte si hace falta). Los días de un cierre 🔒 no se tocan.
 
+**Un solo cambio por máquina, día y turno** *(03/11/2026)*. Las ± horas de los cambios del mismo día se
+**suman**; por eso ya no deja registrar un segundo cambio ese día y turno: avisa que ya hay uno y pide
+anularlo primero con «↺ Anular». Si lo que está mal son las lecturas (inicial/final), se usa
+**«Acomodar el horómetro»**, no otro cambio. Las «horas a reconocer» son solo lo trabajado que el aparato
+nuevo **no** marcó: no se escribe ahí el final del día.
+
 **Quién puede:** registrar y anular, solo quien tiene el **permiso de corregir horómetros**
 (módulo Horómetros, escritura). Ver la causa en el reporte, cualquiera que vea Reportes. La base
 exige lo mismo que la pantalla y todo queda en Auditoría.

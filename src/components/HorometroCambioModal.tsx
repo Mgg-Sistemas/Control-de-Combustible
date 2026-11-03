@@ -99,6 +99,14 @@ export function HorometroCambioModal({ code, machineryId, roundDate, lecturas, c
     const horas = (numDe(horasTxt) ?? 0) * signo;
     const malo = validarCambioHorometro({ nuevaInicial: nIni, nuevaFinal: nFin, horasAjuste: horas, motivo });
     if (malo) { setError(malo); return; }
+    // 🔁 UN cambio por máquina, día y turno (03-nov-2026). Las ± horas de los cambios
+    //    del mismo día se SUMAN: registrar otro «para corregir» el primero le cobraba
+    //    las horas dos veces (JUMBO 320, 01-nov: 6,7 h + 7,2 h reconocidas = 13,9 h).
+    const yaHay = activos.find((c) => String(c.round_date).slice(0, 10) === fecha && (c.shift ?? 'day') === turno);
+    if (yaHay) {
+      setError(`Ya hay un cambio de horómetro registrado el ${dmy(fecha)} (${turno === 'night' ? 'noche' : 'día'})${Number(yaHay.horas_ajuste) ? ` que reconoce ${Number(yaHay.horas_ajuste) > 0 ? '+' : ''}${yaHay.horas_ajuste} h` : ''}. Si te equivocaste, anúlalo primero abajo con «↺ Anular» y vuelve a registrarlo; si solo hay que corregir las lecturas, usa «Acomodar el horómetro».`);
+      return;
+    }
     setError(null); setBusy('guardar');
     try {
       // 1) La lectura del día: el aparato NUEVO sienta base (reinicio).

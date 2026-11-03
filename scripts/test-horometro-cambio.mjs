@@ -179,6 +179,9 @@ ok('⭐ el registro del cambio se guarda con crearCambioHorometro', /crearCambio
 ok('📷 fotos OPCIONALES con cámara Y galería (regla de la casa)',
   /takePhotoAndUpload\(machineryId, 'horometro'\)/.test(modal) && /pickPhotoFromGalleryAndUpload\(machineryId, 'horometro'\)/.test(modal) && modal.includes('opcional'));
 ok('📷 las fotos también van al histórico del horómetro (salen en el reporte)', /agregarFotoHorometro\(\{ machineryId, roundDate: fecha, shift: turno, url/.test(modal));
+ok('🔁 no deja un SEGUNDO cambio el mismo día y turno (sus ± horas se sumarían)',
+  /const yaHay = activos\.find\(\(c\) => String\(c\.round_date\)\.slice\(0, 10\) === fecha && \(c\.shift \?\? 'day'\) === turno\)/.test(modal)
+  && modal.indexOf('if (yaHay)') < modal.indexOf('guardarLecturaHorometro(machineryId'));
 ok('↺ anular exige motivo y doble toque', modal.includes('toca otra vez ↺ Anular') && /anularCambioHorometro\(c\.id, m\)/.test(modal));
 
 const db = leer('src/lib/pagoHorometroDb.ts');
