@@ -27,6 +27,7 @@ import { DateField } from './DateField';
 import { Toggle } from './CubicajeTab';
 import { useTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { HistorialTodosPersonalizado } from './HistorialTodosPersonalizado';
 import { spacing, radius } from '../theme';
 import { selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
@@ -83,8 +84,11 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const esMovil = width < 720;
 
   let usuarioActual = 'Usuario';
+  // 👥 03-nov-2026: el administrador ve además los reportes de TODOS (la base lo exige igual).
+  let esAdmin = false;
   try {
     const auth = useAuth();
+    esAdmin = auth?.role === 'admin';
     if (auth?.fullName) usuarioActual = auth.fullName;
     else if (auth?.session?.user?.email) usuarioActual = auth.session.user.email.split('@')[0];
   } catch {
@@ -395,9 +399,10 @@ export function ReporteMaquinariaPersonalizadoCard() {
   }, [rangoEnPapel, rango.desde, rango.hasta, subtitulo]);
 
   useEffect(() => {
-    cargarHistorialReportePersonalizado()
+    cargarHistorialReportePersonalizado(usuarioActual)
       .then((lista) => setHistorial(lista))
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const mostrarAvisoTemporal = (msg: string) => {
@@ -490,8 +495,8 @@ export function ReporteMaquinariaPersonalizadoCard() {
   };
 
   // ✏️ Opción B: Reusar y modificar (carga las filas, opciones, fechas y filtros en el taller).
-  const reusarDelHistorico = (item: RegistroHistorialPersonalizado) => {
-    if (filas.length > 0 && confirmaReusarId !== item.id) {
+  const reusarDelHistorico = (item: RegistroHistorialPersonalizado, yaConfirmado = false) => {
+    if (!yaConfirmado && filas.length > 0 && confirmaReusarId !== item.id) {
       setConfirmaReusarId(item.id);
       setTimeout(() => {
         setConfirmaReusarId((actual) => (actual === item.id ? null : actual));
@@ -714,6 +719,14 @@ export function ReporteMaquinariaPersonalizadoCard() {
           >
             <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{avisoHistorico}</Text>
           </View>
+        ) : null}
+
+        {esAdmin ? (
+          <HistorialTodosPersonalizado
+            hayPapelCargado={filas.length > 0}
+            onReimprimir={reimprimirDelHistorico}
+            onReusar={(reg) => reusarDelHistorico(reg, true)}
+          />
         ) : null}
 
         {historicoAbierto ? (

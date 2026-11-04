@@ -273,6 +273,25 @@ const srcPdf = fs.readFileSync(path.join(ROOT, 'src/lib/pdf.ts'), 'utf8');
 ok('⭐ pdf.ts: sin pasar «emitida», los demás reportes no cambian (nowStamp de siempre)',
   srcPdf.includes('${opts.emitida ?? nowStamp()}') && /emitida\?: string/.test(srcPdf));
 
+// 👥 03-nov-2026: el histórico por persona y el de TODOS para el admin.
+{
+  const srcSt = fs.readFileSync(path.join(ROOT, 'src/lib/reportePersonalizadoStorage.ts'), 'utf8');
+  const srcTodos = fs.readFileSync(path.join(ROOT, 'src/components/HistorialTodosPersonalizado.tsx'), 'utf8');
+  ok('👥 el histórico va a su tabla, una fila por reporte con su autor',
+    /TABLA_HISTORIAL_PERSONALIZADO = 'reportes_personalizados_historial'/.test(srcSt) && /created_by: uid/.test(srcSt));
+  ok('👥 ya no se escribe el histórico dentro de la configuración de la tiquetera',
+    !/tique_config/.test(srcSt.replace(/^\s*\/\/.*$/gm, '')));
+  ok('👥 quitar nunca borra: marca quitado_at, y solo lo MÍO',
+    !/\.delete\(/.test(srcSt) && /quitado_at: new Date\(\)/.test(srcSt) && /\.eq\('created_by', uid\)/.test(srcSt));
+  ok('👥 la lista de todos es liviana (sin las filas del papel) y el completo se pide aparte',
+    /export async function listarHistorialDeTodos/.test(srcSt) && !/select\('id, created_by[^']*registro,/.test(srcSt) && /export async function cargarReporteCompleto/.test(srcSt));
+  ok('👥 el apartado de todos solo se monta para el administrador',
+    /esAdmin = auth\?\.role === 'admin'/.test(srcCard) && /\{esAdmin \? \(\s*<HistorialTodosPersonalizado/.test(srcCard));
+  ok('👥 desde el apartado de todos no se borra nada ni se toca la base directo',
+    !/supabase|\.delete\(|\.update\(/.test(srcTodos) && srcTodos.includes('Reimprimir como estaba') && srcTodos.includes('Reusar y modificar') && srcTodos.includes('¿De quién?'));
+  ok('👥 reusar desde todos reemplaza el taller solo con un segundo toque',
+    /hayPapelCargado && confirmaReusar !== r\.id/.test(srcTodos) && /reusarDelHistorico\(reg, true\)/.test(srcCard));
+}
 const srcPantalla = fs.readFileSync(path.join(ROOT, 'src/screens/ReportsScreen.tsx'), 'utf8');
 ok('la pestaña «Personalizado» está montada en Reportes', /<ReporteMaquinariaPersonalizadoCard \/>/.test(srcPantalla) && srcPantalla.includes("{ v: 'personalizado', label: '🛠️ Personalizado' }"));
 ok('el botón genérico de generar no aplica en la pestaña nueva', srcPantalla.includes("mode !== 'frentes' && mode !== 'personalizado'"));
