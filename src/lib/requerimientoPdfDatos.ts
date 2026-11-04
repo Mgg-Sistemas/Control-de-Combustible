@@ -60,12 +60,15 @@ export function proveedoresPagoDeReq(r: InventoryRequirement, suppliers: readonl
   return out;
 }
 
-/** Un renglón del requerimiento en el formato del papel (sin la imagen). */
-export function itemPdfDe(it: InventoryRequirement['items'][number]): ReqPdfItem {
+/** Un renglón del requerimiento en el formato del papel (sin la imagen). Con la
+ *  lista de proveedores, el renglón que apunta a un proveedor registrado lleva SU
+ *  nombre (así dos renglones del mismo proveedor escritos distinto se juntan). */
+export function itemPdfDe(it: InventoryRequirement['items'][number], suppliers?: readonly Supplier[]): ReqPdfItem {
+  const registrado = it.supplier_id && suppliers ? suppliers.find((s) => s.id === it.supplier_id)?.name : null;
   return {
     name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency,
     isNew: !it.product_id, note: it.note,
-    supplier_name: it.supplier_name || null,
+    supplier_name: registrado || it.supplier_name || null,
     exento: Boolean(it.exento),
     modo_precio: it.modo_precio || 'unidad',
     price_usd: it.price_usd,
@@ -87,7 +90,7 @@ export function desgloseProveedoresDeReq(r: InventoryRequirement, suppliers: rea
     proveedor: sel?.name ?? null,
     proveedoresPago: proveedoresPagoDeReq(r, suppliers),
     ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r as any),
-    items: (r.items ?? []).map(itemPdfDe),
+    items: (r.items ?? []).map((it) => itemPdfDe(it, suppliers)),
   });
 }
 
@@ -106,7 +109,7 @@ export async function armarReqPdfData(r: InventoryRequirement, ctx: {
 }): Promise<ReqPdfData> {
   const sel = ctx.suppliers.find((s) => s.id === r.supplier_id);
   const items = await Promise.all((r.items ?? []).map(async (it) => ({
-    ...itemPdfDe(it),
+    ...itemPdfDe(it, ctx.suppliers),
     image: it.image_url ? ((await urlToDataUri(it.image_url).catch(() => null)) || it.image_url) : null,
   })));
   return {

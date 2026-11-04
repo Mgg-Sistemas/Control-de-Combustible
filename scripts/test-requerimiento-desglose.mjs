@@ -52,6 +52,14 @@ eq('trae los productos de cada uno', g[0].items.map((i) => [i.name, i.lineUsd]),
 const exento = R.desgloseProveedoresReq({ ...D, items: [{ ...D.items[0], exento: true }, D.items[4]] });
 eq('lo exento no paga IVA', [exento[0].ivaUsd, exento[0].exentoUsd, exento[1].ivaUsd], [0, 830, 54.08]);
 
+// ⭐ El MISMO proveedor escrito distinto en dos renglones va en UN solo monto.
+const mismo = R.desgloseProveedoresReq({ ...D, items: [it('A', 1, 100, 'interweld, c.a.'), it('B', 2, 50, 'INTERWELD C.A'), it('C', 1, 10, 'Interweld CA')] });
+eq('⭐ «interweld, c.a.», «INTERWELD C.A» e «Interweld CA» = un solo proveedor, un solo monto',
+  mismo.map((x) => [x.renglones, x.subtotalUsd, x.totalUsd, x.items.map((i) => i.name)]), [[3, 210, 243.6, ['A', 'B', 'C']]]);
+ok('⭐ y le llegan sus datos de pago aunque esté escrito distinto', mismo[0].pago === '📱 PM: 04143285360');
+const datos = fs.readFileSync(path.join(ROOT, 'src/lib/requerimientoPdfDatos.ts'), 'utf8');
+ok('el renglón con proveedor registrado usa el nombre del registro', /suppliers\.find\(\(s\) => s\.id === it\.supplier_id\)\?\.name/.test(datos));
+
 const html = R.requerimientoHtml({ ...D, observaciones: '' });
 ok('con varios proveedores el papel trae el desglose', /Desglose por proveedor/.test(html) && /\$1\.455,80/.test(html));
 ok('y avisa el que no tiene datos de pago', /sin datos de pago cargados/.test(html));

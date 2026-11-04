@@ -152,9 +152,11 @@ export function lineaReq(it: ReqPdfItem, rate: number | null): { lineUsd: number
   return { lineUsd, uUsd, lineBs };
 }
 
-/** Nombre de proveedor para comparar (sin mayúsculas, acentos ni espacios dobles). */
+/** Nombre de proveedor para comparar: sin mayúsculas, acentos, puntos, comas ni
+ *  espacios (04-nov-2026: «interweld, c.a.» e «INTERWELD C.A» son el MISMO
+ *  proveedor y van en un solo monto). */
 export function claveProveedorReq(nombre: unknown): string {
-  return String(nombre ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return String(nombre ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9ñ]+/g, '');
 }
 
 export type DesgloseProveedorReq = {
