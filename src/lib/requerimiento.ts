@@ -78,6 +78,10 @@ export type ReqPdfData = {
   } | null;
   /** 🧾 Alícuota de IVA del requerimiento (16% por defecto, editable a 0%) */
   ivaAlicuota?: number | null;
+  /** 💳 Datos de pago de CADA proveedor de los renglones (04-nov-2026), por nombre
+   *  normalizado (ver `claveProveedorReq`). Con más de un proveedor el papel trae el
+   *  desglose de cuánto pagarle a cada uno. */
+  proveedoresPago?: Record<string, string> | null;
 };
 
 // Firma según QUIÉN aprueba: cada aprobador tiene su cargo y su firma escaneada.
@@ -128,7 +132,103 @@ const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-
       .firma .firmante{margin-top:2px;font-size:12px;font-weight:700;color:#333;letter-spacing:.3px}
       .pgbreak{page-break-after:always}
       .reqsum{margin-bottom:16px;page-break-inside:avoid}
-      .reqsum + .reqsum{border-top:1px dashed #c9d2dc;padding-top:14px;margin-top:2px}`;
+      .reqsum + .reqsum{border-top:1px dashed #c9d2dc;padding-top:14px;margin-top:2px}
+      .reqdesg{page-break-inside:avoid}`;
+
+/** 💵 Lo que vale UN renglón (US$ y Bs), con la misma regla en la tabla, el
+ *  desglose por proveedor y Por Pagar: el precio explícito en US$ manda; el modo
+ *  «total» manda sobre el unitario; los Bs escritos mandan sobre US$ × tasa. */
+export function lineaReq(it: ReqPdfItem, rate: number | null): { lineUsd: number; uUsd: number; lineBs: number } {
+  const qty = Number(it.qty) || 0;
+  const rawUnitUsd = Number(it.price_usd) > 0 ? Number(it.price_usd) : toUsd(Number(it.est_price) || 0, it.currency, rate);
+  const esModoTotal = it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0;
+  const lineUsd = esModoTotal ? Number(it.total_usd) : rawUnitUsd * qty;
+  const uUsd = esModoTotal ? (qty > 0 ? lineUsd / qty : lineUsd) : rawUnitUsd;
+  const lineBs = (it.modo_precio === 'total' && it.total_bs && Number(it.total_bs) > 0)
+    ? Number(it.total_bs)
+    : (it.price_bs && Number(it.price_bs) > 0)
+    ? Number(it.price_bs) * qty
+    : (rate && rate > 0 ? lineUsd * rate : 0);
+  return { lineUsd, uUsd, lineBs };
+}
+
+/** Nombre de proveedor para comparar (sin mayúsculas, acentos ni espacios dobles). */
+export function claveProveedorReq(nombre: unknown): string {
+  return String(nombre ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+export type DesgloseProveedorReq = {
+  proveedor: string;
+  renglones: number;
+  subtotalUsd: number;
+  exentoUsd: number;
+  ivaUsd: number;
+  totalUsd: number;
+  totalBs: number;
+  pago: string;
+  /** Los renglones de este proveedor (para verlos en Por Pagar). */
+  items: { name: string; qty: number; unit: string; uUsd: number; lineUsd: number; exento: boolean }[];
+};
+
+const SIN_PROVEEDOR_REQ = 'Sin proveedor asignado';
+
+/**
+ * 💳 CUÁNTO PAGARLE A CADA PROVEEDOR (04-nov-2026, a pedido: «no se entiende cuánto
+ * hay que pagarle a cada proveedor»). Agrupa los renglones por su proveedor (el del
+ * renglón; si no tiene, el del requerimiento) y saca subtotal, IVA y total de cada
+ * uno con la MISMA regla del papel. El IVA se reparte de modo que la suma de los
+ * proveedores dé EXACTO el IVA del total (el último absorbe el céntimo).
+ */
+export function desgloseProveedoresReq(d: ReqPdfData): DesgloseProveedorReq[] {
+  const alicuota = d.ivaAlicuota !== undefined && d.ivaAlicuota !== null
+    ? Math.min(100, Math.max(0, Number(d.ivaAlicuota))) : 16;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const grupos = new Map<string, { nombre: string; renglones: number; sub: number; base: number; subBs: number; baseBs: number; items: DesgloseProveedorReq['items'] }>();
+  for (const it of d.items) {
+    const nombre = String(it.supplier_name || d.proveedor || '').trim() || SIN_PROVEEDOR_REQ;
+    const k = claveProveedorReq(nombre);
+    const g = grupos.get(k) ?? { nombre, renglones: 0, sub: 0, base: 0, subBs: 0, baseBs: 0, items: [] };
+    const { lineUsd, lineBs, uUsd } = lineaReq(it, d.rate);
+    g.renglones += 1; g.sub += lineUsd; g.subBs += lineBs;
+    g.items.push({ name: String(it.name ?? ''), qty: Number(it.qty) || 0, unit: String(it.unit ?? ''), uUsd: r2(uUsd), lineUsd: r2(lineUsd), exento: Boolean(it.exento) });
+    if (!it.exento) { g.base += lineUsd; g.baseBs += lineBs; }
+    grupos.set(k, g);
+  }
+  const lista = Array.from(grupos.entries());
+  const ivaTotal = r2(lista.reduce((a, [, g]) => a + g.base, 0) * (alicuota / 100));
+  let ivaAcum = 0;
+  return lista.map(([k, g], i) => {
+    const iva = i === lista.length - 1 ? r2(ivaTotal - ivaAcum) : r2(g.base * (alicuota / 100));
+    ivaAcum = r2(ivaAcum + iva);
+    const ivaBs = g.baseBs * (alicuota / 100);
+    return {
+      proveedor: g.nombre,
+      renglones: g.renglones,
+      subtotalUsd: r2(g.sub),
+      exentoUsd: r2(g.sub - g.base),
+      ivaUsd: iva,
+      totalUsd: r2(g.sub + iva),
+      totalBs: r2(g.subBs + ivaBs),
+      pago: (d.proveedoresPago ?? {})[k] ?? '',
+      items: g.items,
+    };
+  });
+}
+
+/** 🧹 Las marcas internas que el sistema guarda dentro de las observaciones
+ *  (historial, condiciones, IVA, envíos y aprobaciones de Por Pagar, formatos y
+ *  cotizaciones) NO van al papel (04-nov-2026: el PDF salía con el historial
+ *  codificado). Solo queda lo que escribió la persona. */
+export function limpiarObservacionesPapel(obs: unknown): string {
+  let t = String(obs ?? '');
+  // Bloques [[NOMBRE: … :FIN_ALGO]] (historial, formatos, cotizaciones…)
+  t = t.replace(/\[\[[A-Z_]+:[\s\S]*?:FIN_[A-Z_]+\]\]/g, '');
+  // Un bloque que quedó sin cierre: se corta desde ahí (es todo código).
+  t = t.replace(/\[\[[A-Z_]+:[\s\S]*$/g, '');
+  // Etiquetas sueltas [ALGO_ASI: …] (llevan guion bajo: el texto de una persona no).
+  t = t.replace(/\[[A-Z]+(?:_[A-Z]+)+:[^\]]*\]/g, '');
+  return t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
 
 /** Filas de la tabla + total en US$ y Bs de UN requerimiento */
 function reqTableHtml(d: ReqPdfData): {
@@ -153,17 +253,8 @@ function reqTableHtml(d: ReqPdfData): {
   let baseImponibleBs = 0;
 
   const rows = d.items.map((it, i) => {
-    const qty = Number(it.qty) || 0;
     // Si el renglón trae su precio explícito en US$ manda ese (misma regla que la tarjeta y Por pagar).
-    const rawUnitUsd = Number(it.price_usd) > 0 ? Number(it.price_usd) : toUsd(Number(it.est_price) || 0, it.currency, d.rate);
-    const esModoTotal = it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0;
-    const lineUsd = esModoTotal ? Number(it.total_usd) : rawUnitUsd * qty;
-    const uUsd = esModoTotal ? (qty > 0 ? lineUsd / qty : lineUsd) : rawUnitUsd;
-    const lineBs = (it.modo_precio === 'total' && it.total_bs && Number(it.total_bs) > 0)
-      ? Number(it.total_bs)
-      : (it.price_bs && Number(it.price_bs) > 0)
-      ? Number(it.price_bs) * qty
-      : (d.rate && d.rate > 0 ? lineUsd * d.rate : 0);
+    const { lineUsd, uUsd, lineBs } = lineaReq(it, d.rate);
 
     subtotalUsd += lineUsd;
     subtotalBs += lineBs;
@@ -259,7 +350,7 @@ function reqDatosHtml(d: ReqPdfData): string {
  *  van después del total y de la nota porque son el cierre del papel, no un dato de
  *  cabecera. Si vienen vacías no queda ni el rótulo. */
 function reqObsHtml(d: ReqPdfData): string {
-  const obs = (d.observaciones || '').trim();
+  const obs = limpiarObservacionesPapel(d.observaciones);
   const a = d.aclaratoria;
   let aclaratoriaHtml = '';
   if (a && (a.motivo || a.respuesta)) {
@@ -318,6 +409,27 @@ function reqTotalsBlockHtml(res: ReturnType<typeof reqTableHtml>, rate: number |
     </div>`;
 }
 
+/** 💳 El desglose en el papel: solo si hay MÁS DE UN proveedor (con uno solo, el
+ *  total de arriba ya es lo que se le paga). */
+function reqDesgloseHtml(d: ReqPdfData): string {
+  const g = desgloseProveedoresReq(d);
+  if (g.length < 2) return '';
+  const filas = g.map((x, i) => `<tr>
+      <td class="c">${i + 1}</td>
+      <td><b>${esc(x.proveedor)}</b><div class="pdesc">${x.renglones} renglón(es)${x.pago ? ` · 💳 ${esc(x.pago)}` : ' · ⚠️ sin datos de pago cargados'}</div></td>
+      <td class="r">$${money(x.subtotalUsd)}</td>
+      <td class="r">$${money(x.ivaUsd)}</td>
+      <td class="r b">$${money(x.totalUsd)}${x.totalBs > 0 ? `<div style="font-size:9px;color:#0D9488;font-weight:700">Bs ${money(x.totalBs)}</div>` : ''}</td>
+    </tr>`).join('');
+  return `<div class="reqdesg">
+      <div class="reqhead" style="margin-top:12px">💳 Desglose por proveedor · cuánto pagarle a cada uno</div>
+      <table>
+        <thead><tr><th style="width:26px" class="c">#</th><th>Proveedor y datos de pago</th><th class="r">Subtotal</th><th class="r">IVA</th><th class="r">A pagar</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+}
+
 /** El cuerpo (tabla + total + firma) de UN requerimiento, sin envolver en `pdfDocument`
  *  — así lo puede usar tanto el PDF individual como el de varios requerimientos juntos. */
 function reqBodyHtml(d: ReqPdfData, heading?: string): string {
@@ -343,6 +455,7 @@ function reqBodyHtml(d: ReqPdfData, heading?: string): string {
             <tbody>${rows || `<tr><td colspan="${hasImg ? 6 : 5}" class="c">Sin ítems</td></tr>`}</tbody>
           </table>
           ${reqTotalsBlockHtml(tableRes, d.rate)}
+          ${reqDesgloseHtml(d)}
           ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
           ${reqObsHtml(d)}
         </div>

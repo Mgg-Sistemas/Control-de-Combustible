@@ -28,6 +28,7 @@ import { FormatoAdjunto, empaquetarFormatosEnObservaciones, extraerFormatosAdjun
 import * as ImagePicker from 'expo-image-picker';
 import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
 import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
+import { armarReqPdfData } from '../lib/requerimientoPdfDatos';
 import { CotizacionesModal } from '../components/CotizacionesModal';
 import {
   CotizacionAlternativa,
@@ -3193,56 +3194,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   const totalUsdDe = (r: InventoryRequirement) => calcularTotalReqUsd(r.items || [], rate, r.iva_alicuota != null ? r.iva_alicuota : resolverAlicuotaIvaRequerimiento(r));
 
-  // Convierte los ítems al formato del PDF, incrustando la imagen de cada producto
-  // como data-URI (para que salga SÍ o SÍ en el PDF, sin depender de CORS ni de que
-  // la imagen cargue a tiempo al imprimir). En nativo urlToDataUri devuelve null →
-  // se usa la URL directa (expo-print sí carga imágenes remotas).
-  const itemsToPdf = (r: InventoryRequirement) => Promise.all(r.items.map(async (it) => ({
-    name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency,
-    isNew: !it.product_id, note: it.note,
-    supplier_name: it.supplier_name || null,
-    exento: Boolean(it.exento),
-    modo_precio: it.modo_precio || 'unidad',
-    price_usd: it.price_usd,
-    price_bs: it.price_bs,
-    total_usd: it.total_usd,
-    total_bs: it.total_bs,
-    metodo_pago: (it as any).metodo_pago || null,
-    cotizaciones_count: Array.isArray(it.cotizaciones) ? it.cotizaciones.length : 0,
-    image: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
-  })));
-
-  const buildReqPdfData = async (r: InventoryRequirement): Promise<ReqPdfData> => {
-    const selectedSupplier = suppliers.find((s) => s.id === r.supplier_id);
-    return {
-      code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
-      company: companyName(r.company_id),
-      empresaPagadora: r.empresa_pagadora_nombre ?? null,
-      proveedor: selectedSupplier?.name ?? null,
-      proveedorDatosPago: selectedSupplier ? {
-        banco: selectedSupplier.bank_name,
-        cuenta: selectedSupplier.account_number,
-        titular: selectedSupplier.account_holder,
-        cedulaRif: selectedSupplier.account_id_doc,
-        pagoMovil: selectedSupplier.pago_movil_phone ? `${selectedSupplier.pago_movil_bank ?? ''} - ${selectedSupplier.pago_movil_phone} (${selectedSupplier.pago_movil_id ?? ''})` : null,
-        binance: selectedSupplier.binance_id,
-      } : null,
-      requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
-      /* 👤 Lo declarado en el papel (20-oct-2026). Lo vacío no sale impreso. */
-      solicitante: r.solicitante_nombre ?? null, autorizadoPor: r.autorizado_nombre ?? null,
-      destino: destinoLabel(r.destino_tipo), area: r.area ?? null, observaciones: limpiarObservacionesFormatos(r.observaciones) ?? null,
-      aclaratoria: r.aclaratoria_motivo ? {
-        motivo: r.aclaratoria_motivo,
-        solicitadaPor: r.aclaratoria_solicitada_por ?? null,
-        fechaSolicitud: r.aclaratoria_fecha_solicitud ? dmyOf(r.aclaratoria_fecha_solicitud) : null,
-        respuesta: r.aclaratoria_respuesta ?? null,
-        fechaRespuesta: r.aclaratoria_fecha_respuesta ? dmyOf(r.aclaratoria_fecha_respuesta) : null,
-      } : null,
-      approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
-      ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r),
-      items: await itemsToPdf(r),
-    };
-  };
+  // 📄 Los datos del PDF salen de lib/requerimientoPdfDatos (04-nov-2026): el MISMO
+  // papel que descarga Por Pagar, con las imágenes incrustadas y el desglose por
+  // proveedor cuando hay más de uno.
+  const buildReqPdfData = (r: InventoryRequirement): Promise<ReqPdfData> =>
+    armarReqPdfData(r, { suppliers, companyName: (id) => companyName(id ?? null), rate, statusLabel: REQ_STATUS[r.status]?.short ?? r.status });
 
   const pdf = async (r: InventoryRequirement) => {
     try {

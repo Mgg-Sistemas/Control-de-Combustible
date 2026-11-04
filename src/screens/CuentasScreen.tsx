@@ -20,6 +20,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
 import { NotasEsperaCuenta } from '../components/NotasEsperaCuenta';
+import { DesgloseProveedoresCxp } from '../components/DesgloseProveedoresCxp';
 import { NotaEspera, TABLA_NOTAS_ESPERA, notasPorCuenta } from '../lib/cuentaNotasEspera';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
@@ -3291,6 +3292,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       </View>
                     ) : null}
                   </View>
+                ) : null}
+
+                {/* 💳 Desglose por proveedor + PDF del requerimiento (04-nov-2026): cuánto pagarle a cada uno. */}
+                {tipo === 'por_pagar' && c.inventory_requirement_id && reqPorIdBs.get(c.inventory_requirement_id) ? (
+                  <DesgloseProveedoresCxp
+                    req={reqPorIdBs.get(c.inventory_requirement_id) as InventoryRequirement}
+                    suppliers={suppliers}
+                    rate={tasaBcv ?? null}
+                    companyName={(id) => (id ? companies.find((co) => co.id === id)?.name ?? null : null)}
+                  />
                 ) : null}
 
                 {/* 💳 BLOQUE COMPLETO DE MÉTODOS, CONDICIONES Y DATOS BANCARIOS DE PAGO (visible al desplegar) */}

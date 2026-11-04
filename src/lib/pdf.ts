@@ -109,8 +109,11 @@ export function pdfDocument(opts: {
   //    admin los reimprime), y la vista previa web pinta este HTML con
   //    document.write en un iframe del mismo origen: un <script> ahí correría
   //    con la sesión de quien reimprime. Se escapan aquí, para todos.
+  //    ⚠️ Doce papeles ya escapaban su subtítulo por su cuenta: un «&amp;» que ya
+  //    viene escapado NO se vuelve a escapar (saldría «&amp;amp;» en el papel). Lo
+  //    peligroso son < > " ' crudos, y esos se escapan siempre.
   const escTxt = (v: unknown) => String(v ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/&(?!(?:amp|lt|gt|quot|#39|#\d{1,6}|#x[0-9a-fA-F]{1,6});)/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const title = escTxt(opts.title);
   const subtitle = escTxt(opts.subtitle ?? '');
