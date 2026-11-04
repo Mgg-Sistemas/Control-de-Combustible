@@ -19,6 +19,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
+import { NotasEsperaCuenta } from '../components/NotasEsperaCuenta';
+import { NotaEspera, TABLA_NOTAS_ESPERA, notasPorCuenta } from '../lib/cuentaNotasEspera';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -382,6 +384,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const { data: todas, loading, refetch } = useTable<Cuenta>('cuentas', { orderBy: 'fecha_vencimiento' });
   const { data: abonos, refetch: refetchAbonos } = useTable<CuentaAbono>('cuenta_abonos', { orderBy: 'fecha', ascending: false });
+  // 📝 04-nov-2026: notas de «por qué no se ha pagado» (si la tabla falta, viene vacío y no se cae).
+  const { data: notasEspera, refetch: refetchNotasEspera } = useTable<NotaEspera>(TABLA_NOTAS_ESPERA, { orderBy: 'created_at', ascending: false });
+  const notasEsperaPorCuenta = useMemo(() => notasPorCuenta(notasEspera), [notasEspera]);
   const { data: suppliers, refetch: refetchSuppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: orders } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
@@ -3038,6 +3043,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       </TouchableOpacity>
                     ) : null}
                   </View>
+                ) : null}
+                {/* 📝 Por qué no se ha pagado (04-nov-2026): visible sin abrir la tarjeta; la escribe cualquiera que vea Por Pagar. */}
+                {tipo === 'por_pagar' ? (
+                  <NotasEsperaCuenta
+                    cuentaId={c.id}
+                    notas={notasEsperaPorCuenta.get(c.id) ?? []}
+                    abierta={abiertas}
+                    miId={uid}
+                    puedeAnularTodas={canWrite}
+                    onCambio={refetchNotasEspera}
+                  />
                 ) : null}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
                   <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 1 }}>
