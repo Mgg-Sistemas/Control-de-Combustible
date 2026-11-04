@@ -43,6 +43,8 @@ const {
 
 const {
   cuerpoReporteEmpleados,
+  limpiarSoloDepartamento,
+  contarColumnasActivasEmpleados,
 } = loadTs(path.join(ROOT, 'src/lib/empleadosReporte.ts'));
 
 let pass = 0, fail = 0;
@@ -172,6 +174,91 @@ const repSinHabNiEmpresa = cuerpoReporteEmpleados({
 eq('al apagar habilidades no sale en el reporte', repSinHabNiEmpresa.body.includes('SOLDADOR'), false);
 eq('al apagar empresa no sale SOS LA GUAIRA', repSinHabNiEmpresa.body.includes('SOS LA GUAIRA'), false);
 eq('al apagar resumenCargo no sale Resumen por cargo', repSinHabNiEmpresa.body.includes('Resumen por cargo'), false);
+
+// 8. Departamento sin grupo ni dirección + cuadros organizados + ocultar/mostrar columnas
+eq('limpiarSoloDepartamento devuelve solo department aunque tenga grupo dirección', limpiarSoloDepartamento('ADMINISTRATIVO', 'CAMURI CHICO'), 'ADMINISTRATIVO');
+eq('limpiarSoloDepartamento quita sufijo pegado · CAMURI CHICO', limpiarSoloDepartamento('ADMINISTRATIVO · CAMURI CHICO', 'CAMURI CHICO'), 'ADMINISTRATIVO');
+eq('limpiarSoloDepartamento vacío si solo hay grupo dirección', limpiarSoloDepartamento(null, 'LA GUAIRA'), '');
+
+const repConDepto = cuerpoReporteEmpleados({
+  empleados: [
+    {
+      id: 'emp-2',
+      first_name: 'AGATHA',
+      last_name: 'MENDOZA',
+      cedula: '21192049',
+      ficha_number: '0101',
+      cargo: 'COORDINADORA DE RRHH',
+      department: 'ADMINISTRATIVO',
+      grupo: 'CAMURI CHICO',
+      empresaNomina: 'SOS LA GUAIRA',
+      status: 'activo',
+    },
+    {
+      id: 'emp-3',
+      first_name: 'MOISES',
+      last_name: 'MORA',
+      cedula: '20127237',
+      ficha_number: '0102',
+      cargo: 'COORDINADOR GENERAL',
+      department: 'ADMINISTRATIVO',
+      grupo: 'LA GUAIRA',
+      empresaNomina: 'SOS LA GUAIRA',
+      status: 'activo',
+    },
+  ],
+  estadoTxt: 'Activos',
+  empresaTxt: 'Todas',
+  departamentoTxt: 'ADMINISTRATIVO',
+  cargoTxt: 'Todos los cargos',
+  opciones: {
+    numeracion: true,
+    empleado: true,
+    cedula: true,
+    cargo: true,
+    departamento: true,
+    ficha: false,
+    habilidades: false,
+    empresa: false,
+    estado: false,
+    telefono: false,
+    cuadrosResumen: true,
+    resumenCargo: true,
+    resumenDepartamento: true,
+  },
+});
+
+eq('encabezado de columna es solo Departamento (nunca Departamento / Grupo)', repConDepto.body.includes('<th>Departamento</th>') && !repConDepto.body.includes('Departamento / Grupo'), true);
+eq('no mezcla grupo ni dirección CAMURI CHICO en columna Departamento', repConDepto.body.includes('CAMURI CHICO'), false);
+eq('no mezcla grupo ni dirección LA GUAIRA en columna Departamento', repConDepto.body.includes('ADMINISTRATIVO · LA GUAIRA'), false);
+eq('muestra el departamento limpio ADMINISTRATIVO', repConDepto.body.includes('<td>ADMINISTRATIVO</td>'), true);
+eq('incluye cuadros superiores de resumen (.tiles)', repConDepto.body.includes('class="tiles"') && repConDepto.body.includes('Empleados en el reporte'), true);
+eq('incluye cuadro de Resumen por departamento', repConDepto.body.includes('Resumen por departamento'), true);
+eq('extraCss tiene estilos de tabla con bordes y encabezados (#1E3A5F y border-collapse)', repConDepto.extraCss.includes('border-collapse:collapse') && repConDepto.extraCss.includes('#1E3A5F'), true);
+
+const repSinEmpleado = cuerpoReporteEmpleados({
+  empleados: [
+    {
+      id: 'emp-2',
+      first_name: 'AGATHA',
+      last_name: 'MENDOZA',
+      cedula: '21192049',
+      cargo: 'COORDINADORA DE RRHH',
+      department: 'ADMINISTRATIVO',
+      status: 'activo',
+    },
+  ],
+  estadoTxt: 'Activos',
+  empresaTxt: 'Todas',
+  cargoTxt: 'Todos los cargos',
+  opciones: {
+    empleado: false,
+    cuadrosResumen: false,
+  },
+});
+eq('permite ocultar columna Empleado cuando empleado=false', repSinEmpleado.body.includes('<th>Empleado</th>'), false);
+eq('permite ocultar cuadros superiores cuando cuadrosResumen=false', repSinEmpleado.body.includes('class="tiles"'), false);
+eq('contarColumnasActivasEmpleados cuenta Empleado por defecto (9 cols)', contarColumnasActivasEmpleados({}), 9);
 
 console.log('\n🏢  Grupos apartados dinámicos (Configurables por Empresa, Cargo y Departamento)');
 console.log(`   ${pass} OK · ${fail} fallo(s)`);

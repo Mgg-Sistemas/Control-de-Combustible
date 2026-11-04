@@ -425,7 +425,7 @@ export default function PagoPersonalScreen() {
       const embName = Array.isArray(e.payroll_company) ? e.payroll_company[0]?.name : e.payroll_company?.name;
       const pcName = embName || (e.payroll_company_id ? (payrollCompanies ?? []).find((c) => c.id === e.payroll_company_id)?.name : undefined);
       if (pcName && !pcName.startsWith('__')) empresasNomina.set(e.id, pcName);
-      const deptFichaRaw = (e.department || e.grupo || '').trim();
+      const deptFichaRaw = (e.department || '').trim();
       const inferidoCargo = deptsSinTab.de(e.cargo, null);
       const canonFicha = deptFichaRaw ? deptsSinTab.de(null, deptFichaRaw) : SIN_DEPARTAMENTO;
       const deptoEfectivo = (deptFichaRaw && canonFicha !== SIN_DEPARTAMENTO && canonFicha !== inferidoCargo)

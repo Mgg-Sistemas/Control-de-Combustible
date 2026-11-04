@@ -18,6 +18,7 @@ import {
   OPCIONES_REPORTE_EMPLEADOS_DEFECTO,
   cuerpoReporteEmpleados,
   contarColumnasActivasEmpleados,
+  limpiarSoloDepartamento,
 } from '../lib/empleadosReporte';
 import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
 import { agruparPorCargo } from '../lib/empleadosAgrupar';
@@ -187,6 +188,10 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const [cargosOpen, setCargosOpen] = useState(false);
   const [agrupar, setAgrupar] = useState<'no' | 'cargo'>('no'); // ver la plantilla repartida por cargo
   const [cargoQ, setCargoQ] = useState(''); // buscador dentro de la lista de cargos
+  // Filtro por DEPARTAMENTO (solo `department`, sin `grupo` ni dirección):
+  const [deptoSel, setDeptoSel] = useState<Set<string>>(new Set()); // vacío = todos los departamentos
+  const [deptosOpen, setDeptosOpen] = useState(false);
+  const [deptoQ, setDeptoQ] = useState('');
   // Filtro por EMPRESA (pedido del cliente 20-ago-2026). La clave es el `company_id`;
   // los que no tienen contratista van bajo SIN_EMPRESA = SOS LA GUAIRA (el empleador).
   const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set()); // vacío = todas
@@ -209,6 +214,9 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const nominaName = (id: string | null) => (id ? nominaCompanies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa de filtro');
   // Etiqueta del cargo UNIFICADA y en MAYÚSCULA (junta variantes: plurales, typos…).
   const cargoLabel = (e: Employee) => canonicalCargo(e.cargo);
+  // Etiqueta del DEPARTAMENTO limpia (SOLO `department`, nunca `grupo` ni dirección).
+  const deptoLabel = (e: Employee) =>
+    limpiarSoloDepartamento((e as any).department, (e as any).grupo).toUpperCase() || 'SIN DEPARTAMENTO';
 
   const q = norm(query.trim());
   const estadoDe = (e: Employee) => (e.status || '').toLowerCase();
@@ -289,10 +297,30 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       a.key === SIN_EMPRESA ? -1 : b.key === SIN_EMPRESA ? 1 : cmpText(a.name, b.name));
   }, [estadoFiltered, companies, nominaCompanies]);
 
-  // Base final para el listado y el reporte por cargo: ya con la empresa aplicada.
-  const baseFiltered = useMemo(
+  // Base con empresa aplicada (para contar departamentos disponibles):
+  const empresaFiltered = useMemo(
     () => estadoFiltered.filter((e) => empresaSel.size === 0 || empresaSel.has(empresaKey(e))),
     [estadoFiltered, empresaSel]
+  );
+
+  // Conteo por departamento (SOLO `department`, nunca `grupo` ni dirección):
+  const deptoCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    empresaFiltered.forEach((e) => {
+      const k = deptoLabel(e);
+      map.set(k, (map.get(k) ?? 0) + 1);
+    });
+    return Array.from(map.entries()).sort((a, b) => {
+      if (a[0] === 'SIN DEPARTAMENTO') return 1;
+      if (b[0] === 'SIN DEPARTAMENTO') return -1;
+      return b[1] - a[1] || cmpText(a[0], b[0]);
+    });
+  }, [empresaFiltered]);
+
+  // Base final para el listado y el reporte por cargo: ya con empresa y departamento aplicados.
+  const baseFiltered = useMemo(
+    () => empresaFiltered.filter((e) => deptoSel.size === 0 || deptoSel.has(deptoLabel(e))),
+    [empresaFiltered, deptoSel]
   );
 
   // Conteo total por estado (independiente del filtro, para las etiquetas de los chips).
@@ -556,15 +584,15 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   };
 
   // Reporte PDF de LO SELECCIONADO: lista las personas del filtro actual (estado +
-  // cargos elegidos + búsqueda) con sus datos (incluyendo habilidades) y las columnas
-  // / secciones modificables elegidas por el usuario.
+  // empresa + departamento + cargos elegidos + búsqueda) con sus datos (incluyendo habilidades)
+  // y las columnas / secciones modificables elegidas por el usuario.
   const reporteSeleccion = async () => {
-    if (!opReporte.resumenCargo && !opReporte.listadoPersonas) {
-      toast.error('Activa al menos el Resumen por cargo o el Listado de personas en "🖨️ Qué sale en el reporte".');
+    if (!opReporte.resumenCargo && !opReporte.resumenDepartamento && !opReporte.listadoPersonas && !opReporte.cuadrosResumen) {
+      toast.error('Activa al menos una sección (Cuadros superiores, Resumen por cargo, Resumen por departamento o Listado de personas) en "🖨️ Qué sale".');
       return;
     }
     setBusy('reporte-cargo');
-    const list = shown; // ya respeta estado(s) + empresa(s) + cargo(s) + búsqueda, y viene ordenado
+    const list = shown; // ya respeta estado(s) + empresa(s) + departamento(s) + cargo(s) + búsqueda, y viene ordenado
     const estadoTxt = etiquetaFiltrosEstado(statusFilter, gruposConfig);
     const empresaTxt =
       empresaSel.size === 0
@@ -573,6 +601,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
             .filter((c) => empresaSel.has(c.key))
             .map((c) => c.name)
             .join(', ');
+    const departamentoTxt = deptoSel.size === 0 ? 'Todos' : Array.from(deptoSel).sort().join(', ');
     const cargoTxt = cargoSel.size === 0 ? 'Todos los cargos' : Array.from(cargoSel).sort().join(', ');
 
     const { body, extraCss, totalCargos } = cuerpoReporteEmpleados({
@@ -585,6 +614,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       })),
       estadoTxt,
       empresaTxt,
+      departamentoTxt,
       cargoTxt,
       busquedaTxt: query.trim() || null,
       opciones: opReporte,
@@ -592,13 +622,15 @@ export default function EmpleadosScreen({ navigation, route }: any) {
 
     const html = pdfDocument({
       title: 'Reporte de empleados',
-      subtitle: `${list.length} empleado(s)${cargoSel.size ? ` · ${cargoSel.size} cargo(s) seleccionado(s)` : ` · ${totalCargos} cargo(s)`}`,
+      subtitle: `${list.length} empleado(s)${deptoSel.size ? ` · Dpto: ${departamentoTxt}` : ''}${cargoSel.size ? ` · ${cargoSel.size} cargo(s) seleccionado(s)` : ` · ${totalCargos} cargo(s)`}`,
       body,
       extraCss,
       logos: logosReporte,
       marcaTexto: opReporte.marcaTexto,
     });
-    await exportPdf(html, `Reporte de empleados${cargoSel.size ? ' - ' + cargoTxt : ''}`);
+    const sufijoDpto = deptoSel.size ? ` - ${departamentoTxt}` : '';
+    const sufijoCargo = cargoSel.size ? ` - ${cargoTxt}` : '';
+    await exportPdf(html, `Reporte de empleados${sufijoDpto}${sufijoCargo}`);
     setBusy(null);
   };
 
@@ -1007,6 +1039,64 @@ export default function EmpleadosScreen({ navigation, route }: any) {
         </Card>
       ) : null}
 
+      {/* Filtro por DEPARTAMENTO (exclusivo de departamento, sin mezclar grupo ni dirección) */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
+        <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Departamento:</Text>
+        <TouchableOpacity
+          onPress={() => setDeptosOpen((v) => !v)}
+          style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: deptoSel.size ? colors.brand : colors.border, backgroundColor: deptoSel.size ? colors.brand : colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}
+        >
+          <Text style={{ color: deptoSel.size ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+            🗂️ {deptoSel.size === 0 ? `Todos · ${empresaFiltered.length}` : `${deptoSel.size} depto(s): ${Array.from(deptoSel).sort().join(', ')} · ${baseFiltered.length}`}
+          </Text>
+          <Text style={{ color: deptoSel.size ? colors.brandContrast : colors.brandText, fontWeight: '800', fontSize: 11 }}>{deptosOpen ? '▲' : '▼'}</Text>
+        </TouchableOpacity>
+        {deptoSel.size > 0 ? (
+          <TouchableOpacity onPress={() => setDeptoSel(new Set())} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>✕ Quitar filtro de departamento</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {deptosOpen ? (
+        <Card>
+          <TextInput
+            value={deptoQ}
+            onChangeText={setDeptoQ}
+            placeholder="🔎 Buscar departamento (ej. ADMINISTRATIVO, SOPORTE Y SERVICIO)…"
+            placeholderTextColor={colors.muted}
+            style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
+          />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            <TouchableOpacity
+              onPress={() => setDeptoSel(new Set())}
+              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: deptoSel.size === 0 ? colors.brand : colors.border, backgroundColor: deptoSel.size === 0 ? colors.brand : colors.surface }}
+            >
+              <Text style={{ color: deptoSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>Todos ({empresaFiltered.length})</Text>
+            </TouchableOpacity>
+            {deptoCounts
+              .filter(([d]) => !deptoQ.trim() || d.toLowerCase().includes(deptoQ.trim().toLowerCase()))
+              .map(([d, n]) => {
+                const on = deptoSel.has(d);
+                return (
+                  <TouchableOpacity
+                    key={d}
+                    onPress={() => {
+                      const next = new Set(deptoSel);
+                      if (on) next.delete(d);
+                      else next.add(d);
+                      setDeptoSel(next);
+                    }}
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{on ? '✓ ' : ''}{d} · {n}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+          </View>
+        </Card>
+      ) : null}
+
       {/* Orden alfabético por nombre · y si la lista se reparte por cargo */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Orden:</Text>
@@ -1081,6 +1171,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                     guardarConfigReporte(
                       {
                         numeracion: true,
+                        empleado: true,
                         cedula: true,
                         ficha: true,
                         cargo: true,
@@ -1092,7 +1183,9 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         telefono: true,
                         datosBancarios: true,
                         cabeceraFiltros: true,
+                        cuadrosResumen: true,
                         resumenCargo: true,
+                        resumenDepartamento: true,
                         listadoPersonas: true,
                         marcaTexto: true,
                       },
@@ -1113,28 +1206,26 @@ export default function EmpleadosScreen({ navigation, route }: any) {
             </View>
 
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: 2 }}>
-              COLUMNAS DE LA TABLA DE EMPLEADOS:
+              COLUMNAS DE LA TABLA DE EMPLEADOS (toca para ocultar o mostrar):
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              <View style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.surfaceAlt }}>
-                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>🔒 Empleado (siempre fijo)</Text>
-              </View>
               {(
                 [
                   ['numeracion', '1️⃣ Numeración (#)'],
+                  ['empleado', '👤 Empleado'],
                   ['cedula', '🪪 Cédula'],
                   ['ficha', '🔢 N° de Ficha'],
                   ['cargo', '🏷️ Cargo'],
                   ['habilidades', '🛠️ Habilidades'],
                   ['empresa', '🏢 Empresa filtro nómina'],
                   ['empresaReal', '🏛️ Empresa contratista'],
-                  ['departamento', '🗂️ Departamento / Grupo'],
+                  ['departamento', '🗂️ Departamento'],
                   ['estado', '● Estado'],
                   ['telefono', '📞 Teléfono'],
                   ['datosBancarios', '🏦 Datos bancarios'],
                 ] as const
               ).map(([k, lbl]) => {
-                const on = opReporte[k];
+                const on = opReporte[k] !== false;
                 return (
                   <TouchableOpacity
                     key={k}
@@ -1157,18 +1248,20 @@ export default function EmpleadosScreen({ navigation, route }: any) {
             </View>
 
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: 4 }}>
-              SECCIONES Y MEMBRETE DEL DOCUMENTO:
+              CUADROS Y SECCIONES DEL DOCUMENTO:
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {(
                 [
-                  ['resumenCargo', '📊 Resumen por cargo'],
-                  ['listadoPersonas', '👥 Listado de personas'],
+                  ['cuadrosResumen', '🧱 Cuadros superiores de resumen'],
+                  ['resumenCargo', '📊 Cuadro resumen por cargo'],
+                  ['resumenDepartamento', '🗂️ Cuadro resumen por departamento'],
+                  ['listadoPersonas', '👥 Tabla de listado de personas'],
                   ['cabeceraFiltros', '🔎 Cabecera de filtros aplicados'],
                   ['marcaTexto', '📝 Marca de empresa en texto y pie'],
                 ] as const
               ).map(([k, lbl]) => {
-                const on = opReporte[k];
+                const on = opReporte[k] !== false;
                 return (
                   <TouchableOpacity
                     key={k}
@@ -1190,9 +1283,47 @@ export default function EmpleadosScreen({ navigation, route }: any) {
               })}
             </View>
 
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: 4 }}>
-              🏷️ LOGOS DEL MEMBRETE:
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                🏷️ LOGOS DEL MEMBRETE (colocar u ocultar):
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={() =>
+                    guardarConfigReporte(opReporte, {
+                      bcv: true,
+                      sos: true,
+                      golden: true,
+                      renace: true,
+                      jhenzaen: true,
+                    })
+                  }
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.surface }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 10.5 }}>✓ Todos los logos</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => guardarConfigReporte(opReporte, LOGOS_POR_DEFECTO)}
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10.5 }}>↺ Logos por defecto</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() =>
+                    guardarConfigReporte(opReporte, {
+                      bcv: false,
+                      sos: false,
+                      golden: false,
+                      renace: false,
+                      jhenzaen: false,
+                    })
+                  }
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface }}
+                >
+                  <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 10.5 }}>🚫 Sin logos</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {(
                 [
