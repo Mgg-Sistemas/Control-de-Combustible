@@ -20,8 +20,7 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
 import { PAGO_STATUS_META, PAGO_STATUS_LABEL } from '../lib/statusMeta';
-import { useBcvRate } from '../hooks/useBcvRate';
-import { setManualBcvRate, refreshBcvRate } from '../lib/bcv';
+import { useBcvRate, setManualBcvRate, refreshBcvRate } from '../lib/bcv';
 import {
   resolverTasaPeriodo,
   validarTasaManual,

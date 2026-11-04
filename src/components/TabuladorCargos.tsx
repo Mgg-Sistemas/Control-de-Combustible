@@ -9,7 +9,10 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
 const usd = (n: any) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
+// `onlyDecimal` (lib/text.ts) ya deja como mucho UN separador decimal (. o ,,
+// el primero que se tipeó) — acá solo hace falta pasar la coma a punto, NUNCA
+// borrar puntos (si no, "35.71" se leía como 3571: el monto quedaba 100x inflado).
+const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
 
 type Draft = { hora: string; dia: string; noche: string; semana: string; quincena: string; mes: string; depto: string };
 const emptyDraft: Draft = { hora: '', dia: '', noche: '', semana: '', quincena: '', mes: '', depto: '' };

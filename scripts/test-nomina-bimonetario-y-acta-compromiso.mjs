@@ -161,42 +161,58 @@ assert.equal(empReporteMod.leerSalarioSemanalEmpleado({ base_salary: null, preci
 assert.equal(empReporteMod.formatearSalarioSemanalReporte({ base_salary: 150 }), '$150,00');
 assert.equal(empReporteMod.formatearSalarioSemanalReporte({ base_salary: null, precio_semana: null }), '—');
 
-// Cuando salarioSemanal = true en el reporte PDF, aparece la columna, la tarjeta de resumen y el pie de tabla
+// Verifica el cálculo de las 4 frecuencias (Día, Semana, Quincenal, Mensual)
+const salsSoldador = empReporteMod.calcularSalariosEmpleadoReporte({ base_salary: 250, precio_dia: 35.7142, precio_semana: 250 });
+assert.equal(salsSoldador.diario, 35.71);
+assert.equal(salsSoldador.semanal, 250);
+assert.equal(salsSoldador.quincenal, 500);
+assert.equal(salsSoldador.mensual, 1000);
+
+// Cuando se activan las 4 columnas en el reporte PDF, aparecen las 4 columnas, las tarjetas de resumen y el pie de tabla
 const opConSalario = {
   ...empReporteMod.OPCIONES_REPORTE_EMPLEADOS_DEFECTO,
+  salarioDiario: true,
   salarioSemanal: true,
+  salarioQuincenal: true,
+  salarioMensual: true,
 };
 const resConSalario = empReporteMod.cuerpoReporteEmpleados({
   empleados: [
-    { id: '1', first_name: 'ANA', last_name: 'NIETO', cedula: '27163024', cargo: 'ANALISTA', department: 'ADMINISTRATIVO', status: 'activo', base_salary: 120 },
-    { id: '2', first_name: 'JOSE', last_name: 'GUERRA', cedula: '19782354', cargo: 'AUXILIAR', department: 'SOPORTE Y SERVICIO', status: 'activo', base_salary: null, precio_semana: 80 },
+    { id: '1', first_name: 'ANA', last_name: 'NIETO', cedula: '27163024', cargo: 'ANALISTA', department: 'ADMINISTRATIVO', status: 'activo', base_salary: 140 },
+    { id: '2', first_name: 'JOSE', last_name: 'GUERRA', cedula: '19782354', cargo: 'AUXILIAR', department: 'SOPORTE Y SERVICIO', status: 'activo', base_salary: null, precio_semana: 70 },
   ],
   opciones: opConSalario,
   estadoTxt: 'Activos',
 });
-assert.ok(resConSalario.body.includes('Salario Semanal'), 'Debe mostrar columna Salario Semanal cuando está activo');
-assert.ok(resConSalario.body.includes('Total Salario Semanal'), 'Debe mostrar cuadro Total Salario Semanal');
-assert.ok(resConSalario.body.includes('$120,00') && resConSalario.body.includes('$80,00') && resConSalario.body.includes('$200,00'), 'Debe mostrar los montos individuales y la suma total ($200,00)');
+assert.ok(resConSalario.body.includes('Por Día'), 'Debe mostrar columna Por Día cuando está activo');
+assert.ok(resConSalario.body.includes('Por Semana'), 'Debe mostrar columna Por Semana cuando está activo');
+assert.ok(resConSalario.body.includes('Quincenal'), 'Debe mostrar columna Quincenal cuando está activo');
+assert.ok(resConSalario.body.includes('Mensual'), 'Debe mostrar columna Mensual cuando está activo');
+assert.ok(resConSalario.body.includes('Total Por Día') && resConSalario.body.includes('Total Por Semana') && resConSalario.body.includes('Total Quincenal') && resConSalario.body.includes('Total Mensual'), 'Debe mostrar los 4 cuadros superiores de totales');
+assert.ok(resConSalario.body.includes('$140,00') && resConSalario.body.includes('$70,00') && resConSalario.body.includes('$210,00') && resConSalario.body.includes('$420,00') && resConSalario.body.includes('$840,00'), 'Debe mostrar los montos individuales y las sumas totales (Semana $210, Quincenal $420, Mensual $840)');
 
-// Cuando salarioSemanal = false, NO aparece en el reporte PDF
+// Cuando están en false, NO aparecen en el reporte PDF
 const resSinSalario = empReporteMod.cuerpoReporteEmpleados({
   empleados: [
     { id: '1', first_name: 'ANA', last_name: 'NIETO', cedula: '27163024', cargo: 'ANALISTA', department: 'ADMINISTRATIVO', status: 'activo', base_salary: 120 },
   ],
-  opciones: { ...empReporteMod.OPCIONES_REPORTE_EMPLEADOS_DEFECTO, salarioSemanal: false },
+  opciones: { ...empReporteMod.OPCIONES_REPORTE_EMPLEADOS_DEFECTO, salarioDiario: false, salarioSemanal: false, salarioQuincenal: false, salarioMensual: false },
   estadoTxt: 'Activos',
 });
-assert.ok(!resSinSalario.body.includes('Total Salario Semanal'), 'No debe mostrar Total Salario Semanal cuando está desmarcado');
+assert.ok(!resSinSalario.body.includes('Total Por Semana'), 'No debe mostrar Total Por Semana cuando está desmarcado');
 
-// Verificar que en EmpleadosScreen.tsx el campo base_salary esté etiquetado como "Salario Semanal" dentro de Datos bancarios
+// Verificar que en EmpleadosScreen.tsx el campo base_salary esté etiquetado como "Salario Semanal" y estén las 4 opciones del reporte
 const empleadosScreenSrc = readFileSync(join(rootDir, 'src/screens/EmpleadosScreen.tsx'), 'utf8');
 assert.ok(
   empleadosScreenSrc.includes("{ key: 'base_salary', label: 'Salario Semanal', type: 'number' }"),
   'EmpleadosScreen debe tener base_salary etiquetado como Salario Semanal',
 );
 assert.ok(
-  empleadosScreenSrc.includes("['salarioSemanal', '💵 Salario Semanal']"),
-  'EmpleadosScreen debe incluir 💵 Salario Semanal en el selector de columnas del reporte',
+  empleadosScreenSrc.includes("['salarioDiario', '💵 Por Día']") &&
+  empleadosScreenSrc.includes("['salarioSemanal', '💵 Por Semana']") &&
+  empleadosScreenSrc.includes("['salarioQuincenal', '💵 Quincenal']") &&
+  empleadosScreenSrc.includes("['salarioMensual', '💵 Mensual']"),
+  'EmpleadosScreen debe incluir 💵 Por Día, 💵 Por Semana, 💵 Quincenal y 💵 Mensual en el selector de columnas del reporte',
 );
 
 // Verificar reglas críticas en actasCompromisoDb.ts y componentes (sin DELETE, con .select, con Cámara y Galería)

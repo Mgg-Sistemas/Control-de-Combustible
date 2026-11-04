@@ -54,7 +54,7 @@ export function origenTasaPeriodo(
  * Valida y convierte un texto escrito por el usuario (con punto o coma) en una tasa válida.
  * Devuelve `{ ok: true, valor }` si es mayor a 0, o `{ ok: false, error }` si es inválido.
  */
-export function validarTasaManual(raw: unknown): { ok: true; valor: number } | { ok: false; error: string } {
+export function validarTasaManual(raw: unknown): { ok: true; valor: number; tasa: number } | { ok: false; error: string } {
   const texto = String(raw ?? '').trim();
   if (!texto) {
     return { ok: false, error: 'Escribe una tasa de cambio mayor a 0 (ej. 45,50).' };
@@ -66,7 +66,8 @@ export function validarTasaManual(raw: unknown): { ok: true; valor: number } | {
   if (n > 1000000) {
     return { ok: false, error: 'La tasa ingresada parece demasiado alta. Verifica los decimales.' };
   }
-  return { ok: true, valor: round4(n) };
+  const v = round4(n);
+  return { ok: true, valor: v, tasa: v };
 }
 
 /** Convierte un monto en USD a Bolívares (VES) según la tasa indicada. */
@@ -124,3 +125,4 @@ export function formatearBimonetario(
     vesNumero,
   };
 }
+

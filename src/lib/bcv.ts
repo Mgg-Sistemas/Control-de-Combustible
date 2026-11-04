@@ -55,6 +55,39 @@ export const usdFromBs = (bs: number, rate: number) => ((Number(rate) || 0) > 0 
 export const fmtUsd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const fmtBs = (n: number) => `Bs ${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+type BcvListener = (r: BcvRate) => void;
+const bcvListeners = new Set<BcvListener>();
+function notifyBcvListeners(r: BcvRate) {
+  bcvListeners.forEach((fn) => {
+    try { fn(r); } catch {}
+  });
+}
+
+/** Fija la tasa de HOY manualmente en Supabase y notifica a los hooks activos. */
+export async function setManualBcvRate(value: number): Promise<BcvRate> {
+  const today = todayIsoVE();
+  const clean = Math.round((Number(value) || 0) * 100) / 100;
+  await upsertRate(today, clean, 'manual');
+  const next: BcvRate = { rate_date: today, rate: clean, source: 'manual' };
+  notifyBcvListeners(next);
+  return next;
+}
+
+/** Consulta la tasa oficial del BCV en línea para HOY, la guarda y la devuelve. */
+export async function refreshBcvRate(): Promise<{ rate: number | null; date: string | null; source: string | null }> {
+  try {
+    const today = todayIsoVE();
+    const r = await fetchOfficialRate();
+    await upsertRate(today, r, 'BCV');
+    const next: BcvRate = { rate_date: today, rate: r, source: 'BCV' };
+    notifyBcvListeners(next);
+    return { rate: r, date: today, source: 'BCV' };
+  } catch {
+    const last = await lastStoredRate();
+    return { rate: last ? Number(last.rate) : null, date: last?.rate_date ?? null, source: last?.source ?? null };
+  }
+}
+
 /** Hook: tasa del día (auto) con opción de refrescar y de fijarla a mano. */
 export function useBcvRate() {
   const [rate, setRate] = useState<number | null>(null);
@@ -64,8 +97,15 @@ export function useBcvRate() {
 
   useEffect(() => {
     let alive = true;
+    const onUpdate: BcvListener = (r) => {
+      if (!alive) return;
+      setRate(Number(r.rate));
+      setDate(r.rate_date);
+      setSource(r.source);
+    };
+    bcvListeners.add(onUpdate);
     ensureTodayRate().then((r) => { if (!alive) return; if (r) { setRate(Number(r.rate)); setDate(r.rate_date); setSource(r.source); } setLoading(false); });
-    return () => { alive = false; };
+    return () => { alive = false; bcvListeners.delete(onUpdate); };
   }, []);
 
   /** Vuelve a bajar la tasa oficial del BCV para HOY y la guarda. */
@@ -76,14 +116,13 @@ export function useBcvRate() {
       const r = await fetchOfficialRate();
       await upsertRate(today, r, 'BCV');
       setRate(r); setDate(today); setSource('BCV');
+      notifyBcvListeners({ rate_date: today, rate: r, source: 'BCV' });
     } finally { setLoading(false); }
   };
 
   /** Fija la tasa de HOY a mano (source = manual). */
   const setManual = async (value: number) => {
-    const today = todayIsoVE();
-    await upsertRate(today, value, 'manual');
-    setRate(value); setDate(today); setSource('manual');
+    await setManualBcvRate(value);
   };
 
   return { rate, date, source, loading, refresh, setManual };

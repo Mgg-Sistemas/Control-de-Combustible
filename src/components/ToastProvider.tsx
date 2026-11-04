@@ -15,11 +15,12 @@ type ToastFn = (opts: ToastOptions | string) => void;
 type ToastApi = {
   show: ToastFn;
   success: (message: string, durationMs?: number) => void;
+  ok: (message: string, durationMs?: number) => void;
   error: (message: string, durationMs?: number) => void;
   info: (message: string, durationMs?: number) => void;
 };
 
-const noop: ToastApi = { show: () => {}, success: () => {}, error: () => {}, info: () => {} };
+const noop: ToastApi = { show: () => {}, success: () => {}, ok: () => {}, error: () => {}, info: () => {} };
 const ToastCtx = createContext<ToastApi>(noop);
 export const useToast = () => useContext(ToastCtx);
 
@@ -51,6 +52,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const api: ToastApi = {
     show,
     success: (message, durationMs) => show({ message, type: 'success', durationMs }),
+    ok: (message, durationMs) => show({ message, type: 'success', durationMs }),
     error: (message, durationMs) => show({ message, type: 'error', durationMs: durationMs ?? 5000 }),
     info: (message, durationMs) => show({ message, type: 'info', durationMs }),
   };

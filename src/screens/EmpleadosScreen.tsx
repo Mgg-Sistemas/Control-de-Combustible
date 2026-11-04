@@ -21,6 +21,8 @@ import {
   cuerpoReporteEmpleados,
   contarColumnasActivasEmpleados,
   limpiarSoloDepartamento,
+  calcularSalariosEmpleadoReporte,
+  formatearMontoSalarioReporte,
   leerSalarioSemanalEmpleado,
   formatearSalarioSemanalReporte,
 } from '../lib/empleadosReporte';
@@ -1219,7 +1221,10 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         departamento: true,
                         estado: true,
                         telefono: true,
+                        salarioDiario: true,
                         salarioSemanal: true,
+                        salarioQuincenal: true,
+                        salarioMensual: true,
                         datosBancarios: true,
                         cabeceraFiltros: true,
                         cuadrosResumen: true,
@@ -1262,7 +1267,10 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                   ['departamento', '🗂️ Departamento'],
                   ['estado', '● Estado'],
                   ['telefono', '📞 Teléfono'],
-                  ['salarioSemanal', '💵 Salario Semanal'],
+                  ['salarioDiario', '💵 Por Día'],
+                  ['salarioSemanal', '💵 Por Semana'],
+                  ['salarioQuincenal', '💵 Quincenal'],
+                  ['salarioMensual', '💵 Mensual'],
                   ['datosBancarios', '🏦 Datos bancarios'],
                 ] as const
               ).map(([k, lbl]) => {
@@ -1773,11 +1781,20 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                       <Text style={{ color: colors.muted, fontSize: 13 }}>
                         {[e.cedula ? `C.I ${e.cedula}` : '', e.blood_type ? `🩸 ${e.blood_type}` : '', e.phone || ''].filter(Boolean).join(' · ') || 'Sin datos adicionales'}
                       </Text>
-                      {leerSalarioSemanalEmpleado(e) !== null ? (
-                        <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginTop: 2 }}>
-                          💵 Salario Semanal: {formatearSalarioSemanalReporte(e)}
-                        </Text>
-                      ) : null}
+                      {(() => {
+                        const sals = calcularSalariosEmpleadoReporte(e);
+                        if (sals.semanal === null && sals.diario === null && sals.quincenal === null && sals.mensual === null) return null;
+                        return (
+                          <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginTop: 2 }}>
+                            💵 {[
+                              sals.diario !== null ? `Día: ${formatearMontoSalarioReporte(sals.diario)}` : '',
+                              sals.semanal !== null ? `Semana: ${formatearMontoSalarioReporte(sals.semanal)}` : '',
+                              sals.quincenal !== null ? `Quincenal: ${formatearMontoSalarioReporte(sals.quincenal)}` : '',
+                              sals.mensual !== null ? `Mensual: ${formatearMontoSalarioReporte(sals.mensual)}` : '',
+                            ].filter(Boolean).join(' · ')}
+                          </Text>
+                        );
+                      })()}
                       {e.bank_name || e.bank_account ? (
                         <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                           🏦 {[e.bank_name, e.bank_account ? `Cta. ${e.bank_account}` : '', e.bank_holder || '', e.bank_cedula ? `C.I ${e.bank_cedula}` : ''].filter(Boolean).join(' · ')}
