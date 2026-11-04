@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Linking, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { ListadoProveedoresPdf } from '../components/ListadoProveedoresPdf';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -614,6 +615,9 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
           </ScrollView>
         ) : null}
       </Card>
+
+      {/* 🖨️ Listado en PDF por rubro (03-nov-2026): solo lee esta misma lista. */}
+      {!loading && suppliers.length > 0 ? <ListadoProveedoresPdf proveedores={suppliers} /> : null}
 
       {loading ? <Loading /> : shown.length === 0 ? (
         <EmptyState title={q || tagFiltro ? 'Sin resultados' : 'Sin proveedores'} subtitle={q || tagFiltro ? 'Prueba con otro filtro.' : 'Registra a quién le compras.'} />
