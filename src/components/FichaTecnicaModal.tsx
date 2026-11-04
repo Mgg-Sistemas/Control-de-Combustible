@@ -417,6 +417,15 @@ export function FichaTecnicaModal({
     });
   };
 
+  const setEncuadreFotos = (encuadreFotos: 'completa' | 'rellenar') => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = { ...d, encuadreFotos };
+      programarGuardado(next);
+      return next;
+    });
+  };
+
   const setDiseno = (diseno: 'tabla' | 'columnas') => {
     setData((d) => {
       if (!d) return null;
@@ -1056,6 +1065,30 @@ export function FichaTecnicaModal({
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
                   Van debajo de las observaciones. Con una sola foto sale a todo lo ancho; con dos, lado a lado. Título y leyenda vacíos = la foto sale sola, como la ficha de referencia.
                 </Text>
+
+                {/* 🖼️ Cómo entran las fotos (04-nov-2026): completas por defecto; vale para TODAS las fotos de la ficha. */}
+                <View style={{ flexDirection: 'row', gap: 4, marginBottom: spacing.sm, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Text style={{ color: colors.muted, fontSize: 10, marginRight: 2 }}>Fotos en el PDF:</Text>
+                  {([['completa', '🖼️ Completas (sin recortar)'], ['rellenar', '✂️ Rellenar el cuadro (recorta los bordes)']] as const).map(([valor, label]) => {
+                    const activo = (data.encuadreFotos ?? 'completa') === valor;
+                    return (
+                      <TouchableOpacity
+                        key={valor}
+                        onPress={() => setEncuadreFotos(valor)}
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: radius.pill,
+                          backgroundColor: activo ? '#16324F' : colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: activo ? '#16324F' : colors.border,
+                        }}
+                      >
+                        <Text style={{ color: activo ? '#fff' : colors.text, fontSize: 10, fontWeight: '700' }}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
                   <View style={{ flex: 2 }}>

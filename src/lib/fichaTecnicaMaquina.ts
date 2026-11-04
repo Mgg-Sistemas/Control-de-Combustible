@@ -108,6 +108,11 @@ export type FichaPersonalizada = {
   //    'columnas' → una columna por categoría (Datos Generales / Componentes…),
   //                 el diseño anterior, que sigue disponible.
   diseno?: 'tabla' | 'columnas';
+  // 🖼️ Cómo entran las fotos en su cuadro (04-nov-2026, a pedido: «las imágenes
+  //    que subo se cortan»): 'completa' → la foto entera, sin recortar (lo que sobra
+  //    queda en fondo claro). Es lo que sale si no se dice. 'rellenar' → llena el
+  //    cuadro recortando los bordes (como salía antes).
+  encuadreFotos?: 'completa' | 'rellenar';
   // 📝 Título del recuadro de observaciones (por defecto «OBSERVACIONES DE INSPECCIÓN»).
   seccionObsTitulo?: string | null;
   // 📎 Anexo fotográfico por secciones (ver FichaAnexo).
@@ -676,9 +681,9 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
 
   .fotos-p1-grid{display:flex;gap:10px;margin:8px 0;page-break-inside:avoid}
   .foto-p1-col{flex:1;min-width:0;border:1px solid ${BORDE};border-radius:6px;overflow:hidden;background:#FAFBFD;text-align:center}
-  .foto-p1-col img{width:100%;height:165px;object-fit:cover;display:block;margin:0 auto}
+  .foto-p1-col img{width:100%;height:165px;object-fit:contain;background:#FAFBFD;display:block;margin:0 auto}
   .foto-p1-single{border:1px solid ${BORDE};border-radius:4px;overflow:hidden;background:#FAFBFD;text-align:center;margin:10px 0;page-break-inside:avoid}
-  .foto-p1-single img{width:100%;height:260px;object-fit:cover;display:block;margin:0 auto}
+  .foto-p1-single img{width:100%;height:260px;object-fit:contain;background:#FAFBFD;display:block;margin:0 auto}
   .foto-p1-cap{padding:4px 8px;font-size:9.5px;font-weight:600;color:#475569;background:#F1F5F9;border-top:1px solid #E2E8F0}
 
   .obs-box{background:#FFFFFF;border:1.5px solid ${BORDE};border-radius:4px;padding:10px 14px;margin:8px 0;page-break-inside:avoid}
@@ -695,7 +700,7 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   .anx-foto{page-break-inside:avoid;text-align:center}
   .anx-grid.c2 .anx-foto{width:calc(50% - 5px)}
   .anx-grid.c3 .anx-foto{width:calc(33.333% - 7px)}
-  .anx-foto img{width:100%;object-fit:cover;display:block;border-radius:3px}
+  .anx-foto img{width:100%;object-fit:contain;background:#F5F7FA;display:block;border-radius:3px}
   .anx-grid.c2 .anx-foto img{height:290px}
   .anx-grid.c3 .anx-foto img{height:190px}
   .anx-cap{font-size:9px;font-weight:800;color:#111827;text-transform:uppercase;margin-top:5px;letter-spacing:.2px}
@@ -703,7 +708,9 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
 
   .foto-grid{display:flex;gap:10px;margin:8px 0;page-break-inside:avoid;flex-wrap:wrap}
   .foto-card{flex:1;min-width:200px;border:1px solid ${BORDE};border-radius:6px;overflow:hidden;background:#FAFBFD;text-align:center}
-  .foto-card img{max-width:100%;max-height:220px;object-fit:cover;display:block;margin:0 auto}
+  .foto-card img{max-width:100%;max-height:220px;object-fit:contain;display:block;margin:0 auto}
+  /* 🖼️ «Rellenar el cuadro» (opcional): recorta los bordes para llenar el cuadro. */
+  body.rellenar .foto-p1-col img,body.rellenar .foto-p1-single img,body.rellenar .anx-foto img,body.rellenar .foto-card img{object-fit:cover}
   .foto-cap{padding:4px 8px;font-size:9.5px;font-weight:600;color:#475569;background:#F1F5F9;border-top:1px solid #E2E8F0}
 
   .foto{margin-top:12px;text-align:center;page-break-inside:avoid}
@@ -714,7 +721,7 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   .anexo{page-break-before:always}
   .anexo .hd .t{font-size:18px}
   .pie{color:#9CA3AF;font-size:9px;margin-top:12px;text-align:center}
-  </style></head><body>
+  </style></head><body${p?.encuadreFotos === 'rellenar' ? ' class="rellenar"' : ''}>
 
   <div class="hd">
     <div class="hd-left">

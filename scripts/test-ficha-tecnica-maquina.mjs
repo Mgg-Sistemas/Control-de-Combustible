@@ -358,6 +358,20 @@ const FR = loadTs(path.join(ROOT, 'src/lib/fotoRemota.ts'));
     && sincronizada.renglones.some((r) => r.etiqueta === 'Peso operativo'));
 }
 
+// 🖼️ 04-nov-2026: las fotos salían recortadas (object-fit:cover en cuadros de alto fijo).
+{
+  const conFoto = { ...XCMG, photo_url: 'https://x/foto.jpg' };
+  const H1 = F.fichaTecnicaMaquinaHtml(conFoto, {});
+  const css = H1.slice(0, H1.indexOf('</style>'));
+  const sinRegla = css.replace(/body\.rellenar[^}]*\}/g, '');
+  ok('🖼️ por defecto ninguna foto se recorta (sin object-fit:cover fuera de «rellenar»)', !/object-fit:cover/.test(sinRegla) && /object-fit:contain/.test(css));
+  ok('🖼️ por defecto el cuerpo no lleva «rellenar»', /<body>/.test(H1));
+  const H2 = F.fichaTecnicaMaquinaHtml(conFoto, { personalizada: { encuadreFotos: 'rellenar' } });
+  ok('✂️ con «rellenar» el cuerpo lo pide y la regla recorta', /<body class="rellenar">/.test(H2) && /body\.rellenar[^}]*object-fit:cover/.test(H2));
+  const modal = fs.readFileSync(path.join(ROOT, 'src/components/FichaTecnicaModal.tsx'), 'utf8');
+  ok('🖼️ la ficha ofrece las dos opciones, completas por defecto', modal.includes('Completas (sin recortar)') && modal.includes("(data.encuadreFotos ?? 'completa')"));
+}
+
 // ── Resultado ───────────────────────────────────────────────────────────────
 console.log('\nFICHA TÉCNICA DEL CATÁLOGO — documento y botón\n');
 if (failures.length) console.log(failures.join('\n'));
