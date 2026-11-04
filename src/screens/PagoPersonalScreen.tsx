@@ -19,7 +19,14 @@ import { leerGruposApartados } from '../lib/nominaGruposStorage';
 import { mapaDepartamentos, SIN_DEPARTAMENTO } from '../lib/nominaDepartamentos';
 import { levelMeets } from '../lib/permissions';
 import { caracasParts } from '../lib/jornada';
-import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
+import { useBcvRate, bsFromUsd, usdFromBs, fmtBs, setManualBcvRate } from '../lib/bcv';
+import {
+  resolverTasaPeriodo,
+  validarTasaManual,
+  calcularVesDesdeUsd,
+  fmtMontoVes,
+  fmtTasaCambio,
+} from '../lib/nominaBimonetario';
 import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
 import { useTable } from '../hooks/useTable';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
@@ -129,15 +136,44 @@ export default function PagoPersonalScreen() {
    */
   const puedeEditarPeriodo = levelMeets(moduleLevel('nomina'), 'full');
   const { rate: bcvRate, date: bcvDate, source: bcvSource, loading: bcvLoading, refresh: refreshBcv } = useBcvRate();
-  // Bs equivalente de un monto en US$ (o '' si no hay tasa del día).
-  const bsTxt = (usdAmount: number) => (bcvRate ? fmtBs(bsFromUsd(usdAmount, bcvRate)) : '');
+  const [manualRateOpen, setManualRateOpen] = useState(false);
+  const [manualRateInput, setManualRateInput] = useState('');
+  const [periodRateOpen, setPeriodRateOpen] = useState(false);
+  const [periodRateInput, setPeriodRateInput] = useState('');
+  const [cRate, setCRate] = useState('');
+
+  // Tasa efectiva de un período: primero su `exchange_rate` propio, y si no tiene, la tasa BCV/manual del día.
+  const tasaDePeriodo = useCallback(
+    (p?: StaffPayPeriod | null) => resolverTasaPeriodo(p?.exchange_rate, bcvRate),
+    [bcvRate],
+  );
+  // Bs equivalente de un monto en US$ (o '' si no hay tasa).
+  const bsTxt = (usdAmount: number, overrideRate?: number | null) => {
+    const r = overrideRate && overrideRate > 0 ? overrideRate : bcvRate;
+    return r ? fmtBs(bsFromUsd(usdAmount, r)) : '';
+  };
   // Texto de la tasa vigente: "Tasa BCV: Bs 45,20/US$ · 03/08/2026 · BCV" (o "manual").
   const bcvInfoTxt = bcvRate
-    ? `Tasa BCV: ${fmtBs(bcvRate)}/US$ · ${fmtDMY(bcvDate)} · ${bcvSource === 'manual' ? 'manual' : 'BCV'}`
-    : (bcvLoading ? 'Cargando tasa BCV…' : 'Sin tasa BCV');
+    ? `Tasa del día: ${fmtBs(bcvRate)}/US$ · ${fmtDMY(bcvDate)} · ${bcvSource === 'manual' ? 'manual' : 'BCV'}`
+    : (bcvLoading ? 'Cargando tasa BCV…' : 'Sin tasa BCV (puedes fijarla manual)');
   const onRefreshBcv = async () => {
-    try { await refreshBcv(); }
-    catch { toast.error('No se pudo actualizar la tasa del BCV. Intenta de nuevo más tarde.'); }
+    try { await refreshBcv(); toast.success('Tasa BCV actualizada.'); }
+    catch { toast.error('No se pudo actualizar la tasa del BCV. Puedes ingresarla manualmente.'); }
+  };
+  const guardarTasaManualDia = async () => {
+    const val = validarTasaManual(manualRateInput);
+    if (!val.ok || !val.tasa) {
+      toast.error(val.error || 'Ingresa una tasa válida.');
+      return;
+    }
+    try {
+      await setManualBcvRate(val.tasa);
+      setManualRateOpen(false);
+      setManualRateInput('');
+      toast.success(`Tasa del día fijada en ${fmtTasaCambio(val.tasa)}/US$`);
+    } catch (e: any) {
+      toast.error(e?.message || 'No se pudo guardar la tasa manual.');
+    }
   };
 
   const { data: periods, loading, refetch } = useTable<StaffPayPeriod>('staff_pay_periods', { orderBy: 'created_at', ascending: false });
@@ -480,11 +516,18 @@ export default function PagoPersonalScreen() {
   const crearPeriodo = async () => {
     if (!cName.trim()) return toast.error('Escribe el nombre (ej. "Semana 1 - julio").');
     if (!cFrom || !cTo) return toast.error('Define el rango de fechas.');
+    let tasaInicial: number | null = bcvRate ?? null;
+    if (cRate.trim()) {
+      const v = validarTasaManual(cRate);
+      if (!v.ok || !v.tasa) return toast.error(v.error || 'Tasa de cambio inválida.');
+      tasaInicial = v.tasa;
+    }
     setCreating(true);
     // Empleador = SOS LA GUAIRA (company_id null): el personal no se separa por contratista.
     const { data: per, error } = await supabase.from('staff_pay_periods').insert({
       company_id: null, name: cName.trim(), period_type: cType, date_from: cFrom, date_to: cTo,
-      mode: cMode, only_validated: cValid, status: 'borrador', created_by: session?.user?.id ?? null,
+      mode: cMode, only_validated: cValid, status: 'borrador', exchange_rate: tasaInicial,
+      created_by: session?.user?.id ?? null,
     }).select().single();
     if (error || !per) { setCreating(false); return toast.error(error?.message ?? 'No se pudo crear.'); }
 
@@ -497,9 +540,9 @@ export default function PagoPersonalScreen() {
     if (rows.length) await supabase.from('staff_pay_items').insert(rows);
     const total = round2(rows.reduce((s, r) => s + r.total, 0));
     await supabase.from('staff_pay_periods').update({ total_amount: total }).eq('id', per.id);
-    setCreating(false); setCreateOpen(false); setCName('');
+    setCreating(false); setCreateOpen(false); setCName(''); setCRate('');
     refetch();
-    openDetail({ ...(per as StaffPayPeriod), total_amount: total });
+    openDetail({ ...(per as StaffPayPeriod), total_amount: total, exchange_rate: tasaInicial });
   };
 
   // ── Recalcular cantidades automáticas (operadores no ajustados a mano) ───────
@@ -837,6 +880,42 @@ export default function PagoPersonalScreen() {
     }
   };
 
+  const guardarTasaPeriodo = async (nuevaTasaRaw?: string | number | null) => {
+    if (!sel) return;
+    let tasaGuardar: number | null = null;
+    if (nuevaTasaRaw !== null && nuevaTasaRaw !== undefined && String(nuevaTasaRaw).trim() !== '') {
+      const val = validarTasaManual(nuevaTasaRaw);
+      if (!val.ok || !val.tasa) {
+        toast.error(val.error || 'Ingresa una tasa válida.');
+        return;
+      }
+      tasaGuardar = val.tasa;
+    }
+    setBusy(true);
+    const { data, error } = await supabase
+      .from('staff_pay_periods')
+      .update({ exchange_rate: tasaGuardar })
+      .eq('id', sel.id)
+      .select('id, exchange_rate');
+    setBusy(false);
+    if (error) {
+      toast.error('No se pudo actualizar la tasa del período: ' + error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      toast.error('No tienes permiso para modificar la tasa de este período.');
+      return;
+    }
+    setSel({ ...sel, exchange_rate: tasaGuardar });
+    setPeriodRateOpen(false);
+    refetch();
+    toast.success(
+      tasaGuardar
+        ? `Tasa del período fijada en ${fmtTasaCambio(tasaGuardar)}/US$`
+        : 'El período ahora usa la tasa BCV del día.',
+    );
+  };
+
   const eliminarPeriodo = async () => {
     if (!sel) return;
     const ok = await confirm({ title: 'Eliminar período', message: `¿Eliminar "${sel.name}"? Se borran sus renglones y abonos.`, confirmText: 'Eliminar', cancelText: 'Cancelar' });
@@ -852,12 +931,14 @@ export default function PagoPersonalScreen() {
   // ── PDF: recibo por persona ─────────────────────────────────────────────────
   const reciboPdf = async (it: StaffPayItem) => {
     if (!sel) return;
+    const tasaP = tasaDePeriodo(sel);
+    const bimo = (m: number) => (tasaP ? `${usd(m)} (${fmtMontoVes(calcularVesDesdeUsd(m, tasaP))})` : usd(m));
     const pagado = paidOf(it.id); const saldo = saldoOf(it);
     const abonos = pays.filter((p) => p.item_id === it.id).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
     const dev = devengadoOf(it, sel.mode);
     const html = pdfDocument({
       title: 'Recibo de pago a personal',
-      subtitle: `${it.person_name} · ${companyName(sel.company_id)} · ${sel.name}`,
+      subtitle: `${it.person_name} · ${companyName(sel.company_id)} · ${sel.name}${tasaP ? ` · Tasa: ${fmtTasaCambio(tasaP)}/US$` : ''}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
         th,td{border:1px solid #ccc;padding:6px 8px} th{background:#1E3A5F;color:#fff;text-align:left}
         .tot{font-weight:800;background:#EEF2F7} .net{font-size:20px;font-weight:800;color:#1E3A5F;text-align:right;margin-top:12px}
@@ -873,6 +954,7 @@ export default function PagoPersonalScreen() {
           <tr><td>Empresa</td><td style="text-align:right">${companyName(sel.company_id)}</td></tr>
           <tr><td>Período</td><td style="text-align:right">${TYPE_LABEL[sel.period_type]} · ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)}</td></tr>
           <tr><td>Pago</td><td style="text-align:right">${MODE_LABEL[sel.mode]}</td></tr>
+          ${tasaP ? `<tr><td>Tasa de cambio aplicada</td><td style="text-align:right"><b>${fmtTasaCambio(tasaP)} / US$</b></td></tr>` : ''}
           ${sel.mode === 'dia'
             ? `<tr><td>Precio ☀️ día / 🌙 noche</td><td style="text-align:right">${usd(Number(it.precio_dia) || 0)} / ${usd(nightPrice(it))}</td></tr>
                <tr><td>Jornadas ☀️ día / 🌙 noche</td><td style="text-align:right">${Number(it.dias) || 0} / ${nightQty(it)}</td></tr>`
@@ -880,18 +962,18 @@ export default function PagoPersonalScreen() {
                <tr><td>Cantidad</td><td style="text-align:right">${qtyOf(it, sel.mode)} ${UNIT[sel.mode]}</td></tr>`}
           ${it.source === 'auto' ? `<tr><td>Jornadas validadas / pendientes</td><td style="text-align:right">${it.jornadas_validadas} / ${it.jornadas_pendientes}</td></tr>` : ''}
         </tbody></table>
-        <table><thead><tr><th>Concepto</th><th style="text-align:right">Monto</th></tr></thead>
+        <table><thead><tr><th>Concepto</th><th style="text-align:right">Monto (USD / Bs)</th></tr></thead>
         <tbody>
-          <tr><td>Devengado (${devDesc(it, sel.mode)})</td><td style="text-align:right">${usd(dev)}</td></tr>
-          ${(it.bonos || []).map((l) => `<tr><td>+ Bono: ${l.label || '—'}</td><td style="text-align:right">${usd(l.amount)}</td></tr>`).join('')}
-          ${(it.deducciones || []).map((l) => `<tr><td>− Deducción: ${l.label || '—'}</td><td style="text-align:right">−${usd(l.amount)}</td></tr>`).join('')}
-          <tr class="tot"><td>Total a pagar</td><td style="text-align:right">${usd(it.total)}</td></tr>
+          <tr><td>Devengado (${devDesc(it, sel.mode)})</td><td style="text-align:right">${bimo(dev)}</td></tr>
+          ${(it.bonos || []).map((l) => `<tr><td>+ Bono: ${l.label || '—'}</td><td style="text-align:right">${bimo(l.amount)}</td></tr>`).join('')}
+          ${(it.deducciones || []).map((l) => `<tr><td>− Deducción: ${l.label || '—'}</td><td style="text-align:right">−${bimo(l.amount)}</td></tr>`).join('')}
+          <tr class="tot"><td>Total a pagar</td><td style="text-align:right">${bimo(it.total)}</td></tr>
         </tbody></table>
         ${abonos.length ? `<table><thead><tr><th>Abono</th><th>Fecha</th><th>Método</th><th style="text-align:right">Monto</th></tr></thead>
-          <tbody>${abonos.map((p, i) => `<tr><td>🟢 Abono ${i + 1}</td><td>${fmtDMY(p.fecha)}</td><td>${p.metodo}</td><td style="text-align:right">${usd(p.monto)}</td></tr>`).join('')}
-          <tr class="tot"><td colspan="3" style="text-align:right">Total abonado</td><td style="text-align:right">${usd(pagado)}</td></tr></tbody></table>` : ''}
-        <div class="net" style="color:#111827">Total: ${usd(it.total)}</div>
-        <div class="net">Saldo cancelado: ${usd(saldo)}</div>
+          <tbody>${abonos.map((p, i) => `<tr><td>🟢 Abono ${i + 1}</td><td>${fmtDMY(p.fecha)}</td><td>${p.metodo}</td><td style="text-align:right">${bimo(p.monto)}</td></tr>`).join('')}
+          <tr class="tot"><td colspan="3" style="text-align:right">Total abonado</td><td style="text-align:right">${bimo(pagado)}</td></tr></tbody></table>` : ''}
+        <div class="net" style="color:#111827">Total: ${bimo(it.total)}</div>
+        <div class="net">Saldo cancelado: ${bimo(saldo)}</div>
         <div class="firmas">
           <div class="firma"><div class="l">${it.person_name}</div><div class="s">Recibí conforme${it.cedula ? ' · C.I. ' + it.cedula : ''}</div></div>
           <div class="firma"><div class="l">Administración</div><div class="s">Pagado por</div></div>
@@ -903,6 +985,11 @@ export default function PagoPersonalScreen() {
   // ── PDF: reporte del período ────────────────────────────────────────────────
   const reportePdf = async () => {
     if (!sel) return;
+    const tasaP = tasaDePeriodo(sel);
+    const cellBimo = (m: number) =>
+      tasaP
+        ? `${usd(m)}<br/><span style="font-size:9.5px;color:#0F766E;font-weight:700">${fmtMontoVes(calcularVesDesdeUsd(m, tasaP))}</span>`
+        : usd(m);
     const base = baseDocumentos();
     const rowFor = (it: StaffPayItem) => {
       const pagado = paidOf(it.id); const saldo = saldoOf(it);
@@ -915,12 +1002,12 @@ export default function PagoPersonalScreen() {
       return `<tr><td>${it.person_name}</td><td>${it.cargo ?? '—'}</td>` +
         `<td style="text-align:right">${precioCell}</td>` +
         `<td style="text-align:center">${cantCell}</td>` +
-        `<td style="text-align:right">${usd(devengadoOf(it, sel.mode))}</td>` +
+        `<td style="text-align:right">${cellBimo(devengadoOf(it, sel.mode))}</td>` +
         `<td style="text-align:right">${usd(sumLines(it.bonos))}</td>` +
         `<td style="text-align:right">${usd(sumLines(it.deducciones))}</td>` +
-        `<td style="text-align:right;font-weight:800">${usd(it.total)}</td>` +
-        `<td style="text-align:right;color:#087443">${usd(pagado)}</td>` +
-        `<td style="text-align:right;font-weight:700">${usd(saldo)}</td></tr>`;
+        `<td style="text-align:right;font-weight:800">${cellBimo(it.total)}</td>` +
+        `<td style="text-align:right;color:#087443">${cellBimo(pagado)}</td>` +
+        `<td style="text-align:right;font-weight:700">${cellBimo(saldo)}</td></tr>`;
     };
     // Agrupa por CARGO. Cada cargo: sus personas + subtotal.
     const byCargo = new Map<string, StaffPayItem[]>();
@@ -934,7 +1021,7 @@ export default function PagoPersonalScreen() {
       return `<tr class="depto"><td colspan="10">💼 ${d} — ${list.length} persona(s)</td></tr>
         ${list.map(rowFor).join('')}
         <tr class="sub"><td colspan="7" style="text-align:right">Subtotal ${d}</td>
-          <td style="text-align:right">${usd(sub)}</td><td style="text-align:right">${usd(subPag)}</td><td style="text-align:right">${usd(subSal)}</td></tr>`;
+          <td style="text-align:right">${cellBimo(sub)}</td><td style="text-align:right">${cellBimo(subPag)}</td><td style="text-align:right">${cellBimo(subSal)}</td></tr>`;
     }).join('');
     const total = round2(base.reduce((s, it) => s + Number(it.total), 0));
     const pagadoT = round2(base.reduce((s, it) => s + paidOf(it.id), 0));
@@ -942,7 +1029,7 @@ export default function PagoPersonalScreen() {
     const filtroNote = notaFiltro();
     const html = pdfDocument({
       title: 'Control de pago a personal',
-      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}${filtroNote}`,
+      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}${tasaP ? ` · Tasa: ${fmtTasaCambio(tasaP)}/US$` : ''}${filtroNote}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
         tr.depto td{background:#1E3A5F;color:#fff;font-weight:800;text-transform:uppercase}
@@ -951,10 +1038,10 @@ export default function PagoPersonalScreen() {
       body: `
         <table><thead><tr><th>Persona</th><th>Cargo</th><th style="text-align:right">Precio</th><th style="text-align:center">Cant.</th>
           <th style="text-align:right">Devengado</th><th style="text-align:right">Bonos</th><th style="text-align:right">Deducc.</th>
-          <th style="text-align:right">Total</th><th style="text-align:right">Pagado</th><th style="text-align:right">Saldo</th></tr></thead>
+          <th style="text-align:right">Total (USD/Bs)</th><th style="text-align:right">Pagado</th><th style="text-align:right">Saldo</th></tr></thead>
         <tbody>${secciones || '<tr><td colspan="10" style="text-align:center">Sin personal</td></tr>'}</tbody>
-        <tfoot><tr><td colspan="7" style="text-align:right">TOTAL (${base.length} persona(s))</td>
-          <td style="text-align:right">${usd(total)}</td><td style="text-align:right">${usd(pagadoT)}</td><td style="text-align:right">${usd(saldoT)}</td></tr>
+        <tfoot><tr><td colspan="7" style="text-align:right">TOTAL (${base.length} persona(s))${tasaP ? ` · Tasa ${fmtTasaCambio(tasaP)}/US$` : ''}</td>
+          <td style="text-align:right">${cellBimo(total)}</td><td style="text-align:right">${cellBimo(pagadoT)}</td><td style="text-align:right">${cellBimo(saldoT)}</td></tr>
         </tfoot></table>`,
     });
     await exportPdf(html, `Pago personal - ${sel.name}`);
@@ -1022,7 +1109,7 @@ export default function PagoPersonalScreen() {
         devengado: devengadoOf(it, sel.mode), bonos: sumLines(it.bonos), deducciones: sumLines(it.deducciones),
         total: Number(it.total) || 0, pagado: paidOf(it.id), saldo: saldoOf(it),
       })),
-      bcvRate,
+      tasaDePeriodo(sel),
       {
         periodo: sel.name, tipo: TYPE_LABEL[sel.period_type], desde: fmtDMY(sel.date_from), hasta: fmtDMY(sel.date_to),
         modo: MODE_LABEL[sel.mode], estado: sel.status.charAt(0).toUpperCase() + sel.status.slice(1),
@@ -1223,7 +1310,7 @@ export default function PagoPersonalScreen() {
             <Text style={{ color: colors.primary, fontWeight: '800' }}>🏷️ Tabulador</Text>
           </TouchableOpacity>
           {vista === 'periodo' ? (
-            <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCType('semana'); const r = rangeFor('semana', cRef); setCFrom(r.from); setCTo(r.to); setCMode('dia'); setCValid(true); setCreateOpen(true); }} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCType('semana'); const r = rangeFor('semana', cRef); setCFrom(r.from); setCTo(r.to); setCMode('dia'); setCValid(true); setCRate(bcvRate ? String(bcvRate) : ''); setCreateOpen(true); }} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
               <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nuevo</Text>
             </TouchableOpacity>
           ) : null}
@@ -1247,6 +1334,57 @@ export default function PagoPersonalScreen() {
         <PagoPorPersona canEdit={puedeTarifa} />
       ) : (
         <>
+          {/* Barra de tasa de cambio del día (BCV / Manual) */}
+          <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                💱 {bcvInfoTxt}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setManualRateInput(bcvRate ? String(bcvRate) : '');
+                    setManualRateOpen((v) => !v);
+                  }}
+                  style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.primary + '22', borderWidth: 1, borderColor: colors.primary }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>✏️ Fijar tasa manual</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={onRefreshBcv}
+                  disabled={bcvLoading}
+                  style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>{bcvLoading ? '…' : '🔄 BCV'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            {manualRateOpen ? (
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+                <TextInput
+                  value={manualRateInput}
+                  onChangeText={setManualRateInput}
+                  placeholder="Ej. 45,50 o 45.50"
+                  keyboardType="decimal-pad"
+                  placeholderTextColor={colors.muted}
+                  style={{ ...input, flex: 1, minWidth: 140, paddingVertical: 6 }}
+                />
+                <TouchableOpacity
+                  onPress={guardarTasaManualDia}
+                  style={{ backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.md }}
+                >
+                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>Guardar tasa del día</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setManualRateOpen(false)}
+                  style={{ paddingHorizontal: 8, paddingVertical: 8 }}
+                >
+                  <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+
           <Text style={{ color: colors.muted, fontSize: 12 }}>💡 El sueldo se define en el "🏷️ Tabulador" por cargo y se sincroniza a los empleados (no uno por uno).</Text>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
             Paga por precio por hora, día o semana, definido por trabajador. Se precarga a TODO el personal activo; los operadores cargan sus jornadas solos y al resto se le ajusta a mano.
@@ -1278,6 +1416,7 @@ export default function PagoPersonalScreen() {
                 <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
                 {g.items.map((p) => {
                   const st = PAGO_STATUS_META[p.status] ?? PAGO_STATUS_META.borrador;
+                  const tasaP = tasaDePeriodo(p);
                   return (
                     <TouchableOpacity key={p.id} activeOpacity={0.7} onPress={() => openDetail(p)}>
                       <Card>
@@ -1286,9 +1425,21 @@ export default function PagoPersonalScreen() {
                           <Badge label={st.label} tone={st.tone} />
                         </View>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                          <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[p.period_type]} · {fmtDMY(p.date_from)} → {fmtDMY(p.date_to)} · {MODE_LABEL[p.mode]}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[p.period_type]} · {fmtDMY(p.date_from)} → {fmtDMY(p.date_to)} · {MODE_LABEL[p.mode]}</Text>
+                            {tasaP ? (
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>
+                                💱 Tasa: {fmtTasaCambio(tasaP)}/US$ {p.exchange_rate ? '(fijada en período)' : '(BCV)'}
+                              </Text>
+                            ) : null}
+                          </View>
                           <View style={{ alignItems: 'flex-end' }}>
                             <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{usd(p.total_amount)}</Text>
+                            {tasaP ? (
+                              <Text style={{ color: '#0F766E', fontWeight: '800', fontSize: 12, fontVariant: ['tabular-nums'] as any }}>
+                                {fmtMontoVes(calcularVesDesdeUsd(p.total_amount, tasaP))}
+                              </Text>
+                            ) : null}
                           </View>
                         </View>
                       </Card>
@@ -1315,6 +1466,19 @@ export default function PagoPersonalScreen() {
 
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nombre (ej. "Semana 1 - julio")</Text>
               <TextInput value={cName} onChangeText={setCName} placeholder="Nombre del período" placeholderTextColor={colors.muted} style={input} />
+
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>💱 Tasa de cambio aplicable al período (Bs/US$)</Text>
+              <TextInput
+                value={cRate}
+                onChangeText={setCRate}
+                placeholder={bcvRate ? `Por defecto tasa del día: ${bcvRate}` : 'Ej. 45,50'}
+                keyboardType="decimal-pad"
+                placeholderTextColor={colors.muted}
+                style={input}
+              />
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                Acepta punto o coma. Se reflejarán todos los montos en USD ($) y Bolívares (Bs). Puedes modificarla luego dentro del período.
+              </Text>
 
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Período (rango de fechas)</Text>
               <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
@@ -1387,27 +1551,103 @@ export default function PagoPersonalScreen() {
                     ✏️ Editado por {sel.updated_by_name || 'un usuario dado de baja'} el {fmtFechaHora(sel.updated_at)}
                   </Text>
                 ) : null}
-                <View style={{ marginTop: spacing.xs, alignItems: 'flex-start' }}>
+                <View style={{ marginTop: spacing.xs, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <Badge label={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).label} tone={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).tone} />
-                </View>
-                <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.xs }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.xs }}>
-                    <View>
-                      <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 11, letterSpacing: 0.5 }}>TOTAL DEL PERÍODO ({items.length})</Text>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 28, fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>{usd(sel.total_amount)}</Text>
-                    </View>
-                    {itemsShown.length !== items.length ? (
-                      <View style={{ alignItems: 'flex-end', backgroundColor: 'rgba(255,255,255,0.14)', paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.sm }}>
-                        <Text style={{ color: colors.brandContrast, opacity: 0.9, fontWeight: '800', fontSize: 10, letterSpacing: 0.5 }}>TOTAL EN VISTA ({itemsShown.length})</Text>
-                        <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(totalMostrado)}</Text>
-                      </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800' }}>
+                      💱 Tasa del período: {tasaDePeriodo(sel) ? `${fmtTasaCambio(tasaDePeriodo(sel))}/US$` : 'Sin tasa'}
+                      {sel.exchange_rate ? ' (fijada)' : bcvRate ? ' (BCV del día)' : ''}
+                    </Text>
+                    {puedeTarifa ? (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setPeriodRateInput(String(tasaDePeriodo(sel) || ''));
+                          setPeriodRateOpen((v) => !v);
+                        }}
+                        style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.primary + '22', borderWidth: 1, borderColor: colors.primary }}
+                      >
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>✏️ Cambiar tasa</Text>
+                      </TouchableOpacity>
                     ) : null}
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' }}>
-                    <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 13, fontWeight: '800' }}>Pagada {usd(totalPagado)}</Text>
-                    {totalSaldo > 0 ? <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}</Text> : null}
-                  </View>
                 </View>
+
+                {periodRateOpen ? (
+                  <View style={{ marginTop: spacing.xs, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, gap: 6 }}>
+                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+                      💱 Configurar tasa de cambio aplicable a este período (Bs / US$)
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <TextInput
+                        value={periodRateInput}
+                        onChangeText={setPeriodRateInput}
+                        placeholder="Ej. 45,50 o 45.50"
+                        keyboardType="decimal-pad"
+                        placeholderTextColor={colors.muted}
+                        style={{ ...input, flex: 1, minWidth: 130, paddingVertical: 6 }}
+                      />
+                      <TouchableOpacity
+                        disabled={busy}
+                        onPress={() => guardarTasaPeriodo(periodRateInput)}
+                        style={{ backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.md }}
+                      >
+                        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>💾 Guardar tasa</Text>
+                      </TouchableOpacity>
+                      {bcvRate ? (
+                        <TouchableOpacity
+                          disabled={busy}
+                          onPress={() => guardarTasaPeriodo(bcvRate)}
+                          style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 8, borderRadius: radius.md }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>Usar BCV ({fmtBs(bcvRate)})</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      <TouchableOpacity onPress={() => setPeriodRateOpen(false)} style={{ paddingHorizontal: 6, paddingVertical: 8 }}>
+                        <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : null}
+
+                {(() => {
+                  const tasaS = tasaDePeriodo(sel);
+                  return (
+                    <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.xs }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: spacing.xs }}>
+                        <View>
+                          <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 11, letterSpacing: 0.5 }}>TOTAL DEL PERÍODO ({items.length})</Text>
+                          <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 28, fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>{usd(sel.total_amount)}</Text>
+                          {tasaS ? (
+                            <Text style={{ color: '#A7F3D0', fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>
+                              ≈ {fmtMontoVes(calcularVesDesdeUsd(sel.total_amount, tasaS))}
+                            </Text>
+                          ) : null}
+                        </View>
+                        {itemsShown.length !== items.length ? (
+                          <View style={{ alignItems: 'flex-end', backgroundColor: 'rgba(255,255,255,0.14)', paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.sm }}>
+                            <Text style={{ color: colors.brandContrast, opacity: 0.9, fontWeight: '800', fontSize: 10, letterSpacing: 0.5 }}>TOTAL EN VISTA ({itemsShown.length})</Text>
+                            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(totalMostrado)}</Text>
+                            {tasaS ? (
+                              <Text style={{ color: '#A7F3D0', fontWeight: '800', fontSize: 12, fontVariant: ['tabular-nums'] as any }}>
+                                ≈ {fmtMontoVes(calcularVesDesdeUsd(totalMostrado, tasaS))}
+                              </Text>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)', flexWrap: 'wrap', gap: 6 }}>
+                        <Text style={{ color: colors.brandContrast, opacity: 0.95, fontSize: 13, fontWeight: '800' }}>
+                          Pagada {usd(totalPagado)}{tasaS ? ` (${fmtMontoVes(calcularVesDesdeUsd(totalPagado, tasaS))})` : ''}
+                        </Text>
+                        {totalSaldo > 0 ? (
+                          <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 12, fontWeight: '700' }}>
+                            Saldo {usd(totalSaldo)}{tasaS ? ` (${fmtMontoVes(calcularVesDesdeUsd(totalSaldo, tasaS))})` : ''}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })()}
               </Card>
 
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -1756,6 +1996,7 @@ export default function PagoPersonalScreen() {
                           </View>
                           <Text style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}>
                             {devDesc(it, sel.mode)} = {usd(devengadoOf(it, sel.mode))}
+                            {tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(devengadoOf(it, sel.mode), tasaDePeriodo(sel)))})` : ''}
                             {sumLines(it.bonos) ? ` · +${usd(sumLines(it.bonos))}` : ''}{sumLines(it.deducciones) ? ` · −${usd(sumLines(it.deducciones))}` : ''}
                           </Text>
                           {it.source === 'auto' && it.jornadas_pendientes > 0 ? (
@@ -1764,7 +2005,18 @@ export default function PagoPersonalScreen() {
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.success, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{usd(it.total)}</Text>
-                          {pagado > 0 ? <Text style={{ color: saldo > 0 ? colors.danger : colors.success, fontSize: 11, fontWeight: '700' }}>{saldo > 0 ? `saldo ${usd(saldo)}` : '✓ pagado'}</Text> : null}
+                          {tasaDePeriodo(sel) ? (
+                            <Text style={{ color: '#0F766E', fontWeight: '800', fontSize: 12, fontVariant: ['tabular-nums'] as any }}>
+                              {fmtMontoVes(calcularVesDesdeUsd(it.total, tasaDePeriodo(sel)))}
+                            </Text>
+                          ) : null}
+                          {pagado > 0 ? (
+                            <Text style={{ color: saldo > 0 ? colors.danger : colors.success, fontSize: 11, fontWeight: '700' }}>
+                              {saldo > 0
+                                ? `saldo ${usd(saldo)}${tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(saldo, tasaDePeriodo(sel)))})` : ''}`
+                                : '✓ pagado'}
+                            </Text>
+                          ) : null}
                         </View>
                       </View>
                       {abonos.length ? (
@@ -1773,7 +2025,9 @@ export default function PagoPersonalScreen() {
                             <View key={p.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                               <Text style={{ color: colors.muted, fontSize: 11 }}>🟢 {fmtDMY(p.fecha)} · {p.metodo}</Text>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                                <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>{usd(p.monto)}</Text>
+                                <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>
+                                  {usd(p.monto)}{tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(p.monto, tasaDePeriodo(sel)))})` : ''}
+                                </Text>
                                 {sel.status !== 'pagada' ? <TouchableOpacity onPress={() => deleteAbono(p)}><Text style={{ color: colors.danger, fontSize: 12 }}>✕</Text></TouchableOpacity> : null}
                               </View>
                             </View>
@@ -1900,11 +2154,21 @@ export default function PagoPersonalScreen() {
                 <View style={{ marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.muted, fontSize: 13 }}>Devengado: {devDesc(previewItem, sel.mode)}</Text>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(devengadoOf(previewItem, sel.mode))}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>
+                      {usd(devengadoOf(previewItem, sel.mode))}
+                      {tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(devengadoOf(previewItem, sel.mode), tasaDePeriodo(sel)))})` : ''}
+                    </Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>Total a pagar</Text>
-                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(totalOf(previewItem, sel.mode))}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(totalOf(previewItem, sel.mode))}</Text>
+                      {tasaDePeriodo(sel) ? (
+                        <Text style={{ color: '#0F766E', fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>
+                          {fmtMontoVes(calcularVesDesdeUsd(totalOf(previewItem, sel.mode), tasaDePeriodo(sel)))}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
                 </View>
 

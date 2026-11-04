@@ -21,6 +21,8 @@ import {
   cuerpoReporteEmpleados,
   contarColumnasActivasEmpleados,
   limpiarSoloDepartamento,
+  leerSalarioSemanalEmpleado,
+  formatearSalarioSemanalReporte,
 } from '../lib/empleadosReporte';
 import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
 import { agruparPorCargo } from '../lib/empleadosAgrupar';
@@ -32,6 +34,9 @@ import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { constanciaCarnetHtml, constanciaTrabajoHtml, MEMBRETES_CONSTANCIA, MEMBRETE_POR_DEFECTO } from '../lib/constancia';
 import { amonestacionHtml, GRADO_LABEL, GradoAmonestacion } from '../lib/amonestacion';
+import { ActaCompromisoModal } from '../components/ActaCompromisoModal';
+import { contarActasPorEmpleado } from '../lib/actasCompromisoDb';
+import { useAuth } from '../context/AuthContext';
 import { montoQuincenal, montoQuincenalTexto } from '../lib/montoQuincenal';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { Employee, Company } from '../types/database';
@@ -91,9 +96,9 @@ const FIELDS: Field[] = [
   { key: 'emergency_contacts', label: 'Se pueden agregar varios (el primero es el principal)', type: 'contactos' },
   { key: 'hire_date', label: 'Fecha de ingreso', type: 'date' },
   { key: 'status', label: 'Estado', type: 'select', options: STATUS_OPTS },
-  { key: 'base_salary', label: 'Salario base', type: 'number' },
-  // Datos bancarios (para pagos).
+  // Datos bancarios y Salario Semanal (para pagos).
   { key: '__sec_banco', label: '🏦 Datos bancarios', type: 'section' },
+  { key: 'base_salary', label: 'Salario Semanal', type: 'number' },
   { key: 'bank_name', label: 'Banco', type: 'select', options: BANCOS_VE, dropdown: true, placeholder: 'Elegir banco…' },
   { key: 'bank_account', label: 'N° de cuenta', type: 'text' },
   { key: 'bank_holder', label: 'Titular (nombre y apellido)', type: 'text' },
@@ -106,8 +111,11 @@ const SIN_EMPRESA = '__none__';
 
 export default function EmpleadosScreen({ navigation, route }: any) {
   const { colors } = useTheme();
+  const { profile } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
+  const [actaFor, setActaFor] = useState<Employee | null>(null);
+  const [actasCounts, setActasCounts] = useState<Record<string, number>>({});
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   // Lista PROPIA de Nómina. Si todavía no se corrió supabase/nomina_empresa_filtro.sql
@@ -155,6 +163,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   useEffect(() => {
     leerGruposApartados().then(setGruposConfig);
     leerMapaHabilidades().then(setMapaHabsLocal);
+    contarActasPorEmpleado().then(setActasCounts);
     AsyncStorage.getItem(CLAVE_REPORTE_EMPLEADOS)
       .then((raw) => {
         if (!raw) return;
@@ -192,9 +201,10 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     guardarConfigReporte(nextOp, logosReporte, nextFirmantes);
   };
 
-  useRealtimeRefresh(['payroll_companies'], () => {
+  useRealtimeRefresh(['payroll_companies', 'employee_commitment_acts'], () => {
     leerGruposApartados().then(setGruposConfig);
     leerMapaHabilidades().then(setMapaHabsLocal);
+    contarActasPorEmpleado().then(setActasCounts);
     refetchPayroll();
   });
 
@@ -413,7 +423,14 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const gruposCargo = useMemo(() => agruparPorCargo(shown, cargoLabel, cmpText), [shown]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
-  const openEdit = (e: Employee) => { setEditing({ ...e, habilidades: habilidadesDe(e) }); setFormOpen(true); };
+  const openEdit = (e: Employee) => {
+    setEditing({
+      ...e,
+      base_salary: e.base_salary ?? e.precio_semana ?? null,
+      habilidades: habilidadesDe(e),
+    });
+    setFormOpen(true);
+  };
 
   const subirFoto = async (e: Employee) => {
     setBusy(e.id + '-photo');
@@ -1202,6 +1219,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         departamento: true,
                         estado: true,
                         telefono: true,
+                        salarioSemanal: true,
                         datosBancarios: true,
                         cabeceraFiltros: true,
                         cuadrosResumen: true,
@@ -1244,6 +1262,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                   ['departamento', '🗂️ Departamento'],
                   ['estado', '● Estado'],
                   ['telefono', '📞 Teléfono'],
+                  ['salarioSemanal', '💵 Salario Semanal'],
                   ['datosBancarios', '🏦 Datos bancarios'],
                 ] as const
               ).map(([k, lbl]) => {
@@ -1754,6 +1773,11 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                       <Text style={{ color: colors.muted, fontSize: 13 }}>
                         {[e.cedula ? `C.I ${e.cedula}` : '', e.blood_type ? `🩸 ${e.blood_type}` : '', e.phone || ''].filter(Boolean).join(' · ') || 'Sin datos adicionales'}
                       </Text>
+                      {leerSalarioSemanalEmpleado(e) !== null ? (
+                        <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginTop: 2 }}>
+                          💵 Salario Semanal: {formatearSalarioSemanalReporte(e)}
+                        </Text>
+                      ) : null}
                       {e.bank_name || e.bank_account ? (
                         <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                           🏦 {[e.bank_name, e.bank_account ? `Cta. ${e.bank_account}` : '', e.bank_holder || '', e.bank_cedula ? `C.I ${e.bank_cedula}` : ''].filter(Boolean).join(' · ')}
@@ -1800,6 +1824,11 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
                         <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); }} />
                         <Btn label="⚠️ Amonestación" color="#B45309" onPress={() => abrirAmonestacion(e)} />
+                        <Btn
+                          label={actasCounts[e.id] ? `🤝 Acta de compromiso (${actasCounts[e.id]})` : '🤝 Acta de compromiso'}
+                          color="#0369A1"
+                          onPress={() => setActaFor(e)}
+                        />
                         <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color={colors.success} disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
                         {e.photo_url ? (
                           <Btn label="🗑️ Quitar foto" color={colors.danger} disabled={busy === e.id + '-photo'} onPress={() => borrarFoto(e)} />
@@ -1813,6 +1842,19 @@ export default function EmpleadosScreen({ navigation, route }: any) {
           </View>
         ))
       )}
+
+      <ActaCompromisoModal
+        visible={!!actaFor}
+        emp={actaFor}
+        companies={companies}
+        allEmployees={employees}
+        currentUserId={profile?.id || null}
+        currentUserName={profile?.full_name || null}
+        onClose={() => setActaFor(null)}
+        onSaved={() => {
+          contarActasPorEmpleado().then(setActasCounts);
+        }}
+      />
 
       <RecordForm
         visible={formOpen}

@@ -445,6 +445,8 @@ export interface PayrollPeriod {
   status: 'borrador' | 'aprobada' | 'pagada';
   total_amount: number;
   currency: string | null;
+  /** Tasa de cambio (Bs/US$) aplicable a este período. Si es null, usa la tasa vigente del día. */
+  exchange_rate?: number | null;
   created_by: string | null;
   created_at: string;
 }
@@ -487,6 +489,8 @@ export interface StaffPayPeriod {
   only_validated: boolean; // solo cuentan jornadas validadas por el supervisor
   status: 'borrador' | 'aprobada' | 'pagada';
   total_amount: number;
+  /** Tasa de cambio (Bs/US$) aplicable a este período. Si es null, usa la tasa vigente del día. */
+  exchange_rate?: number | null;
   created_by: string | null;
   created_at: string;
   /** Quién le cambió el nombre o las fechas por última vez, y cuándo.
@@ -495,6 +499,43 @@ export interface StaffPayPeriod {
    *  Todo `null` = nunca se ha editado. */
   updated_by?: string | null;
   updated_by_name?: string | null;
+  updated_at?: string | null;
+}
+
+/** Ítem de herramienta o implemento entregado en un Acta de Compromiso. */
+export interface CommitmentToolItem {
+  nombre: string;
+  cantidad: number;
+  serial?: string | null;
+  estado?: string | null;
+  valor_usd?: number | null;
+}
+
+/** Acta de compromiso y entrega de herramientas asociada al expediente del trabajador. */
+export interface EmployeeCommitmentAct {
+  id: string;
+  employee_id: string;
+  codigo: string;
+  fecha_entrega: string;
+  cargo: string | null;
+  departamento: string | null;
+  items: CommitmentToolItem[];
+  observaciones: string | null;
+  entregado_por: string | null;
+  testigo_nombre: string | null;
+  testigo_cedula: string | null;
+  firma_trabajador_url: string | null;
+  firma_entrega_url: string | null;
+  soporte_url: string | null;
+  acepta_clausulas: boolean;
+  autoriza_deduccion: boolean;
+  anulado: boolean;
+  anulado_at?: string | null;
+  anulado_por?: string | null;
+  anulado_por_nombre?: string | null;
+  created_by: string | null;
+  created_by_nombre: string | null;
+  created_at: string;
   updated_at?: string | null;
 }
 

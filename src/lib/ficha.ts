@@ -5,6 +5,7 @@ import { pdfDocument } from './pdf';
 import { Employee, Aliado } from '../types/database';
 import { leerContactos, tituloContacto } from './contactosEmergencia';
 import { leerHabilidadesEmpleado } from './empleadosHabilidades';
+import { formatearSalarioSemanalReporte, leerSalarioSemanalEmpleado } from './empleadosReporte';
 
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const nombre = (e: { first_name?: string | null; last_name?: string | null }) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Sin nombre';
@@ -78,6 +79,7 @@ export function fichaEmpleadoHtml(e: Employee & { companyName?: string }, opts?:
         ['Nombre', c.nombre], ['Teléfono', c.telefono], ['Parentesco', c.parentesco],
       ])).join('')
     + section('🏦 Datos bancarios', [
+        ['Salario Semanal', leerSalarioSemanalEmpleado(e) !== null ? formatearSalarioSemanalReporte(e) : null],
         ['Banco', e.bank_name], ['N° de cuenta', e.bank_account], ['Titular', e.bank_holder], ['Cédula del titular', e.bank_cedula],
       ])
     + section('👕 Uniformes (tallas)', [

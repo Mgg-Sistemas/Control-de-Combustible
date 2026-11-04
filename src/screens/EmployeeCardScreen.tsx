@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { Screen, Card, Loading, SkeletonList } from '../components/ui';
 import { supabase } from '../lib/supabase';
 import { machineLabel } from '../lib/machineLabel';
-import { Employee } from '../types/database';
+import { Employee, EmployeeCommitmentAct } from '../types/database';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, carnetCard, carnetStyles, CARNET_MM, fullName, ageFrom } from '../lib/carnet';
 import { fichaEmpleadoHtml } from '../lib/ficha';
@@ -16,6 +16,11 @@ import QrInactive from '../components/QrInactive';
 import { leerContactos, tituloContacto } from '../lib/contactosEmergencia';
 import { leerHabilidadesEmpleado } from '../lib/empleadosHabilidades';
 import { leerMapaHabilidades } from '../lib/empleadosHabilidadesStorage';
+import { listarActasCompromisoEmpleado } from '../lib/actasCompromisoDb';
+import { actaCompromisoHtml, totalValorReposicionUsd } from '../lib/actaCompromiso';
+import { ActaCompromisoModal } from '../components/ActaCompromisoModal';
+import { leerSalarioSemanalEmpleado, formatearSalarioSemanalReporte } from '../lib/empleadosReporte';
+import { MEMBRETE_POR_DEFECTO } from '../lib/constancia';
 
 const LOGO = require('../../assets/logo.png');
 const FICHA_BG = require('../../assets/ficha-bg.jpg');
@@ -54,6 +59,9 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   const [totalHoras, setTotalHoras] = useState(0);
   // Historial de dotación/entregas (uniform_deliveries + inventory_movements de salida), más reciente primero.
   const [historial, setHistorial] = useState<{ id: string; date: string; tipo: string; detalle: string }[]>([]);
+  const [actasCompromiso, setActasCompromiso] = useState<EmployeeCommitmentAct[]>([]);
+  const [actaModalOpen, setActaModalOpen] = useState(false);
+  const [isAnonSession, setIsAnonSession] = useState(true);
 
   // isRefresh=true (pull-to-refresh) no vuelve a registrar el escaneo en la
   // bitácora: ese registro es solo para la apertura inicial por QR.
@@ -62,6 +70,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
     const { data: s } = await supabase.auth.getSession();
     if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
     const anon = !s.session || !!(s.session as any)?.user?.is_anonymous;
+    setIsAnonSession(anon);
     // Sesión anónima (QR público del carnet): solo datos públicos, vía RPC —
     // NUNCA sueldo/banco. Sesión real (módulo Empleados): fila completa.
     const { data } = anon
@@ -165,12 +174,19 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
 
       items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistorial(items.slice(0, 100));
+
+      if (!anon) {
+        try {
+          const rowsActas = await listarActasCompromisoEmpleado(e.id);
+          setActasCompromiso(rowsActas);
+        } catch {}
+      }
     }
     setLoading(false);
   };
   useEffect(() => { load(); }, [employeeId]);
   // isRefresh=true: no vuelve a registrar el escaneo en la bitácora al recargar por realtime.
-  useRealtimeRefresh(['employees', 'operator_assignments', 'uniform_deliveries', 'inventory_movements', 'inventory_items'], () => { load(true); });
+  useRealtimeRefresh(['employees', 'operator_assignments', 'uniform_deliveries', 'inventory_movements', 'inventory_items', 'employee_commitment_acts'], () => { load(true); });
 
   const onRefresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
 
@@ -311,6 +327,93 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         <Row k="Grupo / zona" v={emp.grupo} />
         <Row k="Fecha de ingreso" v={emp.hire_date} />
       </Section>
+
+      {!isAnonSession && (leerSalarioSemanalEmpleado(emp) !== null || emp.bank_name || emp.bank_account || emp.bank_holder || emp.bank_cedula) ? (
+        <Section title="🏦 Datos bancarios">
+          <Row k="Salario Semanal" v={leerSalarioSemanalEmpleado(emp) !== null ? formatearSalarioSemanalReporte(emp) : null} />
+          <Row k="Banco" v={emp.bank_name} />
+          <Row k="N° de cuenta" v={emp.bank_account} />
+          <Row k="Titular" v={emp.bank_holder} />
+          <Row k="Cédula del titular" v={emp.bank_cedula} />
+        </Section>
+      ) : null}
+
+      {!isAnonSession ? (
+        <Section title={`🤝 Actas de compromiso y entrega de herramientas (${actasCompromiso.length})`}>
+          {actasCompromiso.length === 0 ? (
+            <Text style={{ color: FICHA.muted, fontSize: 13 }}>Sin actas registradas en el expediente.</Text>
+          ) : (
+            actasCompromiso.map((a) => {
+              const totalUsd = totalValorReposicionUsd(a.items || []);
+              return (
+                <View key={a.id} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '800' }}>
+                        {a.act_code || 'ACTA'} · {a.act_date} {a.employee_signature_url ? '· ✍️ Firmada' : ''}
+                      </Text>
+                      <Text style={{ color: FICHA.muted, fontSize: 12 }}>
+                        {(a.items || []).map((it) => `${it.cantidad}x ${it.descripcion}`).join(' · ')}
+                        {totalUsd > 0 ? ` · ($${totalUsd.toFixed(2)})` : ''}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const html = actaCompromisoHtml(emp, { id: emp.company_id || '', name: emp.companyName || 'SOS LA GUAIRA' } as any, {
+                          act_code: a.act_code,
+                          act_date: a.act_date,
+                          lugar: a.lugar,
+                          entregado_por_nombre: a.entregado_por_nombre,
+                          entregado_por_cargo: a.entregado_por_cargo,
+                          items: a.items || [],
+                          clausulas_adicionales: a.clausulas_adicionales,
+                          observaciones: a.observaciones,
+                          employee_signature_url: a.employee_signature_url,
+                          deliverer_signature_url: a.deliverer_signature_url,
+                          signed_at: a.signed_at,
+                          membrete: MEMBRETE_POR_DEFECTO,
+                        });
+                        await exportPdf(html, `Acta_Compromiso_${a.act_code || fullName(emp)}`);
+                      }}
+                      style={{
+                        backgroundColor: FICHA.brand,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: radius.sm,
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>🖨️ PDF</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })
+          )}
+          <TouchableOpacity
+            onPress={() => setActaModalOpen(true)}
+            style={{
+              marginTop: 8,
+              backgroundColor: '#0369A1',
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              borderRadius: radius.sm,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+              🤝 Nueva / Gestionar Actas de Compromiso
+            </Text>
+          </TouchableOpacity>
+        </Section>
+      ) : null}
+
+      <ActaCompromisoModal
+        visible={actaModalOpen}
+        emp={emp}
+        companies={[]}
+        onClose={() => setActaModalOpen(false)}
+        onSaved={() => load(true)}
+      />
 
       {emp.habilidades && emp.habilidades.length > 0 ? (
         <Section title="🛠️ Habilidades">

@@ -20,6 +20,15 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
 import { PAGO_STATUS_META, PAGO_STATUS_LABEL } from '../lib/statusMeta';
+import { useBcvRate } from '../hooks/useBcvRate';
+import { setManualBcvRate, refreshBcvRate } from '../lib/bcv';
+import {
+  resolverTasaPeriodo,
+  validarTasaManual,
+  calcularVesDesdeUsd,
+  fmtMontoVes,
+  fmtTasaCambio,
+} from '../lib/nominaBimonetario';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // `onlyDecimal` (lib/text.ts) ya deja como mucho UN separador decimal (. o ,,
@@ -47,10 +56,29 @@ export default function NominaScreen({ navigation }: any) {
   const [cName, setCName] = useState('');
   const [cFrom, setCFrom] = useState(todayISO());
   const [cTo, setCTo] = useState(todayISO());
+  const [cRateText, setCRateText] = useState('');
   const [creating, setCreating] = useState(false);
+
+  // Tasa de cambio BCV / manual por período
+  const bcvRateInfo = useBcvRate();
+  const [globalRateEditOpen, setGlobalRateEditOpen] = useState(false);
+  const [globalRateText, setGlobalRateText] = useState('');
+  const [periodRateEditOpen, setPeriodRateEditOpen] = useState(false);
+  const [periodRateText, setPeriodRateText] = useState('');
+  const [periodRateSaving, setPeriodRateSaving] = useState(false);
 
   // Detalle
   const [sel, setSel] = useState<PayrollPeriod | null>(null);
+  const activePeriodRate = useMemo(
+    () => resolverTasaPeriodo(sel?.exchange_rate, bcvRateInfo.rate),
+    [sel?.exchange_rate, bcvRateInfo.rate],
+  );
+  const fmtVes = (usdAmt: number, rateOverride?: number | null) => {
+    const r = rateOverride !== undefined ? rateOverride : activePeriodRate;
+    if (!r || r <= 0) return null;
+    const ves = calcularVesDesdeUsd(usdAmt, r);
+    return fmtMontoVes(ves);
+  };
   const [items, setItems] = useState<PayrollItem[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -139,23 +167,29 @@ export default function NominaScreen({ navigation }: any) {
   const crearPeriodo = async () => {
     if (!cCompany) return toast.error('Elige la empresa.');
     if (!cName.trim()) return toast.error('Escribe el nombre de la nómina (ej. "Quincena 1 - julio").');
+    let chosenRate: number | null = bcvRateInfo.rate ?? null;
+    if (cRateText.trim()) {
+      const check = validarTasaManual(cRateText);
+      if (!check.ok) return toast.error(check.error);
+      chosenRate = check.valor;
+    }
     setCreating(true);
     const { data: per, error } = await supabase.from('payroll_periods')
-      .insert({ company_id: cCompany, name: cName.trim(), period_start: cFrom || null, period_end: cTo || null, status: 'borrador', created_by: session?.user?.id ?? null })
+      .insert({ company_id: cCompany, name: cName.trim(), period_start: cFrom || null, period_end: cTo || null, exchange_rate: chosenRate, status: 'borrador', created_by: session?.user?.id ?? null })
       .select().single();
     if (error || !per) { setCreating(false); return toast.error(error?.message ?? 'No se pudo crear.'); }
-    // Precarga: un renglón por cada empleado ACTIVO de la empresa, con su salario base.
+    // Precarga: un renglón por cada empleado ACTIVO de la empresa, con su salario semanal / base.
     const { data: emps } = await supabase.from('employees')
-      .select('id, first_name, last_name, cargo, ficha_number, cedula, hire_date, base_salary')
+      .select('id, first_name, last_name, cargo, ficha_number, cedula, hire_date, base_salary, precio_semana')
       .eq('company_id', cCompany).eq('status', 'activo');
     const rows = (emps ?? []).map((e: any) => {
-      const base = Number(e.base_salary) || 0;
+      const base = Number(e.base_salary) || Number(e.precio_semana) || 0;
       return { period_id: per.id, employee_id: e.id, employee_name: `${e.first_name} ${e.last_name}`.trim(), cargo: e.cargo, ficha_number: e.ficha_number, cedula: e.cedula, hire_date: e.hire_date ?? null, base_amount: base, additions: [], deductions: [], net_amount: base };
     });
     if (rows.length) await supabase.from('payroll_items').insert(rows);
     const total = rows.reduce((s, r) => s + r.net_amount, 0);
     await supabase.from('payroll_periods').update({ total_amount: total }).eq('id', per.id);
-    setCreating(false); setCreateOpen(false); setCName('');
+    setCreating(false); setCreateOpen(false); setCName(''); setCRateText('');
     refetch();
     openDetail({ ...(per as PayrollPeriod), total_amount: total });
   };
@@ -164,11 +198,11 @@ export default function NominaScreen({ navigation }: any) {
     if (!sel) return;
     setBusy(true);
     const { data: emps } = await supabase.from('employees')
-      .select('id, first_name, last_name, cargo, ficha_number, cedula, hire_date, base_salary')
+      .select('id, first_name, last_name, cargo, ficha_number, cedula, hire_date, base_salary, precio_semana')
       .eq('company_id', sel.company_id).eq('status', 'activo');
     const have = new Set(items.map((it) => it.employee_id));
     const rows = (emps ?? []).filter((e: any) => !have.has(e.id)).map((e: any) => {
-      const base = Number(e.base_salary) || 0;
+      const base = Number(e.base_salary) || Number(e.precio_semana) || 0;
       return { period_id: sel.id, employee_id: e.id, employee_name: `${e.first_name} ${e.last_name}`.trim(), cargo: e.cargo, ficha_number: e.ficha_number, cedula: e.cedula, hire_date: e.hire_date ?? null, base_amount: base, additions: [], deductions: [], net_amount: base };
     });
     if (rows.length) await supabase.from('payroll_items').insert(rows);
@@ -176,6 +210,37 @@ export default function NominaScreen({ navigation }: any) {
     await recomputeTotal(sel.id);
     setBusy(false);
     if (!rows.length) toast.info('No hay empleados activos nuevos para agregar.');
+  };
+
+  const guardarTasaGlobal = async () => {
+    const check = validarTasaManual(globalRateText);
+    if (!check.ok) return toast.error(check.error);
+    await setManualBcvRate(check.valor);
+    setGlobalRateEditOpen(false);
+    toast.ok(`Tasa del día actualizada: ${fmtTasaCambio(check.valor)}`);
+  };
+
+  const guardarTasaPeriodo = async (usarAutomatica = false) => {
+    if (!sel) return;
+    let nextRate: number | null = null;
+    if (!usarAutomatica) {
+      const check = validarTasaManual(periodRateText);
+      if (!check.ok) return toast.error(check.error);
+      nextRate = check.valor;
+    }
+    setPeriodRateSaving(true);
+    const { data: updatedRows, error } = await supabase
+      .from('payroll_periods')
+      .update({ exchange_rate: nextRate })
+      .eq('id', sel.id)
+      .select('id, exchange_rate');
+    setPeriodRateSaving(false);
+    if (error) return toast.error(error.message);
+    if (!updatedRows || updatedRows.length === 0) return toast.error('No se pudo actualizar la tasa del período (permisos insuficientes).');
+    setSel({ ...sel, exchange_rate: nextRate });
+    setPeriodRateEditOpen(false);
+    refetch();
+    toast.ok(nextRate ? `Tasa del período fijada en ${fmtTasaCambio(nextRate)} Bs/$` : 'El período ahora usa la tasa del día');
   };
 
   const recomputeTotal = async (pid: string) => {
@@ -237,11 +302,16 @@ export default function NominaScreen({ navigation }: any) {
   // ── PDF: recibo de un empleado ────────────────────────────────────────────
   const reciboPdf = async (it: PayrollItem) => {
     if (!sel) return;
-    const line = (l: PayrollLine) => `<tr><td>${(l.label || '—')}</td><td style="text-align:right">${usd(l.amount)}</td></tr>`;
+    const rate = activePeriodRate;
+    const bimo = (amt: number) => {
+      const ves = calcularVesDesdeUsd(amt, rate);
+      return ves != null ? `${usd(amt)} <span style="color:#475569;font-size:11px">(${fmtMontoVes(ves)})</span>` : usd(amt);
+    };
+    const line = (l: PayrollLine) => `<tr><td>${(l.label || '—')}</td><td style="text-align:right">${bimo(l.amount)}</td></tr>`;
     const add = (it.additions || []); const ded = (it.deductions || []);
     const html = pdfDocument({
       title: 'Recibo de pago',
-      subtitle: `${it.employee_name ?? ''} · ${companyName(sel.company_id)} · ${sel.name}`,
+      subtitle: `${it.employee_name ?? ''} · ${companyName(sel.company_id)} · ${sel.name}${rate ? ` · Tasa: ${fmtTasaCambio(rate)} Bs/$` : ''}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
         th,td{border:1px solid #ccc;padding:6px 8px} th{background:#1E3A5F;color:#fff;text-align:left}
         .tot{font-weight:800;background:#EEF2F7} .net{font-size:20px;font-weight:800;color:#1E3A5F;text-align:right;margin-top:12px}`,
@@ -253,15 +323,16 @@ export default function NominaScreen({ navigation }: any) {
           <tr><td>Cédula</td><td style="text-align:right">${it.cedula ?? '—'}</td></tr>
           <tr><td>Fecha de ingreso</td><td style="text-align:right">${fmtDMY(it.hire_date)}</td></tr>
           <tr><td>Período</td><td style="text-align:right">${fmtDMY(sel.period_start)} → ${fmtDMY(sel.period_end)}</td></tr>
+          ${rate ? `<tr><td>Tasa de cambio aplicada</td><td style="text-align:right;font-weight:700">${fmtTasaCambio(rate)} Bs/$</td></tr>` : ''}
         </tbody></table>
         <table><thead><tr><th>Asignaciones</th><th style="text-align:right">Monto</th></tr></thead>
-        <tbody><tr><td>Sueldo base</td><td style="text-align:right">${usd(it.base_amount)}</td></tr>
+        <tbody><tr><td>Salario Semanal / Base</td><td style="text-align:right">${bimo(it.base_amount)}</td></tr>
           ${add.map(line).join('')}
-          <tr class="tot"><td>Total asignaciones</td><td style="text-align:right">${usd(Number(it.base_amount) + sumLines(add))}</td></tr></tbody></table>
+          <tr class="tot"><td>Total asignaciones</td><td style="text-align:right">${bimo(Number(it.base_amount) + sumLines(add))}</td></tr></tbody></table>
         ${ded.length ? `<table><thead><tr><th>Deducciones</th><th style="text-align:right">Monto</th></tr></thead>
         <tbody>${ded.map(line).join('')}
-          <tr class="tot"><td>Total deducciones</td><td style="text-align:right">${usd(sumLines(ded))}</td></tr></tbody></table>` : ''}
-        <div class="net">Neto a pagar: ${usd(it.net_amount)}</div>`,
+          <tr class="tot"><td>Total deducciones</td><td style="text-align:right">${bimo(sumLines(ded))}</td></tr></tbody></table>` : ''}
+        <div class="net">Neto a pagar: ${usd(it.net_amount)}${rate ? `<div style="font-size:14px;color:#0f766e;margin-top:2px">Equivalente: ${fmtMontoVes(calcularVesDesdeUsd(it.net_amount, rate) || 0)}</div>` : ''}</div>`,
     });
     await exportPdf(html, `Recibo - ${it.employee_name}`);
   };
@@ -269,23 +340,26 @@ export default function NominaScreen({ navigation }: any) {
   // ── PDF: reporte del período completo ─────────────────────────────────────
   const reportePdf = async () => {
     if (!sel) return;
-    const rows = items.map((it) =>
-      `<tr><td>${it.employee_name ?? '—'}</td><td>${it.cargo ?? '—'}</td><td>${it.ficha_number ?? '—'}</td><td>${fmtDMY(it.hire_date)}</td>` +
-      `<td style="text-align:right">${usd(it.base_amount)}</td><td style="text-align:right">${usd(sumLines(it.additions))}</td>` +
-      `<td style="text-align:right">${usd(sumLines(it.deductions))}</td><td style="text-align:right;font-weight:800">${usd(it.net_amount)}</td></tr>`
-    ).join('');
+    const rate = activePeriodRate;
+    const rows = items.map((it) => {
+      const vesCell = rate ? `<td style="text-align:right;font-weight:700;color:#0f766e">${fmtMontoVes(calcularVesDesdeUsd(it.net_amount, rate) || 0)}</td>` : '';
+      return `<tr><td>${it.employee_name ?? '—'}</td><td>${it.cargo ?? '—'}</td><td>${it.ficha_number ?? '—'}</td><td>${fmtDMY(it.hire_date)}</td>` +
+        `<td style="text-align:right">${usd(it.base_amount)}</td><td style="text-align:right">${usd(sumLines(it.additions))}</td>` +
+        `<td style="text-align:right">${usd(sumLines(it.deductions))}</td><td style="text-align:right;font-weight:800">${usd(it.net_amount)}</td>${vesCell}</tr>`;
+    }).join('');
     const total = items.reduce((s, it) => s + (Number(it.net_amount) || 0), 0);
+    const totalVesCell = rate ? `<td style="text-align:right;color:#0f766e">${fmtMontoVes(calcularVesDesdeUsd(total, rate) || 0)}</td>` : '';
     const html = pdfDocument({
       title: 'Nómina',
-      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${fmtDMY(sel.period_start)} → ${fmtDMY(sel.period_end)} · ${PAGO_STATUS_LABEL[sel.status] ?? sel.status}`,
+      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${fmtDMY(sel.period_start)} → ${fmtDMY(sel.period_end)} · ${PAGO_STATUS_LABEL[sel.status] ?? sel.status}${rate ? ` · Tasa: ${fmtTasaCambio(rate)} Bs/$` : ''}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
         tfoot td{background:#EEF2F7;font-weight:800}`,
       body: `
-        <table><thead><tr><th>Empleado</th><th>Cargo</th><th>Ficha</th><th>Ingreso</th><th style="text-align:right">Base</th>
-          <th style="text-align:right">Asign.</th><th style="text-align:right">Deducc.</th><th style="text-align:right">Neto</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="8" style="text-align:center">Sin empleados</td></tr>'}</tbody>
-        <tfoot><tr><td colspan="7" style="text-align:right">TOTAL A PAGAR (${items.length} empleado(s))</td><td style="text-align:right">${usd(total)}</td></tr></tfoot></table>`,
+        <table><thead><tr><th>Empleado</th><th>Cargo</th><th>Ficha</th><th>Ingreso</th><th style="text-align:right">Base ($)</th>
+          <th style="text-align:right">Asign. ($)</th><th style="text-align:right">Deducc. ($)</th><th style="text-align:right">Neto ($)</th>${rate ? '<th style="text-align:right">Neto (Bs)</th>' : ''}</tr></thead>
+        <tbody>${rows || `<tr><td colspan="${rate ? 9 : 8}" style="text-align:center">Sin empleados</td></tr>`}</tbody>
+        <tfoot><tr><td colspan="7" style="text-align:right">TOTAL A PAGAR (${items.length} empleado(s))</td><td style="text-align:right">${usd(total)}</td>${totalVesCell}</tr></tfoot></table>`,
     });
     await exportPdf(html, `Nomina - ${sel.name}`);
   };
@@ -332,11 +406,97 @@ export default function NominaScreen({ navigation }: any) {
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Nómina</SectionTitle>
-        <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCFrom(todayISO()); setCTo(todayISO()); setCreateOpen(true); }} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+        <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCFrom(todayISO()); setCTo(todayISO()); setCRateText(bcvRateInfo.rate ? String(bcvRateInfo.rate).replace('.', ',') : ''); setCreateOpen(true); }} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
           <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nueva</Text>
         </TouchableOpacity>
       </View>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Crea una nómina por empresa y período. Se precargan los empleados activos con su salario.</Text>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Crea una nómina por empresa y período. Se precargan los empleados activos con su salario semanal.</Text>
+
+      {/* Barra de Tasa de Cambio del Día (BCV / Manual) */}
+      <View
+        style={{
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: radius.md,
+          paddingVertical: spacing.xs,
+          paddingHorizontal: spacing.sm,
+          marginBottom: spacing.sm,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>💱 Tasa del día:</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+              {bcvRateInfo.rate ? `${fmtTasaCambio(bcvRateInfo.rate)} Bs/$` : 'Sin configurar'}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>
+              ({bcvRateInfo.source === 'manual' ? 'Manual' : bcvRateInfo.source === 'live' ? 'BCV en línea' : 'Caché'})
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+            <TouchableOpacity
+              onPress={() => {
+                setGlobalRateText(bcvRateInfo.rate ? String(bcvRateInfo.rate).replace('.', ',') : '');
+                setGlobalRateEditOpen((v) => !v);
+              }}
+              style={{
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 4,
+                borderRadius: radius.pill,
+                backgroundColor: colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            >
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                {globalRateEditOpen ? '✕ Cerrar' : '✎ Configurar tasa'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={async () => {
+                const res = await refreshBcvRate();
+                if (res.rate) toast.ok(`Tasa BCV actualizada: ${fmtTasaCambio(res.rate)} Bs/$`);
+                else toast.info('No se pudo consultar BCV en línea; usa Configurar tasa manual.');
+              }}
+              style={{
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 4,
+                borderRadius: radius.pill,
+                backgroundColor: colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>↻ BCV</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        {globalRateEditOpen ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+            <TextInput
+              value={globalRateText}
+              onChangeText={(t) => setGlobalRateText(onlyDecimal(t))}
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              placeholder="Ej: 45,50"
+              placeholderTextColor={colors.muted}
+              style={{ ...input, flex: 1, minWidth: 120, paddingVertical: 6 }}
+            />
+            <TouchableOpacity
+              onPress={guardarTasaGlobal}
+              style={{
+                paddingHorizontal: spacing.md,
+                paddingVertical: 8,
+                borderRadius: radius.md,
+                backgroundColor: colors.accent,
+              }}
+            >
+              <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>Guardar tasa</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </View>
 
       {/* Acceso a la ficha de EMPLEADOS (RRHH) y al Apartado de Inactivos desde Nómina. */}
       <View
@@ -469,6 +629,8 @@ export default function NominaScreen({ navigation }: any) {
             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
             {g.items.map((p) => {
               const st = PAGO_STATUS_META[p.status] ?? PAGO_STATUS_META.borrador;
+              const pRate = resolverTasaPeriodo(p.exchange_rate, bcvRateInfo.rate);
+              const pVes = pRate ? calcularVesDesdeUsd(p.total_amount, pRate) : null;
               return (
                 <TouchableOpacity key={p.id} activeOpacity={0.7} onPress={() => openDetail(p)}>
                   <Card>
@@ -476,9 +638,23 @@ export default function NominaScreen({ navigation }: any) {
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{p.name}</Text>
                       <Badge label={st.label} tone={st.tone} />
                     </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDMY(p.period_start)} → {fmtDMY(p.period_end)}</Text>
-                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{usd(p.total_amount)}</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 2 }}>
+                      <View>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDMY(p.period_start)} → {fmtDMY(p.period_end)}</Text>
+                        {pRate ? (
+                          <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                            💱 Tasa: {fmtTasaCambio(pRate)} Bs/${p.exchange_rate ? ' (fijada)' : ''}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{usd(p.total_amount)}</Text>
+                        {pVes != null ? (
+                          <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12, fontVariant: ['tabular-nums'] as any }}>
+                            {fmtMontoVes(pVes)}
+                          </Text>
+                        ) : null}
+                      </View>
                     </View>
                   </Card>
                 </TouchableOpacity>
@@ -510,6 +686,16 @@ export default function NominaScreen({ navigation }: any) {
               <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Desde</Text><DateField value={cFrom} onChange={setCFrom} /></View>
               <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hasta</Text><DateField value={cTo} onChange={setCTo} /></View>
             </View>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>💱 Tasa de cambio para esta nómina (Bs/$)</Text>
+            <TextInput
+              value={cRateText}
+              onChangeText={(t) => setCRateText(onlyDecimal(t))}
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              placeholder={bcvRateInfo.rate ? `Por defecto: ${fmtTasaCambio(bcvRateInfo.rate)}` : 'Ej: 45,50'}
+              placeholderTextColor={colors.muted}
+              style={input}
+            />
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setCreateOpen(false)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
@@ -581,9 +767,106 @@ export default function NominaScreen({ navigation }: any) {
                   <Badge label={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).label} tone={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).tone} />
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDMY(sel.period_start)} → {fmtDMY(sel.period_end)}</Text>
-                <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginTop: spacing.xs, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+
+                {/* Tasa de cambio del período */}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: spacing.xs,
+                    backgroundColor: colors.surfaceAlt,
+                    borderRadius: radius.md,
+                    paddingVertical: 6,
+                    paddingHorizontal: spacing.sm,
+                    marginTop: spacing.xs,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>💱 Tasa período:</Text>
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                      {activePeriodRate ? `${fmtTasaCambio(activePeriodRate)} Bs/$` : 'Sin tasa'}
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>
+                      ({sel.exchange_rate ? 'Fijada en esta nómina' : 'Tasa del día'})
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setPeriodRateText(activePeriodRate ? String(activePeriodRate).replace('.', ',') : '');
+                      setPeriodRateEditOpen((v) => !v);
+                    }}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 3,
+                      borderRadius: radius.pill,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                      {periodRateEditOpen ? '✕ Cerrar' : '✎ Cambiar tasa'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {periodRateEditOpen ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                    <TextInput
+                      value={periodRateText}
+                      onChangeText={(t) => setPeriodRateText(onlyDecimal(t))}
+                      keyboardType="decimal-pad"
+                      inputMode="decimal"
+                      placeholder="Ej: 45,50"
+                      placeholderTextColor={colors.muted}
+                      style={{ ...input, flex: 1, minWidth: 110, paddingVertical: 6 }}
+                    />
+                    <TouchableOpacity
+                      onPress={() => guardarTasaPeriodo(false)}
+                      disabled={periodRateSaving}
+                      style={{
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 7,
+                        borderRadius: radius.md,
+                        backgroundColor: colors.accent,
+                      }}
+                    >
+                      <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>
+                        {periodRateSaving ? '…' : 'Fijar en período'}
+                      </Text>
+                    </TouchableOpacity>
+                    {sel.exchange_rate ? (
+                      <TouchableOpacity
+                        onPress={() => guardarTasaPeriodo(true)}
+                        disabled={periodRateSaving}
+                        style={{
+                          paddingHorizontal: spacing.sm,
+                          paddingVertical: 7,
+                          borderRadius: radius.md,
+                          backgroundColor: colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                        }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>Usar tasa del día</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginTop: spacing.xs, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
                   <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 12, letterSpacing: 0.5 }}>TOTAL A PAGAR</Text>
-                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{usd(sel.total_amount)}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{usd(sel.total_amount)}</Text>
+                    {fmtVes(sel.total_amount) ? (
+                      <Text style={{ color: colors.brandContrast, opacity: 0.92, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>
+                        {fmtVes(sel.total_amount)}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
               </Card>
 
@@ -630,7 +913,14 @@ export default function NominaScreen({ navigation }: any) {
                           Base {usd(it.base_amount)}{sumLines(it.additions) ? ` · +${usd(sumLines(it.additions))}` : ''}{sumLines(it.deductions) ? ` · −${usd(sumLines(it.deductions))}` : ''}
                         </Text>
                       </View>
-                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{usd(it.net_amount)}</Text>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{usd(it.net_amount)}</Text>
+                        {fmtVes(it.net_amount) ? (
+                          <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12, fontVariant: ['tabular-nums'] as any }}>
+                            {fmtVes(it.net_amount)}
+                          </Text>
+                        ) : null}
+                      </View>
                     </View>
                     <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
                       <TouchableOpacity onPress={() => openItem(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: readOnly ? colors.surfaceAlt : colors.accent, borderWidth: readOnly ? 1 : 0, borderColor: colors.border }}>
@@ -665,7 +955,7 @@ export default function NominaScreen({ navigation }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{editItem.cargo ?? ''}{editItem.ficha_number ? ` · Ficha ${editItem.ficha_number}` : ''}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>{editItem.hire_date ? `📅 Ingreso: ${fmtDMY(editItem.hire_date)}` : ''}</Text>
 
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Sueldo base ($)</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Salario Semanal / Base ($)</Text>
                 <TextInput value={eBase} onChangeText={(t) => setEBase(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" editable={!readOnly} placeholder="0" placeholderTextColor={colors.muted} style={input} />
 
                 {lineEditor({ title: 'Asignaciones', lines: eAdd, setLines: setEAdd, color: colors.success })}
@@ -674,9 +964,16 @@ export default function NominaScreen({ navigation }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
                 <TextInput value={eNote} onChangeText={setENote} editable={!readOnly} placeholder="Observación…" placeholderTextColor={colors.muted} style={input} />
 
-                <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginTop: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginTop: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
                   <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 12, letterSpacing: 0.5 }}>NETO A PAGAR</Text>
-                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{usd(netOf(parseNum(eBase), eAdd, eDed))}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{usd(netOf(parseNum(eBase), eAdd, eDed))}</Text>
+                    {fmtVes(netOf(parseNum(eBase), eAdd, eDed)) ? (
+                      <Text style={{ color: colors.brandContrast, opacity: 0.92, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>
+                        {fmtVes(netOf(parseNum(eBase), eAdd, eDed))}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>

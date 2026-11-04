@@ -26,6 +26,8 @@ export type OpcionesReporteEmpleados = {
   estado: boolean;
   /** 📞 Columna «Teléfono». */
   telefono: boolean;
+  /** 💵 Columna «Salario Semanal» (`base_salary` o `precio_semana`). */
+  salarioSemanal: boolean;
   /** 🏦 Columna «Datos bancarios» (banco, cuenta, titular). */
   datosBancarios: boolean;
   /** 🧱 Cuadros superiores de resumen (Total empleados, Cargos, Departamentos, Empresas). */
@@ -68,6 +70,7 @@ export const OPCIONES_REPORTE_EMPLEADOS_DEFECTO: OpcionesReporteEmpleados = {
   departamento: false,
   estado: true,
   telefono: true,
+  salarioSemanal: false,
   datosBancarios: false,
   cuadrosResumen: true,
   cabeceraFiltros: true,
@@ -89,6 +92,8 @@ export type EmpleadoParaReporte = {
   grupo?: string | null;
   status?: string | null;
   phone?: string | null;
+  base_salary?: number | string | null;
+  precio_semana?: number | string | null;
   bank_name?: string | null;
   bank_account?: string | null;
   bank_holder?: string | null;
@@ -139,6 +144,35 @@ export function limpiarSoloDepartamento(
   return d;
 }
 
+/**
+ * Obtiene el Salario Semanal del trabajador: toma primero `base_salary` (campo
+ * «Salario Semanal» de la ficha) y, si no está cargado, cae a `precio_semana`
+ * (del tabulador / pago a personal). Devuelve `null` si no tiene monto (> 0).
+ */
+export function leerSalarioSemanalEmpleado(e?: {
+  base_salary?: number | string | null;
+  precio_semana?: number | string | null;
+} | null): number | null {
+  if (!e) return null;
+  const nBase = Number(String(e.base_salary ?? '').replace(',', '.'));
+  if (Number.isFinite(nBase) && nBase > 0) return Math.round(nBase * 100) / 100;
+  const nSem = Number(String(e.precio_semana ?? '').replace(',', '.'));
+  if (Number.isFinite(nSem) && nSem > 0) return Math.round(nSem * 100) / 100;
+  return null;
+}
+
+/** Formatea un monto de salario semanal como `$200,00` o devuelve `'—'` si no tiene. */
+export function formatearSalarioSemanalReporte(e?: {
+  base_salary?: number | string | null;
+  precio_semana?: number | string | null;
+} | null): string {
+  const val = leerSalarioSemanalEmpleado(e);
+  if (val === null) return '—';
+  const [ent, dec] = val.toFixed(2).split('.');
+  const miles = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `$${miles},${dec}`;
+}
+
 export function resolverOpcionesReporteEmpleados(
   parcial?: Partial<OpcionesReporteEmpleados>
 ): OpcionesReporteEmpleados {
@@ -163,6 +197,7 @@ export function contarColumnasActivasEmpleados(parcial?: Partial<OpcionesReporte
   if (op.departamento) n++;
   if (op.estado) n++;
   if (op.telefono) n++;
+  if (op.salarioSemanal) n++;
   if (op.datosBancarios) n++;
   return Math.max(1, n);
 }
@@ -211,6 +246,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
   // Agrupación para el resumen por departamento (SOLO department, nunca grupo/dirección)
   const porDeptoMap = new Map<string, number>();
   const empresasSet = new Set<string>();
+  let totalSalarioSemanal = 0;
 
   for (const e of lista) {
     const c = String(e.cargo ?? '').trim() || 'Sin cargo';
@@ -221,7 +257,12 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
 
     const emp = String(e.empresaNomina ?? '').trim();
     if (emp && emp !== 'Sin empresa de filtro') empresasSet.add(emp);
+
+    const sal = leerSalarioSemanalEmpleado(e);
+    if (sal !== null) totalSalarioSemanal += sal;
   }
+  totalSalarioSemanal = Math.round(totalSalarioSemanal * 100) / 100;
+  const totalSalarioSemanalTxt = formatearSalarioSemanalReporte({ base_salary: totalSalarioSemanal });
   const resumen = Array.from(porCargoMap.entries()).sort(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
   );
@@ -243,6 +284,9 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     }
     if (op.empresa && empresasSet.size > 0) {
       tiles.push(`<div class="tile"><div class="t">${empresasSet.size}</div><div class="s">Empresa(s) nómina</div></div>`);
+    }
+    if (op.salarioSemanal && totalSalarioSemanal > 0) {
+      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioSemanalTxt)}</div><div class="s">Total Salario Semanal</div></div>`);
     }
     tilesHtml = `<div class="tiles">${tiles.join('')}</div>`;
   }
@@ -313,6 +357,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     if (op.empresaReal) ths.push('<th>Empresa contratista</th>');
     if (op.estado) ths.push('<th class="c nw">Estado</th>');
     if (op.telefono) ths.push('<th class="nw">Teléfono</th>');
+    if (op.salarioSemanal) ths.push('<th class="r nw">Salario Semanal</th>');
     if (op.datosBancarios) ths.push('<th>Datos bancarios</th>');
 
     if (ths.length === 0) {
@@ -330,6 +375,8 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
             : '—';
         // ⭐ SOLO DEPARTAMENTO: nunca concatena `e.grupo` ni dirección
         const deptoSolo = limpiarSoloDepartamento(e.department, e.grupo) || '—';
+        const salSem = leerSalarioSemanalEmpleado(e);
+        const salSemTxt = formatearSalarioSemanalReporte(e);
         const bancoPartes = [
           e.bank_name,
           e.bank_account ? `CTA. ${e.bank_account}` : null,
@@ -340,7 +387,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
 
         const tds: string[] = [];
         if (op.numeracion) tds.push(`<td class="r nw">${i + 1}</td>`);
-        if (op.empleado !== false || (tds.length === 0 && !op.cedula && !op.ficha && !op.cargo && !op.departamento && !op.habilidades && !op.empresa && !op.empresaReal && !op.estado && !op.telefono && !op.datosBancarios)) {
+        if (op.empleado !== false || (tds.length === 0 && !op.cedula && !op.ficha && !op.cargo && !op.departamento && !op.habilidades && !op.empresa && !op.empresaReal && !op.estado && !op.telefono && !op.salarioSemanal && !op.datosBancarios)) {
           tds.push(`<td><b>${esc(nombreCompleto)}</b></td>`);
         }
         if (op.cedula) tds.push(`<td class="nw">${esc(e.cedula || '—')}</td>`);
@@ -352,19 +399,24 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
         if (op.empresaReal) tds.push(`<td>${esc(e.empresaContratista || 'Sin empresa')}</td>`);
         if (op.estado) tds.push(`<td class="c nw">${esc(e.status || '—')}</td>`);
         if (op.telefono) tds.push(`<td class="nw">${esc(e.phone || '—')}</td>`);
+        if (op.salarioSemanal) tds.push(`<td class="r nw">${salSem !== null ? `<b>${esc(salSemTxt)}</b>` : '—'}</td>`);
         if (op.datosBancarios) tds.push(`<td>${esc(bancoTxt)}</td>`);
 
         return `<tr>${tds.join('')}</tr>`;
       })
       .join('');
 
+    const tfootTxt =
+      op.salarioSemanal && totalSalarioSemanal > 0
+        ? `TOTAL: ${lista.length} empleado(s) &nbsp;·&nbsp; SALARIO SEMANAL TOTAL: ${esc(totalSalarioSemanalTxt)}`
+        : `TOTAL: ${lista.length} empleado(s)`;
     const tbody = rows || `<tr><td colspan="${numCols}" class="c">Sin empleados</td></tr>`;
     listadoHtml = `
       <h3 class="sec">Listado de empleados (${lista.length})</h3>
       <table>
         <thead><tr>${ths.join('')}</tr></thead>
         <tbody>${tbody}</tbody>
-        <tfoot><tr><td colspan="${numCols}">TOTAL: ${lista.length} empleado(s)</td></tr></tfoot>
+        <tfoot><tr><td colspan="${numCols}">${tfootTxt}</td></tr></tfoot>
       </table>`;
   }
 
