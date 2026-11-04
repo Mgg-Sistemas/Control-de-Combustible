@@ -104,7 +104,17 @@ export function pdfDocument(opts: {
   /** Mostrar u ocultar la fecha y hora de emisión (por defecto true) */
   verEmitida?: boolean;
 }): string {
-  const { title, subtitle = '', body, extraCss = '' } = opts;
+  // 🔒 03-nov-2026: título, subtítulo y «Emitida» son TEXTO, nunca HTML. Los
+  //    escribe gente (el reporte personalizado los guarda en su histórico y un
+  //    admin los reimprime), y la vista previa web pinta este HTML con
+  //    document.write en un iframe del mismo origen: un <script> ahí correría
+  //    con la sesión de quien reimprime. Se escapan aquí, para todos.
+  const escTxt = (v: unknown) => String(v ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const title = escTxt(opts.title);
+  const subtitle = escTxt(opts.subtitle ?? '');
+  const { body, extraCss = '' } = opts;
   const L = { bcv: opts.logos?.bcv ?? true, sos: opts.logos?.sos ?? true, golden: opts.logos?.golden ?? false, renace: opts.logos?.renace ?? false, jhenzaen: opts.logos?.jhenzaen ?? false };
   const conMarca = opts.marcaTexto !== false;
   const izq = [
@@ -122,7 +132,7 @@ export function pdfDocument(opts: {
       </div>
       <div class="brand-right">
         ${L.sos ? `<div class="logo-box"><img src="${LOGO_DATA_URI}"/><div class="logo-cap">SOS La Guaira</div></div>` : ''}
-        ${opts.verEmitida !== false ? `<div class="emit"><span class="k">Emitida:</span> ${opts.emitida ?? nowStamp()}</div>` : ''}
+        ${opts.verEmitida !== false ? `<div class="emit"><span class="k">Emitida:</span> ${escTxt(opts.emitida ?? nowStamp())}</div>` : ''}
       </div>
     </div>
     <div class="rule"></div>

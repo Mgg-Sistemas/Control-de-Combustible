@@ -458,7 +458,9 @@ export function buildServicioHojaHtml(opts: {
     //    ORIGEN, así que un `<script>` en el nombre de una máquina se ejecutaría
     //    en el origen de la app. Y sin llegar a tanto: un `&` o un `<` sueltos
     //    rompen el encabezado del papel que se firma.
-    subtitle: esc(`${machineLabel(m)} · ${dmy(servicio.service_date)}`),
+    // pdfDocument ya escapa el subtítulo (03-nov-2026): escaparlo aquí también
+    // pintaría «&amp;» en el papel.
+    subtitle: `${machineLabel(m)} · ${dmy(servicio.service_date)}`,
     body: servicioCardHtml(servicio, m, { tipos: tiposIntervencion, conocidos: tiposConocidos }),
     extraCss: CSS + HOJA_SUELTA_CSS,
   });

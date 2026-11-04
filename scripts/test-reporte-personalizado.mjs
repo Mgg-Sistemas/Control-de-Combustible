@@ -271,7 +271,7 @@ ok('🕒 hay histórico de reportes sacados con Reimprimir como estaba, Reusar y
 
 const srcPdf = fs.readFileSync(path.join(ROOT, 'src/lib/pdf.ts'), 'utf8');
 ok('⭐ pdf.ts: sin pasar «emitida», los demás reportes no cambian (nowStamp de siempre)',
-  srcPdf.includes('${opts.emitida ?? nowStamp()}') && /emitida\?: string/.test(srcPdf));
+  srcPdf.includes('${escTxt(opts.emitida ?? nowStamp())}') && /emitida\?: string/.test(srcPdf));
 
 // 👥 03-nov-2026: el histórico por persona y el de TODOS para el admin.
 {

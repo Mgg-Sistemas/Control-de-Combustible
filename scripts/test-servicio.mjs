@@ -191,11 +191,16 @@ console.log('SERVICIO DE MAQUINARIA\n');
     if (id.includes('pdf')) return {
       // ⚠️ EL SUBTÍTULO TIENE QUE ENTRAR AL HTML. Este doble lo descartaba, y por
       //    eso «el texto del usuario va escapado» salía verde aunque el subtítulo
-      //    inyectara: nunca llegaba al HTML que la prueba revisa. El `pdfDocument`
-      //    de verdad (src/lib/pdf.ts) lo interpola CRUDO, así que el escapado es
-      //    responsabilidad de quien lo arma.
-      pdfDocument: (o) => `<html><title>${o.title}</title><style>${o.extraCss || ''}</style>`
-        + `<div class="doc-sub">${o.subtitle || ''}</div>${o.body}</html>`,
+      //    inyectara: nunca llegaba al HTML que la prueba revisa. Desde el
+      //    03-nov-2026 el `pdfDocument` de verdad (src/lib/pdf.ts) ESCAPA título y
+      //    subtítulo para todos; este doble lo imita (y abajo se vigila que
+      //    pdf.ts lo siga haciendo), y quien arma el subtítulo ya no lo escapa
+      //    (saldría «&amp;» en el papel).
+      pdfDocument: (o) => {
+        const e = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        return `<html><title>${e(o.title)}</title><style>${o.extraCss || ''}</style>`
+          + `<div class="doc-sub">${e(o.subtitle || '')}</div>${o.body}</html>`;
+      },
       exportPdf: async () => true,
     };
     throw new Error('import inesperado: ' + id);
@@ -1006,6 +1011,13 @@ const ANTES = {
   const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ServicioRegistroTab.tsx'), 'utf8');
   const rep = fs.readFileSync(path.join(ROOT, 'src/lib/machineServiceReport.ts'), 'utf8');
   const pdf = fs.readFileSync(path.join(ROOT, 'src/lib/pdf.ts'), 'utf8');
+
+  // 🔒 03-nov-2026: el membrete escapa título, subtítulo y «Emitida» para TODOS
+  //    los papeles (el doble de arriba lo imita; esto vigila que siga así).
+  ok('⭐🔒 pdfDocument escapa título, subtítulo y emitida',
+    /const title = escTxt\(opts\.title\)/.test(pdf) && /const subtitle = escTxt\(opts\.subtitle/.test(pdf)
+    && /escTxt\(opts\.emitida \?\? nowStamp\(\)\)/.test(pdf));
+  ok('🔒 la hoja de servicio no escapa el subtítulo dos veces', !/subtitle: esc\(/.test(rep));
 
   // ── 16.a) La ventana se pinta ANTES de escribir el documento ─────────────
   // Si `cdoc.write(html)` vuelve a quedar pegado al `appendChild(overlay)`, todo
