@@ -427,6 +427,37 @@ export function inyectarReciboPagoEnObservaciones(
 }
 
 /**
+ * Indica si una URL corresponde a una factura fiscal o recibo de pago del requerimiento,
+ * para que nunca se infiera como fotografía física del material en Inventario ni como formato técnico.
+ */
+export function esUrlSoporteFiscalOPago(
+  r: Partial<InventoryRequirement> | null | undefined,
+  url: string | null | undefined
+): boolean {
+  if (!r || !url || !url.trim()) return false;
+  const target = url.trim();
+  const fac = extraerFactura(r);
+  if (fac) {
+    if (fac.url && fac.url.trim() === target) return true;
+    if (Array.isArray(fac.archivos) && fac.archivos.some((a) => a?.url?.trim() === target)) return true;
+  }
+  const rec = extraerReciboPago(r);
+  if (rec) {
+    if (rec.url && rec.url.trim() === target) return true;
+    if (Array.isArray(rec.archivos) && rec.archivos.some((a) => a?.url?.trim() === target)) return true;
+  }
+  const obs = String(r.observaciones || '');
+  if (/\[FACTURA PROVEEDOR:/i.test(obs) || /\[RECIBO PAGO:/i.test(obs)) {
+    if (obs.includes(target) || obs.includes(encodeURIComponent(target))) return true;
+  }
+  const attName = String(r.attachment_name || '').trim();
+  if (r.attachment_url && r.attachment_url.trim() === target && /^(factura|recibo|comprobante\s+de\s+pago)\b/i.test(attName)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Extrae los datos de trazabilidad física en Almacén (Disponible vs Retirado)
  */
 export function extraerDespacho(r: Partial<InventoryRequirement>): DespachoAlmacenData {

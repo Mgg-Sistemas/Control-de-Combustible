@@ -424,8 +424,19 @@ export type CodigoEstadoDinamico =
   | 'aprobado'
   | 'esperando_recepcion'
   | 'recibido'
+  | 'despachado'
   | 'rechazado'
   | 'aclaratoria_solicitada';
+
+/**
+ * Indica si un requerimiento ya fue marcado como retirado / despachado físicamente del almacén.
+ */
+export function esRequerimientoDespachado(r?: Partial<InventoryRequirement> | null): boolean {
+  if (!r) return false;
+  if (r.despacho_estado === 'retirado') return true;
+  const obs = String(r.observaciones || '');
+  return /\[DESPACHO ALMACEN:\s*Estado:\s*retirado\b/i.test(obs);
+}
 
 export interface InfoEstadoRequerimiento {
   codigo: CodigoEstadoDinamico;
@@ -580,6 +591,22 @@ export function calcularEstadoRequerimiento(
 
   // 1. Estados finales o de ciclo técnico que prevalecen
   if (r.status === 'recibido') {
+    if (esRequerimientoDespachado(r)) {
+      return {
+        codigo: 'despachado',
+        label: '📤 Despachado de Almacén',
+        short: 'Despachado',
+        color: '#0284C7',
+        bg: '#E0F2FE',
+        icon: '📤',
+        requiereAprobacionGG: false,
+        totalUSD,
+        tieneProveedorCompleto: true,
+        tieneCotizacionCompleta: true,
+        proveedoresNombres: [],
+        esMultiProveedor: false,
+      };
+    }
     return {
       codigo: 'recibido',
       label: '📦 Recibido en Almacén',

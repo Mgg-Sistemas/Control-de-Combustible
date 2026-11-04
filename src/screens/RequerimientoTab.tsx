@@ -80,6 +80,7 @@ import {
   pasaFiltroEmpresasReq,
   calcularConteoEmpresasReq,
   esRequerimientoVisibleEnBandejaRequerimientos,
+  esRequerimientoDespachado,
   preservarMarcadoresSolicitudEnObservaciones,
   limpiarMarcadoresSolicitudDeTexto,
   calcularTotalesReqBs,
@@ -435,7 +436,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     [allReqs]
   );
   // Filtro por estatus del requerimiento (enfocado en la gestión de la analista de Compras + seguimiento de Por Pagar / Almacén).
-  const [filterStatus, setFilterStatus] = useState<'todos' | 'sin_proveedor' | 'sin_precio' | 'aclaratoria_solicitada' | 'listo_por_pagar' | 'pendiente' | 'esperando_aprobacion_gg' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido'>('todos');
+  const [filterStatus, setFilterStatus] = useState<'todos' | 'sin_proveedor' | 'sin_precio' | 'aclaratoria_solicitada' | 'listo_por_pagar' | 'pendiente' | 'esperando_aprobacion_gg' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'despachado'>('todos');
   // Filtro por nivel de prioridad (alta, media, baja)
   const [filterPrioridad, setFilterPrioridad] = useState<'todas' | PrioridadCompra>('todas');
   const faltaPrecioDe = (r: InventoryRequirement) => r.items.some((it) => !(Number(it.est_price) > 0));
@@ -761,7 +762,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   // Recibir en inventario
   const [recvFor, setRecvFor] = useState<InventoryRequirement | null>(null);
-  const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; unit: string | null; qty: string; price: string; currency: string; note?: string }[]>([]);
+  const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; original_name?: string; unit: string | null; qty: string; price: string; currency: string; note?: string }[]>([]);
   const [recvBusy, setRecvBusy] = useState(false);
   // 🧾 Factura y Nota al recibir en Almacén (sincronizada con Cuentas por Pagar)
   const [recvFacturaNumero, setRecvFacturaNumero] = useState('');
@@ -1819,11 +1820,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const patchPayload: Record<string, any> = {
         observaciones: nuevaObs,
       };
-      if (dataFac?.url && !facturaTarget.attachment_url) {
-        patchPayload.attachment_url = dataFac.url;
-        patchPayload.attachment_type = dataFac.tipo || 'image';
-        patchPayload.attachment_name = dataFac.nombre || `Factura ${dataFac.numero}`;
-      }
 
       const { error } = await supabase
         .from('inventory_requirements')
@@ -2009,10 +2005,26 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         maquinariaPlaca: maqObj?.plate || null,
       };
 
-      const nuevaObs = inyectarDespachoEnObservaciones(despachoTarget.observaciones, dataDespacho);
+      const obsConDesp = inyectarDespachoEnObservaciones(despachoTarget.observaciones, dataDespacho);
+      const nuevaObs = anexarEventoHistorial(obsConDesp, {
+        at: dataDespacho.fecha || nowISO(),
+        by: dataDespacho.despachadoPor || 'Almacén',
+        byId: uid,
+        modulo: 'Almacén',
+        tipo: 'estado_flujo',
+        titulo: `Despachado de Almacén a ${dataDespacho.retiradoPor}`,
+        detalle: `Salida / retiro físico registrado en Almacén por ${dataDespacho.despachadoPor}. Retirado por: ${dataDespacho.retiradoPor}${dataDespacho.retiradoCedula ? ` (CI: ${dataDespacho.retiradoCedula})` : ''}${dataDespacho.maquinariaCodigo ? ` · Destino: ${dataDespacho.maquinariaCodigo}${dataDespacho.maquinariaPlaca ? ` (${dataDespacho.maquinariaPlaca})` : ''}` : ''}${dataDespacho.nota ? ` · Nota: ${dataDespacho.nota}` : ''}.`,
+        reqId: despachoTarget.id,
+        reqCode: despachoTarget.code,
+      });
+      const patchDesp: Record<string, any> = { observaciones: nuevaObs };
+      if (despachoTarget.status !== 'recibido') {
+        patchDesp.status = 'recibido';
+        if (!despachoTarget.received_at) patchDesp.received_at = dataDespacho.fecha || nowISO();
+      }
       const { data, error } = await supabase
         .from('inventory_requirements')
-        .update({ observaciones: nuevaObs })
+        .update(patchDesp)
         .eq('id', despachoTarget.id)
         .select('id');
 
@@ -2972,7 +2984,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           : status === 'rechazado'
             ? ('rechazado_o_anulado' as const)
             : ('estado_flujo' as const);
-    const obsConHistEst = anexarEventoHistorial(r.observaciones, {
+    const baseObsEst =
+      status === 'recibido' && esRequerimientoDespachado(r)
+        ? inyectarDespachoEnObservaciones(r.observaciones, { estado: 'disponible' })
+        : r.observaciones;
+    const obsConHistEst = anexarEventoHistorial(baseObsEst, {
       at: ahoraEst,
       by: autorEst,
       byId: uid,
@@ -2998,12 +3014,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     toast.success('Estado actualizado.');
   };
 
-  // Abrir "Recibir": precarga los ítems con su precio estimado (para editarlo al real).
+  // Abrir "Recibir": precarga los ítems con su precio estimado (para editarlo al real) y su nombre editable.
   const abrirRecibir = (r: InventoryRequirement) => {
     setRecvFor(r);
     setRecvRows(r.items.map((it) => ({
       product_id: it.product_id,
       name: it.name,
+      original_name: it.name,
       unit: it.unit,
       qty: String(it.qty),
       price: String(it.est_price || 0),
@@ -3017,35 +3034,82 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   const recibir = async () => {
     if (!recvFor) return;
-    for (const it of recvRows) { if (parseNum(it.qty) <= 0) return toast.error(`Indica la cantidad recibida de "${it.name}".`); }
+    for (let idx = 0; idx < recvRows.length; idx++) {
+      const it = recvRows[idx];
+      if (!it.name.trim()) return toast.error(`Escribe el nombre del producto #${idx + 1}.`);
+      if (parseNum(it.qty) <= 0) return toast.error(`Indica la cantidad recibida de "${it.name.trim()}".`);
+    }
     setRecvBusy(true);
-    // SKU incremental para los productos NUEVOS.
-    const { data: skuRows } = await supabase.from('inventory_items').select('sku');
+    // SKU incremental para los productos NUEVOS (usa levels + últimos 1000 para no truncarse en >1000 filas).
+    const { data: skuRows } = await supabase.from('inventory_items').select('sku').order('created_at', { ascending: false }).limit(1000);
     let maxN = 0;
-    (skuRows ?? []).forEach((r: any) => { const m = String(r.sku ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; } });
+    [...levels.map((l) => ({ sku: l.sku })), ...(skuRows ?? [])].forEach((r: any) => { const m = String(r.sku ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; } });
     const pad = (n: number) => 'INV-' + String(n).padStart(4, '0');
     const notaGenTrim = recvNota.trim();
+    const resolvedProductIds: (string | null)[] = [];
+    const cambiosNombres: string[] = [];
     try {
-      for (const it of recvRows) {
+      for (let idx = 0; idx < recvRows.length; idx++) {
+        const it = recvRows[idx];
+        const cleanName = it.name.trim().toUpperCase();
+        const origName = (it.original_name || recvFor.items[idx]?.name || cleanName).trim();
         let itemId = it.product_id;
-        const lineItem = recvFor.items.find((x) => x.product_id === it.product_id || norm(x.name) === norm(it.name));
+        const lineItem = recvFor.items[idx] || recvFor.items.find((x) => x.product_id === it.product_id || norm(x.name) === norm(origName));
         const linePhoto = lineItem?.image_url || (it as any).image_url || null;
-        if (!itemId) { // producto NUEVO: se crea a raíz del requerimiento
-          maxN += 1;
-          const { data: ins, error } = await supabase.from('inventory_items')
-            .insert({ name: it.name.toUpperCase(), unit: it.unit || null, sku: pad(maxN), category: 'otros', min_stock: 0, machinery_id: null, company_id: null, ...(linePhoto ? { image_url: linePhoto } : {}) })
-            .select('id').single();
-          if (error) throw error;
-          itemId = ins.id;
-        } else if (linePhoto) {
-          try {
-            await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
-          } catch { }
+
+        if (!itemId) {
+          // Verificar si el nombre editado ya existe en el catálogo de inventario para no duplicarlo
+          const matchExistente = levels.find((l) => norm(l.name) === norm(cleanName));
+          if (matchExistente) {
+            itemId = matchExistente.id;
+            if (linePhoto) {
+              try {
+                await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
+              } catch {}
+            }
+          } else {
+            // Producto NUEVO: se crea a raíz del requerimiento con el nombre real indicado al recibir
+            maxN += 1;
+            const { data: ins, error } = await supabase.from('inventory_items')
+              .insert({ name: cleanName, unit: it.unit || null, sku: pad(maxN), category: 'otros', min_stock: 0, machinery_id: null, company_id: null, ...(linePhoto ? { image_url: linePhoto } : {}) })
+              .select('id').single();
+            if (error) throw error;
+            itemId = ins.id;
+          }
+        } else {
+          // Producto ya tenía product_id: si editaron el nombre en la recepción, actualizar o revincular
+          const cambioNombre = norm(cleanName) !== norm(origName);
+          if (cambioNombre) {
+            const otroConMismoNombre = levels.find((l) => norm(l.name) === norm(cleanName) && l.id !== itemId);
+            if (otroConMismoNombre) {
+              itemId = otroConMismoNombre.id;
+              if (linePhoto) {
+                try {
+                  await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
+                } catch {}
+              }
+            } else {
+              try {
+                await supabase.from('inventory_items').update({ name: cleanName, ...(linePhoto ? { image_url: linePhoto } : {}) }).eq('id', itemId);
+              } catch {}
+            }
+          } else if (linePhoto) {
+            try {
+              await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
+            } catch {}
+          }
         }
+
+        if (norm(cleanName) !== norm(origName)) {
+          cambiosNombres.push(`"${origName}" → "${cleanName}"`);
+        }
+        resolvedProductIds[idx] = itemId;
+
         const priceUsd = it.currency === 'USD' ? parseNum(it.price) : usdFromBs(parseNum(it.price), rate || 0);
         const notaItemTrim = (it.note || '').trim();
         const detalleRazon = [
           `RECIBIDO DE REQUERIMIENTO ${recvFor.code ?? ''}`.trim(),
+          norm(cleanName) !== norm(origName) ? `Pedido como: ${origName}` : '',
           notaItemTrim ? `Nota ítem: ${notaItemTrim}` : '',
           notaGenTrim ? `Nota recepción: ${notaGenTrim}` : '',
         ].filter(Boolean).join(' · ');
@@ -3057,19 +3121,27 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       }
       const items2 = recvFor.items.map((it, idx) => {
         const rowMatch = recvRows[idx];
+        const cleanName = rowMatch?.name?.trim() ? rowMatch.name.trim().toUpperCase() : it.name;
         const nextNote = rowMatch?.note != null && rowMatch.note.trim() ? rowMatch.note.trim() : it.note;
-        return { ...it, note: nextNote, received: true };
+        return {
+          ...it,
+          name: cleanName,
+          product_id: resolvedProductIds[idx] ?? it.product_id,
+          note: nextNote,
+          received: true,
+        };
       });
       const ahoraRecv = nowISO();
       const autorRecv = (await perfilNombre()) || session?.user?.email || 'Almacén';
       const partesRecepcion = [
         recvFacturaNumero.trim() ? `Factura N° ${recvFacturaNumero.trim()}${recvFacturaUrl ? ' (con soporte adjunto)' : ''}` : '',
+        cambiosNombres.length > 0 ? `Nombre ajustado según factura: ${cambiosNombres.join(', ')}` : '',
         notaGenTrim ? `Nota: ${notaGenTrim}` : '',
       ].filter(Boolean).join(' · ');
       let obsConTagRecv = `${recvFor.observaciones || ''}${partesRecepcion ? `\n[RECEPCIÓN ALMACÉN: ${partesRecepcion}]` : ''}`.trim() || null;
-      // 🧾 31-oct-2026: la factura recibida queda COMO factura del requerimiento (con
-      //    todas sus fotos). Antes solo caía en el adjunto si estaba vacío; si no, la
-      //    tarjeta mostraba la foto del producto como «factura».
+      // 🧾 31-oct-2026 / 04-nov-2026: la factura recibida queda EXCLUSIVAMENTE como factura del
+      //    requerimiento en observaciones ([FACTURA PROVEEDOR: ...]). NUNCA se escribe en
+      //    attachment_url para que no aparezca como fotografía del material en Inventario.
       const proveedorRecv = suppliers.find((s) => s.id === recvFor.supplier_id)?.name || '';
       let dataFacRecv: FacturaData | null = null;
       if (recvFacturaArchivos.length > 0) {
@@ -3108,11 +3180,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         items: items2,
         observaciones: obsFinal,
       };
-      if (recvFacturaUrl && !recvFor.attachment_url) {
-        reqPatch.attachment_url = recvFacturaUrl;
-        reqPatch.attachment_type = recvFacturaTipo || 'image';
-        reqPatch.attachment_name = recvFacturaNombre || `Factura ${recvFacturaNumero || recvFor.code}`;
-      }
 
       const { error: uErr } = await supabase.from('inventory_requirements').update(reqPatch).eq('id', recvFor.id);
       if (uErr) throw uErr;
@@ -3425,6 +3492,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           { k: 'esperando_recepcion', label: '💳 Pagados / Esperando Recepción', color: '#0D9488' },
           { k: 'recibido', label: '📦 Recibidos', color: '#16A34A' },
           { k: 'rechazado', label: '❌ Rechazados', color: '#DC2626' },
+          { k: 'despachado', label: '📤 Despachados', color: '#0284C7' },
         ] as const).map((f) => {
           const on = filterStatus === f.k;
           const n = f.k === 'todos'
@@ -3458,7 +3526,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                           const provG = suppliers.find((s) => s.id === r.supplier_id);
                           return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_recepcion';
                         }).length
-                        : reqsPorEmpresa.filter((r) => r.status === f.k).length;
+                        : f.k === 'recibido'
+                          ? reqsPorEmpresa.filter((r) => r.status === 'recibido' && !esRequerimientoDespachado(r)).length
+                          : f.k === 'despachado'
+                            ? reqsPorEmpresa.filter((r) => esRequerimientoDespachado(r)).length
+                            : reqsPorEmpresa.filter((r) => r.status === f.k).length;
           return (
             <TouchableOpacity key={f.k} onPress={() => setFilterStatus(f.k)} style={{ borderWidth: 1.5, borderColor: f.color, backgroundColor: on ? f.color : 'transparent', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
               <Text style={{ color: on ? '#fff' : f.color, fontWeight: '800', fontSize: 12 }}>{f.label} ({n})</Text>
@@ -3551,6 +3623,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             }
             if (filterStatus === 'esperando_recepcion') return est.codigo === 'esperando_recepcion';
             if (filterStatus === 'aprobado') return est.codigo === 'aprobado' || est.codigo === 'esperando_aprobacion_gg';
+            if (filterStatus === 'recibido') return r.status === 'recibido' && !esRequerimientoDespachado(r);
+            if (filterStatus === 'despachado') return esRequerimientoDespachado(r);
             return r.status === filterStatus;
           })
           .filter((r) => !reqDateFrom || r.created_at.slice(0, 10) >= reqDateFrom)
@@ -3673,6 +3747,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                             📤 Enviado a Por Pagar por {enviadoPorTxt} · 🕒 {fmtFechaHora(enviadoAtTxt)}
                                           </Text>
                                         ) : null}
+                                        {(() => {
+                                          const despSum = extraerDespacho(r);
+                                          if (despSum.estado !== 'retirado') return null;
+                                          return (
+                                            <Text style={{ color: '#0284C7', fontSize: 11.5, fontWeight: '800', marginTop: 1 }}>
+                                              📤 Despachado de almacén a: {despSum.retiradoPor || 'Personal'}
+                                              {despSum.fecha ? ` · 🕒 ${dmyOf(despSum.fecha)}` : ''}
+                                              {despSum.maquinariaCodigo ? ` · 🚜 ${despSum.maquinariaCodigo} · Placa: ${despSum.maquinariaPlaca || 'Sin placa'}` : ''}
+                                            </Text>
+                                          );
+                                        })()}
                                       </View>
                                     );
                                   })()}
@@ -3772,11 +3857,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               {canReceive && statusPickerId === r.id ? (
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: spacing.xs, justifyContent: 'flex-end' }}>
                                   <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
-                                  {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'esperando_recepcion', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
-                                    <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s]?.short || s}</Text>
+                                  {(['pendiente', 'aclaratoria_solicitada', 'aprobado', 'esperando_recepcion', 'rechazado', 'recibido'] as const)
+                                    .filter((s) => s !== r.status || (s === 'recibido' && esRequerimientoDespachado(r)))
+                                    .map((s) => (
+                                      <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s]?.short || s}</Text>
+                                      </TouchableOpacity>
+                                    ))}
+                                  {!esRequerimientoDespachado(r) ? (
+                                    <TouchableOpacity
+                                      onPress={(e) => {
+                                        e.stopPropagation?.();
+                                        setStatusPickerId(null);
+                                        abrirDespachoModal(r);
+                                      }}
+                                      style={{ backgroundColor: '#E0F2FE', borderWidth: 1, borderColor: '#0284C7', borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                                    >
+                                      <Text style={{ color: '#0369A1', fontWeight: '800', fontSize: 11 }}>📤 Despachado</Text>
                                     </TouchableOpacity>
-                                  ))}
+                                  ) : null}
                                 </View>
                               ) : null}
                             </View>
@@ -5782,11 +5881,32 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Confirma la cantidad y el PRECIO REAL de compra de cada producto. Se registrará como ENTRADA (los nuevos se crean solos). {recvFor?.code ?? ''}</Text>
             {recvRows.map((it, idx) => {
               const otra = it.currency === 'USD' ? fmtBs(bsFromUsd(parseNum(it.price), rate || 0)) : usd(usdFromBs(parseNum(it.price), rate || 0));
+              const origName = it.original_name || it.name;
+              const nombreCambiado = norm(it.name) !== norm(origName);
               return (
                 <Card key={idx}>
-                  {/* 🔢 Numerado igual que el requerimiento y su PDF, para ir
-                      tachando renglón por renglón al recibir. */}
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}><Text style={{ color: colors.muted }}>{idx + 1}. </Text>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}</Text>
+                  {/* 🔢 Numerado igual que el requerimiento y su PDF, con nombre editable para ajustar según factura real (1 o varios productos). */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>
+                      #{idx + 1} · ✏️ Nombre / descripción real del producto (según factura)
+                    </Text>
+                    <Text style={{ color: it.product_id ? colors.brandText : colors.success, fontSize: 11, fontWeight: '800' }}>
+                      {it.product_id ? '· EN CATÁLOGO' : '· NUEVO'}
+                    </Text>
+                  </View>
+                  <TextInput
+                    value={it.name}
+                    onChangeText={(t) => setRecvRows((p) => p.map((r, i) => i === idx ? { ...r, name: t.toUpperCase() } : r))}
+                    placeholder="Nombre exacto del producto recibido (ej: BOTAS DE SEGURIDAD MARCA X)…"
+                    placeholderTextColor={colors.muted}
+                    autoCapitalize="characters"
+                    style={[inp, { fontWeight: '800', fontSize: 13.5 }]}
+                  />
+                  {nombreCambiado ? (
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 3 }}>
+                      Pedido original en requerimiento: <Text style={{ fontWeight: '700', color: colors.text }}>{origName}</Text>
+                    </Text>
+                  ) : null}
                   <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
                     <View style={{ width: 70 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cantidad</Text><TextInput value={it.qty} onChangeText={(t) => setRecvRows((p) => p.map((r, i) => i === idx ? { ...r, qty: onlyDecimal(t) } : r))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'center' }]} /></View>
                     <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Precio real (unit.)</Text><TextInput value={it.price} onChangeText={(t) => setRecvRows((p) => p.map((r, i) => i === idx ? { ...r, price: onlyDecimal(t) } : r))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'right' }]} /></View>

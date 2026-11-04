@@ -87,9 +87,17 @@ export function extraerFormatosAdjuntos(
   }
 
   // 3. Si hay attachment_url legado y no está en la lista, incluirlo al principio
+  //    (excepto cuando attachment_url fue ocupado por una factura o recibo de pago).
   if (r.attachment_url && r.attachment_url.trim()) {
+    const attUrl = r.attachment_url.trim();
+    const textoObs = String(r.observaciones || r.nota || '');
+    const mFac = textoObs.match(/\[FACTURA PROVEEDOR:[^\]]+\]/i)?.[0] || '';
+    const mRec = textoObs.match(/\[RECIBO PAGO:[^\]]+\]/i)?.[0] || '';
+    const esSoporteFiscalOPago =
+      (mFac && (mFac.includes(attUrl) || mFac.includes(encodeURIComponent(attUrl)))) ||
+      (mRec && (mRec.includes(attUrl) || mRec.includes(encodeURIComponent(attUrl))));
     const yaExiste = lista.some((it) => it.url === r.attachment_url);
-    if (!yaExiste) {
+    if (!yaExiste && !esSoporteFiscalOPago) {
       const esPdf = r.attachment_type === 'pdf' || /\.pdf$/i.test(r.attachment_url) || /\.pdf$/i.test(r.attachment_name || '');
       lista.unshift({
         id: 'adj-legacy-0',

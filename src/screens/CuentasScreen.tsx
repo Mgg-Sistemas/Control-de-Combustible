@@ -1017,11 +1017,6 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           if (reqRows && reqRows[0]) {
             const obsFac = anexarEventoHistorial(inyectarFacturaEnObservaciones(reqRows[0].observaciones, dataFac), evFac);
             const patchReq: Record<string, any> = { observaciones: obsFac };
-            if (primerArch?.url && !reqRows[0].attachment_url) {
-              patchReq.attachment_url = primerArch.url;
-              patchReq.attachment_type = primerArch.tipo || 'image';
-              patchReq.attachment_name = primerArch.nombre || `Factura ${dataFac.numero}`;
-            }
             await supabase
               .from('inventory_requirements')
               .update(patchReq)

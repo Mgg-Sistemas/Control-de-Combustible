@@ -1194,11 +1194,6 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       const patchPayload: Record<string, any> = {
         observaciones: nuevaObs,
       };
-      if (dataFac.url && !facturaTarget.attachment_url) {
-        patchPayload.attachment_url = dataFac.url;
-        patchPayload.attachment_type = dataFac.tipo || 'image';
-        patchPayload.attachment_name = dataFac.nombre || `Factura ${dataFac.numero}`;
-      }
 
       const { error } = await supabase
         .from('inventory_requirements')

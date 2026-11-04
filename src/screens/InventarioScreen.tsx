@@ -20,6 +20,7 @@ import { etiquetaVehiculo, textoBusquedaVehiculo, detalleVehiculoNota, ladoTrasl
 import { notaTrasladoHtml, TrasladoItem, TrasladoFoto } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
 import { URGENCIA_CONFIG, ESTADO_EXISTENCIA_CONFIG, formatRejectionNote, parseRejectionNote, agruparSolicitudesStock, ESTADO_GRUPO_CONFIG, type GrupoSolicitudStock } from '../lib/solicitudMaterial';
+import { esUrlSoporteFiscalOPago } from '../lib/requerimientoExpediente';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -390,7 +391,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
             .limit(150),
           supabase
             .from('inventory_requirements')
-            .select('items, attachment_url')
+            .select('items, attachment_url, attachment_name, observaciones')
             .order('created_at', { ascending: false })
             .limit(150),
           supabase
@@ -415,14 +416,20 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         });
 
         // 2) Fotos de Requerimientos / Compras que pasaron por su proceso
-        // ⚠️ La foto GENERAL del requerimiento solo vale si tiene UN renglón: con varios no se
-        //    sabe de cuál producto es (28-oct-2026: la de una mascarilla salía en el cloro, el
-        //    desinfectante y otros 13 productos del mismo requerimiento).
+        // ⚠️ La foto GENERAL del requerimiento solo vale si tiene UN renglón Y NO es la foto de una
+        //    factura ni de un recibo de pago (04-nov-2026: cuando al recibir en almacén se subía la
+        //    foto de la factura, caía en attachment_url y aparecía como «Fotografía del Material»
+        //    del producto en Inventario).
         (reqRes.data || []).forEach((row: any) => {
           const unico = (row.items || []).length === 1;
+          const adjEsFotoMaterial =
+            unico &&
+            Boolean(row.attachment_url?.match(/\.(jpg|jpeg|png|webp)/i)) &&
+            !esUrlSoporteFiscalOPago(row, row.attachment_url);
           (row.items || []).forEach((it: any) => {
             const n = norm(it.name || '');
-            const f = it.image_url || (unico && row.attachment_url?.match(/\.(jpg|jpeg|png|webp)/i) ? row.attachment_url : null);
+            const imgItem = it.image_url && !esUrlSoporteFiscalOPago(row, it.image_url) ? it.image_url : null;
+            const f = imgItem || (adjEsFotoMaterial ? row.attachment_url : null);
             if (n && f && !map[n]) map[n] = f;
           });
         });
@@ -700,9 +707,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       return;
     }
     setBusy(true);
-    // SKU incremental: se recalcula al vuelo (con los SKU actuales) para no chocar.
-    const { data: skuRows } = await supabase.from('inventory_items').select('sku');
-    const autoSku = nextSkuFrom((skuRows ?? []).map((r: any) => r.sku));
+    // SKU incremental: se recalcula al vuelo (con los SKU actuales de levels + últimos 1000) para no chocar cuando hay >1000 productos.
+    const { data: skuRows } = await supabase.from('inventory_items').select('sku').order('created_at', { ascending: false }).limit(1000);
+    const autoSku = nextSkuFrom([...levels.map((l) => l.sku), ...(skuRows ?? []).map((r: any) => r.sku)]);
     // Inventario GENERAL: no se vincula a empresa ni equipo al crear.
     const { data: ins, error } = await supabase.from('inventory_items')
       .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, carga: carga || null, machinery_id: null, company_id: null, image_url: itemPhoto || null })
@@ -727,8 +734,8 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const openCreate = async () => {
     setEditingId(null);
     setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost(''); setInitCostCur('USD'); setEstado(''); setTipo(''); setCarga(''); setEditQty('');
-    const { data } = await supabase.from('inventory_items').select('sku');
-    setSku(nextSkuFrom((data ?? []).map((r: any) => r.sku)));
+    const { data } = await supabase.from('inventory_items').select('sku').order('created_at', { ascending: false }).limit(1000);
+    setSku(nextSkuFrom([...levels.map((l) => l.sku), ...(data ?? []).map((r: any) => r.sku)]));
     setOpen(true);
   };
 
@@ -826,9 +833,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const ok = (loteRows ?? []).filter((r) => r.status === 'ok');
     if (ok.length === 0) return toast.error('No hay filas válidas para cargar. Corrige las repetidas o mal cargadas.');
     setLoteBusy(true);
-    const { data: skuRows } = await supabase.from('inventory_items').select('sku');
+    const { data: skuRows } = await supabase.from('inventory_items').select('sku').order('created_at', { ascending: false }).limit(1000);
     let maxN = 0;
-    (skuRows ?? []).forEach((r: any) => { const m = String(r.sku ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; } });
+    [...levels.map((l) => ({ sku: l.sku })), ...(skuRows ?? [])].forEach((r: any) => { const m = String(r.sku ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; } });
     const pad = (n: number) => 'INV-' + String(n).padStart(4, '0');
     const toInsert = ok.map((r, i) => ({ name: r.name, unit: r.unit, sku: pad(maxN + i + 1), category: r.category, min_stock: r.min, machinery_id: null, company_id: null }));
     const { data: inserted, error } = await supabase.from('inventory_items').insert(toInsert).select('id, sku');
