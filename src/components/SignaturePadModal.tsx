@@ -6,9 +6,8 @@
 // Además incluye botones de 📷 Cámara y 🖼️ Galería por si se prefiere fotografiar
 // la firma en papel.
 
-import React, { useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, PanResponder, Image } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import React, { useMemo, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity, Modal, PanResponder } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { takePhotoAndUpload, pickPhotoAndUpload } from '../lib/photo';
@@ -22,6 +21,42 @@ type Props = {
   onClose: () => void;
   onSaveSignature: (signatureUri: string) => void;
 };
+
+type SegmentoTrazo = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
+
+/** Extrae segmentos de línea `(x1,y1)->(x2,y2)` a partir de trazos SVG (`M x y L x y ...`). */
+function extraerSegmentosDeTrazos(paths: readonly string[]): SegmentoTrazo[] {
+  const segs: SegmentoTrazo[] = [];
+  for (const d of paths) {
+    if (!d) continue;
+    const partes = d.trim().split(/\s+/);
+    let prevX: number | null = null;
+    let prevY: number | null = null;
+    for (let i = 0; i < partes.length; i++) {
+      const token = partes[i];
+      if (token === 'M' || token === 'L') {
+        const x = Number(partes[i + 1]);
+        const y = Number(partes[i + 2]);
+        i += 2;
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          if (token === 'L' && prevX !== null && prevY !== null) {
+            segs.push({ x1: prevX, y1: prevY, x2: x, y2: y });
+          } else if (token === 'M') {
+            segs.push({ x1: x, y1: y, x2: x + 0.5, y2: y + 0.5 });
+          }
+          prevX = x;
+          prevY = y;
+        }
+      }
+    }
+  }
+  return segs;
+}
 
 /** Convierte una lista de trazos SVG (`M x y L x y ...`) en un data-URI SVG listo para `<img src="...">`. */
 export function trazosASvgDataUri(paths: readonly string[], width = 340, height = 160): string {
@@ -119,6 +154,11 @@ export function SignaturePadModal({ visible, title, subtitle, folderKey, onClose
     onClose();
   };
 
+  const segmentos = useMemo(
+    () => extraerSegmentosDeTrazos(currentPath ? [...paths, currentPath] : paths),
+    [paths, currentPath]
+  );
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
@@ -143,29 +183,31 @@ export function SignaturePadModal({ visible, title, subtitle, folderKey, onClose
               alignItems: 'center',
             }}
           >
-            <Svg width="100%" height="100%" viewBox="0 0 340 160">
-              {paths.map((d, i) => (
-                <Path
-                  key={i}
-                  d={d}
-                  fill="none"
-                  stroke="#0F172A"
-                  strokeWidth={2.6}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ))}
-              {currentPath ? (
-                <Path
-                  d={currentPath}
-                  fill="none"
-                  stroke="#0F172A"
-                  strokeWidth={2.6}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ) : null}
-            </Svg>
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none">
+              {segmentos.map((seg, i) => {
+                const dx = seg.x2 - seg.x1;
+                const dy = seg.y2 - seg.y1;
+                const length = Math.max(2.6, Math.hypot(dx, dy));
+                const angleRad = Math.atan2(dy, dx);
+                const cx = (seg.x1 + seg.x2) / 2;
+                const cy = (seg.y1 + seg.y2) / 2;
+                return (
+                  <View
+                    key={i}
+                    style={{
+                      position: 'absolute',
+                      width: length,
+                      height: 2.8,
+                      backgroundColor: '#0F172A',
+                      borderRadius: 1.4,
+                      left: cx - length / 2,
+                      top: cy - 1.4,
+                      transform: [{ rotateZ: `${angleRad}rad` }],
+                    }}
+                  />
+                );
+              })}
+            </View>
             {paths.length === 0 && !currentPath ? (
               <Text style={{ position: 'absolute', color: '#94A3B8', fontSize: 13, fontWeight: '700', pointerEvents: 'none' as any }}>
                 ✍️ Firma aquí
@@ -217,3 +259,4 @@ export function SignaturePadModal({ visible, title, subtitle, folderKey, onClose
     </Modal>
   );
 }
+
