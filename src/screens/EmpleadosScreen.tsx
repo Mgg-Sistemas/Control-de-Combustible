@@ -16,6 +16,8 @@ import { leerMapaHabilidades } from '../lib/empleadosHabilidadesStorage';
 import {
   OpcionesReporteEmpleados,
   OPCIONES_REPORTE_EMPLEADOS_DEFECTO,
+  FirmanteReporteEmpleados,
+  FIRMANTE_EMPLEADOS_DEFECTO,
   cuerpoReporteEmpleados,
   contarColumnasActivasEmpleados,
   limpiarSoloDepartamento,
@@ -146,6 +148,9 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const [reporteConfigOpen, setReporteConfigOpen] = useState(false);
   const [opReporte, setOpReporte] = useState<OpcionesReporteEmpleados>(OPCIONES_REPORTE_EMPLEADOS_DEFECTO);
   const [logosReporte, setLogosReporte] = useState<LogosReporte>(LOGOS_POR_DEFECTO);
+  const [firmantesReporte, setFirmantesReporte] = useState<FirmanteReporteEmpleados[]>([FIRMANTE_EMPLEADOS_DEFECTO]);
+  const [busqFirmanteIdx, setBusqFirmanteIdx] = useState<number | null>(null);
+  const [busqFirmanteQ, setBusqFirmanteQ] = useState('');
 
   useEffect(() => {
     leerGruposApartados().then(setGruposConfig);
@@ -156,20 +161,35 @@ export default function EmpleadosScreen({ navigation, route }: any) {
         const g = JSON.parse(raw);
         if (g?.op) setOpReporte({ ...OPCIONES_REPORTE_EMPLEADOS_DEFECTO, ...g.op });
         if (g?.logos) setLogosReporte({ ...LOGOS_POR_DEFECTO, ...g.logos });
+        if (Array.isArray(g?.firmantes) && g.firmantes.length > 0) {
+          setFirmantesReporte(g.firmantes);
+        }
       })
       .catch(() => {});
   }, []);
 
-  const guardarConfigReporte = (nextOp: OpcionesReporteEmpleados, nextLogos: LogosReporte) => {
+  const guardarConfigReporte = (
+    nextOp: OpcionesReporteEmpleados,
+    nextLogos: LogosReporte,
+    nextFirmantes: FirmanteReporteEmpleados[] = firmantesReporte
+  ) => {
     setOpReporte(nextOp);
     setLogosReporte(nextLogos);
-    AsyncStorage.setItem(CLAVE_REPORTE_EMPLEADOS, JSON.stringify({ op: nextOp, logos: nextLogos })).catch(() => {});
+    setFirmantesReporte(nextFirmantes);
+    AsyncStorage.setItem(
+      CLAVE_REPORTE_EMPLEADOS,
+      JSON.stringify({ op: nextOp, logos: nextLogos, firmantes: nextFirmantes })
+    ).catch(() => {});
   };
   const cambiarOpReporte = <K extends keyof OpcionesReporteEmpleados>(k: K, v: OpcionesReporteEmpleados[K]) => {
-    guardarConfigReporte({ ...opReporte, [k]: v }, logosReporte);
+    guardarConfigReporte({ ...opReporte, [k]: v }, logosReporte, firmantesReporte);
   };
   const cambiarLogoReporte = <K extends keyof LogosReporte>(k: K, v: boolean) => {
-    guardarConfigReporte(opReporte, { ...logosReporte, [k]: v });
+    guardarConfigReporte(opReporte, { ...logosReporte, [k]: v }, firmantesReporte);
+  };
+  const actualizarFirmantesReporte = (nextFirmantes: FirmanteReporteEmpleados[], activar = true) => {
+    const nextOp = activar ? { ...opReporte, firmas: true } : opReporte;
+    guardarConfigReporte(nextOp, logosReporte, nextFirmantes);
   };
 
   useRealtimeRefresh(['payroll_companies'], () => {
@@ -618,6 +638,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       cargoTxt,
       busquedaTxt: query.trim() || null,
       opciones: opReporte,
+      firmantes: firmantesReporte,
     });
 
     const html = pdfDocument({
@@ -1188,6 +1209,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         resumenDepartamento: true,
                         listadoPersonas: true,
                         marcaTexto: true,
+                        firmas: opReporte.firmas,
                       },
                       logosReporte
                     )
@@ -1259,6 +1281,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                   ['listadoPersonas', '👥 Tabla de listado de personas'],
                   ['cabeceraFiltros', '🔎 Cabecera de filtros aplicados'],
                   ['marcaTexto', '📝 Marca de empresa en texto y pie'],
+                  ['firmas', '✍️ Firmas al final del reporte'],
                 ] as const
               ).map(([k, lbl]) => {
                 const on = opReporte[k] !== false;
@@ -1354,6 +1377,232 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                   </TouchableOpacity>
                 );
               })}
+            </View>
+
+            {/* ✍️ FIRMAS AL FINAL DEL REPORTE (1 o más personas) */}
+            <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.xs }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => cambiarOpReporte('firmas', !opReporte.firmas)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>
+                    {opReporte.firmas ? '☑' : '☐'} ✍️ FIRMAS AL FINAL DEL REPORTE ({firmantesReporte.length} persona{firmantesReporte.length === 1 ? '' : 's'}):
+                  </Text>
+                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                  <TouchableOpacity
+                    onPress={() =>
+                      actualizarFirmantesReporte([
+                        ...firmantesReporte,
+                        { nombre: '', cargo: '', cedula: '' },
+                      ], true)
+                    }
+                    style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.brand }}
+                  >
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11 }}>➕ Agregar firmante</Text>
+                  </TouchableOpacity>
+                  {!opReporte.firmas ? (
+                    <TouchableOpacity
+                      onPress={() => cambiarOpReporte('firmas', true)}
+                      style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.surface }}
+                    >
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>✓ Activar firmas</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => cambiarOpReporte('firmas', false)}
+                      style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface }}
+                    >
+                      <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>🚫 Ocultar firmas</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {opReporte.firmas ? (
+                <View style={{ gap: spacing.xs, marginTop: 2 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    Escribe quiénes van a firmar al final del PDF (o déjalo solo con el cargo para que firmen y pongan su nombre a mano):
+                  </Text>
+                  {firmantesReporte.map((f, idx) => (
+                    <View
+                      key={idx}
+                      style={{
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.md,
+                        padding: spacing.xs,
+                        gap: 6,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 12, minWidth: 74 }}>
+                          ✍️ Firma #{idx + 1}
+                        </Text>
+                        <TextInput
+                          value={f.nombre}
+                          onChangeText={(txt) => {
+                            const next = firmantesReporte.map((item, j) => (j === idx ? { ...item, nombre: txt } : item));
+                            actualizarFirmantesReporte(next, true);
+                          }}
+                          placeholder="Nombre y Apellido (ej. DORIANNE PEREZ)"
+                          placeholderTextColor={colors.muted}
+                          style={{
+                            flex: 1,
+                            minWidth: 170,
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            borderRadius: radius.sm,
+                            paddingHorizontal: spacing.sm,
+                            paddingVertical: 5,
+                            color: colors.text,
+                            fontSize: 12,
+                          }}
+                        />
+                        <TextInput
+                          value={f.cargo ?? ''}
+                          onChangeText={(txt) => {
+                            const next = firmantesReporte.map((item, j) => (j === idx ? { ...item, cargo: txt } : item));
+                            actualizarFirmantesReporte(next, true);
+                          }}
+                          placeholder="Cargo o título (ej. JEFE DE ADMINISTRACIÓN / ELABORADO POR)"
+                          placeholderTextColor={colors.muted}
+                          style={{
+                            flex: 1,
+                            minWidth: 170,
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            borderRadius: radius.sm,
+                            paddingHorizontal: spacing.sm,
+                            paddingVertical: 5,
+                            color: colors.text,
+                            fontSize: 12,
+                          }}
+                        />
+                        <TextInput
+                          value={f.cedula ?? ''}
+                          onChangeText={(txt) => {
+                            const next = firmantesReporte.map((item, j) => (j === idx ? { ...item, cedula: txt } : item));
+                            actualizarFirmantesReporte(next, true);
+                          }}
+                          placeholder="Cédula (opcional)"
+                          placeholderTextColor={colors.muted}
+                          style={{
+                            width: 125,
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            borderRadius: radius.sm,
+                            paddingHorizontal: spacing.sm,
+                            paddingVertical: 5,
+                            color: colors.text,
+                            fontSize: 12,
+                          }}
+                        />
+                        <TouchableOpacity
+                          onPress={() => {
+                            setBusqFirmanteIdx(busqFirmanteIdx === idx ? null : idx);
+                            setBusqFirmanteQ('');
+                          }}
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 5,
+                            borderRadius: radius.sm,
+                            borderWidth: 1,
+                            borderColor: colors.brand,
+                            backgroundColor: busqFirmanteIdx === idx ? colors.brand : colors.surfaceAlt,
+                          }}
+                        >
+                          <Text style={{ color: busqFirmanteIdx === idx ? colors.brandContrast : colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                            👤 Elegir de la lista
+                          </Text>
+                        </TouchableOpacity>
+                        {firmantesReporte.length > 1 ? (
+                          <TouchableOpacity
+                            onPress={() => {
+                              const next = firmantesReporte.filter((_, j) => j !== idx);
+                              actualizarFirmantesReporte(next, true);
+                            }}
+                            style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger }}
+                          >
+                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>🗑️ Quitar</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+
+                      {/* Selector rápido desde empleados registrados */}
+                      {busqFirmanteIdx === idx ? (
+                        <View style={{ marginTop: 4, padding: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                          <TextInput
+                            value={busqFirmanteQ}
+                            onChangeText={setBusqFirmanteQ}
+                            placeholder="🔎 Buscar trabajador por nombre, cargo o cédula para ponerlo como firmante…"
+                            placeholderTextColor={colors.muted}
+                            style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              borderRadius: radius.sm,
+                              paddingHorizontal: spacing.sm,
+                              paddingVertical: 5,
+                              color: colors.text,
+                              fontSize: 12,
+                              marginBottom: 6,
+                            }}
+                          />
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                            {employees
+                              .filter((emp) => {
+                                const qf = norm(busqFirmanteQ);
+                                if (!qf) return true;
+                                return (
+                                  norm(fullName(emp)).includes(qf) ||
+                                  norm(emp.cargo ?? '').includes(qf) ||
+                                  norm(emp.cedula ?? '').includes(qf)
+                                );
+                              })
+                              .slice(0, 15)
+                              .map((emp) => (
+                                <TouchableOpacity
+                                  key={emp.id}
+                                  onPress={() => {
+                                    const next = firmantesReporte.map((item, j) =>
+                                      j === idx
+                                        ? {
+                                            nombre: fullName(emp),
+                                            cargo: emp.cargo ? canonicalCargo(emp.cargo) : item.cargo,
+                                            cedula: emp.cedula ?? '',
+                                          }
+                                        : item
+                                    );
+                                    actualizarFirmantesReporte(next, true);
+                                    setBusqFirmanteIdx(null);
+                                  }}
+                                  style={{
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 4,
+                                    borderRadius: radius.pill,
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: colors.brand,
+                                  }}
+                                >
+                                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
+                                    {fullName(emp)}{emp.cargo ? ` · ${canonicalCargo(emp.cargo)}` : ''}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                          </ScrollView>
+                        </View>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           </View>
         ) : null}

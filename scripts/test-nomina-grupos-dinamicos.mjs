@@ -259,6 +259,34 @@ const repSinEmpleado = cuerpoReporteEmpleados({
 eq('permite ocultar columna Empleado cuando empleado=false', repSinEmpleado.body.includes('<th>Empleado</th>'), false);
 eq('permite ocultar cuadros superiores cuando cuadrosResumen=false', repSinEmpleado.body.includes('class="tiles"'), false);
 eq('contarColumnasActivasEmpleados cuenta Empleado por defecto (9 cols)', contarColumnasActivasEmpleados({}), 9);
+eq('por defecto firmas está apagado y no deja rastro en el HTML', repSinEmpleado.body.includes('class="firmas-wrap"'), false);
+
+// 9. Firmas configurables al final del reporte (1 o más personas)
+const repConFirmas = cuerpoReporteEmpleados({
+  empleados: [
+    {
+      id: 'emp-2',
+      first_name: 'AGATHA',
+      last_name: 'MENDOZA',
+      cedula: '21192049',
+      cargo: 'COORDINADORA DE RRHH',
+      department: 'ADMINISTRATIVO',
+      status: 'activo',
+    },
+  ],
+  estadoTxt: 'Activos',
+  empresaTxt: 'Todas',
+  cargoTxt: 'Todos los cargos',
+  opciones: {
+    firmas: true,
+  },
+  firmantes: [
+    { nombre: 'DORIANNE PEREZ', cargo: 'JEFE DE ADMINISTRACION', cedula: '16105037' },
+    { nombre: 'AGATHA MENDOZA', cargo: 'COORDINADORA DE RRHH', cedula: '21192049' },
+  ],
+});
+eq('al activar firmas incluye el bloque .firmas-wrap al final', repConFirmas.body.includes('class="firmas-wrap"'), true);
+eq('renderiza todos los firmantes indicados (nombre, cargo y cédula)', repConFirmas.body.includes('DORIANNE PEREZ') && repConFirmas.body.includes('JEFE DE ADMINISTRACION') && repConFirmas.body.includes('C.I. 16105037') && repConFirmas.body.includes('COORDINADORA DE RRHH'), true);
 
 console.log('\n🏢  Grupos apartados dinámicos (Configurables por Empresa, Cargo y Departamento)');
 console.log(`   ${pass} OK · ${fail} fallo(s)`);

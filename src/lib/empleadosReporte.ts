@@ -40,6 +40,20 @@ export type OpcionesReporteEmpleados = {
   listadoPersonas: boolean;
   /** 📝 Línea institucional en texto y pie del sistema en el membrete PDF. */
   marcaTexto: boolean;
+  /** ✍️ Bloque de firmas al final del reporte (1 o más personas). */
+  firmas: boolean;
+};
+
+export type FirmanteReporteEmpleados = {
+  nombre: string;
+  cargo?: string | null;
+  cedula?: string | null;
+};
+
+export const FIRMANTE_EMPLEADOS_DEFECTO: FirmanteReporteEmpleados = {
+  nombre: '',
+  cargo: 'Recursos Humanos / Administración',
+  cedula: '',
 };
 
 export const OPCIONES_REPORTE_EMPLEADOS_DEFECTO: OpcionesReporteEmpleados = {
@@ -61,6 +75,7 @@ export const OPCIONES_REPORTE_EMPLEADOS_DEFECTO: OpcionesReporteEmpleados = {
   resumenDepartamento: false,
   listadoPersonas: true,
   marcaTexto: true,
+  firmas: false,
 };
 
 export type EmpleadoParaReporte = {
@@ -91,6 +106,7 @@ export type EntradaReporteEmpleados = {
   cargoTxt: string;
   busquedaTxt?: string | null;
   opciones?: Partial<OpcionesReporteEmpleados>;
+  firmantes?: readonly FirmanteReporteEmpleados[] | null;
 };
 
 const esc = (s: unknown) =>
@@ -171,6 +187,13 @@ export const REPORTE_EMPLEADOS_CSS = `
   h3.sec{margin:12px 0 6px;padding:5px 10px;background:#EEF2F7;border:1px solid #CBD5E1;border-left:4px solid #1E3A5F;border-radius:4px;font-size:11px;font-weight:800;color:#1E3A5F;text-transform:uppercase;letter-spacing:.5px}
   table.sum{width:100%;margin-top:4px;margin-bottom:10px}
   .hab-chip{display:inline-block;background:#EEF2F7;border:1px solid #CBD5E1;border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:8.5pt;font-weight:700;color:#1E3A5F}
+  .firmas-wrap{margin-top:34px;page-break-inside:avoid;break-inside:avoid}
+  .firmas-grid{display:flex;flex-wrap:wrap;justify-content:space-around;gap:28px 32px;margin-top:16px}
+  .firma-box{flex:1 1 180px;max-width:260px;min-width:160px;text-align:center;padding-top:38px}
+  .firma-linea{border-top:1.5px solid #1E3A5F;padding-top:6px;margin:0 6px}
+  .firma-nom{font-weight:800;color:#1E3A5F;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px}
+  .firma-cargo{font-weight:700;color:#374151;font-size:9.5px;margin-top:2px}
+  .firma-ci{color:#6B7280;font-size:9px;margin-top:1px}
 `;
 
 export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
@@ -345,13 +368,37 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
       </table>`;
   }
 
+  // 4) Bloque de firmas al final (1 o más personas configurables)
+  let firmasHtml = '';
+  if (op.firmas) {
+    const listaFirmantes =
+      Array.isArray(input.firmantes) && input.firmantes.length > 0
+        ? input.firmantes
+        : [FIRMANTE_EMPLEADOS_DEFECTO];
+    const cajasFirma = listaFirmantes
+      .map((f) => {
+        const nom = String(f?.nombre ?? '').trim();
+        const crg = String(f?.cargo ?? '').trim();
+        const ced = String(f?.cedula ?? '').trim();
+        return `<div class="firma-box">
+          <div class="firma-linea">
+            <div class="firma-nom">${nom ? esc(nom) : '&nbsp;'}</div>
+            ${crg ? `<div class="firma-cargo">${esc(crg)}</div>` : '<div class="firma-cargo">Firma autorizada</div>'}
+            ${ced ? `<div class="firma-ci">C.I. ${esc(ced)}</div>` : ''}
+          </div>
+        </div>`;
+      })
+      .join('');
+    firmasHtml = `<div class="firmas-wrap"><div class="firmas-grid">${cajasFirma}</div></div>`;
+  }
+
   const numColsActivas = contarColumnasActivasEmpleados(op);
   const extraCss =
     REPORTE_EMPLEADOS_CSS +
     (numColsActivas >= 9 ? '\n  @page { size: landscape; margin: 1.2cm; }\n  table { font-size: 9pt; }' : '');
 
   return {
-    body: tilesHtml + metaHtml + resumenHtml + listadoHtml,
+    body: tilesHtml + metaHtml + resumenHtml + listadoHtml + firmasHtml,
     extraCss,
     totalPersonas: lista.length,
     totalCargos: resumen.length,
