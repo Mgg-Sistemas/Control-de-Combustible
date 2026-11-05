@@ -33,13 +33,14 @@ type Props = {
   today: string;
   yesterday: string;
   asignadoEnTurno: boolean;
+  puedeCoordinar?: boolean;
   onClose: () => void;
   onSaved: (aviso: string) => void;
 };
 
 const COLS = 'id, shift, source, started_at, ended_at, hours, recorded_by, notes, close_reason';
 
-export function CorregirHorasJornadaModal({ code, machineryId, roundDate, tramo, uid, today, yesterday, asignadoEnTurno, onClose, onSaved }: Props) {
+export function CorregirHorasJornadaModal({ code, machineryId, roundDate, tramo, uid, today, yesterday, asignadoEnTurno, puedeCoordinar, onClose, onSaved }: Props) {
   const { colors } = useTheme();
   const shift: Turno = tramo.shift === 'night' ? 'night' : 'day';
   const [ini, setIni] = useState(hhmmCaracas(new Date(tramo.started_at).getTime()));
@@ -62,7 +63,7 @@ export function CorregirHorasJornadaModal({ code, machineryId, roundDate, tramo,
       const delTurno = (segs ?? []) as TramoTurno[];
       const actual = delTurno.find((s) => s.id === tramo.id);
       if (!actual) { setError('Ese tramo ya no existe. Recarga la pantalla.'); return; }
-      const perm = puedeCorregirHoras({ tramo: actual, uid, roundDate, today, yesterday, asignadoEnTurno, tramosDelTurno: delTurno });
+      const perm = puedeCorregirHoras({ tramo: actual, uid, roundDate, today, yesterday, asignadoEnTurno, puedeCoordinar, tramosDelTurno: delTurno });
       if (!perm.ok) { setError(perm.error); return; }
       const v = validarCorreccionHoras({ roundDate, shift, inicioTexto: ini, finTexto: fin, motivo, tramo: actual, tramosDelTurno: delTurno });
       if (!v.ok) { setError(v.error); return; }

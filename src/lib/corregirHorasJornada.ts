@@ -92,11 +92,13 @@ export function puedeCorregirHoras(opts: {
   yesterday: string;
   /** ¿La máquina es suya en ese turno (o coordina)? */
   asignadoEnTurno: boolean;
+  /** ¿Es coordinador de inspectores o admin? */
+  puedeCoordinar?: boolean;
   tramosDelTurno: readonly TramoTurno[];
 }): Permiso {
   const { tramo, uid, roundDate, today, yesterday } = opts;
   if (!esCierreManual(tramo.source)) return { ok: false, error: 'Solo se corrige una jornada finalizada a mano desde el teléfono.' };
-  if (!uid || tramo.recorded_by !== uid) return { ok: false, error: 'Esta jornada la finalizó otra persona: solo puedes corregir las que finalizaste tú.' };
+  if (!uid || (tramo.recorded_by !== uid && !opts.puedeCoordinar)) return { ok: false, error: 'Esta jornada la finalizó otra persona: solo puedes corregir las que finalizaste tú.' };
   if (roundDate !== today && roundDate !== yesterday) return { ok: false, error: 'Fuera del plazo: solo se corrigen las jornadas de hoy y de ayer. Pídeselo a Control.' };
   if (!opts.asignadoEnTurno) return { ok: false, error: 'Esta máquina no es tuya en ese turno.' };
   const delTurno = opts.tramosDelTurno.filter((t) => t.shift === tramo.shift);
