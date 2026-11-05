@@ -177,8 +177,8 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
 
       if (!anon) {
         try {
-          const rowsActas = await listarActasCompromisoEmpleado(e.id);
-          setActasCompromiso(rowsActas);
+          const resActas = await listarActasCompromisoEmpleado(e.id);
+          setActasCompromiso(Array.isArray(resActas?.actas) ? resActas.actas : []);
         } catch {}
       }
     }
@@ -350,30 +350,35 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '800' }}>
-                        {a.act_code || 'ACTA'} · {a.act_date} {a.employee_signature_url ? '· ✍️ Firmada' : ''}
+                        {a.codigo || 'ACTA'} · {a.fecha_entrega} {a.firma_trabajador_url ? '· ✍️ Firmada' : ''}
                       </Text>
                       <Text style={{ color: FICHA.muted, fontSize: 12 }}>
-                        {(a.items || []).map((it) => `${it.cantidad}x ${it.descripcion}`).join(' · ')}
+                        {(a.items || []).map((it) => `${it.cantidad}x ${it.nombre}`).join(' · ')}
                         {totalUsd > 0 ? ` · ($${totalUsd.toFixed(2)})` : ''}
                       </Text>
                     </View>
                     <TouchableOpacity
                       onPress={async () => {
-                        const html = actaCompromisoHtml(emp, { id: emp.company_id || '', name: emp.companyName || 'SOS LA GUAIRA' } as any, {
-                          act_code: a.act_code,
-                          act_date: a.act_date,
-                          lugar: a.lugar,
-                          entregado_por_nombre: a.entregado_por_nombre,
-                          entregado_por_cargo: a.entregado_por_cargo,
+                        const html = actaCompromisoHtml({
+                          codigo: a.codigo,
+                          fullName: fullName(emp),
+                          cedula: emp.cedula,
+                          cargo: a.cargo || emp.cargo,
+                          department: a.departamento || emp.department,
+                          fichaNumber: emp.ficha_number,
+                          hireDate: emp.hire_date,
+                          city: emp.city,
+                          state: emp.state,
+                          fechaEntrega: a.fecha_entrega,
                           items: a.items || [],
-                          clausulas_adicionales: a.clausulas_adicionales,
                           observaciones: a.observaciones,
-                          employee_signature_url: a.employee_signature_url,
-                          deliverer_signature_url: a.deliverer_signature_url,
-                          signed_at: a.signed_at,
-                          membrete: MEMBRETE_POR_DEFECTO,
+                          entregadoPor: a.entregado_por,
+                          testigoNombre: a.testigo_nombre,
+                          testigoCedula: a.testigo_cedula,
+                          firmaTrabajadorDataUri: a.firma_trabajador_url,
+                          firmaEntregaDataUri: a.firma_entrega_url,
                         });
-                        await exportPdf(html, `Acta_Compromiso_${a.act_code || fullName(emp)}`);
+                        await exportPdf(html, `Acta_Compromiso_${a.codigo || fullName(emp)}`);
                       }}
                       style={{
                         backgroundColor: FICHA.brand,

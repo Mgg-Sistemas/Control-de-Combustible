@@ -222,6 +222,10 @@ assert.ok(dbSrc.includes('.select('), 'actasCompromisoDb.ts debe verificar escri
 
 const modalSrc = readFileSync(join(rootDir, 'src/components/ActaCompromisoModal.tsx'), 'utf8');
 assert.ok(modalSrc.includes('takePhotoAndUpload') && modalSrc.includes('pickPhotoAndUpload'), 'ActaCompromisoModal debe ofrecer Cámara y Galería');
+assert.ok(modalSrc.includes('Array.isArray(res?.actas)'), 'ActaCompromisoModal debe extraer el arreglo res.actas de listarActasCompromisoEmpleado');
+
+const cardSrc = readFileSync(join(rootDir, 'src/screens/EmployeeCardScreen.tsx'), 'utf8');
+assert.ok(cardSrc.includes('Array.isArray(resActas?.actas)'), 'EmployeeCardScreen debe extraer el arreglo resActas.actas de listarActasCompromisoEmpleado');
 
 const sigSrc = readFileSync(join(rootDir, 'src/components/SignaturePadModal.tsx'), 'utf8');
 assert.ok(

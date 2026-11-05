@@ -219,6 +219,8 @@ export async function pickPhotoFromGalleryAndUpload(
   return uploadToMachinery(path, body);
 }
 
+export const pickPhotoAndUpload = pickPhotoFromGalleryAndUpload;
+
 /**
  * Selecciona un FORMATO (imagen o PDF) y lo sube al bucket 'machinery' en la carpeta
  * requerimientos/<reqId>/, devolviendo la URL pública, el tipo ('image'|'pdf') y el nombre.

@@ -54,7 +54,9 @@ export function origenTasaPeriodo(
  * Valida y convierte un texto escrito por el usuario (con punto o coma) en una tasa válida.
  * Devuelve `{ ok: true, valor }` si es mayor a 0, o `{ ok: false, error }` si es inválido.
  */
-export function validarTasaManual(raw: unknown): { ok: true; valor: number; tasa: number } | { ok: false; error: string } {
+export function validarTasaManual(
+  raw: unknown
+): { ok: true; valor: number; tasa: number; error?: undefined } | { ok: false; valor?: undefined; tasa?: undefined; error: string } {
   const texto = String(raw ?? '').trim();
   if (!texto) {
     return { ok: false, error: 'Escribe una tasa de cambio mayor a 0 (ej. 45,50).' };

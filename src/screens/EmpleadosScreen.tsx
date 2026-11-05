@@ -113,7 +113,7 @@ const SIN_EMPRESA = '__none__';
 
 export default function EmpleadosScreen({ navigation, route }: any) {
   const { colors } = useTheme();
-  const { profile } = useAuth();
+  const { session, fullName: authFullName } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const [actaFor, setActaFor] = useState<Employee | null>(null);
@@ -176,7 +176,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
           setFirmantesReporte(g.firmantes);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const guardarConfigReporte = (
@@ -190,7 +190,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     AsyncStorage.setItem(
       CLAVE_REPORTE_EMPLEADOS,
       JSON.stringify({ op: nextOp, logos: nextLogos, firmantes: nextFirmantes })
-    ).catch(() => {});
+    ).catch(() => { });
   };
   const cambiarOpReporte = <K extends keyof OpcionesReporteEmpleados>(k: K, v: OpcionesReporteEmpleados[K]) => {
     guardarConfigReporte({ ...opReporte, [k]: v }, logosReporte, firmantesReporte);
@@ -489,7 +489,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const imprimirCarnet = async (e: Employee) => {
     setBusy(e.id + '-carnet');
     let svg = '';
-    try { svg = await qrSvg(employeeQrUrl(e.id), 220); } catch {}
+    try { svg = await qrSvg(employeeQrUrl(e.id), 220); } catch { }
     const html = carnetHtml(e, { companyName: companyName(e.company_id), qrSvg: svg });
     await exportPdf(html, `Carnet - ${fullName(e)}`);
     setBusy(null);
@@ -637,9 +637,9 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       empresaSel.size === 0
         ? 'Todas'
         : empresaCounts
-            .filter((c) => empresaSel.has(c.key))
-            .map((c) => c.name)
-            .join(', ');
+          .filter((c) => empresaSel.has(c.key))
+          .map((c) => c.name)
+          .join(', ');
     const departamentoTxt = deptoSel.size === 0 ? 'Todos' : Array.from(deptoSel).sort().join(', ');
     const cargoTxt = cargoSel.size === 0 ? 'Todos los cargos' : Array.from(cargoSel).sort().join(', ');
 
@@ -1600,10 +1600,10 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                                     const next = firmantesReporte.map((item, j) =>
                                       j === idx
                                         ? {
-                                            nombre: fullName(emp),
-                                            cargo: emp.cargo ? canonicalCargo(emp.cargo) : item.cargo,
-                                            cedula: emp.cedula ?? '',
-                                          }
+                                          nombre: fullName(emp),
+                                          cargo: emp.cargo ? canonicalCargo(emp.cargo) : item.cargo,
+                                          cedula: emp.cedula ?? '',
+                                        }
                                         : item
                                     );
                                     actualizarFirmantesReporte(next, true);
@@ -1704,8 +1704,8 @@ export default function EmpleadosScreen({ navigation, route }: any) {
               </View>
             ) : null}
             {g.empleados.map((e) => {
-                const habsEmp = habilidadesDe(e);
-                return (
+              const habsEmp = habilidadesDe(e);
+              return (
                 <ExpandableCard
                   key={e.id}
                   summary={
@@ -1854,7 +1854,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                     </>
                   }
                 />
-                );
+              );
             })}
           </View>
         ))
@@ -1865,8 +1865,8 @@ export default function EmpleadosScreen({ navigation, route }: any) {
         emp={actaFor}
         companies={companies}
         allEmployees={employees}
-        currentUserId={profile?.id || null}
-        currentUserName={profile?.full_name || null}
+        currentUserId={session?.user?.id || null}
+        currentUserName={authFullName || null}
         onClose={() => setActaFor(null)}
         onSaved={() => {
           contarActasPorEmpleado().then(setActasCounts);
@@ -2065,7 +2065,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       <Modal visible={modalGruposOpen} transparent animationType="fade" onRequestClose={() => setModalGruposOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: spacing.md }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, maxHeight: '92%' }}>
-            
+
             {/* Cabecera */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>🏢 Pestañas y Grupos Apartados</Text>

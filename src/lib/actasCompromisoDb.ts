@@ -85,8 +85,8 @@ export async function listarActasCompromisoEmpleado(
 }
 
 /** Cuenta cuántas actas activas tiene cada empleado (mapa `employee_id -> cantidad`). */
-export async function contarActasPorEmpleado(): Promise<Map<string, number>> {
-  const m = new Map<string, number>();
+export async function contarActasPorEmpleado(): Promise<Record<string, number>> {
+  const m: Record<string, number> = {};
   try {
     const { data, error } = await supabase
       .from('employee_commitment_acts')
@@ -95,7 +95,7 @@ export async function contarActasPorEmpleado(): Promise<Map<string, number>> {
     if (!error && Array.isArray(data)) {
       for (const r of data) {
         const id = String((r as any).employee_id ?? '');
-        if (id) m.set(id, (m.get(id) ?? 0) + 1);
+        if (id) m[id] = (m[id] ?? 0) + 1;
       }
     }
   } catch {}
@@ -207,3 +207,4 @@ export async function anularActaCompromiso(
   }
   return {};
 }
+

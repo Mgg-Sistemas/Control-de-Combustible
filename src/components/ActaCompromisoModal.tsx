@@ -38,12 +38,11 @@ import { takePhotoAndUpload, pickPhotoAndUpload } from '../lib/photo';
 import { SignaturePadModal } from './SignaturePadModal';
 
 type EditableItem = {
-  descripcion: string;
+  nombre: string;
   cantidad: string;
   serial: string;
   estado: 'NUEVO' | 'BUENO' | 'USADO' | 'REPARADO';
-  valor_reposicion_usd: string;
-  observacion: string;
+  valor_usd: string;
 };
 
 type Props = {
@@ -59,14 +58,21 @@ type Props = {
 
 const ESTADOS_ITEM: Array<'NUEVO' | 'BUENO' | 'USADO' | 'REPARADO'> = ['NUEVO', 'BUENO', 'USADO', 'REPARADO'];
 
+function normalizarEstadoItem(raw?: string | null): 'NUEVO' | 'BUENO' | 'USADO' | 'REPARADO' {
+  const up = String(raw ?? '').toUpperCase();
+  if (up.includes('BUENO')) return 'BUENO';
+  if (up.includes('USADO')) return 'USADO';
+  if (up.includes('REPARADO')) return 'REPARADO';
+  return 'NUEVO';
+}
+
 function emptyEditableItem(): EditableItem {
   return {
-    descripcion: '',
+    nombre: '',
     cantidad: '1',
     serial: '',
     estado: 'NUEVO',
-    valor_reposicion_usd: '',
-    observacion: '',
+    valor_usd: '',
   };
 }
 
@@ -96,9 +102,10 @@ export function ActaCompromisoModal({
   const [membreteKey, setMembreteKey] = useState<string>(MEMBRETE_POR_DEFECTO.key);
   const [entregadoPorNombre, setEntregadoPorNombre] = useState('');
   const [entregadoPorCargo, setEntregadoPorCargo] = useState('ALMACÉN / SEGURIDAD INDUSTRIAL / RRHH');
+  const [testigoNombre, setTestigoNombre] = useState('');
+  const [testigoCedula, setTestigoCedula] = useState('');
   const [buscarEntregador, setBuscarEntregador] = useState('');
   const [items, setItems] = useState<EditableItem[]>([emptyEditableItem()]);
-  const [clausulasAdicionales, setClausulasAdicionales] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [employeeSignatureUrl, setEmployeeSignatureUrl] = useState<string>('');
   const [delivererSignatureUrl, setDelivererSignatureUrl] = useState<string>('');
@@ -108,14 +115,19 @@ export function ActaCompromisoModal({
   // Modal de firma digital
   const [sigTarget, setSigTarget] = useState<'worker' | 'deliverer' | null>(null);
 
-  const cargarExpediente = async (employeeId: string) => {
+  const cargarExpediente = async (employeeId: string): Promise<EmployeeCommitmentAct[]> => {
     setLoadingActas(true);
     try {
-      const rows = await listarActasCompromisoEmpleado(employeeId);
+      const res = await listarActasCompromisoEmpleado(employeeId);
+      const rows = Array.isArray(res?.actas) ? res.actas : [];
+      if (res?.error) {
+        toast.error('Aviso al consultar actas: ' + res.error);
+      }
       setActasGuardadas(rows);
       return rows;
     } catch (e: any) {
       toast.error('Error cargando actas: ' + (e?.message || 'Error'));
+      setActasGuardadas([]);
       return [];
     } finally {
       setLoadingActas(false);
@@ -126,12 +138,13 @@ export function ActaCompromisoModal({
     setEditingId(null);
     const hoy = new Date().toISOString().slice(0, 10);
     setActDate(hoy);
-    setActCode(generarCodigoActaCompromiso(hoy, emp?.ficha, correlativo));
+    setActCode(generarCodigoActaCompromiso(correlativo, hoy));
     setLugar('CAMURI CHICO, EDO. LA GUAIRA');
     setEntregadoPorNombre(currentUserName || '');
     setEntregadoPorCargo('ALMACÉN / SEGURIDAD INDUSTRIAL / RRHH');
+    setTestigoNombre('');
+    setTestigoCedula('');
     setItems([emptyEditableItem()]);
-    setClausulasAdicionales('');
     setObservaciones('');
     setEmployeeSignatureUrl('');
     setDelivererSignatureUrl('');
@@ -154,14 +167,13 @@ export function ActaCompromisoModal({
   const convertirItems = (): CommitmentToolItem[] => {
     const raw: CommitmentToolItem[] = items.map((it) => {
       const cant = leerNumero(it.cantidad);
-      const val = leerNumero(it.valor_reposicion_usd);
+      const val = it.valor_usd.trim() !== '' ? leerNumero(it.valor_usd) : null;
       return {
-        descripcion: it.descripcion,
+        nombre: it.nombre,
         cantidad: cant !== null && cant > 0 ? cant : 1,
-        serial: it.serial,
+        serial: it.serial || null,
         estado: it.estado,
-        valor_reposicion_usd: val !== null && val >= 0 ? val : null,
-        observacion: it.observacion,
+        valor_usd: val !== null && val > 0 ? val : null,
       };
     });
     return limpiarItemsActa(raw);
@@ -169,18 +181,17 @@ export function ActaCompromisoModal({
 
   const totalReposicion = totalValorReposicionUsd(convertirItems());
 
-  const agregarSugerido = (sug: CommitmentToolItem) => {
+  const agregarSugerido = (sug: { nombre: string; estado: string }) => {
     setItems((prev) => {
-      const limpias = prev.filter((p) => p.descripcion.trim() !== '');
+      const limpias = prev.filter((p) => p.nombre.trim() !== '');
       return [
         ...limpias,
         {
-          descripcion: sug.descripcion,
-          cantidad: String(sug.cantidad || 1),
-          serial: sug.serial || '',
-          estado: sug.estado || 'NUEVO',
-          valor_reposicion_usd: sug.valor_reposicion_usd != null ? String(sug.valor_reposicion_usd) : '',
-          observacion: sug.observacion || '',
+          nombre: sug.nombre,
+          cantidad: '1',
+          serial: '',
+          estado: normalizarEstadoItem(sug.estado),
+          valor_usd: '',
         },
       ];
     });
@@ -199,20 +210,28 @@ export function ActaCompromisoModal({
 
   const construirHtml = (blankTemplate = false) => {
     const cleanItems = blankTemplate ? [] : convertirItems();
-    return actaCompromisoHtml(emp, companyObj, {
-      act_code: actCode,
-      act_date: actDate,
+    return actaCompromisoHtml({
+      codigo: actCode,
+      fullName: fullName(emp),
+      cedula: emp.cedula,
+      cargo: emp.cargo,
+      department: emp.department,
+      fichaNumber: emp.ficha_number,
+      hireDate: emp.hire_date,
+      city: emp.city,
+      state: emp.state,
       lugar,
-      entregado_por_nombre: entregadoPorNombre,
-      entregado_por_cargo: entregadoPorCargo,
+      fechaEntrega: actDate,
       items: cleanItems,
-      clausulas_adicionales: clausulasAdicionales,
       observaciones,
-      employee_signature_url: blankTemplate ? null : employeeSignatureUrl || null,
-      deliverer_signature_url: blankTemplate ? null : delivererSignatureUrl || null,
-       signed_at: employeeSignatureUrl ? new Date().toISOString() : null,
-      membrete,
-      blank_rows: 8,
+      entregadoPor: entregadoPorNombre,
+      entregadoCargo: entregadoPorCargo,
+      testigoNombre,
+      testigoCedula,
+      firmaTrabajadorDataUri: blankTemplate ? null : employeeSignatureUrl || null,
+      firmaEntregaDataUri: blankTemplate ? null : delivererSignatureUrl || null,
+      companyName: membrete.nombre || companyObj?.name || 'SOS LA GUAIRA',
+      logoDataUri: membrete.logo,
     });
   };
 
@@ -224,43 +243,57 @@ export function ActaCompromisoModal({
     }
     setSaving(true);
     try {
-      const saved = await guardarActaCompromiso({
+      const res = await guardarActaCompromiso({
         id: editingId || undefined,
         employee_id: emp.id,
-        company_id: emp.company_id || null,
-        act_code: actCode || generarCodigoActaCompromiso(actDate, emp.ficha, actasGuardadas.length + 1),
-        act_date: actDate || new Date().toISOString().slice(0, 10),
-        lugar,
-        entregado_por_nombre: entregadoPorNombre,
-        entregado_por_cargo: entregadoPorCargo,
+        codigo: actCode || generarCodigoActaCompromiso(actasGuardadas.length + 1, actDate),
+        fecha_entrega: actDate || new Date().toISOString().slice(0, 10),
+        cargo: emp.cargo || null,
+        departamento: emp.department || null,
         items: cleanItems,
-        clausulas_adicionales: clausulasAdicionales,
-        autoriza_deduccion: true,
-        employee_signature_url: employeeSignatureUrl || null,
-        deliverer_signature_url: delivererSignatureUrl || null,
-        photo_url: photoUrl || null,
-        signed_at: employeeSignatureUrl ? new Date().toISOString() : null,
-        status: employeeSignatureUrl ? 'firmada' : 'emitida',
         observaciones,
-        created_by: currentUserId || null,
+        entregado_por: entregadoPorNombre,
+        testigo_nombre: testigoNombre || null,
+        testigo_cedula: testigoCedula || null,
+        firma_trabajador_url: employeeSignatureUrl || null,
+        firma_entrega_url: delivererSignatureUrl || null,
+        soporte_url: photoUrl || null,
+        acepta_clausulas: true,
+        autoriza_deduccion: true,
+        uid: currentUserId || null,
+        userName: currentUserName || null,
       });
+      if (res.error || !res.acta) {
+        toast.error(res.error || 'No se pudo guardar el acta.');
+        return;
+      }
+      const saved = res.acta;
       toast.ok(editingId ? 'Acta actualizada en el expediente' : 'Acta guardada en el expediente del trabajador');
       const rows = await cargarExpediente(emp.id);
       onSaved?.();
       if (imprimirDespues) {
-        const html = actaCompromisoHtml(emp, companyObj, {
-          act_code: saved.act_code,
-          act_date: saved.act_date,
-          lugar: saved.lugar,
-          entregado_por_nombre: saved.entregado_por_nombre,
-          entregado_por_cargo: saved.entregado_por_cargo,
+        const html = actaCompromisoHtml({
+          codigo: saved.codigo,
+          fullName: fullName(emp),
+          cedula: emp.cedula,
+          cargo: saved.cargo || emp.cargo,
+          department: saved.departamento || emp.department,
+          fichaNumber: emp.ficha_number,
+          hireDate: emp.hire_date,
+          city: emp.city,
+          state: emp.state,
+          lugar,
+          fechaEntrega: saved.fecha_entrega,
           items: saved.items,
-          clausulas_adicionales: saved.clausulas_adicionales,
           observaciones: saved.observaciones,
-          employee_signature_url: saved.employee_signature_url,
-          deliverer_signature_url: saved.deliverer_signature_url,
-          signed_at: saved.signed_at,
-          membrete,
+          entregadoPor: saved.entregado_por,
+          entregadoCargo: entregadoPorCargo,
+          testigoNombre: saved.testigo_nombre,
+          testigoCedula: saved.testigo_cedula,
+          firmaTrabajadorDataUri: saved.firma_trabajador_url,
+          firmaEntregaDataUri: saved.firma_entrega_url,
+          companyName: membrete.nombre || companyObj?.name || 'SOS LA GUAIRA',
+          logoDataUri: membrete.logo,
         });
         await exportPdf(html, `Acta_Compromiso_${fullName(emp).replace(/\s+/g, '_')}`);
       }
@@ -273,62 +306,73 @@ export function ActaCompromisoModal({
   };
 
   const handleImprimirActaGuardada = async (acta: EmployeeCommitmentAct) => {
-    const html = actaCompromisoHtml(emp, companyObj, {
-      act_code: acta.act_code,
-      act_date: acta.act_date,
-      lugar: acta.lugar,
-      entregado_por_nombre: acta.entregado_por_nombre,
-      entregado_por_cargo: acta.entregado_por_cargo,
+    const html = actaCompromisoHtml({
+      codigo: acta.codigo,
+      fullName: fullName(emp),
+      cedula: emp.cedula,
+      cargo: acta.cargo || emp.cargo,
+      department: acta.departamento || emp.department,
+      fichaNumber: emp.ficha_number,
+      hireDate: emp.hire_date,
+      city: emp.city,
+      state: emp.state,
+      lugar,
+      fechaEntrega: acta.fecha_entrega,
       items: acta.items || [],
-      clausulas_adicionales: acta.clausulas_adicionales,
       observaciones: acta.observaciones,
-      employee_signature_url: acta.employee_signature_url,
-      deliverer_signature_url: acta.deliverer_signature_url,
-      signed_at: acta.signed_at,
-      membrete,
+      entregadoPor: acta.entregado_por,
+      entregadoCargo: entregadoPorCargo,
+      testigoNombre: acta.testigo_nombre,
+      testigoCedula: acta.testigo_cedula,
+      firmaTrabajadorDataUri: acta.firma_trabajador_url,
+      firmaEntregaDataUri: acta.firma_entrega_url,
+      companyName: membrete.nombre || companyObj?.name || 'SOS LA GUAIRA',
+      logoDataUri: membrete.logo,
     });
-    await exportPdf(html, `Acta_Compromiso_${acta.act_code || fullName(emp).replace(/\s+/g, '_')}`);
+    await exportPdf(html, `Acta_Compromiso_${acta.codigo || fullName(emp).replace(/\s+/g, '_')}`);
   };
 
   const handleCargarParaEditar = (acta: EmployeeCommitmentAct, comoNuevaCopia = false) => {
     setEditingId(comoNuevaCopia ? null : acta.id);
     const hoy = new Date().toISOString().slice(0, 10);
-    setActDate(comoNuevaCopia ? hoy : acta.act_date || hoy);
+    setActDate(comoNuevaCopia ? hoy : acta.fecha_entrega || hoy);
     setActCode(
       comoNuevaCopia
-        ? generarCodigoActaCompromiso(hoy, emp.ficha, actasGuardadas.length + 1)
-        : acta.act_code || generarCodigoActaCompromiso(acta.act_date, emp.ficha, 1),
+        ? generarCodigoActaCompromiso(actasGuardadas.length + 1, hoy)
+        : acta.codigo || generarCodigoActaCompromiso(1, acta.fecha_entrega)
     );
-    setLugar(acta.lugar || 'CAMURI CHICO, EDO. LA GUAIRA');
-    setEntregadoPorNombre(acta.entregado_por_nombre || '');
-    setEntregadoPorCargo(acta.entregado_por_cargo || 'ALMACÉN / SEGURIDAD INDUSTRIAL / RRHH');
+    setEntregadoPorNombre(acta.entregado_por || '');
+    setTestigoNombre(acta.testigo_nombre || '');
+    setTestigoCedula(acta.testigo_cedula || '');
     const loadedItems: EditableItem[] = (acta.items || []).map((it) => ({
-      descripcion: it.descripcion || '',
+      nombre: it.nombre || '',
       cantidad: String(it.cantidad || 1),
       serial: it.serial || '',
-      estado: it.estado || 'NUEVO',
-      valor_reposicion_usd: it.valor_reposicion_usd != null ? String(it.valor_reposicion_usd) : '',
-      observacion: it.observacion || '',
+      estado: normalizarEstadoItem(it.estado),
+      valor_usd: it.valor_usd != null ? String(it.valor_usd) : '',
     }));
     setItems(loadedItems.length > 0 ? loadedItems : [emptyEditableItem()]);
-    setClausulasAdicionales(acta.clausulas_adicionales || '');
     setObservaciones(acta.observaciones || '');
-    setEmployeeSignatureUrl(comoNuevaCopia ? '' : acta.employee_signature_url || '');
-    setDelivererSignatureUrl(comoNuevaCopia ? '' : acta.deliverer_signature_url || '');
-    setPhotoUrl(comoNuevaCopia ? '' : acta.photo_url || '');
-    toast.ok(comoNuevaCopia ? 'Acta cargada como plantilla nueva' : `Editando acta ${acta.act_code || ''}`);
+    setEmployeeSignatureUrl(comoNuevaCopia ? '' : acta.firma_trabajador_url || '');
+    setDelivererSignatureUrl(comoNuevaCopia ? '' : acta.firma_entrega_url || '');
+    setPhotoUrl(comoNuevaCopia ? '' : acta.soporte_url || '');
+    toast.ok(comoNuevaCopia ? 'Acta cargada como plantilla nueva' : `Editando acta ${acta.codigo || ''}`);
   };
 
   const handleAnular = async (acta: EmployeeCommitmentAct) => {
     const ok = await confirm({
       title: 'Anular acta de compromiso',
-      message: `¿Anular el acta ${acta.act_code || ''} del ${acta.act_date}? Quedará oculta del expediente activo (no se borra de la base de datos).`,
-      confirmLabel: 'Sí, anular',
+      message: `¿Anular el acta ${acta.codigo || ''} del ${acta.fecha_entrega}? Quedará oculta del expediente activo (no se borra de la base de datos).`,
+      confirmText: 'Sí, anular',
       danger: true,
     });
     if (!ok) return;
     try {
-      await anularActaCompromiso(acta.id, 'Anulada por usuario');
+      const res = await anularActaCompromiso(acta.id, currentUserId, currentUserName);
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
       toast.ok('Acta anulada');
       await cargarExpediente(emp.id);
       onSaved?.();
@@ -341,11 +385,13 @@ export function ActaCompromisoModal({
     setUploadingPhoto(true);
     try {
       const fn = source === 'camera' ? takePhotoAndUpload : pickPhotoAndUpload;
-      const url = await fn(`actas_evidencia/${emp.id}_${Date.now()}`);
-      if (url) {
-        setPhotoUrl(url);
-        toast.ok('Foto de soporte adjuntada');
+      const r = await fn('actas-evidencia', emp.id);
+      if (!r.ok || !r.url) {
+        if (r.error) toast.error(r.error);
+        return;
       }
+      setPhotoUrl(r.url);
+      toast.ok('Foto de soporte adjuntada');
     } catch (e: any) {
       toast.error('Error subiendo foto: ' + (e?.message || 'Error'));
     } finally {
@@ -378,7 +424,7 @@ export function ActaCompromisoModal({
       >
         <View
           style={{
-            backgroundColor: c.bgCard,
+            backgroundColor: c.surface,
             borderRadius: radius.lg,
             padding: spacing.md,
             borderWidth: 1,
@@ -396,7 +442,7 @@ export function ActaCompromisoModal({
                 🤝 ACTA DE COMPROMISO Y ENTREGA DE HERRAMIENTAS / IMPLEMENTOS
               </Text>
               <Text style={{ color: c.text, fontSize: 13, fontWeight: '800', marginTop: 2 }}>
-                {fullName(emp)} · C.I. {emp.cedula || '—'} · Ficha #{emp.ficha || '—'} · {(emp.cargo || 'SIN CARGO').toUpperCase()}
+                {fullName(emp)} · C.I. {emp.cedula || '—'} · Ficha #{emp.ficha_number || '—'} · {(emp.cargo || 'SIN CARGO').toUpperCase()}
               </Text>
             </View>
             <TouchableOpacity
@@ -409,7 +455,7 @@ export function ActaCompromisoModal({
                 borderColor: c.border,
               }}
             >
-              <Text style={{ color: c.textMuted, fontWeight: '800', fontSize: 12 }}>✕ CERRAR</Text>
+              <Text style={{ color: c.muted, fontWeight: '800', fontSize: 12 }}>✕ CERRAR</Text>
             </TouchableOpacity>
           </View>
 
@@ -417,7 +463,7 @@ export function ActaCompromisoModal({
             {/* SECCIÓN 1: EXPEDIENTE DE ACTAS GUARDADAS DEL TRABAJADOR */}
             <View
               style={{
-                backgroundColor: c.bgInput,
+                backgroundColor: c.surfaceAlt,
                 borderRadius: radius.md,
                 padding: 10,
                 borderWidth: 1,
@@ -447,9 +493,9 @@ export function ActaCompromisoModal({
               </View>
 
               {loadingActas ? (
-                <Text style={{ color: c.textMuted, fontSize: 11 }}>Cargando actas del expediente...</Text>
+                <Text style={{ color: c.muted, fontSize: 11 }}>Cargando actas del expediente...</Text>
               ) : actasGuardadas.length === 0 ? (
-                <Text style={{ color: c.textMuted, fontSize: 11 }}>
+                <Text style={{ color: c.muted, fontSize: 11 }}>
                   Este trabajador aún no tiene actas de compromiso registradas en su expediente.
                 </Text>
               ) : (
@@ -461,7 +507,7 @@ export function ActaCompromisoModal({
                       <View
                         key={a.id}
                         style={{
-                          backgroundColor: c.bgCard,
+                          backgroundColor: c.surface,
                           borderRadius: radius.sm,
                           padding: 8,
                           borderWidth: 1,
@@ -476,34 +522,34 @@ export function ActaCompromisoModal({
                         <View style={{ flex: 1, minWidth: 200 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <Text style={{ color: c.text, fontWeight: '900', fontSize: 12 }}>
-                              {a.act_code || 'ACTA'} · {a.act_date}
+                              {a.codigo || 'ACTA'} · {a.fecha_entrega}
                             </Text>
                             <View
                               style={{
                                 paddingHorizontal: 6,
                                 paddingVertical: 2,
                                 borderRadius: 4,
-                                backgroundColor: a.employee_signature_url ? '#16a34a22' : '#d9770622',
+                                backgroundColor: a.firma_trabajador_url ? '#16a34a22' : '#d9770622',
                               }}
                             >
                               <Text
                                 style={{
-                                  color: a.employee_signature_url ? '#16a34a' : '#d97706',
+                                  color: a.firma_trabajador_url ? '#16a34a' : '#d97706',
                                   fontSize: 9,
                                   fontWeight: '900',
                                 }}
                               >
-                                {a.employee_signature_url ? '✍️ FIRMADA DIGITAL' : '📄 EMITIDA'}
+                                {a.firma_trabajador_url ? '✍️ FIRMADA DIGITAL' : '📄 EMITIDA'}
                               </Text>
                             </View>
                           </View>
-                          <Text style={{ color: c.textMuted, fontSize: 11, marginTop: 2 }}>
-                            { (a.items || []).length } renglón(es) ({cantItems} und.)
+                          <Text style={{ color: c.muted, fontSize: 11, marginTop: 2 }}>
+                            {(a.items || []).length} renglón(es) ({cantItems} und.)
                             {totalUsd > 0 ? ` · Valor reposición: $${totalUsd.toFixed(2)}` : ''}
-                            {a.entregado_por_nombre ? ` · Entregó: ${a.entregado_por_nombre}` : ''}
+                            {a.entregado_por ? ` · Entregó: ${a.entregado_por}` : ''}
                           </Text>
                           <Text style={{ color: c.text, fontSize: 10, marginTop: 2 }} numberOfLines={2}>
-                            {(a.items || []).map((it) => `${it.cantidad}x ${it.descripcion}`).join(' · ')}
+                            {(a.items || []).map((it) => `${it.cantidad}x ${it.nombre}`).join(' · ')}
                           </Text>
                         </View>
                         <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
@@ -516,7 +562,7 @@ export function ActaCompromisoModal({
                               backgroundColor: c.primary,
                             }}
                           >
-                            <Text style={{ color: '#081826', fontSize: 10, fontWeight: '900' }}>🖨️ PDF / REIMPRIMIR</Text>
+                            <Text style={{ color: c.primaryContrast, fontSize: 10, fontWeight: '900' }}>🖨️ PDF / REIMPRIMIR</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => handleCargarParaEditar(a, false)}
@@ -524,7 +570,7 @@ export function ActaCompromisoModal({
                               paddingHorizontal: 8,
                               paddingVertical: 6,
                               borderRadius: radius.sm,
-                              backgroundColor: c.bgInput,
+                              backgroundColor: c.surfaceAlt,
                               borderWidth: 1,
                               borderColor: c.border,
                             }}
@@ -537,7 +583,7 @@ export function ActaCompromisoModal({
                               paddingHorizontal: 8,
                               paddingVertical: 6,
                               borderRadius: radius.sm,
-                              backgroundColor: c.bgInput,
+                              backgroundColor: c.surfaceAlt,
                               borderWidth: 1,
                               borderColor: c.border,
                             }}
@@ -570,7 +616,7 @@ export function ActaCompromisoModal({
               {editingId ? '✏️ EDITANDO ACTA SELECCIONADA' : '➕ NUEVA ACTA DE COMPROMISO Y ENTREGA'}
             </Text>
 
-            <Text style={{ color: c.textMuted, fontSize: 10, fontWeight: '800', marginBottom: 4 }}>
+            <Text style={{ color: c.muted, fontSize: 10, fontWeight: '800', marginBottom: 4 }}>
               MEMBRETE DEL DOCUMENTO
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
@@ -586,11 +632,11 @@ export function ActaCompromisoModal({
                       borderRadius: radius.md,
                       borderWidth: 1,
                       borderColor: active ? c.primary : c.border,
-                      backgroundColor: active ? c.primary : c.bgInput,
+                      backgroundColor: active ? c.primary : c.surfaceAlt,
                     }}
                   >
-                    <Text style={{ color: active ? '#081826' : c.text, fontWeight: '800', fontSize: 11 }}>
-                      {m.shortLabel}
+                    <Text style={{ color: active ? c.primaryContrast : c.text, fontWeight: '800', fontSize: 11 }}>
+                      {m.chip}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -599,15 +645,15 @@ export function ActaCompromisoModal({
 
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
               <View style={{ flex: 1, minWidth: 160 }}>
-                <Text style={{ color: c.textMuted, fontSize: 10, fontWeight: '800', marginBottom: 3 }}>CÓDIGO DE ACTA</Text>
+                <Text style={{ color: c.muted, fontSize: 10, fontWeight: '800', marginBottom: 3 }}>CÓDIGO DE ACTA</Text>
                 <TextInput
                   value={actCode}
                   onChangeText={setActCode}
-                  placeholder="ACTA-20261104-..."
-                  placeholderTextColor={c.textMuted}
+                  placeholder="AC-HER-2026-001"
+                  placeholderTextColor={c.muted}
                   style={{
                     color: c.text,
-                    backgroundColor: c.bgInput,
+                    backgroundColor: c.surfaceAlt,
                     borderWidth: 1,
                     borderColor: c.border,
                     borderRadius: radius.md,
@@ -619,15 +665,15 @@ export function ActaCompromisoModal({
                 />
               </View>
               <View style={{ flex: 1, minWidth: 140 }}>
-                <Text style={{ color: c.textMuted, fontSize: 10, fontWeight: '800', marginBottom: 3 }}>FECHA DE ENTREGA</Text>
+                <Text style={{ color: c.muted, fontSize: 10, fontWeight: '800', marginBottom: 3 }}>FECHA DE ENTREGA</Text>
                 <TextInput
                   value={actDate}
                   onChangeText={setActDate}
                   placeholder="AAAA-MM-DD"
-                  placeholderTextColor={c.textMuted}
+                  placeholderTextColor={c.muted}
                   style={{
                     color: c.text,
-                    backgroundColor: c.bgInput,
+                    backgroundColor: c.surfaceAlt,
                     borderWidth: 1,
                     borderColor: c.border,
                     borderRadius: radius.md,
@@ -638,15 +684,15 @@ export function ActaCompromisoModal({
                 />
               </View>
               <View style={{ flex: 1.5, minWidth: 200 }}>
-                <Text style={{ color: c.textMuted, fontSize: 10, fontWeight: '800', marginBottom: 3 }}>LUGAR / OBRA</Text>
+                <Text style={{ color: c.muted, fontSize: 10, fontWeight: '800', marginBottom: 3 }}>LUGAR / OBRA</Text>
                 <TextInput
                   value={lugar}
                   onChangeText={setLugar}
                   placeholder="CAMURI CHICO, EDO. LA GUAIRA"
-                  placeholderTextColor={c.textMuted}
+                  placeholderTextColor={c.muted}
                   style={{
                     color: c.text,
-                    backgroundColor: c.bgInput,
+                    backgroundColor: c.surfaceAlt,
                     borderWidth: 1,
                     borderColor: c.border,
                     borderRadius: radius.md,
@@ -661,7 +707,7 @@ export function ActaCompromisoModal({
             {/* RESPONSABLE QUE ENTREGA */}
             <View
               style={{
-                backgroundColor: c.bgInput,
+                backgroundColor: c.surfaceAlt,
                 borderRadius: radius.md,
                 padding: 8,
                 borderWidth: 1,
@@ -669,7 +715,7 @@ export function ActaCompromisoModal({
                 marginBottom: 10,
               }}
             >
-              <Text style={{ color: c.textMuted, fontSize: 10, fontWeight: '800', marginBottom: 4 }}>
+              <Text style={{ color: c.muted, fontSize: 10, fontWeight: '800', marginBottom: 4 }}>
                 👤 RESPONSABLE DE LA ENTREGA (ALMACÉN / RRHH / SUPERVISOR)
               </Text>
               {allEmployees.length > 0 ? (
@@ -678,10 +724,10 @@ export function ActaCompromisoModal({
                     value={buscarEntregador}
                     onChangeText={setBuscarEntregador}
                     placeholder="🔍 Buscar en el personal para autocompletar quién entrega..."
-                    placeholderTextColor={c.textMuted}
+                    placeholderTextColor={c.muted}
                     style={{
                       color: c.text,
-                      backgroundColor: c.bgCard,
+                      backgroundColor: c.surface,
                       borderWidth: 1,
                       borderColor: c.border,
                       borderRadius: radius.sm,
@@ -723,12 +769,12 @@ export function ActaCompromisoModal({
                   value={entregadoPorNombre}
                   onChangeText={setEntregadoPorNombre}
                   placeholder="Nombre y Apellido de quien entrega"
-                  placeholderTextColor={c.textMuted}
+                  placeholderTextColor={c.muted}
                   style={{
                     flex: 1,
                     minWidth: 180,
                     color: c.text,
-                    backgroundColor: c.bgCard,
+                    backgroundColor: c.surface,
                     borderWidth: 1,
                     borderColor: c.border,
                     borderRadius: radius.sm,
@@ -741,12 +787,12 @@ export function ActaCompromisoModal({
                   value={entregadoPorCargo}
                   onChangeText={setEntregadoPorCargo}
                   placeholder="Cargo (ej. Jefe de Almacén, RRHH)"
-                  placeholderTextColor={c.textMuted}
+                  placeholderTextColor={c.muted}
                   style={{
                     flex: 1,
                     minWidth: 180,
                     color: c.text,
-                    backgroundColor: c.bgCard,
+                    backgroundColor: c.surface,
                     borderWidth: 1,
                     borderColor: c.border,
                     borderRadius: radius.sm,
@@ -761,7 +807,7 @@ export function ActaCompromisoModal({
             {/* SECCIÓN 3: HERRAMIENTAS / IMPLEMENTOS ENTREGADOS */}
             <View
               style={{
-                backgroundColor: c.bgInput,
+                backgroundColor: c.surfaceAlt,
                 borderRadius: radius.md,
                 padding: 10,
                 borderWidth: 1,
@@ -780,7 +826,7 @@ export function ActaCompromisoModal({
                 ) : null}
               </View>
 
-              <Text style={{ color: c.textMuted, fontSize: 10, marginBottom: 4 }}>
+              <Text style={{ color: c.muted, fontSize: 10, marginBottom: 4 }}>
                 Toca un implemento frecuente para agregarlo rápido o escríbelo abajo:
               </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
@@ -792,12 +838,12 @@ export function ActaCompromisoModal({
                       paddingHorizontal: 8,
                       paddingVertical: 4,
                       borderRadius: radius.sm,
-                      backgroundColor: c.bgCard,
+                      backgroundColor: c.surface,
                       borderWidth: 1,
                       borderColor: c.border,
                     }}
                   >
-                    <Text style={{ color: c.text, fontSize: 10, fontWeight: '700' }}>+ {sug.descripcion}</Text>
+                    <Text style={{ color: c.text, fontSize: 10, fontWeight: '700' }}>+ {sug.nombre}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -806,7 +852,7 @@ export function ActaCompromisoModal({
                 <View
                   key={idx}
                   style={{
-                    backgroundColor: c.bgCard,
+                    backgroundColor: c.surface,
                     borderRadius: radius.sm,
                     padding: 8,
                     borderWidth: 1,
@@ -817,15 +863,15 @@ export function ActaCompromisoModal({
                   <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                     <Text style={{ color: c.primary, fontWeight: '900', fontSize: 11, width: 20 }}>{idx + 1}.</Text>
                     <TextInput
-                      value={it.descripcion}
-                      onChangeText={(v) => actualizarItem(idx, { descripcion: v })}
+                      value={it.nombre}
+                      onChangeText={(v) => actualizarItem(idx, { nombre: v })}
                       placeholder="Descripción de herramienta / equipo / EPP"
-                      placeholderTextColor={c.textMuted}
+                      placeholderTextColor={c.muted}
                       style={{
                         flex: 2,
                         minWidth: 180,
                         color: c.text,
-                        backgroundColor: c.bgInput,
+                        backgroundColor: c.surfaceAlt,
                         borderWidth: 1,
                         borderColor: c.border,
                         borderRadius: radius.sm,
@@ -840,11 +886,11 @@ export function ActaCompromisoModal({
                       onChangeText={(v) => actualizarItem(idx, { cantidad: v })}
                       placeholder="Cant."
                       keyboardType="decimal-pad"
-                      placeholderTextColor={c.textMuted}
+                      placeholderTextColor={c.muted}
                       style={{
                         width: 58,
                         color: c.text,
-                        backgroundColor: c.bgInput,
+                        backgroundColor: c.surfaceAlt,
                         borderWidth: 1,
                         borderColor: c.border,
                         borderRadius: radius.sm,
@@ -858,12 +904,12 @@ export function ActaCompromisoModal({
                       value={it.serial}
                       onChangeText={(v) => actualizarItem(idx, { serial: v })}
                       placeholder="Serial / Marca / Talla"
-                      placeholderTextColor={c.textMuted}
+                      placeholderTextColor={c.muted}
                       style={{
                         flex: 1,
                         minWidth: 120,
                         color: c.text,
-                        backgroundColor: c.bgInput,
+                        backgroundColor: c.surfaceAlt,
                         borderWidth: 1,
                         borderColor: c.border,
                         borderRadius: radius.sm,
@@ -873,15 +919,15 @@ export function ActaCompromisoModal({
                       }}
                     />
                     <TextInput
-                      value={it.valor_reposicion_usd}
-                      onChangeText={(v) => actualizarItem(idx, { valor_reposicion_usd: v })}
+                      value={it.valor_usd}
+                      onChangeText={(v) => actualizarItem(idx, { valor_usd: v })}
                       placeholder="Valor $ (opc.)"
                       keyboardType="decimal-pad"
-                      placeholderTextColor={c.textMuted}
+                      placeholderTextColor={c.muted}
                       style={{
                         width: 95,
                         color: c.text,
-                        backgroundColor: c.bgInput,
+                        backgroundColor: c.surfaceAlt,
                         borderWidth: 1,
                         borderColor: c.border,
                         borderRadius: radius.sm,
@@ -904,7 +950,7 @@ export function ActaCompromisoModal({
                   </View>
 
                   <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
-                    <Text style={{ color: c.textMuted, fontSize: 10, fontWeight: '800' }}>Estado:</Text>
+                    <Text style={{ color: c.muted, fontSize: 10, fontWeight: '800' }}>Estado:</Text>
                     {ESTADOS_ITEM.map((est) => {
                       const act = it.estado === est;
                       return (
@@ -915,35 +961,17 @@ export function ActaCompromisoModal({
                             paddingHorizontal: 7,
                             paddingVertical: 3,
                             borderRadius: 4,
-                            backgroundColor: act ? c.primary : c.bgInput,
+                            backgroundColor: act ? c.primary : c.surfaceAlt,
                             borderWidth: 1,
                             borderColor: act ? c.primary : c.border,
                           }}
                         >
-                          <Text style={{ color: act ? '#081826' : c.textMuted, fontSize: 9, fontWeight: '900' }}>
+                          <Text style={{ color: act ? c.primaryContrast : c.muted, fontSize: 9, fontWeight: '900' }}>
                             {est}
                           </Text>
                         </TouchableOpacity>
                       );
                     })}
-                    <TextInput
-                      value={it.observacion}
-                      onChangeText={(v) => actualizarItem(idx, { observacion: v })}
-                      placeholder="Observación del ítem (opcional)"
-                      placeholderTextColor={c.textMuted}
-                      style={{
-                        flex: 1,
-                        minWidth: 150,
-                        color: c.text,
-                        backgroundColor: c.bgInput,
-                        borderWidth: 1,
-                        borderColor: c.border,
-                        borderRadius: radius.sm,
-                        paddingHorizontal: 8,
-                        paddingVertical: 3,
-                        fontSize: 11,
-                      }}
-                    />
                   </View>
                 </View>
               ))}
@@ -968,7 +996,7 @@ export function ActaCompromisoModal({
             {/* RESUMEN DE CLÁUSULAS INCLUIDAS EN EL DOCUMENTO */}
             <View
               style={{
-                backgroundColor: c.bgInput,
+                backgroundColor: c.surfaceAlt,
                 borderRadius: radius.md,
                 padding: 10,
                 borderWidth: 1,
@@ -979,25 +1007,25 @@ export function ActaCompromisoModal({
               <Text style={{ color: c.primary, fontSize: 11, fontWeight: '900', marginBottom: 4 }}>
                 ⚖️ CLÁUSULAS LEGALES INCLUIDAS EN EL ACTA IMPRESA / DIGITAL
               </Text>
-              <Text style={{ color: c.textMuted, fontSize: 10, lineHeight: 15 }}>
+              <Text style={{ color: c.muted, fontSize: 10, lineHeight: 15 }}>
                 • <Text style={{ color: c.text, fontWeight: '800' }}>PRIMERA (Uso adecuado):</Text> Uso exclusivo para labores asignadas, prohibido préstamo a terceros.{'\n'}
                 • <Text style={{ color: c.text, fontWeight: '800' }}>SEGUNDA (Cuidado y custodia):</Text> Guarda segura y notificación inmediata de fallas al supervisor/almacén.{'\n'}
                 • <Text style={{ color: c.text, fontWeight: '800' }}>TERCERA (Aceptación de responsabilidad):</Text> Devolución obligatoria al requerimiento o al finalizar relación laboral.{'\n'}
                 • <Text style={{ color: c.text, fontWeight: '800' }}>CUARTA (Autorización de deducción salarial):</Text> Autorización expresa para descontar de salario, bonificaciones o liquidación el valor de reposición en caso de daño intencional, negligencia o extravío atribuible al trabajador.
               </Text>
 
-              <Text style={{ color: c.textMuted, fontSize: 10, fontWeight: '800', marginTop: 8, marginBottom: 3 }}>
-                CONDICIONES / CLÁUSULAS PARTICULARES ADICIONALES (OPCIONAL)
+              <Text style={{ color: c.muted, fontSize: 10, fontWeight: '800', marginTop: 8, marginBottom: 3 }}>
+                OBSERVACIONES GENERALES DE LA ENTREGA (OPCIONAL)
               </Text>
               <TextInput
-                value={clausulasAdicionales}
-                onChangeText={setClausulasAdicionales}
+                value={observaciones}
+                onChangeText={setObservaciones}
                 multiline
-                placeholder="Ej. El equipo de radio debe entregarse diariamente al finalizar el turno en garita..."
-                placeholderTextColor={c.textMuted}
+                placeholder="Observaciones adicionales (ej. el equipo debe entregarse al finalizar el turno)..."
+                placeholderTextColor={c.muted}
                 style={{
                   color: c.text,
-                  backgroundColor: c.bgCard,
+                  backgroundColor: c.surface,
                   borderWidth: 1,
                   borderColor: c.border,
                   borderRadius: radius.sm,
@@ -1007,34 +1035,12 @@ export function ActaCompromisoModal({
                   fontSize: 11,
                 }}
               />
-
-              <Text style={{ color: c.textMuted, fontSize: 10, fontWeight: '800', marginTop: 8, marginBottom: 3 }}>
-                OBSERVACIONES GENERALES DE LA ENTREGA (OPCIONAL)
-              </Text>
-              <TextInput
-                value={observaciones}
-                onChangeText={setObservaciones}
-                multiline
-                placeholder="Observaciones adicionales..."
-                placeholderTextColor={c.textMuted}
-                style={{
-                  color: c.text,
-                  backgroundColor: c.bgCard,
-                  borderWidth: 1,
-                  borderColor: c.border,
-                  borderRadius: radius.sm,
-                  padding: 8,
-                  minHeight: 42,
-                  textAlignVertical: 'top',
-                  fontSize: 11,
-                }}
-              />
             </View>
 
             {/* SECCIÓN 4: FIRMAS DIGITALES Y FOTO DE SOPORTE (CÁMARA + GALERÍA) */}
             <View
               style={{
-                backgroundColor: c.bgInput,
+                backgroundColor: c.surfaceAlt,
                 borderRadius: radius.md,
                 padding: 10,
                 borderWidth: 1,
@@ -1052,7 +1058,7 @@ export function ActaCompromisoModal({
                   style={{
                     flex: 1,
                     minWidth: 210,
-                    backgroundColor: c.bgCard,
+                    backgroundColor: c.surface,
                     borderRadius: radius.sm,
                     padding: 8,
                     borderWidth: 1,
@@ -1070,7 +1076,7 @@ export function ActaCompromisoModal({
                       />
                     </View>
                   ) : (
-                    <Text style={{ color: c.textMuted, fontSize: 10, marginBottom: 6 }}>
+                    <Text style={{ color: c.muted, fontSize: 10, marginBottom: 6 }}>
                       Sin firma digital registrada (puede firmar en pantalla o imprimir para firma en físico).
                     </Text>
                   )}
@@ -1085,7 +1091,7 @@ export function ActaCompromisoModal({
                         alignItems: 'center',
                       }}
                     >
-                      <Text style={{ color: '#081826', fontSize: 10, fontWeight: '900' }}>
+                      <Text style={{ color: c.primaryContrast, fontSize: 10, fontWeight: '900' }}>
                         ✍️ {employeeSignatureUrl ? 'CAMBIAR FIRMA' : 'FIRMAR EN PANTALLA'}
                       </Text>
                     </TouchableOpacity>
@@ -1110,7 +1116,7 @@ export function ActaCompromisoModal({
                   style={{
                     flex: 1,
                     minWidth: 210,
-                    backgroundColor: c.bgCard,
+                    backgroundColor: c.surface,
                     borderRadius: radius.sm,
                     padding: 8,
                     borderWidth: 1,
@@ -1128,7 +1134,7 @@ export function ActaCompromisoModal({
                       />
                     </View>
                   ) : (
-                    <Text style={{ color: c.textMuted, fontSize: 10, marginBottom: 6 }}>
+                    <Text style={{ color: c.muted, fontSize: 10, marginBottom: 6 }}>
                       Sin firma digital registrada.
                     </Text>
                   )}
@@ -1139,7 +1145,7 @@ export function ActaCompromisoModal({
                         flex: 1,
                         paddingVertical: 6,
                         borderRadius: radius.sm,
-                        backgroundColor: c.bgInput,
+                        backgroundColor: c.surfaceAlt,
                         borderWidth: 1,
                         borderColor: c.primary,
                         alignItems: 'center',
@@ -1168,7 +1174,7 @@ export function ActaCompromisoModal({
 
               {/* Foto de evidencia (Cámara + Galería obligatorios) */}
               <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: c.border }}>
-                <Text style={{ color: c.textMuted, fontSize: 10, fontWeight: '800', marginBottom: 4 }}>
+                <Text style={{ color: c.muted, fontSize: 10, fontWeight: '800', marginBottom: 4 }}>
                   📸 FOTO DE EVIDENCIA (ENTREGA DE IMPLEMENTOS O ACTA FIRMADA EN FÍSICO):
                 </Text>
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1179,7 +1185,7 @@ export function ActaCompromisoModal({
                       paddingHorizontal: 10,
                       paddingVertical: 6,
                       borderRadius: radius.sm,
-                      backgroundColor: c.bgCard,
+                      backgroundColor: c.surface,
                       borderWidth: 1,
                       borderColor: c.border,
                     }}
@@ -1193,7 +1199,7 @@ export function ActaCompromisoModal({
                       paddingHorizontal: 10,
                       paddingVertical: 6,
                       borderRadius: radius.sm,
-                      backgroundColor: c.bgCard,
+                      backgroundColor: c.surface,
                       borderWidth: 1,
                       borderColor: c.border,
                     }}
@@ -1235,12 +1241,12 @@ export function ActaCompromisoModal({
                 paddingVertical: 10,
                 paddingHorizontal: 12,
                 borderRadius: radius.md,
-                backgroundColor: c.bgInput,
+                backgroundColor: c.surfaceAlt,
                 borderWidth: 1,
                 borderColor: c.border,
               }}
             >
-              <Text style={{ color: c.textMuted, fontWeight: '800', fontSize: 11 }}>
+              <Text style={{ color: c.muted, fontWeight: '800', fontSize: 11 }}>
                 📄 IMPRIMIR PLANILLA EN BLANCO
               </Text>
             </TouchableOpacity>
@@ -1252,7 +1258,7 @@ export function ActaCompromisoModal({
                 paddingVertical: 10,
                 paddingHorizontal: 12,
                 borderRadius: radius.md,
-                backgroundColor: c.bgInput,
+                backgroundColor: c.surfaceAlt,
                 borderWidth: 1,
                 borderColor: c.primary,
               }}
@@ -1272,7 +1278,7 @@ export function ActaCompromisoModal({
                 backgroundColor: c.primary,
               }}
             >
-              <Text style={{ color: '#081826', fontWeight: '900', fontSize: 11 }}>
+              <Text style={{ color: c.primaryContrast, fontWeight: '900', fontSize: 11 }}>
                 🖨️ {saving ? 'GUARDANDO...' : 'GUARDAR EN EXPEDIENTE E IMPRIMIR PDF'}
               </Text>
             </TouchableOpacity>

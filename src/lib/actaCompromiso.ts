@@ -84,8 +84,10 @@ export type ActaCompromisoData = {
   hireDate?: string | null;
   city?: string | null;
   state?: string | null;
+  lugar?: string | null;
   fechaEntrega?: string | null; // ISO YYYY-MM-DD
   items?: readonly CommitmentToolItem[] | null;
+  clausulasAdicionales?: string | null;
   observaciones?: string | null;
   entregadoPor?: string | null;
   entregadoCargo?: string | null;
@@ -94,6 +96,8 @@ export type ActaCompromisoData = {
   firmaTrabajadorDataUri?: string | null;
   firmaEntregaDataUri?: string | null;
   mostrarLogo?: boolean;
+  companyName?: string | null;
+  logoDataUri?: string | null;
 };
 
 /** Genera un código correlativo legible para el acta: `AC-HER-2026-001`. */
@@ -142,11 +146,12 @@ export function actaCompromisoHtml(d: ActaCompromisoData): string {
   const nombre = esc(d.fullName || linea);
   const ci = esc(d.cedula || linea);
   const cargo = esc(d.cargo || linea);
-  const empresa = 'SOS LA GUAIRA';
-  const lugar = esc([d.city, d.state].filter(Boolean).join(', ') || 'La Guaira, Venezuela');
+  const empresa = String(d.companyName ?? '').trim() || 'SOS LA GUAIRA';
+  const lugar = esc(String(d.lugar ?? '').trim() || [d.city, d.state].filter(Boolean).join(', ') || 'La Guaira, Venezuela');
   const fechaTexto = esc(fechaLargaActa(d.fechaEntrega) || hoyLargo());
   const impreso = esc(selloImpresion());
   const codigo = esc(String(d.codigo ?? '').trim() || generarCodigoActaCompromiso(1, d.fechaEntrega));
+  const logoSrc = d.logoDataUri !== undefined ? d.logoDataUri : LOGO_DATA_URI;
 
   const filaOpc = (et: string, v?: string | null) =>
     String(v ?? '').trim() ? `<tr><th>${esc(et)}</th><td>${esc(String(v).trim())}</td></tr>` : '';
@@ -289,8 +294,8 @@ export function actaCompromisoHtml(d: ActaCompromisoData): string {
   </style></head><body>
     <div class="head">
       <div class="head-left">
-        ${mostrarLogo ? `<img src="${LOGO_DATA_URI}"/>` : ''}
-        <div class="co">${esc(COMPANY_NAME)}</div>
+        ${mostrarLogo && logoSrc ? `<img src="${logoSrc}"/>` : ''}
+        <div class="co">${esc(empresa)}</div>
       </div>
       <div class="cod">ACTA N.° ${codigo}</div>
     </div>
@@ -364,3 +369,4 @@ export function actaCompromisoHtml(d: ActaCompromisoData): string {
     <div class="foot">${esc(COMPANY_NAME)} · Expediente Laboral · Impreso el ${impreso}</div>
   </body></html>`;
 }
+
