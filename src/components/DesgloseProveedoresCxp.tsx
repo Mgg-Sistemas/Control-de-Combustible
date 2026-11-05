@@ -27,6 +27,7 @@ export function DesgloseProveedoresCxp(props: {
   const toast = useToast();
   const [generando, setGenerando] = useState(false);
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
+  const [pagosAbiertos, setPagosAbiertos] = useState<Record<string, boolean>>({});
 
   const grupos = useMemo(
     () => desgloseProveedoresDeReq(props.req, props.suppliers, props.rate),
@@ -64,17 +65,29 @@ export function DesgloseProveedoresCxp(props: {
 
       {grupos.map((g, gi) => {
         const k = `${gi}-${g.proveedor}`;
-        const abierto = abiertos[k] ?? !varios;
+        const abierto = abiertos[k] ?? true;
+        const pagoAbierto = pagosAbiertos[k] ?? false;
         return (
           <View key={k} style={{ marginTop: spacing.xs, borderTopWidth: gi === 0 ? 0 : 1, borderTopColor: colors.border, paddingTop: gi === 0 ? 0 : spacing.xs }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
               <View style={{ flex: 1, minWidth: 200 }}>
                 <Text selectable style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>🏭 {g.proveedor}</Text>
-                {g.pago ? (
-                  <Text selectable style={{ color: colors.text, fontSize: 11.5, marginTop: 1 }}>{g.pago}</Text>
-                ) : (
-                  <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>⚠️ Este proveedor no tiene datos de pago cargados (Compras → Proveedores).</Text>
-                )}
+                <TouchableOpacity
+                  onPress={() => setPagosAbiertos((p) => ({ ...p, [k]: !pagoAbierto }))}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  style={{ alignSelf: 'flex-start', marginTop: 2 }}
+                >
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                    {pagoAbierto ? '▲ 💳 Ocultar método de pago' : '▼ 💳 Método de pago'}
+                  </Text>
+                </TouchableOpacity>
+                {pagoAbierto ? (
+                  g.pago ? (
+                    <Text selectable style={{ color: colors.text, fontSize: 11.5, marginTop: 2 }}>{g.pago}</Text>
+                  ) : (
+                    <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '700', marginTop: 2 }}>⚠️ Este proveedor no tiene datos de pago cargados (Compras → Proveedores).</Text>
+                  )
+                ) : null}
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text selectable style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>A pagar: ${money(g.totalUsd)}</Text>

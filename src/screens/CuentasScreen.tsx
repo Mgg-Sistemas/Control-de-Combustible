@@ -576,10 +576,21 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     });
   };
 
-  // Renglones expandidos por cuenta en la tarjeta
-  const [renglonesAbiertosIds, setRenglonesAbiertosIds] = useState<Set<string>>(new Set());
+  // Renglones visibles por defecto en la tarjeta; el Set guarda solo los que el usuario oculte
+  const [renglonesOcultosIds, setRenglonesOcultosIds] = useState<Set<string>>(new Set());
   const toggleRenglonesCuenta = (id: string) => {
-    setRenglonesAbiertosIds((prev) => {
+    setRenglonesOcultosIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Métodos, condiciones y datos de pago desplegables por cuenta (por defecto oculto / plegado)
+  const [metodosPagoAbiertosIds, setMetodosPagoAbiertosIds] = useState<Set<string>>(new Set());
+  const toggleMetodosPagoCuenta = (id: string) => {
+    setMetodosPagoAbiertosIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -3139,7 +3150,19 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </Text>
                 </View>
 
-                {/* Resumen compacto en vista plegada: Solicitante + Destino + Chips de Método de Pago + Vencimiento y Monto */}
+                {/* Productos a solicitar visibles de una vez en la tarjeta */}
+                {tipo === 'por_pagar' && c.traza.items.length > 0 ? (
+                  <View style={{ marginTop: 3 }}>
+                    <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }} numberOfLines={2}>
+                      📦{' '}
+                      {c.traza.items
+                        .map((it) => `${it.name} (${Number(it.qty) || 1} ${it.unit || 'und'})`)
+                        .join(' · ')}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* Resumen compacto en vista plegada: Solicitante + Destino + Presupuestos + Vencimiento y Monto */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                   <View style={{ flex: 1, minWidth: 200, gap: 2 }}>
                     {tipo === 'por_pagar' ? (
@@ -3151,16 +3174,6 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                             <Text style={{ color: colors.brandText, fontWeight: '800' }}> · 🚜 {c.traza.destinoTexto}</Text>
                           ) : null}
                         </Text>
-                        {c.condicionesPago ? (
-                          <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
-                            <Text style={{ color: colors.infoSoftText, fontSize: 10, fontWeight: '800' }}>⏱️ {c.condicionesPago}</Text>
-                          </View>
-                        ) : null}
-                        {c.infoPago.metodosActivos.slice(0, 2).map((met) => (
-                          <View key={met} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
-                            <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>{met}</Text>
-                          </View>
-                        ))}
                         {c.presupuestosCount > 0 ? (
                           <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
                             <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>
@@ -3287,7 +3300,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                         style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 }}
                       >
                         <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '800' }}>
-                          {renglonesAbiertosIds.has(c.id)
+                          {!renglonesOcultosIds.has(c.id)
                             ? `▲ Ocultar renglones (${c.traza.items.length || 1})`
                             : `▼ Ver renglones / ítems del requerimiento (${c.traza.items.length || 1})`}
                         </Text>
@@ -3312,7 +3325,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       ) : null}
                     </View>
 
-                    {renglonesAbiertosIds.has(c.id) ? (
+                    {!renglonesOcultosIds.has(c.id) ? (
                       <View
                         style={{
                           marginTop: 4,
@@ -3376,7 +3389,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   />
                 ) : null}
 
-                {/* 💳 BLOQUE COMPLETO DE MÉTODOS, CONDICIONES Y DATOS BANCARIOS DE PAGO (visible al desplegar) */}
+                {/* 💳 BLOQUE COMPLETO DE MÉTODOS, CONDICIONES Y DATOS BANCARIOS DE PAGO (desplegable, por defecto oculto / plegado) */}
                 {tipo === 'por_pagar' ? (
                   (() => {
                     const ip = c.infoPago;
@@ -3386,6 +3399,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     const tieneTransferencia = Boolean(db.banco || db.numeroCuenta);
                     const tienePagoMovil = Boolean(db.pagoMovilTelefono || db.pagoMovilBanco);
                     const tieneDigital = Boolean(db.binanceId || db.instruccionesPago || db.capturaPago?.url);
+                    const metodoPagoAbierto = metodosPagoAbiertosIds.has(c.id);
 
                     return (
                       <View
@@ -3405,11 +3419,18 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           gap: 6,
                         }}
                       >
-                        {/* Cabecera del bloque con botones rápidos de Copiar y Configurar/Editar */}
+                        {/* Cabecera desplegable del bloque con botones rápidos de Copiar y Configurar/Editar */}
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <TouchableOpacity
+                            onPress={() => toggleMetodosPagoCuenta(c.id)}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, flex: 1, paddingVertical: 2 }}
+                          >
                             <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
-                              💳 MÉTODOS, CONDICIONES Y DATOS DE PAGO
+                              {metodoPagoAbierto ? '▲' : '▼'} 💳 MÉTODOS, CONDICIONES Y DATOS DE PAGO
+                            </Text>
+                            <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '800' }}>
+                              {metodoPagoAbierto ? '(Ocultar)' : '(Toque para desplegar)'}
                             </Text>
                             {ip.alertaTasaEspecial ? (
                               <View
@@ -3427,7 +3448,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                                 </Text>
                               </View>
                             ) : null}
-                          </View>
+                          </TouchableOpacity>
 
                           <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                             <TouchableOpacity
@@ -3467,6 +3488,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           </View>
                         </View>
 
+                        {metodoPagoAbierto ? (
+                          <>
                         {/* Fila de Chips de Métodos de Pago y Condiciones */}
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
                           {c.condicionesPago ? (
@@ -3745,6 +3768,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                             ) : null}
                           </View>
                         ) : null}
+                          </>
+                        ) : null}
                       </View>
                     );
                   })()
@@ -3797,13 +3822,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Saldo: {usd(c.saldo)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Emitida: {fmtFecha(c.fecha_emision)}</Text>
                 {c.order_id ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🧾 Atada a una orden de compra</Text> : null}
-                {c.condicionesPago ? (
+                {tipo !== 'por_pagar' && c.condicionesPago ? (
                   <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder }}>
                     <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>💳 CONDICIONES DE PAGO</Text>
                     <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 }}>{c.condicionesPago}</Text>
                   </View>
                 ) : null}
-                {c.notaLimpia ? (
+                {tipo !== 'por_pagar' && c.notaLimpia ? (
                   <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder }}>
                     <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '800' }}>📝 NOTA / DATOS E INSTRUCCIONES DE PAGO</Text>
                     <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>{c.notaLimpia}</Text>

@@ -83,8 +83,11 @@ ok('🧹 el papel ya no trae el historial ni las etiquetas', !/HISTORIAL_COMPRA|
 
 const cxp = fs.readFileSync(path.join(ROOT, 'src/screens/CuentasScreen.tsx'), 'utf8');
 const req = fs.readFileSync(path.join(ROOT, 'src/screens/RequerimientoTab.tsx'), 'utf8');
+const desg = fs.readFileSync(path.join(ROOT, 'src/components/DesgloseProveedoresCxp.tsx'), 'utf8');
 ok('Por Pagar muestra el desglose y el PDF', /<DesgloseProveedoresCxp/.test(cxp));
-ok('Requerimientos y Por Pagar arman el PDF con la MISMA función', /armarReqPdfData\(r,/.test(req) && /armarReqPdfData\(props\.req/.test(fs.readFileSync(path.join(ROOT, 'src/components/DesgloseProveedoresCxp.tsx'), 'utf8')));
+ok('Requerimientos y Por Pagar arman el PDF con la MISMA función', /armarReqPdfData\(r,/.test(req) && /armarReqPdfData\(props\.req/.test(desg));
+ok('Por Pagar muestra de una vez los renglones/productos por defecto', /!renglonesOcultosIds\.has\(c\.id\)/.test(cxp) && /const abierto = abiertos\[k\] \?\? true;/.test(desg));
+ok('Por Pagar tiene el método de pago desplegable y plegado/oculto por defecto', /const metodoPagoAbierto = metodosPagoAbiertosIds\.has\(c\.id\);/.test(cxp) && /toggleMetodosPagoCuenta\(c\.id\)/.test(cxp) && /const pagoAbierto = pagosAbiertos\[k\] \?\? false;/.test(desg));
 
 console.log(`\n💳 Desglose por proveedor y PDF del requerimiento: ${pass} OK · ${fail} FALLO(S)`);
 if (fail) { console.error(fallos.join('\n')); process.exit(1); }
