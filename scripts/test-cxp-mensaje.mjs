@@ -71,5 +71,48 @@ ok('botón para las marcadas', pant.includes('📲 Mensaje / PDF de marcadas'));
 ok('los Bs salen de la regla del requerimiento', pant.includes('const bs = bsDe(c);'));
 ok('el modal se monta al final', pant.lastIndexOf('<MensajeCuentaModal') > pant.lastIndexOf('<ReporteCuentasModal'));
 
+// ── Nuevos formatos ejecutivos: Lista Tesorería (1 línea) y Resumen ¿Se pagará? ──
+const listaTes = M.construirListaTesoreriaCuentas(
+  [
+    { ...base, proveedor: 'FARMAHUMANA, C.A', totalUsd: 133.5, saldoUsd: 133.5 },
+    { ...base, orden: 'REQ-0002', proveedor: 'PUBLICIDAD CAÑON,C.A.', totalUsd: 116.0, saldoUsd: 116.0 },
+  ],
+  { desde: '2026-11-01', hasta: '2026-11-04', empresaTexto: 'SOS LA GUAIRA' },
+);
+ok('Lista Tesorería: cabecera y período', listaTes.includes('🧾 *Reporte de Tesorería — Pendientes por pagar*') && listaTes.includes('_SOS LA GUAIRA · 01/11/2026 al 04/11/2026_'));
+ok('Lista Tesorería: renglones con 🔻 y USD', listaTes.includes('1. 🔻 FARMAHUMANA, C.A — *USD 133,50*') && listaTes.includes('2. 🔻 PUBLICIDAD CAÑON,C.A. — *USD 116,00*'));
+ok('Lista Tesorería: total con 💰 Total (2): $ 249,50', listaTes.includes('💰 *Total (2):* $ 249,50'));
+
+const htmlTes = M.listaTesoreriaCuentasHtml([base], { incluirOrden: true, incluirDetalle: true, incluirBs: true });
+ok('PDF Lista Tesorería: título y proveedor', htmlTes.includes('REPORTE DE TESORERÍA — PENDIENTES POR PAGAR') && htmlTes.includes('PROVEEDOR PRUEBA C.A.'));
+
+const c1 = { ...base, id: 'cta-1', orden: 'REQ-0101', proveedor: 'FARMAHUMANA, C.A', totalUsd: 133.5, saldoUsd: 133.5 };
+const c2 = { ...base, id: 'cta-2', orden: 'REQ-0102', proveedor: 'PUBLICIDAD CAÑON, C.A.', totalUsd: 116.0, saldoUsd: 116.0 };
+const c3 = { ...base, id: 'cta-3', orden: 'REQ-0103', proveedor: 'SUBLI MAX', totalUsd: 234.32, saldoUsd: 234.32 };
+const resumenDec = M.construirResumenDecisionCuentas(
+  [c1, c2, c3],
+  {
+    'cta-1': { motivo: 'si' },
+    'cta-2': { motivo: 'esperando_jefe' },
+    'cta-3': { motivo: 'otro', motivoOtro: 'Falta factura fiscal original' },
+  },
+  { fechaHoraTexto: '05/11/2026' },
+);
+ok('Resumen Decisión: cabecera y fecha', resumenDec.includes('🧾 *RESUMEN · CUENTAS POR PAGAR*') && resumenDec.includes('📅 *Fecha:* 05/11/2026'));
+ok('Resumen Decisión: motivos por cuenta',
+  resumenDec.includes('✅ *Se pagará*') &&
+  resumenDec.includes('⏸ *No se pagará* · Esperando respuestas por el jefe') &&
+  resumenDec.includes('⏸ *No se pagará* · Falta factura fiscal original'));
+ok('Resumen Decisión: totales separados de Se pagarán y No se pagarán',
+  resumenDec.includes('💰 *Total evaluado (3 cuentas):* *$483,82*') &&
+  resumenDec.includes('✅ *Se pagarán (1):* *$133,50*') &&
+  resumenDec.includes('⏸ *No se pagarán (2):* *$350,32*'));
+
+const htmlDec = M.resumenDecisionCuentasHtml([c1, c2], { 'cta-1': { motivo: 'si' }, 'cta-2': { motivo: 'sin_fondos' } }, OP);
+ok('PDF Resumen Decisión: KPIs y motivo en tabla',
+  htmlDec.includes('SE PAGARÁN (1)') &&
+  htmlDec.includes('NO SE PAGARÁN (1)') &&
+  htmlDec.includes('Sin fondos en estos momentos'));
+
 console.log(`\n${pass} ok, ${fail} fallas`);
 if (fail) { failures.forEach((f) => console.log('  ✗ ' + f)); process.exit(1); }

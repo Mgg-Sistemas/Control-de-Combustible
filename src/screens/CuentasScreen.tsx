@@ -21,7 +21,7 @@ import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Linking } f
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
 import { NotasEsperaCuenta } from '../components/NotasEsperaCuenta';
 import { DesgloseProveedoresCxp } from '../components/DesgloseProveedoresCxp';
-import { NotaEspera, TABLA_NOTAS_ESPERA, notasPorCuenta } from '../lib/cuentaNotasEspera';
+import { NotaEspera, TABLA_NOTAS_ESPERA, notasPorCuenta, ultimaNotaActiva } from '../lib/cuentaNotasEspera';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -118,7 +118,7 @@ import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
 import { MensajeCuentaModal } from '../components/MensajeCuentaModal';
 import { PlanPagoModal } from '../components/PlanPagoModal';
 import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, estadoPartes, lineaParte, tituloParte } from '../lib/planPago';
-import { DatosMensajeCuenta } from '../lib/cuentaMensaje';
+import { DatosMensajeCuenta, ModoMensajeCuenta } from '../lib/cuentaMensaje';
 import { quitarTodasLasMarcasDeTexto } from '../lib/requerimientoFlujo';
 
 // Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
@@ -834,6 +834,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   // 📲 02-nov-2026: mensaje / PDF de pago de una cuenta o de las marcadas.
   const [mensajeDe, setMensajeDe] = useState<CuentaCalc[] | null>(null);
+  const [modoMensajeInicial, setModoMensajeInicial] = useState<ModoMensajeCuenta>('ficha');
+  const abrirMensajeModal = (cuentas: CuentaCalc[], modo: ModoMensajeCuenta = 'ficha') => {
+    setModoMensajeInicial(modo);
+    setMensajeDe(cuentas);
+  };
   // 📋 02-nov-2026: plan de pago (pagos mixtos: base en $, IVA en Bs, USDT…).
   const [planDe, setPlanDe] = useState<CuentaCalc | null>(null);
   const [reporteOpen, setReporteOpen] = useState(false);
@@ -2085,7 +2090,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const monto = Number(c.monto) || 0;
     const db = c.infoPago?.datosBancarios;
     const notaReq = req ? quitarTodasLasMarcasDeTexto(req.observaciones) : '';
+    const notaEspActiva = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id));
     return {
+      id: c.id,
       orden: t?.reqCode || c.documento || ('CTA-' + String(c.id).slice(0, 8).toUpperCase()),
       prioridad: (c as any).prioridad ?? req?.prioridad ?? null,
       proveedor: t?.proveedorNombre || c.contraparte,
@@ -2107,12 +2114,24 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         binanceId: db.binanceId, instruccionesPago: db.instruccionesPago,
       } : null,
       empresa: t?.empresaPagadoraNombre || c.empresaNombre || null,
+      fecha: t?.fechaEnvioSoloDia || t?.fechaSolicitudSoloDia || c.fecha_emision || null,
+      notaEspera: notaEspActiva?.texto || null,
+      aprobacionEstado: c.aprobacionEstado,
       plan: (() => {
         const pl = planDeCuenta(c);
         return pl ? { partes: pl.plan.partes, alicuotaIva: alicuotaDe(c), estados: estadosPlanDe(c, pl.plan) } : null;
       })(),
     };
   };
+
+  const empresaFiltroTexto = useMemo(() => {
+    if (empresaSel.size === 0) return null;
+    const nombres = empresaCounts.filter((e) => empresaSel.has(e.id)).map((e) => e.name);
+    if (nombres.length === 1) return nombres[0];
+    if (nombres.length === 2) return `${nombres[0]} / ${nombres[1]}`;
+    if (nombres.length > 2) return `SOS LA GUAIRA · ${nombres.length} EMPRESAS`;
+    return null;
+  }, [empresaSel, empresaCounts]);
 
   const copiarTextoPortapapeles = async (texto: string, msgExito = '📋 Datos de pago copiados al portapapeles.') => {
     try {
@@ -2392,6 +2411,50 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             </TouchableOpacity>
           ) : null}
           {/* 📄 Reporte: solo lectura, así que también lo tiene quien no escribe. */}
+          {tipo === 'por_pagar' && (nMarcadas > 0 || lista.length > 0) ? (
+            <>
+              <TouchableOpacity
+                onPress={() =>
+                  abrirMensajeModal(
+                    nMarcadas > 0 ? ordenadas.filter((c) => marcadas.has(c.id)) : lista,
+                    'tesoreria',
+                  )
+                }
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: '#16A34A',
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: spacing.xs,
+                  borderRadius: radius.pill,
+                }}
+              >
+                <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 12 }}>
+                  🧾 Lista Tesorería WS ({nMarcadas > 0 ? nMarcadas : lista.length})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() =>
+                  abrirMensajeModal(
+                    nMarcadas > 0 ? ordenadas.filter((c) => marcadas.has(c.id)) : lista,
+                    'decision',
+                  )
+                }
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.brand,
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: spacing.xs,
+                  borderRadius: radius.pill,
+                }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                  ⚖️ Resumen ¿Se pagará?
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
           <TouchableOpacity onPress={() => setReporteOpen(true)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.brandText, fontWeight: '800' }}>📄 Reporte</Text>
           </TouchableOpacity>
@@ -2930,12 +2993,26 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             })()
           ) : null}
           {tipo === 'por_pagar' && nMarcadas > 0 ? (
-            <TouchableOpacity
-              onPress={() => setMensajeDe(ordenadas.filter((c) => marcadas.has(c.id)))}
-              style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: '#16A34A', backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: 4 }}
-            >
-              <Text style={{ color: '#15803D', fontWeight: '900', fontSize: 11 }}>📲 Mensaje / PDF de marcadas ({nMarcadas})</Text>
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity
+                onPress={() => abrirMensajeModal(ordenadas.filter((c) => marcadas.has(c.id)), 'ficha')}
+                style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: '#16A34A', backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: 4 }}
+              >
+                <Text style={{ color: '#15803D', fontWeight: '900', fontSize: 11 }}>📲 Mensaje / PDF de marcadas ({nMarcadas})</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => abrirMensajeModal(ordenadas.filter((c) => marcadas.has(c.id)), 'tesoreria')}
+                style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: 4 }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 11 }}>🧾 Lista Tesorería ({nMarcadas})</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => abrirMensajeModal(ordenadas.filter((c) => marcadas.has(c.id)), 'decision')}
+                style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.warningSoftBorder, backgroundColor: colors.warningSoftBg, paddingHorizontal: spacing.md, paddingVertical: 4 }}
+              >
+                <Text style={{ color: colors.warningSoftText, fontWeight: '900', fontSize: 11 }}>⚖️ ¿Se pagará? ({nMarcadas})</Text>
+              </TouchableOpacity>
+            </>
           ) : null}
           <Text style={{ color: nMarcadas > 0 ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 12 }}>
             {nMarcadas} marcada{nMarcadas === 1 ? '' : 's'}{nMarcadasFuera > 0 ? ` (${nMarcadasFuera} fuera de la lista de ahora)` : ''}
@@ -3974,7 +4051,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 {tipo === 'por_cobrar' ? 'Recibo de cobro' : 'Recibo de pago'}</Text>
                   </TouchableOpacity>
                   {tipo === 'por_pagar' ? (
-                    <TouchableOpacity onPress={() => setMensajeDe([c])} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
+                    <TouchableOpacity onPress={() => abrirMensajeModal([c], 'ficha')} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
                       <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 13 }}>📲 Mensaje / PDF de pago</Text>
                     </TouchableOpacity>
                   ) : null}
@@ -5794,6 +5871,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           marcadas={marcadas}
           tasaBcv={tasaBcv}
           hoy={hoy}
+          desde={modoFechaCxp !== 'todas' ? fechaDesdeCxp : null}
+          hasta={modoFechaCxp === 'dia' ? fechaDesdeCxp : modoFechaCxp === 'rango' ? fechaHastaCxp : null}
+          empresaTexto={empresaFiltroTexto}
+          copiar={copiarTextoPortapapeles}
           saldoBsDe={(c: any, saldoUsd: number) => {
             const m = bsDe({ ...c, saldo: saldoUsd });
             return m.fijo ? m.saldoBs : null;
@@ -5819,6 +5900,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           visible
           datos={mensajeDe.map(datosMensajeDe)}
           usuarioId={session?.user?.id}
+          modoInicial={modoMensajeInicial}
+          desde={modoFechaCxp !== 'todas' ? fechaDesdeCxp : null}
+          hasta={modoFechaCxp === 'dia' ? fechaDesdeCxp : modoFechaCxp === 'rango' ? fechaHastaCxp : null}
+          empresaTexto={empresaFiltroTexto}
           onClose={() => setMensajeDe(null)}
           copiar={copiarTextoPortapapeles}
         />

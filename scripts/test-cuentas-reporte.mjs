@@ -55,6 +55,7 @@ const R = cargar('src/lib/cuentasReporte.ts');
 const {
   elegirCuentas, reporteEsFiltrado, agruparCuentas, totalesDe, armarReporteCuentas, nombreArchivoCuentas,
   OPCIONES_CUENTAS_POR_DEFECTO, COLUMNAS_POR_DEFECTO, tramoVencimiento, usdTexto, bsTexto, tasaTexto, esc,
+  textoWhatsappReporteCuentas, urlWhatsappReporteCuentas,
 } = R;
 
 const cta = (id, contraparte, empresaNombre, monto, abonado, situacion, extra = {}) => ({
@@ -170,6 +171,61 @@ const modal = fs.readFileSync(path.join(ROOT, 'src/components/ReporteCuentasModa
 ok('25. botón 📄 Reporte, marcar todas, quitar marcas y contador', /📄 Reporte/.test(pantalla) && /Marcar todas \(de la lista\)/.test(pantalla) && /Quitar marcas/.test(pantalla) && /marcada\{nMarcadas === 1/.test(pantalla));
 ok('25b. el modal se monta solo abierto y DESPUÉS del modal de abono', /\{reporteOpen \? \(\s*<ReporteCuentasModal/.test(pantalla) && pantalla.indexOf('<ReporteCuentasModal') > pantalla.indexOf('Registrar abono</SectionTitle>'));
 ok('25c. el modal usa pdfDocument con logos y la lib', /pdfDocument\(\{[\s\S]*logos,/.test(modal) && /armarReporteCuentas\(/.test(modal) && /exportPdf\(html, r\.nombreArchivo\)/.test(modal));
+
+// ── 7) REPORTE DE TESORERÍA POR WHATSAPP (IGUAL A MINERAL Y GOLDEN) ───────────
+const OCHO_CUENTAS = [
+  cta('1', 'FARMAHUMANA, C.A', 'MINERAL GROUP GUAYANA C.A.', 133.50, 0, 'pendiente'),
+  cta('2', 'PUBLICIDAD CAÑON,C.A.', 'MINERAL GROUP GUAYANA C.A.', 116.00, 0, 'pendiente'),
+  cta('3', 'SUBLI MAX', 'MINERAL GROUP GUAYANA C.A.', 234.32, 0, 'pendiente'),
+  cta('4', 'ENRIQUE FARIAS', 'MINERAL GROUP GUAYANA C.A.', 49.33, 0, 'pendiente'),
+  cta('5', 'ENRIQUE FARIAS', 'MINERAL GROUP GUAYANA C.A.', 200.00, 0, 'pendiente'),
+  cta('6', 'CIUDAD ESCOLAR', 'MINERAL GROUP GUAYANA C.A.', 428.46, 0, 'pendiente'),
+  cta('7', 'DISTRIBUIDORA GOMOR,C.A.', 'MINERAL GROUP GUAYANA C.A.', 48.94, 0, 'pendiente'),
+  cta('8', 'ELIO ROMERO', 'MINERAL GROUP GUAYANA C.A.', 90.55, 0, 'pendiente'),
+];
+const wsTesoreria = textoWhatsappReporteCuentas({
+  tipo: 'por_pagar',
+  cuentas: OCHO_CUENTAS,
+  hoyISO: '2026-11-05',
+  wop: { desde: '2026-11-01', hasta: '2026-11-04' },
+});
+const wsPlano = wsTesoreria.replace(/[*_]/g, '');
+ok('26. cabecera exacta de Reporte de Tesorería — Pendientes por pagar',
+  wsPlano.includes('🧾 Reporte de Tesorería — Pendientes por pagar') &&
+  wsPlano.includes('MINERAL GROUP GUAYANA C.A. · 01/11/2026 al 04/11/2026'));
+ok('26b. renglones numerados con 🔻 y USD monto',
+  wsPlano.includes('1. 🔻 FARMAHUMANA, C.A — USD 133,50') &&
+  wsPlano.includes('2. 🔻 PUBLICIDAD CAÑON,C.A. — USD 116,00') &&
+  wsPlano.includes('8. 🔻 ELIO ROMERO — USD 90,55'));
+ok('26c. total exacto con 💰 Total (8): $ 1.301,10',
+  wsPlano.includes('💰 Total (8): $ 1.301,10'));
+ok('26d. sin selector U+FE0F que rompa emojis en WhatsApp', !wsTesoreria.includes('\uFE0F'));
+
+const wsEnriquecido = textoWhatsappReporteCuentas({
+  tipo: 'por_pagar',
+  cuentas: TODAS,
+  op: opc({ agrupar: 'empresa' }),
+  hoyISO: '2026-11-05',
+  tasaBcv: 40,
+  wop: {
+    incluirCodigo: true,
+    incluirConcepto: true,
+    incluirCondiciones: true,
+    incluirEstado: true,
+    incluirBs: true,
+    incluirPorPreparar: true,
+    respetarAgrupacion: true,
+  },
+});
+ok('27. WhatsApp enriquecido: grupos, código, concepto, estado, Bs y Por preparar',
+  wsEnriquecido.includes('📂 *GOLDEN TOUCH') &&
+  wsEnriquecido.includes('*F-a* · Repuestos Caracas') &&
+  wsEnriquecido.includes('📝 _Concepto a_') &&
+  wsEnriquecido.includes('📌 Estado:') &&
+  wsEnriquecido.includes('💱 *Total en Bs:*') &&
+  wsEnriquecido.includes('💳 *Por preparar (según método de pago):*'));
+ok('27b. urlWhatsappReporteCuentas usa api.whatsapp.com',
+  urlWhatsappReporteCuentas(wsTesoreria).startsWith('https://api.whatsapp.com/send?text='));
 
 console.log(`\n📄 Reporte de cuentas: ${pass} OK · ${fail} FALLO(S)`);
 failures.forEach((f) => console.log('  ' + f));

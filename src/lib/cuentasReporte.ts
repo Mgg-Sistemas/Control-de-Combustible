@@ -67,6 +67,17 @@ export type CuentaParaReporte = {
   condicionesPago?: string | null;
   notaLimpia?: string | null;
   nota?: string | null;
+  prioridad?: 'alta' | 'media' | 'baja' | null;
+  traza?: {
+    reqCode?: string | null;
+    solicitadoPor?: string | null;
+    aprobadoGerenciaPor?: string | null;
+    fechaEnvioSoloDia?: string | null;
+    fechaSolicitudSoloDia?: string | null;
+  } | null;
+  infoPago?: {
+    metodosActivos?: string[];
+  } | null;
 };
 
 export type AlcanceCuentas = 'marcadas' | 'todas';
@@ -516,4 +527,240 @@ export function armarReporteCuentas(args: {
     totales: total,
     grupos,
   };
+}
+
+// ── 💬 Resumen Ejecutivo de Tesorería para WhatsApp (05-nov-2026) ────────────
+//
+// Formato ejecutivo de 1 línea por cuenta (idéntico al de Mineral Group Guayana
+// y Golden Touch), con interruptores opcionales para enriquecer cada renglón
+// (código REQ/documento, concepto, condiciones/método, estado, Bs y resumen
+// «Por preparar» por método de pago). Sin U+FE0F en los emojis para evitar
+// cuadros vacíos en WhatsApp Web / móvil.
+
+export type OpcionesWhatsappReporte = {
+  /** Mostrar el código de requerimiento o documento antes del proveedor/cliente */
+  incluirCodigo?: boolean;
+  /** Mostrar el concepto o detalle debajo de cada cuenta */
+  incluirConcepto?: boolean;
+  /** Mostrar las condiciones o método de pago de cada cuenta */
+  incluirCondiciones?: boolean;
+  /** Mostrar el estado y vencimiento de cada cuenta */
+  incluirEstado?: boolean;
+  /** Mostrar el equivalente en Bs en el total (y por renglón si aplica) */
+  incluirBs?: boolean;
+  /** Si el reporte está agrupado, separar los renglones por grupo con su subtotal */
+  respetarAgrupacion?: boolean;
+  /** Añadir al final el resumen «💳 Por preparar (según método de pago)» */
+  incluirPorPreparar?: boolean;
+  /** Fecha desde (AAAA-MM-DD) opcional para el encabezado */
+  desde?: string | null;
+  /** Fecha hasta (AAAA-MM-DD) opcional para el encabezado */
+  hasta?: string | null;
+  /** Nombre de empresa o encabezado institucional opcional */
+  empresaTexto?: string | null;
+};
+
+export const OPCIONES_WHATSAPP_REPORTE_DEFECTO: Required<Omit<OpcionesWhatsappReporte, 'desde' | 'hasta' | 'empresaTexto'>> = {
+  incluirCodigo: false,
+  incluirConcepto: false,
+  incluirCondiciones: false,
+  incluirEstado: false,
+  incluirBs: false,
+  respetarAgrupacion: true,
+  incluirPorPreparar: false,
+};
+
+function clasificarMetodoCuenta(c: CuentaParaReporte): { clave: string; etiqueta: string; icono: string } {
+  const metodos = c.infoPago?.metodosActivos ?? [];
+  const cond = `${metodos.join(' ')} ${limpio(c.condicionesPago)} ${limpio(extraerCondicionesDeNotaInterna(c.nota))}`.toUpperCase();
+  if (/PAGO\s*M[OÓ]VIL/.test(cond)) return { clave: 'pago_movil', etiqueta: 'Pago móvil', icono: '📲' };
+  if (/BINANCE|USDT/.test(cond)) return { clave: 'binance', etiqueta: 'Binance / USDT', icono: '🪙' };
+  if (/ZELLE/.test(cond)) return { clave: 'zelle', etiqueta: 'Zelle', icono: '💸' };
+  if (/EFECTIVO|DIVISA/.test(cond)) return { clave: 'efectivo', etiqueta: 'Efectivo / Divisas', icono: '💵' };
+  if (/TRANSFERENCIA|BANCO|CUENTA/.test(cond)) return { clave: 'transferencia', etiqueta: 'Transferencia bancaria', icono: '💳' };
+  if (limpio(c.condicionesPago)) return { clave: `cond:${limpio(c.condicionesPago).toLowerCase()}`, etiqueta: limpio(c.condicionesPago), icono: '🤝' };
+  return { clave: 'por_definir', etiqueta: 'Método por confirmar', icono: '📌' };
+}
+
+function resolverPeriodoWhatsapp(
+  cuentas: CuentaParaReporte[],
+  hoyISO: string,
+  desde?: string | null,
+  hasta?: string | null,
+): string {
+  const d = limpio(desde);
+  const h = limpio(hasta);
+  const esIso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (esIso(d) && esIso(h)) {
+    return d === h ? fechaTexto(d) : `${fechaTexto(d)} al ${fechaTexto(h)}`;
+  }
+  if (esIso(d)) return `Desde ${fechaTexto(d)}`;
+  if (esIso(h)) return `Hasta ${fechaTexto(h)}`;
+
+  const fechas: string[] = [];
+  for (const c of cuentas) {
+    const f = limpio(c.traza?.fechaEnvioSoloDia) || limpio(c.traza?.fechaSolicitudSoloDia) || limpio(c.fecha_emision);
+    if (esIso(f)) fechas.push(f);
+  }
+  if (fechas.length > 0) {
+    fechas.sort();
+    const minF = fechas[0];
+    const maxF = fechas[fechas.length - 1];
+    return minF === maxF ? fechaTexto(minF) : `${fechaTexto(minF)} al ${fechaTexto(maxF)}`;
+  }
+  return fechaTexto(hoyISO);
+}
+
+function resolverEmpresaHeaderWhatsapp(cuentas: CuentaParaReporte[], empresaTexto?: string | null): string {
+  if (limpio(empresaTexto)) return limpio(empresaTexto).toUpperCase();
+  const emps = Array.from(
+    new Set(
+      cuentas
+        .map((c) => limpio(c.empresaNombre))
+        .filter((n) => n && n !== '—' && n.toLowerCase() !== 'sin empresa'),
+    ),
+  );
+  if (emps.length === 1) return emps[0].toUpperCase();
+  if (emps.length === 2) return `${emps[0].toUpperCase()} / ${emps[1].toUpperCase()}`;
+  if (emps.length > 2) return `SOS LA GUAIRA · ${emps.length} EMPRESAS`;
+  return 'SOS LA GUAIRA';
+}
+
+export function textoWhatsappReporteCuentas(args: {
+  tipo: TipoCuentaReporte;
+  cuentas: CuentaParaReporte[];
+  op?: Partial<OpcionesReporteCuentas>;
+  wop?: OpcionesWhatsappReporte;
+  tasaBcv?: number | null;
+  hoyISO: string;
+  saldoBsDe?: (c: CuentaParaReporte, saldoUsd: number) => number | null;
+}): string {
+  const { tipo, hoyISO } = args;
+  const op: OpcionesReporteCuentas = {
+    ...OPCIONES_CUENTAS_POR_DEFECTO,
+    ...(args.op ?? {}),
+    columnas: { ...COLUMNAS_POR_DEFECTO, ...(args.op?.columnas ?? {}) },
+  };
+  const wop = { ...OPCIONES_WHATSAPP_REPORTE_DEFECTO, ...(args.wop ?? {}) };
+  const activas = (args.cuentas || []).filter((c) => c.situacion !== 'anulada');
+
+  const tituloPersonal = limpio(op.titulo);
+  const cabecera = tipo === 'por_pagar'
+    ? `🧾 *${tituloPersonal || 'Reporte de Tesorería — Pendientes por pagar'}*`
+    : `🤝 *${tituloPersonal || 'Reporte de Tesorería — Cuentas por cobrar'}*`;
+
+  const empresaHeader = resolverEmpresaHeaderWhatsapp(activas.length > 0 ? activas : args.cuentas, wop.empresaTexto);
+  const periodoHeader = resolverPeriodoWhatsapp(activas.length > 0 ? activas : args.cuentas, hoyISO, wop.desde, wop.hasta);
+  const subtitulo = `_${empresaHeader} · ${periodoHeader}_`;
+
+  if (activas.length === 0) {
+    return [cabecera, subtitulo, '', '_Sin cuentas pendientes en este corte._'].join('\n');
+  }
+
+  const iconoFila = tipo === 'por_pagar' ? '🔻' : '🔺';
+  const tasa = args.tasaBcv && Number(args.tasaBcv) > 0 ? Number(args.tasaBcv) : null;
+  const mostrarBs = Boolean(wop.incluirBs && tasa != null);
+
+  const bsDeCuenta = (c: CuentaParaReporte, montoUsd: number): number => {
+    const fijo = args.saldoBsDe ? args.saldoBsDe(c, montoUsd) : null;
+    return fijo != null ? fijo : (tasa ? montoUsd * tasa : 0);
+  };
+
+  const montoFilaUsd = (c: CuentaParaReporte): number => {
+    if (c.situacion === 'pagada') return Number(c.monto) || 0;
+    return aporteDe(c).saldo;
+  };
+
+  const formatearRenglon = (c: CuentaParaReporte, idx: number): string[] => {
+    const contraparte = limpio(c.contraparte) || contraparteLabel(tipo);
+    const codigo = limpio(c.traza?.reqCode) || limpio(c.documento);
+    const prefijoCodigo = wop.incluirCodigo && codigo ? `*${codigo}* · ` : '';
+    const mUsd = montoFilaUsd(c);
+    const sufijoPagada = c.situacion === 'pagada' ? ' _(✅ Pagada)_' : '';
+    const sufijoPrioridad = c.prioridad === 'alta' && c.situacion !== 'pagada' ? ' 🔴' : '';
+    const lineas: string[] = [
+      `${idx}. ${iconoFila} ${prefijoCodigo}${contraparte} — *USD ${miles(mUsd)}*${sufijoPrioridad}${sufijoPagada}`,
+    ];
+
+    if (wop.incluirConcepto && limpio(c.concepto)) {
+      lineas.push(`   📝 _${limpio(c.concepto)}_`);
+    }
+    if (wop.incluirCondiciones) {
+      const cond = limpio(c.condicionesPago) || limpio(extraerCondicionesDeNotaInterna(c.nota)) || (c.infoPago?.metodosActivos ?? []).join(' · ');
+      if (cond) lineas.push(`   🤝 Condiciones: ${cond}`);
+    }
+    if (wop.incluirEstado) {
+      const estIcono =
+        c.situacion === 'vencida' ? '🔴 Vencida'
+        : c.situacion === 'por_vencer' ? '🟡 Por vencer'
+        : c.situacion === 'pagada' ? '✅ Pagada'
+        : '⏳ Pendiente';
+      const venceTxt = c.fecha_vencimiento && c.situacion !== 'pagada' ? ` · Vence: ${fechaTexto(c.fecha_vencimiento)}` : '';
+      lineas.push(`   📌 Estado: ${estIcono}${venceTxt}`);
+    }
+    if (mostrarBs && mUsd > 0) {
+      const mBs = bsDeCuenta(c, mUsd);
+      if (mBs > 0) lineas.push(`   💱 Equivalente: ${bsTexto(mBs)}`);
+    }
+    return lineas;
+  };
+
+  const lineasCuerpo: string[] = [];
+  const usarGrupos = op.agrupar !== 'ninguno' && wop.respetarAgrupacion !== false;
+
+  if (usarGrupos) {
+    const grupos = agruparCuentas(activas, op.agrupar, tipo);
+    let contador = 0;
+    grupos.forEach((g, gi) => {
+      if (gi > 0) lineasCuerpo.push('');
+      lineasCuerpo.push(`📂 *${g.etiqueta.toUpperCase()} (${g.cuentas.length}):*`);
+      g.cuentas.forEach((c) => {
+        contador += 1;
+        lineasCuerpo.push(...formatearRenglon(c, contador));
+      });
+      const subUsd = g.cuentas.reduce((s, c) => s + montoFilaUsd(c), 0);
+      lineasCuerpo.push(`   💵 *Subtotal ${g.etiqueta}:* $ ${miles(subUsd)}`);
+    });
+  } else {
+    activas.forEach((c, i) => {
+      lineasCuerpo.push(...formatearRenglon(c, i + 1));
+    });
+  }
+
+  const totalUsd = activas.reduce((s, c) => s + montoFilaUsd(c), 0);
+  const lineasPie: string[] = [
+    `💰 *Total (${activas.length}):* $ ${miles(totalUsd)}`,
+  ];
+
+  if (mostrarBs && totalUsd > 0) {
+    const totalBs = Math.round(activas.reduce((s, c) => s + bsDeCuenta(c, montoFilaUsd(c)), 0) * 100) / 100;
+    lineasPie.push(`💱 *Total en Bs:* ${bsTexto(totalBs)} _(Tasa BCV: ${tasaTexto(tasa!)})_`);
+  }
+
+  if (wop.incluirPorPreparar && tipo === 'por_pagar') {
+    const pendientes = activas.filter((c) => c.situacion !== 'pagada');
+    if (pendientes.length > 0) {
+      const mapaMetodos = new Map<string, { etiqueta: string; icono: string; count: number; usd: number }>();
+      for (const c of pendientes) {
+        const m = clasificarMetodoCuenta(c);
+        const prev = mapaMetodos.get(m.clave) ?? { etiqueta: m.etiqueta, icono: m.icono, count: 0, usd: 0 };
+        prev.count += 1;
+        prev.usd += montoFilaUsd(c);
+        mapaMetodos.set(m.clave, prev);
+      }
+      lineasPie.push('');
+      lineasPie.push('💳 *Por preparar (según método de pago):*');
+      Array.from(mapaMetodos.values())
+        .sort((a, b) => b.usd - a.usd)
+        .forEach((m) => {
+          lineasPie.push(`• ${m.icono} ${m.etiqueta} (${m.count}): *$ ${miles(m.usd)}*`);
+        });
+    }
+  }
+
+  return [cabecera, subtitulo, '', ...lineasCuerpo, '', ...lineasPie].join('\n');
+}
+
+export function urlWhatsappReporteCuentas(texto: string): string {
+  return `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
 }

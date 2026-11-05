@@ -9,7 +9,7 @@
 // ⚠️ Nada con TextInput se declara dentro del componente como <Etiqueta/>
 //    (scripts/test-inputs-no-pierden-foco.mjs): el campo del título va directo.
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, SectionTitle, Card } from './ui';
 import { useTheme } from '../theme/ThemeContext';
@@ -21,7 +21,9 @@ import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
 import {
   OPCIONES_CUENTAS_POR_DEFECTO, COLUMNAS_POR_DEFECTO, columnasCuentas, agrupacionesCuentas,
   elegirCuentas, reporteEsFiltrado, armarReporteCuentas, totalesDe, usdTexto, tasaTexto, tituloPorDefecto,
+  OPCIONES_WHATSAPP_REPORTE_DEFECTO, textoWhatsappReporteCuentas, urlWhatsappReporteCuentas,
   type CuentaParaReporte, type OpcionesReporteCuentas, type TipoCuentaReporte, type ColumnaCuenta,
+  type OpcionesWhatsappReporte,
 } from '../lib/cuentasReporte';
 
 const LOGOS: [keyof LogosReporte, string][] = [
@@ -46,7 +48,21 @@ function Pastilla({ on, label, onPress, disabled }: { on: boolean; label: string
   );
 }
 
-export function ReporteCuentasModal({ tipo, lista, todas, universo, marcadas, tasaBcv, hoy, onClose, saldoBsDe }: {
+export function ReporteCuentasModal({
+  tipo,
+  lista,
+  todas,
+  universo,
+  marcadas,
+  tasaBcv,
+  hoy,
+  onClose,
+  saldoBsDe,
+  desde,
+  hasta,
+  empresaTexto,
+  copiar,
+}: {
   tipo: TipoCuentaReporte;
   /** Lo que se ve ahora en la pestaña (con sus filtros). */
   lista: CuentaParaReporte[];
@@ -59,6 +75,10 @@ export function ReporteCuentasModal({ tipo, lista, todas, universo, marcadas, ta
   /** 02-nov-2026: saldo en Bs fijado por el requerimiento (null = US$ × tasa). */
   saldoBsDe?: (c: any, saldoUsd: number) => number | null;
   hoy: string;
+  desde?: string | null;
+  hasta?: string | null;
+  empresaTexto?: string | null;
+  copiar?: (texto: string, msg?: string) => void | Promise<void>;
   onClose: () => void;
 }) {
   const { colors } = useTheme();
@@ -69,6 +89,9 @@ export function ReporteCuentasModal({ tipo, lista, todas, universo, marcadas, ta
     ...OPCIONES_CUENTAS_POR_DEFECTO,
     alcance: nMarcadas > 0 ? 'marcadas' : 'todas',
   });
+  const [wop, setWopState] = useState<Required<Omit<OpcionesWhatsappReporte, 'desde' | 'hasta' | 'empresaTexto'>>>(
+    OPCIONES_WHATSAPP_REPORTE_DEFECTO,
+  );
   const [logos, setLogos] = useState<LogosReporte>(LOGOS_POR_DEFECTO);
   const [generando, setGenerando] = useState(false);
 
@@ -84,28 +107,85 @@ export function ReporteCuentasModal({ tipo, lista, todas, universo, marcadas, ta
           alcance: prev.alcance,
           columnas: { ...COLUMNAS_POR_DEFECTO, ...(g.op.columnas ?? {}) },
         }));
+        if (g?.wop) setWopState((prev) => ({ ...prev, ...g.wop }));
         if (g?.logos) setLogos({ ...LOGOS_POR_DEFECTO, ...g.logos });
       } catch { /* preferencia dañada: quedan las de fábrica */ }
     }).catch(() => {});
   }, [clave]);
 
-  const guardar = (o: OpcionesReporteCuentas, l: LogosReporte) => {
+  const guardar = (
+    o: OpcionesReporteCuentas,
+    l: LogosReporte,
+    w: Required<Omit<OpcionesWhatsappReporte, 'desde' | 'hasta' | 'empresaTexto'>> = wop,
+  ) => {
     const { alcance: _a, ...resto } = o;
-    AsyncStorage.setItem(clave, JSON.stringify({ op: resto, logos: l })).catch(() => {});
+    AsyncStorage.setItem(clave, JSON.stringify({ op: resto, logos: l, wop: w })).catch(() => {});
   };
   const setOp = <K extends keyof OpcionesReporteCuentas>(k: K, v: OpcionesReporteCuentas[K]) => {
-    setOpState((prev) => { const n = { ...prev, [k]: v }; guardar(n, logos); return n; });
+    setOpState((prev) => { const n = { ...prev, [k]: v }; guardar(n, logos, wop); return n; });
   };
   const setCol = (k: ColumnaCuenta, v: boolean) => {
-    setOpState((prev) => { const n = { ...prev, columnas: { ...prev.columnas, [k]: v } }; guardar(n, logos); return n; });
+    setOpState((prev) => { const n = { ...prev, columnas: { ...prev.columnas, [k]: v } }; guardar(n, logos, wop); return n; });
   };
   const setLogo = (k: keyof LogosReporte, v: boolean) => {
-    setLogos((prev) => { const n = { ...prev, [k]: v }; guardar(op, n); return n; });
+    setLogos((prev) => { const n = { ...prev, [k]: v }; guardar(op, n, wop); return n; });
+  };
+  const setWop = <K extends keyof typeof wop>(k: K, v: (typeof wop)[K]) => {
+    setWopState((prev) => { const n = { ...prev, [k]: v }; guardar(op, logos, n); return n; });
   };
 
   const elegidas = useMemo(() => elegirCuentas(lista, todas, marcadas, op.alcance), [lista, todas, marcadas, op.alcance]);
   const filtrado = useMemo(() => reporteEsFiltrado(elegidas, universo), [elegidas, universo]);
   const tot = useMemo(() => totalesDe(elegidas), [elegidas]);
+
+  const textoWs = useMemo(
+    () =>
+      textoWhatsappReporteCuentas({
+        tipo,
+        cuentas: elegidas,
+        op,
+        wop: { ...wop, desde, hasta, empresaTexto },
+        tasaBcv,
+        hoyISO: hoy,
+        saldoBsDe,
+      }),
+    [tipo, elegidas, op, wop, desde, hasta, empresaTexto, tasaBcv, hoy, saldoBsDe],
+  );
+
+  const copiarWhatsapp = async () => {
+    if (elegidas.length === 0) {
+      toast.error(op.alcance === 'marcadas' ? 'No has marcado ninguna cuenta.' : 'La lista está vacía.');
+      return;
+    }
+    if (copiar) {
+      await copiar(textoWs, '📋 Reporte de Tesorería copiado para WhatsApp.');
+      return;
+    }
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(textoWs);
+        toast.success('📋 Reporte de Tesorería copiado para WhatsApp.');
+        return;
+      }
+      toast.success('📋 Reporte de Tesorería listo.');
+    } catch {
+      toast.error('No se pudo copiar al portapapeles.');
+    }
+  };
+
+  const enviarWhatsapp = async () => {
+    if (elegidas.length === 0) {
+      toast.error(op.alcance === 'marcadas' ? 'No has marcado ninguna cuenta.' : 'La lista está vacía.');
+      return;
+    }
+    const url = urlWhatsappReporteCuentas(textoWs);
+    try {
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.open(url, '_blank');
+      else await Linking.openURL(url);
+    } catch {
+      toast.error('No se pudo abrir WhatsApp. Usa el botón Copiar.');
+    }
+  };
 
   const generar = async () => {
     if (elegidas.length === 0) {
@@ -228,20 +308,100 @@ export function ReporteCuentasModal({ tipo, lista, todas, universo, marcadas, ta
             />
           </View>
 
+          {/* ── 5. RESUMEN EJECUTIVO PARA WHATSAPP (TESORERÍA) ── */}
+          <View style={caja}>
+            <Text style={tituloCaja}>💬 RESUMEN EJECUTIVO PARA WHATSAPP (TESORERÍA)</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+              Lista compacta numerada (1 línea por cuenta con total general), lista para copiar o enviar directo por WhatsApp:
+            </Text>
+            <Toggle
+              on={wop.incluirCodigo}
+              label="🔢 Incluir código / N° de requerimiento o documento (ej. REQ-0001)"
+              onPress={() => setWop('incluirCodigo', !wop.incluirCodigo)}
+            />
+            <Toggle
+              on={wop.incluirConcepto}
+              label="📝 Incluir concepto / detalle debajo de cada cuenta"
+              onPress={() => setWop('incluirConcepto', !wop.incluirConcepto)}
+            />
+            <Toggle
+              on={wop.incluirCondiciones}
+              label="🤝 Incluir condiciones / método de pago"
+              onPress={() => setWop('incluirCondiciones', !wop.incluirCondiciones)}
+            />
+            <Toggle
+              on={wop.incluirEstado}
+              label="📌 Incluir estado y fecha de vencimiento"
+              onPress={() => setWop('incluirEstado', !wop.incluirEstado)}
+            />
+            <Toggle
+              on={wop.incluirBs}
+              label="💱 Mostrar equivalente en Bs"
+              ayuda={tasaBcv ? `Calculado con tasa BCV: Bs ${tasaTexto(tasaBcv)} por $.` : 'Sin tasa BCV cargada hoy.'}
+              onPress={() => setWop('incluirBs', !wop.incluirBs)}
+            />
+            {tipo === 'por_pagar' ? (
+              <Toggle
+                on={wop.incluirPorPreparar}
+                label="💳 Añadir desglose «Por preparar (según método de pago)» al final"
+                onPress={() => setWop('incluirPorPreparar', !wop.incluirPorPreparar)}
+              />
+            ) : null}
+            {op.agrupar !== 'ninguno' ? (
+              <Toggle
+                on={wop.respetarAgrupacion}
+                label="🗂️ Separar por grupos y subtotales en el mensaje de WhatsApp"
+                onPress={() => setWop('respetarAgrupacion', !wop.respetarAgrupacion)}
+              />
+            ) : null}
+
+            <View
+              style={{
+                marginTop: spacing.xs,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: radius.md,
+                backgroundColor: colors.surfaceAlt,
+                padding: spacing.sm,
+                maxHeight: 220,
+              }}
+            >
+              <ScrollView nestedScrollEnabled>
+                <Text selectable style={{ color: colors.text, fontSize: 12, lineHeight: 17 }}>
+                  {textoWs}
+                </Text>
+              </ScrollView>
+            </View>
+          </View>
+
           <Card>
             <Text style={{ color: colors.muted, fontSize: 11 }}>
-              El alcance, la agrupación y las columnas apagadas van en el NOMBRE del archivo, no en el papel. Los montos van en US$.
+              El alcance, la agrupación y las columnas apagadas van en el NOMBRE del archivo PDF, no en el papel. Los montos van en US$.
             </Text>
           </Card>
 
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.lg }}>
-            <TouchableOpacity onPress={onClose} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.lg }}>
+            <TouchableOpacity onPress={onClose} style={{ flexGrow: 1, flexBasis: 90, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={copiarWhatsapp}
+              disabled={elegidas.length === 0}
+              style={{ flexGrow: 1, flexBasis: 130, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: elegidas.length === 0 ? 0.5 : 1 }}
+            >
+              <Text style={{ color: colors.brandText, fontWeight: '800' }}>📋 Copiar WS</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={enviarWhatsapp}
+              disabled={elegidas.length === 0}
+              style={{ flexGrow: 1, flexBasis: 140, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: elegidas.length === 0 ? 0.5 : 1 }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '900' }}>🟢 WhatsApp ({elegidas.length})</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={generar}
               disabled={generando || elegidas.length === 0}
-              style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: generando || elegidas.length === 0 ? 0.5 : 1 }}
+              style={{ flexGrow: 1.2, flexBasis: 160, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: generando || elegidas.length === 0 ? 0.5 : 1 }}
             >
               <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{generando ? 'Generando…' : `🖨️ Generar PDF (${elegidas.length})`}</Text>
             </TouchableOpacity>
