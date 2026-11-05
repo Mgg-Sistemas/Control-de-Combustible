@@ -131,6 +131,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
     const { error } = await supabase.from('employees').update({
       precio_hora: t.precio_hora, precio_dia: t.precio_dia, precio_noche: t.precio_noche, precio_semana: t.precio_semana,
       precio_quincena: t.precio_quincena, precio_mes: t.precio_mes,
+      base_salary: Number(t.precio_semana) > 0 ? t.precio_semana : null,
     }).in('id', empIdsOf(t.cargo));
     setBusy(false);
     if (error) return setNotice(`⚠️ ${error.message}`);
@@ -156,6 +157,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
       const { error } = await supabase.from('employees').update({
         precio_hora: t.precio_hora, precio_dia: t.precio_dia, precio_noche: t.precio_noche,
         precio_semana: t.precio_semana, precio_quincena: t.precio_quincena, precio_mes: t.precio_mes,
+        base_salary: Number(t.precio_semana) > 0 ? t.precio_semana : null,
       }).in('id', empIdsOf(t.cargo));
       if (error) errores++; else hechos += empCount(t.cargo);
     }

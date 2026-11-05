@@ -201,18 +201,87 @@ const resSinSalario = empReporteMod.cuerpoReporteEmpleados({
 });
 assert.ok(!resSinSalario.body.includes('Total Por Semana'), 'No debe mostrar Total Por Semana cuando está desmarcado');
 
-// Verificar que en EmpleadosScreen.tsx el campo base_salary esté etiquetado como "Salario Semanal" y estén las 4 opciones del reporte
+// Turno Diurno vs Turno Nocturno en cargos por turno (ej. OPERADORES DE MAQUINARIA: $45 día / $50 noche)
+const opTurnoNocturno = {
+  ...empReporteMod.OPCIONES_REPORTE_EMPLEADOS_DEFECTO,
+  salarioDiario: false,
+  salarioNocturno: true,
+  salarioSemanal: true,
+};
+const resTurnoNocturno = empReporteMod.cuerpoReporteEmpleados({
+  empleados: [
+    {
+      id: 'op1',
+      first_name: 'ALBERTO',
+      last_name: 'SILVA',
+      cedula: '10583795',
+      cargo: 'OPERADORES DE MAQUINARIA',
+      department: 'OPERACIONES DE MAQUINARIA',
+      status: 'activo',
+      base_salary: null,
+      precio_dia: 45,
+      precio_noche: 50,
+      precio_semana: 0,
+    },
+  ],
+  opciones: opTurnoNocturno,
+  estadoTxt: 'Activos',
+});
+assert.ok(resTurnoNocturno.body.includes('Por Noche'), 'Debe mostrar columna Por Noche cuando salarioNocturno está activo');
+assert.ok(resTurnoNocturno.body.includes('$50,00') && resTurnoNocturno.body.includes('$350,00'), 'En turno nocturno debe mostrar $50,00 por noche y $350,00 por semana');
+assert.ok(resTurnoNocturno.body.includes('Total Por Noche'), 'Debe mostrar cuadro superior Total Por Noche');
+
+// Modo Tabulador por Cargo en Resumen por cargo (cuando se apaga Listado de personas y se encienden montos)
+const resTabuladorCargo = empReporteMod.cuerpoReporteEmpleados({
+  empleados: [
+    { id: '1', first_name: 'A', last_name: 'B', cargo: 'EQUIPO DE CORTE', department: 'REMOCION Y EXCAVACION', status: 'activo', precio_dia: 50, precio_semana: 350 },
+    { id: '2', first_name: 'C', last_name: 'D', cargo: 'EQUIPO DE CORTE', department: 'REMOCION Y EXCAVACION', status: 'activo', precio_dia: 50, precio_semana: 350 },
+    { id: '3', first_name: 'E', last_name: 'F', cargo: 'MECANICO', department: 'SOPORTE Y SERVICIO', status: 'activo', precio_dia: 75, precio_semana: 525 },
+  ],
+  opciones: {
+    ...empReporteMod.OPCIONES_REPORTE_EMPLEADOS_DEFECTO,
+    empleado: false,
+    cedula: false,
+    ficha: false,
+    cargo: false,
+    habilidades: false,
+    empresa: false,
+    estado: false,
+    telefono: false,
+    departamento: true,
+    salarioDiario: true,
+    salarioSemanal: true,
+    resumenCargo: true,
+    listadoPersonas: false,
+  },
+  estadoTxt: 'Activos',
+});
+assert.ok(resTabuladorCargo.body.includes('Resumen por cargo (2)'), 'Debe renderizar Resumen por cargo');
+assert.ok(!resTabuladorCargo.body.includes('>Personas<'), 'En modo Tabulador por Cargo (con montos activos) no debe mostrar la columna Personas');
+assert.ok(
+  resTabuladorCargo.body.includes('EQUIPO DE CORTE') &&
+  resTabuladorCargo.body.includes('REMOCION Y EXCAVACION') &&
+  resTabuladorCargo.body.includes('$50,00') &&
+  resTabuladorCargo.body.includes('$350,00') &&
+  resTabuladorCargo.body.includes('MECANICO') &&
+  resTabuladorCargo.body.includes('$75,00') &&
+  resTabuladorCargo.body.includes('$525,00'),
+  'El Resumen por cargo en modo Tabulador debe mostrar el Cargo, Departamento y las tarifas unitarias Por Día y Por Semana de cada cargo',
+);
+
+// Verificar que en EmpleadosScreen.tsx el campo base_salary esté etiquetado como "Salario Semanal" y estén las 5 opciones del reporte (incluyendo Diurno y Nocturno)
 const empleadosScreenSrc = readFileSync(join(rootDir, 'src/screens/EmpleadosScreen.tsx'), 'utf8');
 assert.ok(
   empleadosScreenSrc.includes("{ key: 'base_salary', label: 'Salario Semanal', type: 'number' }"),
   'EmpleadosScreen debe tener base_salary etiquetado como Salario Semanal',
 );
 assert.ok(
-  empleadosScreenSrc.includes("['salarioDiario', '💵 Por Día']") &&
+  empleadosScreenSrc.includes("['salarioDiario', '☀️ Por Día (Diurno)']") &&
+  empleadosScreenSrc.includes("['salarioNocturno', '🌙 Por Noche (Nocturno)']") &&
   empleadosScreenSrc.includes("['salarioSemanal', '💵 Por Semana']") &&
   empleadosScreenSrc.includes("['salarioQuincenal', '💵 Quincenal']") &&
   empleadosScreenSrc.includes("['salarioMensual', '💵 Mensual']"),
-  'EmpleadosScreen debe incluir 💵 Por Día, 💵 Por Semana, 💵 Quincenal y 💵 Mensual en el selector de columnas del reporte',
+  'EmpleadosScreen debe incluir ☀️ Por Día (Diurno), 🌙 Por Noche (Nocturno), 💵 Por Semana, 💵 Quincenal y 💵 Mensual en el selector de columnas del reporte',
 );
 
 // Verificar reglas críticas en actasCompromisoDb.ts y componentes (sin DELETE, con .select, con Cámara y Galería)

@@ -26,8 +26,10 @@ export type OpcionesReporteEmpleados = {
   estado: boolean;
   /** 📞 Columna «Teléfono». */
   telefono: boolean;
-  /** 💵 Columna «Por Día» (cuánto gana por día: `precio_dia` o calculado desde semanal/quincenal/mensual). */
+  /** ☀️ Columna «Por Día (Diurno)» (cuánto gana en turno diurno: `precio_dia` o calculado desde semanal/quincenal/mensual). */
   salarioDiario: boolean;
+  /** 🌙 Columna «Por Noche (Nocturno)» (cuánto gana en turno nocturno: `precio_noche`). */
+  salarioNocturno?: boolean;
   /** 💵 Columna «Por Semana» (cuánto gana por semana: `base_salary` / `precio_semana` o calculado). */
   salarioSemanal: boolean;
   /** 💵 Columna «Quincenal» (cuánto gana quincenal: `precio_quincena` o 2 semanas). */
@@ -77,6 +79,7 @@ export const OPCIONES_REPORTE_EMPLEADOS_DEFECTO: OpcionesReporteEmpleados = {
   estado: true,
   telefono: true,
   salarioDiario: false,
+  salarioNocturno: false,
   salarioSemanal: false,
   salarioQuincenal: false,
   salarioMensual: false,
@@ -159,6 +162,7 @@ export function limpiarSoloDepartamento(
 
 export type SalariosEmpleadoReporte = {
   diario: number | null;
+  nocturno: number | null;
   semanal: number | null;
   quincenal: number | null;
   mensual: number | null;
@@ -174,27 +178,59 @@ const r2 = (n: number | null): number | null =>
   n !== null && Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
 
 /**
- * Calcula cuánto gana un empleado en las 4 frecuencias del reporte:
- * - `diario` (Por Día): usa `precio_dia` (o `semanal / 7` si solo tiene semanal).
- * - `semanal` (Por Semana): usa `base_salary` o `precio_semana` (o `diario * 7` / `quincenal / 2` / `mensual / 4`).
+ * Calcula cuánto gana un empleado en las 5 modalidades del reporte:
+ * - `diario` (Por Día / Diurno): usa `precio_dia` (o `semanal / 7` si solo tiene semanal).
+ * - `nocturno` (Por Noche / Nocturno): usa `precio_noche`.
+ * - `semanal` (Por Semana): usa `base_salary` o `precio_semana` (o `diario * 7` / `nocturno * 7` según turno).
  * - `quincenal` (Quincenal): usa `precio_quincena` (si es >= semanal) o `semanal * 2` (2 semanas).
  * - `mensual` (Mensual): usa `precio_mes` (si es > semanal) o `semanal * 4` (4 semanas).
  */
-export function calcularSalariosEmpleadoReporte(e?: {
-  base_salary?: number | string | null;
-  precio_dia?: number | string | null;
-  precio_semana?: number | string | null;
-  precio_quincena?: number | string | null;
-  precio_mes?: number | string | null;
-} | null): SalariosEmpleadoReporte {
-  if (!e) return { diario: null, semanal: null, quincenal: null, mensual: null };
+export function calcularSalariosEmpleadoReporte(
+  e?: {
+    base_salary?: number | string | null;
+    precio_dia?: number | string | null;
+    precio_noche?: number | string | null;
+    precio_semana?: number | string | null;
+    precio_quincena?: number | string | null;
+    precio_mes?: number | string | null;
+  } | null,
+  opts?: { preferirNocturno?: boolean }
+): SalariosEmpleadoReporte {
+  if (!e) return { diario: null, nocturno: null, semanal: null, quincenal: null, mensual: null };
   const rawBase = numPos(e.base_salary);
   const rawSem = numPos(e.precio_semana);
   const rawDia = numPos(e.precio_dia);
+  const rawNoche = numPos(e.precio_noche);
   const rawQuin = numPos(e.precio_quincena);
   const rawMes = numPos(e.precio_mes);
 
-  const semDirecto = rawBase ?? rawSem;
+  // Si el cargo es por turno (tiene precio_dia y precio_noche y precio_semana === 0 en el tabulador),
+  // el semanal se calcula a partir del turno activo (diurno * 7 o nocturno * 7).
+  const esCargoPorTurno =
+    rawSem === null &&
+    rawDia !== null &&
+    rawNoche !== null &&
+    e.precio_semana !== null &&
+    e.precio_semana !== undefined &&
+    e.precio_semana !== '' &&
+    Number(String(e.precio_semana).replace(',', '.')) === 0;
+
+  // Si `precio_dia` y `precio_semana` vienen sincronizados del Tabulador de Cargos (dia * 7 ≈ sem),
+  // se prioriza `rawSem` sobre un `base_salary` viejo que haya quedado sin actualizar.
+  let semDirecto: number | null = null;
+  if (!esCargoPorTurno) {
+    if (rawDia !== null && rawSem !== null) {
+      const diaCand =
+        rawDia >= rawSem && Math.abs(rawDia / 100 - rawSem / 7) < 0.5 ? rawDia / 100 : rawDia;
+      if (Math.abs(diaCand * 7 - rawSem) < 0.5) {
+        semDirecto = rawSem;
+      } else {
+        semDirecto = rawBase ?? rawSem;
+      }
+    } else {
+      semDirecto = rawBase ?? rawSem;
+    }
+  }
 
   // Si `precio_dia` quedó inflado ×100 por un punto decimal omitido (ej. 3571 cuando sem=250 → 35.71)
   // o si alguien copió el sueldo semanal en `precio_dia` (ej. 300 y 300), se normaliza a la tarifa diaria real.
@@ -209,26 +245,43 @@ export function calcularSalariosEmpleadoReporte(e?: {
     diaLimpio = rawDia / 100;
   }
 
-  const semanal =
-    semDirecto !== null
-      ? semDirecto
-      : rawQuin !== null
-      ? rawQuin / 2
-      : rawMes !== null
-      ? rawMes / 4
-      : diaLimpio !== null
-      ? diaLimpio * 7
-      : null;
+  let nocheLimpio = rawNoche;
+  if (rawNoche !== null && semDirecto !== null && Math.abs(rawNoche / 100 - semDirecto / 7) < 0.5) {
+    nocheLimpio = rawNoche / 100;
+  }
+
+  const usarBaseNocturna =
+    Boolean(opts?.preferirNocturno) &&
+    nocheLimpio !== null &&
+    (semDirecto === null || (diaLimpio !== null && Math.abs(semDirecto - diaLimpio * 7) < 0.5));
+
+  const semanal = usarBaseNocturna
+    ? nocheLimpio! * 7
+    : semDirecto !== null
+    ? semDirecto
+    : rawQuin !== null
+    ? rawQuin / 2
+    : rawMes !== null
+    ? rawMes / 4
+    : diaLimpio !== null
+    ? diaLimpio * 7
+    : nocheLimpio !== null
+    ? nocheLimpio * 7
+    : null;
 
   const diario =
     diaLimpio !== null
       ? diaLimpio
-      : semanal !== null
+      : semDirecto !== null
+      ? semDirecto / 7
+      : semanal !== null && !usarBaseNocturna
       ? semanal / 7
       : null;
 
+  const nocturno = nocheLimpio;
+
   const quincenal =
-    rawQuin !== null && (semanal === null || rawQuin >= semanal)
+    !usarBaseNocturna && rawQuin !== null && (semanal === null || rawQuin >= semanal)
       ? rawQuin
       : semanal !== null
       ? semanal * 2
@@ -239,7 +292,7 @@ export function calcularSalariosEmpleadoReporte(e?: {
       : null;
 
   const mensual =
-    rawMes !== null && (semanal === null || rawMes > semanal)
+    !usarBaseNocturna && rawMes !== null && (semanal === null || rawMes > semanal)
       ? rawMes
       : semanal !== null
       ? semanal * 4
@@ -251,6 +304,7 @@ export function calcularSalariosEmpleadoReporte(e?: {
 
   return {
     diario: r2(diario),
+    nocturno: r2(nocturno),
     semanal: r2(semanal),
     quincenal: r2(quincenal),
     mensual: r2(mensual),
@@ -269,38 +323,64 @@ export function leerSalarioDiarioEmpleado(e?: Parameters<typeof calcularSalarios
   return calcularSalariosEmpleadoReporte(e).diario;
 }
 
+export function leerSalarioNocturnoEmpleado(e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0]): number | null {
+  return calcularSalariosEmpleadoReporte(e).nocturno;
+}
+
 /**
  * Obtiene el Salario Semanal del trabajador: toma primero `base_salary` (campo
  * «Salario Semanal» de la ficha) y, si no está cargado, cae a `precio_semana`
- * (o convierte desde tarifa diaria/quincenal/mensual). Devuelve `null` si no tiene monto (> 0).
+ * (o convierte desde tarifa diaria/nocturna/quincenal/mensual). Devuelve `null` si no tiene monto (> 0).
  */
-export function leerSalarioSemanalEmpleado(e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0]): number | null {
-  return calcularSalariosEmpleadoReporte(e).semanal;
+export function leerSalarioSemanalEmpleado(
+  e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0],
+  opts?: { preferirNocturno?: boolean }
+): number | null {
+  return calcularSalariosEmpleadoReporte(e, opts).semanal;
 }
 
-export function leerSalarioQuincenalEmpleado(e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0]): number | null {
-  return calcularSalariosEmpleadoReporte(e).quincenal;
+export function leerSalarioQuincenalEmpleado(
+  e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0],
+  opts?: { preferirNocturno?: boolean }
+): number | null {
+  return calcularSalariosEmpleadoReporte(e, opts).quincenal;
 }
 
-export function leerSalarioMensualEmpleado(e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0]): number | null {
-  return calcularSalariosEmpleadoReporte(e).mensual;
+export function leerSalarioMensualEmpleado(
+  e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0],
+  opts?: { preferirNocturno?: boolean }
+): number | null {
+  return calcularSalariosEmpleadoReporte(e, opts).mensual;
 }
 
 export function formatearSalarioDiarioReporte(e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0]): string {
   return formatearMontoSalarioReporte(leerSalarioDiarioEmpleado(e));
 }
 
+export function formatearSalarioNocturnoReporte(e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0]): string {
+  return formatearMontoSalarioReporte(leerSalarioNocturnoEmpleado(e));
+}
+
 /** Formatea un monto de salario semanal como `$200,00` o devuelve `'—'` si no tiene. */
-export function formatearSalarioSemanalReporte(e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0]): string {
-  return formatearMontoSalarioReporte(leerSalarioSemanalEmpleado(e));
+export function formatearSalarioSemanalReporte(
+  e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0],
+  opts?: { preferirNocturno?: boolean }
+): string {
+  return formatearMontoSalarioReporte(leerSalarioSemanalEmpleado(e, opts));
 }
 
-export function formatearSalarioQuincenalReporte(e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0]): string {
-  return formatearMontoSalarioReporte(leerSalarioQuincenalEmpleado(e));
+export function formatearSalarioQuincenalReporte(
+  e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0],
+  opts?: { preferirNocturno?: boolean }
+): string {
+  return formatearMontoSalarioReporte(leerSalarioQuincenalEmpleado(e, opts));
 }
 
-export function formatearSalarioMensualReporte(e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0]): string {
-  return formatearMontoSalarioReporte(leerSalarioMensualEmpleado(e));
+export function formatearSalarioMensualReporte(
+  e?: Parameters<typeof calcularSalariosEmpleadoReporte>[0],
+  opts?: { preferirNocturno?: boolean }
+): string {
+  return formatearMontoSalarioReporte(leerSalarioMensualEmpleado(e, opts));
 }
 
 export function resolverOpcionesReporteEmpleados(
@@ -328,6 +408,7 @@ export function contarColumnasActivasEmpleados(parcial?: Partial<OpcionesReporte
   if (op.estado) n++;
   if (op.telefono) n++;
   if (op.salarioDiario) n++;
+  if (op.salarioNocturno) n++;
   if (op.salarioSemanal) n++;
   if (op.salarioQuincenal) n++;
   if (op.salarioMensual) n++;
@@ -373,13 +454,24 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
 } {
   const op = resolverOpcionesReporteEmpleados(input.opciones);
   const lista = input.empleados ?? [];
+  const preferirNocturno = Boolean(op.salarioNocturno && !op.salarioDiario);
+  const hayColumnaSalario = Boolean(
+    op.salarioDiario ||
+      op.salarioNocturno ||
+      op.salarioSemanal ||
+      op.salarioQuincenal ||
+      op.salarioMensual
+  );
 
-  // Agrupación para el resumen por cargo
+  // Agrupación para el resumen por cargo y tabulador por cargo
   const porCargoMap = new Map<string, number>();
+  const porCargoDeptosMap = new Map<string, Set<string>>();
+  const porCargoSalariosListaMap = new Map<string, SalariosEmpleadoReporte[]>();
   // Agrupación para el resumen por departamento (SOLO department, nunca grupo/dirección)
   const porDeptoMap = new Map<string, number>();
   const empresasSet = new Set<string>();
   let totalSalarioDiario = 0;
+  let totalSalarioNocturno = 0;
   let totalSalarioSemanal = 0;
   let totalSalarioQuincenal = 0;
   let totalSalarioMensual = 0;
@@ -388,27 +480,63 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     const c = String(e.cargo ?? '').trim() || 'Sin cargo';
     porCargoMap.set(c, (porCargoMap.get(c) ?? 0) + 1);
 
-    const d = limpiarSoloDepartamento(e.department, e.grupo) || 'Sin departamento';
+    const dLimpio = limpiarSoloDepartamento(e.department, e.grupo);
+    const d = dLimpio || 'Sin departamento';
     porDeptoMap.set(d, (porDeptoMap.get(d) ?? 0) + 1);
+    if (dLimpio) {
+      let setD = porCargoDeptosMap.get(c);
+      if (!setD) {
+        setD = new Set<string>();
+        porCargoDeptosMap.set(c, setD);
+      }
+      setD.add(dLimpio);
+    }
 
     const emp = String(e.empresaNomina ?? '').trim();
     if (emp && emp !== 'Sin empresa de filtro') empresasSet.add(emp);
 
-    const sals = calcularSalariosEmpleadoReporte(e);
+    const sals = calcularSalariosEmpleadoReporte(e, { preferirNocturno });
+    let arrSals = porCargoSalariosListaMap.get(c);
+    if (!arrSals) {
+      arrSals = [];
+      porCargoSalariosListaMap.set(c, arrSals);
+    }
+    arrSals.push(sals);
+
     if (sals.diario !== null) totalSalarioDiario += sals.diario;
+    if (sals.nocturno !== null) totalSalarioNocturno += sals.nocturno;
     if (sals.semanal !== null) totalSalarioSemanal += sals.semanal;
     if (sals.quincenal !== null) totalSalarioQuincenal += sals.quincenal;
     if (sals.mensual !== null) totalSalarioMensual += sals.mensual;
   }
   totalSalarioDiario = Math.round(totalSalarioDiario * 100) / 100;
+  totalSalarioNocturno = Math.round(totalSalarioNocturno * 100) / 100;
   totalSalarioSemanal = Math.round(totalSalarioSemanal * 100) / 100;
   totalSalarioQuincenal = Math.round(totalSalarioQuincenal * 100) / 100;
   totalSalarioMensual = Math.round(totalSalarioMensual * 100) / 100;
 
   const totalSalarioDiarioTxt = formatearMontoSalarioReporte(totalSalarioDiario);
+  const totalSalarioNocturnoTxt = formatearMontoSalarioReporte(totalSalarioNocturno);
   const totalSalarioSemanalTxt = formatearMontoSalarioReporte(totalSalarioSemanal);
   const totalSalarioQuincenalTxt = formatearMontoSalarioReporte(totalSalarioQuincenal);
   const totalSalarioMensualTxt = formatearMontoSalarioReporte(totalSalarioMensual);
+
+  // Obtiene la tarifa representativa (moda de los valores > 0) de cada cargo para el modo Tabulador
+  const modaMonto = (vals: (number | null)[]): number | null => {
+    const freq = new Map<number, number>();
+    let mejorVal: number | null = null;
+    let mejorCant = 0;
+    for (const v of vals) {
+      if (v === null || !Number.isFinite(v) || v <= 0) continue;
+      const cant = (freq.get(v) ?? 0) + 1;
+      freq.set(v, cant);
+      if (cant > mejorCant) {
+        mejorCant = cant;
+        mejorVal = v;
+      }
+    }
+    return mejorVal;
+  };
 
   const resumen = Array.from(porCargoMap.entries()).sort(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
@@ -434,6 +562,9 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     }
     if (op.salarioDiario && totalSalarioDiario > 0) {
       tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioDiarioTxt)}</div><div class="s">Total Por Día</div></div>`);
+    }
+    if (op.salarioNocturno && totalSalarioNocturno > 0) {
+      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioNocturnoTxt)}</div><div class="s">Total Por Noche</div></div>`);
     }
     if (op.salarioSemanal && totalSalarioSemanal > 0) {
       tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioSemanalTxt)}</div><div class="s">Total Por Semana</div></div>`);
@@ -469,10 +600,98 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
   // 2) Tablas de resumen en cuadros (Resumen por cargo y/o Resumen por departamento)
   const cajasResumen: string[] = [];
   if (op.resumenCargo && resumen.length > 0) {
-    const resumenRows = resumen
-      .map(([c, n]) => `<tr><td>${esc(c)}</td><td class="r nw"><b>${n}</b></td></tr>`)
-      .join('');
-    cajasResumen.push(`
+    if (hayColumnaSalario) {
+      // Modo Tabulador por Cargo: muestra el cargo (y departamento si está marcado) junto con sus tarifas por Día / Noche / Semana / Quincenal / Mensual
+      const mostrarNumCargo = Boolean(op.numeracion && !op.listadoPersonas);
+      const thsCargo: string[] = [];
+      if (mostrarNumCargo) thsCargo.push('<th class="r nw" style="width:34px">#</th>');
+      thsCargo.push('<th>Cargo</th>');
+      if (op.departamento) thsCargo.push('<th>Departamento</th>');
+      if (op.salarioDiario) thsCargo.push('<th class="r nw">Por Día</th>');
+      if (op.salarioNocturno) thsCargo.push('<th class="r nw">Por Noche</th>');
+      if (op.salarioSemanal) thsCargo.push('<th class="r nw">Por Semana</th>');
+      if (op.salarioQuincenal) thsCargo.push('<th class="r nw">Quincenal</th>');
+      if (op.salarioMensual) thsCargo.push('<th class="r nw">Mensual</th>');
+
+      let sumCargoDia = 0;
+      let sumCargoNoche = 0;
+      let sumCargoSem = 0;
+      let sumCargoQuin = 0;
+      let sumCargoMes = 0;
+
+      const resumenRows = resumen
+        .map(([c], idx) => {
+          const listaSals = porCargoSalariosListaMap.get(c) ?? [];
+          const salDia = modaMonto(listaSals.map((s) => s.diario));
+          const salNoche = modaMonto(listaSals.map((s) => s.nocturno));
+          const salSem = modaMonto(listaSals.map((s) => s.semanal));
+          const salQuin = modaMonto(listaSals.map((s) => s.quincenal));
+          const salMes = modaMonto(listaSals.map((s) => s.mensual));
+
+          if (salDia !== null) sumCargoDia += salDia;
+          if (salNoche !== null) sumCargoNoche += salNoche;
+          if (salSem !== null) sumCargoSem += salSem;
+          if (salQuin !== null) sumCargoQuin += salQuin;
+          if (salMes !== null) sumCargoMes += salMes;
+
+          const deptosCargo = Array.from(porCargoDeptosMap.get(c) ?? []);
+          const deptoTxt = deptosCargo.length > 0 ? deptosCargo.join(' / ') : '—';
+
+          const tds: string[] = [];
+          if (mostrarNumCargo) tds.push(`<td class="r nw">${idx + 1}</td>`);
+          tds.push(`<td><b>${esc(c)}</b></td>`);
+          if (op.departamento) tds.push(`<td>${esc(deptoTxt)}</td>`);
+          if (op.salarioDiario) {
+            tds.push(`<td class="r nw">${salDia !== null ? `<b>${esc(formatearMontoSalarioReporte(salDia))}</b>` : '—'}</td>`);
+          }
+          if (op.salarioNocturno) {
+            tds.push(`<td class="r nw">${salNoche !== null ? `<b>${esc(formatearMontoSalarioReporte(salNoche))}</b>` : '—'}</td>`);
+          }
+          if (op.salarioSemanal) {
+            tds.push(`<td class="r nw">${salSem !== null ? `<b>${esc(formatearMontoSalarioReporte(salSem))}</b>` : '—'}</td>`);
+          }
+          if (op.salarioQuincenal) {
+            tds.push(`<td class="r nw">${salQuin !== null ? `<b>${esc(formatearMontoSalarioReporte(salQuin))}</b>` : '—'}</td>`);
+          }
+          if (op.salarioMensual) {
+            tds.push(`<td class="r nw">${salMes !== null ? `<b>${esc(formatearMontoSalarioReporte(salMes))}</b>` : '—'}</td>`);
+          }
+          return `<tr>${tds.join('')}</tr>`;
+        })
+        .join('');
+
+      const colsEtiqueta = 1 + (mostrarNumCargo ? 1 : 0) + (op.departamento ? 1 : 0);
+      const tfootCells: string[] = [`<td colspan="${colsEtiqueta}">TOTAL (${resumen.length} cargos)</td>`];
+      if (op.salarioDiario) {
+        tfootCells.push(`<td class="r nw">${sumCargoDia > 0 ? esc(formatearMontoSalarioReporte(r2(sumCargoDia))) : '—'}</td>`);
+      }
+      if (op.salarioNocturno) {
+        tfootCells.push(`<td class="r nw">${sumCargoNoche > 0 ? esc(formatearMontoSalarioReporte(r2(sumCargoNoche))) : '—'}</td>`);
+      }
+      if (op.salarioSemanal) {
+        tfootCells.push(`<td class="r nw">${sumCargoSem > 0 ? esc(formatearMontoSalarioReporte(r2(sumCargoSem))) : '—'}</td>`);
+      }
+      if (op.salarioQuincenal) {
+        tfootCells.push(`<td class="r nw">${sumCargoQuin > 0 ? esc(formatearMontoSalarioReporte(r2(sumCargoQuin))) : '—'}</td>`);
+      }
+      if (op.salarioMensual) {
+        tfootCells.push(`<td class="r nw">${sumCargoMes > 0 ? esc(formatearMontoSalarioReporte(r2(sumCargoMes))) : '—'}</td>`);
+      }
+
+      cajasResumen.push(`
+      <div class="sec-box">
+        <h3 class="sec">Resumen por cargo (${resumen.length})</h3>
+        <table class="sum">
+          <thead><tr>${thsCargo.join('')}</tr></thead>
+          <tbody>${resumenRows}</tbody>
+          <tfoot><tr>${tfootCells.join('')}</tr></tfoot>
+        </table>
+      </div>`);
+    } else {
+      const resumenRows = resumen
+        .map(([c, n]) => `<tr><td>${esc(c)}</td><td class="r nw"><b>${n}</b></td></tr>`)
+        .join('');
+      cajasResumen.push(`
       <div class="sec-box">
         <h3 class="sec">Resumen por cargo (${resumen.length})</h3>
         <table class="sum">
@@ -481,6 +700,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
           <tfoot><tr><td>TOTAL</td><td class="r nw">${lista.length}</td></tr></tfoot>
         </table>
       </div>`);
+    }
   }
   if (op.resumenDepartamento && resumenDepto.length > 0) {
     const deptoRows = resumenDepto
@@ -514,6 +734,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     if (op.estado) ths.push('<th class="c nw">Estado</th>');
     if (op.telefono) ths.push('<th class="nw">Teléfono</th>');
     if (op.salarioDiario) ths.push('<th class="r nw">Por Día</th>');
+    if (op.salarioNocturno) ths.push('<th class="r nw">Por Noche</th>');
     if (op.salarioSemanal) ths.push('<th class="r nw">Por Semana</th>');
     if (op.salarioQuincenal) ths.push('<th class="r nw">Quincenal</th>');
     if (op.salarioMensual) ths.push('<th class="r nw">Mensual</th>');
@@ -534,8 +755,9 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
             : '—';
         // ⭐ SOLO DEPARTAMENTO: nunca concatena `e.grupo` ni dirección
         const deptoSolo = limpiarSoloDepartamento(e.department, e.grupo) || '—';
-        const sals = calcularSalariosEmpleadoReporte(e);
+        const sals = calcularSalariosEmpleadoReporte(e, { preferirNocturno });
         const salDiaTxt = formatearMontoSalarioReporte(sals.diario);
+        const salNocheTxt = formatearMontoSalarioReporte(sals.nocturno);
         const salSemTxt = formatearMontoSalarioReporte(sals.semanal);
         const salQuinTxt = formatearMontoSalarioReporte(sals.quincenal);
         const salMesTxt = formatearMontoSalarioReporte(sals.mensual);
@@ -549,7 +771,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
 
         const tds: string[] = [];
         if (op.numeracion) tds.push(`<td class="r nw">${i + 1}</td>`);
-        if (op.empleado !== false || (tds.length === 0 && !op.cedula && !op.ficha && !op.cargo && !op.departamento && !op.habilidades && !op.empresa && !op.empresaReal && !op.estado && !op.telefono && !op.salarioDiario && !op.salarioSemanal && !op.salarioQuincenal && !op.salarioMensual && !op.datosBancarios)) {
+        if (op.empleado !== false || (tds.length === 0 && !op.cedula && !op.ficha && !op.cargo && !op.departamento && !op.habilidades && !op.empresa && !op.empresaReal && !op.estado && !op.telefono && !op.salarioDiario && !op.salarioNocturno && !op.salarioSemanal && !op.salarioQuincenal && !op.salarioMensual && !op.datosBancarios)) {
           tds.push(`<td><b>${esc(nombreCompleto)}</b></td>`);
         }
         if (op.cedula) tds.push(`<td class="nw">${esc(e.cedula || '—')}</td>`);
@@ -562,6 +784,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
         if (op.estado) tds.push(`<td class="c nw">${esc(e.status || '—')}</td>`);
         if (op.telefono) tds.push(`<td class="nw">${esc(e.phone || '—')}</td>`);
         if (op.salarioDiario) tds.push(`<td class="r nw">${sals.diario !== null ? `<b>${esc(salDiaTxt)}</b>` : '—'}</td>`);
+        if (op.salarioNocturno) tds.push(`<td class="r nw">${sals.nocturno !== null ? `<b>${esc(salNocheTxt)}</b>` : '—'}</td>`);
         if (op.salarioSemanal) tds.push(`<td class="r nw">${sals.semanal !== null ? `<b>${esc(salSemTxt)}</b>` : '—'}</td>`);
         if (op.salarioQuincenal) tds.push(`<td class="r nw">${sals.quincenal !== null ? `<b>${esc(salQuinTxt)}</b>` : '—'}</td>`);
         if (op.salarioMensual) tds.push(`<td class="r nw">${sals.mensual !== null ? `<b>${esc(salMesTxt)}</b>` : '—'}</td>`);
@@ -574,6 +797,9 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     const partesTfoot: string[] = [`TOTAL: ${lista.length} empleado(s)`];
     if (op.salarioDiario && totalSalarioDiario > 0) {
       partesTfoot.push(`POR DÍA TOTAL: ${esc(totalSalarioDiarioTxt)}`);
+    }
+    if (op.salarioNocturno && totalSalarioNocturno > 0) {
+      partesTfoot.push(`POR NOCHE TOTAL: ${esc(totalSalarioNocturnoTxt)}`);
     }
     if (op.salarioSemanal && totalSalarioSemanal > 0) {
       partesTfoot.push(`POR SEMANA TOTAL: ${esc(totalSalarioSemanalTxt)}`);
