@@ -1712,9 +1712,9 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               >
                 <View style={{ flex: 1, minWidth: 200 }}>
                   <Text style={{ fontWeight: '900', fontSize: 15, color: colors.text }}>
-                    {r.code} · {r.items.length === 1 ? primerItem?.name : `Solicitud Multi-Ítem (${r.items.length} Renglones)`}
+                    {r.code} · {r.items.length === 1 ? primerItem?.name : (r.items.map((it) => it.name).filter(Boolean).join(', ') || `Solicitud Multi-Ítem (${r.items.length} Renglones)`)}
                   </Text>
-                  {r.title && r.title !== primerItem?.name ? (
+                  {r.title && r.title !== primerItem?.name && !r.items.some((it) => it.name === r.title) ? (
                     <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }}>{r.title}</Text>
                   ) : null}
                 </View>
@@ -1985,28 +1985,44 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 );
               })()}
 
-              {/* Vista compacta cuando está PLEGADO */}
+              {/* Productos visibles de una vez cuando está PLEGADO */}
               {!isAbierto && (
-                <TouchableOpacity
-                  onPress={() => toggleExpand(r.id)}
+                <View
                   style={{
                     backgroundColor: colors.surfaceAlt,
                     padding: 8,
                     borderRadius: radius.sm,
                     borderWidth: 1,
                     borderColor: colors.border,
+                    gap: 4,
                   }}
                 >
-                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
-                    📦 Renglones ({r.items.length}):{' '}
-                    <Text style={{ color: colors.muted, fontWeight: '500' }}>
-                      {r.items.map((it, idx) => `${idx + 1}. ${it.name}`).join('  |  ')}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                    <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '900' }}>
+                      📦 PRODUCTOS A SOLICITAR ({r.items.length}):
                     </Text>
-                  </Text>
-                  <Text style={{ color: colors.brand, fontSize: 11, fontWeight: '700', marginTop: 3 }}>
-                    Toque para desplegar medidas técnicas y desglose detallado ➔
-                  </Text>
-                </TouchableOpacity>
+                    <TouchableOpacity onPress={() => toggleExpand(r.id)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                      <Text style={{ color: colors.brand, fontSize: 11, fontWeight: '800' }}>
+                        ▼ Ver medidas técnicas y desglose ➔
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {r.items.map((it, idx) => (
+                    <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, paddingVertical: 1 }}>
+                      <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '700', flex: 1 }}>
+                        • {it.name}{' '}
+                        <Text style={{ color: colors.muted, fontWeight: '600' }}>
+                          ({qtyFmt(it.qty)} {it.unit || 'UND'})
+                        </Text>
+                        {it.note ? (
+                          <Text style={{ color: colors.brandText, fontStyle: 'italic', fontWeight: '500' }}>
+                            {' '}· 📐 {it.note}
+                          </Text>
+                        ) : null}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
               )}
 
               {/* Desglose Detallado por Renglón cuando está DESPLEGADO */}

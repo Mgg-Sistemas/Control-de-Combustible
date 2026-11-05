@@ -3710,7 +3710,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                                 <View style={{ flex: 1, minWidth: 150 }}>
                                   <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
-                                  <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}{r.responsable_nombre ? ` · 📦 Resp.: ${r.responsable_nombre}` : ''}</Text>
+                                  {/* Productos a solicitar visibles de una vez en la tarjeta */}
+                                  {Array.isArray(r.items) && r.items.length > 0 ? (
+                                    <View style={{ marginTop: 2 }}>
+                                      <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }} numberOfLines={2}>
+                                        📦{' '}
+                                        {r.items
+                                          .map((it) => `${it.name} (${Number(it.qty) || 1} ${it.unit || 'und'})`)
+                                          .join(' · ')}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+                                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 1 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}{r.responsable_nombre ? ` · 📦 Resp.: ${r.responsable_nombre}` : ''}</Text>
                                   {r.empresa_pagadora_nombre ? (
                                     <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700', marginTop: 1 }}>💳 Pagadora: {r.empresa_pagadora_nombre}</Text>
                                   ) : null}
