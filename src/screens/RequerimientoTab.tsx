@@ -21,7 +21,7 @@ import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
 import { rawCaseField } from '../lib/fonts';
-import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee, Cuenta } from '../types/database';
+import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee, Cuenta, AuditLog } from '../types/database';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
 import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile, pickAndUploadRequirementFiles, pickAndUploadDocFiles } from '../lib/photo';
 import { FormatoAdjunto, empaquetarFormatosEnObservaciones, extraerFormatosAdjuntos, limpiarObservacionesFormatos } from '../lib/formatosAdjuntos';
@@ -540,16 +540,27 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     role?: string | null;
     app_role_name?: string | null;
   }>>([]);
+  const [auditLogsReq, setAuditLogsReq] = useState<AuditLog[]>([]);
 
   useEffect(() => {
     let cancel = false;
     (async () => {
       try {
-        const [{ data: profs }, { data: ft }] = await Promise.all([
+        const [{ data: profs }, { data: ft }, { data: logsAudit }] = await Promise.all([
           supabase.from('profiles').select('id, full_name, username, cedula, role, app_role:app_role_id(name)'),
           supabase.from('feature_toggles').select('key, enabled, extra_user_ids').eq('key', 'compras_req_aprobacion').maybeSingle(),
+          supabase
+            .from('audit_log')
+            .select('id, at, user_id, user_name, action, table_name, row_id, changes')
+            .in('table_name', ['inventory_requirements', 'cuentas', 'cuenta_abonos'])
+            .in('action', ['INSERT', 'UPDATE', 'DELETE'])
+            .order('at', { ascending: true })
+            .limit(3000),
         ]);
         if (cancel) return;
+        if (Array.isArray(logsAudit)) {
+          setAuditLogsReq(logsAudit as AuditLog[]);
+        }
         const lista = ((profs ?? []) as any[])
           .filter((p) => String(p.full_name || p.username || '').trim())
           .map((p) => ({
@@ -585,6 +596,37 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     })();
     return () => { cancel = true; };
   }, []);
+
+  const usuariosMapReq = useMemo(() => {
+    const m = new Map<string, string>();
+    usuariosSistema.forEach((u) => {
+      if (u.id && u.full_name) m.set(u.id, u.full_name);
+    });
+    auditLogsReq.forEach((l) => {
+      const n = String(l.user_name || '').trim();
+      if (l.user_id && n && !m.has(String(l.user_id))) m.set(String(l.user_id), n);
+    });
+    return m;
+  }, [usuariosSistema, auditLogsReq]);
+
+  const logsPorRowIdReq = useMemo(() => {
+    const m = new Map<string, AuditLog[]>();
+    auditLogsReq.forEach((l) => {
+      if (l.row_id) {
+        const k = String(l.row_id);
+        const arr = m.get(k) ?? [];
+        arr.push(l);
+        m.set(k, arr);
+      }
+      const ctaIdDel = l.table_name === 'cuenta_abonos' ? (l.changes as any)?.cuenta_id : null;
+      if (ctaIdDel && typeof ctaIdDel === 'string') {
+        const arrC = m.get(ctaIdDel) ?? [];
+        arrC.push(l);
+        m.set(ctaIdDel, arrC);
+      }
+    });
+    return m;
+  }, [auditLogsReq]);
 
   const miPerfil = useMemo(
     () => usuariosSistema.find((u) => u.id === uid) || null,
@@ -1845,16 +1887,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             const targetCta = ctas[0] as any;
             let notaCta = reciboPagoUrl || reciboPagoRef.trim()
               ? inyectarReciboPagoEnNota(targetCta.nota, {
-                  url: reciboPagoUrl || null,
-                  tipo: reciboPagoTipo || 'image',
-                  nombre: 'Recibo de pago',
-                  referencia: reciboPagoRef.trim() || null,
-                  metodo: reciboPagoMetodo.trim() || null,
-                  nota: reciboPagoNota.trim() || null,
-                  fecha: reciboPagoFecha || ahoraExp.slice(0, 10),
-                  subidoPor: autorExp,
-                  subidoAt: ahoraExp,
-                })
+                url: reciboPagoUrl || null,
+                tipo: reciboPagoTipo || 'image',
+                nombre: 'Recibo de pago',
+                referencia: reciboPagoRef.trim() || null,
+                metodo: reciboPagoMetodo.trim() || null,
+                nota: reciboPagoNota.trim() || null,
+                fecha: reciboPagoFecha || ahoraExp.slice(0, 10),
+                subidoPor: autorExp,
+                subidoAt: ahoraExp,
+              })
               : targetCta.nota;
             if (evHistFac) notaCta = anexarEventoHistorial(notaCta, evHistFac);
             if (evHistRec) notaCta = anexarEventoHistorial(notaCta, evHistRec);
@@ -1897,7 +1939,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     });
     if (!ok) return;
     try {
-      const obsSinRecibo = inyectarReciboPagoEnObservaciones(r.observaciones, null);
+      const autorRev = miPerfil?.full_name || fullName || session?.user?.email || 'Compras / Administración';
+      const evRev = {
+        by: autorRev,
+        byId: uid,
+        modulo: 'Requerimientos' as const,
+        tipo: 'reabierto_pendiente' as const,
+        titulo: `Pago revertido / Comprobante eliminado por ${autorRev}`,
+        detalle: `Se quitó el comprobante de pago de ${r.code || 'este requerimiento'} y volvió a estado pendiente por pagar.`,
+        reqId: r.id,
+        reqCode: r.code,
+      };
+      const obsSinRecibo = anexarEventoHistorial(inyectarReciboPagoEnObservaciones(r.observaciones, null), evRev);
       const nextStatus = (r.status === 'esperando_recepcion' || (r.status as string) === 'pagado') ? 'aprobado' : r.status;
       const { error } = await supabase
         .from('inventory_requirements')
@@ -1919,7 +1972,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           for (const cta of ctas) {
             const { count: nAbonos } = await supabase.from('cuenta_abonos').select('id', { count: 'exact', head: true }).eq('cuenta_id', cta.id);
             if ((nAbonos ?? 0) > 0) { ctaConAbonos = true; continue; }
-            const notaSinRec = inyectarReciboPagoEnNota(cta.nota, null);
+            const notaSinRec = anexarEventoHistorial(inyectarReciboPagoEnNota(cta.nota, null), evRev);
             await supabase.from('cuentas').update({
               estado: 'pendiente',
               settled_by: null,
@@ -2329,15 +2382,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           reqCode: reqAnterior.code,
         });
       }
-      // 📜 31-oct-2026: cambios de cabecera (título, nota, proveedor…) también quedan en el
+      // 📜 31-oct-2026: cambios de cabecera (título, nota, empresa, proveedor…) también quedan en el
       //    Histórico; antes solo se anotaba cuando cambiaban los renglones.
       const provNombreDe = (id?: string | null) => (id ? suppliers.find((sp) => sp.id === id)?.name || '' : '');
+      const empReqAntes = resolverEmpresaRequerimiento(reqAnterior, companies);
+      const empNombreAntes = empReqAntes.id === ID_SIN_EMPRESA_REQ ? 'Sin empresa asignada' : empReqAntes.name;
+      const empNombreDespues = companyId
+        ? companies.find((c) => c.id === companyId)?.name || 'Empresa'
+        : 'Sin empresa asignada';
       const cambiosCab = resumirCambiosCabeceraCompra([
+        { etiqueta: 'Empresa', antes: empNombreAntes, despues: empNombreDespues },
         { etiqueta: 'Título', antes: reqAnterior.title, despues: title },
         { etiqueta: 'Nota', antes: reqAnterior.note, despues: note },
         { etiqueta: 'Proveedor', antes: provNombreDe(reqAnterior.supplier_id), despues: provNombreDe(supplierId || items.find((it) => it.supplier_id)?.supplier_id || null) },
         { etiqueta: 'Empresa pagadora', antes: reqAnterior.empresa_pagadora_nombre, despues: empresaPagadoraNombre },
+        { etiqueta: 'Solicitante', antes: reqAnterior.solicitante_nombre, despues: solicitante.nombre },
+        { etiqueta: 'Autorizado por', antes: reqAnterior.autorizado_nombre, despues: autorizado.nombre },
         { etiqueta: 'Responsable', antes: reqAnterior.responsable_nombre, despues: respNombre },
+        { etiqueta: 'Motorizado / Comprador', antes: reqAnterior.motorizado_nombre, despues: motoNombre },
+        { etiqueta: 'Prioridad', antes: (reqAnterior as any).prioridad || 'normal', despues: prioridadReq || 'normal' },
         { etiqueta: 'Área', antes: reqAnterior.area, despues: area },
         { etiqueta: 'Condiciones de pago', antes: extraerCondicionesPago(reqAnterior.observaciones), despues: condicionesPago },
         { etiqueta: 'Observaciones', antes: limpiarObservacionesUsuario(reqAnterior.observaciones), despues: observaciones },
@@ -2348,7 +2411,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           byId: uid,
           modulo: 'Requerimientos',
           tipo: 'solicitud_editada',
-          titulo: 'Requerimiento editado',
+          titulo: cambiosCab.some((c) => c.startsWith('Empresa:') && c.includes('Sin empresa asignada'))
+            ? 'Empresa quitada del requerimiento'
+            : cambiosCab.some((c) => c.startsWith('Empresa:'))
+              ? 'Empresa / Datos del requerimiento editados'
+              : 'Requerimiento editado',
           detalle: `${autorEdicion || 'Compras'} desde Requerimientos: ${cambiosCab.join(' · ')}`,
           reqId: reqAnterior.id,
           reqCode: reqAnterior.code,
@@ -2382,7 +2449,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       if ('prioridad' in parche) {
         try {
           await supabase.from('cuentas').update({ prioridad: parche.prioridad ?? null, updated_at: nowISO() }).eq('inventory_requirement_id', id);
-        } catch {}
+        } catch { }
       }
       return '';
     };
@@ -2422,7 +2489,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         respGuardado = false;
         ({ error } = await supabase.from('inventory_requirements').update(base).eq('id', editId));
       }
-      // Sincronizar condiciones de pago e IVA hacia la cuenta por pagar vinculada (si existe)
+      // Sincronizar condiciones de pago, empresa, IVA e historial hacia la cuenta por pagar vinculada (si existe)
       try {
         const montoEditConIva = calcularTotalReqUsd(items, rate, alicNum);
         const { data: cxpRows } = await supabase
@@ -2430,9 +2497,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           .select('id, nota')
           .or(`inventory_requirement_id.eq.${editId},order_id.eq.${editId}`);
         if (cxpRows && cxpRows.length > 0) {
+          const compObj = companyId ? companies.find((c) => c.id === companyId) : null;
           for (const cxp of cxpRows) {
             let nuevaNotaCxp = inyectarCondicionesPagoEnNota(cxp.nota, condicionesPago.trim() || null);
             nuevaNotaCxp = inyectarIvaEnCuentaNota(nuevaNotaCxp, alicNum);
+            nuevaNotaCxp = inyectarEmpresaEnNota(nuevaNotaCxp, companyId, compObj?.name || null);
+            nuevaNotaCxp = preservarHistorialYEnvioEnTexto(obsCompuesta, nuevaNotaCxp);
             const patchCxpEdit: Record<string, any> = {
               nota: nuevaNotaCxp,
               alicuota_iva: alicNum,
@@ -2443,7 +2513,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           }
           refetchCuentas();
         }
-      } catch {}
+      } catch { }
       if (error) {
         setBusy(false);
         const esTriggerIva = /record\s+"new"\s+has\s+no\s+field\s+"iva_alicuota"/i.test(error.message);
@@ -2633,7 +2703,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
     try {
       await supabase.from('cuentas').update({ prioridad: p, updated_at: nowISO() }).eq('inventory_requirement_id', r.id);
-    } catch {}
+    } catch { }
     refetch();
     refetchCuentas();
     toast.success(p ? `Prioridad ${PRIORIDAD_COMPRA_INFO[p].label} asignada a ${r.code} (sincronizada con Por Pagar).` : `Prioridad quitada de ${r.code}.`);
@@ -2687,11 +2757,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     let nuevaObs =
       status === 'aprobado' && apActual?.estado !== 'aprobado'
         ? inyectarAprobacionCxpEnNota(r.observaciones, {
-            estado: 'pendiente',
-            aprobadoPor: null,
-            aprobadoPorId: null,
-            fecha: ahoraIso,
-          })
+          estado: 'pendiente',
+          aprobadoPor: null,
+          aprobadoPorId: null,
+          fecha: ahoraIso,
+        })
         : r.observaciones;
     if (status === 'aprobado') {
       nuevaObs =
@@ -2760,7 +2830,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           r.items.find((it) => it.supplier_name)?.supplier_name ||
           'Proveedor asignado';
         const alicEnv = r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r);
-      const montoEnv = calcularTotalReqUsd(r.items, rate, alicEnv);
+        const montoEnv = calcularTotalReqUsd(r.items, rate, alicEnv);
         if (cxpRows && cxpRows.length > 0) {
           for (const cxp of cxpRows) {
             let notaCxp = cxp.nota || '';
@@ -2814,7 +2884,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             }
           }
         }
-      } catch {}
+      } catch { }
       const aprobadoresTxt =
         configAprobacion.aprobadoresNombres && configAprobacion.aprobadoresNombres.length > 0
           ? configAprobacion.aprobadoresNombres.join(' / ')
@@ -2857,7 +2927,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           await supabase.from('purchase_orders').update({ total: montoConIva }).eq('inventory_requirement_id', reqItem.id);
         }
       }
-    } catch {}
+    } catch { }
 
     setReqSelIds(new Set());
     refetch();
@@ -3065,7 +3135,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             if (linePhoto) {
               try {
                 await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
-              } catch {}
+              } catch { }
             }
           } else {
             // Producto NUEVO: se crea a raíz del requerimiento con el nombre real indicado al recibir
@@ -3086,17 +3156,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               if (linePhoto) {
                 try {
                   await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
-                } catch {}
+                } catch { }
               }
             } else {
               try {
                 await supabase.from('inventory_items').update({ name: cleanName, ...(linePhoto ? { image_url: linePhoto } : {}) }).eq('id', itemId);
-              } catch {}
+              } catch { }
             }
           } else if (linePhoto) {
             try {
               await supabase.from('inventory_items').update({ image_url: linePhoto }).eq('id', itemId);
-            } catch {}
+            } catch { }
           }
         }
 
@@ -3187,7 +3257,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // 🔗 Sincronizar también la orden de compra vinculada en purchase_orders como 'recibida'
       try {
         await supabase.from('purchase_orders').update({ status: 'recibida', received_at: nowISO() }).eq('inventory_requirement_id', recvFor.id);
-      } catch {}
+      } catch { }
 
       // 🧾 Sincronización automática con Cuentas por Pagar
       if (recvFor.supplier_id) {
@@ -4014,6 +4084,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                   companies,
                                   suppliers,
                                   machines,
+                                  usuariosMap: usuariosMapReq,
+                                  auditLogs: [
+                                    ...(logsPorRowIdReq.get(r.id) || []),
+                                    ...(ctaVinc ? logsPorRowIdReq.get(ctaVinc.id) || [] : []),
+                                  ],
                                 });
                                 return <TimelineExpedienteBox eventos={evs} />;
                               })()}

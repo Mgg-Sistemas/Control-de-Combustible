@@ -25,6 +25,7 @@ import {
   extraerAprobacionCxp,
   extraerFacturaCuenta,
   extraerReciboPagoCuenta,
+  extraerIvaCuenta,
 } from './cuentasPago';
 import {
   esSolicitudDeCompra,
@@ -32,7 +33,7 @@ import {
   resolverEmpresaRequerimiento,
   ID_SIN_EMPRESA_REQ,
 } from './requerimientoFlujo';
-import { resolverEmpresaDeCuenta } from './cuentasEmpresa';
+import { resolverEmpresaDeCuenta, extraerEmpresaDeNota } from './cuentasEmpresa';
 
 export type ModuloEventoCompra = 'Solicitudes' | 'Requerimientos' | 'Por Pagar' | 'Almacén';
 
@@ -388,6 +389,205 @@ export function resumirCambiosCabeceraCompra(campos: readonly CampoCabeceraCompr
     out.push(`${c.etiqueta}: «${recortarCampoCabecera(a)}» → «${recortarCampoCabecera(d)}»`);
   }
   return out;
+}
+
+/**
+ * Limpia todas las etiquetas técnicas embebidas en `nota` (cuentas) u `observaciones` (requerimientos)
+ * para dejar únicamente el texto de nota escrito por el usuario.
+ */
+export function limpiarTextoCompraSinEtiquetas(texto?: string | null): string {
+  if (!texto) return '';
+  return String(texto)
+    .replace(/\[\[HISTORIAL_COMPRA:[\s\S]*?:FIN_HISTORIAL\]\]/gi, '')
+    .replace(/\[\[FORMATOS_ADJUNTOS:[\s\S]*?:FIN_FORMATOS\]\]/gi, '')
+    .replace(/\[\[COTIZACIONES_COMPLETAS:[\s\S]*?:FIN_COTIZACIONES\]\]/gi, '')
+    .replace(/\[RECIBO_PAGO:[^\]]*\]/gi, '')
+    .replace(/\[FACTURA_CUENTA:[^\]]*\]/gi, '')
+    .replace(/\[FACTURA_REQ:[^\]]*\]/gi, '')
+    .replace(/\[APROBADO_CXP:[^\]]*\]/gi, '')
+    .replace(/\[ENVIADO_CXP:[^\]]*\]/gi, '')
+    .replace(/\[PRESUPUESTO_CUENTA:[^\]]*\]/gi, '')
+    .replace(/\[IVA_CUENTA:[^\]]*\]/gi, '')
+    .replace(/\[COMPROBANTE_ABONO:[^\]]*\]/gi, '')
+    .replace(/\[EMPRESA:[^\]]*\]/gi, '')
+    .replace(/\[SIN_EMPRESA_REQ\]/gi, '')
+    .replace(/\[CONVERTIDA_REQ\]/gi, '')
+    .replace(/\[CONDICIONES_PAGO:[^\]]*\]/gi, '')
+    .replace(/\[DESPACHO_ALMACEN:[^\]]*\]/gi, '')
+    .replace(/\[PROVEEDOR SUGERIDO[^\]]*\]/gi, '')
+    .replace(/Generada automáticamente desde Requerimiento REQ-\d+\. El monto se sincroniza con los ítems aprobados\.?/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extraerCondicionEtiqueta(texto?: string | null): string {
+  if (!texto) return '';
+  const m = String(texto).match(/\[CONDICIONES_PAGO:\s*([^\]]*)\]/i);
+  return m && m[1] ? m[1].trim() : '';
+}
+
+/**
+ * Compara dos textos de `nota` (cuentas) u `observaciones` (requerimientos) y devuelve
+ * frases legibles con cada cambio (nota del usuario, empresa, condiciones de pago,
+ * comprobante de pago, factura, IVA, etc.), omitiendo el ruido de `[[HISTORIAL_COMPRA]]`.
+ */
+export function extraerCambiosLegiblesDeTextoCompra(
+  textoAntes?: string | null,
+  textoDespues?: string | null,
+  companies?: readonly Company[] | null
+): {
+  frases: string[];
+  cambioEmpresa: boolean;
+  cambioNota: boolean;
+  cambioRecibo: boolean;
+  cambioFactura: boolean;
+  cambioCondiciones: boolean;
+} {
+  const antesRaw = String(textoAntes ?? '');
+  const despuesRaw = String(textoDespues ?? '');
+  const frases: string[] = [];
+  let cambioEmpresa = false;
+  let cambioNota = false;
+  let cambioRecibo = false;
+  let cambioFactura = false;
+  let cambioCondiciones = false;
+
+  // 1. Nota limpia del usuario
+  const notaA = limpiarTextoCompraSinEtiquetas(antesRaw);
+  const notaD = limpiarTextoCompraSinEtiquetas(despuesRaw);
+  if (notaA.toLowerCase() !== notaD.toLowerCase()) {
+    cambioNota = true;
+    if (notaA && !notaD) {
+      frases.push(`Nota eliminada: tenía «${recortarCampoCabecera(notaA)}» → quedó vacía`);
+    } else if (!notaA && notaD) {
+      frases.push(`Nota agregada: «${recortarCampoCabecera(notaD)}»`);
+    } else {
+      frases.push(`Nota modificada: «${recortarCampoCabecera(notaA)}» → «${recortarCampoCabecera(notaD)}»`);
+    }
+  }
+
+  // 2. Etiqueta [EMPRESA:id:nombre] o [SIN_EMPRESA_REQ]
+  const empTagA = extraerEmpresaDeNota(antesRaw);
+  const empTagD = extraerEmpresaDeNota(despuesRaw);
+  const sinEmpReqA = /\[SIN_EMPRESA_REQ\]/i.test(antesRaw);
+  const sinEmpReqD = /\[SIN_EMPRESA_REQ\]/i.test(despuesRaw);
+  const resolverNombreEmp = (info: { id: string; name: string } | null): string => {
+    if (!info) return '';
+    if (companies && companies.length > 0) {
+      const c = companies.find((co) => co.id === info.id);
+      if (c?.name) return c.name;
+    }
+    return info.name || info.id;
+  };
+  const nombreEmpA = empTagA ? resolverNombreEmp(empTagA) : sinEmpReqA ? 'Sin empresa asignada' : '';
+  const nombreEmpD = empTagD ? resolverNombreEmp(empTagD) : sinEmpReqD ? 'Sin empresa asignada' : '';
+  if (nombreEmpA.toLowerCase() !== nombreEmpD.toLowerCase() && (empTagA || empTagD || sinEmpReqA !== sinEmpReqD)) {
+    cambioEmpresa = true;
+    if (nombreEmpA && (!nombreEmpD || nombreEmpD === 'Sin empresa asignada')) {
+      frases.push(`Empresa quitada: «${nombreEmpA}» → «Sin empresa asignada»`);
+    } else if ((!nombreEmpA || nombreEmpA === 'Sin empresa asignada') && nombreEmpD) {
+      frases.push(`Empresa asignada: «Sin empresa asignada» → «${nombreEmpD}»`);
+    } else {
+      frases.push(`Empresa modificada: «${nombreEmpA || '—'}» → «${nombreEmpD || '—'}»`);
+    }
+  }
+
+  // 3. Etiqueta [CONDICIONES_PAGO: ...]
+  const condA = extraerCondicionEtiqueta(antesRaw);
+  const condD = extraerCondicionEtiqueta(despuesRaw);
+  if (condA.toLowerCase() !== condD.toLowerCase()) {
+    cambioCondiciones = true;
+    frases.push(`Condiciones de pago: «${recortarCampoCabecera(condA)}» → «${recortarCampoCabecera(condD)}»`);
+  }
+
+  // 4. Etiqueta [RECIBO_PAGO: ...]
+  const recA = extraerReciboPagoCuenta({ nota: antesRaw }) || extraerReciboPago({ observaciones: antesRaw } as any);
+  const recD = extraerReciboPagoCuenta({ nota: despuesRaw }) || extraerReciboPago({ observaciones: despuesRaw } as any);
+  const recKey = (r: any) =>
+    r
+      ? `${r.url || ''}|${r.referencia || ''}|${r.metodo || ''}|${r.fecha || ''}|${r.nota || ''}|${(r.archivos || []).map((a: any) => a.url).join(',')}`
+      : '';
+  if (recKey(recA) !== recKey(recD)) {
+    cambioRecibo = true;
+    if (!recA && recD) {
+      const nArch = recD.archivos?.length || (recD.url ? 1 : 0);
+      frases.push(
+        `Comprobante de pago subido${recD.subidoPor ? ` por ${recD.subidoPor}` : ''}${recD.metodo ? ` · Método: ${recD.metodo}` : ''}${recD.referencia ? ` · Ref: ${recD.referencia}` : ''}${nArch > 0 ? ` (${nArch} archivo(s))` : ''}`
+      );
+    } else if (recA && !recD) {
+      frases.push(
+        `Comprobante de pago eliminado (tenía${recA.referencia ? ` Ref: ${recA.referencia}` : ''} ${recA.archivos?.length || 1} archivo(s))`
+      );
+    } else if (recA && recD) {
+      const subCambios: string[] = [];
+      if ((recA.referencia || '') !== (recD.referencia || '')) {
+        subCambios.push(`Ref «${recA.referencia || '—'}» → «${recD.referencia || '—'}»`);
+      }
+      if ((recA.metodo || '') !== (recD.metodo || '')) {
+        subCambios.push(`Método «${recA.metodo || '—'}» → «${recD.metodo || '—'}»`);
+      }
+      if ((recA.fecha || '') !== (recD.fecha || '')) {
+        subCambios.push(`Fecha «${recA.fecha || '—'}» → «${recD.fecha || '—'}»`);
+      }
+      if ((recA.nota || '') !== (recD.nota || '')) {
+        subCambios.push(`Nota «${recA.nota || '—'}» → «${recD.nota || '—'}»`);
+      }
+      const nA = recA.archivos?.length || (recA.url ? 1 : 0);
+      const nD = recD.archivos?.length || (recD.url ? 1 : 0);
+      if (nA !== nD || (recA.url || '') !== (recD.url || '')) {
+        subCambios.push(`Archivos ${nA} → ${nD}`);
+      }
+      if (subCambios.length > 0) {
+        frases.push(`Comprobante de pago editado (${subCambios.join(' · ')})`);
+      }
+    }
+  }
+
+  // 5. Etiqueta [FACTURA_CUENTA: ...] / [FACTURA_REQ: ...]
+  const facA = extraerFacturaCuenta({ nota: antesRaw }) || extraerFactura({ observaciones: antesRaw } as any);
+  const facD = extraerFacturaCuenta({ nota: despuesRaw }) || extraerFactura({ observaciones: despuesRaw } as any);
+  const facKey = (f: any) =>
+    f
+      ? `${f.numero || ''}|${f.empresa || ''}|${f.fecha || ''}|${f.url || ''}|${f.nota || ''}|${(f.archivos || []).map((a: any) => a.url).join(',')}`
+      : '';
+  if (facKey(facA) !== facKey(facD)) {
+    cambioFactura = true;
+    if (!facA && facD) {
+      const nArch = facD.archivos?.length || (facD.url ? 1 : 0);
+      frases.push(
+        `Factura cargada${facD.subidaPor ? ` por ${facD.subidaPor}` : ''}: N° ${facD.numero || 'S/N'}${facD.empresa ? ` (${facD.empresa})` : ''}${nArch > 0 ? ` · ${nArch} archivo(s)` : ''}`
+      );
+    } else if (facA && !facD) {
+      frases.push(`Factura eliminada (tenía N° ${facA.numero || 'S/N'})`);
+    } else if (facA && facD) {
+      const subFac: string[] = [];
+      if ((facA.numero || '') !== (facD.numero || '')) subFac.push(`N° «${facA.numero || '—'}» → «${facD.numero || '—'}»`);
+      if ((facA.empresa || '') !== (facD.empresa || '')) subFac.push(`Empresa «${facA.empresa || '—'}» → «${facD.empresa || '—'}»`);
+      if ((facA.nota || '') !== (facD.nota || '')) subFac.push(`Nota «${facA.nota || '—'}» → «${facD.nota || '—'}»`);
+      const nA = facA.archivos?.length || (facA.url ? 1 : 0);
+      const nD = facD.archivos?.length || (facD.url ? 1 : 0);
+      if (nA !== nD || (facA.url || '') !== (facD.url || '')) subFac.push(`Archivos ${nA} → ${nD}`);
+      if (subFac.length > 0) {
+        frases.push(`Factura editada (${subFac.join(' · ')})`);
+      }
+    }
+  }
+
+  // 6. Etiqueta [IVA_CUENTA: ...]
+  const ivaA = extraerIvaCuenta(antesRaw);
+  const ivaD = extraerIvaCuenta(despuesRaw);
+  if (ivaA !== ivaD && (ivaA != null || ivaD != null)) {
+    frases.push(`IVA en nota: ${ivaA ?? 16}% → ${ivaD ?? 16}%`);
+  }
+
+  return {
+    frases,
+    cambioEmpresa,
+    cambioNota,
+    cambioRecibo,
+    cambioFactura,
+    cambioCondiciones,
+  };
 }
 
 // ── 3. Cálculo de Diff Detallado de Ítems (Quitar / Agregar / Modificar) ────
@@ -1035,7 +1235,12 @@ export function construirTimelineExpediente(params: {
           (l) =>
             (req?.id && l.table_name === 'inventory_requirements' && l.row_id === req.id) ||
             (cuenta?.id && l.table_name === 'cuentas' && l.row_id === cuenta.id) ||
-            (l.table_name === 'cuenta_abonos' && l.row_id && abonoIds.has(String(l.row_id)))
+            (l.table_name === 'cuenta_abonos' &&
+              ((l.row_id && abonoIds.has(String(l.row_id))) ||
+                (cuenta?.id &&
+                  ((l.changes as any)?.cuenta_id === cuenta.id ||
+                    (l.changes as any)?.cuenta_id?.de === cuenta.id ||
+                    (l.changes as any)?.cuenta_id?.a === cuenta.id))))
         )
         .slice()
         .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
@@ -1166,6 +1371,320 @@ export function construirTimelineExpediente(params: {
       destinoTexto,
       areaTexto,
     });
+  });
+
+  // 1.c Reconstruir ediciones de campos, notas, empresa, proveedor/beneficiario, comprobantes,
+  //     facturas, condiciones, vencimiento y abonos desde `audit_log` (logsReq, logsCta, logsAbonos).
+  const resolverNombreEmpresaPorId = (id?: string | null): string => {
+    if (!id) return '';
+    const clean = String(id).trim();
+    if (!clean || clean === ID_SIN_EMPRESA_REQ || clean === '__sin_empresa__') return 'Sin empresa asignada';
+    if (companies && companies.length > 0) {
+      const c = companies.find((co) => co.id === clean);
+      if (c?.name) return c.name;
+    }
+    return clean;
+  };
+
+  const resolverNombreProveedorPorId = (id?: string | null, contraparteFallback?: string | null): string => {
+    const clean = id ? String(id).trim() : '';
+    if (clean && suppliers && suppliers.length > 0) {
+      const s = suppliers.find((su) => su.id === clean);
+      if (s?.name) return s.name;
+    }
+    if (contraparteFallback && String(contraparteFallback).trim()) {
+      return String(contraparteFallback).trim();
+    }
+    return clean ? clean : 'Sin proveedor / beneficiario';
+  };
+
+  [...logsReq, ...logsCta].forEach((l) => {
+    if (l.action !== 'UPDATE' || !l.changes) return;
+    const chg = l.changes as Record<string, { de: any; a: any }>;
+    const esCuenta = l.table_name === 'cuentas';
+    const moduloLog: ModuloEventoCompra = esCuenta ? 'Por Pagar' : 'Requerimientos';
+    const autorLog =
+      autorDeLog(l) ||
+      resolverAutor(cuenta?.settled_by, null) ||
+      resolverAutor(req?.decided_by, req?.decided_by_name) ||
+      resolverAutor(cuenta?.created_by, null) ||
+      resolverAutor(req?.requested_by, req?.requested_by_name) ||
+      'Usuario';
+
+    const camposCab: CampoCabeceraCompra[] = [];
+    const frasesExtra: string[] = [];
+    let cambioEmpresa = false;
+    let cambioProveedor = false;
+    let cambioNota = false;
+    let cambioRecibo = false;
+    let cambioFactura = false;
+
+    // Empresa directa en columna `company_id`
+    if (chg.company_id) {
+      const empA = resolverNombreEmpresaPorId(chg.company_id.de);
+      const empD = resolverNombreEmpresaPorId(chg.company_id.a);
+      if (empA.toLowerCase() !== empD.toLowerCase()) {
+        cambioEmpresa = true;
+        if (empA && empA !== 'Sin empresa asignada' && (!empD || empD === 'Sin empresa asignada')) {
+          frasesExtra.push(`Empresa quitada: «${empA}» → «Sin empresa asignada»`);
+        } else if ((!empA || empA === 'Sin empresa asignada') && empD && empD !== 'Sin empresa asignada') {
+          frasesExtra.push(`Empresa asignada: «Sin empresa asignada» → «${empD}»`);
+        } else {
+          frasesExtra.push(`Empresa modificada: «${empA || 'Sin empresa'}» → «${empD || 'Sin empresa'}»`);
+        }
+      }
+    }
+
+    // Proveedor / Beneficiario (`supplier_id` o `contraparte`)
+    if (chg.supplier_id || chg.contraparte) {
+      const supIdA = chg.supplier_id ? chg.supplier_id.de : esCuenta ? cuenta?.supplier_id : req?.supplier_id;
+      const supIdD = chg.supplier_id ? chg.supplier_id.a : esCuenta ? cuenta?.supplier_id : req?.supplier_id;
+      const contraA = chg.contraparte ? chg.contraparte.de : esCuenta ? cuenta?.contraparte : null;
+      const contraD = chg.contraparte ? chg.contraparte.a : esCuenta ? cuenta?.contraparte : null;
+      const provA = resolverNombreProveedorPorId(supIdA, contraA);
+      const provD = resolverNombreProveedorPorId(supIdD, contraD);
+      if (provA.toLowerCase() !== provD.toLowerCase()) {
+        cambioProveedor = true;
+        frasesExtra.push(`Proveedor / Beneficiario: «${provA}» → «${provD}»`);
+      }
+    }
+
+    if (chg.empresa_pagadora_nombre) {
+      camposCab.push({
+        etiqueta: 'Empresa pagadora',
+        antes: chg.empresa_pagadora_nombre.de,
+        despues: chg.empresa_pagadora_nombre.a,
+      });
+    }
+    if (chg.concepto) {
+      camposCab.push({ etiqueta: 'Concepto', antes: chg.concepto.de, despues: chg.concepto.a });
+    }
+    if (chg.title) {
+      camposCab.push({ etiqueta: 'Título', antes: chg.title.de, despues: chg.title.a });
+    }
+    if (chg.documento) {
+      camposCab.push({ etiqueta: 'Documento / Ref', antes: chg.documento.de, despues: chg.documento.a });
+    }
+    if (chg.monto && Math.abs(Number(chg.monto.de || 0) - Number(chg.monto.a || 0)) >= 0.01) {
+      frasesExtra.push(
+        `Monto: ${fmtUsd(Number(chg.monto.de || 0))} → ${fmtUsd(Number(chg.monto.a || 0))} USD`
+      );
+    }
+    if (chg.iva_alicuota && !chg.items) {
+      camposCab.push({
+        etiqueta: 'Alícuota IVA (%)',
+        antes: chg.iva_alicuota.de,
+        despues: chg.iva_alicuota.a,
+      });
+    }
+    if (chg.fecha_emision) {
+      camposCab.push({
+        etiqueta: 'Fecha de emisión',
+        antes: chg.fecha_emision.de,
+        despues: chg.fecha_emision.a,
+      });
+    }
+    if (chg.fecha_vencimiento) {
+      camposCab.push({
+        etiqueta: 'Fecha de vencimiento',
+        antes: chg.fecha_vencimiento.de,
+        despues: chg.fecha_vencimiento.a,
+      });
+    }
+    if (chg.prioridad) {
+      camposCab.push({ etiqueta: 'Prioridad', antes: chg.prioridad.de, despues: chg.prioridad.a });
+    }
+    if (chg.plan_pago) {
+      camposCab.push({
+        etiqueta: 'Plan / Programación de pago',
+        antes: chg.plan_pago.de,
+        despues: chg.plan_pago.a,
+      });
+    }
+    if (chg.condiciones_pago) {
+      camposCab.push({
+        etiqueta: 'Condiciones de pago',
+        antes: chg.condiciones_pago.de,
+        despues: chg.condiciones_pago.a,
+      });
+    }
+    if (chg.solicitante_nombre) {
+      camposCab.push({
+        etiqueta: 'Solicitante',
+        antes: chg.solicitante_nombre.de,
+        despues: chg.solicitante_nombre.a,
+      });
+    }
+    if (chg.autorizado_nombre) {
+      camposCab.push({
+        etiqueta: 'Autorizado por',
+        antes: chg.autorizado_nombre.de,
+        despues: chg.autorizado_nombre.a,
+      });
+    }
+    if (chg.responsable_nombre) {
+      camposCab.push({
+        etiqueta: 'Responsable almacén',
+        antes: chg.responsable_nombre.de,
+        despues: chg.responsable_nombre.a,
+      });
+    }
+    if (chg.motorizado_nombre) {
+      camposCab.push({
+        etiqueta: 'Motorizado / Comprador',
+        antes: chg.motorizado_nombre.de,
+        despues: chg.motorizado_nombre.a,
+      });
+    }
+    if (chg.area) {
+      camposCab.push({ etiqueta: 'Área / Departamento', antes: chg.area.de, despues: chg.area.a });
+    }
+    if (chg.note) {
+      camposCab.push({ etiqueta: 'Nota técnica', antes: chg.note.de, despues: chg.note.a });
+    }
+
+    // Cambios dentro de `nota` (cuentas) u `observaciones` (requerimientos)
+    const colTexto = chg.nota || chg.observaciones;
+    if (colTexto) {
+      const infoTxt = extraerCambiosLegiblesDeTextoCompra(colTexto.de, colTexto.a, companies);
+      // Si ya reportamos cambio de empresa por `company_id`, evitar duplicar la frase de empresa
+      infoTxt.frases.forEach((f) => {
+        if (cambioEmpresa && f.startsWith('Empresa ')) return;
+        frasesExtra.push(f);
+      });
+      if (infoTxt.cambioEmpresa) cambioEmpresa = true;
+      if (infoTxt.cambioNota) cambioNota = true;
+      if (infoTxt.cambioRecibo) cambioRecibo = true;
+      if (infoTxt.cambioFactura) cambioFactura = true;
+    }
+
+    const todasFrases = [...frasesExtra, ...resumirCambiosCabeceraCompra(camposCab)];
+    if (todasFrases.length === 0) return;
+
+    const tsLog = new Date(l.at).getTime();
+    // Si ya hay un evento explícito cercano (<60s) cuyo detalle ya cubre estos cambios
+    // (o es el evento de pago/factura cuando lo único que cambió fue el recibo/factura), no duplicar
+    const soloRecibo = cambioRecibo && todasFrases.length === 1;
+    const soloFactura = cambioFactura && todasFrases.length === 1;
+    const yaCubierto = Array.from(mapaEventos.values()).some((ev) => {
+      if (Math.abs(new Date(ev.at).getTime() - tsLog) > 60000) return false;
+      if (soloRecibo && (ev.tipo === 'pago_completado' || ev.tipo === 'pagado_completo')) return true;
+      if (soloFactura && (ev.tipo === 'factura_registrada' || ev.tipo === 'factura_adjuntada')) return true;
+      if (
+        (ev.tipo === 'solicitud_editada' || ev.tipo === 'condicion_actualizada') &&
+        todasFrases.every((f) => ev.detalle.includes(f.split(':')[0]))
+      ) {
+        return true;
+      }
+      return false;
+    });
+    if (yaCubierto) return;
+
+    let tituloEdicion = esCuenta ? 'Datos editados en Por Pagar' : 'Datos editados en Requerimientos';
+    let tipoEdicion: TipoEventoCompra = esCuenta ? 'condicion_actualizada' : 'solicitud_editada';
+    if (cambioRecibo && todasFrases.length === 1) {
+      tituloEdicion = 'Comprobante de pago actualizado';
+      tipoEdicion = 'pago_completado';
+    } else if (cambioFactura && todasFrases.length === 1) {
+      tituloEdicion = 'Factura actualizada';
+      tipoEdicion = 'factura_registrada';
+    } else if (cambioEmpresa && cambioProveedor) {
+      tituloEdicion = 'Empresa y Proveedor/Beneficiario modificados';
+    } else if (cambioEmpresa) {
+      tituloEdicion = todasFrases.some((f) => f.startsWith('Empresa quitada'))
+        ? 'Empresa quitada del registro'
+        : 'Empresa modificada';
+    } else if (cambioProveedor) {
+      tituloEdicion = 'Proveedor / Beneficiario modificado';
+    } else if (cambioNota && todasFrases.length === 1) {
+      tituloEdicion = todasFrases[0].startsWith('Nota eliminada') ? 'Nota eliminada' : 'Nota modificada';
+    }
+
+    const idAuditEdit = `audit-edit-${l.id}`;
+    mapaEventos.set(idAuditEdit, {
+      id: idAuditEdit,
+      at: l.at,
+      by: autorLog,
+      byId: l.user_id,
+      modulo: moduloLog,
+      tipo: tipoEdicion,
+      titulo: tituloEdicion,
+      detalle: `${autorLog} en ${moduloLog}: ${todasFrases.join(' · ')}.`,
+      montoAntesUsd: chg.monto ? Number(chg.monto.de || 0) : null,
+      montoDespuesUsd: chg.monto ? Number(chg.monto.a || 0) : null,
+      reqId: req?.id || cuenta?.inventory_requirement_id || null,
+      reqCode,
+      cuentaId: cuenta?.id || null,
+      empresaNombre: empresaNombre || null,
+      proveedorNombre,
+      solicitanteNombre,
+      destinoTexto,
+      areaTexto,
+    });
+  });
+
+  // 1.d Reconstruir ediciones o eliminaciones de abonos (`cuenta_abonos`) desde `audit_log`
+  logsAbonos.forEach((l) => {
+    if (l.action !== 'DELETE' && l.action !== 'UPDATE') return;
+    const autorAbLog = autorDeLog(l) || 'Tesorería / Por Pagar';
+    const tsLog = new Date(l.at).getTime();
+    const yaExiste = Array.from(mapaEventos.values()).some(
+      (ev) => Math.abs(new Date(ev.at).getTime() - tsLog) < 60000 && ev.detalle.toLowerCase().includes('abono')
+    );
+    if (yaExiste) return;
+
+    if (l.action === 'DELETE') {
+      const oldAb = (l.changes || {}) as any;
+      const mto = Number(oldAb.monto || 0);
+      const idDelAb = `audit-abono-del-${l.id}`;
+      mapaEventos.set(idDelAb, {
+        id: idDelAb,
+        at: l.at,
+        by: autorAbLog,
+        byId: l.user_id,
+        modulo: 'Por Pagar',
+        tipo: 'reabierto_pendiente',
+        titulo: `Abono eliminado (${fmtUsd(mto)})`,
+        detalle: `${autorAbLog} eliminó un abono de ${fmtUsd(mto)} USD${oldAb.metodo ? ` (${oldAb.metodo})` : ''}${oldAb.referencia ? ` · Ref: ${oldAb.referencia}` : ''}.`,
+        reqId: req?.id || cuenta?.inventory_requirement_id || null,
+        reqCode,
+        cuentaId: cuenta?.id || null,
+        empresaNombre: empresaNombre || null,
+        proveedorNombre,
+        solicitanteNombre,
+        destinoTexto,
+        areaTexto,
+      });
+    } else if (l.action === 'UPDATE' && l.changes) {
+      const chgAb = l.changes as Record<string, { de: any; a: any }>;
+      const camposAb: CampoCabeceraCompra[] = [];
+      if (chgAb.monto) camposAb.push({ etiqueta: 'Monto abono', antes: chgAb.monto.de, despues: chgAb.monto.a });
+      if (chgAb.metodo) camposAb.push({ etiqueta: 'Método', antes: chgAb.metodo.de, despues: chgAb.metodo.a });
+      if (chgAb.referencia) camposAb.push({ etiqueta: 'Referencia', antes: chgAb.referencia.de, despues: chgAb.referencia.a });
+      if (chgAb.fecha) camposAb.push({ etiqueta: 'Fecha', antes: chgAb.fecha.de, despues: chgAb.fecha.a });
+      const resAb = resumirCambiosCabeceraCompra(camposAb);
+      if (resAb.length > 0) {
+        const idUpdAb = `audit-abono-upd-${l.id}`;
+        mapaEventos.set(idUpdAb, {
+          id: idUpdAb,
+          at: l.at,
+          by: autorAbLog,
+          byId: l.user_id,
+          modulo: 'Por Pagar',
+          tipo: 'condicion_actualizada',
+          titulo: 'Abono modificado',
+          detalle: `${autorAbLog} modificó un abono: ${resAb.join(' · ')}.`,
+          reqId: req?.id || cuenta?.inventory_requirement_id || null,
+          reqCode,
+          cuentaId: cuenta?.id || null,
+          empresaNombre: empresaNombre || null,
+          proveedorNombre,
+          solicitanteNombre,
+          destinoTexto,
+          areaTexto,
+        });
+      }
+    }
   });
 
   // 2. Síntesis automática de hitos para todos los registros (históricos y actuales)

@@ -30,14 +30,17 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
-import { Cuenta, CuentaAbono, CuentaTipo, Supplier, Company, PurchaseOrder, InventoryRequirement, Machinery, Vehicle, RequirementLine } from '../types/database';
+import { Cuenta, CuentaAbono, CuentaTipo, Supplier, Company, PurchaseOrder, InventoryRequirement, Machinery, Vehicle, RequirementLine, AuditLog } from '../types/database';
 import { DateField } from '../components/DateField';
 import {
   resolverTrazabilidadPorPagar,
+  resolverRequerimientoVinculadoACuenta,
   anexarEventoHistorial,
   preservarHistorialYEnvioEnTexto,
   calcularDiffItemsCompra,
   construirTimelineExpediente,
+  resumirCambiosCabeceraCompra,
+  extraerCambiosLegiblesDeTextoCompra,
   type TrazabilidadPorPagar,
 } from '../lib/comprasHistorico';
 import { TimelineExpedienteBox } from './HistoricoComprasTab';
@@ -452,18 +455,29 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     role?: string | null;
     app_role_name?: string | null;
   }>>([]);
+  const [auditLogsCompra, setAuditLogsCompra] = useState<AuditLog[]>([]);
 
   useEffect(() => {
     if (tipo !== 'por_pagar') return;
     let cancel = false;
     (async () => {
       try {
-        const [{ data: profs }, { data: ft }, { data: tasasHist }] = await Promise.all([
+        const [{ data: profs }, { data: ft }, { data: tasasHist }, { data: logsAudit }] = await Promise.all([
           supabase.from('profiles').select('id, full_name, username, cedula, role, app_role:app_role_id(name)'),
           supabase.from('feature_toggles').select('key, enabled, extra_user_ids').eq('key', 'compras_req_aprobacion').maybeSingle(),
           supabase.from('bcv_rates').select('rate_date, rate').order('rate_date', { ascending: false }).limit(180),
+          supabase
+            .from('audit_log')
+            .select('id, at, user_id, user_name, action, table_name, row_id, changes')
+            .in('table_name', ['inventory_requirements', 'cuentas', 'cuenta_abonos'])
+            .in('action', ['INSERT', 'UPDATE', 'DELETE'])
+            .order('at', { ascending: true })
+            .limit(3000),
         ]);
         if (cancel) return;
+        if (Array.isArray(logsAudit)) {
+          setAuditLogsCompra(logsAudit as AuditLog[]);
+        }
         if (Array.isArray(tasasHist)) {
           const mT = new Map<string, number>();
           tasasHist.forEach((row: any) => {
@@ -506,6 +520,37 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     })();
     return () => { cancel = true; };
   }, [tipo]);
+
+  const usuariosMapCxp = useMemo(() => {
+    const m = new Map<string, string>();
+    usuariosSistema.forEach((u) => {
+      if (u.id && u.full_name) m.set(u.id, u.full_name);
+    });
+    auditLogsCompra.forEach((l) => {
+      const n = String(l.user_name || '').trim();
+      if (l.user_id && n && !m.has(String(l.user_id))) m.set(String(l.user_id), n);
+    });
+    return m;
+  }, [usuariosSistema, auditLogsCompra]);
+
+  const logsPorRowIdCxp = useMemo(() => {
+    const m = new Map<string, AuditLog[]>();
+    auditLogsCompra.forEach((l) => {
+      if (l.row_id) {
+        const k = String(l.row_id);
+        const arr = m.get(k) ?? [];
+        arr.push(l);
+        m.set(k, arr);
+      }
+      const ctaIdDel = l.table_name === 'cuenta_abonos' ? (l.changes as any)?.cuenta_id : null;
+      if (ctaIdDel && typeof ctaIdDel === 'string') {
+        const arrC = m.get(ctaIdDel) ?? [];
+        arrC.push(l);
+        m.set(ctaIdDel, arrC);
+      }
+    });
+    return m;
+  }, [auditLogsCompra]);
 
   const miPerfil = useMemo(
     () => usuariosSistema.find((u) => u.id === uid) || null,
@@ -1560,6 +1605,79 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const alicuotaGuardar = aplicaIvaForm ? (Number(alicuotaIvaForm) || 0) : 0;
     notaFinal = inyectarIvaEnCuentaNota(notaFinal, alicuotaGuardar) || '';
 
+    // 📜 Registrar en [[HISTORIAL_COMPRA]] cualquier edición realizada en el formulario de Cuenta
+    const autorGuardar = miPerfil?.full_name || fullName || session?.user?.email || 'Administración';
+    let eventoEdicionCta: any = null;
+    if (edit) {
+      const empAntesObj = resolverEmpresaDeCuenta(edit, { companies, requirements, orders });
+      const empDespuesObj = empresaFormId
+        ? companies.find((co) => co.id === empresaFormId) || { id: empresaFormId, name: 'Empresa' }
+        : { id: ID_SIN_EMPRESA, name: NOMBRE_SIN_EMPRESA };
+      const provAntesNombre =
+        tipo === 'por_pagar'
+          ? suppliers.find((s) => s.id === edit.supplier_id)?.name || edit.contraparte || '—'
+          : companies.find((co) => co.id === edit.company_id)?.name || edit.contraparte || '—';
+      const provDespuesNombre =
+        tipo === 'por_pagar'
+          ? suppliers.find((s) => s.id === contraparteId)?.name || '—'
+          : companies.find((co) => co.id === contraparteId)?.name || '—';
+
+      const cambiosCampos = resumirCambiosCabeceraCompra([
+        {
+          etiqueta: 'Empresa',
+          antes: empAntesObj.id === ID_SIN_EMPRESA ? 'Sin empresa asignada' : empAntesObj.name,
+          despues: empDespuesObj.id === ID_SIN_EMPRESA ? 'Sin empresa asignada' : empDespuesObj.name,
+        },
+        {
+          etiqueta: tipo === 'por_pagar' ? 'Proveedor / Beneficiario' : 'Cliente / Empresa',
+          antes: provAntesNombre,
+          despues: provDespuesNombre,
+        },
+        { etiqueta: 'Concepto', antes: edit.concepto, despues: concepto.trim() },
+        { etiqueta: 'Documento / Ref', antes: edit.documento, despues: documento.trim() || null },
+        ...(!edit.inventory_requirement_id
+          ? [{ etiqueta: 'Monto (USD)', antes: Number(edit.monto) || 0, despues: importe }]
+          : []),
+        { etiqueta: 'Fecha de emisión', antes: edit.fecha_emision, despues: emision },
+        { etiqueta: 'Fecha de vencimiento', antes: edit.fecha_vencimiento, despues: vence || null },
+        { etiqueta: 'Prioridad', antes: edit.prioridad || 'normal', despues: prioridad || 'normal' },
+      ]);
+
+      const infoNotaDiff = extraerCambiosLegiblesDeTextoCompra(edit.nota, notaFinal, companies);
+      // Evitar duplicar la frase de Empresa si ya salió en cambiosCampos
+      const frasesTextoSinEmp = infoNotaDiff.frases.filter((f) => !f.startsWith('Empresa '));
+      const todasFrasesEdit = [...cambiosCampos, ...frasesTextoSinEmp];
+
+      if (todasFrasesEdit.length > 0) {
+        let tituloEv = 'Cuenta editada en Por Pagar';
+        if (
+          cambiosCampos.some((c) => c.startsWith('Empresa:')) &&
+          cambiosCampos.some((c) => c.startsWith('Proveedor'))
+        ) {
+          tituloEv = 'Empresa y Proveedor/Beneficiario modificados';
+        } else if (cambiosCampos.some((c) => c.startsWith('Empresa:'))) {
+          tituloEv =
+            empDespuesObj.id === ID_SIN_EMPRESA ? 'Empresa quitada de la cuenta' : 'Empresa modificada en Por Pagar';
+        } else if (cambiosCampos.some((c) => c.startsWith('Proveedor'))) {
+          tituloEv = 'Proveedor / Beneficiario modificado';
+        } else if (infoNotaDiff.cambioNota && todasFrasesEdit.length === 1) {
+          tituloEv = todasFrasesEdit[0].startsWith('Nota eliminada') ? 'Nota eliminada' : 'Nota modificada';
+        }
+        eventoEdicionCta = {
+          tipo: 'condicion_actualizada' as const,
+          fecha: nowISO(),
+          usuarioNombre: autorGuardar,
+          usuarioId: uid,
+          origen: 'por_pagar' as const,
+          titulo: tituloEv,
+          detalle: `${autorGuardar} en Por Pagar: ${todasFrasesEdit.join(' · ')}.`,
+          montoAntes: Number(edit.monto) || null,
+          montoDespues: importe || null,
+        };
+        notaFinal = anexarEventoHistorial(notaFinal, eventoEdicionCta);
+      }
+    }
+
     const fila: Record<string, any> = {
       tipo,
       supplier_id: tipo === 'por_pagar' ? contraparteId : null,
@@ -1586,15 +1704,27 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       : await supabase.from('cuentas').insert({ ...fila, estado: 'pendiente', created_by: session?.user?.id ?? null });
     setBusy(false);
     if (error) return toast.error(error.message);
-    if (edit?.inventory_requirement_id) {
+    const reqVincEdit = edit ? resolverRequerimientoVinculadoACuenta(edit, requirements, orders) : null;
+    const reqIdTarget = edit?.inventory_requirement_id || reqVincEdit?.id || null;
+    if (reqIdTarget) {
       try {
+        const { data: rRow } = await supabase
+          .from('inventory_requirements')
+          .select('id, observaciones')
+          .eq('id', reqIdTarget)
+          .maybeSingle();
+        let obsReqNueva = rRow?.observaciones ?? reqVincEdit?.observaciones ?? null;
+        if (eventoEdicionCta) {
+          obsReqNueva = anexarEventoHistorial(obsReqNueva, eventoEdicionCta);
+        }
         await supabase
           .from('inventory_requirements')
           .update({
             prioridad: prioridad ?? null,
             ...(tipo === 'por_pagar' && contraparteId ? { supplier_id: contraparteId } : {}),
+            ...(obsReqNueva !== undefined ? { observaciones: obsReqNueva } : {}),
           })
-          .eq('id', edit.inventory_requirement_id);
+          .eq('id', reqIdTarget);
         refetchRequirements();
       } catch {}
     }
@@ -1814,8 +1944,39 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     if (!ok) return;
     const { error } = await supabase.from('cuenta_abonos').delete().eq('id', a.id);
     if (error) return toast.error(error.message);
-    if (c.estado === 'pagada') {
-      await supabase.from('cuentas').update({ estado: 'pendiente', settled_by: null, settled_at: null, updated_at: nowISO() }).eq('id', c.id);
+    const autorDelAb = miPerfil?.full_name || fullName || session?.user?.email || 'Administración';
+    const evDelAb = {
+      tipo: 'reabierto_pendiente' as const,
+      fecha: nowISO(),
+      usuarioNombre: autorDelAb,
+      usuarioId: uid,
+      origen: 'por_pagar' as const,
+      titulo: `Abono eliminado (${usd(Number(a.monto) || 0)})`,
+      detalle: `${autorDelAb} eliminó un abono de ${usd(Number(a.monto) || 0)} USD del ${fmtFecha(a.fecha)}${a.metodo ? ` (${a.metodo})` : ''}${a.referencia ? ` · Ref: ${a.referencia}` : ''}.`,
+    };
+    const notaConEvDel = anexarEventoHistorial(c.nota, evDelAb);
+    await supabase
+      .from('cuentas')
+      .update({
+        ...(c.estado === 'pagada' ? { estado: 'pendiente', settled_by: null, settled_at: null } : {}),
+        nota: notaConEvDel,
+        updated_at: nowISO(),
+      })
+      .eq('id', c.id);
+    if (c.inventory_requirement_id) {
+      try {
+        const { data: rRow } = await supabase
+          .from('inventory_requirements')
+          .select('id, observaciones')
+          .eq('id', c.inventory_requirement_id)
+          .maybeSingle();
+        if (rRow) {
+          await supabase
+            .from('inventory_requirements')
+            .update({ observaciones: anexarEventoHistorial(rRow.observaciones, evDelAb) })
+            .eq('id', c.inventory_requirement_id);
+        }
+      } catch {}
     }
     refetchAbonos();
     refetch();
@@ -2416,22 +2577,29 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       notaCompuesta = preservarHistorialYEnvioEnTexto(pagoModalCuenta.nota, notaCompuesta);
 
       const autorCambio = miPerfil?.full_name || fullName || session?.user?.email || 'Administración';
-      notaCompuesta = anexarEventoHistorial(notaCompuesta, {
-        tipo: 'condicion_actualizada',
+      const cambiosModalPago = resumirCambiosCabeceraCompra([
+        { etiqueta: 'Nota de la cuenta', antes: pagoModalCuenta.notaLimpia, despues: pmNotaCuenta.trim() },
+        { etiqueta: 'Condiciones de pago', antes: pagoModalCuenta.condicionesPago, despues: pmCondiciones.trim() },
+        { etiqueta: 'Fecha de vencimiento', antes: pagoModalCuenta.fecha_vencimiento, despues: pmVence.trim() || null },
+        { etiqueta: 'Proveedor / Beneficiario', antes: pagoModalCuenta.contraparte, despues: pmSupNombre.trim() || pagoModalCuenta.contraparte },
+      ]);
+      const evEditorPago = {
+        tipo: 'condicion_actualizada' as const,
         fecha: nowISO(),
         usuarioNombre: autorCambio,
         usuarioId: uid,
-        origen: 'por_pagar',
+        origen: 'por_pagar' as const,
         titulo: 'Métodos, condiciones y datos de pago actualizados en Por Pagar',
         detalle: [
-          pmCondiciones.trim() ? `Condiciones/Método: ${pmCondiciones.trim()}` : null,
+          ...cambiosModalPago,
           pmBankName.trim() || pmAccountNumber.trim() ? `Banco: ${pmBankName.trim()} ${pmAccountNumber.trim()}` : null,
           pmPagoMovilPhone.trim() ? `Pago Móvil: ${pmPagoMovilBank.trim()} ${pmPagoMovilPhone.trim()}` : null,
           pmBinanceId.trim() ? `Binance/Zelle: ${pmBinanceId.trim()}` : null,
         ]
           .filter(Boolean)
           .join(' · ') || 'Actualización de instrucciones de pago',
-      });
+      };
+      notaCompuesta = anexarEventoHistorial(notaCompuesta, evEditorPago);
 
       const updateCuentaPayload: Record<string, any> = {
         nota: notaCompuesta,
@@ -2453,7 +2621,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         return;
       }
 
-      // Si está vinculada a un requerimiento, sincronizar las condiciones de pago en observaciones
+      // Si está vinculada a un requerimiento, sincronizar las condiciones de pago y el evento en observaciones
       const reqIdVinc = pagoModalCuenta.inventory_requirement_id || pagoModalCuenta.traza.reqVinculado?.id;
       if (reqIdVinc) {
         try {
@@ -2463,7 +2631,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             .eq('id', reqIdVinc)
             .limit(1);
           if (reqRows && reqRows[0]) {
-            const obsNueva = inyectarCondicionesPagoEnNota(reqRows[0].observaciones, pmCondiciones.trim() || null);
+            const obsConCond = inyectarCondicionesPagoEnNota(reqRows[0].observaciones, pmCondiciones.trim() || null);
+            const obsNueva = anexarEventoHistorial(obsConCond, evEditorPago);
             await supabase
               .from('inventory_requirements')
               .update({ observaciones: obsNueva })
@@ -4055,8 +4224,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       cuenta: c,
                       abonos: abonos.filter((a) => a.cuenta_id === c.id),
                       companies,
+                      suppliers,
                       machinery,
                       vehicles,
+                      usuariosMap: usuariosMapCxp,
+                      auditLogs: [
+                        ...(c.traza.reqVinculado ? logsPorRowIdCxp.get(c.traza.reqVinculado.id) || [] : []),
+                        ...(logsPorRowIdCxp.get(c.id) || []),
+                        ...abonos
+                          .filter((a) => a.cuenta_id === c.id)
+                          .flatMap((a) => logsPorRowIdCxp.get(a.id) || []),
+                      ],
                     })}
                     titulo="📜 Histórico de movimientos de esta compra"
                   />

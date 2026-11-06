@@ -91,7 +91,19 @@ const PORCLAVE = new Map(MODULOS_AUDITORIA.map((m) => [m.key, m]));
  * 25-oct-2026. Si se agrega otra tabla auditada por MCP, va aquí, después de verificarla.
  */
 export const AUDITADAS_FUERA_DEL_GIT = [
-  'cop_sitios', 'cop_unidades', 'cop_movimientos', 'cop_listas', 'cop_ajustes', 'cop_reportes_generales',
+  'cop_sitios', 'cop_unidades', 'cop_movimientos', 'cop_listas', 'cop_ajustes', 'cop_reportes_generales', 'cop_sitio_accesos',
+  'inventory_requirements', 'cuenta_abonos', 'cuenta_notas_espera', 'direct_purchases', 'suppliers',
+  'servicios', 'service_categories', 'service_kinds',
+  'camion_cubicaje', 'camion_cubicaje_carga', 'camion_taras', 'tique_config', 'tique_emisiones',
+  'viaje_frente_asignaciones', 'viaje_frentes', 'viaje_tarifa_camiones', 'viaje_tarifas_peso', 'viaje_tipos', 'viajes_estado_permisos',
+  'combustible_horometro_ajustes',
+  'comida_contactos', 'comida_empresas_ocultas', 'comida_facturas', 'comida_pagos', 'food_extra_items',
+  'horometro_ajustes', 'horometro_cambios', 'horometro_cierres', 'horometro_fotos', 'horometro_precios',
+  'lecturas_horometro_trabajo', 'maquinaria_frente_asignaciones', 'maquinaria_frentes', 'sos_automatizacion_config', 'jornadas_cierre_config',
+  'actas_recepcion', 'traslados_maquinaria', 'machinery_precio_historial',
+  'employee_commitment_acts', 'staff_cargo_tariffs', 'staff_pay_config', 'staff_pay_item_docs', 'staff_pay_items', 'staff_payments',
+  'inventory_stock_requests', 'bcv_rates', 'stock_movements',
+  'machine_day_operators', 'role_templates',
 ];
 
 /**
@@ -118,22 +130,27 @@ const TABLA_A_MODULO: Record<string, string> = {
   truck_yard_logs: 'asistencia_camiones', truck_attendance: 'asistencia_camiones',
   // 🚜 Catálogo de equipos: las fichas y su ubicación en el mapa
   machinery: 'equipos', vehicles: 'equipos', machinery_locations: 'equipos', map_zone_offsets: 'equipos',
+  actas_recepcion: 'equipos', traslados_maquinaria: 'equipos', machinery_precio_historial: 'equipos',
   // 🏭 Centro de Operaciones (23-oct-2026): sus seis tablas propias, aisladas (la sexta,
   // el Reporte General pegado del 📅 Parte diario, desde el 25-oct-2026).
   // Su trigger de auditoría NO está en ningún .sql del repo: ver AUDITADAS_FUERA_DEL_GIT.
   cop_sitios: 'centro_operaciones', cop_unidades: 'centro_operaciones', cop_movimientos: 'centro_operaciones',
   cop_listas: 'centro_operaciones', cop_ajustes: 'centro_operaciones', cop_reportes_generales: 'centro_operaciones',
+  cop_sitio_accesos: 'centro_operaciones',
   // 🍽️ Cocina y distribución de comida
   food_distributions: 'alimentacion', food_company_meals: 'alimentacion', comida_precios: 'alimentacion', comida_cuentas_config: 'alimentacion',
+  comida_contactos: 'alimentacion', comida_empresas_ocultas: 'alimentacion', comida_facturas: 'alimentacion', comida_pagos: 'alimentacion',
   // El catálogo de platos «Otros»: el «nuevo modo de comida» que pidió el
   // cliente poder rastrear (18-sep-2026). Sin esto caía en «📁 Otro».
   food_extra_items: 'alimentacion',
   // ⛽ Combustible
   tanks: 'combustible', tank_levels: 'combustible', fuel_intakes: 'combustible', dispatches: 'combustible',
   transfers: 'combustible', authorizations: 'combustible', stock_movements: 'combustible',
+  combustible_horometro_ajustes: 'combustible',
   // 🛒 Compras: pedidos, órdenes, proveedores y cuentas
   purchase_orders: 'compras', purchase_requests: 'compras', suppliers: 'compras',
   direct_purchases: 'compras', inventory_requirements: 'compras', cuentas: 'compras', cuenta_abonos: 'compras',
+  cuenta_notas_espera: 'compras', servicios: 'compras', service_categories: 'compras', service_kinds: 'compras',
   // 💰 Ventas: la venta, su cliente y el catálogo de servicios que se vende
   sales: 'ventas', sales_services: 'ventas',
   // 📇 El catalogo unico (23-sep-2026). `sales_clients` paso a llamarse `contactos`;
@@ -146,6 +163,10 @@ const TABLA_A_MODULO: Record<string, string> = {
   attendance: 'asistencia',
   // 🕐 Control de maquinaria: la jornada de cada máquina y su cierre
   machine_rounds: 'control', control_closures: 'control', machine_work_segments: 'control',
+  horometro_ajustes: 'control', horometro_cambios: 'control', horometro_cierres: 'control',
+  horometro_fotos: 'control', horometro_precios: 'control', lecturas_horometro_trabajo: 'control',
+  maquinaria_frente_asignaciones: 'control', maquinaria_frentes: 'control',
+  sos_automatizacion_config: 'control', jornadas_cierre_config: 'control',
   // 💰 Control de pagos (cuentas por pagar por empresa y semana)
   company_payments: 'pagos', payrolls: 'pagos',
   // 🏢 Empresas y tarifas
@@ -164,7 +185,7 @@ const TABLA_A_MODULO: Record<string, string> = {
   machine_inspections: 'inspecciones_maq',
   // 📦 Inventario
   inventory_items: 'inventario', inventory_movements: 'inventario', inventory_transfers: 'inventario',
-  bcv_rates: 'inventario',
+  inventory_stock_requests: 'inventario', bcv_rates: 'inventario',
   // 🚿 Lavado de maquinaria
   lm_washes: 'lavado', lm_wash_types: 'lavado',
   // 🧰 Mantenimiento de maquinaria (expedientes y servicios preventivos)
@@ -172,13 +193,15 @@ const TABLA_A_MODULO: Record<string, string> = {
   // 🧾 Nómina
   employees: 'nomina', payroll_companies: 'nomina', uniform_deliveries: 'nomina',
   staff_pay_payments: 'nomina', staff_pay_periods: 'nomina', staff_pay_items: 'nomina',
+  staff_cargo_tariffs: 'nomina', staff_pay_config: 'nomina', staff_pay_item_docs: 'nomina', staff_payments: 'nomina',
+  employee_commitment_acts: 'nomina',
   payroll_periods: 'nomina', payroll_items: 'nomina', dias_libres_cargo: 'nomina',
   // 🏛️ Obras Públicas
   op_edificio_base: 'obras', op_edificio_removidos: 'obras', op_daily_reports: 'obras',
   op_external_machines: 'obras', op_machine_rounds: 'obras', op_machine_supervisors: 'obras',
   op_maintenance: 'obras', op_report_settings: 'obras', op_supervisor_visits: 'obras', edificios: 'obras',
   // 👷 Operadores y su coordinación
-  operator_assignments: 'operadores', machine_operators: 'operadores',
+  operator_assignments: 'operadores', machine_operators: 'operadores', machine_day_operators: 'operadores',
   coordinator_company_scope: 'operadores', coordinator_machine_scope: 'operadores',
   // 🔧 Servicio de maquinaria (el taller: averías, órdenes y repuestos)
   maintenance_requests: 'servicio', machinery_service_orders: 'servicio',
@@ -191,8 +214,13 @@ const TABLA_A_MODULO: Record<string, string> = {
   machinery_tech_report_costs: 'servicio',
   // 👥 Usuarios y permisos
   profiles: 'usuarios', app_roles: 'usuarios', module_permissions: 'usuarios', feature_toggles: 'usuarios',
+  role_templates: 'usuarios',
   // 🚛 Viajes de camiones
   camion_viajes: 'viajes', camion_viajes_config: 'viajes',
+  camion_cubicaje: 'viajes', camion_cubicaje_carga: 'viajes', camion_taras: 'viajes',
+  tique_config: 'viajes', tique_emisiones: 'viajes',
+  viaje_frente_asignaciones: 'viajes', viaje_frentes: 'viajes',
+  viaje_tarifa_camiones: 'viajes', viaje_tarifas_peso: 'viajes', viaje_tipos: 'viajes', viajes_estado_permisos: 'viajes',
   // Las OBRAS donde están los listeros. Van con viajes y no con `equipos` ni con
   // `obras`: es un catálogo propio de este módulo, y no tiene que ver ni con los
   // `edificios` del inspector ni con las `haul_locations` del acarreo.

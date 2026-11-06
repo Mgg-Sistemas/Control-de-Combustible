@@ -25,7 +25,7 @@ const js = ts.transpileModule(src, {
 }).outputText;
 const mod = { exports: {} };
 new Function('exports', 'module', js)(mod.exports, mod);
-const { fieldLabel, changesSummary, RESUMEN_MAX_CAMPOS } = mod.exports;
+const { fieldLabel, changesSummary, formatAuditTextValue, RESUMEN_MAX_CAMPOS } = mod.exports;
 
 // Formateador equivalente al fmtVal de AuditScreen para lo que se prueba acá
 // (booleano → sí/no, vacío → ∅). El de la pantalla además formatea fechas, pero
@@ -117,6 +117,129 @@ console.log('AUDITORÍA — etiquetas legibles y resumen de cambios\n');
   ok('la pantalla ya no declara su propia lista de módulos', !/const MODULES\s*:/.test(vivo));
   ok('los pide a la librería', /from '\.\.\/lib\/auditModulos'/.test(vivo));
   ok('y esa librería existe', fs.existsSync(path.join(ROOT, 'src/lib/auditModulos.ts')));
+}
+
+// ── 8) COMPRAS Y CUENTAS POR PAGAR — Etiquetas y limpieza de notas en Auditoría ──
+{
+  const clavesCompras = [
+    'contraparte', 'solicitante_nombre', 'observaciones', 'nota',
+    'inventory_requirement_id', 'comprobante_url', 'fecha_emision', 'fecha_vencimiento',
+  ];
+  const crudas = clavesCompras.filter((k) => fieldLabel(k) === k);
+  ok('todas las columnas clave de Compras/Cuentas están traducidas', crudas.length === 0, crudas.join(', '));
+
+  const sucio = 'Nota de compra urgente\n[SIN_EMPRESA_REQ]\n[RECIBO_PAGO: Url: https://x/1.jpg | Tipo: image | Nombre: pago1.jpg | Fecha: 2026-11-05 | Ref: 1234 | SubidoPor: Ana | SubidoAt: 2026-11-05T10:00:00Z]\n[[HISTORIAL_COMPRA:%5B%7B%22tipo%22%3A%22solicitud_creada%22%7D%5D:FIN_HISTORIAL]]';
+  const limpio = formatAuditTextValue(sucio);
+  ok('formatAuditTextValue oculta el JSON crudo [[HISTORIAL_COMPRA:...]]', !limpio.includes('HISTORIAL_COMPRA'), limpio);
+  ok('formatAuditTextValue conserva la nota limpia', limpio.includes('Nota: "Nota de compra urgente"'), limpio);
+  ok('formatAuditTextValue traduce [SIN_EMPRESA_REQ]', limpio.includes('Sin empresa asignada'), limpio);
+  ok('formatAuditTextValue muestra quién subió el comprobante', limpio.includes('subido por Ana'), limpio);
+}
+
+// ── 9) HISTÓRICO DE COMPRAS — Reconstrucción desde audit_log (notas, empresa, beneficiario, comprobantes) ──
+{
+  const cache = new Map();
+  const loadTsLib = (relName) => {
+    if (!relName.startsWith('.')) return { Platform: { OS: 'web' }, Alert: { alert: () => {} } };
+    const clean = relName.replace(/^\.\//, '').replace(/\.ts$/, '');
+    if (cache.has(clean)) return cache.get(clean);
+    const fullPath = path.join(ROOT, 'src/lib', `${clean}.ts`);
+    if (!fs.existsSync(fullPath)) return {};
+    const code = fs.readFileSync(fullPath, 'utf8');
+    const out = ts.transpileModule(code, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 },
+    }).outputText;
+    const m = { exports: {} };
+    cache.set(clean, m.exports);
+    new Function('exports', 'module', 'require', out)(m.exports, m, loadTsLib);
+    return m.exports;
+  };
+  const { extraerCambiosLegiblesDeTextoCompra, construirTimelineExpediente } = loadTsLib('./comprasHistorico');
+
+  const companies = [
+    { id: 'c1', name: 'SOS LA GUAIRA' },
+    { id: 'c2', name: 'GOLDEN TOUCH 1127 CA' },
+  ];
+
+  // Quitar empresa + editar nota + subir comprobante
+  const diffs = extraerCambiosLegiblesDeTextoCompra(
+    'Nota original\n[EMPRESA:c1:SOS LA GUAIRA]',
+    'Nota corregida por tesorería\n[SIN_EMPRESA_REQ]\n[RECIBO_PAGO: Url: https://x/1.jpg | Tipo: image | Nombre: pago1.jpg | Fecha: 2026-11-05 | Ref: 554433 | SubidoPor: Carlos | SubidoAt: 2026-11-05T10:00:00Z | Metodo: Transferencia | Nota:  | Archivos: ]',
+    companies,
+  );
+  ok('detecta edición de nota antes → después', diffs.frases.some((d) => d.includes('Nota modificada: «Nota original» → «Nota corregida por tesorería»')), diffs.frases.join(' | '));
+  ok('detecta cuando se quita la empresa en las etiquetas', diffs.frases.some((d) => d.includes('Empresa quitada: «SOS LA GUAIRA» → «Sin empresa asignada»')), diffs.frases.join(' | '));
+  ok('detecta cuando se sube un comprobante en las etiquetas', diffs.frases.some((d) => d.includes('Comprobante de pago subido') && d.includes('Carlos')), diffs.frases.join(' | '));
+
+  // Reconstrucción de timeline con auditLogs (quitar empresa, cambiar beneficiario, editar abono)
+  const timeline = construirTimelineExpediente({
+    req: {
+      id: 'req-1',
+      code: 'REQ-0999',
+      title: 'COMPRA DE REPUESTOS',
+      status: 'en_proceso',
+      created_at: '2026-11-05T10:00:00Z',
+      observaciones: 'Nota final',
+    },
+    cuenta: {
+      id: 'cta-1',
+      inventory_requirement_id: 'req-1',
+      documento: 'REQ-0999',
+      concepto: 'COMPRA DE REPUESTOS',
+      contraparte: 'PROVEEDOR NUEVO CA',
+      monto: 500,
+      moneda: 'USD',
+      estado: 'parcial',
+      created_at: '2026-11-05T10:05:00Z',
+      nota: 'Nota final',
+    },
+    abonos: [],
+    companies,
+    auditLogs: [
+      {
+        id: 101,
+        at: '2026-11-05T11:00:00Z',
+        user_name: 'María Pérez',
+        action: 'UPDATE',
+        table_name: 'cuentas',
+        row_id: 'cta-1',
+        changes: {
+          company_id: { de: 'c1', a: null },
+          contraparte: { de: 'PROVEEDOR VIEJO CA', a: 'PROVEEDOR NUEVO CA' },
+          nota: { de: 'Nota inicial', a: 'Nota final' },
+        },
+      },
+      {
+        id: 102,
+        at: '2026-11-05T12:00:00Z',
+        user_name: 'Pedro Gómez',
+        action: 'DELETE',
+        table_name: 'cuenta_abonos',
+        row_id: 'abo-1',
+        changes: {
+          cuenta_id: 'cta-1',
+          monto: 150,
+          moneda: 'USD',
+          metodo: 'Pago móvil',
+          referencia: '987654',
+          comprobante_url: 'https://x/comp.jpg',
+        },
+      },
+    ],
+  });
+  ok('timeline reconstruye cambio de empresa, beneficiario y nota desde audit_log', timeline.some((ev) =>
+    ev.by === 'María Pérez' &&
+    ev.detalle &&
+    ev.detalle.includes('SOS LA GUAIRA') &&
+    ev.detalle.includes('Sin empresa asignada') &&
+    ev.detalle.includes('Proveedor / Beneficiario') &&
+    ev.detalle.includes('Nota modificada: «Nota inicial» → «Nota final»')
+  ));
+  ok('timeline reconstruye eliminación de abono/comprobante desde audit_log', timeline.some((ev) =>
+    ev.by === 'Pedro Gómez' &&
+    ev.titulo.includes('eliminado') &&
+    ev.detalle && ev.detalle.includes('987654')
+  ));
 }
 
 if (fail) {

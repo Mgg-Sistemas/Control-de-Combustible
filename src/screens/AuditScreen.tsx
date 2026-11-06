@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { norm, cmpText } from '../lib/text';
-import { fieldLabel, changesSummary } from '../lib/auditLabels';
+import { fieldLabel, changesSummary, formatAuditTextValue } from '../lib/auditLabels';
 // Los MÓDULOS son las SECCIONES DE LA APP (Control, Inspecciones, Nómina…), no las
 // tablas de la base. La regla vive en su librería para poder probarla; ver el archivo.
 import { MODULOS_AUDITORIA, etiquetaModulo, etiquetaPastilla, filaEnModulos } from '../lib/auditModulos';
@@ -75,7 +75,7 @@ function fmtVal(x: any): string {
     // Fecha simple sin hora (ej. round_date, dispatch_date) → DD/MM/AAAA, SIN pasar
     // por Date/zona horaria (evita que un "09" se corra a "08" por el huso horario).
     if (/^\d{4}-\d{2}-\d{2}$/.test(x)) return dmy(x);
-    return x;
+    return formatAuditTextValue(x);
   }
   if (typeof x === 'object') { try { return JSON.stringify(x); } catch { return String(x); } }
   return String(x);
@@ -112,12 +112,40 @@ const TABLE_LABEL: Record<string, string> = {
   company_price_tariffs: 'Tarifa por empresa', supervisor_visits: 'Inspección', food_distributions: 'Distribución de comida',
   food_company_meals: 'Comida por empresa', food_extra_items: 'Plato «Otros»',
   comida_precios: 'Precio de comida', comida_cuentas_config: 'Cuenta de comida',
+  comida_facturas: 'Factura de comida', comida_factura_renglones: 'Renglón de factura de comida', comida_pagos: 'Pago de comida',
   attendance: 'Asistencia', uniform_deliveries: 'Uniforme',
   operator_assignments: 'Jornada de operador', module_permissions: 'Permiso', purchase_orders: 'Compra',
-  purchase_requests: 'Requisición', staff_pay_payments: 'Pago a personal', vehicles: 'Vehículo', fletes: 'Flete',
+  purchase_requests: 'Requisición', staff_pay_payments: 'Pago a personal',
+  staff_pay_periods: 'Período de nómina', staff_pay_items: 'Renglón de nómina', staff_pay_abonos: 'Abono de nómina',
+  vehicles: 'Vehículo', fletes: 'Flete',
   machine_operators: 'Operador asignado a máquina', machine_inspectors: 'Inspector asignado a máquina',
   service_intervention_types: 'Tipo de intervención (taller)',
   machinery_service_orders: 'Servicio de maquinaria', machinery_service_parts: 'Repuesto de un servicio',
+  inventory_requirements: 'Requerimiento / Solicitud de compra',
+  solicitudes_compra: 'Solicitud rápida de compra',
+  cuentas: 'Cuenta por pagar / cobrar',
+  cuenta_abonos: 'Abono / Comprobante de pago',
+  cuenta_notas_espera: 'Nota de espera (Por Pagar)',
+  direct_purchases: 'Compra directa',
+  suppliers: 'Proveedor',
+  servicios: 'Servicio / Orden de servicio',
+  aires_acondicionados: 'Equipo de aire acondicionado',
+  aires_mantenimientos: 'Mantenimiento de aire acondicionado',
+  hose_orders: 'Pedido de manguera',
+  contactos: 'Contacto',
+  caja_movimientos: 'Movimiento de caja',
+  bank_accounts: 'Cuenta bancaria',
+  camion_viajes: 'Viaje de camión',
+  camion_cubicaje: 'Cubicaje de camión',
+  viaje_frentes: 'Frente de trabajo (viajes)',
+  viaje_materiales: 'Material de viaje',
+  lecturas_horometro_trabajo: 'Lectura de horómetro',
+  traslados_maquinaria: 'Traslado de maquinaria',
+  actas_recepcion: 'Acta de recepción de equipo',
+  cop_movimientos: 'Centro de Operaciones · Movimiento',
+  cop_reportes_generales: 'Centro de Operaciones · Reporte general',
+  inspection_records: 'Inspección general',
+  whatsapp_directory: 'Directorio de WhatsApp',
 };
 const tableLabel = (t: string) => TABLE_LABEL[t] ?? t;
 
@@ -132,7 +160,12 @@ const tableLabel = (t: string) => TABLE_LABEL[t] ?? t;
 
 // Tablas relacionadas con DINERO (pagos, tarifas, compras): cruzan varios módulos, por
 // eso van aparte y alimentan solo el filtro rápido "💰 Solo cambios de dinero".
-const MONEY_TABLES = new Set(['company_payments', 'staff_pay_payments', 'price_tariffs', 'company_price_tariffs', 'purchase_orders', 'purchase_requests']);
+const MONEY_TABLES = new Set([
+  'company_payments', 'staff_pay_payments', 'staff_pay_periods', 'staff_pay_items', 'staff_pay_abonos',
+  'price_tariffs', 'company_price_tariffs', 'purchase_orders', 'purchase_requests',
+  'inventory_requirements', 'solicitudes_compra', 'cuentas', 'cuenta_abonos', 'direct_purchases',
+  'servicios', 'caja_movimientos', 'fletes', 'comida_facturas', 'comida_pagos',
+]);
 
 const ACTION_META: Record<string, { icon: string; label: string; color: string }> = {
   INSERT: { icon: '➕', label: 'creó', color: '#15803D' },
@@ -218,10 +251,23 @@ async function resolveTarget(table: string, rowId: string | null): Promise<Targe
     if (!data) return vacio;
     const d: any = data;
     let nombre: string | null = null;
-    if (d.first_name || d.last_name) nombre = [d.first_name, d.last_name].filter(Boolean).join(' ');
-    else for (const c of NAME_COLS) { if (d[c]) { nombre = String(d[c]); break; } }
-    // Empresa de la máquina: una fila más, solo al abrir el detalle. Va en su propio
-    // try/catch para que un fallo acá no borre la ficha que ya se consiguió.
+    if (table === 'machinery') {
+      nombre = machineLabel(d) || [d.code, d.plate ? `[${d.plate}]` : '[SIN PLACA]'].filter(Boolean).join(' ');
+    } else if (table === 'vehicles') {
+      const baseVeh = [d.code, [d.brand, d.model].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || 'Vehículo';
+      nombre = `${baseVeh} [${d.plate || 'SIN PLACA'}]`;
+    } else if (table === 'inventory_requirements') {
+      nombre = [d.code, d.title].filter(Boolean).join(' · ') || null;
+    } else if (table === 'cuentas') {
+      nombre = [d.documento, d.concepto, d.contraparte].filter(Boolean).join(' · ') || null;
+    } else if (table === 'cuenta_abonos') {
+      nombre = [`Abono ${d.moneda || 'USD'} ${d.monto ?? ''}`.trim(), d.referencia ? `Ref ${d.referencia}` : null, d.metodo].filter(Boolean).join(' · ') || null;
+    } else if (d.first_name || d.last_name) {
+      nombre = [d.first_name, d.last_name].filter(Boolean).join(' ');
+    } else {
+      for (const c of NAME_COLS) { if (d[c]) { nombre = String(d[c]); break; } }
+    }
+    // Empresa de la máquina / requerimiento / cuenta: una fila más, solo al abrir el detalle.
     let empresa: string | null = null;
     if (d.company_id) {
       try {
@@ -468,10 +514,23 @@ export default function AuditScreen() {
       let historicos: AuditLog[] = [];
       if (hasQuery) {
         const filtroHist = filtroNombresAnteriores(safe);
-        const [{ data: mach }, { data: profs }, { data: emps }, nombresAnteriores] = await Promise.all([
+        const [
+          { data: mach },
+          { data: vehs },
+          { data: profs },
+          { data: emps },
+          { data: reqs },
+          { data: ctas },
+          { data: abos },
+          { data: sups },
+          nombresAnteriores,
+        ] = await Promise.all([
           supabase.from('machinery').select('id')
             .or(`code.ilike.%${safe}%,plate.ilike.%${safe}%,serial.ilike.%${safe}%,identifier.ilike.%${safe}%,encargado.ilike.%${safe}%,tipo.ilike.%${safe}%,clasificacion.ilike.%${safe}%,referencia.ilike.%${safe}%`)
             .limit(200),
+          supabase.from('vehicles').select('id')
+            .or(`code.ilike.%${safe}%,plate.ilike.%${safe}%,brand.ilike.%${safe}%,model.ilike.%${safe}%,driver.ilike.%${safe}%`)
+            .limit(100),
           supabase.from('profiles').select('id')
             .or(`full_name.ilike.%${safe}%,username.ilike.%${safe}%,cedula.ilike.%${safe}%`)
             .limit(200),
@@ -482,6 +541,18 @@ export default function AuditScreen() {
           supabase.from('employees').select('id')
             .or(`first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,cedula.ilike.%${safe}%`)
             .limit(200),
+          supabase.from('inventory_requirements').select('id')
+            .or(`code.ilike.%${safe}%,title.ilike.%${safe}%,solicitante_nombre.ilike.%${safe}%,area.ilike.%${safe}%,observaciones.ilike.%${safe}%`)
+            .limit(100),
+          supabase.from('cuentas').select('id, inventory_requirement_id')
+            .or(`documento.ilike.%${safe}%,concepto.ilike.%${safe}%,contraparte.ilike.%${safe}%,nota.ilike.%${safe}%`)
+            .limit(100),
+          supabase.from('cuenta_abonos').select('id, cuenta_id')
+            .or(`referencia.ilike.%${safe}%,nota.ilike.%${safe}%,metodo.ilike.%${safe}%`)
+            .limit(100),
+          supabase.from('suppliers').select('id')
+            .or(`name.ilike.%${safe}%,rif.ilike.%${safe}%`)
+            .limit(100),
           supabase.from('audit_log').select('*')
             .in('table_name', TABLAS_CON_ESTADO as unknown as string[])
             .in('action', ACCIONES_DE_TABLA)
@@ -493,12 +564,48 @@ export default function AuditScreen() {
         historicos = nombresAnteriores.error ? [] : ((nombresAnteriores.data as AuditLog[]) ?? []);
         const idsNombresAnteriores = [...new Set(historicos.map((r) => r.row_id).filter(Boolean) as string[])];
         const machIds = [...new Set([...(mach ?? []).map((m: any) => m.id as string), ...idsNombresAnteriores])];
+        const vehIds = (vehs ?? []).map((v: any) => v.id as string);
         const profIds = (profs ?? []).map((p: any) => p.id as string);
         const empIds = (emps ?? []).map((e: any) => e.id as string);
+        const reqIdsDirect = (reqs ?? []).map((r: any) => r.id as string);
+        const ctaIdsDirect = (ctas ?? []).map((c: any) => c.id as string);
+        const reqIdsFromCtas = (ctas ?? []).map((c: any) => c.inventory_requirement_id as string | null).filter(Boolean) as string[];
+        const aboIdsDirect = (abos ?? []).map((a: any) => a.id as string);
+        const ctaIdsFromAbos = (abos ?? []).map((a: any) => a.cuenta_id as string | null).filter(Boolean) as string[];
+        const supIds = (sups ?? []).map((s: any) => s.id as string);
+
+        // Si el usuario buscó un requerimiento (ej. REQ-0171), cruzar con sus cuentas y abonos vinculados
+        let linkedCtaIds: string[] = [];
+        let linkedAboIds: string[] = [];
+        const allReqIds = [...new Set([...reqIdsDirect, ...reqIdsFromCtas])];
+        if (allReqIds.length > 0 && allReqIds.length <= 50) {
+          try {
+            const { data: linkedCtas } = await supabase.from('cuentas').select('id').in('inventory_requirement_id', allReqIds).limit(100);
+            linkedCtaIds = (linkedCtas ?? []).map((c: any) => c.id as string);
+          } catch {}
+        }
+        const allCtaIds = [...new Set([...ctaIdsDirect, ...ctaIdsFromAbos, ...linkedCtaIds])];
+        if (allCtaIds.length > 0 && allCtaIds.length <= 50) {
+          try {
+            const { data: linkedAbos } = await supabase.from('cuenta_abonos').select('id').in('cuenta_id', allCtaIds).limit(100);
+            linkedAboIds = (linkedAbos ?? []).map((a: any) => a.id as string);
+          } catch {}
+        }
+
         // Tope combinado: una búsqueda que resuelve a cientos de máquinas/personas ya
         // no es específica — un IN() de 600 ids es una URL enorme (riesgo de "URI
         // demasiado larga"). El respaldo de nivel 2 (texto) igual cubre esos casos.
-        matchRowIds = [...machIds, ...profIds, ...empIds].slice(0, MAX_MATCH_IDS); // row_id: la máquina, el perfil o el empleado fue el AFECTADO
+        matchRowIds = [...new Set([
+          ...machIds,
+          ...vehIds,
+          ...allReqIds,
+          ...allCtaIds,
+          ...aboIdsDirect,
+          ...linkedAboIds,
+          ...supIds,
+          ...profIds,
+          ...empIds,
+        ])].slice(0, MAX_MATCH_IDS);
         matchUserIds = profIds.slice(0, MAX_MATCH_IDS);                            // user_id: el perfil fue quien HIZO la acción
       }
       // ── Consulta en DOS NIVELES para no tumbar la base de datos ──────────────
@@ -1152,6 +1259,7 @@ export default function AuditScreen() {
                     const quien = (id: any) => (id ? (nameById.get(String(id)) || `ID ${String(id).slice(0, 8)}…`) : null);
                     const fichaRows: [string, string | null][] = [
                       ['Máquina', machineLabel(m) || m.code || null],
+                      ['Placa', m.plate || 'SIN PLACA'],
                       ['Identificador', m.identifier || null],
                       ['Clase / marca', [m.clasificacion, m.marca, m.modelo].filter(Boolean).join(' · ') || m.tipo || null],
                       ['Empresa', target.empresa],
@@ -1176,6 +1284,72 @@ export default function AuditScreen() {
                             bitácora: sirven aunque el retiro sea anterior a que se encendiera el seguimiento.
                           </Text>
                         ) : null}
+                      </View>
+                    );
+                  })() : null}
+
+                  {detail.table_name === 'vehicles' && target.row ? (() => {
+                    const v: any = target.row;
+                    const estadoActual = v.active === false ? '🗑️ Eliminado del catálogo'
+                      : v.operational === false ? '⬛ Retirado (fuera de servicio)'
+                      : '✅ Operativo';
+                    const baseVeh = [v.code, [v.brand, v.model].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || 'Vehículo';
+                    const fichaRows: [string, string | null][] = [
+                      ['Vehículo', `${baseVeh} [${v.plate || 'SIN PLACA'}]`],
+                      ['Placa', v.plate || 'SIN PLACA'],
+                      ['Conductor', v.driver || null],
+                      ['Empresa', target.empresa],
+                      ['Estado AHORA', estadoActual],
+                    ];
+                    const visibles = fichaRows.filter(([, val]) => val != null && String(val).trim() !== '');
+                    return (
+                      <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: spacing.xs }}>Ficha del vehículo / carro (como está ahora)</Text>
+                        {visibles.map(([k, val]) => <Row key={k} k={k} v={String(val)} />)}
+                      </View>
+                    );
+                  })() : null}
+
+                  {detail.table_name === 'inventory_requirements' && target.row ? (() => {
+                    const r: any = target.row;
+                    const fichaRows: [string, string | null][] = [
+                      ['Código', r.code || null],
+                      ['Concepto', r.title || null],
+                      ['Estado AHORA', r.status || null],
+                      ['Área', r.area || null],
+                      ['Solicitante', r.solicitante_nombre || null],
+                      ['Autorizado por', r.autorizado_por_nombre || null],
+                      ['Motorizado', r.motorizado_nombre || null],
+                      ['Empresa', target.empresa || 'Sin empresa asignada'],
+                      ['Nota / Datos', r.observaciones ? formatAuditTextValue(String(r.observaciones)) : null],
+                    ];
+                    const visibles = fichaRows.filter(([, val]) => val != null && String(val).trim() !== '');
+                    return (
+                      <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: spacing.xs }}>Ficha del requerimiento (como está ahora)</Text>
+                        {visibles.map(([k, val]) => <Row key={k} k={k} v={String(val)} />)}
+                      </View>
+                    );
+                  })() : null}
+
+                  {detail.table_name === 'cuentas' && target.row ? (() => {
+                    const c: any = target.row;
+                    const fichaRows: [string, string | null][] = [
+                      ['Documento', c.documento || null],
+                      ['Concepto', c.concepto || null],
+                      ['Beneficiario', c.contraparte || null],
+                      ['Empresa', target.empresa || 'Sin empresa asignada'],
+                      ['Monto', c.monto != null ? `${c.moneda || 'USD'} ${c.monto}` : null],
+                      ['Estado AHORA', c.estado || null],
+                      ['Emisión', c.fecha_emision ? dmy(String(c.fecha_emision)) : null],
+                      ['Vencimiento', c.fecha_vencimiento ? dmy(String(c.fecha_vencimiento)) : null],
+                      ['Nota / Datos', c.nota ? formatAuditTextValue(String(c.nota)) : null],
+                    ];
+                    const visibles = fichaRows.filter(([, val]) => val != null && String(val).trim() !== '');
+                    return (
+                      <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: spacing.xs }}>Ficha de la cuenta (como está ahora)</Text>
+                        {visibles.map(([k, val]) => <Row key={k} k={k} v={String(val)} />)}
                       </View>
                     );
                   })() : null}

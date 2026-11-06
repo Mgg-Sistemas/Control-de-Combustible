@@ -50,13 +50,12 @@ function sumarDiasYMD(ymd: string, dias: number): string {
 export function metaVisualEventoCompra(
   tipo: TipoEventoCompra,
   colors: any
-): { icon: string; badge: string; accionPorLabel: string; bg: string; border: string; text: string } {
+): { icon: string; badge: string; bg: string; border: string; text: string } {
   switch (tipo) {
     case 'items_modificados':
       return {
         icon: '✏️',
         badge: 'ÍTEMS MODIFICADOS',
-        accionPorLabel: 'Ítems modificados por:',
         bg: colors.warningSoftBg,
         border: colors.warningSoftBorder,
         text: colors.warningSoftText,
@@ -65,7 +64,6 @@ export function metaVisualEventoCompra(
       return {
         icon: '📤',
         badge: 'ENVIADO A POR PAGAR',
-        accionPorLabel: 'Enviado a Por Pagar por:',
         bg: colors.infoSoftBg,
         border: colors.infoSoftBorder,
         text: colors.infoSoftText,
@@ -75,7 +73,6 @@ export function metaVisualEventoCompra(
       return {
         icon: '👔',
         badge: 'AUTORIZADO POR APROBADOR',
-        accionPorLabel: 'Autorizado para pago por:',
         bg: colors.successSoftBg,
         border: colors.successSoftBorder,
         text: colors.successSoftText,
@@ -85,7 +82,6 @@ export function metaVisualEventoCompra(
       return {
         icon: '✅',
         badge: 'PAGO LIQUIDADO',
-        accionPorLabel: 'Marcado como pagada por:',
         bg: colors.successSoftBg,
         border: colors.successSoftBorder,
         text: colors.successSoftText,
@@ -95,7 +91,6 @@ export function metaVisualEventoCompra(
       return {
         icon: '💵',
         badge: 'ABONO REGISTRADO',
-        accionPorLabel: 'Abono registrado por:',
         bg: colors.infoSoftBg,
         border: colors.infoSoftBorder,
         text: colors.infoSoftText,
@@ -105,7 +100,6 @@ export function metaVisualEventoCompra(
       return {
         icon: '🧾',
         badge: 'FACTURA CARGADA',
-        accionPorLabel: 'Factura cargada por:',
         bg: colors.surfaceAlt,
         border: colors.brand,
         text: colors.brandText,
@@ -114,7 +108,6 @@ export function metaVisualEventoCompra(
       return {
         icon: '⛔',
         badge: 'RECHAZADO / ANULADO',
-        accionPorLabel: 'Rechazado / Anulado por:',
         bg: colors.dangerSoftBg,
         border: colors.dangerSoftBorder,
         text: colors.dangerSoftText,
@@ -124,7 +117,6 @@ export function metaVisualEventoCompra(
       return {
         icon: '💬',
         badge: tipo === 'aclaratoria_pedida' ? 'ACLARATORIA PEDIDA' : 'ACLARATORIA RESPONDIDA',
-        accionPorLabel: tipo === 'aclaratoria_pedida' ? 'Aclaratoria pedida por:' : 'Respondido por:',
         bg: colors.warningSoftBg,
         border: colors.warningSoftBorder,
         text: colors.warningSoftText,
@@ -134,16 +126,48 @@ export function metaVisualEventoCompra(
       return {
         icon: '📦',
         badge: tipo === 'recepcion_almacen' ? 'RECIBIDO EN ALMACÉN' : 'DESPACHADO DE ALMACÉN',
-        accionPorLabel: tipo === 'recepcion_almacen' ? 'Recibido en almacén por:' : 'Despachado por:',
         bg: colors.successSoftBg,
         border: colors.successSoftBorder,
         text: colors.successSoftText,
+      };
+    case 'solicitud_editada':
+    case 'condicion_actualizada':
+      return {
+        icon: '📝',
+        badge: tipo === 'condicion_actualizada' ? 'DATOS / CONDICIÓN EDITADOS' : 'REQUERIMIENTO EDITADO',
+        bg: colors.warningSoftBg,
+        border: colors.warningSoftBorder,
+        text: colors.warningSoftText,
+      };
+    case 'reabierto':
+    case 'reabierto_pendiente':
+      return {
+        icon: '↩️',
+        badge: 'REABIERTO / REVERTIDO',
+        bg: colors.warningSoftBg,
+        border: colors.warningSoftBorder,
+        text: colors.warningSoftText,
+      };
+    case 'cotizacion_registrada':
+      return {
+        icon: '📎',
+        badge: 'COTIZACIÓN / PRESUPUESTO',
+        bg: colors.infoSoftBg,
+        border: colors.infoSoftBorder,
+        text: colors.infoSoftText,
+      };
+    case 'estado_flujo':
+      return {
+        icon: '🔄',
+        badge: 'CAMBIO DE ESTADO / PRIORIDAD',
+        bg: colors.infoSoftBg,
+        border: colors.infoSoftBorder,
+        text: colors.infoSoftText,
       };
     default:
       return {
         icon: '📝',
         badge: tipo === 'convertido_req' ? 'CONVERTIDO A REQ.' : 'SOLICITUD / REQUERIMIENTO',
-        accionPorLabel: tipo === 'convertido_req' ? 'Convertido a Req. por:' : 'Registrado por:',
         bg: colors.surfaceAlt,
         border: colors.border,
         text: colors.text,
@@ -169,6 +193,13 @@ export function TimelineExpedienteBox({
   if (!eventos || eventos.length === 0) return null;
 
   const modsCount = eventos.filter((e) => e.tipo === 'items_modificados').length;
+  const editsCount = eventos.filter(
+    (e) =>
+      e.tipo === 'solicitud_editada' ||
+      e.tipo === 'condicion_actualizada' ||
+      e.tipo === 'reabierto' ||
+      e.tipo === 'reabierto_pendiente'
+  ).length;
   const ordenadosDesc = eventos
     .slice()
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
@@ -179,7 +210,7 @@ export function TimelineExpedienteBox({
         marginTop: spacing.xs,
         borderRadius: radius.md,
         borderWidth: 1,
-        borderColor: modsCount > 0 ? colors.warningSoftBorder : colors.border,
+        borderColor: modsCount > 0 || editsCount > 0 ? colors.warningSoftBorder : colors.border,
         backgroundColor: colors.surfaceAlt,
         overflow: 'hidden',
       }}
@@ -214,6 +245,22 @@ export function TimelineExpedienteBox({
             >
               <Text style={{ color: colors.warningSoftText, fontSize: 10.5, fontWeight: '900' }}>
                 ✏️ {modsCount} modificación{modsCount === 1 ? '' : 'es'} de ítems
+              </Text>
+            </View>
+          ) : null}
+          {editsCount > 0 ? (
+            <View
+              style={{
+                backgroundColor: colors.infoSoftBg,
+                borderWidth: 1,
+                borderColor: colors.infoSoftBorder,
+                borderRadius: radius.pill,
+                paddingHorizontal: 8,
+                paddingVertical: 1,
+              }}
+            >
+              <Text style={{ color: colors.infoSoftText, fontSize: 10.5, fontWeight: '900' }}>
+                📝 {editsCount} edición{editsCount === 1 ? '' : 'es'} de datos/nota
               </Text>
             </View>
           ) : null}
@@ -275,9 +322,6 @@ export function TimelineExpedienteBox({
                     </View>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
                       {ev.titulo}
-                      {ev.by && !ev.titulo.toLowerCase().includes(ev.by.toLowerCase()) ? (
-                        <Text style={{ color: colors.brandText, fontWeight: '900' }}> · por {ev.by}</Text>
-                      ) : null}
                     </Text>
                   </View>
                   <Text style={{ color: colors.text, fontSize: 11, fontWeight: '800' }}>
@@ -289,7 +333,7 @@ export function TimelineExpedienteBox({
                 </View>
 
                 <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                  👤 <Text style={{ fontWeight: '800' }}>{meta.accionPorLabel}</Text>{' '}
+                  👤 <Text style={{ fontWeight: '800' }}>Lo hizo:</Text>{' '}
                   <Text style={{ color: colors.brandText, fontWeight: '900' }}>{ev.by}</Text>
                   <Text style={{ color: colors.text, fontWeight: '700' }}>
                     {' · '}🕒 Hora: {fmtSoloHora(ev.at) || fmtFechaHora(ev.at)}
@@ -360,6 +404,7 @@ type ModoFechaHist = 'todas' | 'hoy' | 'ayer' | '7dias' | 'mes' | 'dia' | 'rango
 type FiltroTipoHist =
   | 'todos'
   | 'items_modificados'
+  | 'ediciones_y_notas'
   | 'enviado_por_pagar'
   | 'aprobado_gerencia_cxp'
   | 'pagos_y_facturas'
@@ -428,7 +473,7 @@ export function HistoricoComprasTab() {
 
       setUsuariosMap(m);
       setAuditLogsCompra(logs);
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
@@ -461,14 +506,21 @@ export function HistoricoComprasTab() {
       }
     });
 
-    // Índice de audit_log por row_id para acceso O(1)
+    // Índice de audit_log por row_id para acceso O(1) (y por cuenta_id cuando se eliminó un abono)
     const logsPorRowId = new Map<string, AuditLog[]>();
     (auditLogsCompra || []).forEach((l) => {
-      if (!l.row_id) return;
-      const k = String(l.row_id);
-      const arr = logsPorRowId.get(k) ?? [];
-      arr.push(l);
-      logsPorRowId.set(k, arr);
+      if (l.row_id) {
+        const k = String(l.row_id);
+        const arr = logsPorRowId.get(k) ?? [];
+        arr.push(l);
+        logsPorRowId.set(k, arr);
+      }
+      const ctaIdDel = l.table_name === 'cuenta_abonos' ? (l.changes as any)?.cuenta_id : null;
+      if (ctaIdDel && typeof ctaIdDel === 'string') {
+        const arrC = logsPorRowId.get(ctaIdDel) ?? [];
+        arrC.push(l);
+        logsPorRowId.set(ctaIdDel, arrC);
+      }
     });
 
     const abonosPorCuenta = new Map<string, CuentaAbono[]>();
@@ -614,6 +666,15 @@ export function HistoricoComprasTab() {
   const pasaTipo = (t: TipoEventoCompra) => {
     if (filtroTipo === 'todos') return true;
     if (filtroTipo === 'items_modificados') return t === 'items_modificados';
+    if (filtroTipo === 'ediciones_y_notas')
+      return (
+        t === 'solicitud_editada' ||
+        t === 'condicion_actualizada' ||
+        t === 'reabierto' ||
+        t === 'reabierto_pendiente' ||
+        t === 'cotizacion_registrada' ||
+        t === 'estado_flujo'
+      );
     if (filtroTipo === 'enviado_por_pagar') return t === 'enviado_por_pagar';
     if (filtroTipo === 'aprobado_gerencia_cxp')
       return t === 'aprobado_gerencia_cxp' || t === 'aprobacion_gerencial';
@@ -624,16 +685,21 @@ export function HistoricoComprasTab() {
         t === 'abono_registrado' ||
         t === 'pago_registrado' ||
         t === 'factura_registrada' ||
-        t === 'factura_adjuntada'
+        t === 'factura_adjuntada' ||
+        t === 'reabierto' ||
+        t === 'reabierto_pendiente'
       );
     if (filtroTipo === 'solicitudes_y_req')
       return (
         t === 'solicitud_creada' ||
         t === 'solicitud_editada' ||
+        t === 'condicion_actualizada' ||
         t === 'convertido_req' ||
         t === 'req_creado' ||
         t === 'aclaratoria_pedida' ||
-        t === 'aclaratoria_respondida'
+        t === 'aclaratoria_respondida' ||
+        t === 'cotizacion_registrada' ||
+        t === 'estado_flujo'
       );
     if (filtroTipo === 'almacen') return t === 'recepcion_almacen' || t === 'despacho_almacen';
     return true;
@@ -954,6 +1020,7 @@ export function HistoricoComprasTab() {
           [
             ['todos', 'Todos los movimientos'],
             ['items_modificados', '✏️ Modificaciones de Ítems'],
+            ['ediciones_y_notas', '📝 Ediciones, Notas y Empresa'],
             ['enviado_por_pagar', '📤 Enviados a Por Pagar'],
             ['aprobado_gerencia_cxp', '👔 Autorizaciones Gerenciales'],
             ['pagos_y_facturas', '💳 Pagos, Abonos y Facturas'],
@@ -1058,12 +1125,7 @@ export function HistoricoComprasTab() {
                         </Text>
                       </View>
                     ) : null}
-                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
-                      {ev.titulo}
-                      {ev.by && !ev.titulo.toLowerCase().includes(ev.by.toLowerCase()) ? (
-                        <Text style={{ color: colors.brandText, fontWeight: '900' }}> · por {ev.by}</Text>
-                      ) : null}
-                    </Text>
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>{ev.titulo}</Text>
                   </View>
 
                   <View
@@ -1101,7 +1163,7 @@ export function HistoricoComprasTab() {
                   }}
                 >
                   <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                    👤 <Text style={{ fontWeight: '700' }}>{meta.accionPorLabel}</Text>{' '}
+                    👤 <Text style={{ fontWeight: '700' }}>Lo hizo:</Text>{' '}
                     <Text style={{ color: colors.brandText, fontWeight: '900' }}>{ev.by}</Text>
                   </Text>
                   <Text style={{ color: colors.text, fontSize: 11.5 }}>

@@ -130,6 +130,9 @@ console.log('LOS MODULOS DE LA AUDITORIA\n');
     reportes: null,                       // solo lee
     mangueras: 'fabricacion',
     acarreo: 'acarreo',
+    control_maquinaria: 'acarreo',        // Servicio de Fletes
+    traslados_maquinaria: 'equipos',      // Traslados y Salidas de Maquinaria
+    actas_recepcion: 'equipos',           // Acta de Recepción de Equipo
     centro_operaciones: 'centro_operaciones', // 🏭 mini sistema aislado (23-oct-2026), tablas cop_*
   };
   for (const it of items) {
