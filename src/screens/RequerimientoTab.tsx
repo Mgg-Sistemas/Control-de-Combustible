@@ -3771,7 +3771,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       {rSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
                     </View>
                   </TouchableOpacity>
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
                     {(() => {
                       const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
                       const estDinamico = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion, cuentasPagadasSet.has(r.id));
@@ -3871,8 +3871,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
                               {/* Badge de Compra Consolidada Multi-Proveedor */}
                               {estDinamico.esMultiProveedor ? (
-                                <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                                  <Text style={{ color: '#1D4ED8', fontWeight: '800', fontSize: 11 }}>
+                                <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderWidth: 1, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, maxWidth: '100%', flexShrink: 1 }}>
+                                  <Text style={{ color: '#1D4ED8', fontWeight: '800', fontSize: 11, flexShrink: 1 }}>
                                     🏢 Compra Consolidada Multi-Proveedor ({estDinamico.proveedoresNombres.join(', ')})
                                   </Text>
                                 </View>
@@ -3898,8 +3898,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                   </Text>
                                 </View>
                               ) : r.status === 'aprobado' ? (
-                                <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                                  <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11 }}>
+                                <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, maxWidth: '100%', flexShrink: 1 }}>
+                                  <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11, flexShrink: 1 }}>
                                     ⏳ En Por Pagar · Esperando Pago{extraerAprobacionCxp(r.observaciones)?.aprobadoPor ? ` (Autorizado por ${extraerAprobacionCxp(r.observaciones)?.aprobadoPor})` : ''}
                                   </Text>
                                 </View>

@@ -73,6 +73,7 @@ assert.match(
 
 // 4. Componentes base (ui.tsx, ListScreen.tsx, RList.tsx) y pantallas generales adaptadas a teléfono (~360px)
 const uiSrc = fs.readFileSync(path.join(root, 'src/components/ui.tsx'), 'utf8');
+const desgloseCxpSrc = fs.readFileSync(path.join(root, 'src/components/DesgloseProveedoresCxp.tsx'), 'utf8');
 const combustibleSrc = fs.readFileSync(path.join(root, 'src/screens/CombustibleScreen.tsx'), 'utf8');
 const tanksSrc = fs.readFileSync(path.join(root, 'src/screens/redesign/TanksShowcase.tsx'), 'utf8');
 const inventarioSrc = fs.readFileSync(path.join(root, 'src/screens/InventarioScreen.tsx'), 'utf8');
@@ -82,8 +83,23 @@ const fletesSrc = fs.readFileSync(path.join(root, 'src/screens/ServicioFletesScr
 
 assert.match(
   uiSrc,
-  /export function ExpandableCard[\s\S]*?<View style=\{\{\s*flex:\s*1,\s*minWidth:\s*0\s*\}\}>\{summary\}<\/View>/,
-  'ExpandableCard en ui.tsx debe tener minWidth: 0 en el contenedor de summary para que los hijos con flexWrap no desborden en teléfono'
+  /export function Card[\s\S]*?width:\s*'100%',\s*maxWidth:\s*'100%',\s*minWidth:\s*0/,
+  'Card en ui.tsx debe tener width: 100%, maxWidth: 100% y minWidth: 0 para no desbordar en teléfono'
+);
+assert.match(
+  uiSrc,
+  /export function ExpandableCard[\s\S]*?<View style=\{\{\s*flex:\s*1,\s*minWidth:\s*0,\s*maxWidth:\s*'100%'\s*\}\}>\{summary\}<\/View>/,
+  'ExpandableCard en ui.tsx debe tener minWidth: 0 y maxWidth: 100% en el contenedor de summary para que los hijos con flexWrap no desborden en teléfono'
+);
+assert.match(
+  desgloseCxpSrc,
+  /maxWidth:\s*'100%',\s*flexShrink:\s*1[\s\S]*?¿QUIERES LA TASA DE ESE DÍA\? TOCA AQUÍ/,
+  'El botón de cambiar a tasa de ese día en DesgloseProveedoresCxp debe tener maxWidth: 100% y flexShrink: 1 para envolver en teléfono sin salirse por la derecha'
+);
+assert.match(
+  cuentasSrc,
+  /TRAZABILIDAD DE LA SOLICITUD[\s\S]*?maxWidth:\s*'100%',\s*flexShrink:\s*1[\s\S]*?📤 Marcado para Por Pagar:/,
+  'La etiqueta de Marcado para Por Pagar dentro de TRAZABILIDAD DE LA SOLICITUD en CuentasScreen debe tener maxWidth: 100% y flexShrink: 1 para no salirse por la derecha en teléfono'
 );
 assert.match(
   combustibleSrc,

@@ -197,8 +197,8 @@ function toneSoft(colors: any, tone: Tone) {
 /** Etiqueta de estado (badge Soft): fondo tenue + borde + texto legible. */
 function Pill({ label, bg, border, text }: { label: string; bg: string; border: string; text: string }) {
   return (
-    <View style={{ backgroundColor: bg, borderWidth: 1, borderColor: border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start' }}>
-      <Text style={{ color: text, fontSize: 12, fontWeight: '800' }}>{label}</Text>
+    <View style={{ backgroundColor: bg, borderWidth: 1, borderColor: border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start', maxWidth: '100%', flexShrink: 1 }}>
+      <Text style={{ color: text, fontSize: 12, fontWeight: '800', flexShrink: 1 }}>{label}</Text>
     </View>
   );
 }
@@ -3404,7 +3404,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 </View>
                 {/* Estado gerencial de aprobación o espera de pago (solo en Por Pagar cuando sigue abierta) */}
                 {tipo === 'por_pagar' && abiertas ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 4, width: '100%', maxWidth: '100%', minWidth: 0 }}>
                     {c.aprobacionEstado === 'esperando_aprobacion' ? (
                       <View
                         style={{
@@ -3413,13 +3413,15 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           gap: 6,
                           paddingHorizontal: 8,
                           paddingVertical: 3,
-                          borderRadius: radius.pill,
+                          borderRadius: radius.sm,
                           backgroundColor: colors.warningSoftBg,
                           borderWidth: 1,
                           borderColor: colors.warningSoftBorder,
+                          maxWidth: '100%',
+                          flexShrink: 1,
                         }}
                       >
-                        <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '900' }}>
+                        <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
                           👔 Esperando Aprobación de {aprobadoresLabel}
                         </Text>
                       </View>
@@ -3431,13 +3433,15 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           gap: 6,
                           paddingHorizontal: 8,
                           paddingVertical: 3,
-                          borderRadius: radius.pill,
+                          borderRadius: radius.sm,
                           backgroundColor: colors.infoSoftBg,
                           borderWidth: 1,
                           borderColor: colors.infoSoftBorder,
+                          maxWidth: '100%',
+                          flexShrink: 1,
                         }}
                       >
-                        <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '900' }}>
+                        <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
                           ⏳ Esperando Pago{c.aprobacionInfo?.aprobadoPor ? ` · ✅ Autorizado por ${c.aprobacionInfo.aprobadoPor}` : ''}
                         </Text>
                       </View>
@@ -3452,9 +3456,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           borderRadius: radius.pill,
                           paddingHorizontal: 10,
                           paddingVertical: 4,
+                          maxWidth: '100%',
+                          flexShrink: 1,
                         }}
                       >
-                        <Text style={{ color: colors.successSoftText, fontSize: 11, fontWeight: '900' }}>
+                        <Text style={{ color: colors.successSoftText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
                           👔 Autorizar Pago
                         </Text>
                       </TouchableOpacity>
@@ -3496,8 +3502,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 ) : null}
 
                 {/* Resumen compacto en vista plegada: Solicitante + Destino + Presupuestos + Vencimiento y Monto */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                  <View style={{ flex: 1, minWidth: 200, gap: 2 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4, width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                  <View style={{ flex: 1, minWidth: 150, gap: 2 }}>
                     {tipo === 'por_pagar' ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                         <Text style={{ color: colors.text, fontSize: 11 }} numberOfLines={1}>
@@ -3554,10 +3560,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       borderWidth: 1,
                       borderColor: colors.border,
                       gap: 4,
+                      width: '100%',
+                      maxWidth: '100%',
+                      minWidth: 0,
                     }}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
                         📋 TRAZABILIDAD DE LA SOLICITUD{c.traza.reqCode ? ` · ${c.traza.reqCode}` : ''}
                       </Text>
                       {c.traza.fechaHoraEnviadoPorPagarTexto || c.traza.enviadoPorPagarPor ? (
@@ -3565,13 +3574,15 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           style={{
                             paddingHorizontal: 7,
                             paddingVertical: 2,
-                            borderRadius: radius.pill,
+                            borderRadius: radius.sm,
                             backgroundColor: colors.infoSoftBg,
                             borderWidth: 1,
                             borderColor: colors.infoSoftBorder,
+                            maxWidth: '100%',
+                            flexShrink: 1,
                           }}
                         >
-                          <Text style={{ color: colors.infoSoftText, fontSize: 10.5, fontWeight: '800' }}>
+                          <Text style={{ color: colors.infoSoftText, fontSize: 10.5, fontWeight: '800', flexShrink: 1 }}>
                             📤 Marcado para Por Pagar: {c.traza.enviadoPorPagarPor || 'Compras'}
                             {c.traza.fechaHoraEnviadoPorPagarTexto ? ` · ${c.traza.fechaHoraEnviadoPorPagarTexto}` : ''}
                           </Text>
@@ -3649,9 +3660,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                             backgroundColor: colors.surface,
                             paddingHorizontal: 10,
                             paddingVertical: 4,
+                            maxWidth: '100%',
+                            flexShrink: 1,
                           }}
                         >
-                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
                             ✏️ Modificar ítems (Quitar / Agregar)
                           </Text>
                         </TouchableOpacity>
@@ -3755,6 +3768,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                               ? colors.accent
                               : colors.brand,
                           gap: 6,
+                          width: '100%',
+                          maxWidth: '100%',
+                          minWidth: 0,
                         }}
                       >
                         {/* Cabecera desplegable del bloque con botones rápidos de Copiar y Configurar/Editar */}
@@ -3829,19 +3845,21 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                         {metodoPagoAbierto ? (
                           <>
                         {/* Fila de Chips de Métodos de Pago y Condiciones */}
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, width: '100%', maxWidth: '100%', minWidth: 0 }}>
                           {c.condicionesPago ? (
                             <View
                               style={{
                                 backgroundColor: colors.infoSoftBg,
                                 borderWidth: 1,
                                 borderColor: colors.infoSoftBorder,
-                                borderRadius: radius.pill,
+                                borderRadius: radius.sm,
                                 paddingHorizontal: 8,
                                 paddingVertical: 2,
+                                maxWidth: '100%',
+                                flexShrink: 1,
                               }}
                             >
-                              <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>
+                              <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800', flexShrink: 1 }}>
                                 ⏱️ {c.condicionesPago}
                               </Text>
                             </View>
@@ -3856,9 +3874,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                                 borderRadius: radius.pill,
                                 paddingHorizontal: 8,
                                 paddingVertical: 2,
+                                maxWidth: '100%',
+                                flexShrink: 1,
                               }}
                             >
-                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', flexShrink: 1 }}>
                                 {met}
                               </Text>
                             </View>
@@ -3896,7 +3916,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                                 style={{
                                   flexGrow: 1,
                                   flexBasis: 220,
-                                  minWidth: 200,
+                                  minWidth: 150,
+                                  maxWidth: '100%',
                                   backgroundColor: colors.surface,
                                   borderWidth: 1,
                                   borderColor: colors.border,
@@ -3941,7 +3962,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                                 style={{
                                   flexGrow: 1,
                                   flexBasis: 210,
-                                  minWidth: 190,
+                                  minWidth: 150,
+                                  maxWidth: '100%',
                                   backgroundColor: colors.surface,
                                   borderWidth: 1,
                                   borderColor: colors.border,
@@ -3979,7 +4001,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                                 style={{
                                   flexGrow: 1,
                                   flexBasis: 210,
-                                  minWidth: 190,
+                                  minWidth: 150,
+                                  maxWidth: '100%',
                                   backgroundColor: colors.surface,
                                   borderWidth: 1,
                                   borderColor: colors.border,
@@ -4172,9 +4195,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           justifyContent: 'space-between',
                           flexWrap: 'wrap',
                           gap: 8,
+                          width: '100%',
+                          maxWidth: '100%',
+                          minWidth: 0,
                         }}
                       >
-                        <View style={{ flex: 1, minWidth: 190 }}>
+                        <View style={{ flex: 1, minWidth: 150 }}>
                           <Text
                             style={{
                               color: usaTasaDeEseDia(c.id) ? colors.warningSoftText : colors.successSoftText,
@@ -4198,11 +4224,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                           style={{
                             paddingVertical: 7,
                             paddingHorizontal: 12,
-                            borderRadius: radius.pill,
+                            borderRadius: radius.sm,
                             backgroundColor: usaTasaDeEseDia(c.id) ? '#D97706' : '#059669',
+                            maxWidth: '100%',
+                            flexShrink: 1,
                           }}
                         >
-                          <Text style={{ color: '#FFFFFF', fontSize: 11.5, fontWeight: '900' }}>
+                          <Text style={{ color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', flexShrink: 1 }}>
                             {usaTasaDeEseDia(c.id)
                               ? '💱 USAR TASA DEL DÍA DE HOY'
                               : '📅 QUIERO LA TASA DE ESE DÍA'}
@@ -4274,7 +4302,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>
                         📄 PRESUPUESTOS Y COTIZACIONES ADJUNTAS ({todosPres.length})
                       </Text>
-                      <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', width: '100%', maxWidth: '100%', minWidth: 0 }}>
                         {todosPres.map((p, idx) => (
                           <TouchableOpacity
                             key={`pres-${idx}-${p.url}`}
@@ -4289,10 +4317,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                               flexDirection: 'row',
                               alignItems: 'center',
                               gap: 5,
+                              maxWidth: '100%',
+                              flexShrink: 1,
                             }}
                           >
                             <Text style={{ fontSize: 12 }}>{p.kind === 'pdf' ? '📄' : '🖼️'}</Text>
-                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, flexShrink: 1 }}>
                               {p.name || `Presupuesto #${idx + 1}`}
                             </Text>
                           </TouchableOpacity>
@@ -4334,14 +4364,14 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
                   if (listaFacturas.length === 0 && listaComprobantes.length === 0) return null;
                   return (
-                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap', width: '100%', maxWidth: '100%', minWidth: 0 }}>
                       {listaFacturas.map((f, idx) => (
                         <TouchableOpacity
                           key={`fac-${idx}-${f.url}`}
                           onPress={() => Linking.openURL(f.url)}
-                          style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                          style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, maxWidth: '100%', flexShrink: 1 }}
                         >
-                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, flexShrink: 1 }}>
                             🧾 Ver factura {listaFacturas.length > 1 ? `#${idx + 1}` : ''}{f.nombre ? ` (${f.nombre})` : ''}
                           </Text>
                         </TouchableOpacity>
@@ -4350,9 +4380,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                         <TouchableOpacity
                           key={`comp-${idx}-${p.url}`}
                           onPress={() => Linking.openURL(p.url)}
-                          style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                          style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, maxWidth: '100%', flexShrink: 1 }}
                         >
-                          <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>
+                          <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12, flexShrink: 1 }}>
                             💳 Ver comprobante {listaComprobantes.length > 1 ? `#${idx + 1}` : ''}{p.nombre ? ` (${p.nombre})` : ''}
                           </Text>
                         </TouchableOpacity>

@@ -120,8 +120,8 @@ function groupByCompany<T extends { company_id: string | null }>(items: T[], nam
 /** Etiqueta de estado (badge Soft): fondo tenue + borde + texto legible. */
 function Pill({ label, bg, border, text }: { label: string; bg: string; border: string; text: string }) {
   return (
-    <View style={{ backgroundColor: bg, borderWidth: 1, borderColor: border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start' }}>
-      <Text style={{ color: text, fontSize: 12, fontWeight: '800' }}>{label}</Text>
+    <View style={{ backgroundColor: bg, borderWidth: 1, borderColor: border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start', maxWidth: '100%', flexShrink: 1 }}>
+      <Text style={{ color: text, fontSize: 12, fontWeight: '800', flexShrink: 1 }}>{label}</Text>
     </View>
   );
 }
@@ -2178,7 +2178,7 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               </TouchableOpacity>
             ) : null}
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
           <ExpandableCard
             key={h.id}
             summary={
@@ -2285,10 +2285,11 @@ export default function ComprasScreen() {
           style={{
             flexDirection: 'row',
             flexWrap: 'wrap',
-            paddingHorizontal: isPhone ? spacing.xs : spacing.sm,
-            paddingVertical: isPhone ? 6 : spacing.sm,
-            gap: isPhone ? 6 : spacing.sm,
+            paddingHorizontal: isPhone ? 6 : spacing.sm,
+            paddingVertical: isPhone ? 4 : spacing.sm,
+            gap: isPhone ? 4 : spacing.sm,
             width: '100%',
+            maxWidth: '100%',
           }}
         >
           {TABS.map((t) => {
@@ -2301,9 +2302,9 @@ export default function ComprasScreen() {
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  gap: isPhone ? 4 : 6,
-                  paddingHorizontal: isPhone ? 10 : spacing.md,
-                  paddingVertical: isPhone ? 5 : spacing.sm,
+                  gap: isPhone ? 3 : 6,
+                  paddingHorizontal: isPhone ? 7 : spacing.md,
+                  paddingVertical: isPhone ? 3 : spacing.sm,
                   borderRadius: radius.pill,
                   borderWidth: 1,
                   borderColor: on ? colors.brand : colors.border,
@@ -2311,8 +2312,8 @@ export default function ComprasScreen() {
                   maxWidth: '100%',
                 }}
               >
-                <Text style={{ fontSize: isPhone ? 13 : 15 }}>{t.icon}</Text>
-                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: isPhone ? 11.5 : 13 }}>{t.label}</Text>
+                <Text style={{ fontSize: isPhone ? 11.5 : 15 }}>{t.icon}</Text>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: isPhone ? 10.5 : 13 }}>{t.label}</Text>
               </TouchableOpacity>
             );
           })}

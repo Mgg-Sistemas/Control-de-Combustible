@@ -1715,7 +1715,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   flexWrap: 'wrap',
                 }}
               >
-                <View style={{ flex: 1, minWidth: 200 }}>
+                <View style={{ flex: 1, minWidth: 150 }}>
                   <Text style={{ fontWeight: '900', fontSize: 15, color: colors.text }}>
                     {r.code} · {r.items.length === 1 ? primerItem?.name : (r.items.map((it) => it.name).filter(Boolean).join(', ') || `Solicitud Multi-Ítem (${r.items.length} Renglones)`)}
                   </Text>
@@ -1724,7 +1724,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   ) : null}
                 </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%', flexShrink: 1 }}>
                   {yaConvertida ? (
                     <View
                       style={{
@@ -1734,9 +1734,11 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                         borderRadius: radius.pill,
                         borderWidth: 1,
                         borderColor: '#2563EB',
+                        maxWidth: '100%',
+                        flexShrink: 1,
                       }}
                     >
-                      <Text style={{ color: '#1E40AF', fontWeight: '800', fontSize: 10.5 }} numberOfLines={1}>
+                      <Text style={{ color: '#1E40AF', fontWeight: '800', fontSize: 10.5, flexShrink: 1 }} numberOfLines={1}>
                         🔄 Convertida en Requerimiento
                       </Text>
                     </View>
@@ -1749,9 +1751,11 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                         borderRadius: radius.pill,
                         borderWidth: 1,
                         borderColor: '#D97706',
+                        maxWidth: '100%',
+                        flexShrink: 1,
                       }}
                     >
-                      <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 10.5 }} numberOfLines={1}>
+                      <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 10.5, flexShrink: 1 }} numberOfLines={1}>
                         📥 Solicitud (Sin convertir a Req.)
                       </Text>
                     </View>
@@ -1765,10 +1769,11 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                       borderRadius: radius.pill,
                       borderWidth: 1,
                       borderColor: est.color + '40',
-                      maxWidth: 240,
+                      maxWidth: '100%',
+                      flexShrink: 1,
                     }}
                   >
-                    <Text style={{ color: est.color, fontWeight: '800', fontSize: 11 }} numberOfLines={1}>
+                    <Text style={{ color: est.color, fontWeight: '800', fontSize: 11, flexShrink: 1 }} numberOfLines={1}>
                       {/* La etiqueta de `calcularEstadoRequerimiento` ya trae su icono: no se repite. */}
                       {est.label.startsWith(est.icon) ? est.label : `${est.icon} ${est.label}`}
                     </Text>

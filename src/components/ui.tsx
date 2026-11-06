@@ -107,8 +107,8 @@ export function Screen({
       {Watermark}
       <ScrollView
         ref={setScrollRef}
-        style={{ flex: 1, backgroundColor: scrollBg }}
-        contentContainerStyle={{ padding: spacing.md, gap: spacing.md, paddingBottom: 64 }}
+        style={{ flex: 1, width: '100%', maxWidth: '100%', backgroundColor: scrollBg }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md, paddingBottom: 64, width: '100%', maxWidth: '100%' }}
         scrollEventThrottle={16}
         onScroll={(e) => {
           const y = e.nativeEvent.contentOffset.y;
@@ -169,6 +169,9 @@ export function Card({
           borderWidth: 1,
           borderColor: colors.border,
           gap: spacing.xs,
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
         },
         style,
       ]}
@@ -254,9 +257,9 @@ export function ExpandableCard({
   const hasDetail = !!detail;
   return (
     <Card style={style}>
-      <TouchableOpacity activeOpacity={hasDetail ? 0.7 : 1} onPress={() => hasDetail && handleToggle()}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          <View style={{ flex: 1, minWidth: 0 }}>{summary}</View>
+      <TouchableOpacity activeOpacity={hasDetail ? 0.7 : 1} onPress={() => hasDetail && handleToggle()} style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, width: '100%', maxWidth: '100%', minWidth: 0 }}>
+          <View style={{ flex: 1, minWidth: 0, maxWidth: '100%' }}>{summary}</View>
           {hasDetail ? (
             <View
               style={{
@@ -279,7 +282,7 @@ export function ExpandableCard({
         </View>
       </TouchableOpacity>
       {hasDetail && open ? (
-        <View style={{ marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+        <View style={{ marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, width: '100%', maxWidth: '100%', minWidth: 0 }}>
           {detail}
         </View>
       ) : null}
@@ -397,7 +400,7 @@ export function Badge({
       : colors.muted;
   return (
     <View style={[styles.badge, { borderColor: toneColor }]}>
-      <Text style={{ color: toneColor, fontSize: 12, fontWeight: '600' }}>{label}</Text>
+      <Text style={{ color: toneColor, fontSize: 12, fontWeight: '600', flexShrink: 1 }}>{label}</Text>
     </View>
   );
 }
@@ -409,6 +412,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     alignSelf: 'flex-start',
+    maxWidth: '100%',
+    flexShrink: 1,
   },
 });
 

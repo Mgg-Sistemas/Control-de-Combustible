@@ -69,7 +69,7 @@ export function DesgloseProveedoresCxp(props: {
   };
 
   return (
-    <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+    <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface, width: '100%', maxWidth: '100%', minWidth: 0 }}>
       {props.onToggleTasaDeEseDia ? (
         <TouchableOpacity
           onPress={props.onToggleTasaDeEseDia}
@@ -83,10 +83,13 @@ export function DesgloseProveedoresCxp(props: {
             borderColor: usarEseDia ? '#F59E0B' : '#16A34A',
             backgroundColor: usarEseDia ? 'rgba(245, 158, 11, 0.14)' : 'rgba(22, 163, 74, 0.14)',
             gap: 4,
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0,
           }}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-            <Text style={{ color: usarEseDia ? '#F59E0B' : '#16A34A', fontSize: 12.5, fontWeight: '900' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, width: '100%', maxWidth: '100%', minWidth: 0 }}>
+            <Text style={{ color: usarEseDia ? '#F59E0B' : '#16A34A', fontSize: 12.5, fontWeight: '900', flexShrink: 1 }}>
               {usarEseDia
                 ? `📅 USANDO LA TASA DE ESE DÍA (DEL REQUERIMIENTO${props.tasaDeEseDia ? ` · Bs ${money(props.tasaDeEseDia)}/$` : ''})`
                 : `💱 ACTUALIZADO A LA TASA DEL DÍA DE HOY${props.rate ? ` (BCV: Bs ${money(props.rate)}/$)` : ''}`}
@@ -96,17 +99,19 @@ export function DesgloseProveedoresCxp(props: {
                 backgroundColor: usarEseDia ? '#F59E0B' : '#16A34A',
                 paddingHorizontal: 10,
                 paddingVertical: 4,
-                borderRadius: radius.pill,
+                borderRadius: radius.sm,
+                maxWidth: '100%',
+                flexShrink: 1,
               }}
             >
-              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '900' }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
                 {usarEseDia
                   ? '💱 VOLVER A ACTUALIZAR A LA TASA DEL DÍA DE HOY'
                   : `📅 ¿QUIERES LA TASA DE ESE DÍA? TOCA AQUÍ${totalBsEseDia > 0 ? ` (Bs ${money(totalBsEseDia)})` : ''}`}
               </Text>
             </View>
           </View>
-          <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
+          <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800', flexShrink: 1 }}>
             {usarEseDia
               ? `Viendo Bs de ese día: Bs ${money(totalBsActual)}${props.rate ? ` · Toca este botón enorme para volver a actualizar a la tasa BCV de hoy (Bs ${money(props.montoBsHoy || totalUsd * props.rate)}).` : ''}`
               : `Total en Bs actualizado a hoy: Bs ${money(totalBsActual)}${totalBsEseDia > 0 ? ` · Si quieres ver y pagar con la tasa de ese día (Bs ${money(totalBsEseDia)}), toca este botón enorme.` : ''}`}
@@ -114,15 +119,15 @@ export function DesgloseProveedoresCxp(props: {
         </TouchableOpacity>
       ) : null}
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, width: '100%', maxWidth: '100%', minWidth: 0 }}>
         <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '900', flexShrink: 1 }}>
           {varios
             ? `💳 DESGLOSE POR PROVEEDOR · ${grupos.length} proveedores · cuánto pagarle a cada uno`
             : '💳 PRODUCTOS DE ESTE PAGO'}
         </Text>
         <TouchableOpacity onPress={() => void verPdf()} disabled={generando}
-          style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4, opacity: generando ? 0.5 : 1 }}>
-          <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 11.5 }}>
+          style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4, opacity: generando ? 0.5 : 1, maxWidth: '100%', flexShrink: 1 }}>
+          <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 11.5, flexShrink: 1 }}>
             {generando ? 'Generando…' : `📄 Ver / descargar PDF${props.req.code ? ` (${props.req.code})` : ''}`}
           </Text>
         </TouchableOpacity>
@@ -135,7 +140,7 @@ export function DesgloseProveedoresCxp(props: {
         return (
           <View key={k} style={{ marginTop: spacing.xs, borderTopWidth: gi === 0 ? 0 : 1, borderTopColor: colors.border, paddingTop: gi === 0 ? 0 : spacing.xs }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
-              <View style={{ flex: 1, minWidth: 200 }}>
+              <View style={{ flex: 1, minWidth: 150 }}>
                 <Text selectable style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>🏭 {g.proveedor}</Text>
                 <TouchableOpacity
                   onPress={() => setPagosAbiertos((p) => ({ ...p, [k]: !pagoAbierto }))}
