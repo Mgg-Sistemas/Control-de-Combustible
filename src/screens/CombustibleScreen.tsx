@@ -50,9 +50,9 @@ export default function CombustibleScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      {/* Barra de sub-pestañas (arriba, fija) */}
+      {/* Barra de sub-pestañas (arriba, envuelve en teléfono para no recortar opciones) */}
       <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, gap: spacing.sm }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.xs, paddingVertical: 6, gap: 6, width: '100%' }}>
           {tabs.map((t) => {
             const on = t.key === active;
             return (
@@ -60,14 +60,14 @@ export default function CombustibleScreen() {
                 key={t.key}
                 onPress={() => setActive(t.key)}
                 activeOpacity={0.7}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, maxWidth: '100%' }}
               >
-                <Text style={{ fontSize: 15 }}>{t.icon}</Text>
-                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
+                <Text style={{ fontSize: 14 }}>{t.icon}</Text>
+                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t.label}</Text>
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
 
       {/* Contenido de la sub-pestaña activa (cada pantalla trae su propio scroll) */}

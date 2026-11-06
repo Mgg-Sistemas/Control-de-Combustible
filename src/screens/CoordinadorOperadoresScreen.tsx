@@ -599,22 +599,22 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
         })}
       </View>
 
-      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
-        <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md, flexWrap: 'wrap' }}>
+        <View style={{ flex: 1, minWidth: 95, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
           <Text style={{ color: colors.success, fontSize: 18, fontWeight: '900' }}>{daySets.activeNowSet.size}</Text>
           <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>Activas</Text>
         </View>
-        <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+        <View style={{ flex: 1, minWidth: 95, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
           <Text style={{ color: colors.warning, fontSize: 18, fontWeight: '900' }}>{sinAsignarRows.length}</Text>
           <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>Sin asignar</Text>
         </View>
-        <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+        <View style={{ flex: 1, minWidth: 95, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
           <Text style={{ color: colors.danger, fontSize: 18, fontWeight: '900' }}>{mismatchRows.length}</Text>
           <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>No coincide</Text>
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }} contentContainerStyle={{ gap: spacing.xs }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.md }}>
         {([
           { key: 'maquinas', label: `🚜 Máquinas (${universeRows.length})` },
           { key: 'operadores', label: `👷 Operadores (${operators.length})` },
@@ -628,7 +628,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
 
       {(tab === 'maquinas' || tab === 'sinasignar') ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
@@ -756,8 +756,8 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
 
                   <View style={{ paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
                     {current ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
-                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>Planeado ahora: 👷 {current.operator_name}{current.assignedByName ? ` · por ${current.assignedByName}` : ''}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1, minWidth: 160 }} numberOfLines={1}>Planeado ahora: 👷 {current.operator_name}{current.assignedByName ? ` · por ${current.assignedByName}` : ''}</Text>
                         {current.employee_id && navigation?.navigate ? (
                           // OJO: no cerrar el modal (setAssignFor(null)) acá — se
                           // oculta solo por `isFocused` y vuelve a aparecer con todo

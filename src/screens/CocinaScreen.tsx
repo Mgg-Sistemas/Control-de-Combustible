@@ -549,9 +549,9 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       {/* Tarjetas de conteo del día por comida (todas las personas). Suben en vivo. */}
       <Card>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>🍽️ Repartidas hoy (personas)</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
           {MEALS.map((m) => (
-            <View key={m.key} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <View key={m.key} style={{ flex: 1, minWidth: 85, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
               <Text style={{ fontSize: 18 }}>{m.icon}</Text>
               <Text style={{ color: m.color, fontSize: 20, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{dayCounts[m.key] || 0}</Text>
               <Text style={{ color: colors.muted, fontSize: 10 }}>{m.label}</Text>
@@ -625,14 +625,14 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
             <>
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Elige la comida que se está sirviendo. Cada carnet escaneado registra esa comida (solo puede pasar una vez por comida).</Text>
               {/* Selector de la comida que se está sirviendo ahora. */}
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                 {MEALS.map((mt) => {
                   const active = serving === mt.key;
                   return (
                     <TouchableOpacity
                       key={mt.key}
                       onPress={() => setServing(mt.key)}
-                      style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: active ? mt.color : colors.surface, borderWidth: 1, borderColor: active ? mt.color : colors.border }}
+                      style={{ flex: 1, minWidth: 85, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: active ? mt.color : colors.surface, borderWidth: 1, borderColor: active ? mt.color : colors.border }}
                     >
                       <Text style={{ color: active ? '#fff' : colors.text, fontWeight: '800', fontSize: 13 }}>{mt.icon} {mt.label}</Text>
                     </TouchableOpacity>

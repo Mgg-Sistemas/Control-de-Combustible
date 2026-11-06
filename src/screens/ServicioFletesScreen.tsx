@@ -775,7 +775,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               Control integral de fletes por pagar (a fleteros/choferes), por cobrar (a clientes/obras) y exentos (sin cobro ni pago), por camión o flete individual en PDF.
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
             <TouchableOpacity
               onPress={imprimirReporteConsolidado}
               disabled={pdfBusy || filteredFletes.length === 0}
@@ -953,11 +953,12 @@ export default function ServicioFletesScreen({ navigation }: any) {
 
           {/* Selector de Estado (un exento no tiene estado: con «Exentos» se esconde) */}
           {filterTipo !== 'exento' && (
-          <View style={{ flexDirection: 'row', gap: 6 }}>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
             <TouchableOpacity
               onPress={() => setFilterEstado('todos')}
               style={{
                 flex: 1,
+                minWidth: 95,
                 paddingVertical: 6,
                 alignItems: 'center',
                 borderRadius: radius.md,
@@ -975,6 +976,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               onPress={() => setFilterEstado('pendiente')}
               style={{
                 flex: 1,
+                minWidth: 95,
                 paddingVertical: 6,
                 alignItems: 'center',
                 borderRadius: radius.md,
@@ -992,6 +994,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               onPress={() => setFilterEstado('completado')}
               style={{
                 flex: 1,
+                minWidth: 95,
                 paddingVertical: 6,
                 alignItems: 'center',
                 borderRadius: radius.md,
@@ -1008,12 +1011,12 @@ export default function ServicioFletesScreen({ navigation }: any) {
           )}
 
           {/* Fechas */}
-          <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-            <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', flexWrap: 'wrap' }}>
+            <View style={{ flex: 1, minWidth: 120 }}>
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 2 }}>Desde</Text>
               <DateField value={dateFrom} onChange={(v) => v && setDateFrom(v)} />
             </View>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, minWidth: 120 }}>
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 2 }}>Hasta</Text>
               <DateField value={dateTo} onChange={(v) => v && setDateTo(v)} />
             </View>
@@ -1030,7 +1033,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
             {/* Empresa */}
             <View style={{ flex: 1, minWidth: 150 }}>
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 2 }}>Empresa Contratista</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 6 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                 <TouchableOpacity
                   onPress={() => setSelectedCompanyId('__all__')}
                   style={{
@@ -1040,7 +1043,6 @@ export default function ServicioFletesScreen({ navigation }: any) {
                     backgroundColor: selectedCompanyId === '__all__' ? colors.brand : colors.surfaceAlt,
                     borderWidth: 1,
                     borderColor: selectedCompanyId === '__all__' ? colors.brand : colors.border,
-                    marginRight: 6,
                   }}
                 >
                   <Text style={{ color: selectedCompanyId === '__all__' ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>
@@ -1058,7 +1060,6 @@ export default function ServicioFletesScreen({ navigation }: any) {
                       backgroundColor: selectedCompanyId === c.id ? colors.brand : colors.surfaceAlt,
                       borderWidth: 1,
                       borderColor: selectedCompanyId === c.id ? colors.brand : colors.border,
-                      marginRight: 6,
                     }}
                   >
                     <Text style={{ color: selectedCompanyId === c.id ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>
@@ -1066,7 +1067,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
             </View>
           </View>
 
@@ -1154,8 +1155,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
                     }}
                   >
                     {/* Header de la tarjeta */}
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 6 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
                         <View style={{ backgroundColor: esExento ? EXENTO_BG : esCobro ? '#ECFDF5' : '#EFF6FF', paddingVertical: 2, paddingHorizontal: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: tipoColor }}>
                           <Text style={{ color: tipoColor, fontWeight: '800', fontSize: 11 }}>
                             {esExento ? '🚫 EXENTO' : esCobro ? '💰 POR COBRAR' : '💸 POR PAGAR'}
@@ -1252,7 +1253,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                     )}
 
                     {/* Acciones */}
-                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.xs, marginTop: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
                       <TouchableOpacity
                         disabled={pdfBusy}
                         onPress={() => imprimirComprobante(f)}
@@ -1550,7 +1551,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
                 🏢 Empresa Contratista / Proveedor (*)
               </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm }}>
                 {companies.map((c) => (
                   <TouchableOpacity
                     key={c.id}
@@ -1568,7 +1569,6 @@ export default function ServicioFletesScreen({ navigation }: any) {
                       backgroundColor: formCompanyId === c.id ? colors.brand : colors.surfaceAlt,
                       borderWidth: 1,
                       borderColor: formCompanyId === c.id ? colors.brand : colors.border,
-                      marginRight: 6,
                     }}
                   >
                     <Text style={{ color: formCompanyId === c.id ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>
@@ -1576,7 +1576,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
 
               {/* Selector Camión con Placa */}
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>🚜 Camión / Maquinaria</Text>
@@ -1848,7 +1848,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>
                 🏢 Empresa Contratista / Proveedora *
               </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
                 {companies.map((c) => (
                   <TouchableOpacity
                     key={c.id}
@@ -1860,7 +1860,6 @@ export default function ServicioFletesScreen({ navigation }: any) {
                       backgroundColor: importCompanyId === c.id ? colors.brand : colors.surfaceAlt,
                       borderWidth: 1,
                       borderColor: importCompanyId === c.id ? colors.brand : colors.border,
-                      marginRight: 6,
                     }}
                   >
                     <Text style={{ color: importCompanyId === c.id ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
@@ -1868,7 +1867,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
 
               {/* Tipo de Operación (Por Pagar / Por Cobrar / Exento) */}
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>

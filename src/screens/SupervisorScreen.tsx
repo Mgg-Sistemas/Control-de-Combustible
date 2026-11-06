@@ -3716,7 +3716,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   );
                 })}
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs, flexWrap: 'wrap' }}>
                 <TouchableOpacity
                   onPress={() => setPendSelected((prev) => (prev.size === pendientesList.length ? new Set() : new Set(pendientesList.map((m) => m.id))))}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
@@ -3725,7 +3725,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todas</Text>
                 </TouchableOpacity>
                 {pendSelected.size > 0 ? (
-                  <TouchableOpacity onPress={() => setPendBatchOpen(true)} style={{ flex: 1, alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.pill, paddingVertical: 6 }}>
+                  <TouchableOpacity onPress={() => setPendBatchOpen(true)} style={{ flex: 1, minWidth: 150, alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.pill, paddingVertical: 6 }}>
                     <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📋 Asignar {pendSelected.size} seleccionada(s)…</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -3957,8 +3957,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     const busy = assignBusy === af.id + sh;
                     return (
                       <View key={sh} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, backgroundColor: colors.surface }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
-                          <View style={{ flex: 1, minWidth: 0 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap' }}>
+                          <View style={{ flex: 1, minWidth: 130 }}>
                             <Text style={{ color: colors.text, fontWeight: '800' }}>{shiftIcon(sh)} {shiftLabel(sh)}</Text>
                             <Text numberOfLines={1} style={{ color: cur ? colors.primary : colors.muted, fontWeight: '700', fontSize: 13, marginTop: 2 }}>
                               {busy ? '⏳ Guardando…' : cur ? cur.name : 'Sin asignar'}

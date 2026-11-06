@@ -703,7 +703,7 @@ export default function FuelDriverScreen() {
                 {/* Qué se le va a surtir a la máquina: Combustible / Aceite / Aire. */}
                 <View>
                   <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>¿Qué vas a surtir?</Text>
-                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
                     {SURTIDO_TIPOS.map((t) => {
                       const on = surtidoTipo === t.key;
                       return (
@@ -719,7 +719,7 @@ export default function FuelDriverScreen() {
                             setServiceNote('');
                             setResult(null);
                           }}
-                          style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+                          style={{ flex: 1, minWidth: 90, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
                         >
                           <Text style={{ fontSize: 22 }}>{t.icon}</Text>
                           <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', marginTop: 2, fontSize: 12.5 }}>{t.label}</Text>
@@ -731,9 +731,9 @@ export default function FuelDriverScreen() {
 
                 {/* SECTOR y PARROQUIA — SOLO LECTURA */}
                 <Card>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm }}>
                     <Text style={{ color: colors.muted }}>Sector</Text>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', flex: 1, textAlign: 'right' }}>
                       {showVal(selected.sector)}
                     </Text>
                   </View>
@@ -741,11 +741,12 @@ export default function FuelDriverScreen() {
                     style={{
                       flexDirection: 'row',
                       justifyContent: 'space-between',
+                      gap: spacing.sm,
                       marginTop: spacing.xs,
                     }}
                   >
                     <Text style={{ color: colors.muted }}>Parroquia</Text>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', flex: 1, textAlign: 'right' }}>
                       {showVal(selected.parroquia)}
                     </Text>
                   </View>

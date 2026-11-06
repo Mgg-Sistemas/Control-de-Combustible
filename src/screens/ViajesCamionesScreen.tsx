@@ -4191,7 +4191,7 @@ export default function ViajesCamionesScreen() {
     const impresiones = vecesImpreso(row);
     return (
       <View key={row.id} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
           {/* ⭐ LA PLACA VA EN EL TÍTULO, PEGADA AL CÓDIGO (20-oct-2026, a pedido:
               «que les salga la placa de la maquinaria»). Treinta camiones se
               llaman todos «CAMION VOLTEO TORONTO»: con el código solo, el
@@ -4424,7 +4424,7 @@ export default function ViajesCamionesScreen() {
                 {listeros.length > 0 ? (
                   <View>
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>LO REGISTRÓ</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                       {listeros.map((l) => {
                         const activo = editing.listeroId === l.id;
                         return (
@@ -4443,13 +4443,13 @@ export default function ViajesCamionesScreen() {
                           </TouchableOpacity>
                         );
                       })}
-                    </ScrollView>
+                    </View>
                   </View>
                 ) : null}
                 {obras.length > 0 ? (
                   <View>
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>CDT / UBICACIÓN DE ESTE VIAJE</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                       {cdtsParaElegir(obras, editing.ubicacionId).map((o) => {
                         const activo = editing.ubicacionId === o.id;
                         return (
@@ -4468,7 +4468,7 @@ export default function ViajesCamionesScreen() {
                           </TouchableOpacity>
                         );
                       })}
-                    </ScrollView>
+                    </View>
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
                       {editing.ubicacionId ? 'Solo cambia este viaje; con el CDT cambia la zona con la que se paga.' : 'Este viaje no tiene CDT: elige a dónde fue.'}
                     </Text>
@@ -4486,7 +4486,7 @@ export default function ViajesCamionesScreen() {
             </View>
           </View>
         ) : (
-          <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
+          <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs, flexWrap: 'wrap' }}>
             {opts.canEdit ? (
               <TouchableOpacity onPress={() => startEdit(row)}>
                 <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12.5 }}>
@@ -5145,8 +5145,8 @@ export default function ViajesCamionesScreen() {
             />
 
             {/* Barra de selección masiva */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs, marginBottom: spacing.xs }}>
-              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs, marginBottom: spacing.xs }}>
+              <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
                 <TouchableOpacity
                   disabled={masivoBusy || masivoFilteredTrucks.length === 0}
                   onPress={seleccionarTodosMasivo}
@@ -5619,7 +5619,7 @@ export default function ViajesCamionesScreen() {
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
                   A NOMBRE DE (por defecto, tú)
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                   {[{ id: '', full_name: `Yo (${listeroName})` }, ...listeros.filter((l) => l.id !== uid)].map((l) => {
                     const activo = cargaListeroId === l.id;
                     return (
@@ -5638,7 +5638,7 @@ export default function ViajesCamionesScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </View>
               </>
             ) : null}
 
@@ -5647,7 +5647,7 @@ export default function ViajesCamionesScreen() {
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
                   CDT / UBICACIÓN (por defecto, el del listero)
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                   {[{ id: '', nombre: 'El del listero', zona_pago: null, active: true } as UbicacionObra, ...cdtsParaElegir(obras, cargaUbicacionId)].map((o) => {
                     const activo = cargaUbicacionId === o.id;
                     return (
@@ -5666,7 +5666,7 @@ export default function ViajesCamionesScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </View>
               </>
             ) : null}
 
@@ -5678,7 +5678,7 @@ export default function ViajesCamionesScreen() {
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
                   ⛏️ FRENTE DE TRABAJO (de dónde recogió)
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                   {[{ id: null as string | null, nombre: 'Sin frente' }, ...frentesActivos].map((f) => {
                     const activo = cargaFrenteId === f.id;
                     return (
@@ -5697,7 +5697,7 @@ export default function ViajesCamionesScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </View>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
                   Si ese día el camión tenía frente asignado, ya viene marcado; lo que toques manda.
                 </Text>
@@ -5714,7 +5714,7 @@ export default function ViajesCamionesScreen() {
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
                   🧾 TARIFA DEL VIAJE
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                   {[{ id: null as string | null, nombre: 'Tarifa general', tarifaUsd: null as number | null, unidad: 'viaje' as UnidadTarifaViaje }, ...tiposActivos].map((t) => {
                     const activo = cargaTipoId === t.id;
                     return (
@@ -5733,7 +5733,7 @@ export default function ViajesCamionesScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </View>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
                   {cargaTipoId
                     ? 'El viaje queda con ESA tarifa congelada, pase lo que pase con las tarifas después.'
@@ -6557,7 +6557,7 @@ export default function ViajesCamionesScreen() {
                 el campo. Mismas pastillas que el peso bruto del registro. */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
               {!ocultarTaraEnPantalla ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
                   <Text style={{ color: colors.muted, fontSize: 11 }}>Escribo la tara en:</Text>
                   {UNIDADES_PESO.map((u) => (
                     <TouchableOpacity
@@ -6776,8 +6776,8 @@ export default function ViajesCamionesScreen() {
                 {tipos.length === 0 ? <Text style={{ color: colors.muted }}>Todavía no hay tipos creados.</Text> : null}
                 {tipos.map((t) => (
                   <View key={t.id} style={{ paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border, opacity: t.activo ? 1 : 0.55 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                      <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+                      <View style={{ flex: 1, minWidth: 150 }}>
                         <Text style={{ color: colors.text, fontWeight: '700' }}>🧾 {t.nombre}</Text>
                         <Text style={{ color: t.activo && t.tarifaUsd == null ? '#92400E' : colors.muted, fontSize: 11 }}>
                           {t.tarifaUsd != null ? `$${t.tarifaUsd} ${unidadTexto(t.unidad)}` : '⚠️ sin tarifa: sus viajes salen «tipo sin tarifa» en el pago'}

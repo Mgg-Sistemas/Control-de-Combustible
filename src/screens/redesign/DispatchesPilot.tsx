@@ -357,8 +357,8 @@ export default function DispatchesPilot() {
                     gap: spacing.xs,
                   }}
                 >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
-                    <Text style={{ color: '#B91C1C', fontWeight: '900', fontSize: 13, flexShrink: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs, width: '100%' }}>
+                    <Text style={{ color: '#B91C1C', fontWeight: '900', fontSize: 13, flexShrink: 1, minWidth: 180 }}>
                       ⚠️ {sinTanque} consumo(s) no tienen Tanque de Origen asignado
                     </Text>
                     <Pressable
@@ -373,10 +373,12 @@ export default function DispatchesPilot() {
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 6,
+                        maxWidth: '100%',
+                        flexShrink: 1,
                       }}
                     >
                       {autoAssigning ? <ActivityIndicator size="small" color="#fff" /> : null}
-                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12, flexShrink: 1 }}>
                         {autoAssigning ? 'Asignando tanques…' : '⚡ Auto-asignar tanques por Conductor'}
                       </Text>
                     </Pressable>
@@ -392,6 +394,8 @@ export default function DispatchesPilot() {
                         paddingVertical: 7,
                         borderRadius: radius.pill,
                         opacity: autoAssigning ? 0.6 : 1,
+                        maxWidth: '100%',
+                        flexShrink: 1,
                       }}
                     >
                       <Text style={{ color: '#B91C1C', fontWeight: '800', fontSize: 12 }}>🗂️ Asignar sin descontar (registros viejos)</Text>

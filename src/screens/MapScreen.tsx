@@ -690,8 +690,8 @@ export default function MapScreen({ navigation, route }: any) {
       {/* Banner de enfoque: viendo solo una máquina · volver a todas. */}
       {focus ? (
         <TouchableOpacity onPress={() => setFocus(null)} activeOpacity={0.8}>
-          <Card style={{ borderColor: colors.brand, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }}>🔎 Viendo solo: {focus.code}</Text>
+          <Card style={{ borderColor: colors.brand, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ color: colors.text, fontWeight: '700', flex: 1, minWidth: 150 }}>🔎 Viendo solo: {focus.code}</Text>
             <Text style={{ color: colors.brandText, fontWeight: '800' }}>← Ver todas las ubicaciones</Text>
           </Card>
         </TouchableOpacity>
@@ -740,9 +740,9 @@ export default function MapScreen({ navigation, route }: any) {
           {/* Leyenda por empresa — FUERA del mapa (filtra el mapa al tocar). */}
           {!focus ? (
             <Card>
-              <TouchableOpacity onPress={() => setLegendOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <TouchableOpacity onPress={() => setLegendOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>🎨 Máquinas por empresa</Text>
-                <Text style={{ color: colors.brandText, fontWeight: '800' }}>{selectedCompany ? selectedCompany : 'Todas'}  {legendOpen ? '▲' : '▼'}</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800', flexShrink: 1 }}>{selectedCompany ? selectedCompany : 'Todas'}  {legendOpen ? '▲' : '▼'}</Text>
               </TouchableOpacity>
               {legendOpen ? (
                 <View style={{ marginTop: spacing.sm }}>
@@ -895,8 +895,8 @@ export default function MapScreen({ navigation, route }: any) {
           return (
             <TouchableOpacity key={t.id} activeOpacity={0.7} onPress={() => focusMachine(t)}>
               <Card style={focused ? { borderColor: colors.brand, borderWidth: 1 } : undefined}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: colors.text, fontWeight: '700' }}>📍 {t.code}</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', flexShrink: 1 }}>📍 {t.code}</Text>
                   <Text style={{ color: colors.muted, fontSize: 11 }}>{fmt(t.recorded_at)}</Text>
                 </View>
                 <Text style={{ color: colors.brandText, fontSize: 12, marginTop: 2 }}>🏢 {t.company}</Text>
@@ -914,7 +914,7 @@ export default function MapScreen({ navigation, route }: any) {
                   </Text>
                 )}
                 {isAdmin ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginTop: 2 }}>👤 {recorderName(t.recorded_by)}</Text> : null}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
                   <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800' }}>{focused ? '✓ Viendo solo esta en el mapa' : 'Toca: ver solo esta en el mapa'}</Text>
                   <TouchableOpacity onPress={() => openRoute(t)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>🧭 Ruta por fecha/hora</Text>

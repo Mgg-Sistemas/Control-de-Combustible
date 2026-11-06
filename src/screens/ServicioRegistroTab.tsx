@@ -847,25 +847,25 @@ export default function ServicioRegistroTab(
             🚜 {fMaquina ? etiquetaMaquina(machById.get(fMaquina)) : 'Todas las máquinas'}
           </Text>
         </TouchableOpacity>
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <View style={{ flex: 1 }}><DateField value={fDesde} onChange={setFDesde} placeholder="Desde" /></View>
-          <View style={{ flex: 1 }}><DateField value={fHasta} onChange={setFHasta} placeholder="Hasta" /></View>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+          <View style={{ flex: 1, minWidth: 135 }}><DateField value={fDesde} onChange={setFDesde} placeholder="Desde" /></View>
+          <View style={{ flex: 1, minWidth: 135 }}><DateField value={fHasta} onChange={setFHasta} placeholder="Hasta" /></View>
         </View>
 
         {/* ⭐ ATAJOS DE DÍA. Los dos campos de fecha arrancan VACÍOS, y sin
             fechas «Exportar PDF» saca TODO lo registrado — que es justo la queja
             del taller: «me los arroja los dos, el que ya monté y el de prueba».
             Con «Hoy» se acota a un día de un toque. */}
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+          <View style={{ flex: 1, minWidth: 90 }}>
             <Boton colors={colors} disabled={busy} label="📅 Hoy"
               onPress={() => { const h = todayISO(); setFDesde(h); setFHasta(h); }} />
           </View>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 90 }}>
             <Boton colors={colors} disabled={busy} label="📅 Ayer"
               onPress={() => { const a = ayerISO(); setFDesde(a); setFHasta(a); }} />
           </View>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 90 }}>
             <Boton colors={colors} disabled={busy} label="✕ Sin fecha"
               onPress={() => { setFDesde(''); setFHasta(''); }} />
           </View>
@@ -880,8 +880,8 @@ export default function ServicioRegistroTab(
           </Text>
         </TouchableOpacity>
 
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+          <View style={{ flex: 1, minWidth: 145 }}>
             {/* ⚠️ SE CUENTAN SERVICIOS, NUNCA PÁGINAS NI «HOJAS».
                 Contado en PDFs de verdad: con UNA sola máquina el reporte
                 antepone su ficha técnica en página aparte, así que «3 hojas»
@@ -894,7 +894,7 @@ export default function ServicioRegistroTab(
               onPress={exportar} />
           </View>
           {canWrite ? (
-            <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="➕ Registrar servicio" tone="brand" onPress={() => { limpiarForm(); setFormOpen(true); }} /></View>
+            <View style={{ flex: 1, minWidth: 145 }}><Boton colors={colors} disabled={busy} label="➕ Registrar servicio" tone="brand" onPress={() => { limpiarForm(); setFormOpen(true); }} /></View>
           ) : null}
         </View>
         {canWrite ? (
@@ -1232,7 +1232,7 @@ export default function ServicioRegistroTab(
               {/* 5. REPUESTOS UTILIZADOS */}
               <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.md }}>5. REPUESTOS UTILIZADOS</Text>
               {renglones.map((r, i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, alignItems: 'center' }}>
+                <View key={i} style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, alignItems: 'center', flexWrap: 'wrap' }}>
                   <TextInput value={r.quantity} keyboardType="numeric" placeholder="Cant."
                     placeholderTextColor={colors.muted}
                     onChangeText={(v) => setRenglones((p) => p.map((x, j) => j === i ? { ...x, quantity: v } : x))}
@@ -1240,7 +1240,7 @@ export default function ServicioRegistroTab(
                   <TextInput value={r.description} placeholder="Descripción del repuesto / insumo"
                     placeholderTextColor={colors.muted}
                     onChangeText={(v) => setRenglones((p) => p.map((x, j) => j === i ? { ...x, description: v } : x))}
-                    style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                    style={{ flex: 1, minWidth: 140, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                   <TouchableOpacity
                     onPress={() => setRenglones((p) => p.map((x, j) => j === i
                       ? { ...x, estado: ESTADOS_REPUESTO[(ESTADOS_REPUESTO.indexOf(x.estado) + 1) % ESTADOS_REPUESTO.length] } : x))}

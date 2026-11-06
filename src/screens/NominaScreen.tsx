@@ -424,7 +424,7 @@ export default function NominaScreen({ navigation }: any) {
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>💱 Tasa del día:</Text>
             <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
               {bcvRateInfo.rate ? `${fmtTasaCambio(bcvRateInfo.rate)} Bs/$` : 'Sin configurar'}
@@ -433,7 +433,7 @@ export default function NominaScreen({ navigation }: any) {
               ({bcvRateInfo.source === 'manual' ? 'Manual' : bcvRateInfo.source === 'live' ? 'BCV en línea' : 'Caché'})
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
             <TouchableOpacity
               onPress={() => {
                 setGlobalRateText(bcvRateInfo.rate ? String(bcvRateInfo.rate).replace('.', ',') : '');
@@ -669,7 +669,7 @@ export default function NominaScreen({ navigation }: any) {
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg }}>
             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 18, marginBottom: spacing.md }}>Nueva nómina</Text>
             <Text style={{ color: colors.muted, fontSize: 12 }}>Empresa</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: spacing.xs }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, paddingVertical: spacing.xs }}>
               {generalCompanies(companies).map((c) => {
                 const on = cCompany === c.id;
                 return (
@@ -678,12 +678,12 @@ export default function NominaScreen({ navigation }: any) {
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
+            </View>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nombre (ej. "Quincena 1 - julio")</Text>
             <TextInput value={cName} onChangeText={setCName} placeholder="Nombre de la nómina" placeholderTextColor={colors.muted} style={input} />
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-              <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Desde</Text><DateField value={cFrom} onChange={setCFrom} /></View>
-              <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hasta</Text><DateField value={cTo} onChange={setCTo} /></View>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+              <View style={{ flex: 1, minWidth: 130 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Desde</Text><DateField value={cFrom} onChange={setCFrom} /></View>
+              <View style={{ flex: 1, minWidth: 130 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hasta</Text><DateField value={cTo} onChange={setCTo} /></View>
             </View>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>💱 Tasa de cambio para esta nómina (Bs/$)</Text>
             <TextInput
@@ -784,7 +784,7 @@ export default function NominaScreen({ navigation }: any) {
                     borderColor: colors.border,
                   }}
                 >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
                     <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>💱 Tasa período:</Text>
                     <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
                       {activePeriodRate ? `${fmtTasaCambio(activePeriodRate)} Bs/$` : 'Sin tasa'}

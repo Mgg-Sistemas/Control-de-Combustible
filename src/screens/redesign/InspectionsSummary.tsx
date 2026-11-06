@@ -1591,14 +1591,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
           {/* Reportes principales, LADO A LADO (antes aquí estaban "Por asignar/iniciar"
               y "Gestionar", que se quitaron a pedido). */}
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, flexWrap: 'wrap' }}>
             {/* Reporte del DÍA por EMPRESA: abre el selector de empresas (tipo check). */}
-            <TouchableOpacity onPress={() => { setReportMode('dia'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+            <TouchableOpacity onPress={() => { setReportMode('dia'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, minWidth: 140, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
               <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12, textAlign: 'center' }}>{pdfBusy === EMPRESA_KEY ? 'Generando…' : '📊 Reporte del día por empresa'}</Text>
             </TouchableOpacity>
             {/* Reporte HORAS TRABAJADAS (totales) · PRÓXIMAS A MANTENIMIENTO — mismo
                 selector de empresas; sin selección = todas. Regla 200/220/250. */}
-            <TouchableOpacity onPress={() => { setReportMode('mant'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+            <TouchableOpacity onPress={() => { setReportMode('mant'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, minWidth: 140, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
               <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12, textAlign: 'center' }}>{pdfBusy === HORAS_KEY ? 'Generando…' : '🛠️ Horas de horómetro · mantenimiento (250 h)'}</Text>
             </TouchableOpacity>
           </View>
@@ -1750,7 +1750,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🚫 Excluir paradas/averiadas de la lista</Text>
                   </TouchableOpacity>
 
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm, flexWrap: 'wrap', gap: spacing.xs }}>
                     <TouchableOpacity onPress={toggleBulkAll} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: bulkAllKeys.length > 0 && bulkAllKeys.every((k) => bulkSel.has(k)) ? colors.brand : colors.border, backgroundColor: bulkAllKeys.length > 0 && bulkAllKeys.every((k) => bulkSel.has(k)) ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                         {bulkAllKeys.length > 0 && bulkAllKeys.every((k) => bulkSel.has(k)) ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
@@ -1816,14 +1816,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                       <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🏁 Cerrar / Finalizar (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-                    <TouchableOpacity onPress={() => applyBulk('pending')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.muted, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                    <TouchableOpacity onPress={() => applyBulk('pending')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, minWidth: 90, backgroundColor: colors.muted, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `⏳ Pendiente (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => applyBulk('parada')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.warning, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: (bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()) ? 0.5 : 1 }}>
+                    <TouchableOpacity onPress={() => applyBulk('parada')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()} activeOpacity={0.85} style={{ flex: 1, minWidth: 90, backgroundColor: colors.warning, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: (bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()) ? 0.5 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🟡 Parada (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => applyBulk('averia')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: (bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()) ? 0.5 : 1 }}>
+                    <TouchableOpacity onPress={() => applyBulk('averia')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()} activeOpacity={0.85} style={{ flex: 1, minWidth: 90, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: (bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()) ? 0.5 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🔴 Avería (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
                   </View>

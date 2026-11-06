@@ -778,7 +778,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
         <SectionTitle>{enVistaInactivos ? '🚫 Empleados — Apartado de Inactivos' : 'Empleados'}</SectionTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
           <TouchableOpacity
             onPress={() => toggleStatus('inactivo')}
             style={{
@@ -1180,7 +1180,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
             </Text>
             <Text style={{ color: colors.brandText, fontWeight: '800' }}>{cargosOpen ? '▲' : '▼'}</Text>
           </TouchableOpacity>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
             <TouchableOpacity
               onPress={() => setReporteConfigOpen((v) => !v)}
               style={{
@@ -1208,7 +1208,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
                 🖨️ Personalizar qué sale y qué no sale en el 📊 Reporte PDF
               </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
                 <TouchableOpacity
                   onPress={() =>
                     guardarConfigReporte(
@@ -1342,7 +1342,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                 🏷️ LOGOS DEL MEMBRETE (colocar u ocultar):
               </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
                 <TouchableOpacity
                   onPress={() =>
                     guardarConfigReporte(opReporte, {
@@ -1422,7 +1422,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                     {opReporte.firmas ? '☑' : '☐'} ✍️ FIRMAS AL FINAL DEL REPORTE ({firmantesReporte.length} persona{firmantesReporte.length === 1 ? '' : 's'}):
                   </Text>
                 </TouchableOpacity>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
                   <TouchableOpacity
                     onPress={() =>
                       actualizarFirmantesReporte([
@@ -1722,9 +1722,9 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                           <Text style={{ fontSize: 24 }}>👤</Text>
                         </View>
                       )}
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1, minWidth: 120 }} numberOfLines={1}>{fullName(e)}</Text>
                           {esInactivo(e) ? (
                             <TouchableOpacity
                               onPress={() => cambiarEstadoEmpleado(e, 'activo')}
@@ -2163,7 +2163,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 4 }}>
                   Filtrar a los empleados por:
                 </Text>
-                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
                   {([
                     { k: 'empresa', label: '🏢 Empresa nómina' },
                     { k: 'cargo', label: '🏷️ Cargo' },
@@ -2176,6 +2176,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         onPress={() => setNuevoTipo(t.k)}
                         style={{
                           flex: 1,
+                          minWidth: 95,
                           paddingVertical: 6,
                           alignItems: 'center',
                           borderRadius: radius.md,
@@ -2209,7 +2210,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                     <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 3 }}>
                       Toca para autocompletar desde lo que ya existe:
                     </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                       {listaSugerencias.slice(0, 10).map((sug) => (
                         <TouchableOpacity
                           key={sug}
@@ -2219,7 +2220,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                           <Text style={{ color: colors.text, fontSize: 10.5, fontWeight: '600' }}>{sug}</Text>
                         </TouchableOpacity>
                       ))}
-                    </ScrollView>
+                    </View>
                   </View>
                 ) : null}
 

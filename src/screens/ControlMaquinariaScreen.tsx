@@ -2103,7 +2103,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   return acc;
                 }, { hours: 0, amount: 0 });
                 return (
-                  <View style={{ marginBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }}>
+                  <View style={{ marginBottom: spacing.sm, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }}>
                     <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>📊 Total del rango (empresa)</Text>
                     <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>
                       {Math.round(compTot.hours * 100) / 100} h · ${compTot.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -2204,7 +2204,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               ) : null}
 
               {/* Entrada / Salida (momento exacto, nivel máquina). */}
-              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm }}>
                 {(['entry', 'exit'] as const).map((kind) => {
                   const label = kind === 'entry' ? '📥 ENTRADA' : '📤 SALIDA';
                   const dateField = kind === 'entry' ? 'entry_date' : 'exit_date';
@@ -2212,7 +2212,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   const val = (m as any)[dateField] as string | null;
                   const active = !!val;
                   return (
-                    <View key={kind} style={{ flex: 1 }}>
+                    <View key={kind} style={{ flex: 1, minWidth: 135 }}>
                       <TouchableOpacity
                         onPress={() => setMove(m, kind, !active)}
                         style={{ paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surfaceAlt, alignItems: 'center' }}
@@ -2281,8 +2281,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   const esFuturo = dISO > todayISO(); // día aún no transcurrido: no se cargan horas
                   return (
                     <View key={dISO} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, flexShrink: 1 }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{dayLabel(dISO)}</Text>
                           {b?.closed ? (
                             <Text style={{ color: colors.warning, fontSize: 10, fontWeight: '800' }}>🔒 cerrado</Text>
@@ -2302,7 +2302,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                         const lockTurno = analistaMaqConHoras(b); // analista: máquina con horas → bloqueada (no agregar/modificar/borrar)
                         return (
                           <View key={which} style={{ marginBottom: 4 }}>
-                            <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' }}>
                               <Text style={{ width: 20, fontSize: 14, textAlign: 'center' }}>{which === 'day' ? '☀️' : '🌙'}</Text>
                               {SHIFT_OPTS.map((opt) => {
                                 // Resalta el botón solo si las horas YA son exactamente 0/6/12 (redondeadas hacia
@@ -2315,7 +2315,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                                     key={opt.hours}
                                     onPress={() => setShift(m, dISO, which, opt.hours)}
                                     disabled={(lockTurno && !active) || esFuturo}
-                                    style={{ flex: 1, minHeight: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: active ? activeBg : colors.border, backgroundColor: active ? activeBg : colors.surfaceAlt, alignItems: 'center', justifyContent: 'center', opacity: (lockTurno && !active) || esFuturo ? 0.4 : 1 }}
+                                    style={{ flex: 1, minWidth: 68, minHeight: 36, paddingHorizontal: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: active ? activeBg : colors.border, backgroundColor: active ? activeBg : colors.surfaceAlt, alignItems: 'center', justifyContent: 'center', opacity: (lockTurno && !active) || esFuturo ? 0.4 : 1 }}
                                   >
                                     <Text style={{ color: active ? '#fff' : colors.text, fontWeight: '700', fontSize: 11, textAlign: 'center' }}>{opt.label}</Text>
                                   </TouchableOpacity>
@@ -2333,8 +2333,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                           </View>
                         );
                       })}
-                      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: 2 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', marginTop: 2 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 120 }}>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada {(analistaMaqConHoras(b) || bloqueadoAnalista(stopped)) ? '🔒' : ''}</Text>
                           <TextInput
                             value={hoursInput[ik] !== undefined ? hoursInput[ik] : stopped ? String(stopped) : ''}
@@ -2346,7 +2346,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: (analistaMaqConHoras(b) || bloqueadoAnalista(stopped) || esFuturo) ? 0.5 : 1 }}
                           />
                         </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 120 }}>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra {(analistaMaqConHoras(b) || bloqueadoAnalista(ot)) ? '🔒' : ''}</Text>
                           <TextInput
                             value={overtimeInput[ik] !== undefined ? overtimeInput[ik] : ot ? String(ot) : ''}
@@ -2969,7 +2969,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 if (groups.length === 0)
                   return <EmptyState title="Sin resultados" subtitle="Ninguna máquina coincide con la búsqueda." />;
                 const StatBox = ({ k, v, accent }: { k: string; v: string; accent?: boolean }) => (
-                  <View style={{ flex: 1, borderWidth: 1, borderColor: accent ? colors.brand : colors.border, backgroundColor: accent ? colors.brand : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.xs, paddingHorizontal: spacing.sm }}>
+                  <View style={{ flex: 1, minWidth: 115, borderWidth: 1, borderColor: accent ? colors.brand : colors.border, backgroundColor: accent ? colors.brand : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.xs, paddingHorizontal: spacing.sm }}>
                     <Text style={{ color: accent ? colors.brandContrast : colors.muted, fontSize: 10 }}>{k}</Text>
                     <Text style={{ color: accent ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{v}</Text>
                   </View>
@@ -3003,7 +3003,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                           <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>🏢 {g.company || 'Sin empresa'} · {g.days.length} día(s)</Text>
-                        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                           <StatBox k="Total horas" v={`${h2(t.worked)} h`} />
                           <StatBox k="☀️ Día" v={`${h2(t.day)} h`} />
                           <StatBox k="🌙 Noche" v={`${h2(t.night)} h`} />

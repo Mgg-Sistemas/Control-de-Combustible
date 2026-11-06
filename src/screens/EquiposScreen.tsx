@@ -2643,7 +2643,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       {/* Filtro por Clasificación (chips) */}
       <View style={{ marginTop: spacing.sm }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por clasificación</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
           {([['__all__', 'Todos'], ...typeOptions.map(([t]) => [t, t === '__none__' ? `Sin ${DIM_LABEL[catDim].toLowerCase()}` : t] as [string, string])] as [string, string][]).map(([val, label]) => {
             const active = typeFilter === val;
             const count = val === '__all__' ? typeOptions.reduce((s, [, n]) => s + n, 0) : (typeOptions.find(([t]) => t === val)?.[1] ?? 0);
@@ -2659,13 +2659,13 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
 
       {/* Filtro por TAPA (chips): sencilla / doble / sin tapa */}
       <View style={{ marginTop: spacing.sm }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por tapa</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
           {([['__all__', 'Todas'], ['sencilla', '🛡️ Tapa sencilla'], ['doble', '🛡️🛡️ Doble tapa'], ['sin', 'Sin tapa']] as [typeof tapaFilter, string][]).map(([val, label]) => {
             const active = tapaFilter === val;
             return (
@@ -2680,7 +2680,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
 
       {firstLoad ? (
@@ -2854,16 +2854,16 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                 <Loading />
               ) : (
                 <>
-                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                    <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                    <View style={{ flex: 1, minWidth: 105, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>Última vez surtida</Text>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{fuelLast ?? '—'}</Text>
                     </View>
-                    <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                    <View style={{ flex: 1, minWidth: 105, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>Total surtido</Text>
                       <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18, fontVariant: ['tabular-nums'] as any }}>{fuelSurtido.toLocaleString()} L</Text>
                     </View>
-                    <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                    <View style={{ flex: 1, minWidth: 105, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>Consumo estimado</Text>
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 18, fontVariant: ['tabular-nums'] as any }}>{fuelConsumed != null ? `${fuelConsumed.toLocaleString()} L` : '—'}</Text>
                     </View>
@@ -3590,9 +3590,9 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                       const insp = inspByShift[m.id];
                       return (
                         <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 5, paddingLeft: spacing.sm }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm }}>
                             <Text style={{ color: colors.muted, fontSize: 11, width: 22 }}>{i + 1}.</Text>
-                            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>{repTipoLabel(m)}</Text>
+                            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1, minWidth: 120 }} numberOfLines={1}>{repTipoLabel(m)}</Text>
                             <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{m.serial || m.plate || '—'}</Text>
                             <Text style={{ color: estadoColor(m), fontSize: 11, fontWeight: '700' }}>{estadoTxt(m)}</Text>
                           </View>
@@ -3746,10 +3746,13 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                 </View>
 
                 {/* Pestañas de Documentos guardados */}
-                <View style={{ flexDirection: 'row', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 6, marginBottom: spacing.sm }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 6, marginBottom: spacing.sm }}>
                   <TouchableOpacity
                     onPress={() => setDocTab('actas')}
                     style={{
+                      flex: 1,
+                      minWidth: 135,
+                      alignItems: 'center',
                       paddingVertical: 4,
                       paddingHorizontal: 12,
                       borderRadius: radius.pill,
@@ -3764,6 +3767,9 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                   <TouchableOpacity
                     onPress={() => setDocTab('traslados')}
                     style={{
+                      flex: 1,
+                      minWidth: 135,
+                      alignItems: 'center',
                       paddingVertical: 4,
                       paddingHorizontal: 12,
                       borderRadius: radius.pill,

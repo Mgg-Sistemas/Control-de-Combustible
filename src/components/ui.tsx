@@ -209,7 +209,7 @@ export function AccordionGroup({
         activeOpacity={0.7}
         style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md, marginBottom: spacing.sm }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1, minWidth: 0 }}>
           <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
           <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{icon} {title}</Text>
         </View>
@@ -256,7 +256,7 @@ export function ExpandableCard({
     <Card style={style}>
       <TouchableOpacity activeOpacity={hasDetail ? 0.7 : 1} onPress={() => hasDetail && handleToggle()}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          <View style={{ flex: 1 }}>{summary}</View>
+          <View style={{ flex: 1, minWidth: 0 }}>{summary}</View>
           {hasDetail ? (
             <View
               style={{
@@ -268,6 +268,7 @@ export function ExpandableCard({
                 paddingVertical: 4,
                 alignItems: 'center',
                 justifyContent: 'center',
+                flexShrink: 0,
               }}
             >
               <Text style={{ color: open ? colors.brandContrast : colors.brandText, fontSize: 11, fontWeight: '900' }}>

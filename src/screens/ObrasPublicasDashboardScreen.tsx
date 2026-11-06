@@ -387,12 +387,12 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
           <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: spacing.sm }}>🏢 Edificios de hoy: <Text style={{ color: colors.text, fontWeight: '700' }}>{edificiosDia.join(' · ')}</Text></Text>
         ) : null}
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.md, marginBottom: spacing.xs }}>Acumulado desde el inicio (toda la operación)</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-          <View style={{ flex: 1, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm }}>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+          <View style={{ flex: 1, minWidth: 135, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm }}>
             <Text style={{ color: colors.accentSoftText, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{fmtNum(acumulado.m3)}<Text style={{ fontSize: 11, fontWeight: '700' }}> m³</Text></Text>
             <Text style={{ color: colors.accentSoftText, fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase' }}>Total m³ acumulados</Text>
           </View>
-          <View style={{ flex: 1, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm }}>
+          <View style={{ flex: 1, minWidth: 135, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm }}>
             <Text style={{ color: colors.accentSoftText, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{fmtNum(acumulado.cuerpos)}</Text>
             <Text style={{ color: colors.accentSoftText, fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase' }}>Cuerpos acumulados</Text>
           </View>

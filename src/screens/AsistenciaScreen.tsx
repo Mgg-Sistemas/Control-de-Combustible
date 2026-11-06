@@ -306,7 +306,7 @@ export default function AsistenciaScreen() {
     };
     return (
       <View style={{ marginTop: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, padding: spacing.sm }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm, flexWrap: 'wrap', gap: spacing.xs }}>
           <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15 }}>{dowLabel(selectedDay)} {fmtDMY(selectedDay)}</Text>
           <TouchableOpacity onPress={() => generarReporte(selectedDay, selectedDay)} disabled={rBusy} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: rBusy ? 0.7 : 1 }}>
             <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>📊 Reporte del día</Text>

@@ -128,12 +128,12 @@ export function ListScreen<T extends { id: string }>({
       {dateField ? (
         <Card>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Filtrar por rango de fecha</Text>
-          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-            <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+            <View style={{ flex: 1, minWidth: 140 }}>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
               <DateInput value={from} onChange={setFrom} colors={colors} />
             </View>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, minWidth: 140 }}>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
               <DateInput value={to} onChange={setTo} colors={colors} />
             </View>

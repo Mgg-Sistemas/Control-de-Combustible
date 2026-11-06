@@ -367,7 +367,7 @@ export default function ComidaScreen() {
   if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
   const kpi = (label: string, value: React.ReactNode, color: string) => (
-    <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+    <View key={label} style={{ flex: 1, minWidth: 90, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
       <Text style={{ color, fontSize: 22, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{value}</Text>
       <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center' }}>{label}</Text>
     </View>
@@ -459,12 +459,12 @@ export default function ComidaScreen() {
           <>
             {/* Totales generales del rango */}
             <Card>
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
                 {kpi('Por empresa', rangeTotals.total, colors.brandText)}
                 {kpi('Por persona', rangePersonsTotal, colors.text)}
                 {kpi('Total', rangeTotals.total + rangePersonsTotal, colors.success)}
               </View>
-              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                 {MEALS.map((m) => kpi(m.label, (rangeTotals.by[m.key] || 0) + (rangePersonsByMeal[m.key] || 0), colors.text))}
               </View>
             </Card>
@@ -596,7 +596,7 @@ export default function ComidaScreen() {
             <Text style={{ color: colors.brandText, fontWeight: '800' }}>▶</Text>
           </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
           {kpi('Por empresa', companyTotal, colors.brandText)}
           {kpi('Por persona', totalMeals, colors.text)}
           {kpi('Empresas', companyGroups.length, colors.text)}
@@ -606,7 +606,7 @@ export default function ComidaScreen() {
       {/* Tarjetas de conteo del día por comida (empresa + persona). Suben en vivo. */}
       <Card>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>🍽️ Comidas del día (empresa + persona)</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
           {MEALS.map((m) => kpi(`${m.icon} ${m.label}`, dayByMeal[m.key] || 0, m.color))}
         </View>
       </Card>

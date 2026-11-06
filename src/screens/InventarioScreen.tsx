@@ -859,16 +859,16 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   return (
     <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
-      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-        <View style={{ flex: 1.3, borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.brand }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+        <View style={{ flex: 1.3, minWidth: 140, borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.brand }}>
           <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11, fontWeight: '800', letterSpacing: 0.5 }}>VALOR INVENTARIO</Text>
-          <Text style={{ color: colors.brandContrast, fontSize: 22, fontWeight: '900', fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>{usd(totalValor)}</Text>
+          <Text style={{ color: colors.brandContrast, fontSize: 20, fontWeight: '900', fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>{usd(totalValor)}</Text>
         </View>
-        <View style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+        <View style={{ flex: 1, minWidth: 95, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
           <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>PRODUCTOS</Text>
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{levels.length}</Text>
         </View>
-        <View style={{ flex: 1, borderWidth: 1, borderColor: bajoMin ? colors.warningSoftBorder : colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: bajoMin ? colors.warningSoftBg : colors.surface }}>
+        <View style={{ flex: 1, minWidth: 95, borderWidth: 1, borderColor: bajoMin ? colors.warningSoftBorder : colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: bajoMin ? colors.warningSoftBg : colors.surface }}>
           <Text style={{ color: bajoMin ? colors.warningSoftText : colors.muted, fontSize: 11, fontWeight: '700' }}>BAJO MÍN.</Text>
           <Text style={{ color: bajoMin ? colors.warningSoftText : colors.text, fontSize: 18, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{bajoMin}</Text>
         </View>
@@ -876,8 +876,8 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
 
       {/* Tasa BCV del día (Bs/US$). Precios del inventario visibles en $ y Bs. */}
       <View style={{ borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.infoSoftBg, marginBottom: spacing.sm }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs }}>
+          <View style={{ flex: 1, minWidth: 170 }}>
             <Text style={{ color: colors.infoSoftText, opacity: 0.9, fontSize: 11, fontWeight: '800', letterSpacing: 0.3 }}>💵 TASA BCV DEL DÍA</Text>
             <Text style={{ color: colors.infoSoftText, fontSize: 16, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
               {rateLoading ? 'Cargando…' : rate ? `${fmtBs(rate)} / US$` : 'Sin tasa'}
@@ -889,8 +889,8 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
           </TouchableOpacity>
         </View>
         {isAdmin ? (
-          <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginTop: spacing.xs }}>
-            <TextInput value={rateEdit} onChangeText={(t) => setRateEdit(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="Fijar tasa a mano (Bs/$)" placeholderTextColor={colors.muted} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text }} />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center', marginTop: spacing.xs }}>
+            <TextInput value={rateEdit} onChangeText={(t) => setRateEdit(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="Fijar tasa a mano (Bs/$)" placeholderTextColor={colors.muted} style={{ flex: 1, minWidth: 150, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text }} />
             <TouchableOpacity onPress={async () => { const v = parseNum(rateEdit); if (v <= 0) return toast.error('Escribe una tasa válida.'); await setRateManual(v); setRateEdit(''); }} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
               <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>Fijar</Text>
             </TouchableOpacity>
@@ -898,8 +898,8 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         ) : null}
       </View>
 
-      <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
-        <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar: nombre, SKU, categoría, unidad, tipo, estado…" placeholderTextColor={colors.muted} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' }}>
+        <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar: nombre, SKU, categoría, unidad, tipo, estado…" placeholderTextColor={colors.muted} style={{ flex: 1, minWidth: 180, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
         {canWrite ? (
           <TouchableOpacity onPress={openCreate} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>+ Producto</Text>
@@ -927,7 +927,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       {bombonas.length ? (
         <View style={{ marginTop: spacing.sm }}>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por carga (bombonas)</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
             {([['__all__', 'Todas', totalBombonas], ['llena', '🟢 Llena', cargaCounts['llena']], ['en uso', '🟡 En uso', cargaCounts['en uso']], ['vacía', '🔴 Vacía', cargaCounts['vacía']], ['__sin__', '⚪ Sin definir', cargaCounts['sin definir']]] as [string, string, number][]).map(([val, label, n]) => {
               const on = cargaFilter === val;
               return (
@@ -937,7 +937,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                 </TouchableOpacity>
               );
             })}
-          </ScrollView>
+          </View>
         </View>
       ) : null}
 
@@ -949,7 +949,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               <ExpandableCard
                 key={it.id}
                 summary={
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flex: 1 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, flex: 1, minWidth: 0 }}>
                     {/* Miniatura visual de la foto del repuesto */}
                     <TouchableOpacity
                       activeOpacity={img ? 0.7 : 1}
@@ -973,13 +973,13 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                         <Text style={{ fontSize: 18 }}>{catInfo(it.category).icon}</Text>
                       )}
                     </TouchableOpacity>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{it.name}</Text>
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={2}>{it.name}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>{catInfo(it.category).icon} {catInfo(it.category).label}{it.tipo ? ` · 🏷️ ${it.tipo}` : ''}</Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end' }}>
+                    <View style={{ alignItems: 'flex-end', flexShrink: 1, maxWidth: '100%' }}>
                       <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{qtyFmt(it.stock)} {it.unit || ''}</Text>
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, alignItems: 'center', marginTop: 1 }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, alignItems: 'center', marginTop: 1, maxWidth: '100%' }}>
                         {isBombona(it) ? <Text style={{ color: cargaColor(it.carga), fontSize: 11, fontWeight: '800' }}>{cargaIcon(it.carga)} {(it.carga || 'sin carga').toUpperCase()}</Text> : null}
                         {/* Condición del producto: siempre visible (cómo se encuentra). */}
                         <Text style={{ color: estadoColor(it.estado), fontSize: 11, fontWeight: '800' }}>{estadoIcon(it.estado)} {(it.estado || 'sin estado').toUpperCase()}</Text>
@@ -990,7 +990,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                 }
                 detail={
                   <View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm }}>
                       <View>
                         <Text style={{ color: colors.muted, fontSize: 11 }}>PMP (costo promedio)</Text>
                         <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd(it.avg_cost)}</Text>
@@ -1104,18 +1104,18 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               <TextInput value={name} onChangeText={(t) => setName(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. BOMBILLO AMARILLO" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Categoría</Text>
               <CategoryPicker value={category} onChange={setCategory} colors={colors} />
-              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-                <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm }}>
+                <View style={{ flex: 1, minWidth: 100 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Unidad</Text>
                   <TextInput value={unit} onChangeText={(t) => setUnit(t.toUpperCase())} autoCapitalize="characters" placeholder="UND, LT, KG…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 100 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>SKU {editingId ? '' : '(automático)'}</Text>
                   <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, justifyContent: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>{sku || 'INV-…'}</Text>
                   </View>
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 100 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Stock mínimo</Text>
                   <TextInput value={minStock} onChangeText={(t) => setMinStock(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
@@ -1169,13 +1169,13 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
             <Text style={{ color: colors.muted, fontSize: 11 }}>📦 Inventario GENERAL. La máquina y los empleados se eligen al dar salida (pestaña Salida).</Text>
             {editingId ? (
               <Card>
-                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                  <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                  <View style={{ flex: 1, minWidth: 135 }}>
                     <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cantidad (existencia)</Text>
                     <TextInput value={editQty} onChangeText={(t) => setEditQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <View style={{ flex: 1, minWidth: 135 }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>Costo unit. ({initCostCur === 'USD' ? 'US$' : 'Bs'})</Text>
                       <TouchableOpacity onPress={() => setInitCostCur(initCostCur === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
                         <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11 }}>{initCostCur === 'USD' ? '$→Bs' : 'Bs→$'}</Text>
@@ -1195,13 +1195,13 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Existencia inicial (opcional)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si ya tienes este material a mano, carga la cantidad y su costo unitario. Se registra como INVENTARIO INICIAL y fija el PMP de arranque.</Text>
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                <View style={{ flex: 1, minWidth: 135 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cantidad</Text>
                   <TextInput value={initStock} onChangeText={(t) => setInitStock(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <View style={{ flex: 1, minWidth: 135 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>Costo unit. ({initCostCur === 'USD' ? 'US$' : 'Bs'})</Text>
                     <TouchableOpacity onPress={() => setInitCostCur(initCostCur === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
                       <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11 }}>{initCostCur === 'USD' ? '$→Bs' : 'Bs→$'}</Text>
@@ -1634,12 +1634,12 @@ function MovimientosTab() {
         placeholder="🔎 Buscar por producto o motivo…" placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.xs }}
       />
-      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end', marginBottom: spacing.sm }}>
-        <View style={{ flex: 1 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'flex-end', marginBottom: spacing.sm }}>
+        <View style={{ flex: 1, minWidth: 135 }}>
           <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
           <DateField value={fFrom} onChange={(v) => setFFrom(v || '')} />
         </View>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 135 }}>
           <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
           <DateField value={fTo} onChange={(v) => setFTo(v || '')} />
         </View>
@@ -3478,12 +3478,12 @@ function DotacionTab() {
       ) : null}
 
       {/* Fecha: rango Desde/Hasta */}
-      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end', marginBottom: spacing.sm }}>
-        <View style={{ flex: 1 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'flex-end', marginBottom: spacing.sm }}>
+        <View style={{ flex: 1, minWidth: 135 }}>
           <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
           <DateField value={fFrom} onChange={(v) => setFFrom(v || '')} />
         </View>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 135 }}>
           <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
           <DateField value={fTo} onChange={(v) => setFTo(v || '')} />
         </View>
@@ -3964,11 +3964,11 @@ function SolicitudesExistenciaTab({ canWrite }: { canWrite: boolean }) {
           return (
             <Card key={grupo.id} style={{ gap: 10, borderColor: estGrupo.color, borderWidth: 1.5 }}>
               {/* Cabecera unificada y botón plegar/desplegar */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
                 <TouchableOpacity
                   onPress={() => toggleExpand(grupo.id, isOpenDefault)}
                   activeOpacity={0.7}
-                  style={{ flex: 1, paddingRight: spacing.sm }}
+                  style={{ flex: 1, minWidth: 145, paddingRight: spacing.sm }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <Text style={{ fontWeight: '900', fontSize: 16, color: colors.text }}>
@@ -4396,17 +4396,17 @@ export default function InventarioScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, gap: spacing.sm }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.xs, paddingVertical: 6, gap: 6, width: '100%' }}>
           {TABS.map((t) => {
             const on = t.key === active;
             return (
-              <TouchableOpacity key={t.key} onPress={() => setActive(t.key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
-                <Text style={{ fontSize: 15 }}>{t.icon}</Text>
-                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
+              <TouchableOpacity key={t.key} onPress={() => setActive(t.key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, maxWidth: '100%' }}>
+                <Text style={{ fontSize: 14 }}>{t.icon}</Text>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t.label}</Text>
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
       <View style={{ flex: 1 }}>
         {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'solicitudes' ? <SolicitudesExistenciaTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'movimientos' ? <MovimientosTab /> : <DotacionTab />}

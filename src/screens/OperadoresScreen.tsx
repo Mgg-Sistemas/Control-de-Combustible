@@ -174,7 +174,7 @@ export default function OperadoresScreen() {
             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 16 }}>▶</Text>
           </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, flexWrap: 'wrap', gap: spacing.xs }}>
           <Text style={{ color: colors.muted, fontSize: 12 }}>{totalOps} operador(es) · {totalMach} máquina(s)</Text>
           <TouchableOpacity onPress={() => setWs(weekStart(caracasISO(new Date())))} style={{ backgroundColor: colors.accentSoftBg, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.accentSoftText, fontSize: 12, fontWeight: '800' }}>Semana actual</Text>
@@ -205,11 +205,11 @@ export default function OperadoresScreen() {
             <Card key={g.cedula}>
               {/* Cabecera: toca para desplegar el detalle del operador. */}
               <TouchableOpacity activeOpacity={0.7} onPress={() => setExpanded((p) => ({ ...p, [g.cedula]: !open }))}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>👷 {g.name}</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1, minWidth: 140 }}>👷 {g.name}</Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>C.I {g.cedula}</Text>
                 </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, flexWrap: 'wrap', gap: spacing.xs }}>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>{maquinas} máquina(s) · {g.rows.length} jornada(s)</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.accentSoftBg, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
                     <Text style={{ color: colors.accentSoftText, fontSize: 13, fontWeight: '800' }}>Total semana: {Math.round(horas * 100) / 100} h</Text>

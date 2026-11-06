@@ -195,11 +195,11 @@ function LineEditor({
               ))}
             </View>
           ) : null}
-          <View style={{ flexDirection: 'row', gap: 6 }}>
-            <TextInput value={numVal(i, 'qty', l.qty)} editable={!readOnly} onChangeText={(t) => onNum(i, 'qty', t)} keyboardType="decimal-pad" inputMode="decimal" placeholder="Cant." placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
-            <TextInput value={l.unit ?? ''} editable={!readOnly} onChangeText={(t) => upd(i, { unit: t.toUpperCase() })} placeholder="Unidad" placeholderTextColor={colors.muted} autoCapitalize="characters" style={[inputStyle, { flex: 1 }]} />
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+            <TextInput value={numVal(i, 'qty', l.qty)} editable={!readOnly} onChangeText={(t) => onNum(i, 'qty', t)} keyboardType="decimal-pad" inputMode="decimal" placeholder="Cant." placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1, minWidth: 85 }]} />
+            <TextInput value={l.unit ?? ''} editable={!readOnly} onChangeText={(t) => upd(i, { unit: t.toUpperCase() })} placeholder="Unidad" placeholderTextColor={colors.muted} autoCapitalize="characters" style={[inputStyle, { flex: 1, minWidth: 85 }]} />
             {!noPrice ? (
-              <TextInput value={numVal(i, 'price', l.price)} editable={!readOnly} onChangeText={(t) => onNum(i, 'price', t)} keyboardType="decimal-pad" inputMode="decimal" placeholder={priceLabel} placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
+              <TextInput value={numVal(i, 'price', l.price)} editable={!readOnly} onChangeText={(t) => onNum(i, 'price', t)} keyboardType="decimal-pad" inputMode="decimal" placeholder={priceLabel} placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1, minWidth: 88 }]} />
             ) : null}
           </View>
           {conExento && !noPrice ? (
@@ -601,18 +601,16 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
       <Card>
         <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar por nombre, RIF o etiqueta…" placeholderTextColor={colors.muted} style={input} />
         {allTags.length ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.sm }}>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              {['', ...allTags].map((t) => {
-                const on = tagFiltro === t;
-                return (
-                  <TouchableOpacity key={t || '__all'} onPress={() => setTagFiltro(t)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.brand : colors.border }}>
-                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t ? `🏷️ ${t}` : 'Todos'}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </ScrollView>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm }}>
+            {['', ...allTags].map((t) => {
+              const on = tagFiltro === t;
+              return (
+                <TouchableOpacity key={t || '__all'} onPress={() => setTagFiltro(t)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.brand : colors.border }}>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t ? `🏷️ ${t}` : 'Todos'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         ) : null}
       </Card>
 
@@ -1722,11 +1720,11 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
                 key={o.id}
                 summary={
                   <View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.brandText, flex: 1, fontVariant: ['tabular-nums'] as any }} numberOfLines={1}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.brandText, flex: 1, minWidth: 150, fontVariant: ['tabular-nums'] as any }} numberOfLines={2}>
                         {req?.code ? `${req.code} · ` : ''}{usd(o.total)} · {supplierName(o.supplier_id)}
                       </Text>
-                      <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center', flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
                         {req && esPrioridadCompra(req.prioridad) ? (
                           <Pill label={`Prioridad ${PRIORIDAD_COMPRA_INFO[req.prioridad].label}`} {...colorPrioridad(colors, req.prioridad)} />
                         ) : null}

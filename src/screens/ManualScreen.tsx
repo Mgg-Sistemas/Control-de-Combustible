@@ -50,6 +50,7 @@ const SECTIONS: Sec[] = [
       { t: 'p', text: 'Es una aplicación para llevar el control de la operación: el combustible, las máquinas, las horas que trabajan, los pagos y más. Reemplaza los cuadernos y el papel.' },
       { t: 'p', text: 'Puedes usarlo de dos formas, las dos funcionan igual:' },
       { t: 'bullets', items: ['En el teléfono (aplicación).', 'En la computadora, abriendo la página web.'] },
+      { t: 'note', text: '📱 VISTAS ADAPTADAS A TELÉFONO EN TODO EL SISTEMA (06/11/2026): todas las pantallas, pestañas, filtros de empresa/estado/fecha, tarjetas KPI y formularios del sistema se acomodan automáticamente en varias filas en pantallas de teléfono (~360px) para que ningún botón, pestaña, título de producto/máquina ni selector quede cortado a la derecha ni aplastado.' },
     ],
   },
   {

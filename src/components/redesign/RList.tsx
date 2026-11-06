@@ -96,8 +96,8 @@ export function RBarChart({ data, fmt, max }: { data: { label: string; value: nu
 export function RHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   const { colors } = useTheme();
   return (
-    <View style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-      <View style={{ flex: 1 }}>
+    <View style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm }}>
+      <View style={{ flex: 1, minWidth: 180 }}>
         <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 20, letterSpacing: 0.4 }}>{title}</Text>
         {subtitle ? <Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 12, marginTop: 2 }}>{subtitle}</Text> : null}
       </View>
@@ -277,12 +277,12 @@ export function RList<T extends { id: string }>({
           {dateField ? (
             <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Filtrar por rango de fecha</Text>
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                <View style={{ flex: 1, minWidth: 140 }}>
                   <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
                   <RDateInput value={from} onChange={setFrom} colors={colors} />
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 140 }}>
                   <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
                   <RDateInput value={to} onChange={setTo} colors={colors} />
                 </View>

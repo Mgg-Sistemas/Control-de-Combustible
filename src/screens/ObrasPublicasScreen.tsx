@@ -495,9 +495,9 @@ export default function ObrasPublicasScreen() {
 
                 {/* Visita / check-in */}
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Dejar constancia de la visita (con tu ubicación)</Text>
-                <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
                   {[['trabajando', '🟢 Trabajando'], ['parada', '🟡 Parada'], ['no_esta', '⚪ No está']].map(([st, lbl]) => (
-                    <TouchableOpacity key={st} onPress={() => registrarVisita(st)} disabled={busy} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                    <TouchableOpacity key={st} onPress={() => registrarVisita(st)} disabled={busy} style={{ flex: 1, minWidth: 90, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{lbl}</Text>
                     </TouchableOpacity>
                   ))}

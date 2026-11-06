@@ -688,7 +688,7 @@ export default function DistribucionGuardiasScreen() {
                   </TouchableOpacity>
                 );
               })}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 3, flexShrink: 1, maxWidth: '100%' }}>
                 <Text style={{ color: colors.muted, fontSize: 11 }}>Gr.</Text>
                 {GRUPOS.map((g) => {
                   const on = (m.grupo || '') === g;
@@ -701,10 +701,10 @@ export default function DistribucionGuardiasScreen() {
               </View>
             </View>
             {/* Cédula / teléfono / sector editables */}
-            <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
               {([['cedula', 'Cédula'], ['telefono', 'Teléfono'], ['sector', 'Sector']] as const).map(([k, ph]) => (
                 <TextInput key={k} defaultValue={(m as any)[k] ?? ''} onEndEditing={(e) => patchMeta(m, { [k]: e.nativeEvent.text.trim() || null } as any)} placeholder={ph} placeholderTextColor={colors.muted}
-                  style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 6, color: colors.text, fontSize: 12 }} />
+                  style={{ flex: 1, minWidth: 105, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 6, color: colors.text, fontSize: 12 }} />
               ))}
             </View>
             {/* Resumen de Períodos de Trabajo (T) y Descansos (D) en el ciclo */}
@@ -980,15 +980,15 @@ export default function DistribucionGuardiasScreen() {
                         borderBottomColor: colors.border,
                       }}
                     >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <View style={{ flex: 1, paddingRight: spacing.xs }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <View style={{ flex: 1, minWidth: 130, paddingRight: spacing.xs }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={1}>
                             {m.inspector_name}
                           </Text>
                           <Text style={{ color: colors.muted, fontSize: 10.5 }}>{m.cargo || 'Inspector'}</Text>
                         </View>
                         {(formModo === 'escalonado' || formModo === 'escalonado_trabajo') ? (
-                          <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
+                          <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%', justifyContent: 'flex-end' }}>
                             {GRUPOS_FORMULA.map((g) => {
                               const on = letra === g;
                               return (
@@ -1054,8 +1054,8 @@ export default function DistribucionGuardiasScreen() {
               Asigna cada inspector a un grupo. Cada grupo descansa una semana distinta (A = semana 1, B = semana 2, …). Hay {nGroups} grupos ({GRUPOS.join(' · ')}), desde {dmy(from)}. Al generar se reemplazan las guardias actuales.
             </Text>
             {/* Sugerir automático + conteo por grupo */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', flex: 1, marginRight: spacing.sm }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', flex: 1, minWidth: 160, marginRight: spacing.sm }}>
                 {GRUPOS.map((g) => (
                   <View key={g} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: grupoColor(g), alignItems: 'center', justifyContent: 'center' }}>
@@ -1110,8 +1110,8 @@ export default function DistribucionGuardiasScreen() {
             <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
               Asigna a cada inspector UN día fijo de descanso a la semana; los demás días trabaja normal. A diferencia del modo por grupos, ninguna semana queda alguien sin trabajar toda la semana. Se repite cada semana dentro del ciclo {dmy(from)} — {dmy(to)} (ajusta "Ciclo" arriba si necesitas otro rango). Al generar se reemplazan las guardias actuales.
             </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', flex: 1, marginRight: spacing.sm }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', flex: 1, minWidth: 160, marginRight: spacing.sm }}>
                 {DIAS_SEMANA.map((d) => (
                   <View key={d.code} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: diaColor(d.code), alignItems: 'center', justifyContent: 'center' }}>

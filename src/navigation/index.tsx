@@ -232,7 +232,7 @@ function useScreenHeader() {
     // nunca se superpongan con el título, sin dejar de estar disponibles.
     headerTitle: ({ children }: any) => <HeaderBrand title={typeof children === 'string' ? children : undefined} />,
     headerRight: () => (
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
         <UpdateAppButton />
         <HeaderSettings />
         <NotificationBell />

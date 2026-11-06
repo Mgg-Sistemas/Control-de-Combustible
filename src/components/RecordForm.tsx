@@ -1308,7 +1308,7 @@ function HabilidadesField({ value, onChange, placeholder, colors, styles }: {
             <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 11 }}>#{i + 1}</Text>
           </View>
           <TextInput
-            style={[styles.input, { flex: 1, paddingVertical: 8 }]}
+            style={[styles.input, { flex: 1, minWidth: 0, paddingVertical: 8 }]}
             value={hab}
             onChangeText={(t) => setItem(i, t.toUpperCase())}
             autoCapitalize="characters"

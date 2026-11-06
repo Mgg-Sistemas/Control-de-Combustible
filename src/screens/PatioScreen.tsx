@@ -305,8 +305,8 @@ export default function PatioScreen({ navigation }: any) {
         <Card>
           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>🟢 Camiones en jornada ({openJornadas.length})</Text>
           {openJornadas.map((j) => (
-            <View key={j.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
-              <View style={{ flex: 1 }}>
+            <View key={j.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border, flexWrap: 'wrap', gap: spacing.sm }}>
+              <View style={{ flex: 1, minWidth: 150 }}>
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{j.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text></Text>
                 <Text style={{ color: colors.muted, fontSize: 11 }}>Desde {caracasClock(j.start)} · ⏱️ {elapsedLabel(j.start)}</Text>
               </View>

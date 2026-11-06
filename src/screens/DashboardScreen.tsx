@@ -568,8 +568,8 @@ export default function DashboardScreen({ navigation }: any) {
       <Modal visible={showActive} animationType="slide" transparent onRequestClose={() => setShowActive(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%', padding: spacing.lg }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 17 }}>Máquinas activas por empresa ({activeMachines ?? 0})</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm, gap: spacing.xs }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 17, flex: 1 }}>Máquinas activas por empresa ({activeMachines ?? 0})</Text>
               <TouchableOpacity onPress={() => setShowActive(false)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
               </TouchableOpacity>

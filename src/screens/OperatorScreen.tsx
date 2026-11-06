@@ -181,8 +181,8 @@ export default function OperatorScreen() {
   return (
     <Screen>
       <ConfigBanner />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <View style={{ flex: 1 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+        <View style={{ flex: 1, minWidth: 150 }}>
           <Text style={{ color: colors.muted, fontSize: 12 }}>Operador</Text>
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi jornada'}</Text>
         </View>
@@ -233,11 +233,11 @@ export default function OperatorScreen() {
             <DateField value={date} onChange={setDate} maxISO={todayISO()} />
 
             <Text style={lbl}>Turno de día</Text>
-            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
               {SHIFT_OPTS.map((o) => {
                 const on = dayH === o.hours;
                 return (
-                  <TouchableOpacity key={'d' + o.hours} onPress={() => setDayH(o.hours)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                  <TouchableOpacity key={'d' + o.hours} onPress={() => setDayH(o.hours)} style={{ flex: 1, minWidth: 85, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
                     <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
                   </TouchableOpacity>
                 );
@@ -245,11 +245,11 @@ export default function OperatorScreen() {
             </View>
 
             <Text style={lbl}>Turno de noche</Text>
-            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
               {SHIFT_OPTS.map((o) => {
                 const on = nightH === o.hours;
                 return (
-                  <TouchableOpacity key={'n' + o.hours} onPress={() => setNightH(o.hours)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                  <TouchableOpacity key={'n' + o.hours} onPress={() => setNightH(o.hours)} style={{ flex: 1, minWidth: 85, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
                     <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
                   </TouchableOpacity>
                 );

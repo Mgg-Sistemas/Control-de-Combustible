@@ -463,7 +463,7 @@ export default function TanksShowcase() {
             <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>Crear Tanque</Text>
           </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: 'row', marginTop: spacing.md, gap: spacing.sm }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: spacing.md, gap: spacing.sm }}>
           <Kpi n={kpis.total} label="Tanques" />
           <View style={{ width: 1, backgroundColor: colors.brandContrast, opacity: 0.2 }} />
           <Kpi n={kpis.bajos} label="Bajo umbral" tone="warn" />
@@ -473,7 +473,7 @@ export default function TanksShowcase() {
       </View>
 
       {/* Chips de filtro. */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ padding: spacing.sm, gap: spacing.xs }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', padding: spacing.sm, gap: spacing.xs }}>
         {FILTERS.map((ff) => {
           const on = filter === ff.k;
           return (
@@ -482,7 +482,7 @@ export default function TanksShowcase() {
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
 
       {loading ? (
         <View style={{ paddingTop: spacing.xl, alignItems: 'center' }}><ActivityIndicator color={colors.brand} /></View>
@@ -505,9 +505,9 @@ export default function TanksShowcase() {
                   {/* Franja de estado a la izquierda (la FORMA comunica el estado). */}
                   <View style={{ width: 5, backgroundColor: tone.stripe }} />
                   <View style={{ flex: 1, padding: spacing.md }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm }}>
-                      <Text numberOfLines={1} style={[{ color: colors.text, fontSize: 17, flex: 1, fontWeight: '900' }, f(family.displayBold)]}>{t.name}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                      <Text numberOfLines={2} style={[{ color: colors.text, fontSize: 17, flex: 1, minWidth: 135, fontWeight: '900' }, f(family.displayBold)]}>{t.name}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, flexShrink: 1, maxWidth: '100%' }}>
                         <TouchableOpacity
                           onPress={() => openEditFullTank(t.id)}
                           style={{
@@ -899,8 +899,8 @@ export default function TanksShowcase() {
               )}
 
               {/* Ubicación y Responsable */}
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                <View style={{ flex: 1, minWidth: 135 }}>
                   <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 2 }}>Ubicación / Patio</Text>
                   <TextInput
                     value={tankLocation}
@@ -910,7 +910,7 @@ export default function TanksShowcase() {
                     style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 13 }}
                   />
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 135 }}>
                   <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 2 }}>Responsable</Text>
                   <TextInput
                     value={tankResponsable}

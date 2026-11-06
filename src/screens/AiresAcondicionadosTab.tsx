@@ -1492,7 +1492,7 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       {/* Encabezado y Acciones Principales */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
         <SectionTitle>❄️ Aires Acondicionados ({kpis.total})</SectionTitle>
-        <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
           <TouchableOpacity
             onPress={exportarReportePdf}
             style={{
@@ -1579,18 +1579,14 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
       </View>
 
       {/* Filtro rápido por Área / Ubicación / Frente */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 6, paddingBottom: spacing.xs }}
-      >
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingBottom: spacing.xs }}>
         {chip(`Todas las áreas (${unidadesCalc.length})`, filtroArea === 'TODAS', () => setFiltroArea('TODAS'))}
         {areasConConteo.map(([areaName, count]) =>
           chip(`${areaName} (${count})`, filtroArea === areaName, () =>
             setFiltroArea(filtroArea === areaName ? 'TODAS' : areaName),
           ),
         )}
-      </ScrollView>
+      </View>
 
       {/* Buscador */}
       <TextInput
@@ -2235,8 +2231,8 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                 style={inputStyle}
               />
 
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, marginBottom: 4 }}>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: spacing.sm, marginBottom: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 12, flex: 1, minWidth: 180 }}>
                   Fecha de último mantenimiento riguroso previo (AAAA-MM-DD, opcional)
                 </Text>
                 <TouchableOpacity onPress={() => setEditLastMaint(hoy)}>
@@ -2294,8 +2290,8 @@ export function AiresAcondicionadosTab({ canWrite }: { canWrite: boolean }) {
                 style={inputStyle}
               />
 
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, marginBottom: 4 }}>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: spacing.sm, marginBottom: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 12, flex: 1, minWidth: 180 }}>
                   Fecha de último mantenimiento preventivo / lavado (AAAA-MM-DD, opcional)
                 </Text>
                 <TouchableOpacity onPress={() => setEditLastPrev(hoy)}>

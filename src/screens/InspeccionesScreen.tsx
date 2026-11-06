@@ -449,13 +449,13 @@ export default function InspeccionesScreen() {
               </View>
 
               {/* Inspector / operador */}
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
+                <View style={{ flex: 1, minWidth: 140 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Inspector (firma)</Text>
                   <TextInput value={inspector} onChangeText={setInspector} placeholder="Nombre del inspector" placeholderTextColor={colors.muted}
                     style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 140 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Chofer / Operador</Text>
                   <TextInput value={operador} onChangeText={setOperador} placeholder="Nombre del operador" placeholderTextColor={colors.muted}
                     style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
@@ -463,7 +463,7 @@ export default function InspeccionesScreen() {
               </View>
 
               {/* Ítems del inventario */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, flexWrap: 'wrap', gap: spacing.xs }}>
                 <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 14 }}>1. Inventario de equipos / herramientas</Text>
                 <TouchableOpacity onPress={addItem} style={{ backgroundColor: colors.accent, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4 }}>
                   <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>+ Ítem</Text>
@@ -478,13 +478,13 @@ export default function InspeccionesScreen() {
                   </View>
                   <TextInput value={it.descripcion} onChangeText={(t) => setItem(i, { descripcion: t })} placeholder="Descripción del equipo / herramienta" placeholderTextColor={colors.muted}
                     style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
                     <TextInput value={it.cantidad} onChangeText={(t) => setItem(i, { cantidad: t.replace(/[^0-9.]/g, '') })} keyboardType="numeric" placeholder="Cant." placeholderTextColor={colors.muted}
                       style={{ width: 60, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
                     <TextInput value={it.unidad} onChangeText={(t) => setItem(i, { unidad: t })} placeholder="Unid." placeholderTextColor={colors.muted}
                       style={{ width: 80, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
                     <TextInput value={it.serial} onChangeText={(t) => setItem(i, { serial: t })} placeholder="Serial / Especificación" placeholderTextColor={colors.muted}
-                      style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
+                      style={{ flex: 1, minWidth: 130, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
                   </View>
                   <TextInput value={it.estado} onChangeText={(t) => setItem(i, { estado: t })} placeholder="Estado / Condición (ej. Operativo, Verificado…)" placeholderTextColor={colors.muted}
                     style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: nivelColor(it.nivel), fontWeight: '700' }} />
@@ -507,11 +507,11 @@ export default function InspeccionesScreen() {
               <TextInput value={condicion} onChangeText={setCondicion} placeholder="Condición general del equipo…" placeholderTextColor={colors.muted} multiline
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, minHeight: 54, textAlignVertical: 'top' }} />
               {notas.map((n, i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
+                <View key={i} style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   <TextInput value={n.label} onChangeText={(t) => setNota(i, { label: t })} placeholder="Título" placeholderTextColor={colors.muted}
                     style={{ width: 110, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
                   <TextInput value={n.text} onChangeText={(t) => setNota(i, { text: t })} placeholder="Detalle" placeholderTextColor={colors.muted} multiline
-                    style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
+                    style={{ flex: 1, minWidth: 150, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
                   <TouchableOpacity onPress={() => removeNota(i)} style={{ paddingTop: spacing.xs }}><Text style={{ color: colors.danger, fontWeight: '800' }}>✕</Text></TouchableOpacity>
                 </View>
               ))}

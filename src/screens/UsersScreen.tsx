@@ -79,14 +79,14 @@ function PermChecks({ value, onChange, colors }: { value: PermLevel; onChange: (
     onChange(cur === r ? LADDER[r - 1] : lvl);
   };
   return (
-    <View style={{ flexDirection: 'row', gap: 4, marginTop: 3 }}>
+    <View style={{ flexDirection: 'row', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
       {boxes.map((b) => {
         const checked = cur >= RANK[b.lvl];
         return (
           <TouchableOpacity
             key={b.lvl}
             onPress={() => toggle(b.lvl)}
-            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: checked ? colors.brand : colors.border, backgroundColor: checked ? colors.brand : colors.surface }}
+            style={{ flex: 1, minWidth: 85, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: checked ? colors.brand : colors.border, backgroundColor: checked ? colors.brand : colors.surface }}
           >
             <Text style={{ color: checked ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{checked ? '☑' : '☐'}</Text>
             <Text style={{ color: checked ? colors.brandContrast : colors.text, fontSize: 11.5, fontWeight: '700' }}>{b.label}</Text>
@@ -374,8 +374,8 @@ export default function UsersScreen() {
           const isSelf = u.id === session?.user?.id;
           return (
             <Card key={u.id}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1, minWidth: 160 }}>
                   <View
                     style={{
                       width: 10,
@@ -694,8 +694,8 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
                   const isConductor = r.panel_type === 'conductor';
                   return (
                     <View key={r.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>{r.name}</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', flex: 1, minWidth: 120 }}>{r.name}</Text>
                         <TouchableOpacity onPress={() => openEdit(r)} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
                           <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✏️ Editar</Text>
                         </TouchableOpacity>
@@ -1286,14 +1286,14 @@ function EditUserForm({
                   Marca lo que puede hacer en cada módulo. Full control tilda solo Lectura y Escritura; sin nada marcado = sin acceso.
                 </Text>
                 {/* Atajos: aplicar a TODOS los módulos de una vez. */}
-                <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
-                  <TouchableOpacity onPress={() => setAllPerms('full')} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }}>
+                <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                  <TouchableOpacity onPress={() => setAllPerms('full')} style={{ flex: 1, minWidth: 92, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }}>
                     <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '800' }}>✅ Full a todo</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setAllPerms('lectura')} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                  <TouchableOpacity onPress={() => setAllPerms('lectura')} style={{ flex: 1, minWidth: 92, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
                     <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>📖 Lectura a todo</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setAllPerms('none')} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface }}>
+                  <TouchableOpacity onPress={() => setAllPerms('none')} style={{ flex: 1, minWidth: 92, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface }}>
                     <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>🚫 Quitar todo</Text>
                   </TouchableOpacity>
                 </View>
@@ -1359,11 +1359,11 @@ function EditUserForm({
                         ) : null}
                       </>
                     )}
-                    <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                      <TouchableOpacity onPress={openCompanyPicker} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
+                      <TouchableOpacity onPress={openCompanyPicker} style={{ flex: 1, minWidth: 140, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
                         <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>➕ Agregar empresa completa</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={openMachinePicker} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                      <TouchableOpacity onPress={openMachinePicker} style={{ flex: 1, minWidth: 140, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
                         <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>➕ Agregar máquina suelta</Text>
                       </TouchableOpacity>
                     </View>
