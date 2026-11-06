@@ -3,7 +3,7 @@
 // "se guardó" / "hubo un error" pasaban desapercibidos ahí. Este toast SÍ se ve en
 // web y en nativo, con el mismo estilo en ambos.
 // Uso:  const toast = useToast();  toast.success('Guardado'); toast.error('Error: ...');
-import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { Animated, Text, TouchableOpacity } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -50,14 +50,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     hideTimer.current = setTimeout(dismiss, opts.durationMs ?? 3500);
   }, [anim, dismiss]);
 
-  const api: ToastApi = {
+  // 🔁 ESTABLE (06-nov-2026): antes se creaba un objeto nuevo en cada render. Las
+  //    pantallas que ponen `toast` en las dependencias de su carga (p. ej. Fletes)
+  //    entraban en bucle: falla → aviso → re-render → toast nuevo → recarga → falla…
+  //    («Error al cargar fletes: JWT expired» a lo loco).
+  const api = useMemo<ToastApi>(() => ({
     show,
     success: (message, durationMs) => show({ message, type: 'success', durationMs }),
     ok: (message, durationMs) => show({ message, type: 'success', durationMs }),
     warn: (message, durationMs) => show({ message, type: 'info', durationMs: durationMs ?? 4500 }),
     error: (message, durationMs) => show({ message, type: 'error', durationMs: durationMs ?? 5000 }),
     info: (message, durationMs) => show({ message, type: 'info', durationMs }),
-  };
+  }), [show]);
 
   const tone = item ? TONE[item.type] : TONE.info;
 

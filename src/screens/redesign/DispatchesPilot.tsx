@@ -430,7 +430,13 @@ export default function DispatchesPilot() {
           // de verdad. Uno CREADO aquí mismo (createColumn) no entra en esta regla:
           // nace con en_espera=false (default de la columna), porque se está usando ya.
           { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', subLabelCols: ['name', 'serial', 'identifier'], createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
-          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['plate', 'serial', 'identifier'], filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
+          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['plate', 'serial', 'identifier'], filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' && v.apoyo_nombre === undefined },
+          // 🆘 06-nov-2026: al EDITAR un surtido a una máquina de APOYO (fuera del
+          // catálogo) se muestran sus datos en vez de exigir una máquina del catálogo
+          // («El campo Maquinaria es obligatorio» no dejaba guardar). `apoyo_nombre`
+          // solo viene definido cuando el surtido es de apoyo.
+          { key: 'apoyo_nombre', label: '🆘 Máquina de apoyo (nombre)', type: 'text', required: true, showIf: (v) => v.asset_kind === 'maquinaria' && v.apoyo_nombre !== undefined },
+          { key: 'apoyo_placa', label: 'Placa de la máquina de apoyo', type: 'text', showIf: (v) => v.asset_kind === 'maquinaria' && v.apoyo_nombre !== undefined },
           { key: 'liters', label: 'Litros despachados *', type: 'number', required: true },
           { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
           { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },
