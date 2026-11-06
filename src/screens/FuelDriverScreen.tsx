@@ -29,6 +29,7 @@ import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import EdificioPicker from '../components/EdificioPicker';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import SurtidorMovil from '../components/combustible/SurtidorMovil';
+import DetalleDespachoModal from '../components/combustible/DetalleDespachoModal';
 
 // Máquina cargada del catálogo (solo los campos que usamos aquí).
 type Machine = {
@@ -112,6 +113,7 @@ export default function FuelDriverScreen() {
   const [addingPhoto, setAddingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [ultimoDespachoQr, setUltimoDespachoQr] = useState<any | null>(null);
 
   // Reporte de AVERÍA (se vincula al módulo de Mantenimiento vía maintenance_requests).
   const [averiaOpen, setAveriaOpen] = useState(false);
@@ -360,6 +362,17 @@ export default function FuelDriverScreen() {
         setResult({ ok: false, msg: `❌ ${error}` });
       } else {
         setResult({ ok: true, msg: '✅ Surtido registrado' });
+        setUltimoDespachoQr({
+          id: `qr-${Date.now()}`,
+          dispatch_date: today(),
+          created_at: new Date().toISOString(),
+          machinery_id: selected.id,
+          tank_id: effectiveTankId,
+          liters: l,
+          hourmeter_h: selected.last_horometro,
+          driver_operator: driverName || fullName || null,
+          photos: [...photos],
+        });
         // Limpia para el siguiente surtido (mantiene la máquina abierta).
         setLiters('');
         setPricePerLiter('');
@@ -1050,6 +1063,15 @@ export default function FuelDriverScreen() {
         onClose={() => setPhotoSheetFor(null)}
         onPickCamera={() => onPhotoSourcePicked('camera')}
         onPickGallery={() => onPhotoSourcePicked('gallery')}
+      />
+
+      <DetalleDespachoModal
+        visible={ultimoDespachoQr != null}
+        despacho={ultimoDespachoQr}
+        machineryList={machines}
+        tanksList={tanks}
+        registradoPor={driverName || fullName || null}
+        onClose={() => setUltimoDespachoQr(null)}
       />
     </Screen>
   );

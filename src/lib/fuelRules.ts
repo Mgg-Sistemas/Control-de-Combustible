@@ -159,6 +159,8 @@ export interface DatosMensajeCombustible {
   fecha?: string | null;
   hora?: string | null;
   nota?: string | null;
+  fotos?: string[] | null;
+  incluirFotosEnTexto?: boolean;
 }
 
 export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
@@ -170,14 +172,19 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
     lineas.push('⛽ *COMPROBANTE DE SURTIDO - COMBUSTIBLE*');
     lineas.push('');
     lineas.push(`⛽ *Tanque origen:* ${d.tanqueNombre}`);
+    const codigoStr = String(d.equipoCodigo || '').trim() || 'Vehículo general';
+    const placaStr = String(d.equipoPlaca || '').trim() || 'S/P';
+    const serialStr = String(d.equipoSerial || '').trim();
     const eqLabel = [
-      d.equipoCodigo,
-      `(Placa: ${d.equipoPlaca || 'S/P'})`,
-      d.equipoSerial ? `(Serial: ${d.equipoSerial})` : '',
+      codigoStr,
+      `(Placa: ${placaStr})`,
+      serialStr ? `(Serial: ${serialStr})` : '',
     ]
       .filter(Boolean)
       .join(' ');
-    lineas.push(`🚜 *Equipo / Maquinaria:* ${eqLabel || 'Vehículo general'}`);
+    lineas.push(`🚜 *Equipo / Maquinaria:* ${eqLabel}`);
+    lineas.push(`🚗 *Placa:* ${placaStr}`);
+    lineas.push(`🔢 *Serial:* ${serialStr || 'S/S'}`);
     lineas.push(`💧 *Litros surtidos:* ${d.litros.toLocaleString('es-VE')} L`);
     if (d.contadorIni != null || d.contadorFin != null) {
       lineas.push(`🔢 *Contador bomba:* ${d.contadorIni ?? '—'} → ${d.contadorFin ?? '—'}`);
@@ -212,6 +219,18 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
 
   lineas.push(`📅 *Fecha y hora:* ${fechaStr} ${horaStr}`);
   if (d.nota) lineas.push(`📝 *Nota:* ${d.nota}`);
+
+  const fotosLimpias = (d.fotos || []).map((u) => String(u || '').trim()).filter(Boolean);
+  if (d.incluirFotosEnTexto !== false && fotosLimpias.length > 0) {
+    if (fotosLimpias.length === 1) {
+      lineas.push(`📷 *Foto del despacho:* ${fotosLimpias[0]}`);
+    } else {
+      fotosLimpias.forEach((u, idx) => {
+        lineas.push(`📷 *Foto ${idx + 1}:* ${u}`);
+      });
+    }
+  }
+
   lineas.push('');
   lineas.push(`🏢 *SOS La Guaira / BCV*${d.registradoPor ? ` · Reg.: ${d.registradoPor}` : ''}`);
 
@@ -247,6 +266,300 @@ export async function compartirPorWhatsapp(d: DatosMensajeCombustible): Promise<
   } catch (err) {
     console.warn('No se pudo abrir WhatsApp:', err);
   }
+}
+
+/**
+ * Construye `DatosMensajeCombustible` completos (Nombre/Código de maquinaria,
+ * Placa, Serial, Tanque, Litros, Contador, Horómetro, Autorizado, Fecha/Hora y Fotos)
+ * a partir de una fila de `dispatches` y las listas opcionales de catálogo.
+ */
+export function armarDatosMensajeDesdeDespacho(
+  d: any,
+  opts?: {
+    machineryList?: any[] | null;
+    vehiclesList?: any[] | null;
+    tanksList?: any[] | null;
+    registradoPor?: string | null;
+  }
+): DatosMensajeCombustible {
+  const maq =
+    d?.machine ||
+    (opts?.machineryList || []).find((x: any) => x && x.id === d?.machinery_id) ||
+    null;
+  const veh =
+    d?.vehicle ||
+    (opts?.vehiclesList || []).find((x: any) => x && x.id === d?.vehicle_id) ||
+    null;
+  const tank =
+    d?.tank ||
+    (opts?.tanksList || []).find((x: any) => x && x.id === d?.tank_id) ||
+    null;
+
+  const apoyoNom = String(d?.apoyo_nombre || '').trim();
+  const apoyoEmp = String(d?.apoyo_empresa || '').trim();
+  const esApoyo = !maq && !veh && !d?.machinery_id && !d?.vehicle_id && Boolean(apoyoNom);
+
+  let equipoCodigo = 'Vehículo general';
+  let equipoPlaca: string | null = null;
+  let equipoSerial: string | null = null;
+
+  if (maq) {
+    equipoCodigo = String(maq.code || 'MAQUINARIA').trim();
+    equipoPlaca = String(maq.plate || '').trim() || null;
+    equipoSerial = String(maq.serial || maq.identifier || '').trim() || null;
+  } else if (veh) {
+    equipoCodigo = String(veh.name || veh.model || 'Vehículo').trim();
+    equipoPlaca = String(veh.plate || '').trim() || null;
+    equipoSerial = String(veh.serial || veh.identifier || '').trim() || null;
+  } else if (esApoyo) {
+    equipoCodigo = `🆘 ${apoyoNom}${apoyoEmp ? ` (${apoyoEmp})` : ''}`;
+    equipoPlaca = String(d?.apoyo_placa || '').trim() || null;
+    equipoSerial = String(d?.apoyo_serial || '').trim() || null;
+  } else if (d?.equipoCodigo) {
+    equipoCodigo = String(d.equipoCodigo).trim();
+    equipoPlaca = String(d?.equipoPlaca || '').trim() || null;
+    equipoSerial = String(d?.equipoSerial || '').trim() || null;
+  }
+
+  const fotosRaw = [
+    ...(Array.isArray(d?.photos) ? d.photos : []),
+    ...(Array.isArray(d?.apoyo_fotos) ? d.apoyo_fotos : []),
+  ]
+    .map((u: any) => String(u || '').trim())
+    .filter(Boolean);
+  const fotos = Array.from(new Set(fotosRaw));
+
+  const fechaStr = d?.dispatch_date ? String(d.dispatch_date).slice(0, 10) : null;
+  const horaStr = d?.created_at
+    ? new Date(d.created_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  return {
+    tipo: 'surtido',
+    tanqueNombre: tank?.name ? String(tank.name).trim() : 'Bomba directa',
+    equipoCodigo,
+    equipoPlaca,
+    equipoSerial,
+    litros: Number(d?.liters) || 0,
+    contadorIni: d?.fuel_start ?? null,
+    contadorFin: d?.fuel_end ?? null,
+    horometroFin: d?.hourmeter_h ?? null,
+    kilometraje: d?.odometer_km ?? null,
+    autorizadoPor: d?.driver_operator ? String(d.driver_operator).trim() : null,
+    registradoPor: opts?.registradoPor || null,
+    fecha: fechaStr,
+    hora: horaStr,
+    nota: d?.notes ? String(d.notes).trim() : null,
+    fotos,
+    incluirFotosEnTexto: true,
+  };
+}
+
+/**
+ * Copia el texto del mensaje de combustible al portapapeles (Web y móvil).
+ */
+export async function copiarMensajeCombustible(
+  dOrTexto: DatosMensajeCombustible | string
+): Promise<boolean> {
+  const texto = typeof dOrTexto === 'string' ? dOrTexto : construirMensajeWhatsapp(dOrTexto);
+  try {
+    const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+    if (nav?.clipboard?.writeText) {
+      await nav.clipboard.writeText(texto);
+      return true;
+    }
+    const doc: any = typeof document !== 'undefined' ? document : null;
+    if (doc?.createElement) {
+      const ta = doc.createElement('textarea');
+      ta.value = texto;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      doc.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = doc.execCommand('copy');
+      doc.body.removeChild(ta);
+      return Boolean(ok);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Convierte una imagen remota (URL de Supabase Storage) a un Blob PNG en el navegador
+ * para poder copiarla al portapapeles con `ClipboardItem` y pegarla (Ctrl+V) en WhatsApp.
+ */
+async function obtenerImagenComoPngBlob(imageUrl: string): Promise<Blob | null> {
+  try {
+    const doc: any = typeof document !== 'undefined' ? document : null;
+    const ImgCtor: any = (globalThis as any).Image;
+    if (!doc || !ImgCtor) return null;
+
+    return await new Promise<Blob | null>((resolve) => {
+      const img = new ImgCtor();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const canvas = doc.createElement('canvas');
+          canvas.width = img.naturalWidth || img.width || 800;
+          canvas.height = img.naturalHeight || img.height || 600;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(null);
+          ctx.drawImage(img, 0, 0);
+          canvas.toBlob((blob: Blob | null) => resolve(blob), 'image/png');
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = imageUrl;
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Copia la imagen subida del despacho directamente al portapapeles para pegarla (Ctrl+V)
+ * junto con el mensaje en WhatsApp Web / Desktop.
+ */
+export async function copiarImagenDespachoPortapapeles(
+  imageUrl: string
+): Promise<{ ok: boolean; msg: string }> {
+  const url = String(imageUrl || '').trim();
+  if (!url) return { ok: false, msg: 'No hay imagen disponible para copiar.' };
+  try {
+    const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+    const ClipItem: any = (globalThis as any).ClipboardItem;
+    if (nav?.clipboard?.write && ClipItem) {
+      const pngBlob = await obtenerImagenComoPngBlob(url);
+      if (pngBlob) {
+        await nav.clipboard.write([new ClipItem({ 'image/png': pngBlob })]);
+        return {
+          ok: true,
+          msg: '🖼️ Imagen copiada al portapapeles. Pégala (Ctrl+V) directamente en el chat de WhatsApp.',
+        };
+      }
+    }
+    return {
+      ok: false,
+      msg: 'Tu navegador no permite copiar imágenes directo al portapapeles; usa «Descargar foto» o «Enviar imagen + mensaje».',
+    };
+  } catch {
+    return {
+      ok: false,
+      msg: 'No se pudo copiar la imagen al portapapeles; usa «Descargar foto».',
+    };
+  }
+}
+
+/**
+ * Descarga (o abre) la imagen subida en el despacho.
+ */
+export async function descargarImagenDespacho(
+  imageUrl: string,
+  nombreArchivo = 'comprobante-despacho-combustible.jpg'
+): Promise<void> {
+  const url = String(imageUrl || '').trim();
+  if (!url) return;
+  try {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      try {
+        const resp = await fetch(url, { mode: 'cors' });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const objUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = objUrl;
+          a.download = nombreArchivo;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+          return;
+        }
+      } catch {
+        // Fallback abrir en pestaña
+      }
+      window.open(url, '_blank');
+    } else {
+      await Linking.openURL(url);
+    }
+  } catch {
+    // Ignore
+  }
+}
+
+/**
+ * Envía/comparte la imagen subida en la aplicación ADEMÁS del mensaje de combustible:
+ * - Si el dispositivo/navegador soporta Web Share API con archivos (`navigator.canShare({ files })`),
+ *   abre el menú de compartir nativo con la foto adjunta + el texto completo del mensaje.
+ * - En PC / WhatsApp Web, copia el texto al portapapeles, descarga la foto para adjuntarla
+ *   y abre WhatsApp con el mensaje completo (que también lleva el enlace directo a la foto).
+ */
+export async function compartirImagenYMensajeCombustible(
+  d: DatosMensajeCombustible,
+  fotoUrlEspecifica?: string | null
+): Promise<{ modo: 'nativo_archivos' | 'descargado_y_whatsapp' | 'whatsapp'; msg: string }> {
+  const texto = construirMensajeWhatsapp(d);
+  await copiarMensajeCombustible(texto);
+
+  const fotos = (d.fotos || []).map((u) => String(u || '').trim()).filter(Boolean);
+  const targetUrl = String(fotoUrlEspecifica || fotos[0] || '').trim();
+
+  if (targetUrl && typeof navigator !== 'undefined') {
+    const nav: any = navigator;
+    if (typeof nav.share === 'function') {
+      try {
+        const resp = await fetch(targetUrl, { mode: 'cors' });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const ext = blob.type.includes('png') ? 'png' : 'jpg';
+          const file = new File([blob], `despacho-combustible.${ext}`, {
+            type: blob.type || 'image/jpeg',
+          });
+          if (!nav.canShare || nav.canShare({ files: [file] })) {
+            await nav.share({
+              title: 'Comprobante de Surtido - Combustible',
+              text: texto,
+              files: [file],
+            });
+            return {
+              modo: 'nativo_archivos',
+              msg: '✅ Imagen y mensaje compartidos (el texto también quedó copiado en el portapapeles).',
+            };
+          }
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          return {
+            modo: 'nativo_archivos',
+            msg: '📋 El mensaje quedó copiado en el portapapeles.',
+          };
+        }
+      }
+    }
+  }
+
+  if (targetUrl) {
+    await descargarImagenDespacho(
+      targetUrl,
+      `despacho-${String(d.equipoCodigo || 'equipo').replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`
+    );
+    await compartirPorWhatsapp(d);
+    return {
+      modo: 'descargado_y_whatsapp',
+      msg: '✅ Mensaje copiado y abierto en WhatsApp + foto descargada lista para adjuntar.',
+    };
+  }
+
+  await compartirPorWhatsapp(d);
+  return {
+    modo: 'whatsapp',
+    msg: '✅ Mensaje copiado y abierto en WhatsApp.',
+  };
 }
 
 /* ============================================================

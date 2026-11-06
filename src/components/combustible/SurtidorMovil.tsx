@@ -29,9 +29,12 @@ import {
   errorHorometro,
   mermaDeRecepcion,
   compartirPorWhatsapp,
+  copiarMensajeCombustible,
+  armarDatosMensajeDesdeDespacho,
   DatosMensajeCombustible,
   esRegistroAjusteTanque,
 } from '../../lib/fuelRules';
+import DetalleDespachoModal from './DetalleDespachoModal';
 import { exportarJornadaSurtidorPdf, FilaDespachoSurtidorPdf } from '../../lib/combustiblePdf';
 import {
   LOGOS_COMBUSTIBLE_CATALOGO,
@@ -448,6 +451,10 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
 
       toast.success('Despacho registrado con éxito.');
 
+      const fotosDespacho = [...photos, ...(esApoyo ? apoyoFotos : [])]
+        .map((u) => String(u || '').trim())
+        .filter(Boolean);
+
       // Preguntar o preparar compartir por WhatsApp
       const datosWhatsapp: DatosMensajeCombustible = {
         tipo: 'surtido',
@@ -471,6 +478,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         autorizadoPor: autorizadoPor.trim() || currentUserName,
         registradoPor: currentUserName,
         nota: nota.trim() || undefined,
+        fotos: fotosDespacho,
       };
 
       resetSurtirForm();
@@ -479,7 +487,9 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
       refetchLevels();
       refetchDispatches();
 
-      // Compartir por WhatsApp inmediatamente
+      // Copiar el mensaje automáticamente y abrir el detalle + WhatsApp
+      await copiarMensajeCombustible(datosWhatsapp);
+      if (newDispatch) setViewDetailMov(newDispatch as any);
       compartirPorWhatsapp(datosWhatsapp);
     } catch (err: any) {
       toast.error('Error al registrar surtido: ' + (err?.message || 'Error'));
@@ -1133,11 +1143,10 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
           ) : (
             <View style={{ gap: spacing.xs }}>
               {tankDispatches.map((m: any) => {
-                const maq: any = (machineryList || []).find((x) => x.id === m.machinery_id);
-                const veh: any = (vehiclesList || []).find((x) => x.id === m.vehicle_id);
-                const codeLabel = maq ? maq.code : veh ? veh.name || 'Vehículo' : 'Surtido directo';
-                const placaLabel = maq?.plate || veh?.plate || 'S/P';
-                const serialLabel = String(maq?.serial || maq?.identifier || veh?.serial || veh?.identifier || '').trim();
+                const infoMov = armarDatosMensajeDesdeDespacho(m, { machineryList, vehiclesList });
+                const codeLabel = infoMov.equipoCodigo || 'Surtido directo';
+                const placaLabel = infoMov.equipoPlaca || 'S/P';
+                const serialLabel = String(infoMov.equipoSerial || '').trim();
                 const timeStr = m.created_at
                   ? new Date(m.created_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })
                   : '';
@@ -2131,100 +2140,16 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         </View>
       </Modal>
 
-      {/* MODAL: Detalle de Movimiento con botón WhatsApp */}
-      <Modal visible={viewDetailMov != null} animationType="fade" transparent={true}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.md }}>
-          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, maxHeight: '80%' }}>
-            {viewDetailMov && (
-              <ScrollView>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
-                  <Text style={{ fontSize: 16, fontWeight: '900', color: colors.text }}>Detalle del Despacho</Text>
-                  <TouchableOpacity onPress={() => setViewDetailMov(null)}>
-                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.muted }}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={{ gap: spacing.sm }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.muted }}>Fecha y hora:</Text>
-                    <Text style={{ fontWeight: '700', color: colors.text }}>
-                      {viewDetailMov.dispatch_date} {viewDetailMov.created_at ? new Date(viewDetailMov.created_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }) : ''}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.muted }}>Litros surtidos:</Text>
-                    <Text style={{ fontWeight: '900', color: colors.primary, fontSize: 16 }}>{fmtNum(viewDetailMov.liters)} L</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.muted }}>Contador bomba:</Text>
-                    <Text style={{ fontWeight: '700', color: colors.text }}>
-                      {viewDetailMov.fuel_start ?? '—'} ➔ {viewDetailMov.fuel_end ?? '—'}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.muted }}>Horómetro:</Text>
-                    <Text style={{ fontWeight: '700', color: colors.text }}>
-                      {viewDetailMov.hourmeter_h ?? '—'} h
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.muted }}>Autorizado / Operador:</Text>
-                    <Text style={{ fontWeight: '700', color: colors.text }}>{viewDetailMov.driver_operator || '—'}</Text>
-                  </View>
-
-                  {/* Fotos adjuntas */}
-                  {viewDetailMov.photos && viewDetailMov.photos.length > 0 && (
-                    <View style={{ marginTop: spacing.sm }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text, marginBottom: 4 }}>Fotos ({viewDetailMov.photos.length})</Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
-                        {viewDetailMov.photos.map((url, i) => (
-                          <Image key={i} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: radius.sm }} />
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-
-                  <TouchableOpacity
-                    onPress={() => {
-                      const maq = (machineryList || []).find((x) => x.id === viewDetailMov.machinery_id);
-                      const veh = (vehiclesList || []).find((x) => x.id === viewDetailMov.vehicle_id);
-                      const t = (activeTanks || []).find((x) => x.id === viewDetailMov.tank_id);
-
-                      compartirPorWhatsapp({
-                        tipo: 'surtido',
-                        tanqueNombre: t ? t.name : 'Bomba directa',
-                        equipoCodigo: maq ? maq.code : veh ? veh.name || 'Vehículo' : 'General',
-                        equipoPlaca: maq?.plate || veh?.plate,
-                        litros: viewDetailMov.liters,
-                        contadorIni: viewDetailMov.fuel_start,
-                        contadorFin: viewDetailMov.fuel_end,
-                        horometroFin: viewDetailMov.hourmeter_h,
-                        autorizadoPor: viewDetailMov.driver_operator,
-                        fecha: viewDetailMov.dispatch_date,
-                      });
-                    }}
-                    style={{
-                      backgroundColor: '#25D366',
-                      borderRadius: radius.md,
-                      paddingVertical: spacing.sm,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginTop: spacing.md,
-                      flexDirection: 'row',
-                      gap: 6,
-                    }}
-                  >
-                    <Text style={{ fontSize: 16 }}>💬</Text>
-                    <Text style={{ fontWeight: '900', color: '#fff', fontSize: 14 }}>
-                      Reenviar por WhatsApp
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+      {/* MODAL: Detalle de Movimiento con copiar mensaje, imagen y botón WhatsApp */}
+      <DetalleDespachoModal
+        visible={viewDetailMov != null}
+        despacho={viewDetailMov}
+        machineryList={machineryList}
+        vehiclesList={vehiclesList}
+        tanksList={activeTanks}
+        registradoPor={currentUserName}
+        onClose={() => setViewDetailMov(null)}
+      />
 
       {/* MODAL: Reporte Diario del Surtidor */}
       <Modal visible={reportModalOpen} animationType="slide" transparent={true}>

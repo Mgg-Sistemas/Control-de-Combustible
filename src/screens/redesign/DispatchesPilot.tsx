@@ -19,6 +19,7 @@ import { useToast } from '../../components/ToastProvider';
 import { levelMeets } from '../../lib/permissions';
 import { CONSUMOS_NOTAS_ACTIVAS } from '../../lib/combustibleEdicion';
 import EditarFotosCombustibleModal from '../../components/combustible/EditarFotosCombustibleModal';
+import DetalleDespachoModal from '../../components/combustible/DetalleDespachoModal';
 import {
   MARCADOR_AJUSTE_TANQUE,
   agruparLitrosPorMaquinaTop,
@@ -109,6 +110,7 @@ export default function DispatchesPilot() {
   // la columna) de un consumo ya registrado. La RLS pide can_write_module('consumos').
   const puedeEditarFotos = levelMeets(moduleLevel('consumos'), 'full');
   const [editFotos, setEditFotos] = useState<any | null>(null);
+  const [detalleDespacho, setDetalleDespacho] = useState<any | null>(null);
   const refetchRef = useRef<(() => void) | null>(null);
   // 02-nov-2026: reporte personalizable de consumos (día o rango, con gráficas y
   // horómetro del inspector, solo lectura). Las opciones se recuerdan por persona.
@@ -601,14 +603,41 @@ export default function DispatchesPilot() {
                 </View>
               ) : null}
               {CONSUMOS_NOTAS_ACTIVAS && (d as any).notes ? <RRow label="Nota" value={String((d as any).notes)} /> : null}
-              {puedeEditarFotos ? (
-                <Pressable onPress={() => setEditFotos(d as any)} style={{ alignSelf: 'flex-start', marginTop: spacing.sm, paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🖼️ Editar foto{CONSUMOS_NOTAS_ACTIVAS ? ' / nota' : ''}</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+                <Pressable
+                  onPress={() => setDetalleDespacho(d as any)}
+                  style={{
+                    paddingVertical: 5,
+                    paddingHorizontal: spacing.sm,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: '#16A34A',
+                    backgroundColor: '#25D366',
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                    💬 Mensaje / Copiar / WhatsApp
+                  </Text>
                 </Pressable>
-              ) : null}
+                {puedeEditarFotos ? (
+                  <Pressable onPress={() => setEditFotos(d as any)} style={{ paddingVertical: 5, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🖼️ Editar foto{CONSUMOS_NOTAS_ACTIVAS ? ' / nota' : ''}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </>
           );
         }}
+      />
+
+      <DetalleDespachoModal
+        visible={detalleDespacho != null}
+        despacho={detalleDespacho}
+        machineryList={machineryCat}
+        vehiclesList={vehiclesCat}
+        tanksList={activeTanks}
+        registradoPor={currentUserName}
+        onClose={() => setDetalleDespacho(null)}
       />
 
       <EditarFotosCombustibleModal

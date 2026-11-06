@@ -19,6 +19,7 @@ import { filtrarPorEquipos, opcionesApoyo } from '../../lib/combustibleEquipos';
 import { OPCIONES_REPORTE_APOYO, filtrarConsumosApoyo } from '../../lib/combustibleReportes';
 import { exportarReporteApoyoPdf } from '../../lib/combustibleReportesPdf';
 import OpcionesReporteCombustibleModal from './OpcionesReporteCombustibleModal';
+import DetalleDespachoModal from './DetalleDespachoModal';
 import { useToast } from '../ToastProvider';
 
 const hoy = () => new Date().toISOString().slice(0, 10);
@@ -51,7 +52,12 @@ export default function MaquinasApoyoPanel() {
   const [fotosEdit, setFotosEdit] = useState<string[]>([]);
   const [ocupado, setOcupado] = useState(false);
   const [verReporte, setVerReporte] = useState(false);
+  const [detalleDespacho, setDetalleDespacho] = useState<any | null>(null);
   const opcionesMaquinasApoyo = useMemo(() => opcionesApoyo(filas), [filas]);
+  const listaTanques = useMemo(
+    () => Object.entries(tanques).map(([id, name]) => ({ id, name })),
+    [tanques]
+  );
 
   const generarReporteApoyo = useCallback(
     async ({
@@ -277,22 +283,39 @@ export default function MaquinasApoyoPanel() {
                   {fotosMaq.length > 0 && <Miniaturas fotos={fotosMaq} />}
                   {fotosSur.length > 0 && <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>Fotos de lo surtido</Text>}
                   {fotosSur.length > 0 && <Miniaturas fotos={fotosSur} />}
-                  {esFull && (
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-                      <TouchableOpacity onPress={() => abrirEdicion(d, 'apoyo_fotos')} style={boton}>
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>✏️ Fotos de la máquina</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => abrirEdicion(d, 'photos')} style={boton}>
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>✏️ Fotos de lo surtido</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: 4 }}>
+                    <TouchableOpacity
+                      onPress={() => setDetalleDespacho(d)}
+                      style={[boton, { backgroundColor: '#25D366', borderColor: '#16A34A' }]}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#fff' }}>
+                        💬 Mensaje / Copiar / WhatsApp
+                      </Text>
+                    </TouchableOpacity>
+                    {esFull && (
+                      <>
+                        <TouchableOpacity onPress={() => abrirEdicion(d, 'apoyo_fotos')} style={boton}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>✏️ Fotos de la máquina</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => abrirEdicion(d, 'photos')} style={boton}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>✏️ Fotos de lo surtido</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
                 </View>
               );
             })}
           </View>
         ))}
       </ScrollView>
+
+      <DetalleDespachoModal
+        visible={detalleDespacho != null}
+        despacho={detalleDespacho}
+        tanksList={listaTanques}
+        onClose={() => setDetalleDespacho(null)}
+      />
 
       {/* Modales al final (en web gana el último montado) */}
       <Modal visible={editando != null} transparent animationType="fade" onRequestClose={() => setEditando(null)}>
