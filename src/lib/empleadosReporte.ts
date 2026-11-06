@@ -607,6 +607,8 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
       if (mostrarNumCargo) thsCargo.push('<th class="r nw" style="width:34px">#</th>');
       thsCargo.push('<th>Cargo</th>');
       if (op.departamento) thsCargo.push('<th>Departamento</th>');
+      // 👥 Cantidad de personas por cargo también en el modo tabulador (06-nov-2026).
+      thsCargo.push('<th class="r nw" style="width:80px">Personas</th>');
       if (op.salarioDiario) thsCargo.push('<th class="r nw">Por Día</th>');
       if (op.salarioNocturno) thsCargo.push('<th class="r nw">Por Noche</th>');
       if (op.salarioSemanal) thsCargo.push('<th class="r nw">Por Semana</th>');
@@ -620,7 +622,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
       let sumCargoMes = 0;
 
       const resumenRows = resumen
-        .map(([c], idx) => {
+        .map(([c, n], idx) => {
           const listaSals = porCargoSalariosListaMap.get(c) ?? [];
           const salDia = modaMonto(listaSals.map((s) => s.diario));
           const salNoche = modaMonto(listaSals.map((s) => s.nocturno));
@@ -641,6 +643,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
           if (mostrarNumCargo) tds.push(`<td class="r nw">${idx + 1}</td>`);
           tds.push(`<td><b>${esc(c)}</b></td>`);
           if (op.departamento) tds.push(`<td>${esc(deptoTxt)}</td>`);
+          tds.push(`<td class="r nw"><b>${n}</b></td>`);
           if (op.salarioDiario) {
             tds.push(`<td class="r nw">${salDia !== null ? `<b>${esc(formatearMontoSalarioReporte(salDia))}</b>` : '—'}</td>`);
           }
@@ -661,7 +664,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
         .join('');
 
       const colsEtiqueta = 1 + (mostrarNumCargo ? 1 : 0) + (op.departamento ? 1 : 0);
-      const tfootCells: string[] = [`<td colspan="${colsEtiqueta}">TOTAL (${resumen.length} cargos)</td>`];
+      const tfootCells: string[] = [`<td colspan="${colsEtiqueta}">TOTAL (${resumen.length} cargos)</td>`, `<td class="r nw">${lista.length}</td>`];
       if (op.salarioDiario) {
         tfootCells.push(`<td class="r nw">${sumCargoDia > 0 ? esc(formatearMontoSalarioReporte(r2(sumCargoDia))) : '—'}</td>`);
       }
