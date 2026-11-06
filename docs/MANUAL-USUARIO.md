@@ -9957,4 +9957,23 @@ Incluye los **reportes de Consumos y de Entradas**, el soporte de **máquinas de
    - Genera un PDF exclusivo de las máquinas de apoyo (externas al catálogo).
    - Permite elegir una jornada o rango de fechas (7am–7am), filtrar una o varias máquinas de apoyo específicas (con buscador por nombre, **Placa**, serial o empresa), elegir los logos del membrete y personalizar qué secciones salen (tarjetas de resumen, gráficas por día y por máquina de apoyo con su placa, tabla de totales por máquina de apoyo, tabla de detalle de surtidos y bloque de firmas).
 
+---
+
+### 📥 Acta de Recepción y Devolución de Herramientas e Implementos (06/11/2026)
+
+Complemento directo del **🤝 Acta de Compromiso y Entrega de Herramientas**, para dejar constancia formal cuando el trabajador **regresa lo que se le entregó** y registrar **en qué estado regresó cada implemento**:
+
+1. **Dónde entrar:**
+   - En **Nómina → 🪪 Empleados**: al tocar un trabajador, dispones del botón **«📥 Acta de recepción»** justo al lado de **«🤝 Acta de compromiso»**.
+   - En la **🪪 Ficha del trabajador**: dentro de la sección de Actas dispones del botón **«📥 Nueva Acta de Recepción / Devolución»** y del botón **«📥 Recibir»** sobre cada acta de entrega previa.
+   - Dentro del propio modal de Actas: arriba tienes las dos pestañas **«📤 ACTA DE ENTREGA / COMPROMISO»** y **«📥 ACTA DE RECEPCIÓN / DEVOLUCIÓN»**, además del botón verde **«📥 RECIBIR / DEVOLVER»** en cada acta de entrega del historial.
+
+2. **Qué registra y genera:**
+   - **Carga automática desde lo entregado:** con un toque trae todas las herramientas e implementos que se le habían entregado en el acta de origen (`AC-HER-...`), o permite cargarlos manualmente.
+   - **Estado físico en que regresó cada ítem:** por cada renglón se indica la **cantidad devuelta** frente a la entregada, el **estado en que regresó** (**🟢 Bueno / Operativo**, **🟡 Desgaste normal por uso**, **🟠 Incompleto / Faltan piezas**, **🔴 Dañado / Averiado**, **⚫ Extraviado / No devuelto**), la **observación del estado de retorno** y, si aplica, el **cargo de reposición en USD** (con sugerencia automática según el valor declarado).
+   - **Botón rápido «✅ Todo regresó completo y en buen estado»:** marca todos los renglones como devueltos completos y operativos en un clic.
+   - **Motivo de devolución y Estatus de Solvencia:** permite elegir el motivo (*Fin de relación laboral / Liquidación*, *Cambio de cargo*, *Cierre de jornada*, *Cambio por deterioro*, *Vacaciones / Reposo*, *Auditoría*) y emite la constancia de solvencia (**✅ Conforme / Paz y Salvo**, **⚠️ Con novedad** o **⏳ Devolución parcial**).
+   - **Firmas digitales, foto con 📷 Cámara / 🖼️ Galería y PDF (`AR-HER-AAAA-NNN`):** guarda en el expediente del trabajador, marca el acta de entrega original como **«✅ YA DEVUELTA»** e imprime el PDF formal de recepción (o planilla en blanco).
+
+
 

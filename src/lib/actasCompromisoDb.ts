@@ -8,8 +8,8 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
-import { CommitmentToolItem, EmployeeCommitmentAct } from '../types/database';
-import { limpiarItemsActa } from './actaCompromiso';
+import { CommitmentToolItem, EmployeeCommitmentAct, ResultadoRecepcionActa } from '../types/database';
+import { limpiarItemsActa, esActaRecepcion, evaluarResultadoRecepcion } from './actaCompromiso';
 
 const STORAGE_KEY_PREFIX = '@actas_compromiso_emp_v1:';
 
@@ -18,14 +18,18 @@ function mapRow(r: any): EmployeeCommitmentAct {
   if (typeof rawItems === 'string') {
     try { rawItems = JSON.parse(rawItems); } catch { rawItems = []; }
   }
+  const items = limpiarItemsActa(Array.isArray(rawItems) ? rawItems : []);
+  const codigo = String(r.codigo ?? '');
+  const esRecepcion = esActaRecepcion({ codigo, items });
+  const p = items[0];
   return {
     id: String(r.id),
     employee_id: String(r.employee_id),
-    codigo: String(r.codigo ?? ''),
+    codigo,
     fecha_entrega: String(r.fecha_entrega ?? '').slice(0, 10),
     cargo: r.cargo ?? null,
     departamento: r.departamento ?? null,
-    items: limpiarItemsActa(Array.isArray(rawItems) ? rawItems : []),
+    items,
     observaciones: r.observaciones ?? null,
     entregado_por: r.entregado_por ?? null,
     testigo_nombre: r.testigo_nombre ?? null,
@@ -43,6 +47,13 @@ function mapRow(r: any): EmployeeCommitmentAct {
     created_by_nombre: r.created_by_nombre ?? null,
     created_at: r.created_at ?? new Date().toISOString(),
     updated_at: r.updated_at ?? null,
+    tipo_acta: esRecepcion ? 'recepcion' : 'entrega',
+    acta_origen_id: p?.acta_origen_id ?? null,
+    acta_origen_codigo: p?.acta_origen_codigo ?? null,
+    fecha_entrega_origen: p?.fecha_entrega_origen ?? null,
+    motivo_recepcion: p?.motivo_recepcion ?? null,
+    resultado_recepcion: esRecepcion ? (p?.resultado_recepcion || evaluarResultadoRecepcion(items)) : null,
+    entregado_cargo: p?.entregado_cargo ?? null,
   };
 }
 
@@ -112,6 +123,7 @@ export type GuardarActaCompromisoInput = {
   items: CommitmentToolItem[];
   observaciones?: string | null;
   entregado_por?: string | null;
+  entregado_cargo?: string | null;
   testigo_nombre?: string | null;
   testigo_cedula?: string | null;
   firma_trabajador_url?: string | null;
@@ -119,25 +131,54 @@ export type GuardarActaCompromisoInput = {
   soporte_url?: string | null;
   acepta_clausulas?: boolean;
   autoriza_deduccion?: boolean;
+  tipo_acta?: 'entrega' | 'recepcion' | null;
+  acta_origen_id?: string | null;
+  acta_origen_codigo?: string | null;
+  fecha_entrega_origen?: string | null;
+  motivo_recepcion?: string | null;
+  resultado_recepcion?: ResultadoRecepcionActa | null;
   uid?: string | null;
   userName?: string | null;
 };
 
 /**
- * Guarda (inserta o actualiza) un Acta de Compromiso en el expediente del trabajador.
+ * Guarda (inserta o actualiza) un Acta de Compromiso/Entrega o de Recepción/Devolución
+ * en el expediente del trabajador.
  * Verifica siempre con `.select('id')` que la fila realmente se guardó.
  */
 export async function guardarActaCompromiso(
   input: GuardarActaCompromisoInput
 ): Promise<{ acta?: EmployeeCommitmentAct; error?: string }> {
-  const itemsLimpios = limpiarItemsActa(input.items);
+  const esRecepcion = esActaRecepcion({
+    codigo: input.codigo,
+    tipo_acta: input.tipo_acta,
+    items: input.items,
+  });
+  const itemsBase = limpiarItemsActa(input.items);
+  const itemsLimpios = itemsBase.map((it, idx) => {
+    const next: CommitmentToolItem = {
+      ...it,
+      tipo_acta: esRecepcion ? 'recepcion' : 'entrega',
+    };
+    if (idx === 0) {
+      if (input.entregado_cargo?.trim()) next.entregado_cargo = input.entregado_cargo.trim();
+      if (esRecepcion) {
+        if (input.acta_origen_id?.trim()) next.acta_origen_id = input.acta_origen_id.trim();
+        if (input.acta_origen_codigo?.trim()) next.acta_origen_codigo = input.acta_origen_codigo.trim();
+        if (input.fecha_entrega_origen?.trim()) next.fecha_entrega_origen = input.fecha_entrega_origen.trim().slice(0, 10);
+        if (input.motivo_recepcion?.trim()) next.motivo_recepcion = input.motivo_recepcion.trim();
+        next.resultado_recepcion = input.resultado_recepcion || evaluarResultadoRecepcion(itemsBase);
+      }
+    }
+    return next;
+  });
   const payload = {
     employee_id: input.employee_id,
-    codigo: String(input.codigo || '').trim() || 'AC-HER-001',
+    codigo: String(input.codigo || '').trim() || (esRecepcion ? 'AR-HER-001' : 'AC-HER-001'),
     fecha_entrega: input.fecha_entrega || new Date().toISOString().slice(0, 10),
     cargo: input.cargo?.trim() || null,
     departamento: input.departamento?.trim() || null,
-    items: itemsLimpios,
+    items: limpiarItemsActa(itemsLimpios),
     observaciones: input.observaciones?.trim() || null,
     entregado_por: input.entregado_por?.trim() || null,
     testigo_nombre: input.testigo_nombre?.trim() || null,

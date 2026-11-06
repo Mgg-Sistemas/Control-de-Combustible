@@ -502,16 +502,40 @@ export interface StaffPayPeriod {
   updated_at?: string | null;
 }
 
-/** Ítem de herramienta o implemento entregado en un Acta de Compromiso. */
+/** Estado físico en que regresa una herramienta o implemento en un Acta de Recepción / Devolución. */
+export type EstadoRetornoHerramienta =
+  | 'BUENO / OPERATIVO'
+  | 'DESGASTE NORMAL'
+  | 'INCOMPLETO'
+  | 'DAÑADO / AVERIADO'
+  | 'EXTRAVIADO / NO DEVUELTO';
+
+/** Resultado global de solvencia de un Acta de Recepción / Devolución. */
+export type ResultadoRecepcionActa = 'CONFORME' | 'CON_NOVEDAD' | 'PARCIAL';
+
+/** Ítem de herramienta o implemento entregado o devuelto en un Acta de Compromiso / Recepción. */
 export interface CommitmentToolItem {
   nombre: string;
   cantidad: number;
   serial?: string | null;
   estado?: string | null;
   valor_usd?: number | null;
+  // Campos para Acta de Recepción / Devolución:
+  cantidad_devuelta?: number | null;
+  estado_retorno?: EstadoRetornoHerramienta | string | null;
+  observacion_retorno?: string | null;
+  cargo_usd?: number | null;
+  // Metadatos opcionales del acta guardados en el JSONB `items` sin requerir ALTER TABLE:
+  tipo_acta?: 'entrega' | 'recepcion' | null;
+  acta_origen_id?: string | null;
+  acta_origen_codigo?: string | null;
+  fecha_entrega_origen?: string | null;
+  motivo_recepcion?: string | null;
+  resultado_recepcion?: ResultadoRecepcionActa | null;
+  entregado_cargo?: string | null;
 }
 
-/** Acta de compromiso y entrega de herramientas asociada al expediente del trabajador. */
+/** Acta de compromiso/entrega o de recepción/devolución de herramientas asociada al expediente del trabajador. */
 export interface EmployeeCommitmentAct {
   id: string;
   employee_id: string;
@@ -537,6 +561,14 @@ export interface EmployeeCommitmentAct {
   created_by_nombre: string | null;
   created_at: string;
   updated_at?: string | null;
+  // Campos derivados del JSONB `items` y del código para Actas de Recepción / Devolución:
+  tipo_acta?: 'entrega' | 'recepcion';
+  acta_origen_id?: string | null;
+  acta_origen_codigo?: string | null;
+  fecha_entrega_origen?: string | null;
+  motivo_recepcion?: string | null;
+  resultado_recepcion?: ResultadoRecepcionActa | null;
+  entregado_cargo?: string | null;
 }
 
 /** Línea por persona. devengado = precio_del_modo × cantidad. total = devengado + Σbonos − Σdeducciones. */

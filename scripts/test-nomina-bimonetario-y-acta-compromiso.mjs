@@ -147,7 +147,77 @@ assert.ok(htmlActa.includes('Autorización de deducción salarial por daño o ex
 assert.ok(htmlActa.includes('Taladro percutor') && htmlActa.includes('TL-99'), 'Debe listar la herramienta y su serial');
 assert.ok(htmlActa.includes('data:image/svg+xml;utf8,'), 'Debe incrustar la firma digital');
 
-console.log('✓ 2. Generador de Acta de Compromiso y Entrega de Herramientas verificado');
+// 2b. Pruebas de Acta de Recepción y Devolución de Herramientas (06/11/2026)
+const codigoRecepcion = actaMod.generarCodigoActaRecepcion(3, '2026-11-06');
+assert.equal(codigoRecepcion, 'AR-HER-2026-003');
+assert.equal(actaMod.esActaRecepcion({ codigo: codigoRecepcion }), true);
+assert.equal(actaMod.esActaRecepcion({ codigo: codigoActa }), false);
+
+const prepRec = actaMod.prepararItemsParaRecepcion(itemsLimpios);
+assert.equal(prepRec.length, 1);
+assert.equal(prepRec[0].cantidad_devuelta, 2);
+assert.equal(prepRec[0].estado_retorno, 'BUENO / OPERATIVO');
+assert.equal(actaMod.evaluarResultadoRecepcion(prepRec), 'CONFORME');
+
+// Simular devolución con 1 ítem en buen estado y 1 ítem dañado con cargo
+const itemsRecepcionConNovedad = actaMod.limpiarItemsActa([
+  {
+    nombre: 'Casco de seguridad',
+    cantidad: 1,
+    cantidad_devuelta: 1,
+    serial: 'CS-01',
+    estado: 'NUEVO',
+    estado_retorno: 'DESGASTE NORMAL',
+    observacion_retorno: 'Rayones leves por uso en obra',
+    valor_usd: 15,
+    cargo_usd: 0,
+    tipo_acta: 'recepcion',
+  },
+  {
+    nombre: 'Taladro percutor',
+    cantidad: 2,
+    cantidad_devuelta: '1',
+    serial: 'TL-99',
+    estado: 'BUENO',
+    estado_retorno: 'DAÑADO / AVERIADO',
+    observacion_retorno: 'Un taladro regresó con inducido quemado y falta el segundo',
+    valor_usd: '85,50',
+    cargo_usd: '85,50',
+    tipo_acta: 'recepcion',
+  },
+]);
+assert.equal(actaMod.evaluarResultadoRecepcion(itemsRecepcionConNovedad), 'CON_NOVEDAD');
+assert.equal(actaMod.totalCargoReposicionUsd(itemsRecepcionConNovedad), 85.5);
+const resRet = actaMod.resumenEstadosRetorno(itemsRecepcionConNovedad);
+assert.equal(resRet.desgaste, 1);
+assert.equal(resRet.danados, 1);
+assert.equal(resRet.totalEntregados, 3);
+assert.equal(resRet.totalDevueltos, 2);
+
+const htmlRecepcion = actaMod.actaCompromisoHtml({
+  codigo: codigoRecepcion,
+  fullName: 'Carlos Pérez',
+  cedula: 'V-18.900.123',
+  cargo: 'MECÁNICO DIESEL',
+  department: 'MANTENIMIENTO',
+  fechaEntrega: '2026-11-06',
+  tipoActa: 'recepcion',
+  actaOrigenCodigo: 'AC-HER-2026-007',
+  fechaEntregaOrigen: '2026-11-04',
+  motivoRecepcion: 'Fin de relación laboral / Liquidación',
+  items: itemsRecepcionConNovedad,
+  observaciones: 'Se descuenta 1 taladro averiado según acta de compromiso.',
+  entregadoPor: 'DIANA DE LA RANS',
+  entregadoCargo: 'JEFE DE ALMACÉN',
+});
+assert.ok(htmlRecepcion.includes('Acta de Recepción y Devolución de Herramientas'), 'Título del acta de recepción');
+assert.ok(htmlRecepcion.includes('AC-HER-2026-007'), 'Debe mostrar el acta de entrega de origen');
+assert.ok(htmlRecepcion.includes('Fin de relación laboral / Liquidación'), 'Debe mostrar el motivo de devolución');
+assert.ok(htmlRecepcion.includes('DAÑADO / AVERIADO') && htmlRecepcion.includes('DESGASTE NORMAL'), 'Debe mostrar el estado en que regresó cada herramienta');
+assert.ok(htmlRecepcion.includes('Un taladro regresó con inducido quemado'), 'Debe mostrar la observación de retorno');
+assert.ok(htmlRecepcion.includes('$85.50'), 'Debe mostrar el cargo de reposición en USD');
+
+console.log('✓ 2. Generador de Acta de Compromiso/Entrega y Acta de Recepción/Devolución de Herramientas verificado');
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 3. Pruebas de «Salario Semanal» en Empleados y Reporte PDF

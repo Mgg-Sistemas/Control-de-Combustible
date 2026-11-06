@@ -17,7 +17,7 @@ import { leerContactos, tituloContacto } from '../lib/contactosEmergencia';
 import { leerHabilidadesEmpleado } from '../lib/empleadosHabilidades';
 import { leerMapaHabilidades } from '../lib/empleadosHabilidadesStorage';
 import { listarActasCompromisoEmpleado } from '../lib/actasCompromisoDb';
-import { actaCompromisoHtml, totalValorReposicionUsd } from '../lib/actaCompromiso';
+import { actaCompromisoHtml, totalValorReposicionUsd, esActaRecepcion } from '../lib/actaCompromiso';
 import { ActaCompromisoModal } from '../components/ActaCompromisoModal';
 import { leerSalarioSemanalEmpleado, formatearSalarioSemanalReporte } from '../lib/empleadosReporte';
 import { MEMBRETE_POR_DEFECTO } from '../lib/constancia';
@@ -61,6 +61,8 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   const [historial, setHistorial] = useState<{ id: string; date: string; tipo: string; detalle: string }[]>([]);
   const [actasCompromiso, setActasCompromiso] = useState<EmployeeCommitmentAct[]>([]);
   const [actaModalOpen, setActaModalOpen] = useState(false);
+  const [actaTipoInicial, setActaTipoInicial] = useState<'entrega' | 'recepcion'>('entrega');
+  const [actaOrigenInicial, setActaOrigenInicial] = useState<EmployeeCommitmentAct | null>(null);
   const [isAnonSession, setIsAnonSession] = useState(true);
 
   // isRefresh=true (pull-to-refresh) no vuelve a registrar el escaneo en la
@@ -339,76 +341,137 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
       ) : null}
 
       {!isAnonSession ? (
-        <Section title={`🤝 Actas de compromiso y entrega de herramientas (${actasCompromiso.length})`}>
+        <Section title={`🤝 Actas de compromiso, entrega y recepción de herramientas (${actasCompromiso.length})`}>
           {actasCompromiso.length === 0 ? (
             <Text style={{ color: FICHA.muted, fontSize: 13 }}>Sin actas registradas en el expediente.</Text>
           ) : (
             actasCompromiso.map((a) => {
+              const esRec = esActaRecepcion(a);
               const totalUsd = totalValorReposicionUsd(a.items || []);
               return (
                 <View key={a.id} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                    <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <View style={{ flex: 1, minWidth: 180 }}>
                       <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '800' }}>
-                        {a.codigo || 'ACTA'} · {a.fecha_entrega} {a.firma_trabajador_url ? '· ✍️ Firmada' : ''}
+                        {esRec ? '📥 RECEPCIÓN' : '📤 ENTREGA'} · {a.codigo || 'ACTA'} · {a.fecha_entrega}{' '}
+                        {a.firma_trabajador_url ? '· ✍️ Firmada' : ''}
                       </Text>
                       <Text style={{ color: FICHA.muted, fontSize: 12 }}>
-                        {(a.items || []).map((it) => `${it.cantidad}x ${it.nombre}`).join(' · ')}
-                        {totalUsd > 0 ? ` · ($${totalUsd.toFixed(2)})` : ''}
+                        {(a.items || [])
+                          .map((it) =>
+                            esRec
+                              ? `${it.cantidad_devuelta ?? it.cantidad}/${it.cantidad}x ${it.nombre} (${it.estado_retorno || 'BUENO'})`
+                              : `${it.cantidad}x ${it.nombre}`
+                          )
+                          .join(' · ')}
+                        {!esRec && totalUsd > 0 ? ` · ($${totalUsd.toFixed(2)})` : ''}
                       </Text>
                     </View>
-                    <TouchableOpacity
-                      onPress={async () => {
-                        const html = actaCompromisoHtml({
-                          codigo: a.codigo,
-                          fullName: fullName(emp),
-                          cedula: emp.cedula,
-                          cargo: a.cargo || emp.cargo,
-                          department: a.departamento || emp.department,
-                          fichaNumber: emp.ficha_number,
-                          hireDate: emp.hire_date,
-                          city: emp.city,
-                          state: emp.state,
-                          fechaEntrega: a.fecha_entrega,
-                          items: a.items || [],
-                          observaciones: a.observaciones,
-                          entregadoPor: a.entregado_por,
-                          testigoNombre: a.testigo_nombre,
-                          testigoCedula: a.testigo_cedula,
-                          firmaTrabajadorDataUri: a.firma_trabajador_url,
-                          firmaEntregaDataUri: a.firma_entrega_url,
-                        });
-                        await exportPdf(html, `Acta_Compromiso_${a.codigo || fullName(emp)}`);
-                      }}
-                      style={{
-                        backgroundColor: FICHA.brand,
-                        paddingHorizontal: 10,
-                        paddingVertical: 6,
-                        borderRadius: radius.sm,
-                      }}
-                    >
-                      <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>🖨️ PDF</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                      {!esRec ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setActaTipoInicial('recepcion');
+                            setActaOrigenInicial(a);
+                            setActaModalOpen(true);
+                          }}
+                          style={{
+                            backgroundColor: '#0F766E',
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: radius.sm,
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>📥 Recibir</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      <TouchableOpacity
+                        onPress={async () => {
+                          const html = actaCompromisoHtml({
+                            codigo: a.codigo,
+                            fullName: fullName(emp),
+                            cedula: emp.cedula,
+                            cargo: a.cargo || emp.cargo,
+                            department: a.departamento || emp.department,
+                            fichaNumber: emp.ficha_number,
+                            hireDate: emp.hire_date,
+                            city: emp.city,
+                            state: emp.state,
+                            fechaEntrega: a.fecha_entrega,
+                            items: a.items || [],
+                            observaciones: a.observaciones,
+                            entregadoPor: a.entregado_por,
+                            entregadoCargo: a.entregado_cargo,
+                            testigoNombre: a.testigo_nombre,
+                            testigoCedula: a.testigo_cedula,
+                            firmaTrabajadorDataUri: a.firma_trabajador_url,
+                            firmaEntregaDataUri: a.firma_entrega_url,
+                            tipoActa: a.tipo_acta || (esRec ? 'recepcion' : 'entrega'),
+                            actaOrigenCodigo: a.acta_origen_codigo,
+                            fechaEntregaOrigen: a.fecha_entrega_origen,
+                            motivoRecepcion: a.motivo_recepcion,
+                            resultadoRecepcion: a.resultado_recepcion,
+                          });
+                          const prefix = esRec ? 'Acta_Recepcion' : 'Acta_Compromiso';
+                          await exportPdf(html, `${prefix}_${a.codigo || fullName(emp)}`);
+                        }}
+                        style={{
+                          backgroundColor: FICHA.brand,
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: radius.sm,
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>🖨️ PDF</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
               );
             })
           )}
-          <TouchableOpacity
-            onPress={() => setActaModalOpen(true)}
-            style={{
-              marginTop: 8,
-              backgroundColor: '#0369A1',
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              borderRadius: radius.sm,
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
-              🤝 Nueva / Gestionar Actas de Compromiso
-            </Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <TouchableOpacity
+              onPress={() => {
+                setActaTipoInicial('entrega');
+                setActaOrigenInicial(null);
+                setActaModalOpen(true);
+              }}
+              style={{
+                flex: 1,
+                minWidth: 190,
+                backgroundColor: '#0369A1',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: radius.sm,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                🤝 Nueva Acta de Entrega / Compromiso
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setActaTipoInicial('recepcion');
+                setActaOrigenInicial(null);
+                setActaModalOpen(true);
+              }}
+              style={{
+                flex: 1,
+                minWidth: 190,
+                backgroundColor: '#0F766E',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: radius.sm,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                📥 Nueva Acta de Recepción / Devolución
+              </Text>
+            </TouchableOpacity>
+          </View>
         </Section>
       ) : null}
 
@@ -416,7 +479,12 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         visible={actaModalOpen}
         emp={emp}
         companies={[]}
-        onClose={() => setActaModalOpen(false)}
+        initialTipoActa={actaTipoInicial}
+        initialActaOrigen={actaOrigenInicial}
+        onClose={() => {
+          setActaModalOpen(false);
+          setActaOrigenInicial(null);
+        }}
         onSaved={() => load(true)}
       />
 

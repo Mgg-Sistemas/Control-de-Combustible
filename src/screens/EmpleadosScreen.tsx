@@ -119,6 +119,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const confirm = useConfirm();
   const toast = useToast();
   const [actaFor, setActaFor] = useState<Employee | null>(null);
+  const [actaTipoInicial, setActaTipoInicial] = useState<'entrega' | 'recepcion'>('entrega');
   const [actasCounts, setActasCounts] = useState<Record<string, number>>({});
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
@@ -1848,7 +1849,18 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         <Btn
                           label={actasCounts[e.id] ? `🤝 Acta de compromiso (${actasCounts[e.id]})` : '🤝 Acta de compromiso'}
                           color="#0369A1"
-                          onPress={() => setActaFor(e)}
+                          onPress={() => {
+                            setActaTipoInicial('entrega');
+                            setActaFor(e);
+                          }}
+                        />
+                        <Btn
+                          label="📥 Acta de recepción"
+                          color="#0F766E"
+                          onPress={() => {
+                            setActaTipoInicial('recepcion');
+                            setActaFor(e);
+                          }}
                         />
                         <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color={colors.success} disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
                         {e.photo_url ? (
@@ -1871,6 +1883,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
         allEmployees={employees}
         currentUserId={session?.user?.id || null}
         currentUserName={authFullName || null}
+        initialTipoActa={actaTipoInicial}
         onClose={() => setActaFor(null)}
         onSaved={() => {
           contarActasPorEmpleado().then(setActasCounts);
