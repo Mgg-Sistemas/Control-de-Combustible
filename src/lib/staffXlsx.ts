@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as XLSX from 'xlsx-js-style';
 import { SIN_DEPARTAMENTO } from './nominaDepartamentos';
+import { calcularVesDesdeUsd, fmtTasaCambio, round2 } from './nominaBimonetario';
 
 /**
  * EXPORTACIÓN A EXCEL — Nómina / Pago a personal.
@@ -9,8 +10,9 @@ import { SIN_DEPARTAMENTO } from './nominaDepartamentos';
  *
  * La hoja lista, por PERSONA, lo trabajado y lo PAGADO/adeudado en el período de
  * nómina seleccionado (no las tarifas del empleado — eso se ve en "Empleados").
- * Los montos van SOLO en US$ (el sistema no muestra Bs ni la tasa BCV en los
- * reportes/documentos exportados, solo la usa internamente).
+ * La tasa aplicable del período/día va en la celda B2 (editable) y los montos
+ * van tanto en US$ como en Bs (con valor numérico precalculado + fórmula real
+ * referenciando $B$2 para que al cambiar la tasa se recalculen todos los Bs).
  */
 
 export type PagoPersonalXlsxRow = {
@@ -84,6 +86,14 @@ const HEADER_STYLE = {
 const META_STYLE = {
   font: { bold: true, sz: 11, color: { rgb: '1E3A5F' } },
 } as const;
+const TASA_LABEL_STYLE = {
+  font: { bold: true, sz: 11, color: { rgb: '1E3A5F' } },
+} as const;
+const TASA_VALUE_STYLE = {
+  font: { bold: true, sz: 12, color: { rgb: '0F766E' } },
+  fill: { patternType: 'solid', fgColor: { rgb: 'ECFDF5' } },
+  numFmt: '#,##0.00',
+} as const;
 const TOTAL_STYLE = {
   font: { bold: true, sz: 11 },
   fill: { patternType: 'solid', fgColor: { rgb: 'EEF2F7' } },
@@ -107,6 +117,7 @@ const COLS = [
   'Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta', 'Titular de la cuenta', 'C.I. del titular',
   'Días', 'Noches', 'Horas', 'Semanas',
   'Devengado (US$)', 'Bonos (US$)', 'Deducciones (US$)', 'Total (US$)', 'Pagado (US$)', 'Saldo (US$)',
+  'Devengado (Bs)', 'Bonos (Bs)', 'Deducciones (Bs)', 'Total (Bs)', 'Pagado (Bs)', 'Saldo (Bs)',
 ] as const;
 
 // Columnas de texto de cada persona, en el orden de `COLS` después de "Ítem".
@@ -123,17 +134,21 @@ const COL_PRIMERA_CANTIDAD = COLS.indexOf('Días');
 // se olvidaba uno la hoja salía con los formatos cambiados de lugar sin avisar.
 // Pasó justo al sumar el titular y su cédula (19-ago-2026).
 const USD_COLS = COLS.map((h, i) => (h.includes('US$') ? i : -1)).filter((i) => i >= 0);
+const BS_COLS = COLS.map((h, i) => (h.includes('(Bs)') ? i : -1)).filter((i) => i >= 0);
+const MONEY_COLS = [...USD_COLS, ...BS_COLS];
 const QTY_COLS = (['Días', 'Noches', 'Horas', 'Semanas'] as const).map((h) => COLS.indexOf(h));
 
-// Filas fijas del encabezado: 0 = contexto del período, 1 = blanco, 2 = encabezado de columnas.
+// Filas fijas del encabezado: 0 = contexto del período, 1 = tasa de cambio (Bs/US$), 2 = encabezado de columnas.
 const META_ROW = 0;
+const TASA_ROW = 1;
 const HEADER_ROW = 2;
 const FIRST_DATA_ROW = 3; // 0-indexed → fila 4 de Excel
 
 /**
  * Genera y descarga el listado de PAGOS A PERSONAL del período dado: por cada
  * persona, lo trabajado (días/noches/horas/semanas), devengado, bonos,
- * deducciones, total, pagado y saldo — en US$.
+ * deducciones, total, pagado y saldo — en US$ y en Bs (valor precalculado +
+ * fórmula referenciando la tasa en $B$2).
  *
  * La hoja va PARTIDA POR DEPARTAMENTO, que es como la revisa quien la aprueba:
  * una franja azul abre cada departamento, su gente se numera desde 1, y cierra
@@ -146,18 +161,20 @@ const FIRST_DATA_ROW = 3; // 0-indexed → fila 4 de Excel
  *    aquí se reordenara por nuestra cuenta, la pantalla y el Excel mostrarían los
  *    mismos departamentos en distinto orden, y nadie sabría cuál de los dos manda.
  */
-export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: number | null, meta: PagoPersonalXlsxMeta): boolean {
+export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], bcvRate: number | null, meta: PagoPersonalXlsxMeta): boolean {
   const wb = XLSX.utils.book_new();
   const nCols = COLS.length;
   const blankRow = (n: number) => new Array(n).fill('');
-  const esNumerica = (c: number) => QTY_COLS.includes(c) || USD_COLS.includes(c);
+  const esNumerica = (c: number) => QTY_COLS.includes(c) || MONEY_COLS.includes(c);
+  const tasa = Number(bcvRate ?? 0) > 0 ? round2(Number(bcvRate)) : 0;
 
   const aoa: any[][] = [];
   const metaTxt = `${meta.periodo} · ${meta.tipo} · ${meta.desde} → ${meta.hasta} · ${meta.modo} · ${meta.estado} · ${meta.empresa}` +
+    (tasa > 0 ? ` · Tasa: ${fmtTasaCambio(tasa)}` : '') +
     (meta.cargoFiltro ? ` · Cargo(s): ${meta.cargoFiltro}` : '') +
     (meta.deptoFiltro ? ` · Departamento(s): ${meta.deptoFiltro}` : '');
   aoa[META_ROW] = ['Período:', metaTxt, ...blankRow(nCols - 2)];
-  aoa[1] = blankRow(nCols);
+  aoa[TASA_ROW] = ['Tasa de cambio (Bs/US$):', tasa, ...blankRow(nCols - 2)];
   aoa[HEADER_ROW] = [...COLS];
 
   // Agrupa por departamento CONSERVANDO EL ORDEN DE LLEGADA (ver la nota de arriba).
@@ -184,11 +201,23 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
     fila++;
     const desde = fila;
     g.gente.forEach((r, i) => {
+      const devUsd = r.devengado || 0;
+      const bonUsd = r.bonos || 0;
+      const dedUsd = r.deducciones || 0;
+      const totUsd = r.total || 0;
+      const pagUsd = r.pagado || 0;
+      const salUsd = r.saldo || 0;
       aoa[fila] = [
         i + 1, // el ítem REINICIA en 1 en cada departamento, como la nómina de siempre
         r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '', r.titular || '', r.cedulaTitular || '',
         r.dias || 0, r.dias_noche || 0, r.horas || 0, r.semanas || 0,
-        r.devengado || 0, r.bonos || 0, r.deducciones || 0, r.total || 0, r.pagado || 0, r.saldo || 0,
+        devUsd, bonUsd, dedUsd, totUsd, pagUsd, salUsd,
+        calcularVesDesdeUsd(devUsd, tasa),
+        calcularVesDesdeUsd(bonUsd, tasa),
+        calcularVesDesdeUsd(dedUsd, tasa),
+        calcularVesDesdeUsd(totUsd, tasa),
+        calcularVesDesdeUsd(pagUsd, tasa),
+        calcularVesDesdeUsd(salUsd, tasa),
       ];
       filasDatos.push(fila);
       fila++;
@@ -233,19 +262,35 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
     const cell = (ws as any)[ref];
     if (cell) (cell as any).s = HEADER_STYLE;
   }
-  // Contexto del período.
+  // Contexto del período y tasa aplicable en $B$2.
   const metaLabelRef = XLSX.utils.encode_cell({ r: META_ROW, c: 0 });
   if ((ws as any)[metaLabelRef]) (ws as any)[metaLabelRef].s = META_STYLE;
+  const tasaLabelRef = XLSX.utils.encode_cell({ r: TASA_ROW, c: 0 });
+  const tasaValRef = XLSX.utils.encode_cell({ r: TASA_ROW, c: 1 });
+  if ((ws as any)[tasaLabelRef]) (ws as any)[tasaLabelRef].s = TASA_LABEL_STYLE;
+  if ((ws as any)[tasaValRef]) { (ws as any)[tasaValRef].s = TASA_VALUE_STYLE; (ws as any)[tasaValRef].z = MONEY_FMT; (ws as any)[tasaValRef].t = 'n'; }
 
-  // Cantidades y montos de cada persona: formato numérico.
+  // Cantidades y montos de cada persona: formato numérico + fórmulas Bs referenciando $B$2.
   filasDatos.forEach((row) => {
     QTY_COLS.forEach((c) => {
       const cell = (ws as any)[XLSX.utils.encode_cell({ r: row, c })];
       if (cell) { cell.z = QTY_FMT; cell.t = 'n'; }
     });
-    USD_COLS.forEach((c) => {
+    USD_COLS.forEach((c, idx) => {
       const cell = (ws as any)[XLSX.utils.encode_cell({ r: row, c })];
+      const usdVal = Number(cell?.v) || 0;
       if (cell) { cell.z = MONEY_FMT; cell.t = 'n'; }
+      const bsCol = BS_COLS[idx];
+      if (bsCol !== undefined) {
+        const usdColLetter = XLSX.utils.encode_col(c);
+        const bsRef = XLSX.utils.encode_cell({ r: row, c: bsCol });
+        (ws as any)[bsRef] = {
+          t: 'n',
+          v: calcularVesDesdeUsd(usdVal, tasa),
+          z: MONEY_FMT,
+          f: `${usdColLetter}${row + 1}*$B$${TASA_ROW + 1}`,
+        };
+      }
     });
   });
 
@@ -254,10 +299,16 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
   // corregirse solo, en vez de quedarse con un número que ya no dice la verdad.
   filasSubtotal.forEach((row, i) => {
     const [desde, hasta] = rangos[i];
-    [...QTY_COLS, ...USD_COLS].forEach((c) => {
+    [...QTY_COLS, ...MONEY_COLS].forEach((c) => {
       const letra = XLSX.utils.encode_col(c);
+      let sumVal = 0;
+      for (let rIdx = desde; rIdx <= hasta; rIdx++) {
+        sumVal += Number((ws as any)[XLSX.utils.encode_cell({ r: rIdx, c })]?.v) || 0;
+      }
       (ws as any)[XLSX.utils.encode_cell({ r: row, c })] = {
-        t: 'n', z: USD_COLS.includes(c) ? MONEY_FMT : QTY_FMT,
+        t: 'n',
+        v: round2(sumVal),
+        z: MONEY_COLS.includes(c) ? MONEY_FMT : QTY_FMT,
         f: `SUM(${letra}${desde + 1}:${letra}${hasta + 1})`,
       };
     });
@@ -267,11 +318,18 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
   // rango completo contaría a cada persona dos veces, porque los subtotales están
   // metidos dentro de ese rango.
   if (filasSubtotal.length) {
-    [...QTY_COLS, ...USD_COLS].forEach((c) => {
+    [...QTY_COLS, ...MONEY_COLS].forEach((c) => {
       const letra = XLSX.utils.encode_col(c);
       const refs = filasSubtotal.map((row) => `${letra}${row + 1}`).join(',');
+      const totalVal = filasSubtotal.reduce(
+        (acc, rIdx) => acc + (Number((ws as any)[XLSX.utils.encode_cell({ r: rIdx, c })]?.v) || 0),
+        0,
+      );
       (ws as any)[XLSX.utils.encode_cell({ r: totalRow, c })] = {
-        t: 'n', z: USD_COLS.includes(c) ? MONEY_FMT : QTY_FMT, f: `SUM(${refs})`,
+        t: 'n',
+        v: round2(totalVal),
+        z: MONEY_COLS.includes(c) ? MONEY_FMT : QTY_FMT,
+        f: `SUM(${refs})`,
       };
     });
   }
@@ -285,10 +343,12 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
     { wch: 26 }, { wch: 14 }, { wch: 20 }, { wch: 22 }, { wch: 26 }, { wch: 14 },
     { wch: 8 }, { wch: 8 }, { wch: 9 }, { wch: 9 },
     { wch: 13 }, { wch: 11 }, { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+    { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
   ];
-  ws['!rows'] = [{ hpt: 20 }, { hpt: 6 }, { hpt: 30 }];
+  ws['!rows'] = [{ hpt: 20 }, { hpt: 20 }, { hpt: 30 }];
   ws['!merges'] = [
     { s: { r: META_ROW, c: 1 }, e: { r: META_ROW, c: nCols - 1 } },
+    { s: { r: TASA_ROW, c: 2 }, e: { r: TASA_ROW, c: nCols - 1 } },
     // La franja del departamento ocupa la fila entera; el rótulo del subtotal va
     // desde el nombre hasta justo antes de la primera cantidad.
     ...filasFranja.map((r) => ({ s: { r, c: 0 }, e: { r, c: nCols - 1 } })),
@@ -310,20 +370,21 @@ export type PersonaXlsxRow = {
   monto: number;       // US$
 };
 
-const PERSONA_COLS = ['Período', 'Detalle', 'Método', 'Concepto', 'Monto (US$)'] as const;
+const PERSONA_COLS = ['Período', 'Detalle', 'Método', 'Concepto', 'Monto (US$)', 'Monto (Bs)'] as const;
 const PERSONA_META_ROW = 0;
+const PERSONA_TASA_ROW = 1;
 const PERSONA_HEADER_ROW = 2;
 const PERSONA_FIRST_DATA_ROW = 3;
 
 /**
  * Genera y descarga el historial de pagos de UN empleado (vista "Por persona"),
- * en US$ (el reporte no muestra Bs ni la tasa BCV).
+ * en US$ y en Bs (con tasa editable en $B$2).
  */
 export function exportPersonaHistoricoXlsx(
   nombre: string,
   cedula: string,
   rows: PersonaXlsxRow[],
-  _bcvRate: number | null,
+  bcvRate: number | null,
   cuenta?: string | null,
   titular?: string | null,
   cedulaTitular?: string | null,
@@ -331,6 +392,7 @@ export function exportPersonaHistoricoXlsx(
   const wb = XLSX.utils.book_new();
   const nCols = PERSONA_COLS.length;
   const blankRow = (n: number) => new Array(n).fill('');
+  const tasa = Number(bcvRate ?? 0) > 0 ? round2(Number(bcvRate)) : 0;
 
   const aoa: any[][] = [];
   // El titular solo se nombra cuando NO es el propio trabajador: repetir su nombre
@@ -340,14 +402,15 @@ export function exportPersonaHistoricoXlsx(
     ? ` · Titular ${titular!.trim()}${cedulaTitular ? ` (C.I. ${cedulaTitular})` : ''}`
     : '';
   aoa[PERSONA_META_ROW] = ['Trabajador:', `${nombre}${cedula ? ` · C.I. ${cedula}` : ''}${cuenta ? ` · Cuenta ${cuenta}` : ''}${titularTxt}`, ...blankRow(nCols - 2)];
-  aoa[1] = blankRow(nCols);
+  aoa[PERSONA_TASA_ROW] = ['Tasa de cambio (Bs/US$):', tasa, ...blankRow(nCols - 2)];
   aoa[PERSONA_HEADER_ROW] = [...PERSONA_COLS];
   rows.forEach((r, i) => {
     const periodo = r.fechaHasta && r.fechaHasta !== r.fecha ? `${r.fecha} → ${r.fechaHasta}` : r.fecha;
-    aoa[PERSONA_FIRST_DATA_ROW + i] = [periodo, r.detalle || '', r.metodo || '', r.concepto || '', r.monto || 0];
+    const montoUsd = r.monto || 0;
+    aoa[PERSONA_FIRST_DATA_ROW + i] = [periodo, r.detalle || '', r.metodo || '', r.concepto || '', montoUsd, calcularVesDesdeUsd(montoUsd, tasa)];
   });
   const totalRow = PERSONA_FIRST_DATA_ROW + rows.length;
-  aoa[totalRow] = ['TOTAL', `${rows.length} pago(s)`, '', '', 0];
+  aoa[totalRow] = ['TOTAL', `${rows.length} pago(s)`, '', '', 0, 0];
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -358,22 +421,36 @@ export function exportPersonaHistoricoXlsx(
   }
   const metaLabelRef = XLSX.utils.encode_cell({ r: PERSONA_META_ROW, c: 0 });
   if ((ws as any)[metaLabelRef]) (ws as any)[metaLabelRef].s = META_STYLE;
+  const tasaLabelRef = XLSX.utils.encode_cell({ r: PERSONA_TASA_ROW, c: 0 });
+  const tasaValRef = XLSX.utils.encode_cell({ r: PERSONA_TASA_ROW, c: 1 });
+  if ((ws as any)[tasaLabelRef]) (ws as any)[tasaLabelRef].s = TASA_LABEL_STYLE;
+  if ((ws as any)[tasaValRef]) { (ws as any)[tasaValRef].s = TASA_VALUE_STYLE; (ws as any)[tasaValRef].z = MONEY_FMT; (ws as any)[tasaValRef].t = 'n'; }
 
-  // Monto US$ (col 4): formato de número.
-  rows.forEach((_r, i) => {
+  // Monto US$ (col 4) + fórmula en Bs (col 5) referenciando la tasa en $B$2.
+  rows.forEach((r, i) => {
     const row = PERSONA_FIRST_DATA_ROW + i;
     const usdRef = XLSX.utils.encode_cell({ r: row, c: 4 });
     const usdCell = (ws as any)[usdRef];
     if (usdCell) { usdCell.z = MONEY_FMT; usdCell.t = 'n'; }
+    const bsRef = XLSX.utils.encode_cell({ r: row, c: 5 });
+    (ws as any)[bsRef] = {
+      t: 'n',
+      v: calcularVesDesdeUsd(r.monto || 0, tasa),
+      z: MONEY_FMT,
+      f: `E${row + 1}*$B$${PERSONA_TASA_ROW + 1}`,
+    };
   });
 
-  // Fila TOTAL: suma de US$.
+  // Fila TOTAL: suma de US$ y Bs.
   if (rows.length) {
     const firstExcelRow = PERSONA_FIRST_DATA_ROW + 1;
     const lastExcelRow = PERSONA_FIRST_DATA_ROW + rows.length;
-    const colLetter = XLSX.utils.encode_col(4);
-    const ref = XLSX.utils.encode_cell({ r: totalRow, c: 4 });
-    (ws as any)[ref] = { t: 'n', z: MONEY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
+    [4, 5].forEach((c) => {
+      const colLetter = XLSX.utils.encode_col(c);
+      const ref = XLSX.utils.encode_cell({ r: totalRow, c });
+      const sumVal = rows.reduce((acc, r) => acc + (c === 4 ? (r.monto || 0) : calcularVesDesdeUsd(r.monto || 0, tasa)), 0);
+      (ws as any)[ref] = { t: 'n', v: round2(sumVal), z: MONEY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
+    });
   }
   for (let c = 0; c < nCols; c++) {
     const ref = XLSX.utils.encode_cell({ r: totalRow, c });
@@ -382,10 +459,11 @@ export function exportPersonaHistoricoXlsx(
     else (ws as any)[ref] = { t: 's', v: '', s: TOTAL_STYLE };
   }
 
-  ws['!cols'] = [{ wch: 20 }, { wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 13 }];
-  ws['!rows'] = [{ hpt: 20 }, { hpt: 6 }, { hpt: 30 }];
+  ws['!cols'] = [{ wch: 20 }, { wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 13 }, { wch: 16 }];
+  ws['!rows'] = [{ hpt: 20 }, { hpt: 20 }, { hpt: 30 }];
   ws['!merges'] = [
     { s: { r: PERSONA_META_ROW, c: 1 }, e: { r: PERSONA_META_ROW, c: nCols - 1 } },
+    { s: { r: PERSONA_TASA_ROW, c: 2 }, e: { r: PERSONA_TASA_ROW, c: nCols - 1 } },
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, 'Historial de pagos');
@@ -404,36 +482,42 @@ export type PersonasSeleccionadasXlsxRow = {
   total: number; // US$ — total pagado histórico de la persona
 };
 
-const SEL_COLS = ['Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta', 'Titular de la cuenta', 'C.I. del titular', 'Total pagado (US$)'] as const;
-// Índice de la única columna de dinero, deducido de `SEL_COLS` (antes era un `4`
-// escrito a mano en cuatro sitios: agregar columnas lo dejaba apuntando a otra).
+const SEL_COLS = ['Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta', 'Titular de la cuenta', 'C.I. del titular', 'Total pagado (US$)', 'Total pagado (Bs)'] as const;
+// Índices de las columnas de dinero, deducidos de `SEL_COLS`.
 const SEL_USD_COL = SEL_COLS.indexOf('Total pagado (US$)');
+const SEL_BS_COL = SEL_COLS.indexOf('Total pagado (Bs)');
 const SEL_META_ROW = 0;
+const SEL_TASA_ROW = 1;
 const SEL_HEADER_ROW = 2;
 const SEL_FIRST_DATA_ROW = 3;
 
 /**
  * Genera y descarga el listado de personas SELECCIONADAS en la vista "Por persona",
- * con su total pagado histórico en US$.
+ * con su total pagado histórico en US$ y en Bs (con tasa editable en $B$2).
  */
 export function exportPersonasSeleccionadasXlsx(
   rows: PersonasSeleccionadasXlsxRow[],
-  _bcvRate: number | null,
+  bcvRate: number | null,
 ): boolean {
   const wb = XLSX.utils.book_new();
   const nCols = SEL_COLS.length;
   const blankRow = (n: number) => new Array(n).fill('');
+  const tasa = Number(bcvRate ?? 0) > 0 ? round2(Number(bcvRate)) : 0;
 
   const aoa: any[][] = [];
   aoa[SEL_META_ROW] = ['Personas seleccionadas:', `${rows.length} persona(s)`, ...blankRow(nCols - 2)];
-  aoa[1] = blankRow(nCols);
+  aoa[SEL_TASA_ROW] = ['Tasa de cambio (Bs/US$):', tasa, ...blankRow(nCols - 2)];
   aoa[SEL_HEADER_ROW] = [...SEL_COLS];
   rows.forEach((r, i) => {
-    aoa[SEL_FIRST_DATA_ROW + i] = [r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '', r.titular || '', r.cedulaTitular || '', r.total || 0];
+    const totUsd = r.total || 0;
+    aoa[SEL_FIRST_DATA_ROW + i] = [
+      r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '', r.titular || '', r.cedulaTitular || '',
+      totUsd, calcularVesDesdeUsd(totUsd, tasa),
+    ];
   });
   const totalRow = SEL_FIRST_DATA_ROW + rows.length;
   aoa[totalRow] = SEL_COLS.map((_h, c) =>
-    c === 0 ? 'TOTAL' : c === 1 ? `${rows.length} persona(s)` : c === SEL_USD_COL ? 0 : '');
+    c === 0 ? 'TOTAL' : c === 1 ? `${rows.length} persona(s)` : (c === SEL_USD_COL || c === SEL_BS_COL) ? 0 : '');
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -444,22 +528,37 @@ export function exportPersonasSeleccionadasXlsx(
   }
   const metaLabelRef = XLSX.utils.encode_cell({ r: SEL_META_ROW, c: 0 });
   if ((ws as any)[metaLabelRef]) (ws as any)[metaLabelRef].s = META_STYLE;
+  const tasaLabelRef = XLSX.utils.encode_cell({ r: SEL_TASA_ROW, c: 0 });
+  const tasaValRef = XLSX.utils.encode_cell({ r: SEL_TASA_ROW, c: 1 });
+  if ((ws as any)[tasaLabelRef]) (ws as any)[tasaLabelRef].s = TASA_LABEL_STYLE;
+  if ((ws as any)[tasaValRef]) { (ws as any)[tasaValRef].s = TASA_VALUE_STYLE; (ws as any)[tasaValRef].z = MONEY_FMT; (ws as any)[tasaValRef].t = 'n'; }
 
-  // Total US$: formato de número.
-  rows.forEach((_r, i) => {
+  // Total US$ + fórmula en Bs referenciando la tasa en $B$2.
+  const usdColLetter = XLSX.utils.encode_col(SEL_USD_COL);
+  rows.forEach((r, i) => {
     const row = SEL_FIRST_DATA_ROW + i;
     const usdRef = XLSX.utils.encode_cell({ r: row, c: SEL_USD_COL });
     const usdCell = (ws as any)[usdRef];
     if (usdCell) { usdCell.z = MONEY_FMT; usdCell.t = 'n'; }
+    const bsRef = XLSX.utils.encode_cell({ r: row, c: SEL_BS_COL });
+    (ws as any)[bsRef] = {
+      t: 'n',
+      v: calcularVesDesdeUsd(r.total || 0, tasa),
+      z: MONEY_FMT,
+      f: `${usdColLetter}${row + 1}*$B$${SEL_TASA_ROW + 1}`,
+    };
   });
 
-  // Fila TOTAL: suma de US$.
+  // Fila TOTAL: suma de US$ y Bs.
   if (rows.length) {
     const firstExcelRow = SEL_FIRST_DATA_ROW + 1;
     const lastExcelRow = SEL_FIRST_DATA_ROW + rows.length;
-    const colLetter = XLSX.utils.encode_col(SEL_USD_COL);
-    const ref = XLSX.utils.encode_cell({ r: totalRow, c: SEL_USD_COL });
-    (ws as any)[ref] = { t: 'n', z: MONEY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
+    [SEL_USD_COL, SEL_BS_COL].forEach((c) => {
+      const colLetter = XLSX.utils.encode_col(c);
+      const ref = XLSX.utils.encode_cell({ r: totalRow, c });
+      const sumVal = rows.reduce((acc, r) => acc + (c === SEL_USD_COL ? (r.total || 0) : calcularVesDesdeUsd(r.total || 0, tasa)), 0);
+      (ws as any)[ref] = { t: 'n', v: round2(sumVal), z: MONEY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
+    });
   }
   for (let c = 0; c < nCols; c++) {
     const ref = XLSX.utils.encode_cell({ r: totalRow, c });
@@ -468,10 +567,11 @@ export function exportPersonasSeleccionadasXlsx(
     else (ws as any)[ref] = { t: 's', v: '', s: TOTAL_STYLE };
   }
 
-  ws['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 26 }, { wch: 14 }, { wch: 15 }];
-  ws['!rows'] = [{ hpt: 20 }, { hpt: 6 }, { hpt: 30 }];
+  ws['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 26 }, { wch: 14 }, { wch: 15 }, { wch: 16 }];
+  ws['!rows'] = [{ hpt: 20 }, { hpt: 20 }, { hpt: 30 }];
   ws['!merges'] = [
     { s: { r: SEL_META_ROW, c: 1 }, e: { r: SEL_META_ROW, c: nCols - 1 } },
+    { s: { r: SEL_TASA_ROW, c: 2 }, e: { r: SEL_TASA_ROW, c: nCols - 1 } },
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, 'Personas seleccionadas');

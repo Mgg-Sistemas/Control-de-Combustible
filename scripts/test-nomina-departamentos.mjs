@@ -213,10 +213,23 @@ eq('el total también suma los días así', celda('H11').f, 'SUM(H7,H10)');
 
 // Formato: la franja pintada de punta a punta, y el ancho del ítem.
 ok('la franja del departamento va pintada', !!(celda('A4').s && celda('A4').s.fill));
-ok('la franja se pinta hasta la última columna', !!(celda('Q4') && celda('Q4').s && celda('Q4').s.fill));
-ok('la franja ocupa la fila entera', hoja['!merges'].some((x) => x.s.r === 3 && x.s.c === 0 && x.e.c === 16));
+ok('la franja se pinta hasta la última columna', !!(celda('W4') && celda('W4').s && celda('W4').s.fill));
+ok('la franja ocupa la fila entera', hoja['!merges'].some((x) => x.s.r === 3 && x.s.c === 0 && x.e.c === 22));
 eq('la columna del ítem es angosta', hoja['!cols'][0].wch, 6);
-eq('hay una columna de ancho por cada encabezado', hoja['!cols'].length, 17);
+eq('hay una columna de ancho por cada encabezado', hoja['!cols'].length, 23);
+
+// Columnas en Bs (Devengado Bs .. Saldo Bs) y tasa en $B$2.
+eq('encabezado Devengado (Bs)', valor('R3'), 'Devengado (Bs)');
+eq('encabezado Total (Bs)', valor('U3'), 'Total (Bs)');
+eq('encabezado Saldo (Bs)', valor('W3'), 'Saldo (Bs)');
+libro = null;
+xls.exportPagoPersonalXlsx([persona('OPERACIONES DE MAQUINARIA', 'ALBERTO SILVA', 90)], 896.12, META);
+const hojaBs = libro.Sheets['Pago de personal'];
+eq('la tasa de cambio queda en B2', hojaBs['B2'].v, 896.12);
+eq('Total (Bs) lleva valor precalculado exacto (90 * 896.12 = 80650.8)', hojaBs['U5'].v, 80650.8);
+eq('Total (Bs) lleva fórmula referenciando $B$2', hojaBs['U5'].f, 'O5*$B$2');
+eq('Subtotal Total (Bs) lleva valor y fórmula SUM', hojaBs['U6'].v, 80650.8);
+eq('Total general Total (Bs) suma los subtotales', hojaBs['U7'].f, 'SUM(U6)');
 
 // El orden lo decide quien llama: staffXlsx respeta el orden de llegada.
 libro = null;
