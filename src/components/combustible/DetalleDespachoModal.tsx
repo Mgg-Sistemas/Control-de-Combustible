@@ -19,7 +19,7 @@ import {
   copiarMensajeCombustible,
   compartirPorWhatsapp,
   copiarImagenDespachoPortapapeles,
-  descargarImagenDespacho,
+  descargarImagenesDespacho,
   compartirImagenYMensajeCombustible,
 } from '../../lib/fuelRules';
 
@@ -80,6 +80,7 @@ export default function DetalleDespachoModal({
 
   if (!visible || !despacho || !datosEfectivos) return null;
 
+  const esEntrada = datosEfectivos.tipo === 'entrada';
   const fotos = (datosEfectivos.fotos || []).filter(Boolean);
   const fotoSeleccionada = fotos[fotoActivaIdx] || fotos[0] || null;
   const placaMostrar = datosEfectivos.equipoPlaca || 'S/P';
@@ -114,19 +115,23 @@ export default function DetalleDespachoModal({
   };
 
   const handleDescargarFoto = async () => {
-    if (!fotoSeleccionada) return;
-    await descargarImagenDespacho(
-      fotoSeleccionada,
-      `despacho-${String(datosEfectivos.equipoCodigo || 'maquinaria').replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`
+    if (fotos.length === 0) return;
+    const prefijo = esEntrada
+      ? `entrada-${String(datosEfectivos.tanqueNombre || 'tanque').replace(/[^a-zA-Z0-9_-]/g, '_')}`
+      : `despacho-${String(datosEfectivos.equipoCodigo || 'maquinaria').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    await descargarImagenesDespacho(fotos, prefijo);
+    toast.success(
+      fotos.length > 1
+        ? `⬇️ Descargando las ${fotos.length} imágenes…`
+        : '⬇️ Descargando imagen del comprobante…'
     );
-    toast.success('⬇️ Descargando imagen del despacho…');
   };
 
   const handleEnviarImagenYMensaje = async () => {
     if (procesandoImg) return;
     setProcesandoImg(true);
     try {
-      const res = await compartirImagenYMensajeCombustible(datosEfectivos, fotoSeleccionada);
+      const res = await compartirImagenYMensajeCombustible(datosEfectivos, fotos);
       setCopiadoMsg(true);
       toast.success(res.msg);
       setTimeout(() => setCopiadoMsg(false), 3500);
@@ -175,7 +180,7 @@ export default function DetalleDespachoModal({
               }}
             >
               <Text style={{ fontSize: 16, fontWeight: '900', color: colors.text, letterSpacing: 0.4 }}>
-                DETALLE DEL DESPACHO
+                {esEntrada ? 'DETALLE DE LA ENTRADA' : 'DETALLE DEL DESPACHO'}
               </Text>
               <TouchableOpacity
                 onPress={onClose}
@@ -185,7 +190,7 @@ export default function DetalleDespachoModal({
               </TouchableOpacity>
             </View>
 
-            {/* Tarjeta destacada de Maquinaria / Equipo con Nombre, Placa y Serial */}
+            {/* Tarjeta destacada de Maquinaria / Equipo o Entrada */}
             <View
               style={{
                 backgroundColor: colors.surfaceAlt,
@@ -197,68 +202,111 @@ export default function DetalleDespachoModal({
               }}
             >
               <Text style={{ fontSize: 15, fontWeight: '900', color: colors.text }}>
-                🚜 {datosEfectivos.equipoCodigo || 'Vehículo general'}
+                {esEntrada
+                  ? `📥 RECEPCIÓN EN ${datosEfectivos.tanqueNombre}`
+                  : `🚜 ${datosEfectivos.equipoCodigo || 'Vehículo general'}`}
               </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                <View
-                  style={{
-                    backgroundColor: colors.dangerSoftBg,
-                    borderWidth: 1,
-                    borderColor: colors.danger,
-                    borderRadius: radius.sm,
-                    paddingHorizontal: 8,
-                    paddingVertical: 3,
-                  }}
-                >
-                  <Text style={{ fontSize: 11.5, fontWeight: '900', color: colors.danger }}>
-                    🚗 PLACA: {placaMostrar}
-                  </Text>
+              {esEntrada ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {datosEfectivos.proveedor ? (
+                    <View
+                      style={{
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.sm,
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                      }}
+                    >
+                      <Text style={{ fontSize: 11.5, fontWeight: '900', color: colors.text }}>
+                        🏭 PROVEEDOR: {datosEfectivos.proveedor}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {datosEfectivos.factura ? (
+                    <View
+                      style={{
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.sm,
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                      }}
+                    >
+                      <Text style={{ fontSize: 11.5, fontWeight: '900', color: colors.text }}>
+                        🧾 GUÍA / FACTURA: {datosEfectivos.factura}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
-                <View
-                  style={{
-                    backgroundColor: colors.surface,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: radius.sm,
-                    paddingHorizontal: 8,
-                    paddingVertical: 3,
-                  }}
-                >
-                  <Text style={{ fontSize: 11.5, fontWeight: '900', color: colors.text }}>
-                    🔢 SERIAL: {serialMostrar}
-                  </Text>
+              ) : (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  <View
+                    style={{
+                      backgroundColor: colors.dangerSoftBg,
+                      borderWidth: 1,
+                      borderColor: colors.danger,
+                      borderRadius: radius.sm,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                    }}
+                  >
+                    <Text style={{ fontSize: 11.5, fontWeight: '900', color: colors.danger }}>
+                      🚗 PLACA: {placaMostrar}
+                    </Text>
+                  </View>
+                  <View
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                    }}
+                  >
+                    <Text style={{ fontSize: 11.5, fontWeight: '900', color: colors.text }}>
+                      🔢 SERIAL: {serialMostrar}
+                    </Text>
+                  </View>
+                  <View
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                    }}
+                  >
+                    <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.muted }}>
+                      ⛽ TANQUE: {datosEfectivos.tanqueNombre}
+                    </Text>
+                  </View>
                 </View>
-                <View
-                  style={{
-                    backgroundColor: colors.surface,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: radius.sm,
-                    paddingHorizontal: 8,
-                    paddingVertical: 3,
-                  }}
-                >
-                  <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.muted }}>
-                    ⛽ TANQUE: {datosEfectivos.tanqueNombre}
-                  </Text>
-                </View>
-              </View>
+              )}
             </View>
 
             {/* Filas de detalle */}
             <View style={{ gap: 6, marginTop: 2 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                <Text style={{ color: colors.muted, fontSize: 12.5 }}>MAQUINARIA / EQUIPO:</Text>
-                <Text style={{ fontWeight: '800', color: colors.text, fontSize: 12.5, flexShrink: 1, textAlign: 'right' }}>
-                  {datosEfectivos.equipoCodigo || '—'}
-                </Text>
-              </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                <Text style={{ color: colors.muted, fontSize: 12.5 }}>PLACA / SERIAL:</Text>
-                <Text style={{ fontWeight: '800', color: colors.text, fontSize: 12.5, flexShrink: 1, textAlign: 'right' }}>
-                  Placa: {placaMostrar} · Serial: {serialMostrar}
-                </Text>
-              </View>
+              {!esEntrada && (
+                <>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12.5 }}>MAQUINARIA / EQUIPO:</Text>
+                    <Text style={{ fontWeight: '800', color: colors.text, fontSize: 12.5, flexShrink: 1, textAlign: 'right' }}>
+                      {datosEfectivos.equipoCodigo || '—'}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12.5 }}>PLACA / SERIAL:</Text>
+                    <Text style={{ fontWeight: '800', color: colors.text, fontSize: 12.5, flexShrink: 1, textAlign: 'right' }}>
+                      Placa: {placaMostrar} · Serial: {serialMostrar}
+                    </Text>
+                  </View>
+                </>
+              )}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
                 <Text style={{ color: colors.muted, fontSize: 12.5 }}>FECHA Y HORA:</Text>
                 <Text style={{ fontWeight: '700', color: colors.text, fontSize: 12.5 }}>
@@ -266,23 +314,29 @@ export default function DetalleDespachoModal({
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                <Text style={{ color: colors.muted, fontSize: 12.5 }}>LITROS SURTIDOS:</Text>
+                <Text style={{ color: colors.muted, fontSize: 12.5 }}>
+                  {esEntrada ? 'LITROS RECIBIDOS:' : 'LITROS SURTIDOS:'}
+                </Text>
                 <Text style={{ fontWeight: '900', color: colors.primary, fontSize: 16 }}>
                   {fmtNum(datosEfectivos.litros)} L
                 </Text>
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                <Text style={{ color: colors.muted, fontSize: 12.5 }}>CONTADOR BOMBA:</Text>
-                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 12.5 }}>
-                  {datosEfectivos.contadorIni ?? '—'} ➔ {datosEfectivos.contadorFin ?? '—'}
-                </Text>
-              </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                <Text style={{ color: colors.muted, fontSize: 12.5 }}>HORÓMETRO:</Text>
-                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 12.5 }}>
-                  {datosEfectivos.horometroFin ?? '—'} h
-                </Text>
-              </View>
+              {!esEntrada && (
+                <>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12.5 }}>CONTADOR BOMBA:</Text>
+                    <Text style={{ fontWeight: '700', color: colors.text, fontSize: 12.5 }}>
+                      {datosEfectivos.contadorIni ?? '—'} ➔ {datosEfectivos.contadorFin ?? '—'}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12.5 }}>HORÓMETRO:</Text>
+                    <Text style={{ fontWeight: '700', color: colors.text, fontSize: 12.5 }}>
+                      {datosEfectivos.horometroFin ?? '—'} h
+                    </Text>
+                  </View>
+                </>
+              )}
               {datosEfectivos.kilometraje != null ? (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
                   <Text style={{ color: colors.muted, fontSize: 12.5 }}>ODÓMETRO:</Text>
@@ -292,7 +346,9 @@ export default function DetalleDespachoModal({
                 </View>
               ) : null}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                <Text style={{ color: colors.muted, fontSize: 12.5 }}>AUTORIZADO / OPERADOR:</Text>
+                <Text style={{ color: colors.muted, fontSize: 12.5 }}>
+                  {esEntrada ? 'RECIBIDO POR:' : 'AUTORIZADO / OPERADOR:'}
+                </Text>
                 <Text style={{ fontWeight: '700', color: colors.text, fontSize: 12.5 }}>
                   {datosEfectivos.autorizadoPor || '—'}
                 </Text>
@@ -307,7 +363,7 @@ export default function DetalleDespachoModal({
               ) : null}
             </View>
 
-            {/* Fotos adjuntas + acciones para mandar/copiar/descargar la imagen subida */}
+            {/* Fotos adjuntas + acciones para mandar/copiar/descargar todas las imágenes subidas */}
             {fotos.length > 0 && (
               <View
                 style={{
@@ -325,7 +381,9 @@ export default function DetalleDespachoModal({
                     📷 FOTOS SUBIDAS ({fotos.length})
                   </Text>
                   <Text style={{ fontSize: 11, color: colors.muted }}>
-                    Toca una foto para ampliarla o enviarla junto al mensaje
+                    {fotos.length > 1
+                      ? `Se enviarán las ${fotos.length} imágenes juntas sin links en el mensaje`
+                      : 'Toca la foto para ampliarla o enviarla junto al mensaje'}
                   </Text>
                 </View>
 
@@ -344,15 +402,33 @@ export default function DetalleDespachoModal({
                           borderWidth: sel ? 2.5 : 1,
                           borderColor: sel ? colors.primary : colors.border,
                           overflow: 'hidden',
+                          position: 'relative',
                         }}
                       >
                         <Image source={{ uri: url }} style={{ width: 96, height: 96 }} resizeMode="cover" />
+                        {fotos.length > 1 && (
+                          <View
+                            style={{
+                              position: 'absolute',
+                              bottom: 4,
+                              right: 4,
+                              backgroundColor: 'rgba(0,0,0,0.72)',
+                              paddingHorizontal: 5,
+                              paddingVertical: 1,
+                              borderRadius: 4,
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>
+                              #{i + 1}
+                            </Text>
+                          </View>
+                        )}
                       </TouchableOpacity>
                     );
                   })}
                 </ScrollView>
 
-                {/* Botones para mandar o copiar la imagen subida */}
+                {/* Botones para mandar o copiar las imágenes subidas */}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                   <TouchableOpacity
                     onPress={handleEnviarImagenYMensaje}
@@ -376,7 +452,9 @@ export default function DetalleDespachoModal({
                       <Text style={{ fontSize: 13 }}>📤</Text>
                     )}
                     <Text style={{ fontSize: 12, fontWeight: '900', color: colors.primaryContrast }}>
-                      MANDAR IMAGEN + MENSAJE
+                      {fotos.length > 1
+                        ? `MANDAR LAS ${fotos.length} IMÁGENES + MENSAJE`
+                        : 'MANDAR IMAGEN + MENSAJE'}
                     </Text>
                   </TouchableOpacity>
 
@@ -400,7 +478,11 @@ export default function DetalleDespachoModal({
                       }}
                     >
                       <Text style={{ fontSize: 12, fontWeight: '800', color: copiadoImg ? '#fff' : colors.text }}>
-                        {copiadoImg ? '✅ IMAGEN COPIADA' : '🖼️ COPIAR IMAGEN'}
+                        {copiadoImg
+                          ? '✅ IMAGEN COPIADA'
+                          : fotos.length > 1
+                          ? `🖼️ COPIAR IMAGEN #${fotoActivaIdx + 1}`
+                          : '🖼️ COPIAR IMAGEN'}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -423,7 +505,7 @@ export default function DetalleDespachoModal({
                     }}
                   >
                     <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
-                      ⬇️ DESCARGAR FOTO
+                      {fotos.length > 1 ? `⬇️ DESCARGAR FOTO (${fotos.length})` : '⬇️ DESCARGAR FOTO'}
                     </Text>
                   </TouchableOpacity>
                 </View>

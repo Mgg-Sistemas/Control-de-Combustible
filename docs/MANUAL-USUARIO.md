@@ -118,6 +118,8 @@ Cuando una máquina o un vehículo **carga** combustible:
 4. Toca **Guardar**. El tanque **baja** solo.
 
 > El sistema **no deja sacar más litros de los que hay**. Si te avisa, revisa el tanque.
+>
+> **💬 Mensajes de Entrada y Consumo con múltiples imágenes y sin enlaces de base de datos (06/11/2026):** tanto en **📥 Ingresos (Entradas)** como en **⛽ Consumos / 📱 Surtidor Móvil / 🆘 Máquinas de apoyo**, el mensaje de texto **nunca incluye el link URL de almacenamiento de la base de datos** (`https://...`). Si una entrada o un consumo tiene **una o varias fotos subidas**, al enviar o reenviar el mensaje se comparten o descargan **todas las imágenes juntas** acompañadas del texto limpio del comprobante (con Nombre de la Maquinaria, Placa y Serial en consumos, o Proveedor, Guía/Factura y Litros en entradas), además de contar con el cuadro para **copiar y pegar** el mensaje (`📋 Copiar mensaje`).
 
 ### 4.4. Equipos (catálogo de máquinas)
 Es la lista de **todas las máquinas**. Cada una tiene su ficha: nombre, empresa, foto,

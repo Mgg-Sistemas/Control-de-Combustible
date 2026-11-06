@@ -22,7 +22,7 @@ import { Tank, TankLevel, Machinery, Vehicle, Dispatch, FuelIntake, Transfer } f
 import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../../lib/photo';
 import PhotoSourceSheet from '../PhotoSourceSheet';
 import { leerNumero } from '../../lib/numeros';
-import { CONSUMOS_NOTAS_ACTIVAS, INGRESOS_NOTAS_ACTIVAS } from '../../lib/combustibleEdicion';
+import { CONSUMOS_NOTAS_ACTIVAS, INGRESOS_NOTAS_ACTIVAS, INGRESOS_FOTOS_ACTIVAS } from '../../lib/combustibleEdicion';
 import {
   contadorFinalPropuesto,
   horasTrabajadas,
@@ -170,6 +170,8 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
   const [intakeRealLiters, setIntakeRealLiters] = useState('');
   const [intakeInvoiceNo, setIntakeInvoiceNo] = useState('');
   const [intakeNotes, setIntakeNotes] = useState('');
+  const [intakePhotos, setIntakePhotos] = useState<string[]>([]);
+  const [subiendoIntakeFoto, setSubiendoIntakeFoto] = useState(false);
 
   // Reporte móvil de jornada
   const [reportModalOpen, setReportModalOpen] = useState(false);
@@ -552,6 +554,25 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
     }
   };
 
+  const subirFotoEntrada = async (fuente: 'camara' | 'galeria') => {
+    setSubiendoIntakeFoto(true);
+    try {
+      const folder = selectedTank?.id || 'combustible-entrada';
+      const r =
+        fuente === 'camara'
+          ? await takePhotoAndUpload(folder, 'combustible')
+          : await pickPhotoFromGalleryAndUpload(folder, 'combustible');
+      if (r.ok && typeof r.url === 'string') {
+        const url = r.url;
+        setIntakePhotos((prev) => [...prev, url]);
+      } else if (r.error) {
+        toast.error(r.error);
+      }
+    } finally {
+      setSubiendoIntakeFoto(false);
+    }
+  };
+
   // Guardar Entrada de Combustible
   const handleGuardarEntrada = async () => {
     if (!selectedTank) return;
@@ -570,19 +591,30 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
 
     setSaving(true);
     try {
-      const { error: errIn } = await supabase.from('fuel_intakes').insert({
-        intake_date: todayIso(),
-        supplier: intakeSupplier.trim() || 'PDVSA',
-        fuel: selectedTank.fuel,
-        liters: rec, // Entran los litros medidos reales
-        tank_id: selectedTank.id,
-        invoice_no: intakeInvoiceNo.trim() || null,
-        created_by: session?.user?.id || null,
-        // 01-nov-2026: la observación (y guía/merma) ya no se pierde al guardar.
-        ...(INGRESOS_NOTAS_ACTIVAS
-          ? { notes: [env !== rec ? `Guía: ${env} L · Recibido: ${rec} L` : '', intakeNotes.trim()].filter(Boolean).join(' · ') || null }
-          : {}),
-      });
+      const fotosEntrada = intakePhotos.map((u) => String(u || '').trim()).filter(Boolean);
+      const { data: newIntake, error: errIn } = await supabase
+        .from('fuel_intakes')
+        .insert({
+          intake_date: todayIso(),
+          supplier: intakeSupplier.trim() || 'PDVSA',
+          fuel: selectedTank.fuel,
+          liters: rec, // Entran los litros medidos reales
+          tank_id: selectedTank.id,
+          invoice_no: intakeInvoiceNo.trim() || null,
+          created_by: session?.user?.id || null,
+          // 01-nov-2026: la observación (y guía/merma) ya no se pierde al guardar.
+          ...(INGRESOS_NOTAS_ACTIVAS
+            ? {
+                notes:
+                  [env !== rec ? `Guía: ${env} L · Recibido: ${rec} L` : '', intakeNotes.trim()]
+                    .filter(Boolean)
+                    .join(' · ') || null,
+              }
+            : {}),
+          ...(INGRESOS_FOTOS_ACTIVAS ? { photos: fotosEntrada } : {}),
+        })
+        .select()
+        .single();
 
       if (errIn) throw new Error(errIn.message);
 
@@ -591,6 +623,9 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
       const datosWhatsapp: DatosMensajeCombustible = {
         tipo: 'entrada',
         tanqueNombre: selectedTank.name,
+        proveedor: intakeSupplier.trim() || 'PDVSA',
+        factura: intakeInvoiceNo.trim() || null,
+        combustible: selectedTank.fuel ? String(selectedTank.fuel).toUpperCase() : null,
         litros: rec,
         autorizadoPor: currentUserName,
         registradoPor: currentUserName,
@@ -601,15 +636,19 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
         ]
           .filter(Boolean)
           .join(' · '),
+        fotos: fotosEntrada,
       };
 
       setIntakeGuideLiters('');
       setIntakeRealLiters('');
       setIntakeInvoiceNo('');
       setIntakeNotes('');
+      setIntakePhotos([]);
       setModalMode('ninguno');
       refetchTanks();
       refetchLevels();
+      await copiarMensajeCombustible(datosWhatsapp);
+      if (newIntake) setViewDetailMov({ ...(newIntake as any), tipo: 'entrada' });
       compartirPorWhatsapp(datosWhatsapp);
     } catch (err: any) {
       toast.error('Error al registrar entrada: ' + (err?.message || 'Error'));
@@ -2115,6 +2154,101 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                 }}
               />
             </View>
+
+            <View>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text, marginBottom: 2 }}>
+                Observación (opcional)
+              </Text>
+              <TextInput
+                value={intakeNotes}
+                onChangeText={setIntakeNotes}
+                placeholder="Ej. Cisterna PDVSA placa A12BC3D, precinto OK..."
+                placeholderTextColor={colors.muted}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.sm,
+                  padding: spacing.sm,
+                  fontSize: 13,
+                  color: colors.text,
+                }}
+              />
+            </View>
+
+            {INGRESOS_FOTOS_ACTIVAS ? (
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
+                  📷 Fotos de la entrada / guía ({intakePhotos.length})
+                </Text>
+                <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                  <TouchableOpacity
+                    disabled={subiendoIntakeFoto}
+                    onPress={() => subirFotoEntrada('camara')}
+                    style={{
+                      flex: 1,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingVertical: 10,
+                      alignItems: 'center',
+                      opacity: subiendoIntakeFoto ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
+                      {subiendoIntakeFoto ? '⏳ Subiendo...' : '📷 Cámara'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    disabled={subiendoIntakeFoto}
+                    onPress={() => subirFotoEntrada('galeria')}
+                    style={{
+                      flex: 1,
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      paddingVertical: 10,
+                      alignItems: 'center',
+                      opacity: subiendoIntakeFoto ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
+                      🖼️ Galería
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {intakePhotos.length > 0 && (
+                  <ScrollView horizontal style={{ marginTop: spacing.xs }} contentContainerStyle={{ gap: spacing.xs }}>
+                    {intakePhotos.map((u, idx) => (
+                      <View key={`${u}-${idx}`} style={{ position: 'relative' }}>
+                        <Image
+                          source={{ uri: u }}
+                          style={{ width: 64, height: 64, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setIntakePhotos((prev) => prev.filter((_, i) => i !== idx))}
+                          style={{
+                            position: 'absolute',
+                            top: -4,
+                            right: -4,
+                            backgroundColor: colors.danger,
+                            width: 20,
+                            height: 20,
+                            borderRadius: 10,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '900' }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+            ) : null}
 
             <TouchableOpacity
               onPress={handleGuardarEntrada}

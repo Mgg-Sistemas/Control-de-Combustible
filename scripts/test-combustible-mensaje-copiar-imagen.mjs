@@ -66,8 +66,11 @@ new Function(
 
 const {
   armarDatosMensajeDesdeDespacho,
+  armarDatosMensajeDesdeIngreso,
   construirMensajeWhatsapp,
   copiarMensajeCombustible,
+  compartirImagenYMensajeCombustible,
+  compartirPorWhatsapp,
 } = mod.exports;
 
 let pass = 0;
@@ -178,18 +181,114 @@ console.log('COMBUSTIBLE — Mensaje copiable con Nombre, Placa, Serial e Imagen
   ok('copiarMensajeCombustible devuelve true y escribe en el portapapeles', copiado === true && ultimoTextoCopiado.includes('VIBROCOMPACTADOR') && ultimoTextoCopiado.includes('V-102') && ultimoTextoCopiado.includes('VIB-900'));
 }
 
-// 5. Verificación de componentes UI
+// 5. Mensaje de Entrada (fuel_intakes) con múltiples fotos y sin enlace a la BD
+{
+  const ingreso = {
+    id: 'in-1',
+    intake_date: '2026-11-06',
+    created_at: '2026-11-06T12:15:00.000Z',
+    supplier: 'PDVSA',
+    invoice_no: 'F-009812',
+    fuel_type: 'DIESEL',
+    liters: 15000,
+    received_by: 'CARLOS PEREZ',
+    notes: 'Cisterna OK https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/secreto.jpg',
+    tank: { name: 'TANQUE PRINCIPAL 30.000L' },
+    photos: [
+      'https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/guia1.jpg',
+      'https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/precinto2.jpg',
+      'https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/cisterna3.jpg',
+    ],
+  };
+
+  const datosEntrada = armarDatosMensajeDesdeIngreso(ingreso);
+  const msgEntrada = construirMensajeWhatsapp(datosEntrada);
+
+  ok('armarDatosMensajeDesdeIngreso detecta tipo=entrada y conserva las 3 fotos', datosEntrada.tipo === 'entrada' && datosEntrada.fotos.length === 3);
+  ok('El mensaje de entrada incluye tanque, proveedor, factura y litros recibidos', msgEntrada.includes('RECEPCIÓN DE COMBUSTIBLE') && msgEntrada.includes('TANQUE PRINCIPAL 30.000L') && msgEntrada.includes('PDVSA') && msgEntrada.includes('F-009812') && msgEntrada.includes('15.000 L'), msgEntrada);
+  ok('El mensaje de entrada NUNCA incluye el link de la imagen en la base de datos', !msgEntrada.includes('https://') && !msgEntrada.includes('supabase.co'), msgEntrada);
+}
+
+// 6. Envío de múltiples imágenes en Consumo y Entrada con navigator.share
+{
+  let ultimoSharePayload = null;
+  globalThis.fetch = async (u) => ({
+    ok: true,
+    blob: async () => new Blob(['fake-img-' + u], { type: 'image/jpeg' }),
+  });
+  Object.defineProperty(globalThis, 'navigator', {
+    value: {
+      clipboard: {
+        writeText: async (txt) => {
+          ultimoTextoCopiado = txt;
+        },
+      },
+      canShare: ({ files }) => Array.isArray(files) && files.length > 0,
+      share: async (payload) => {
+        ultimoSharePayload = payload;
+      },
+    },
+    configurable: true,
+    writable: true,
+  });
+
+  const datosConsumoMulti = armarDatosMensajeDesdeDespacho({
+    dispatch_date: '2026-11-06',
+    liters: 85,
+    machine: { code: 'CAMION VOLTEO', plate: 'A11BC2D', serial: 'VOL-01' },
+    tank: { name: 'TANQUE SURTIDOR' },
+    photos: [
+      'https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/f1.jpg',
+      'https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/f2.jpg',
+      'https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/f3.jpg',
+    ],
+  });
+
+  const resConsumo = await compartirImagenYMensajeCombustible(datosConsumoMulti);
+  ok(
+    'compartirImagenYMensajeCombustible en Consumo envía TODAS las imágenes (3 archivos) y el texto sin links',
+    resConsumo?.modo === 'nativo_archivos' &&
+      resConsumo?.cantidadImagenes === 3 &&
+      ultimoSharePayload &&
+      Array.isArray(ultimoSharePayload.files) &&
+      ultimoSharePayload.files.length === 3 &&
+      !ultimoSharePayload.text.includes('https://')
+  );
+
+  ultimoSharePayload = null;
+  await compartirPorWhatsapp({
+    tipo: 'entrada',
+    tanqueNombre: 'TANQUE PRINCIPAL',
+    proveedor: 'PDVSA',
+    factura: 'G-5544',
+    litros: 10000,
+    fotos: [
+      'https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/e1.jpg',
+      'https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/e2.jpg',
+    ],
+  });
+  ok(
+    'compartirPorWhatsapp en Entrada con varias fotos comparte automáticamente todas las imágenes y el mensaje sin links',
+    ultimoSharePayload &&
+      Array.isArray(ultimoSharePayload.files) &&
+      ultimoSharePayload.files.length === 2 &&
+      !ultimoSharePayload.text.includes('https://')
+  );
+}
+
+// 7. Verificación de componentes UI
 {
   const modalSrc = leer('src/components/combustible/DetalleDespachoModal.tsx');
   const surtidorSrc = leer('src/components/combustible/SurtidorMovil.tsx');
   const consumosSrc = leer('src/screens/redesign/DispatchesPilot.tsx');
+  const ingresosSrc = leer('src/screens/redesign/IntakesPilot.tsx');
   const apoyoSrc = leer('src/components/combustible/MaquinasApoyoPanel.tsx');
 
-  ok('DetalleDespachoModal muestra Maquinaria, Placa y Serial', modalSrc.includes('PLACA:') && modalSrc.includes('SERIAL:') && modalSrc.includes('MAQUINARIA / EQUIPO:'));
+  ok('DetalleDespachoModal muestra Maquinaria, Placa y Serial y soporta Entradas', modalSrc.includes('PLACA:') && modalSrc.includes('SERIAL:') && modalSrc.includes('DETALLE DE LA ENTRADA'));
   ok('DetalleDespachoModal tiene botón COPIAR MENSAJE y cuadro seleccionable', modalSrc.includes('COPIAR MENSAJE') && modalSrc.includes('selectTextOnFocus'));
-  ok('DetalleDespachoModal permite MANDAR IMAGEN + MENSAJE, COPIAR IMAGEN y DESCARGAR FOTO', modalSrc.includes('MANDAR IMAGEN + MENSAJE') && modalSrc.includes('COPIAR IMAGEN') && modalSrc.includes('DESCARGAR FOTO'));
+  ok('DetalleDespachoModal permite MANDAR LAS N IMÁGENES + MENSAJE, COPIAR IMAGEN y DESCARGAR FOTO', modalSrc.includes('IMÁGENES + MENSAJE') && modalSrc.includes('COPIAR IMAGEN') && modalSrc.includes('DESCARGAR FOTO'));
   ok('DetalleDespachoModal mantiene botón REENVIAR POR WHATSAPP', modalSrc.includes('REENVIAR POR WHATSAPP'));
-  ok('SurtidorMovil, DispatchesPilot y MaquinasApoyoPanel integran DetalleDespachoModal', surtidorSrc.includes('<DetalleDespachoModal') && consumosSrc.includes('<DetalleDespachoModal') && apoyoSrc.includes('<DetalleDespachoModal'));
+  ok('SurtidorMovil, DispatchesPilot, IntakesPilot y MaquinasApoyoPanel integran DetalleDespachoModal', surtidorSrc.includes('<DetalleDespachoModal') && consumosSrc.includes('<DetalleDespachoModal') && ingresosSrc.includes('<DetalleDespachoModal') && apoyoSrc.includes('<DetalleDespachoModal'));
 }
 
 if (fail > 0) {

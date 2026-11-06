@@ -5,6 +5,7 @@ import { spacing, radius } from '../../theme';
 import { levelMeets } from '../../lib/permissions';
 import { INGRESOS_NOTAS_ACTIVAS, INGRESOS_FOTOS_ACTIVAS } from '../../lib/combustibleEdicion';
 import EditarFotosCombustibleModal from '../../components/combustible/EditarFotosCombustibleModal';
+import DetalleDespachoModal from '../../components/combustible/DetalleDespachoModal';
 import { RList, RRow, RAmount, RPill } from '../../components/redesign/RList';
 import { FuelIntake, Tank } from '../../types/database';
 import SelectorMultiple from '../../components/combustible/SelectorMultiple';
@@ -48,6 +49,7 @@ export default function IntakesPilot() {
   // columnas photos ni notes (ver combustibleEdicion.ts).
   const puedeEditarFotos = levelMeets(moduleLevel('ingresos'), 'full') && (INGRESOS_FOTOS_ACTIVAS || INGRESOS_NOTAS_ACTIVAS);
   const [editFotos, setEditFotos] = useState<any | null>(null);
+  const [detalleEntrada, setDetalleEntrada] = useState<any | null>(null);
   const refetchRef = useRef<(() => void) | null>(null);
   const { data: tanks } = useTable<Tank>('tanks');
 
@@ -170,13 +172,37 @@ export default function IntakesPilot() {
               ))}
             </View>
           ) : null}
-          {puedeEditarFotos ? (
-            <Pressable onPress={() => setEditFotos(i as any)} style={{ alignSelf: 'flex-start', marginTop: spacing.sm, paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🖼️ Editar foto / nota</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+            <Pressable
+              onPress={() => setDetalleEntrada({ ...(i as any), tipo: 'entrada' })}
+              style={{
+                paddingVertical: 5,
+                paddingHorizontal: spacing.sm,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: '#16A34A',
+                backgroundColor: '#25D366',
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                💬 Mensaje / Copiar / WhatsApp
+              </Text>
             </Pressable>
-          ) : null}
+            {puedeEditarFotos ? (
+              <Pressable onPress={() => setEditFotos(i as any)} style={{ paddingVertical: 5, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🖼️ Editar foto / nota</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </>
       )}
+    />
+    <DetalleDespachoModal
+      visible={detalleEntrada != null}
+      despacho={detalleEntrada}
+      tanksList={tanks}
+      registradoPor={fullName || session?.user?.email || null}
+      onClose={() => setDetalleEntrada(null)}
     />
     <EditarFotosCombustibleModal
       visible={editFotos != null}

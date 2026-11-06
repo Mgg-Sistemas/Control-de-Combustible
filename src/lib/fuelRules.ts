@@ -147,6 +147,9 @@ export interface DatosMensajeCombustible {
   equipoCodigo?: string | null;
   equipoPlaca?: string | null;
   equipoSerial?: string | null;
+  proveedor?: string | null;
+  factura?: string | null;
+  combustible?: string | null;
   litros: number;
   contadorIni?: number | null;
   contadorFin?: number | null;
@@ -160,7 +163,6 @@ export interface DatosMensajeCombustible {
   hora?: string | null;
   nota?: string | null;
   fotos?: string[] | null;
-  incluirFotosEnTexto?: boolean;
 }
 
 export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
@@ -213,12 +215,22 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
     lineas.push('📥 *RECEPCIÓN DE COMBUSTIBLE*');
     lineas.push('');
     lineas.push(`⛽ *Tanque receptor:* ${d.tanqueNombre}`);
+    if (d.proveedor) lineas.push(`🏭 *Proveedor:* ${d.proveedor}`);
+    if (d.factura) lineas.push(`🧾 *Guía / Factura:* ${d.factura}`);
+    if (d.combustible) lineas.push(`🛢 *Combustible:* ${d.combustible}`);
     lineas.push(`💧 *Litros recibidos:* ${d.litros.toLocaleString('es-VE')} L`);
     if (d.autorizadoPor) lineas.push(`👤 *Recibido por:* ${d.autorizadoPor}`);
   }
 
   lineas.push(`📅 *Fecha y hora:* ${fechaStr} ${horaStr}`);
-  if (d.nota) lineas.push(`📝 *Nota:* ${d.nota}`);
+  if (d.nota) {
+    // Nunca enviar enlaces crudos de Supabase/base de datos dentro de la nota del mensaje
+    const notaLimpia = String(d.nota)
+      .replace(/https?:\/\/\S+/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (notaLimpia) lineas.push(`📝 *Nota:* ${notaLimpia}`);
+  }
 
   lineas.push('');
   lineas.push(`🏢 *SOS La Guaira / BCV*${d.registradoPor ? ` · Reg.: ${d.registradoPor}` : ''}`);
@@ -236,11 +248,35 @@ export function urlWhatsapp(texto: string): string {
   return `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
 }
 
+async function abrirEnlaceWhatsappTexto(texto: string): Promise<void> {
+  const url = urlWhatsapp(texto);
+  try {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && typeof window.open === 'function') {
+        window.open(url, '_blank');
+      }
+    } else {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) await Linking.openURL(url);
+      else await Linking.openURL(`whatsapp://send?text=${encodeURIComponent(texto)}`);
+    }
+  } catch (err) {
+    console.warn('No se pudo abrir WhatsApp:', err);
+  }
+}
+
 /**
  * Abre WhatsApp con el mensaje estructurado pre-cargado.
+ * Si el registro (consumo o entrada) tiene una o varias imágenes subidas,
+ * envía/descarga todas las imágenes como archivos reales sin poner enlaces de la base de datos en el texto.
  */
 export async function compartirPorWhatsapp(d: DatosMensajeCombustible): Promise<void> {
   const texto = construirMensajeWhatsapp(d);
+  const fotos = (d.fotos || []).map((u) => String(u || '').trim()).filter(Boolean);
+  if (fotos.length > 0) {
+    await compartirImagenYMensajeCombustible(d, fotos);
+    return;
+  }
   // 01-nov-2026: api.whatsapp.com/send en vez de wa.me — la redirección de wa.me
   // dañaba los emojis (rombo con signo de interrogación). Ver urlWhatsapp.
   const url = urlWhatsapp(texto);
@@ -258,9 +294,63 @@ export async function compartirPorWhatsapp(d: DatosMensajeCombustible): Promise<
 }
 
 /**
+ * Construye `DatosMensajeCombustible` para una recepción/entrada de combustible (`fuel_intakes`),
+ * conservando todas sus fotos subidas para enviarlas como imágenes reales (sin links en el texto).
+ */
+export function armarDatosMensajeDesdeIngreso(
+  i: any,
+  opts?: {
+    tanksList?: any[] | null;
+    registradoPor?: string | null;
+  }
+): DatosMensajeCombustible {
+  const tank =
+    i?.tank ||
+    (opts?.tanksList || []).find((x: any) => x && x.id === i?.tank_id) ||
+    null;
+
+  const fotosRaw: string[] = (Array.isArray(i?.photos) ? i.photos : [])
+    .map((u: any) => String(u || '').trim())
+    .filter(Boolean);
+  const fotos: string[] = Array.from(new Set<string>(fotosRaw));
+
+  const fechaStr = i?.intake_date
+    ? String(i.intake_date).slice(0, 10)
+    : i?.fecha
+    ? String(i.fecha).slice(0, 10)
+    : null;
+  const horaStr = i?.created_at
+    ? new Date(i.created_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })
+    : i?.hora || null;
+
+  return {
+    tipo: 'entrada',
+    tanqueNombre: tank?.name
+      ? String(tank.name).trim()
+      : i?.tanqueNombre
+      ? String(i.tanqueNombre).trim()
+      : 'Tanque receptor',
+    proveedor: i?.supplier ? String(i.supplier).trim() : i?.proveedor ? String(i.proveedor).trim() : null,
+    factura: i?.invoice_no ? String(i.invoice_no).trim() : i?.factura ? String(i.factura).trim() : null,
+    combustible: i?.fuel ? String(i.fuel).toUpperCase().trim() : null,
+    litros: Number(i?.liters ?? i?.litros) || 0,
+    autorizadoPor: i?.received_by
+      ? String(i.received_by).trim()
+      : i?.autorizadoPor
+      ? String(i.autorizadoPor).trim()
+      : opts?.registradoPor || null,
+    registradoPor: opts?.registradoPor || i?.registradoPor || null,
+    fecha: fechaStr,
+    hora: horaStr,
+    nota: i?.notes ? String(i.notes).trim() : i?.nota ? String(i.nota).trim() : null,
+    fotos,
+  };
+}
+
+/**
  * Construye `DatosMensajeCombustible` completos (Nombre/Código de maquinaria,
  * Placa, Serial, Tanque, Litros, Contador, Horómetro, Autorizado, Fecha/Hora y Fotos)
- * a partir de una fila de `dispatches` y las listas opcionales de catálogo.
+ * a partir de una fila de `dispatches` (o `fuel_intakes` si es una entrada) y las listas de catálogo.
  */
 export function armarDatosMensajeDesdeDespacho(
   d: any,
@@ -271,6 +361,10 @@ export function armarDatosMensajeDesdeDespacho(
     registradoPor?: string | null;
   }
 ): DatosMensajeCombustible {
+  if (d?.tipo === 'entrada' || (d?.intake_date && !d?.dispatch_date)) {
+    return armarDatosMensajeDesdeIngreso(d, opts);
+  }
+
   const maq =
     d?.machine ||
     (opts?.machineryList || []).find((x: any) => x && x.id === d?.machinery_id) ||
@@ -313,34 +407,44 @@ export function armarDatosMensajeDesdeDespacho(
   const fotosRaw = [
     ...(Array.isArray(d?.photos) ? d.photos : []),
     ...(Array.isArray(d?.apoyo_fotos) ? d.apoyo_fotos : []),
+    ...(Array.isArray(d?.fotos) ? d.fotos : []),
   ]
     .map((u: any) => String(u || '').trim())
     .filter(Boolean);
   const fotos = Array.from(new Set(fotosRaw));
 
-  const fechaStr = d?.dispatch_date ? String(d.dispatch_date).slice(0, 10) : null;
+  const fechaStr = d?.dispatch_date ? String(d.dispatch_date).slice(0, 10) : d?.fecha || null;
   const horaStr = d?.created_at
     ? new Date(d.created_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })
-    : null;
+    : d?.hora || null;
 
   return {
     tipo: 'surtido',
-    tanqueNombre: tank?.name ? String(tank.name).trim() : 'Bomba directa',
+    tanqueNombre: tank?.name
+      ? String(tank.name).trim()
+      : d?.tanqueNombre
+      ? String(d.tanqueNombre).trim()
+      : 'Bomba directa',
     equipoCodigo,
     equipoPlaca,
     equipoSerial,
-    litros: Number(d?.liters) || 0,
-    contadorIni: d?.fuel_start ?? null,
-    contadorFin: d?.fuel_end ?? null,
-    horometroFin: d?.hourmeter_h ?? null,
-    kilometraje: d?.odometer_km ?? null,
-    autorizadoPor: d?.driver_operator ? String(d.driver_operator).trim() : null,
-    registradoPor: opts?.registradoPor || null,
+    litros: Number(d?.liters ?? d?.litros) || 0,
+    contadorIni: d?.fuel_start ?? d?.contadorIni ?? null,
+    contadorFin: d?.fuel_end ?? d?.contadorFin ?? null,
+    horometroIni: d?.horometroIni ?? null,
+    horometroFin: d?.hourmeter_h ?? d?.horometroFin ?? null,
+    horasTrabajadas: d?.horasTrabajadas ?? null,
+    kilometraje: d?.odometer_km ?? d?.kilometraje ?? null,
+    autorizadoPor: d?.driver_operator
+      ? String(d.driver_operator).trim()
+      : d?.autorizadoPor
+      ? String(d.autorizadoPor).trim()
+      : null,
+    registradoPor: opts?.registradoPor || d?.registradoPor || null,
     fecha: fechaStr,
     hora: horaStr,
-    nota: d?.notes ? String(d.notes).trim() : null,
+    nota: d?.notes ? String(d.notes).trim() : d?.nota ? String(d.nota).trim() : null,
     fotos,
-    incluirFotosEnTexto: true,
   };
 }
 
@@ -482,49 +586,94 @@ export async function descargarImagenDespacho(
 }
 
 /**
- * Envía/comparte la imagen subida en la aplicación ADEMÁS del mensaje de combustible:
+ * Descarga todas las imágenes subidas de un despacho o de una entrada de combustible.
+ */
+export async function descargarImagenesDespacho(
+  urls: string[],
+  prefijo = 'comprobante-combustible'
+): Promise<number> {
+  const limpias = (urls || []).map((u) => String(u || '').trim()).filter(Boolean);
+  let descargadas = 0;
+  for (let i = 0; i < limpias.length; i++) {
+    const sufijo = limpias.length > 1 ? `-${i + 1}` : '';
+    await descargarImagenDespacho(limpias[i], `${prefijo}${sufijo}.jpg`);
+    descargadas++;
+  }
+  return descargadas;
+}
+
+/**
+ * Envía/comparte UNA o VARIAS imágenes subidas en la aplicación ADEMÁS del mensaje de combustible
+ * (tanto para consumos/despachos como para entradas/recepciones), sin incluir el link de la base de datos en el texto:
  * - Si el dispositivo/navegador soporta Web Share API con archivos (`navigator.canShare({ files })`),
- *   abre el menú de compartir nativo con la foto adjunta + el texto completo del mensaje.
- * - En PC / WhatsApp Web, copia el texto al portapapeles, descarga la foto para adjuntarla
- *   y abre WhatsApp con el mensaje completo (que también lleva el enlace directo a la foto).
+ *   abre el menú de compartir nativo con TODAS las fotos adjuntas + el texto completo del mensaje.
+ * - En PC / WhatsApp Web, copia el texto al portapapeles, descarga TODAS las fotos para adjuntarlas
+ *   y abre WhatsApp con el mensaje limpio (sin enlaces de almacenamiento).
  */
 export async function compartirImagenYMensajeCombustible(
   d: DatosMensajeCombustible,
-  fotoUrlEspecifica?: string | null
-): Promise<{ modo: 'nativo_archivos' | 'descargado_y_whatsapp' | 'whatsapp'; msg: string }> {
+  urlsEspecificas?: string | string[] | null
+): Promise<{
+  modo: 'nativo_archivos' | 'descargado_y_whatsapp' | 'whatsapp';
+  cantidadImagenes: number;
+  msg: string;
+}> {
   const texto = construirMensajeWhatsapp(d);
   await copiarMensajeCombustible(texto);
 
-  const fotos = (d.fotos || []).map((u) => String(u || '').trim()).filter(Boolean);
-  const targetUrl = String(fotoUrlEspecifica || fotos[0] || '').trim();
+  const todasLasFotos = (d.fotos || []).map((u) => String(u || '').trim()).filter(Boolean);
+  const urls = Array.isArray(urlsEspecificas)
+    ? urlsEspecificas.map((u) => String(u || '').trim()).filter(Boolean)
+    : typeof urlsEspecificas === 'string' && urlsEspecificas.trim()
+    ? [urlsEspecificas.trim()]
+    : todasLasFotos;
 
-  if (targetUrl && typeof navigator !== 'undefined') {
+  const prefijoBase =
+    d.tipo === 'entrada'
+      ? `entrada-${String(d.tanqueNombre || 'tanque').replace(/[^a-zA-Z0-9_-]/g, '_')}`
+      : `despacho-${String(d.equipoCodigo || 'equipo').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+  if (urls.length > 0 && typeof navigator !== 'undefined') {
     const nav: any = navigator;
-    if (typeof nav.share === 'function') {
+    if (typeof nav.share === 'function' && typeof File !== 'undefined') {
       try {
-        const resp = await fetch(targetUrl, { mode: 'cors' });
-        if (resp.ok) {
-          const blob = await resp.blob();
-          const ext = blob.type.includes('png') ? 'png' : 'jpg';
-          const file = new File([blob], `despacho-combustible.${ext}`, {
-            type: blob.type || 'image/jpeg',
-          });
-          if (!nav.canShare || nav.canShare({ files: [file] })) {
-            await nav.share({
-              title: 'Comprobante de Surtido - Combustible',
-              text: texto,
-              files: [file],
-            });
-            return {
-              modo: 'nativo_archivos',
-              msg: '✅ Imagen y mensaje compartidos (el texto también quedó copiado en el portapapeles).',
-            };
+        const archivos: File[] = [];
+        for (let i = 0; i < urls.length; i++) {
+          const resp = await fetch(urls[i], { mode: 'cors' });
+          if (resp.ok) {
+            const blob = await resp.blob();
+            const ext = blob.type.includes('png') ? 'png' : 'jpg';
+            const num = urls.length > 1 ? `-${i + 1}` : '';
+            archivos.push(
+              new File([blob], `${prefijoBase}${num}.${ext}`, {
+                type: blob.type || 'image/jpeg',
+              })
+            );
           }
+        }
+        if (archivos.length > 0 && (!nav.canShare || nav.canShare({ files: archivos }))) {
+          await nav.share({
+            title:
+              d.tipo === 'entrada'
+                ? 'Recepción de Combustible'
+                : 'Comprobante de Surtido - Combustible',
+            text: texto,
+            files: archivos,
+          });
+          return {
+            modo: 'nativo_archivos',
+            cantidadImagenes: archivos.length,
+            msg:
+              archivos.length > 1
+                ? `✅ Las ${archivos.length} imágenes y el mensaje se compartieron juntos (el texto también quedó copiado).`
+                : '✅ Imagen y mensaje compartidos (el texto también quedó copiado en el portapapeles).',
+          };
         }
       } catch (err: any) {
         if (err?.name === 'AbortError') {
           return {
             modo: 'nativo_archivos',
+            cantidadImagenes: urls.length,
             msg: '📋 El mensaje quedó copiado en el portapapeles.',
           };
         }
@@ -532,21 +681,23 @@ export async function compartirImagenYMensajeCombustible(
     }
   }
 
-  if (targetUrl) {
-    await descargarImagenDespacho(
-      targetUrl,
-      `despacho-${String(d.equipoCodigo || 'equipo').replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`
-    );
-    await compartirPorWhatsapp(d);
+  if (urls.length > 0) {
+    await descargarImagenesDespacho(urls, prefijoBase);
+    await abrirEnlaceWhatsappTexto(texto);
     return {
       modo: 'descargado_y_whatsapp',
-      msg: '✅ Mensaje copiado y abierto en WhatsApp + foto descargada lista para adjuntar.',
+      cantidadImagenes: urls.length,
+      msg:
+        urls.length > 1
+          ? `✅ Mensaje copiado y abierto en WhatsApp + las ${urls.length} imágenes descargadas listas para adjuntar.`
+          : '✅ Mensaje copiado y abierto en WhatsApp + foto descargada lista para adjuntar.',
     };
   }
 
-  await compartirPorWhatsapp(d);
+  await abrirEnlaceWhatsappTexto(texto);
   return {
     modo: 'whatsapp',
+    cantidadImagenes: 0,
     msg: '✅ Mensaje copiado y abierto en WhatsApp.',
   };
 }
