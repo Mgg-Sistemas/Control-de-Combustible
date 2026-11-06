@@ -78,6 +78,12 @@ export type CuentaParaReporte = {
   infoPago?: {
     metodosActivos?: string[];
   } | null;
+  desgloseProveedores?: {
+    proveedor: string;
+    totalUsd: number;
+    totalBs?: number;
+    pago?: string | null;
+  }[] | null;
 };
 
 export type AlcanceCuentas = 'marcadas' | 'todas';
@@ -442,7 +448,19 @@ export function armarReporteCuentas(args: {
   const celda = (k: ColumnaCuenta, c: CuentaParaReporte): string => {
     const a = aporteDe(c);
     switch (k) {
-      case 'contraparte': return `<td>${esc(limpio(c.contraparte) || '—')}</td>`;
+      case 'contraparte': {
+        const desglose = (c.desgloseProveedores || []).filter((d) => d && limpio(d.proveedor));
+        if (desglose.length > 1) {
+          const itemsHtml = desglose.map((d, di) => {
+            const bsD = tasa != null ? (d.totalBs && d.totalBs > 0 ? d.totalBs : (Number(d.totalUsd) || 0) * tasa) : 0;
+            const bsSpan = tasa != null && bsD > 0 ? ` <span style="color:#047857">(${esc(bsTexto(bsD))})</span>` : '';
+            const pagoSpan = limpio(d.pago) ? `<br/><span style="color:#475569;font-size:8px">💳 ${esc(limpio(d.pago))}</span>` : '';
+            return `<div style="margin-top:2px;padding-top:2px;border-top:1px dashed #CBD5E1"><b>${di + 1}. ${esc(limpio(d.proveedor))}:</b> ${esc(usdTexto(Number(d.totalUsd) || 0))}${bsSpan}${pagoSpan}</div>`;
+          }).join('');
+          return `<td><div><b>${esc(limpio(c.contraparte) || `${desglose.length} PROVEEDORES`)}</b></div><div style="font-size:8.5px;color:#1E293B;margin-top:2px">${itemsHtml}</div></td>`;
+        }
+        return `<td>${esc(limpio(c.contraparte) || '—')}</td>`;
+      }
       case 'empresa': return `<td>${esc(limpio(c.empresaNombre) || '—')}</td>`;
       case 'concepto': return `<td>${esc(limpio(c.concepto) || '—')}</td>`;
       case 'documento': return `<td>${esc(limpio(c.documento) || '—')}</td>`;
@@ -672,7 +690,14 @@ export function textoWhatsappReporteCuentas(args: {
   };
 
   const formatearRenglon = (c: CuentaParaReporte, idx: number): string[] => {
-    const contraparte = limpio(c.contraparte) || contraparteLabel(tipo);
+    const desglose = (c.desgloseProveedores || []).filter((d) => d && limpio(d.proveedor));
+    const rawContraparte = limpio(c.contraparte);
+    const esGenerico = !rawContraparte || rawContraparte.toUpperCase() === 'PROVEEDOR';
+    const contraparte = esGenerico && desglose.length === 1
+      ? limpio(desglose[0].proveedor)
+      : esGenerico && desglose.length > 1
+      ? `${desglose.length} PROVEEDORES`
+      : rawContraparte || contraparteLabel(tipo);
     const codigo = limpio(c.traza?.reqCode) || limpio(c.documento);
     const prefijoCodigo = wop.incluirCodigo && codigo ? `*${codigo}* · ` : '';
     const mUsd = montoFilaUsd(c);
@@ -681,6 +706,23 @@ export function textoWhatsappReporteCuentas(args: {
     const lineas: string[] = [
       `${idx}. ${iconoFila} ${prefijoCodigo}${contraparte} — *USD ${miles(mUsd)}*${sufijoPrioridad}${sufijoPagada}`,
     ];
+
+    if (desglose.length > 1) {
+      desglose.forEach((dp, pi) => {
+        const dpUsd = Number(dp.totalUsd) || 0;
+        const dpBs = dp.totalBs && dp.totalBs > 0 ? dp.totalBs : (tasa ? dpUsd * tasa : 0);
+        const bsTxt = mostrarBs && dpBs > 0 ? ` _(≈ ${bsTexto(dpBs)})_` : '';
+        lineas.push(`   ${idx}.${pi + 1} 🏭 *${limpio(dp.proveedor)}* — *USD ${miles(dpUsd)}*${bsTxt}`);
+        const pagoTxt = limpio(dp.pago);
+        if (pagoTxt) {
+          lineas.push(`      💳 _Método de pago:_ ${pagoTxt}`);
+        } else {
+          lineas.push(`      💳 _Método de pago:_ ⚠️ Por confirmar con el proveedor`);
+        }
+      });
+    } else if (desglose.length === 1 && limpio(desglose[0].pago)) {
+      lineas.push(`   💳 _Método de pago:_ ${limpio(desglose[0].pago)}`);
+    }
 
     if (wop.incluirConcepto && limpio(c.concepto)) {
       lineas.push(`   📝 _${limpio(c.concepto)}_`);

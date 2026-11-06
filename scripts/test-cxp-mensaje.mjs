@@ -114,5 +114,69 @@ ok('PDF Resumen Decisión: KPIs y motivo en tabla',
   htmlDec.includes('NO SE PAGARÁN (1)') &&
   htmlDec.includes('Sin fondos en estos momentos'));
 
+// ── 05-nov-2026: Desglose de lo que se debe pagar a cada proveedor + método de pago de cada uno ──
+const cuentaMultiProv = {
+  ...base,
+  id: 'cta-req-0171',
+  orden: 'REQ-0171',
+  proveedor: 'Proveedor',
+  totalUsd: 2064.57,
+  saldoUsd: 2064.57,
+  totalBs: 1900000,
+  saldoBs: 1900000,
+  tasaBs: 920.28,
+  bsFijos: false,
+  desgloseProveedores: [
+    {
+      proveedor: 'INTERWELD, C.A.',
+      totalUsd: 1455.8,
+      totalBs: 1339743.62,
+      pago: 'Banesco · Corriente · 0134-0000-00-0000000001 · RIF J-30123456-0',
+      lineas: [{ name: 'MASCARILLA MEDIA CARA 3M', qty: 20, unit: 'UND', lineUsd: 830 }],
+    },
+    {
+      proveedor: 'INVERSIONES ROTULOS I C.A.',
+      totalUsd: 81.2,
+      totalBs: 74726.74,
+      pago: 'Pago móvil: 0102 · 0414-1234567 · J-40111222-3',
+      lineas: [{ name: 'TABLA PARA ANOTACIONES', qty: 10, unit: 'UND', lineUsd: 70 }],
+    },
+    {
+      proveedor: 'ELECPOWER',
+      totalUsd: 126.67,
+      totalBs: 116571.87,
+      pago: 'Zelle: pagos@elecpower.com',
+      lineas: [{ name: 'PROTECTOR DE VOLTAJE', qty: 4, unit: 'UND', lineUsd: 109.2 }],
+    },
+  ],
+};
+const fichaMulti = M.construirMensajeCuentas([cuentaMultiProv], OP);
+ok('Ficha de pago multi-proveedor: incluye cada proveedor, cuánto pagarle y su método de pago',
+  fichaMulti.includes('INTERWELD, C.A.') &&
+  fichaMulti.includes('$1.455,80') &&
+  fichaMulti.includes('Banesco · Corriente') &&
+  fichaMulti.includes('INVERSIONES ROTULOS I C.A.') &&
+  fichaMulti.includes('Pago móvil: 0102') &&
+  fichaMulti.includes('ELECPOWER') &&
+  fichaMulti.includes('Zelle: pagos@elecpower.com'));
+
+const tesMulti = M.construirListaTesoreriaCuentas([cuentaMultiProv], {
+  incluirDesgloseProveedores: true,
+  incluirMetodosPago: true,
+  incluirBs: true,
+});
+ok('Lista Tesorería multi-proveedor: desglosa cada proveedor con USD, Bs y método de pago',
+  tesMulti.includes('REQ-0171 (3 proveedores)') &&
+  tesMulti.includes('1.1 🏭 *INTERWELD, C.A.* — *USD 1.455,80*') &&
+  tesMulti.includes('💳 Método de pago: Banesco · Corriente') &&
+  tesMulti.includes('1.2 🏭 *INVERSIONES ROTULOS I C.A.* — *USD 81,20*') &&
+  tesMulti.includes('1.3 🏭 *ELECPOWER* — *USD 126,67*'));
+
+const decMulti = M.construirResumenDecisionCuentas([cuentaMultiProv], { 'cta-req-0171': { motivo: 'si' } });
+ok('Resumen Decisión multi-proveedor: desglosa proveedores y métodos de pago',
+  decMulti.includes('💳 *Desglose por proveedor (3):*') &&
+  decMulti.includes('INTERWELD, C.A.') &&
+  decMulti.includes('Zelle: pagos@elecpower.com'));
+
 console.log(`\n${pass} ok, ${fail} fallas`);
 if (fail) { failures.forEach((f) => console.log('  ✗ ' + f)); process.exit(1); }

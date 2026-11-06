@@ -22,6 +22,12 @@ export function DesgloseProveedoresCxp(props: {
   suppliers: readonly Supplier[];
   rate: number | null;
   companyName: (id: string | null | undefined) => string | null;
+  /** false (por defecto) = siempre actualizado a la tasa del día de hoy; true = usa la tasa de ese día (del requerimiento). */
+  usarTasaDeEseDia?: boolean;
+  tasaDeEseDia?: number | null;
+  montoBsEseDia?: number;
+  montoBsHoy?: number;
+  onToggleTasaDeEseDia?: () => void;
 }) {
   const { colors } = useTheme();
   const toast = useToast();
@@ -29,16 +35,31 @@ export function DesgloseProveedoresCxp(props: {
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
   const [pagosAbiertos, setPagosAbiertos] = useState<Record<string, boolean>>({});
 
+  const usarEseDia = Boolean(props.usarTasaDeEseDia);
+  const tasaEfectiva = usarEseDia && props.tasaDeEseDia && props.tasaDeEseDia > 0 ? props.tasaDeEseDia : props.rate;
   const grupos = useMemo(
-    () => desgloseProveedoresDeReq(props.req, props.suppliers, props.rate),
-    [props.req, props.suppliers, props.rate],
+    () =>
+      desgloseProveedoresDeReq(props.req, props.suppliers, tasaEfectiva, {
+        actualizarATasaDelDia: !usarEseDia,
+      }),
+    [props.req, props.suppliers, tasaEfectiva, usarEseDia],
   );
   const varios = grupos.length > 1;
+  const totalUsd = grupos.reduce((a, g) => a + g.totalUsd, 0);
+  const totalBsActual = grupos.reduce((a, g) => a + g.totalBs, 0);
+  const totalBsEseDia = props.montoBsEseDia && props.montoBsEseDia > 0
+    ? props.montoBsEseDia
+    : grupos.reduce((a, g) => a + (g.totalBsEseDia ?? g.totalBs), 0);
 
   const verPdf = async () => {
     setGenerando(true);
     try {
-      const datos = await armarReqPdfData(props.req, { suppliers: props.suppliers, companyName: props.companyName, rate: props.rate });
+      const datos = await armarReqPdfData(props.req, {
+        suppliers: props.suppliers,
+        companyName: props.companyName,
+        rate: tasaEfectiva,
+        actualizarATasaDelDia: !usarEseDia,
+      });
       await exportPdf(requerimientoHtml(datos), `Requerimiento ${props.req.code ?? ''}`.trim());
     } catch (e: any) {
       toast.error('No se pudo generar el PDF: ' + (e?.message ?? e));
@@ -49,6 +70,50 @@ export function DesgloseProveedoresCxp(props: {
 
   return (
     <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+      {props.onToggleTasaDeEseDia ? (
+        <TouchableOpacity
+          onPress={props.onToggleTasaDeEseDia}
+          activeOpacity={0.85}
+          style={{
+            marginBottom: spacing.sm,
+            paddingVertical: 11,
+            paddingHorizontal: 12,
+            borderRadius: radius.md,
+            borderWidth: 2,
+            borderColor: usarEseDia ? '#F59E0B' : '#16A34A',
+            backgroundColor: usarEseDia ? 'rgba(245, 158, 11, 0.14)' : 'rgba(22, 163, 74, 0.14)',
+            gap: 4,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+            <Text style={{ color: usarEseDia ? '#F59E0B' : '#16A34A', fontSize: 12.5, fontWeight: '900' }}>
+              {usarEseDia
+                ? `📅 USANDO LA TASA DE ESE DÍA (DEL REQUERIMIENTO${props.tasaDeEseDia ? ` · Bs ${money(props.tasaDeEseDia)}/$` : ''})`
+                : `💱 ACTUALIZADO A LA TASA DEL DÍA DE HOY${props.rate ? ` (BCV: Bs ${money(props.rate)}/$)` : ''}`}
+            </Text>
+            <View
+              style={{
+                backgroundColor: usarEseDia ? '#F59E0B' : '#16A34A',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: radius.pill,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '900' }}>
+                {usarEseDia
+                  ? '💱 VOLVER A ACTUALIZAR A LA TASA DEL DÍA DE HOY'
+                  : `📅 ¿QUIERES LA TASA DE ESE DÍA? TOCA AQUÍ${totalBsEseDia > 0 ? ` (Bs ${money(totalBsEseDia)})` : ''}`}
+              </Text>
+            </View>
+          </View>
+          <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
+            {usarEseDia
+              ? `Viendo Bs de ese día: Bs ${money(totalBsActual)}${props.rate ? ` · Toca este botón enorme para volver a actualizar a la tasa BCV de hoy (Bs ${money(props.montoBsHoy || totalUsd * props.rate)}).` : ''}`
+              : `Total en Bs actualizado a hoy: Bs ${money(totalBsActual)}${totalBsEseDia > 0 ? ` · Si quieres ver y pagar con la tasa de ese día (Bs ${money(totalBsEseDia)}), toca este botón enorme.` : ''}`}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
         <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '900', flexShrink: 1 }}>
           {varios

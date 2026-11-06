@@ -48,5 +48,21 @@ ok('Por pagar usa los Bs del requerimiento', pant.includes('montosBsCuenta(c,') 
 ok('el reporte recibe los Bs fijados', pant.includes('saldoBsDe={') && rep.includes('args.saldoBsDe'));
 ok('ya no queda el saldo solo con la tasa en la lista', !pant.includes('≈ {fmtBs(bsFromUsd(c.saldo, tasaBcv))}'));
 
+// ── 05-nov-2026: Actualizar siempre a la tasa del día en Por Pagar + botón enorme para tasa de ese día ──
+const actualizadoHoy = B.montosBsCuenta(cuenta, req, 1000, { actualizarATasaDelDia: true });
+ok('con actualizarATasaDelDia=true actualiza siempre a la tasa del día de hoy',
+  !actualizadoHoy.fijo &&
+  actualizadoHoy.montoBs === 169520 &&
+  actualizadoHoy.saldoBs === 169520 &&
+  actualizadoHoy.tieneTasaEseDia === true &&
+  actualizadoHoy.montoBsEseDia === 150800);
+const tasaEseDiaActiva = B.montosBsCuenta(cuenta, req, 1000, { actualizarATasaDelDia: false });
+ok('con actualizarATasaDelDia=false usa la tasa de ese día (del requerimiento)',
+  tasaEseDiaActiva.fijo &&
+  tasaEseDiaActiva.montoBs === 150800 &&
+  tasaEseDiaActiva.montoBsHoy === 169520);
+ok('pantalla tiene el botón enorme para alternar a la tasa de ese día',
+  pant.includes('QUIERO LA TASA DE ESE DÍA') && pant.includes('toggleTasaEseDiaGlobal'));
+
 console.log(`\n${pass} ok, ${fail} fallas`);
 if (fail) { failures.forEach((f) => console.log('  ✗ ' + f)); process.exit(1); }

@@ -26,8 +26,30 @@ type CuentaParaBs = {
 export type MontosBsCuenta = {
   montoBs: number;
   saldoBs: number;
-  /** true = Bs escritos en el requerimiento (fijos); false = aproximado con la tasa de hoy. */
+  /** true = Bs de ese día / del requerimiento (fijos); false = actualizado a la tasa BCV del día de hoy. */
   fijo: boolean;
+  /** true si existe un monto/tasa histórica del día en que se creó el requerimiento. */
+  tieneTasaEseDia?: boolean;
+  /** Monto total en Bs calculado con la tasa de ese día (del requerimiento). */
+  montoBsEseDia?: number;
+  /** Saldo pendiente en Bs calculado con la tasa de ese día (del requerimiento). */
+  saldoBsEseDia?: number;
+  /** Tasa efectiva (Bs/$) de ese día en que se registró el requerimiento. */
+  tasaEseDia?: number | null;
+  /** Monto total en Bs actualizado a la tasa BCV de hoy. */
+  montoBsHoy?: number;
+  /** Saldo pendiente en Bs actualizado a la tasa BCV de hoy. */
+  saldoBsHoy?: number;
+};
+
+export type OpcionesMontosBsCuenta = {
+  /**
+   * true = actualiza SIEMPRE los montos en Bs a la tasa del día de hoy (`tasaHoy`).
+   * false = usa los montos en Bs / tasa de ese día (del requerimiento).
+   */
+  actualizarATasaDelDia?: boolean;
+  /** Tasa BCV histórica de la fecha de emisión/creación (para requerimientos sin Bs explícitos en renglones). */
+  tasaFechaEmision?: number | null;
 };
 
 /** ¿El requerimiento trae montos escritos en Bs? */
@@ -42,22 +64,78 @@ export function tasaDeNotaCuenta(nota?: string | null): number | null {
   return m && Number(m[1]) > 0 ? Number(m[1]) : null;
 }
 
-export function montosBsCuenta(c: CuentaParaBs, req: ReqParaBs | null | undefined, tasaHoy: number | null | undefined): MontosBsCuenta {
+export function montosBsCuenta(
+  c: CuentaParaBs,
+  req: ReqParaBs | null | undefined,
+  tasaHoy: number | null | undefined,
+  opciones?: OpcionesMontosBsCuenta | boolean,
+): MontosBsCuenta {
   const monto = Number(c.monto) || 0;
   const saldo = c.saldo != null ? Number(c.saldo) || 0 : monto;
   const hoy = Number(tasaHoy) || 0;
+  const montoBsHoy = hoy > 0 ? Math.round(monto * hoy * 100) / 100 : 0;
+  const saldoBsHoy = hoy > 0 ? Math.round(saldo * hoy * 100) / 100 : 0;
+
+  const opts: OpcionesMontosBsCuenta =
+    typeof opciones === 'boolean' ? { actualizarATasaDelDia: opciones } : (opciones ?? {});
+
+  let tieneTasaEseDia = false;
+  let montoBsEseDia = 0;
+  let saldoBsEseDia = 0;
+  let tasaEseDia: number | null = null;
+
+  const tasaNota = tasaDeNotaCuenta(c.nota);
+  const tasaHist = tasaNota ?? (Number(opts.tasaFechaEmision) > 0 ? Number(opts.tasaFechaEmision) : null);
+
   if (req && reqTieneBsEscritos(req)) {
-    const tasa = tasaDeNotaCuenta(c.nota) ?? hoy;
+    const tasaRef = tasaHist ?? hoy;
     const alic = c.alicuota_iva != null && c.alicuota_iva !== '' ? Number(c.alicuota_iva) || 0 : Number(req.iva_alicuota) || 0;
-    const { totalBs } = calcularTotalesReqBs((req.items || []) as any[], tasa, alic);
+    const { totalBs } = calcularTotalesReqBs((req.items || []) as any[], tasaRef, alic);
     if (totalBs > 0) {
-      const saldoBs = monto > 0 ? (saldo >= monto ? totalBs : Math.round(totalBs * (saldo / monto) * 100) / 100) : 0;
-      return { montoBs: totalBs, saldoBs: Math.max(0, saldoBs), fijo: true };
+      tieneTasaEseDia = true;
+      montoBsEseDia = totalBs;
+      saldoBsEseDia = Math.max(0, monto > 0 ? (saldo >= monto ? totalBs : Math.round(totalBs * (saldo / monto) * 100) / 100) : 0);
+      tasaEseDia = tasaNota ?? (monto > 0 ? Math.round((totalBs / monto) * 100) / 100 : tasaHist);
     }
+  } else if (tasaHist && tasaHist > 0 && monto > 0) {
+    tieneTasaEseDia = true;
+    montoBsEseDia = Math.round(monto * tasaHist * 100) / 100;
+    saldoBsEseDia = Math.max(0, Math.round(saldo * tasaHist * 100) / 100);
+    tasaEseDia = Math.round(tasaHist * 100) / 100;
   }
+
+  // Si actualizarATasaDelDia === true (comportamiento por defecto en Por Pagar: siempre actualizar a tasa BCV del día),
+  // devuelve montoBsHoy / saldoBsHoy pero conserva montoBsEseDia / saldoBsEseDia para el botón de alternar a la tasa de ese día.
+  const usarEseDia =
+    opts.actualizarATasaDelDia === true
+      ? false
+      : opts.actualizarATasaDelDia === false
+        ? tieneTasaEseDia && montoBsEseDia > 0
+        : Boolean(req && reqTieneBsEscritos(req) && montoBsEseDia > 0);
+
+  if (usarEseDia && montoBsEseDia > 0) {
+    return {
+      montoBs: montoBsEseDia,
+      saldoBs: saldoBsEseDia,
+      fijo: true,
+      tieneTasaEseDia,
+      montoBsEseDia,
+      saldoBsEseDia,
+      tasaEseDia,
+      montoBsHoy,
+      saldoBsHoy,
+    };
+  }
+
   return {
-    montoBs: hoy > 0 ? Math.round(monto * hoy * 100) / 100 : 0,
-    saldoBs: hoy > 0 ? Math.round(saldo * hoy * 100) / 100 : 0,
+    montoBs: montoBsHoy,
+    saldoBs: saldoBsHoy,
     fijo: false,
+    tieneTasaEseDia,
+    montoBsEseDia: tieneTasaEseDia ? montoBsEseDia : montoBsHoy,
+    saldoBsEseDia: tieneTasaEseDia ? saldoBsEseDia : saldoBsHoy,
+    tasaEseDia,
+    montoBsHoy,
+    saldoBsHoy,
   };
 }

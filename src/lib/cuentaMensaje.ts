@@ -31,6 +31,20 @@ export type DatosBancariosMensaje = {
   instruccionesPago?: string | null;
 };
 
+export type DesgloseProveedorMensaje = {
+  proveedor: string;
+  renglones?: number;
+  subtotalUsd?: number;
+  exentoUsd?: number;
+  ivaUsd?: number;
+  totalUsd: number;
+  totalBs?: number;
+  totalBsEseDia?: number;
+  pago?: string | null;
+  banco?: DatosBancariosMensaje | null;
+  items?: { name: string; qty: number; unit: string; uUsd: number; lineUsd: number; exento?: boolean }[];
+};
+
 export type DatosMensajeCuenta = {
   id?: string;
   orden: string;
@@ -51,7 +65,17 @@ export type DatosMensajeCuenta = {
   tasaBs?: number | null;
   /** true = Bs escritos en el requerimiento; false = equivalente con la tasa de hoy. */
   bsFijos?: boolean;
+  /** Datos para alternar en vivo entre la tasa del día de hoy y la tasa de ese día (del requerimiento). */
+  tieneTasaEseDia?: boolean;
+  totalBsEseDia?: number | null;
+  saldoBsEseDia?: number | null;
+  tasaBsEseDia?: number | null;
+  totalBsHoy?: number | null;
+  saldoBsHoy?: number | null;
+  tasaBsHoy?: number | null;
   banco?: DatosBancariosMensaje | null;
+  /** 💳 Desglose por proveedor cuando la cuenta viene de un requerimiento (1 o varios proveedores). */
+  desgloseProveedores?: DesgloseProveedorMensaje[] | null;
   empresa?: string | null;
   /** Plan de pago (si lo hay): reemplaza el bloque «En Bs». */
   plan?: { partes: PartePlan[]; alicuotaIva?: number | null; estados?: EstadoParte[] | null } | null;
@@ -86,6 +110,8 @@ export type OpcionesListaTesoreria = {
   incluirCondiciones: boolean;
   incluirBs: boolean;
   incluirPorPreparar: boolean;
+  incluirDesgloseProveedores?: boolean;
+  incluirMetodosPago?: boolean;
   desde?: string | null;
   hasta?: string | null;
   empresaTexto?: string | null;
@@ -98,6 +124,8 @@ export const OPCIONES_TESORERIA_DEFECTO: OpcionesListaTesoreria = {
   incluirCondiciones: false,
   incluirBs: false,
   incluirPorPreparar: false,
+  incluirDesgloseProveedores: true,
+  incluirMetodosPago: false,
 };
 
 export type OpcionesMensajeCuenta = {
@@ -181,13 +209,80 @@ export function lineasBanco(b: DatosBancariosMensaje | null | undefined, plan?: 
   return bloques;
 }
 
+/** Resumen compacto en 1 línea de las coordenadas bancarias / método de pago de un proveedor. */
+export function resumenBancoEnLinea(
+  b?: DatosBancariosMensaje | null,
+  pagoTexto?: string | null,
+  condiciones?: string | null,
+): string {
+  const p = txt(pagoTexto);
+  if (p) {
+    const c = txt(condiciones);
+    return c && !p.toLowerCase().includes(c.toLowerCase()) ? `${p} · 🤝 ${c}` : p;
+  }
+  const partes: string[] = [];
+  if (b) {
+    if (txt(b.banco) || txt(b.numeroCuenta)) {
+      const tit = [txt(b.titular), txt(b.rifTitular)].filter(Boolean).join(' ');
+      partes.push(
+        `🏦 ${[txt(b.banco), txt(b.numeroCuenta) ? `Cta: ${txt(b.numeroCuenta)}` : '', tit ? `(${tit})` : '']
+          .filter(Boolean)
+          .join(' ')}`,
+      );
+    }
+    if (txt(b.pagoMovilTelefono)) {
+      partes.push(
+        `📱 PM: ${[txt(b.pagoMovilBanco), txt(b.pagoMovilTelefono), txt(b.pagoMovilCedulaRif) ? `(${txt(b.pagoMovilCedulaRif)})` : '']
+          .filter(Boolean)
+          .join(' ')}`,
+      );
+    }
+    if (txt(b.binanceId)) {
+      partes.push(`🟡 Binance: ${txt(b.binanceId)}`);
+    }
+    if (txt(b.instruccionesPago)) {
+      partes.push(`📝 ${txt(b.instruccionesPago)}`);
+    }
+  }
+  if (txt(condiciones)) {
+    const c = txt(condiciones);
+    const unido = partes.join(' · ');
+    if (!unido.toLowerCase().includes(c.toLowerCase())) {
+      partes.push(`🤝 ${c}`);
+    }
+  }
+  return partes.join(' · ');
+}
+
+function esProveedorGenerico(nombre?: string | null): boolean {
+  const n = txt(nombre).toLowerCase();
+  return !n || n === 'proveedor' || n === '—' || n === '-' || n === 'sin proveedor asignado';
+}
+
+function nombreProveedorResuelto(d: DatosMensajeCuenta): string {
+  const des = d.desgloseProveedores ?? [];
+  if (des.length > 1) {
+    return `${des.length} proveedores (${des.map((g) => txt(g.proveedor)).join(' · ')})`;
+  }
+  if (des.length === 1 && esProveedorGenerico(d.proveedor)) {
+    return txt(des[0].proveedor) || 'Proveedor';
+  }
+  return txt(d.proveedor) || (des[0] ? txt(des[0].proveedor) : '') || 'Proveedor';
+}
+
 /** Texto de UNA cuenta (sin pie de empresa: lo pone quien arma el mensaje). */
 function cuerpoCuenta(d: DatosMensajeCuenta, op: OpcionesMensajeCuenta): string[] {
   const L: string[] = [];
   const pr = prioridadTexto(d.prioridad);
+  const des = (d.desgloseProveedores ?? []).filter(Boolean);
+  const multiProv = des.length > 1;
   L.push(`🔹 *ORDEN:* ${txt(d.orden)}`);
   L.push(`${pr.icono} *Prioridad:* ${pr.texto}`);
-  L.push(`🏭 *Proveedor:* ${txt(d.proveedor) || 'Proveedor'}`);
+  if (multiProv) {
+    L.push(`🏭 *Proveedores (${des.length}):* ${des.map((g) => txt(g.proveedor)).join(' · ')}`);
+  } else {
+    L.push(`🏭 *Proveedor:* ${nombreProveedorResuelto(d)}`);
+  }
   if (txt(d.detalle)) L.push(`📝 *Detalle:* ${txt(d.detalle)}`);
   if (op.nota && txt(d.nota)) L.push(`📌 *Nota:* ${txt(d.nota)}`);
   if (op.personas) {
@@ -199,6 +294,7 @@ function cuerpoCuenta(d: DatosMensajeCuenta, op: OpcionesMensajeCuenta): string[
   const total = Number(d.totalUsd) || 0;
   const saldo = d.saldoUsd != null ? Number(d.saldoUsd) || 0 : total;
   const parcial = saldo > 0 && saldo < total - 0.005;
+  const factorSaldo = parcial && total > 0 ? saldo / total : 1;
   L.push(`💵 *Total:* $${montoEs(total)}`);
   if (parcial) L.push(`⏳ *Falta por pagar:* $${montoEs(saldo)}`);
   if (d.plan && d.plan.partes.length > 0) {
@@ -215,7 +311,58 @@ function cuerpoCuenta(d: DatosMensajeCuenta, op: OpcionesMensajeCuenta): string[
       L.push(`💱 *${parcial ? 'Falta en Bs' : 'En Bs'}:* Bs ${montoEs(bs)}${como}`);
     }
   }
-  if (op.banco) {
+
+  // 💳 Desglose detallado por proveedor (cuánto pagarle a cada uno, sus productos y sus métodos de pago)
+  if (des.length > 0) {
+    if (multiProv) {
+      L.push('');
+      L.push(`💳 *Desglose por proveedor (${des.length} proveedores — cuánto pagarle a cada uno):*`);
+      des.forEach((g, idx) => {
+        const gUsd = Math.round((Number(g.totalUsd) || 0) * factorSaldo * 100) / 100;
+        const tasaCuenta = Number(d.tasaBs) || 0;
+        const gBsBase = Number(g.totalBs) > 0 ? Number(g.totalBs) : tasaCuenta > 0 ? (Number(g.totalUsd) || 0) * tasaCuenta : 0;
+        const gBs = Math.round(gBsBase * factorSaldo * 100) / 100;
+        const bsTxt = op.bs && gBs > 0 ? ` · Bs ${montoEs(gBs)}` : '';
+        L.push(`${idx + 1}) 🏭 *${txt(g.proveedor)}* — *A pagar: $${montoEs(gUsd)}*${bsTxt}`);
+        if (Array.isArray(g.items) && g.items.length > 0) {
+          g.items.forEach((it) => {
+            L.push(`   📦 ${txt(it.name)} (${montoEs(it.qty)} ${txt(it.unit) || 'und'} × $${montoEs(it.uUsd)} = $${montoEs(it.lineUsd)})`);
+          });
+        }
+        if (op.banco) {
+          const bLineas = lineasBanco(g.banco, null);
+          if (bLineas.length > 0) {
+            for (const b of bLineas) {
+              L.push(`   ${b.titulo}: ${b.lineas.join(' · ')}`);
+            }
+          } else {
+            const resMetodo = resumenBancoEnLinea(g.banco, g.pago, d.condiciones);
+            L.push(`   💳 Método de pago: ${resMetodo || 'Sin datos bancarios registrados en la ficha del proveedor'}`);
+          }
+        }
+      });
+    } else {
+      const unico = des[0];
+      if (Array.isArray(unico.items) && unico.items.length > 0) {
+        L.push(`📦 *Productos (${unico.items.length}):*`);
+        unico.items.forEach((it) => {
+          L.push(`• ${txt(it.name)} (${montoEs(it.qty)} ${txt(it.unit) || 'und'} × $${montoEs(it.uUsd)} = $${montoEs(it.lineUsd)})`);
+        });
+      }
+      if (op.banco) {
+        const bancoEfectivo = d.banco || unico.banco;
+        const bLineas = lineasBanco(bancoEfectivo, d.plan);
+        if (bLineas.length > 0) {
+          for (const b of bLineas) {
+            L.push(`${b.titulo}:`);
+            for (const x of b.lineas) L.push(`• ${x}`);
+          }
+        } else if (txt(unico.pago)) {
+          L.push(`💳 *Método de pago:* ${txt(unico.pago)}`);
+        }
+      }
+    }
+  } else if (op.banco) {
     for (const b of lineasBanco(d.banco, d.plan)) {
       L.push(`${b.titulo}:`);
       for (const x of b.lineas) L.push(`• ${x}`);
@@ -262,9 +409,12 @@ export function mensajeCuentasHtml(lista: DatosMensajeCuenta[], op: OpcionesMens
     const total = Number(d.totalUsd) || 0;
     const saldo = d.saldoUsd != null ? Number(d.saldoUsd) || 0 : total;
     const parcial = saldo > 0 && saldo < total - 0.005;
+    const factorSaldo = parcial && total > 0 ? saldo / total : 1;
+    const des = (d.desgloseProveedores ?? []).filter(Boolean);
+    const multiProv = des.length > 1;
     const filas: string[] = [];
     filas.push(fila('Prioridad', pr.texto));
-    filas.push(fila('Proveedor', txt(d.proveedor) || 'Proveedor'));
+    filas.push(fila(multiProv ? `Proveedores (${des.length})` : 'Proveedor', nombreProveedorResuelto(d)));
     if (txt(d.detalle)) filas.push(fila('Detalle', txt(d.detalle)));
     if (op.nota && txt(d.nota)) filas.push(fila('Nota', txt(d.nota)));
     if (op.personas) {
@@ -286,10 +436,40 @@ export function mensajeCuentasHtml(lista: DatosMensajeCuenta[], op: OpcionesMens
       if (bs > 0) filas.push(fila(parcial ? 'Falta en Bs' : 'En Bs', `Bs ${montoEs(bs)}${tasa > 0 ? ` (tasa ${d.bsFijos ? '' : 'BCV de hoy '}${montoEs(tasa)})` : ''}`));
     }
     if (op.empresa && txt(d.empresa)) filas.push(fila('Empresa', txt(d.empresa)));
-    const banco = op.banco
-      ? lineasBanco(d.banco, d.plan).map((b) => `<div class="bq"><b>${esc(b.titulo)}</b>${b.lineas.map((x) => `<div>${esc(x)}</div>`).join('')}</div>`).join('')
+
+    let desgloseHtml = '';
+    if (des.length > 0) {
+      const rowsProv = des.map((g, idx) => {
+        const gUsd = Math.round((Number(g.totalUsd) || 0) * factorSaldo * 100) / 100;
+        const tasaCuenta = Number(d.tasaBs) || 0;
+        const gBsBase = Number(g.totalBs) > 0 ? Number(g.totalBs) : tasaCuenta > 0 ? (Number(g.totalUsd) || 0) * tasaCuenta : 0;
+        const gBs = Math.round(gBsBase * factorSaldo * 100) / 100;
+        const itemsHtml = Array.isArray(g.items) && g.items.length > 0
+          ? `<div style="font-size:10px;color:#475569;margin-top:2px">${g.items.map((it) => `• ${esc(txt(it.name))} (${esc(montoEs(it.qty))} ${esc(txt(it.unit) || 'und')} × $${esc(montoEs(it.uUsd))} = $${esc(montoEs(it.lineUsd))})`).join('<br/>')}</div>`
+          : '';
+        const metHtml = op.banco
+          ? `<div style="font-size:10px;color:#0F766E;font-weight:700;margin-top:3px">💳 ${esc(resumenBancoEnLinea(g.banco, g.pago, d.condiciones) || 'Sin método de pago registrado en su ficha')}</div>`
+          : '';
+        return `<tr>
+          <td style="text-align:center;width:26px">${idx + 1}</td>
+          <td><b>🏭 ${esc(txt(g.proveedor))}</b>${itemsHtml}${metHtml}</td>
+          <td style="text-align:right;white-space:nowrap;font-weight:800">$${esc(montoEs(gUsd))}</td>
+          ${op.bs ? `<td style="text-align:right;white-space:nowrap">${gBs > 0 ? `Bs ${esc(montoEs(gBs))}` : '—'}</td>` : ''}
+        </tr>`;
+      }).join('');
+      desgloseHtml = `<div style="margin-top:8px">
+        <div style="font-size:11px;font-weight:800;color:#16324F;margin-bottom:4px">💳 Desglose de pago por proveedor (${des.length}) y métodos de pago:</div>
+        <table class="t" style="border:1px solid #cbd5e1">
+          <thead><tr style="background:#16324F;color:#fff"><th style="padding:4px 6px;text-align:center">#</th><th style="padding:4px 6px;text-align:left">Proveedor / Productos / Método de pago</th><th style="padding:4px 6px;text-align:right">A pagar (USD)</th>${op.bs ? '<th style="padding:4px 6px;text-align:right">En Bs</th>' : ''}</tr></thead>
+          <tbody>${rowsProv}</tbody>
+        </table>
+      </div>`;
+    }
+
+    const banco = op.banco && !multiProv
+      ? lineasBanco(d.banco || des[0]?.banco, d.plan).map((b) => `<div class="bq"><b>${esc(b.titulo)}</b>${b.lineas.map((x) => `<div>${esc(x)}</div>`).join('')}</div>`).join('')
       : '';
-    return `<div class="cm"><div class="ord">${esc(pr.icono)} ORDEN ${esc(txt(d.orden))}</div><table class="t">${filas.join('')}</table>${banco ? `<div class="bancos">${banco}</div>` : ''}</div>`;
+    return `<div class="cm"><div class="ord">${esc(pr.icono)} ORDEN ${esc(txt(d.orden))}</div><table class="t">${filas.join('')}</table>${desgloseHtml}${banco ? `<div class="bancos">${banco}</div>` : ''}</div>`;
   };
   const totalUsd = cuentas.reduce((s, d) => s + (d.saldoUsd != null ? Number(d.saldoUsd) || 0 : Number(d.totalUsd) || 0), 0);
   const resumen = cuentas.length > 1
@@ -410,9 +590,15 @@ export function construirListaTesoreriaCuentas(
   }
 
   cuentas.forEach((d, idx) => {
-    const prov = txt(d.proveedor) || 'PROVEEDOR';
-    const ordenPref = cfg.incluirOrden && txt(d.orden) ? `*${txt(d.orden)}* · ` : '';
+    const des = (d.desgloseProveedores ?? []).filter(Boolean);
+    const multiProv = des.length > 1;
+    const prov = multiProv && esProveedorGenerico(d.proveedor)
+      ? `${txt(d.orden) || 'REQUERIMIENTO'} (${des.length} proveedores)`
+      : (nombreProveedorResuelto(d) || 'PROVEEDOR');
+    const ordenPref = cfg.incluirOrden && txt(d.orden) && !prov.startsWith(txt(d.orden)) ? `*${txt(d.orden)}* · ` : '';
     const mUsd = montoAPagarDe(d);
+    const total = Number(d.totalUsd) || 0;
+    const factorSaldo = total > 0 && mUsd < total - 0.005 ? mUsd / total : 1;
     const urgente = d.prioridad === 'alta' ? ' 🔴' : '';
     L.push(`${idx + 1}. 🔻 ${ordenPref}${prov} — *USD ${montoEs(mUsd)}*${urgente}`);
 
@@ -433,6 +619,29 @@ export function construirListaTesoreriaCuentas(
     if (cfg.incluirBs) {
       const bs = montoBsAPagarDe(d);
       if (bs > 0) L.push(`   💱 En Bs: Bs ${montoEs(bs)}`);
+    }
+
+    // 💳 Desglose de lo que se debe pagar a cada proveedor y el método de pago de cada uno
+    if (cfg.incluirDesgloseProveedores !== false && multiProv) {
+      const tasaCuenta = Number(d.tasaBs) || 0;
+      L.push(`   💳 *Desglose por proveedor (${des.length}):*`);
+      des.forEach((g, gi) => {
+        const gUsd = Math.round((Number(g.totalUsd) || 0) * factorSaldo * 100) / 100;
+        const gBsBase = Number(g.totalBs) > 0 ? Number(g.totalBs) : tasaCuenta > 0 ? (Number(g.totalUsd) || 0) * tasaCuenta : 0;
+        const gBs = Math.round(gBsBase * factorSaldo * 100) / 100;
+        const bsSub = (cfg.incluirBs || gBs > 0) ? ` (Bs ${montoEs(gBs)})` : '';
+        L.push(`   • ${idx + 1}.${gi + 1} 🏭 *${txt(g.proveedor)}* — *USD ${montoEs(gUsd)}*${bsSub}`);
+        if (cfg.incluirMetodosPago !== false) {
+          const met = resumenBancoEnLinea(g.banco, g.pago, d.condiciones);
+          L.push(`     💳 Método de pago: ${met || 'Sin método de pago registrado en su ficha'}`);
+        }
+      });
+    } else if (cfg.incluirMetodosPago || (des.length === 1 && cfg.incluirDesgloseProveedores !== false && (txt(des[0].pago) || des[0].banco || d.banco))) {
+      const unico = des[0];
+      const met = resumenBancoEnLinea(d.banco || unico?.banco, unico?.pago, d.condiciones);
+      if (met) {
+        L.push(`   💳 Método de pago: ${met}`);
+      }
     }
   });
 
@@ -483,10 +692,28 @@ export function listaTesoreriaCuentasHtml(
   const filas = cuentas.map((d, i) => {
     const mUsd = montoAPagarDe(d);
     const mBs = montoBsAPagarDe(d);
+    const total = Number(d.totalUsd) || 0;
+    const factorSaldo = total > 0 && mUsd < total - 0.005 ? mUsd / total : 1;
+    const des = (d.desgloseProveedores ?? []).filter(Boolean);
+    const multiProv = des.length > 1;
+    const tasaCuenta = Number(d.tasaBs) || 0;
+    const desgloseSubHtml = multiProv && cfg.incluirDesgloseProveedores !== false
+      ? `<div style="margin-top:4px;padding-top:4px;border-top:1px dashed #cbd5e1;font-size:9.5px">${des.map((g, gi) => {
+          const gUsd = Math.round((Number(g.totalUsd) || 0) * factorSaldo * 100) / 100;
+          const gBsBase = Number(g.totalBs) > 0 ? Number(g.totalBs) : tasaCuenta > 0 ? (Number(g.totalUsd) || 0) * tasaCuenta : 0;
+          const gBs = Math.round(gBsBase * factorSaldo * 100) / 100;
+          const met = resumenBancoEnLinea(g.banco, g.pago, d.condiciones) || 'Sin método de pago registrado';
+          return `<div style="margin-bottom:3px"><b>${i + 1}.${gi + 1} 🏭 ${esc(txt(g.proveedor))}</b> — <b>USD ${esc(montoEs(gUsd))}</b>${gBs > 0 ? ` (Bs ${esc(montoEs(gBs))})` : ''}<br/><span style="color:#0F766E">💳 ${esc(met)}</span></div>`;
+        }).join('')}</div>`
+      : (() => {
+          const unico = des[0];
+          const met = resumenBancoEnLinea(d.banco || unico?.banco, unico?.pago, d.condiciones);
+          return met ? `<div style="margin-top:2px;font-size:9.5px;color:#0F766E">💳 ${esc(met)}</div>` : '';
+        })();
     return `<tr>
       <td style="text-align:center">${i + 1}</td>
       ${cfg.incluirOrden ? `<td><b>${esc(txt(d.orden))}</b></td>` : ''}
-      <td><b>${esc(txt(d.proveedor) || 'Proveedor')}</b></td>
+      <td><b>${esc(nombreProveedorResuelto(d))}</b>${desgloseSubHtml}</td>
       ${cfg.incluirDetalle ? `<td>${esc(txt(d.detalle) || '—')}</td>` : ''}
       ${cfg.incluirCondiciones ? `<td>${esc(txt(d.condiciones) || '—')}</td>` : ''}
       <td style="text-align:right;white-space:nowrap"><b>USD ${esc(montoEs(mUsd))}</b></td>
@@ -641,8 +868,12 @@ export function construirResumenDecisionCuentas(
     }
 
     const ord = txt(d.orden);
-    const prov = txt(d.proveedor) || 'PROVEEDOR';
+    const des = (d.desgloseProveedores ?? []).filter(Boolean);
+    const multiProv = des.length > 1;
+    const prov = nombreProveedorResuelto(d) || 'PROVEEDOR';
     const urgente = d.prioridad === 'alta' ? ' 🔴' : '';
+    const total = Number(d.totalUsd) || 0;
+    const factorSaldo = total > 0 && mUsd < total - 0.005 ? mUsd / total : 1;
     L.push(`${idx + 1}. 🔹 ${ord ? `*${ord}* · ` : ''}${prov}${urgente}`);
     if (incDetalle && txt(d.detalle)) {
       L.push(`   📝 _${txt(d.detalle)}_`);
@@ -659,6 +890,23 @@ export function construirResumenDecisionCuentas(
     }
     const bsInline = incBs && mBs > 0 ? ` _(≈ Bs ${montoEs(mBs)})_` : '';
     L.push(`   💵 *A pagar:* $${montoEs(mUsd)}${bsInline} · ${textoMotivoDecision(dec)}`);
+    if (multiProv) {
+      const tasaCuenta = Number(d.tasaBs) || 0;
+      L.push(`   💳 *Desglose por proveedor (${des.length}):*`);
+      des.forEach((g, gi) => {
+        const gUsd = Math.round((Number(g.totalUsd) || 0) * factorSaldo * 100) / 100;
+        const gBsBase = Number(g.totalBs) > 0 ? Number(g.totalBs) : tasaCuenta > 0 ? (Number(g.totalUsd) || 0) * tasaCuenta : 0;
+        const gBs = Math.round(gBsBase * factorSaldo * 100) / 100;
+        const met = resumenBancoEnLinea(g.banco, g.pago, d.condiciones) || 'Sin método de pago registrado';
+        L.push(`   • ${idx + 1}.${gi + 1} 🏭 *${txt(g.proveedor)}*: *$${montoEs(gUsd)}*${gBs > 0 ? ` (Bs ${montoEs(gBs)})` : ''} · 💳 ${met}`);
+      });
+    } else if (des.length === 1 || d.banco) {
+      const unico = des[0];
+      const met = resumenBancoEnLinea(d.banco || unico?.banco, unico?.pago, d.condiciones);
+      if (met) {
+        L.push(`   💳 *Método de pago:* ${met}`);
+      }
+    }
   });
 
   L.push('');
@@ -701,10 +949,28 @@ export function resumenDecisionCuentasHtml(
     }
     const colorEstado = esSi ? '#15803D' : '#B45309';
     const bgEstado = esSi ? '#DCFCE7' : '#FEF3C7';
+    const des = (d.desgloseProveedores ?? []).filter(Boolean);
+    const multiProv = des.length > 1;
+    const total = Number(d.totalUsd) || 0;
+    const factorSaldo = total > 0 && mUsd < total - 0.005 ? mUsd / total : 1;
+    const tasaCuenta = Number(d.tasaBs) || 0;
+    const subProvHtml = multiProv
+      ? `<div style="margin-top:4px;padding-top:4px;border-top:1px dashed #cbd5e1;font-size:9px">${des.map((g, gi) => {
+          const gUsd = Math.round((Number(g.totalUsd) || 0) * factorSaldo * 100) / 100;
+          const gBsBase = Number(g.totalBs) > 0 ? Number(g.totalBs) : tasaCuenta > 0 ? (Number(g.totalUsd) || 0) * tasaCuenta : 0;
+          const gBs = Math.round(gBsBase * factorSaldo * 100) / 100;
+          const met = resumenBancoEnLinea(g.banco, g.pago, d.condiciones) || 'Sin método de pago registrado';
+          return `<div style="margin-bottom:2px"><b>${idx + 1}.${gi + 1} 🏭 ${esc(txt(g.proveedor))}:</b> $${esc(montoEs(gUsd))}${gBs > 0 ? ` (Bs ${esc(montoEs(gBs))})` : ''} · <span style="color:#0F766E">💳 ${esc(met)}</span></div>`;
+        }).join('')}</div>`
+      : (() => {
+          const unico = des[0];
+          const met = resumenBancoEnLinea(d.banco || unico?.banco, unico?.pago, d.condiciones);
+          return met ? `<div style="margin-top:2px;font-size:9px;color:#0F766E">💳 ${esc(met)}</div>` : '';
+        })();
     return `<tr>
       <td style="text-align:center">${idx + 1}</td>
       <td><b>${esc(txt(d.orden))}</b></td>
-      <td><b>${esc(txt(d.proveedor) || 'Proveedor')}</b></td>
+      <td><b>${esc(nombreProveedorResuelto(d))}</b>${subProvHtml}</td>
       <td>${esc(txt(d.detalle) || '—')}</td>
       <td style="text-align:right;white-space:nowrap"><b>$${esc(montoEs(mUsd))}</b></td>
       <td><span style="display:inline-block;padding:2px 6px;border-radius:4px;background:${bgEstado};color:${colorEstado};font-weight:800;font-size:9.5px">${esc(textoMotivoDecisionPlano(dec))}</span></td>

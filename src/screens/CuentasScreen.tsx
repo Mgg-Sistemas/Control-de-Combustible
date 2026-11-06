@@ -118,7 +118,8 @@ import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
 import { MensajeCuentaModal } from '../components/MensajeCuentaModal';
 import { PlanPagoModal } from '../components/PlanPagoModal';
 import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, estadoPartes, lineaParte, tituloParte } from '../lib/planPago';
-import { DatosMensajeCuenta, ModoMensajeCuenta } from '../lib/cuentaMensaje';
+import { DatosMensajeCuenta, DesgloseProveedorMensaje, ModoMensajeCuenta } from '../lib/cuentaMensaje';
+import { desgloseProveedoresDeReq } from '../lib/requerimientoPdfDatos';
 import { quitarTodasLasMarcasDeTexto } from '../lib/requerimientoFlujo';
 
 // Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
@@ -291,6 +292,7 @@ type CuentaCalc = Cuenta & {
   infoPago: InfoMetodoPagoPorPagar;
   desgloseIva: DesgloseIvaCuenta;
   presupuestosCount: number;
+  desgloseProveedores?: DesgloseProveedorMensaje[] | null;
 };
 
 /** Calcula saldo y situación de una cuenta a partir de sus abonos.
@@ -392,9 +394,42 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: orders } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: requirements, refetch: refetchRequirements } = useTable<InventoryRequirement>('inventory_requirements');
-  // 💱 02-nov-2026: los Bs que se escribieron en el requerimiento mandan sobre «US$ × tasa de hoy».
+  // 💱 05-nov-2026: En Por Pagar los requerimientos SIEMPRE se actualizan a la tasa del día de hoy
+  //    por defecto (`usarTasaEseDiaGlobal = false`), con un botón enorme global y por tarjeta para
+  //    alternar si se desea ver/usar la tasa de ese día (del requerimiento).
+  const [usarTasaEseDiaGlobal, setUsarTasaEseDiaGlobal] = useState(false);
+  const [usarTasaEseDiaCuentasIds, setUsarTasaEseDiaCuentasIds] = useState<Set<string>>(new Set());
+  const [tasasPorFecha, setTasasPorFecha] = useState<Map<string, number>>(new Map());
+  const usaTasaDeEseDia = (id?: string | null): boolean =>
+    Boolean(id && usarTasaEseDiaCuentasIds.has(id) ? !usarTasaEseDiaGlobal : usarTasaEseDiaGlobal);
+  const toggleTasaEseDiaCuenta = (id: string) => {
+    setUsarTasaEseDiaCuentasIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleTasaEseDiaGlobal = () => {
+    setUsarTasaEseDiaGlobal((v) => !v);
+    setUsarTasaEseDiaCuentasIds(new Set());
+  };
   const reqPorIdBs = useMemo(() => new Map((requirements || []).map((r) => [r.id, r] as [string, InventoryRequirement])), [requirements]);
-  const bsDe = (c: any) => montosBsCuenta(c, c?.inventory_requirement_id ? (reqPorIdBs.get(c.inventory_requirement_id) as any) : null, tasaBcv);
+  const tasaHistoricaDe = (c: any, req?: any): number | null => {
+    const fReq = String(req?.created_at || '').slice(0, 10);
+    if (fReq && tasasPorFecha.has(fReq)) return tasasPorFecha.get(fReq) ?? null;
+    const fEmi = String(c?.fecha_emision || '').slice(0, 10);
+    if (fEmi && tasasPorFecha.has(fEmi)) return tasasPorFecha.get(fEmi) ?? null;
+    return null;
+  };
+  const bsDe = (c: any) => {
+    const req = c?.inventory_requirement_id ? (reqPorIdBs.get(c.inventory_requirement_id) as any) : null;
+    const usarEseDia = tipo === 'por_pagar' ? usaTasaDeEseDia(c?.id) : false;
+    return montosBsCuenta(c, req, tasaBcv, {
+      actualizarATasaDelDia: tipo === 'por_pagar' ? !usarEseDia : false,
+      tasaFechaEmision: tasaHistoricaDe(c, req),
+    });
+  };
   const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
 
@@ -423,11 +458,21 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     let cancel = false;
     (async () => {
       try {
-        const [{ data: profs }, { data: ft }] = await Promise.all([
+        const [{ data: profs }, { data: ft }, { data: tasasHist }] = await Promise.all([
           supabase.from('profiles').select('id, full_name, username, cedula, role, app_role:app_role_id(name)'),
           supabase.from('feature_toggles').select('key, enabled, extra_user_ids').eq('key', 'compras_req_aprobacion').maybeSingle(),
+          supabase.from('bcv_rates').select('rate_date, rate').order('rate_date', { ascending: false }).limit(180),
         ]);
         if (cancel) return;
+        if (Array.isArray(tasasHist)) {
+          const mT = new Map<string, number>();
+          tasasHist.forEach((row: any) => {
+            const d = String(row?.rate_date || '').slice(0, 10);
+            const r = Number(row?.rate) || 0;
+            if (d && r > 0 && !mT.has(d)) mT.set(d, r);
+          });
+          setTasasPorFecha(mT);
+        }
         const lista = ((profs ?? []) as any[])
           .filter((p) => String(p.full_name || p.username || '').trim())
           .map((p) => ({
@@ -833,9 +878,18 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       const nombre = m.get(id);
       if (nombre) return nombre;
       const libre = (c.contraparte ?? '').trim();
+      if (libre && libre.toUpperCase() !== 'PROVEEDOR') return libre;
+      if (c.tipo === 'por_pagar' && c.inventory_requirement_id) {
+        const req = reqPorIdBs.get(c.inventory_requirement_id);
+        if (req) {
+          const desglose = desgloseProveedoresDeReq(req, suppliers, tasaBcv, { actualizarATasaDelDia: true });
+          if (desglose.length === 1) return desglose[0].proveedor;
+          if (desglose.length > 1) return `${desglose.length} PROVEEDORES (${desglose.map((d) => d.proveedor).join(' / ')})`;
+        }
+      }
       return libre || '—';
     };
-  }, [maestro]);
+  }, [maestro, reqPorIdBs, suppliers, tasaBcv]);
 
   const [q, setQ] = useState('');
   const [verPagadas, setVerPagadas] = useState(false);
@@ -1955,7 +2009,23 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           tasaBcv,
           saldoUsd: saldoCta,
         });
-        return calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, desgloseIva, apEstado, apInfo);
+        const reqVincDesglose = traza.reqVinculado || (c.inventory_requirement_id ? reqPorIdBs.get(c.inventory_requirement_id) : null);
+        const usarEseDiaCta = c.tipo === 'por_pagar' ? usaTasaDeEseDia(c.id) : false;
+        const bsInfoCta = montosBsCuenta(c, reqVincDesglose as any, tasaBcv, {
+          actualizarATasaDelDia: c.tipo === 'por_pagar' ? !usarEseDiaCta : false,
+          tasaFechaEmision: tasaHistoricaDe(c, reqVincDesglose),
+        });
+        const tasaDesglose = usarEseDiaCta && bsInfoCta.tasaEseDia ? bsInfoCta.tasaEseDia : tasaBcv;
+        const desgloseProveedores =
+          c.tipo === 'por_pagar' && reqVincDesglose
+            ? desgloseProveedoresDeReq(reqVincDesglose, suppliers, tasaDesglose, {
+                actualizarATasaDelDia: !usarEseDiaCta,
+              })
+            : null;
+        return {
+          ...calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, desgloseIva, apEstado, apInfo),
+          desgloseProveedores,
+        };
       });
 
     // Conteo y saldo por empresa (para las fichas / chips del filtro)
@@ -2056,7 +2126,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const uni = ord.filter(pasaVerPagadas);
 
     return { lista: vis, tot: t, empresaCounts: arrEmpresas, ordenadas: ord, universo: uni, porEmpresasCounts: countsCxp };
-  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, suppliers, tasaBcv, companies, requirements, orders, machinery, vehicles, empresaSel, configAprobacion, filtroEstadoCxp, modoFechaCxp, campoFechaCxp, fechaDesdeCxp, fechaHastaCxp]);
+  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, suppliers, tasaBcv, companies, requirements, orders, machinery, vehicles, empresaSel, configAprobacion, filtroEstadoCxp, modoFechaCxp, campoFechaCxp, fechaDesdeCxp, fechaHastaCxp, usarTasaEseDiaGlobal, usarTasaEseDiaCuentasIds, tasasPorFecha]);
 
   // Contador de marcas: solo las que existen en esta pestaña; y cuántas no se ven ahora.
   const nMarcadas = useMemo(() => ordenadas.filter((c) => marcadas.has(c.id)).length, [ordenadas, marcadas]);
@@ -2096,17 +2166,39 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   // (traza del requerimiento, Bs del requerimiento y datos bancarios del proveedor).
   const datosMensajeDe = (c: CuentaCalc): DatosMensajeCuenta => {
     const t = c.traza;
-    const req: any = t?.req || t?.reqVinculado || null;
+    const req: any = t?.req || t?.reqVinculado || (c.inventory_requirement_id ? reqPorIdBs.get(c.inventory_requirement_id) : null);
     const bs = bsDe(c);
     const monto = Number(c.monto) || 0;
     const db = c.infoPago?.datosBancarios;
     const notaReq = req ? quitarTodasLasMarcasDeTexto(req.observaciones) : '';
     const notaEspActiva = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id));
+    const usarEseDia = usaTasaDeEseDia(c.id);
+    const tasaDesglose = usarEseDia && bs.tasaEseDia ? bs.tasaEseDia : tasaBcv;
+    const desglose = req
+      ? desgloseProveedoresDeReq(req, suppliers, tasaDesglose, { actualizarATasaDelDia: !usarEseDia })
+      : (c.desgloseProveedores ?? []);
+    const tieneBancoDb = Boolean(db && (db.banco || db.numeroCuenta || db.pagoMovilTelefono || db.binanceId || db.instruccionesPago));
+    const bancoResuelto = tieneBancoDb && db
+      ? {
+          titular: db.titular, rifTitular: db.rifTitular, banco: db.banco, numeroCuenta: db.numeroCuenta, tipoCuenta: db.tipoCuenta,
+          pagoMovilBanco: db.pagoMovilBanco, pagoMovilTelefono: db.pagoMovilTelefono, pagoMovilCedulaRif: db.pagoMovilCedulaRif,
+          binanceId: db.binanceId, instruccionesPago: db.instruccionesPago,
+        }
+      : desglose.length === 1 && desglose[0].banco
+      ? desglose[0].banco
+      : null;
+    const provRaw = (t?.proveedorNombre || c.contraparte || '').trim();
+    const provResuelto =
+      (!provRaw || provRaw.toUpperCase() === 'PROVEEDOR') && desglose.length === 1
+        ? desglose[0].proveedor
+        : (!provRaw || provRaw.toUpperCase() === 'PROVEEDOR') && desglose.length > 1
+        ? `${desglose.length} PROVEEDORES (${desglose.map((d) => d.proveedor).join(' / ')})`
+        : provRaw || 'PROVEEDOR';
     return {
       id: c.id,
       orden: t?.reqCode || c.documento || ('CTA-' + String(c.id).slice(0, 8).toUpperCase()),
       prioridad: (c as any).prioridad ?? req?.prioridad ?? null,
-      proveedor: t?.proveedorNombre || c.contraparte,
+      proveedor: provResuelto,
       detalle: t?.tituloReq || c.concepto,
       nota: notaReq || (req ? '' : c.notaLimpia),
       solicita: t?.areaTexto || req?.area || t?.destinoTexto || t?.solicitadoPor || null,
@@ -2117,13 +2209,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       saldoUsd: c.saldo,
       totalBs: bs.montoBs,
       saldoBs: bs.saldoBs,
-      tasaBs: bs.fijo ? (monto > 0 ? Math.round((bs.montoBs / monto) * 100) / 100 : null) : tasaBcv,
+      tasaBs: bs.fijo ? (bs.tasaEseDia ?? (monto > 0 ? Math.round((bs.montoBs / monto) * 100) / 100 : null)) : tasaBcv,
       bsFijos: bs.fijo,
-      banco: db ? {
-        titular: db.titular, rifTitular: db.rifTitular, banco: db.banco, numeroCuenta: db.numeroCuenta, tipoCuenta: db.tipoCuenta,
-        pagoMovilBanco: db.pagoMovilBanco, pagoMovilTelefono: db.pagoMovilTelefono, pagoMovilCedulaRif: db.pagoMovilCedulaRif,
-        binanceId: db.binanceId, instruccionesPago: db.instruccionesPago,
-      } : null,
+      tieneTasaEseDia: bs.tieneTasaEseDia,
+      totalBsEseDia: bs.montoBsEseDia,
+      saldoBsEseDia: bs.saldoBsEseDia,
+      tasaBsEseDia: bs.tasaEseDia,
+      totalBsHoy: bs.montoBsHoy,
+      saldoBsHoy: bs.saldoBsHoy,
+      tasaBsHoy: tasaBcv ?? null,
+      desgloseProveedores: desglose.length > 0 ? desglose : null,
+      banco: bancoResuelto,
       empresa: t?.empresaPagadoraNombre || c.empresaNombre || null,
       fecha: t?.fechaEnvioSoloDia || t?.fechaSolicitudSoloDia || c.fecha_emision || null,
       notaEspera: notaEspActiva?.texto || null,
@@ -2483,6 +2579,61 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         <Quick label="VENCIDO" value={tot.vencido} color={colors.dangerSoftText} sub={tot.nVencidas ? `${tot.nVencidas} cuenta(s)` : undefined} />
         <Quick label={`POR VENCER (${DIAS_POR_VENCER} DÍAS)`} value={tot.porVencer} color={colors.warningSoftText} />
       </View>
+
+      {/* 💱 BOTÓN ENORME GLOBAL: Tasa del día de hoy vs. Tasa de ese día (del requerimiento) */}
+      {tipo === 'por_pagar' && tasaBcv ? (
+        <TouchableOpacity
+          onPress={toggleTasaEseDiaGlobal}
+          activeOpacity={0.85}
+          style={{
+            marginBottom: spacing.sm,
+            paddingVertical: 11,
+            paddingHorizontal: 14,
+            borderRadius: radius.md,
+            borderWidth: 2,
+            borderColor: usarTasaEseDiaGlobal ? '#F59E0B' : '#10B981',
+            backgroundColor: usarTasaEseDiaGlobal ? colors.warningSoftBg : colors.successSoftBg,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+          }}
+        >
+          <View style={{ flex: 1, minWidth: 220, gap: 2 }}>
+            <Text
+              style={{
+                color: usarTasaEseDiaGlobal ? colors.warningSoftText : colors.successSoftText,
+                fontSize: 13,
+                fontWeight: '900',
+              }}
+            >
+              {usarTasaEseDiaGlobal
+                ? '🟠 VIENDO MONTOS EN BS A LA TASA DE ESE DÍA (FECHA DEL REQUERIMIENTO)'
+                : `🟢 REQUERIMIENTOS ACTUALIZADOS A LA TASA BCV DE HOY (Bs ${tasaBcv.toLocaleString('es-VE')} / $)`}
+            </Text>
+            <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '700' }}>
+              {usarTasaEseDiaGlobal
+                ? 'Toca este botón si quieres actualizar todos los requerimientos a la tasa BCV del día de hoy.'
+                : 'Todos los requerimientos en Por Pagar se actualizan automáticamente a la tasa del día. Toca el botón si quieres la tasa de ese día.'}
+            </Text>
+          </View>
+          <View
+            style={{
+              paddingVertical: 8,
+              paddingHorizontal: 14,
+              borderRadius: radius.pill,
+              backgroundColor: usarTasaEseDiaGlobal ? '#D97706' : '#059669',
+            }}
+          >
+            <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>
+              {usarTasaEseDiaGlobal
+                ? '💱 ACTUALIZAR A LA TASA DEL DÍA DE HOY'
+                : '📅 QUIERO LA TASA DE ESE DÍA (DEL REQUERIMIENTO)'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
 
       {/* 🏢 Filtro por Empresa (una o varias) */}
       <View style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs }}>
@@ -3386,6 +3537,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     suppliers={suppliers}
                     rate={tasaBcv ?? null}
                     companyName={(id) => (id ? companies.find((co) => co.id === id)?.name ?? null : null)}
+                    usarTasaDeEseDia={usaTasaDeEseDia(c.id)}
+                    tasaDeEseDia={bsDe(c).tasaEseDia}
+                    montoBsEseDia={bsDe(c).montoBsEseDia}
+                    montoBsHoy={bsDe(c).montoBsHoy}
+                    onToggleTasaDeEseDia={() => toggleTasaEseDiaCuenta(c.id)}
                   />
                 ) : null}
 
@@ -3812,11 +3968,67 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 )}
                 {/* 💱 Los dos montos: el de la cuenta es en US$; su equivalente en Bs con la tasa BCV de hoy. */}
                 {tasaBcv ? (
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>
-                    {bsDe(c).fijo
-                      ? `${fmtBs(bsDe(c).montoBs)} (montos en Bs del requerimiento) · saldo ${c.saldo >= (Number(c.monto) || 0) ? '' : '≈ '}${fmtBs(bsDe(c).saldoBs)}`
-                      : `≈ ${fmtBs(bsDe(c).montoBs)} · saldo ≈ ${fmtBs(bsDe(c).saldoBs)} (tasa BCV de hoy: Bs ${tasaBcv.toLocaleString('es-VE')} por $)`}
-                  </Text>
+                  <View style={{ gap: 6, marginVertical: 4 }}>
+                    <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '800' }}>
+                      {bsDe(c).fijo
+                        ? `${fmtBs(bsDe(c).montoBs)} (montos en Bs a la tasa de ese día${bsDe(c).tasaEseDia ? ` · Bs ${bsDe(c).tasaEseDia!.toLocaleString('es-VE')}/$` : ''}) · saldo ${c.saldo >= (Number(c.monto) || 0) ? '' : '≈ '}${fmtBs(bsDe(c).saldoBs)}`
+                        : `≈ ${fmtBs(bsDe(c).montoBs)} · saldo ≈ ${fmtBs(bsDe(c).saldoBs)} (actualizado a tasa BCV de hoy: Bs ${tasaBcv.toLocaleString('es-VE')} por $)`}
+                    </Text>
+                    {tipo === 'por_pagar' && (c.inventory_requirement_id || bsDe(c).tieneTasaEseDia) ? (
+                      <TouchableOpacity
+                        onPress={() => toggleTasaEseDiaCuenta(c.id)}
+                        activeOpacity={0.85}
+                        style={{
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          borderRadius: radius.md,
+                          borderWidth: 2,
+                          borderColor: usaTasaDeEseDia(c.id) ? '#F59E0B' : '#10B981',
+                          backgroundColor: usaTasaDeEseDia(c.id) ? colors.warningSoftBg : colors.successSoftBg,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: 8,
+                        }}
+                      >
+                        <View style={{ flex: 1, minWidth: 190 }}>
+                          <Text
+                            style={{
+                              color: usaTasaDeEseDia(c.id) ? colors.warningSoftText : colors.successSoftText,
+                              fontSize: 12,
+                              fontWeight: '900',
+                            }}
+                          >
+                            {usaTasaDeEseDia(c.id)
+                              ? `🟠 TASA DE ESE DÍA ACTIVA (${fmtBs(bsDe(c).montoBsEseDia ?? bsDe(c).montoBs)})`
+                              : `🟢 ACTUALIZADO A TASA DEL DÍA DE HOY (${fmtBs(bsDe(c).montoBsHoy ?? bsDe(c).montoBs)})`}
+                          </Text>
+                          {bsDe(c).tieneTasaEseDia ? (
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700', marginTop: 1 }}>
+                              {usaTasaDeEseDia(c.id)
+                                ? `A tasa BCV de hoy sería: ${fmtBs(bsDe(c).montoBsHoy ?? bsDe(c).montoBs)}`
+                                : `Con la tasa de ese día era: ${fmtBs(bsDe(c).montoBsEseDia ?? bsDe(c).montoBs)}${bsDe(c).tasaEseDia ? ` (Bs ${bsDe(c).tasaEseDia!.toLocaleString('es-VE')}/$)` : ''}`}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <View
+                          style={{
+                            paddingVertical: 7,
+                            paddingHorizontal: 12,
+                            borderRadius: radius.pill,
+                            backgroundColor: usaTasaDeEseDia(c.id) ? '#D97706' : '#059669',
+                          }}
+                        >
+                          <Text style={{ color: '#FFFFFF', fontSize: 11.5, fontWeight: '900' }}>
+                            {usaTasaDeEseDia(c.id)
+                              ? '💱 USAR TASA DEL DÍA DE HOY'
+                              : '📅 QUIERO LA TASA DE ESE DÍA'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
                 ) : null}
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Abonado: {usd(c.abonado)}</Text>
                 <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Saldo: {usd(c.saldo)}</Text>

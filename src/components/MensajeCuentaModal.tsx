@@ -47,6 +47,8 @@ const ETIQUETAS: { k: keyof OpcionesMensajeCuenta; t: string; soloPdf?: boolean 
 ];
 
 const ETIQUETAS_TESORERIA: { k: keyof Omit<OpcionesListaTesoreria, 'desde' | 'hasta' | 'empresaTexto'>; t: string }[] = [
+  { k: 'incluirDesgloseProveedores', t: '🏭 Desglose a pagar a cada proveedor' },
+  { k: 'incluirMetodosPago', t: '💳 Métodos de pago de cada proveedor' },
   { k: 'incluirOrden', t: '🔢 Código de orden / documento (REQ)' },
   { k: 'incluirDetalle', t: '📝 Concepto / detalle del pedido' },
   { k: 'incluirPersonas', t: '🙋 Quién solicita / analista / autorizó' },
@@ -65,6 +67,8 @@ export function MensajeCuentaModal({
   desde,
   hasta,
   empresaTexto,
+  usarTasaDeEseDiaInicial,
+  onToggleTasaDeEseDia,
   onClose,
   copiar,
 }: {
@@ -75,15 +79,68 @@ export function MensajeCuentaModal({
   desde?: string | null;
   hasta?: string | null;
   empresaTexto?: string | null;
+  usarTasaDeEseDiaInicial?: boolean;
+  onToggleTasaDeEseDia?: (usarEseDia: boolean) => void;
   onClose: () => void;
   copiar: (texto: string, msg?: string) => void | Promise<void>;
 }) {
   const { colors } = useTheme();
   const [modo, setModo] = useState<ModoMensajeCuenta>(modoInicial ?? 'ficha');
   const [op, setOp] = useState<OpcionesMensajeCuenta>(OPCIONES_MENSAJE_DEFECTO);
-  const [opTes, setOpTes] = useState<OpcionesListaTesoreria>(OPCIONES_TESORERIA_DEFECTO);
+  const [opTes, setOpTes] = useState<OpcionesListaTesoreria>({
+    ...OPCIONES_TESORERIA_DEFECTO,
+    incluirDesgloseProveedores: true,
+    incluirMetodosPago: true,
+  });
   const [verOpciones, setVerOpciones] = useState(false);
   const [generando, setGenerando] = useState(false);
+  const [usarTasaEseDiaModal, setUsarTasaEseDiaModal] = useState<boolean>(
+    () => Boolean(usarTasaDeEseDiaInicial ?? datos.some((d) => Boolean(d.bsFijos))),
+  );
+
+  useEffect(() => {
+    setUsarTasaEseDiaModal(Boolean(usarTasaDeEseDiaInicial ?? datos.some((d) => Boolean(d.bsFijos))));
+  }, [usarTasaDeEseDiaInicial, datos]);
+
+  const tieneAlgunaTasaEseDia = useMemo(
+    () => datos.some((d) => Boolean(d.tieneTasaEseDia) || (Number(d.totalBsEseDia) > 0)),
+    [datos],
+  );
+
+  const datosEfectivos = useMemo<DatosMensajeCuenta[]>(() => {
+    return datos.map((d) => {
+      if (!d.tieneTasaEseDia && !(Number(d.totalBsEseDia) > 0)) return d;
+      const usarDia = usarTasaEseDiaModal;
+      const totalBs = usarDia
+        ? (Number(d.totalBsEseDia) || Number(d.totalBs) || 0)
+        : (Number(d.totalBsHoy) || Number(d.totalBs) || 0);
+      const saldoBs = usarDia
+        ? (Number(d.saldoBsEseDia) || Number(d.saldoBs) || 0)
+        : (Number(d.saldoBsHoy) || Number(d.saldoBs) || 0);
+      const tasaBs = usarDia
+        ? (Number(d.tasaBsEseDia) || Number(d.tasaBs) || null)
+        : (Number(d.tasaBsHoy) || Number(d.tasaBs) || null);
+      const desgloseProveedores = Array.isArray(d.desgloseProveedores)
+        ? d.desgloseProveedores.map((g) => {
+            const tasaHoyNum = Number(d.tasaBsHoy) || Number(d.tasaBs) || 0;
+            const gBsHoy = tasaHoyNum > 0 ? Math.round((Number(g.totalUsd) || 0) * tasaHoyNum * 100) / 100 : (Number(g.totalBs) || 0);
+            const gBsDia = Number(g.totalBsEseDia) > 0 ? Number(g.totalBsEseDia) : (Number(g.totalBs) || gBsHoy);
+            return {
+              ...g,
+              totalBs: usarDia ? gBsDia : gBsHoy,
+            };
+          })
+        : d.desgloseProveedores;
+      return {
+        ...d,
+        totalBs,
+        saldoBs,
+        tasaBs,
+        bsFijos: usarDia,
+        desgloseProveedores,
+      };
+    });
+  }, [datos, usarTasaEseDiaModal]);
 
   // Estado de decisiones por cuenta en el modo 'decision' (¿Se pagará?)
   const [decisiones, setDecisiones] = useState<Record<string, DecisionCuentaPago>>(() => {
@@ -206,7 +263,7 @@ export function MensajeCuentaModal({
 
   const texto = useMemo(() => {
     if (modo === 'tesoreria') {
-      return construirListaTesoreriaCuentas(datos, {
+      return construirListaTesoreriaCuentas(datosEfectivos, {
         ...opTes,
         desde,
         hasta,
@@ -214,7 +271,7 @@ export function MensajeCuentaModal({
       });
     }
     if (modo === 'decision') {
-      return construirResumenDecisionCuentas(datos, decisiones, {
+      return construirResumenDecisionCuentas(datosEfectivos, decisiones, {
         incluirDetalle: true,
         incluirPersonas: op.personas,
         incluirCondiciones: op.condiciones,
@@ -222,8 +279,8 @@ export function MensajeCuentaModal({
         incluirEmpresa: op.empresa,
       });
     }
-    return construirMensajeCuentas(datos, op);
-  }, [modo, datos, op, opTes, decisiones, desde, hasta, empresaTexto]);
+    return construirMensajeCuentas(datosEfectivos, op);
+  }, [modo, datosEfectivos, op, opTes, decisiones, desde, hasta, empresaTexto]);
 
   const abrirWhatsapp = async () => {
     const url = urlWhatsappMensaje(texto);
@@ -237,17 +294,17 @@ export function MensajeCuentaModal({
     setGenerando(true);
     try {
       if (modo === 'tesoreria') {
-        const nombre = `Reporte Tesoreria Por Pagar (${datos.length})`;
+        const nombre = `Reporte Tesoreria Por Pagar (${datosEfectivos.length})`;
         await exportPdf(
-          listaTesoreriaCuentasHtml(datos, { ...opTes, ...op, desde, hasta, empresaTexto }),
+          listaTesoreriaCuentasHtml(datosEfectivos, { ...opTes, ...op, desde, hasta, empresaTexto }),
           nombre,
         );
       } else if (modo === 'decision') {
-        const nombre = `Resumen Decision Pagos (${datos.length})`;
-        await exportPdf(resumenDecisionCuentasHtml(datos, decisiones, op), nombre);
+        const nombre = `Resumen Decision Pagos (${datosEfectivos.length})`;
+        await exportPdf(resumenDecisionCuentasHtml(datosEfectivos, decisiones, op), nombre);
       } else {
-        const nombre = datos.length === 1 ? `Pago ${datos[0].orden} - ${datos[0].proveedor}` : `Pagos pendientes (${datos.length})`;
-        await exportPdf(mensajeCuentasHtml(datos, op), nombre);
+        const nombre = datosEfectivos.length === 1 ? `Pago ${datosEfectivos[0].orden} - ${datosEfectivos[0].proveedor}` : `Pagos pendientes (${datosEfectivos.length})`;
+        await exportPdf(mensajeCuentasHtml(datosEfectivos, op), nombre);
       }
     } finally {
       setGenerando(false);
@@ -315,6 +372,57 @@ export function MensajeCuentaModal({
               );
             })}
           </View>
+
+          {/* ── Botón enorme para alternar entre Tasa del Día de Hoy (BCV) y Tasa de Ese Día (Requerimiento) ── */}
+          {tieneAlgunaTasaEseDia ? (
+            <TouchableOpacity
+              onPress={() => {
+                const next = !usarTasaEseDiaModal;
+                setUsarTasaEseDiaModal(next);
+                if (onToggleTasaDeEseDia) onToggleTasaDeEseDia(next);
+              }}
+              activeOpacity={0.85}
+              style={{
+                marginTop: spacing.xs,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: radius.md,
+                borderWidth: 2,
+                borderColor: usarTasaEseDiaModal ? '#F59E0B' : '#16A34A',
+                backgroundColor: usarTasaEseDiaModal ? 'rgba(245, 158, 11, 0.14)' : 'rgba(22, 163, 74, 0.14)',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 6,
+              }}
+            >
+              <View style={{ flex: 1, minWidth: 200 }}>
+                <Text style={{ color: usarTasaEseDiaModal ? '#F59E0B' : '#16A34A', fontSize: 12, fontWeight: '900' }}>
+                  {usarTasaEseDiaModal
+                    ? '📅 USANDO LA TASA DE ESE DÍA (DEL REQUERIMIENTO)'
+                    : '💱 ACTUALIZADO A LA TASA DEL DÍA DE HOY (BCV)'}
+                </Text>
+                <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                  {usarTasaEseDiaModal
+                    ? 'Toca este botón si prefieres actualizar el mensaje y PDF a la tasa BCV de hoy.'
+                    : '¿Quieres la tasa de ese día (del requerimiento)? Toca este botón enorme.'}
+                </Text>
+              </View>
+              <View
+                style={{
+                  backgroundColor: usarTasaEseDiaModal ? '#F59E0B' : '#16A34A',
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: radius.pill,
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '900' }}>
+                  {usarTasaEseDiaModal ? '💱 USAR TASA DE HOY' : '📅 USAR TASA DE ESE DÍA'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
 
           {/* ── Controles de Decisión por Cuenta cuando está en modo 'decision' ── */}
           {modo === 'decision' ? (

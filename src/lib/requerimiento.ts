@@ -82,6 +82,8 @@ export type ReqPdfData = {
    *  normalizado (ver `claveProveedorReq`). Con más de un proveedor el papel trae el
    *  desglose de cuánto pagarle a cada uno. */
   proveedoresPago?: Record<string, string> | null;
+  /** 💱 Si es true (por defecto en Por Pagar), los Bs se actualizan SIEMPRE con `rate` (tasa BCV del día). */
+  actualizarATasaDelDia?: boolean;
 };
 
 // Firma según QUIÉN aprueba: cada aprobador tiene su cargo y su firma escaneada.
@@ -137,19 +139,27 @@ const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-
 
 /** 💵 Lo que vale UN renglón (US$ y Bs), con la misma regla en la tabla, el
  *  desglose por proveedor y Por Pagar: el precio explícito en US$ manda; el modo
- *  «total» manda sobre el unitario; los Bs escritos mandan sobre US$ × tasa. */
-export function lineaReq(it: ReqPdfItem, rate: number | null): { lineUsd: number; uUsd: number; lineBs: number } {
+ *  «total» manda sobre el unitario; si `actualizarATasaDelDia` es true, los Bs se
+ *  calculan siempre con `rate` (tasa del día de hoy). */
+export function lineaReq(
+  it: ReqPdfItem,
+  rate: number | null,
+  actualizarATasaDelDia?: boolean,
+): { lineUsd: number; uUsd: number; lineBs: number; lineBsEseDia: number } {
   const qty = Number(it.qty) || 0;
   const rawUnitUsd = Number(it.price_usd) > 0 ? Number(it.price_usd) : toUsd(Number(it.est_price) || 0, it.currency, rate);
   const esModoTotal = it.modo_precio === 'total' && it.total_usd != null && Number(it.total_usd) > 0;
   const lineUsd = esModoTotal ? Number(it.total_usd) : rawUnitUsd * qty;
   const uUsd = esModoTotal ? (qty > 0 ? lineUsd / qty : lineUsd) : rawUnitUsd;
-  const lineBs = (it.modo_precio === 'total' && it.total_bs && Number(it.total_bs) > 0)
+  const lineBsEscrito = (it.modo_precio === 'total' && it.total_bs && Number(it.total_bs) > 0)
     ? Number(it.total_bs)
     : (it.price_bs && Number(it.price_bs) > 0)
     ? Number(it.price_bs) * qty
     : (rate && rate > 0 ? lineUsd * rate : 0);
-  return { lineUsd, uUsd, lineBs };
+  const lineBs = actualizarATasaDelDia
+    ? (rate && rate > 0 ? lineUsd * rate : lineBsEscrito)
+    : lineBsEscrito;
+  return { lineUsd, uUsd, lineBs, lineBsEseDia: lineBsEscrito };
 }
 
 /** Nombre de proveedor para comparar: sin mayúsculas, acentos, puntos, comas ni
@@ -167,6 +177,7 @@ export type DesgloseProveedorReq = {
   ivaUsd: number;
   totalUsd: number;
   totalBs: number;
+  totalBsEseDia?: number;
   pago: string;
   /** Los renglones de este proveedor (para verlos en Por Pagar). */
   items: { name: string; qty: number; unit: string; uUsd: number; lineUsd: number; exento: boolean }[];
@@ -185,15 +196,15 @@ export function desgloseProveedoresReq(d: ReqPdfData): DesgloseProveedorReq[] {
   const alicuota = d.ivaAlicuota !== undefined && d.ivaAlicuota !== null
     ? Math.min(100, Math.max(0, Number(d.ivaAlicuota))) : 16;
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  const grupos = new Map<string, { nombre: string; renglones: number; sub: number; base: number; subBs: number; baseBs: number; items: DesgloseProveedorReq['items'] }>();
+  const grupos = new Map<string, { nombre: string; renglones: number; sub: number; base: number; subBs: number; baseBs: number; subBsDia: number; baseBsDia: number; items: DesgloseProveedorReq['items'] }>();
   for (const it of d.items) {
     const nombre = String(it.supplier_name || d.proveedor || '').trim() || SIN_PROVEEDOR_REQ;
     const k = claveProveedorReq(nombre);
-    const g = grupos.get(k) ?? { nombre, renglones: 0, sub: 0, base: 0, subBs: 0, baseBs: 0, items: [] };
-    const { lineUsd, lineBs, uUsd } = lineaReq(it, d.rate);
-    g.renglones += 1; g.sub += lineUsd; g.subBs += lineBs;
+    const g = grupos.get(k) ?? { nombre, renglones: 0, sub: 0, base: 0, subBs: 0, baseBs: 0, subBsDia: 0, baseBsDia: 0, items: [] };
+    const { lineUsd, lineBs, lineBsEseDia, uUsd } = lineaReq(it, d.rate, d.actualizarATasaDelDia);
+    g.renglones += 1; g.sub += lineUsd; g.subBs += lineBs; g.subBsDia += lineBsEseDia;
     g.items.push({ name: String(it.name ?? ''), qty: Number(it.qty) || 0, unit: String(it.unit ?? ''), uUsd: r2(uUsd), lineUsd: r2(lineUsd), exento: Boolean(it.exento) });
-    if (!it.exento) { g.base += lineUsd; g.baseBs += lineBs; }
+    if (!it.exento) { g.base += lineUsd; g.baseBs += lineBs; g.baseBsDia += lineBsEseDia; }
     grupos.set(k, g);
   }
   const lista = Array.from(grupos.entries());
@@ -202,15 +213,22 @@ export function desgloseProveedoresReq(d: ReqPdfData): DesgloseProveedorReq[] {
   return lista.map(([k, g], i) => {
     const iva = i === lista.length - 1 ? r2(ivaTotal - ivaAcum) : r2(g.base * (alicuota / 100));
     ivaAcum = r2(ivaAcum + iva);
+    const totalUsd = r2(g.sub + iva);
     const ivaBs = g.baseBs * (alicuota / 100);
+    const ivaBsDia = g.baseBsDia * (alicuota / 100);
+    const totalBsEseDia = r2(g.subBsDia + ivaBsDia);
+    const totalBs = d.actualizarATasaDelDia && d.rate && d.rate > 0
+      ? r2(totalUsd * d.rate)
+      : r2(g.subBs + ivaBs);
     return {
       proveedor: g.nombre,
       renglones: g.renglones,
       subtotalUsd: r2(g.sub),
       exentoUsd: r2(g.sub - g.base),
       ivaUsd: iva,
-      totalUsd: r2(g.sub + iva),
-      totalBs: r2(g.subBs + ivaBs),
+      totalUsd,
+      totalBs,
+      totalBsEseDia,
       pago: (d.proveedoresPago ?? {})[k] ?? '',
       items: g.items,
     };
@@ -256,7 +274,7 @@ function reqTableHtml(d: ReqPdfData): {
 
   const rows = d.items.map((it, i) => {
     // Si el renglón trae su precio explícito en US$ manda ese (misma regla que la tarjeta y Por pagar).
-    const { lineUsd, uUsd, lineBs } = lineaReq(it, d.rate);
+    const { lineUsd, uUsd, lineBs } = lineaReq(it, d.rate, d.actualizarATasaDelDia);
 
     subtotalUsd += lineUsd;
     subtotalBs += lineBs;

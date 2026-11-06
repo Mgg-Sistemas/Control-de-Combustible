@@ -27,17 +27,58 @@ const dmy = (iso?: string | null): string => {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
 };
 
-/** Los datos de pago de un proveedor en una línea (banco, Pago Móvil, Binance). */
+/** Los datos de pago de un proveedor en una línea (banco, Pago Móvil, Binance, notas). */
 export function textoPagoProveedor(s: Partial<Supplier> | null | undefined): string {
   if (!s) return '';
+  const notasLimpias = String(s.payment_notes ?? '')
+    .replace(/\[\[CAPTURA_PAGO:[\s\S]*?:FIN_CAPTURA\]\]/g, '')
+    .trim();
   const partes = [
     s.bank_name || s.account_number
       ? `🏦 ${s.bank_name ?? ''} Cta: ${s.account_number ?? ''}${s.account_holder ? ` (${s.account_holder}${s.account_id_doc ? ` ${s.account_id_doc}` : ''})` : ''}`.replace(/\s+/g, ' ').trim()
       : '',
     s.pago_movil_phone ? `📱 PM: ${s.pago_movil_bank ?? ''} ${s.pago_movil_phone}${s.pago_movil_id ? ` (${s.pago_movil_id})` : ''}`.replace(/\s+/g, ' ').trim() : '',
     s.binance_id ? `🟡 Binance: ${s.binance_id}` : '',
+    notasLimpias ? `📝 ${notasLimpias}` : '',
   ].filter(Boolean);
   return partes.join(' · ');
+}
+
+export type BancoProveedorReq = {
+  titular?: string | null;
+  rifTitular?: string | null;
+  banco?: string | null;
+  numeroCuenta?: string | null;
+  tipoCuenta?: string | null;
+  pagoMovilBanco?: string | null;
+  pagoMovilTelefono?: string | null;
+  pagoMovilCedulaRif?: string | null;
+  binanceId?: string | null;
+  instruccionesPago?: string | null;
+};
+
+export function bancoDeProveedor(s: Partial<Supplier> | null | undefined, metodoItem?: string | null): BancoProveedorReq | null {
+  if (!s && !metodoItem) return null;
+  const notasLimpias = String(s?.payment_notes ?? '')
+    .replace(/\[\[CAPTURA_PAGO:[\s\S]*?:FIN_CAPTURA\]\]/g, '')
+    .trim();
+  const instr = [metodoItem ? `Método cotizado: ${metodoItem}` : '', notasLimpias].filter(Boolean).join(' · ') || null;
+  const b: BancoProveedorReq = {
+    titular: s?.account_holder || s?.name || null,
+    rifTitular: s?.account_id_doc || s?.rif || null,
+    banco: s?.bank_name || null,
+    numeroCuenta: s?.account_number || null,
+    tipoCuenta: s?.account_type || null,
+    pagoMovilBanco: s?.pago_movil_bank || s?.bank_name || null,
+    pagoMovilTelefono: s?.pago_movil_phone || null,
+    pagoMovilCedulaRif: s?.pago_movil_id || s?.rif || s?.account_id_doc || null,
+    binanceId: s?.binance_id || null,
+    instruccionesPago: instr,
+  };
+  const tieneAlgo = Boolean(
+    b.banco || b.numeroCuenta || b.pagoMovilTelefono || b.binanceId || b.instruccionesPago,
+  );
+  return tieneAlgo ? b : null;
 }
 
 /** Datos de pago de TODOS los proveedores del requerimiento, por nombre normalizado. */
@@ -45,17 +86,37 @@ export function proveedoresPagoDeReq(r: InventoryRequirement, suppliers: readonl
   const out: Record<string, string> = {};
   const porId = new Map(suppliers.map((s) => [s.id, s]));
   const porNombre = new Map(suppliers.map((s) => [claveProveedorReq(s.name), s]));
-  const poner = (s: Supplier | undefined, nombreRenglon?: string | null) => {
-    if (!s) return;
-    const txt = textoPagoProveedor(s);
+  const poner = (s: Supplier | undefined, nombreRenglon?: string | null, metodoItem?: string | null) => {
+    const baseTxt = s ? textoPagoProveedor(s) : '';
+    const met = String(metodoItem ?? '').trim();
+    const txt = [baseTxt, met && !baseTxt.toLowerCase().includes(met.toLowerCase()) ? `💳 ${met}` : ''].filter(Boolean).join(' · ');
     if (!txt) return;
-    out[claveProveedorReq(s.name)] = txt;
+    if (s) out[claveProveedorReq(s.name)] = txt;
     if (nombreRenglon) out[claveProveedorReq(nombreRenglon)] = txt;
   };
   poner(r.supplier_id ? porId.get(r.supplier_id) : undefined);
   for (const it of r.items ?? []) {
     const s = (it.supplier_id ? porId.get(it.supplier_id) : undefined) ?? porNombre.get(claveProveedorReq(it.supplier_name));
-    poner(s, it.supplier_name);
+    poner(s, it.supplier_name, (it as any).metodo_pago);
+  }
+  return out;
+}
+
+/** Mapa de coordenadas bancarias estructuradas por clave de proveedor normalizada. */
+export function proveedoresBancoDeReq(r: InventoryRequirement, suppliers: readonly Supplier[]): Record<string, BancoProveedorReq> {
+  const out: Record<string, BancoProveedorReq> = {};
+  const porId = new Map(suppliers.map((s) => [s.id, s]));
+  const porNombre = new Map(suppliers.map((s) => [claveProveedorReq(s.name), s]));
+  const poner = (s: Supplier | undefined, nombreRenglon?: string | null, metodoItem?: string | null) => {
+    const b = bancoDeProveedor(s, metodoItem);
+    if (!b) return;
+    if (s) out[claveProveedorReq(s.name)] = b;
+    if (nombreRenglon) out[claveProveedorReq(nombreRenglon)] = b;
+  };
+  poner(r.supplier_id ? porId.get(r.supplier_id) : undefined);
+  for (const it of r.items ?? []) {
+    const s = (it.supplier_id ? porId.get(it.supplier_id) : undefined) ?? porNombre.get(claveProveedorReq(it.supplier_name));
+    poner(s, it.supplier_name, (it as any).metodo_pago);
   }
   return out;
 }
@@ -81,17 +142,31 @@ export function itemPdfDe(it: InventoryRequirement['items'][number], suppliers?:
   };
 }
 
+export type DesgloseProveedorConBancoReq = DesgloseProveedorReq & {
+  banco?: BancoProveedorReq | null;
+};
+
 /** 💳 Cuánto pagarle a cada proveedor de un requerimiento (para la pantalla de
  *  Por Pagar): la MISMA cuenta que el desglose del PDF, sin bajar imágenes. */
-export function desgloseProveedoresDeReq(r: InventoryRequirement, suppliers: readonly Supplier[], rate: number | null): DesgloseProveedorReq[] {
+export function desgloseProveedoresDeReq(
+  r: InventoryRequirement,
+  suppliers: readonly Supplier[],
+  rate: number | null,
+  opciones?: { actualizarATasaDelDia?: boolean },
+): DesgloseProveedorConBancoReq[] {
   const sel = suppliers.find((s) => s.id === r.supplier_id);
+  const bancos = proveedoresBancoDeReq(r, suppliers);
   return desgloseProveedoresReq({
     fecha: '', statusLabel: '', rate,
     proveedor: sel?.name ?? null,
     proveedoresPago: proveedoresPagoDeReq(r, suppliers),
     ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r as any),
     items: (r.items ?? []).map((it) => itemPdfDe(it, suppliers)),
-  });
+    actualizarATasaDelDia: opciones?.actualizarATasaDelDia,
+  }).map((g) => ({
+    ...g,
+    banco: bancos[claveProveedorReq(g.proveedor)] ?? null,
+  }));
 }
 
 /**
@@ -106,6 +181,8 @@ export async function armarReqPdfData(r: InventoryRequirement, ctx: {
   rate: number | null;
   /** Estado en palabras; si no se da, se usa REQ_ESTADO_CORTO. */
   statusLabel?: string;
+  /** Si es true, actualiza los Bs con `rate` (tasa del día). */
+  actualizarATasaDelDia?: boolean;
 }): Promise<ReqPdfData> {
   const sel = ctx.suppliers.find((s) => s.id === r.supplier_id);
   const items = await Promise.all((r.items ?? []).map(async (it) => ({
@@ -141,6 +218,7 @@ export async function armarReqPdfData(r: InventoryRequirement, ctx: {
     } : null,
     approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
     ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : resolverAlicuotaIvaRequerimiento(r as any),
+    actualizarATasaDelDia: ctx.actualizarATasaDelDia,
     items,
   };
 }
