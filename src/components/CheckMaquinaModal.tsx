@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, EmptyState, SkeletonList } from './ui';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { personalAsignable } from '../lib/personalAsignable';
+import { personalAsignable, ROLES_ASIGNABLES_MAQUINAS } from '../lib/personalAsignable';
 import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { norm, cmpText } from '../lib/text';
 import { ordenarMaquinas, agruparMaquinas, OrdenMaquinas } from '../lib/ordenMaquinas';
@@ -47,7 +47,9 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
     if (missing) setNotice('⚠️ Para asignar máquinas (CHECK) falta correr supabase/inspector_asignacion.sql en Supabase.');
   };
   const loadInspectors = async () => {
-    const insp = await personalAsignable().catch(() => []);
+    // 🧑‍✈️ 06-nov-2026: para asignar MÁQUINAS también se ofrece el coordinador de
+    // inspectores (misma lista que el teléfono y la gráfica — ver personalAsignable).
+    const insp = await personalAsignable('id, full_name, role', ROLES_ASIGNABLES_MAQUINAS).catch(() => []);
     // El placeholder "MÁQUINAS FALTANTES" y el inspector REAL "SOS LA GUAIRA" solo los
     // puede ASIGNAR un ADMIN (mismo criterio que el teléfono, SupervisorScreen.tsx) —
     // quitarles una máquina y dársela a otro sigue abierto a cualquier coordinador.

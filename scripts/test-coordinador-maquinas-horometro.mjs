@@ -61,6 +61,12 @@ check(/personalAsignable\('id, full_name, role', ROLES_ASIGNABLES_MAQUINAS\)/.te
   '⭐ el teléfono ofrece al coordinador al asignar máquinas');
 check(/personalAsignable\('id, full_name, role', ROLES_ASIGNABLES_MAQUINAS\)/.test(resumen),
   '⭐ la gráfica de eficiencia (web) también lo ofrece en su desplegable');
+const check1 = fs.readFileSync(path.join(ROOT, 'src/components/CheckMaquinaModal.tsx'), 'utf8');
+check(/personalAsignable\('id, full_name, role', ROLES_ASIGNABLES_MAQUINAS\)/.test(check1),
+  '⭐ el panel CHECK MÁQUINA (web/teléfono) también ofrece al coordinador (copia olvidada el 06-nov)');
+const repSec = fs.readFileSync(path.join(ROOT, 'src/components/ReportesSection.tsx'), 'utf8');
+check(/in\('role', ROLES_ASIGNABLES_MAQUINAS as unknown as string\[\]\)/.test(repSec) && !/\['supervisor', 'coordinador_patio'\]/.test(repSec),
+  'el selector de inspectores de los reportes usa LA MISMA lista (sin copia a mano)');
 const guardias = fs.readFileSync(path.join(ROOT, 'src/screens/DistribucionGuardiasScreen.tsx'), 'utf8');
 check(!/ROLES_ASIGNABLES_MAQUINAS/.test(guardias),
   'las guardias NO cambian: siguen con la lista de siempre');

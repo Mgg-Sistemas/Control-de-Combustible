@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, Pressable, ScrollView } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { ROLES_ASIGNABLES_MAQUINAS } from '../lib/personalAsignable';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { cmpText, norm } from '../lib/text';
 import { DateField } from './DateField';
@@ -68,7 +69,9 @@ export default function ReportesSection(props: { navigation?: any }) {
     setPickLoading(true);
     try {
       if (which === 'inspectors') {
-        const { data } = await supabase.from('profiles').select('full_name, role').in('role', ['supervisor', 'coordinador_patio']);
+        // 🧑‍✈️ 06-nov-2026: la MISMA lista que al asignar máquinas (incluye al
+        // coordinador de inspectores): si tiene máquinas, sus reportes existen.
+        const { data } = await supabase.from('profiles').select('full_name, role').in('role', ROLES_ASIGNABLES_MAQUINAS as unknown as string[]);
         const names = Array.from(new Set(((data ?? []) as any[]).map((p) => (p.full_name || '').trim()).filter(Boolean)));
         setPickList(names.sort(cmpText));
       } else {
