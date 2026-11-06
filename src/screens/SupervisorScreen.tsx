@@ -6,7 +6,7 @@ import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { personalAsignable } from '../lib/personalAsignable';
+import { personalAsignable, ROLES_ASIGNABLES_MAQUINAS } from '../lib/personalAsignable';
 import { norm, cmpText } from '../lib/text';
 import { horasVivasTurno } from '../lib/hours';
 import { motivoParada } from '../lib/paradaMotivo';
@@ -514,6 +514,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [paQty, setPaQty] = useState('');
   const [paPhoto, setPaPhoto] = useState<string | null>(null);
   const [paPhotoUp, setPaPhotoUp] = useState(false);
+  // 🕐 Horómetro AL MARCAR avería/parada (06-nov-2026, a pedido): opcional, con foto.
+  const [paHoro, setPaHoro] = useState('');
+  const [paHoroPhoto, setPaHoroPhoto] = useState<string | null>(null);
+  const [paHoroPhotoUp, setPaHoroPhotoUp] = useState(false);
   const [ntBusy, setNtBusy] = useState(false); // obteniendo la ubicación GPS (camino "no trabajó")
   const [ntCoords, setNtCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [ntMotivo, setNtMotivo] = useState(''); // motivo que ESCRIBE el inspector para "no trabajó" (opcional)
@@ -618,6 +622,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Limpia el formulario de PARADA (ambos caminos) al cambiar de máquina.
     setParadaTab('averia'); setCiMotivo('');
     setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaPhotoUp(false);
+    setPaHoro(''); setPaHoroPhoto(null);
     setNtCoords(null); setNtBusy(false);
     // Turno por defecto según el momento; HORA de inicio = la hora REAL del sistema
     // (Caracas) al abrir — no un 7:00am/7:00pm fijo. El inspector la corrige si hace falta.
@@ -727,11 +732,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const [, visitsData] = await Promise.all([reloadAssigns(), myVisitsToday(uid, today), reloadEstados()]);
     setVisits(visitsData);
     // Solo quien puede COORDINAR (admin o permiso 'coordinador_inspectores') necesita
-    // la lista de inspectores para asignarles máquinas. Solo se ofrecen usuarios con
-    // rol INSPECTOR (interno 'supervisor') o COORDINADOR DE PATIO ('coordinador_patio');
+    // la lista de inspectores para asignarles máquinas. Se ofrecen usuarios con rol
+    // INSPECTOR (interno 'supervisor'), COORDINADOR DE PATIO ('coordinador_patio') o
+    // COORDINADOR DE INSPECTORES ('coordinador_inspectores', 06-nov-2026 a pedido:
+    // sus máquinas salen en la gráfica de eficiencia igual que las de un inspector);
     // nadie más se puede asignar.
     if (puedeCoordinar) {
-      const insp = await personalAsignable().catch(() => []);
+      const insp = await personalAsignable('id, full_name, role', ROLES_ASIGNABLES_MAQUINAS).catch(() => []);
       // El placeholder "MÁQUINAS FALTANTES" y el inspector REAL "SOS LA GUAIRA" solo los
       // puede ASIGNAR un ADMIN — pedido del cliente 11-ago-2026: coordinadores/analistas
       // pueden REASIGNAR (quitarle a SOS una máquina y dársela a otro) libremente, pero
@@ -2380,6 +2387,45 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   };
 
   // Sube una foto de referencia para la avería del camino "PARADA · por avería".
+  const tomarFotoHoroParada = async (via: 'camara' | 'galeria' = 'camara') => {
+    if (!ci) return;
+    setPaHoroPhotoUp(true);
+    const r = via === 'galeria'
+      ? await pickPhotoFromGalleryAndUpload(ci.id, 'horometro')
+      : await captureAndUploadPhoto(ci.id, 'horometro');
+    setPaHoroPhotoUp(false);
+    if (r.ok && r.url) setPaHoroPhoto(r.url);
+    else if (r.error) setNotice('❌ ' + r.error);
+  };
+
+  // 🕐 HORÓMETRO AL MARCAR AVERÍA/PARADA (06-nov-2026, a pedido: «cuando se coloca
+  // averiada o parada por un inspector deben poder cargar el horómetro de ese
+  // momento»). Es OPCIONAL y nunca bloquea la parada por sí solo — solo rebota si lo
+  // escrito no es un número válido o es menor al inicial de la jornada abierta
+  // (misma regla que al finalizar). El valor viaja: (1) en el TEXTO del ticket
+  // (visible en Servicio/Control, también sin señal), (2) como lectura FINAL del
+  // horómetro de trabajo (modo sombra: registra, NO paga) y (3) a
+  // machinery.last_horometro para las alertas de mantenimiento — igual que al
+  // finalizar jornada. (2) y (3) son best-effort y solo con señal.
+  const horoParadaValidado = (): { ok: boolean; num?: number } => {
+    const t = (paHoro || '').trim();
+    if (!t) return { ok: true };
+    const n = horometroDeTexto(paHoro);
+    if (!isFinite(n) || n < 0) { setNotice(`❌ El horómetro «${paHoro}» no es un número válido.`); return { ok: false }; }
+    if (jornadaStart) {
+      const hi = horometroDeTexto(horoIni);
+      if (isFinite(hi) && n < hi) { setNotice(`❌ El horómetro (${n}) no puede ser menor al inicial de la jornada (${hi}).`); return { ok: false }; }
+    }
+    return { ok: true, num: n };
+  };
+  const guardarHoroParada = (num: number | undefined) => {
+    if (!ci || num == null) return;
+    const sh: 'day' | 'night' = jornadaStart ? (jornadaShift === 'night' ? 'night' : 'day') : paradaShiftOf(new Date().toISOString());
+    const rd = jornadaStart ? businessRoundDateOf(new Date(jornadaStart), jornadaShift) : businessRoundDateOf(new Date(), sh);
+    void guardarLecturaHorometro(ci.id, rd, sh, { final: num, ...(paHoroPhoto ? { fotoFinalUrl: paHoroPhoto } : {}), origen: 'inspector' }).then((r) => { if (!r.ok) console.warn('horómetro de trabajo (parada):', r.error); }).catch(() => {});
+    supabase.from('machinery').update({ last_horometro: num }).eq('id', ci.id).then(() => {}, () => {});
+  };
+
   const subirFotoParadaAveria = async () => {
     if (!ci) return;
     setPaPhotoUp(true);
@@ -2471,6 +2517,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!ci || ciSaving) return;
     if (!paMaterial) { setNotice('⚠️ Elige el material que necesita la máquina.'); return; }
     if (!ciMotivo.trim()) { setNotice('⚠️ Describe el motivo de la falla — es obligatorio.'); return; }
+    const hp = horoParadaValidado();
+    if (!hp.ok) return;
+    const notasParada = [ciMotivo.trim(), hp.num != null ? `Horómetro: ${hp.num}` : ''].filter(Boolean).join(' · ') || null;
     setCiSaving(true); setNotice(null);
     // Sin señal: encola la visita "parada" + el bancado de horas (si había jornada
     // abierta) + las 2 solicitudes de Mantenimiento, tal cual — se reproducen en el
@@ -2485,8 +2534,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       await enqueueParada({
         visita: { machineryId: ci.id, supervisorId: uid || null, supervisorName: fullName || 'Inspector', visitDate: today, status: 'parada', lat: gps?.lat ?? null, lng: gps?.lng ?? null, note: ciNote, machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null },
         maintenance: [
-          { machinery_id: ci.id, material: paMaterial, quantity: paMaterial === 'otro' ? null : avNumOrNull(paQty), notes: ciMotivo.trim() || null, status: 'pendiente', requested_by: uid || null, photo_url: paPhoto },
-          { machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim() || null, status: 'pendiente', requested_by: uid || null, photo_url: null },
+          { machinery_id: ci.id, material: paMaterial, quantity: paMaterial === 'otro' ? null : avNumOrNull(paQty), notes: notasParada, status: 'pendiente', requested_by: uid || null, photo_url: paPhoto },
+          { machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: notasParada, status: 'pendiente', requested_by: uid || null, photo_url: null },
         ],
         hourBanking,
         auditDetail: `${ci.code} · avería: ${matLabelOf(paMaterial)}${ciMotivo.trim() ? ` · ${ciMotivo.trim()}` : ''}`,
@@ -2496,7 +2545,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (jornadaStart) setJornadaStart(null);
       setCiSaving(false);
       setNotice(`📶 Sin conexión: ${ci.code} guardada como PARADA en el teléfono, se subirá sola cuando haya señal.`);
-      setCiMotivo(''); setParadaOpen(false); setPaMaterial(null); setPaQty(''); setPaPhoto(null);
+      setCiMotivo(''); setParadaOpen(false); setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaHoro(''); setPaHoroPhoto(null);
       setCi(null);
     };
     if (!isOnline()) { await encolar(); return; }
@@ -2509,19 +2558,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const [{ error: e1 }, { error: e2 }] = await Promise.all([
       supabase.from('maintenance_requests').insert({
         machinery_id: ci.id, material: paMaterial, quantity: paMaterial === 'otro' ? null : avNumOrNull(paQty),
-        notes: ciMotivo.trim() || null, status: 'pendiente', requested_by: uid || null, photo_url: paPhoto,
+        notes: notasParada, status: 'pendiente', requested_by: uid || null, photo_url: paPhoto,
       }),
       // Registro paralelo: es lo que hace que Inspecciones/Control sigan mostrando
       // la máquina como PARADA hasta que se pulse "Volver a OPERATIVA".
       supabase.from('maintenance_requests').insert({
-        machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim() || null, status: 'pendiente', requested_by: uid || null,
+        machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: notasParada, status: 'pendiente', requested_by: uid || null,
       }),
     ]);
     setCiSaving(false);
-    logAudit('PARADA', 'machinery', ci.id, `${ci.code} · avería: ${matLabelOf(paMaterial)}${ciMotivo.trim() ? ` · ${ciMotivo.trim()}` : ''}`); // bitácora
+    guardarHoroParada(hp.num);
+    logAudit('PARADA', 'machinery', ci.id, `${ci.code} · avería: ${matLabelOf(paMaterial)}${ciMotivo.trim() ? ` · ${ciMotivo.trim()}` : ''}${hp.num != null ? ` · horómetro ${hp.num}` : ''}`); // bitácora
     reloadEstados();
     setNotice(`🟡 ${ci.code} marcada PARADA${(e1 || e2) ? ' · ⚠️ no se pudo registrar todo' : ' · 🔧 avería registrada (Servicio)'}. Aparece en Inspecciones.`);
-    setCiMotivo(''); setParadaOpen(false); setPaMaterial(null); setPaQty(''); setPaPhoto(null);
+    setCiMotivo(''); setParadaOpen(false); setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaHoro(''); setPaHoroPhoto(null);
     setCi(null);
   };
 
@@ -2535,13 +2585,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const marcarParadaNoTrabajo = async () => {
     if (!ci || ciSaving) return;
     if (!ntMotivo.trim()) { setNotice('⚠️ Escribe el motivo por el que no trabajó — es obligatorio.'); return; }
+    const hp = horoParadaValidado();
+    if (!hp.ok) return;
     setCiSaving(true); setNotice(null);
     const encolar = async () => {
       const edifRef = ((ci as any)?.referencia ?? '').trim();
       const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
       // "NO TRABAJÓ" es el texto FIJO; si el inspector escribió un motivo, va al lado.
       const motivoNT = ntMotivo.trim() ? `NO TRABAJÓ · ${ntMotivo.trim()}` : 'NO TRABAJÓ';
-      const notas = `${motivoNT} · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
+      const notas = `${motivoNT} · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}${hp.num != null ? ` · Horómetro: ${hp.num}` : ''}`;
       // roundDate: día en que ARRANCÓ la jornada abierta (no "hoy"), mismo criterio
       // que registrarParadaBase/finalizarJornada — evita un round huérfano si la
       // parada se encola después de medianoche con una jornada de noche abierta.
@@ -2561,7 +2613,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (jornadaStart) setJornadaStart(null);
       setCiSaving(false);
       setNotice(`📶 Sin conexión: ${ci.code} guardada como PARADA en el teléfono, se subirá sola cuando haya señal.`);
-      setNtCoords(null); setNtMotivo(''); setParadaOpen(false);
+      setNtCoords(null); setNtMotivo(''); setParadaOpen(false); setPaHoro(''); setPaHoroPhoto(null);
       setCi(null);
     };
     if (!isOnline()) { await encolar(); return; }
@@ -2624,15 +2676,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
     // "NO TRABAJÓ" es el texto FIJO; si el inspector escribió un motivo, va al lado.
     const motivoNT = ntMotivo.trim() ? `NO TRABAJÓ · ${ntMotivo.trim()}` : 'NO TRABAJÓ';
-    const notas = `${motivoNT} · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
+    const notas = `${motivoNT} · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}${hp.num != null ? ` · Horómetro: ${hp.num}` : ''}`;
     const { error } = await supabase.from('maintenance_requests').insert({
       machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: notas, status: 'pendiente', requested_by: uid || null,
     });
     setCiSaving(false);
-    logAudit('PARADA', 'machinery', ci.id, `${ci.code} · no trabajó · ${edificio}`); // bitácora
+    guardarHoroParada(hp.num);
+    logAudit('PARADA', 'machinery', ci.id, `${ci.code} · no trabajó · ${edificio}${hp.num != null ? ` · horómetro ${hp.num}` : ''}`); // bitácora
     reloadEstados();
     setNotice(`🟡 ${ci.code} marcada PARADA · NO TRABAJÓ LA MÁQUINA${error ? ' · ⚠️ no se pudo guardar todo' : ''}. Aparece en Inspecciones.`);
-    setNtCoords(null); setNtMotivo(''); setParadaOpen(false);
+    setNtCoords(null); setNtMotivo(''); setParadaOpen(false); setPaHoro(''); setPaHoroPhoto(null);
     setCi(null);
   };
 
@@ -4324,6 +4377,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                           <Text style={{ color: paPhoto ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{paPhotoUp ? 'Subiendo…' : paPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
                         </TouchableOpacity>
                       ) : null}
+                      {/* 🕐 Horómetro de ese momento (06-nov-2026, a pedido): opcional, con foto (cámara y galería). */}
+                      <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginTop: spacing.sm }}>🕐 Horómetro en este momento (opcional)</Text>
+                      <TextInput value={paHoro} onChangeText={setPaHoro} keyboardType="numeric" inputMode="decimal" placeholder="Ej: 4201,4" placeholderTextColor={colors.muted} style={input} />
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+                        <TouchableOpacity onPress={() => tomarFotoHoroParada('camara')} disabled={paHoroPhotoUp} style={{ flex: 2, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: paHoroPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
+                          <Text style={{ color: paHoroPhoto ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{paHoroPhotoUp ? 'Subiendo…' : paHoroPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => tomarFotoHoroParada('galeria')} disabled={paHoroPhotoUp} style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                          <Text style={{ color: '#7A4A0B', fontWeight: '700', fontSize: 12 }}>🖼️ Galería</Text>
+                        </TouchableOpacity>
+                      </View>
                       <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Crea la solicitud en Servicio con el material y sigue marcándose PARADA en Inspecciones (Control saldrá “MÁQUINA PARADA”).</Text>
                       <TouchableOpacity onPress={marcarParadaAveria} disabled={ciSaving || !paMaterial || !ciMotivo.trim()} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (ciSaving || !paMaterial || !ciMotivo.trim()) ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA + avería'}</Text>
@@ -4339,6 +4403,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Ubicándote…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Sin ubicación aún · toca para reintentar'}</Text>
                       </TouchableOpacity>
                       {ntCoords ? <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 4 }}>🏢 Edificio: <Text style={{ fontWeight: '700' }}>{edificioTextOf(ntCoords.lat, ntCoords.lng, (ci as any)?.referencia ?? '')}</Text></Text> : null}
+                      {/* 🕐 Horómetro de ese momento (06-nov-2026, a pedido): opcional, con foto (cámara y galería). */}
+                      <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginTop: spacing.sm }}>🕐 Horómetro en este momento (opcional)</Text>
+                      <TextInput value={paHoro} onChangeText={setPaHoro} keyboardType="numeric" inputMode="decimal" placeholder="Ej: 4201,4" placeholderTextColor={colors.muted} style={input} />
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+                        <TouchableOpacity onPress={() => tomarFotoHoroParada('camara')} disabled={paHoroPhotoUp} style={{ flex: 2, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: paHoroPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
+                          <Text style={{ color: paHoroPhoto ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{paHoroPhotoUp ? 'Subiendo…' : paHoroPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => tomarFotoHoroParada('galeria')} disabled={paHoroPhotoUp} style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                          <Text style={{ color: '#7A4A0B', fontWeight: '700', fontSize: 12 }}>🖼️ Galería</Text>
+                        </TouchableOpacity>
+                      </View>
                       <TouchableOpacity onPress={marcarParadaNoTrabajo} disabled={ciSaving || !ntMotivo.trim()} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (ciSaving || !ntMotivo.trim()) ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA (no trabajó)'}</Text>
                       </TouchableOpacity>

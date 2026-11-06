@@ -23,6 +23,12 @@ import { soloEnUso, faltaColumnaArchivo } from './cicloVidaUsuario';
 /** Los roles que pueden recibir una asignación de máquina o de guardia. */
 export const ROLES_ASIGNABLES = ['supervisor', 'coordinador_patio'] as const;
 
+/** 🧑‍✈️ Para asignar MÁQUINAS también entra el COORDINADOR DE INSPECTORES
+ *  (06-nov-2026, a pedido: «a un coordinador de inspectores se le pueden asignar
+ *  máquinas, y salen en la gráfica de eficiencia»). Las guardias y la supervisión
+ *  siguen con la lista de siempre: solo cambia a quién se le asigna una máquina. */
+export const ROLES_ASIGNABLES_MAQUINAS = [...ROLES_ASIGNABLES, 'coordinador_inspectores'] as const;
+
 export type PersonaAsignable = {
   id: string;
   full_name: string | null;
@@ -39,10 +45,10 @@ export type PersonaAsignable = {
  * corrido el SQL 01— se reintenta sin ella y se devuelve la lista completa,
  * que es exactamente como se comportaba antes. Nunca se queda en blanco.
  */
-export async function personalAsignable(campos = 'id, full_name, role'): Promise<PersonaAsignable[]> {
+export async function personalAsignable(campos = 'id, full_name, role', roles: readonly string[] = ROLES_ASIGNABLES): Promise<PersonaAsignable[]> {
   const pedir = async (sel: string) =>
     supabase.from('profiles').select(sel)
-      .in('role', ROLES_ASIGNABLES as unknown as string[])
+      .in('role', roles as string[])
       .eq('active', true)          // apagado = sin rol desde el 09-09-2026
       .order('full_name');
 
