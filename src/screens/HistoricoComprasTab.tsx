@@ -797,7 +797,7 @@ export function HistoricoComprasTab() {
         <SectionTitle>📜 Histórico de Compras y Por Pagar</SectionTitle>
 
         {/* Selector de Modo de Vista */}
-        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
           <TouchableOpacity
             onPress={() => setVistaModo('bitacora')}
             style={{
@@ -929,7 +929,7 @@ export function HistoricoComprasTab() {
           gap: 6,
         }}
       >
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, width: '100%' }}>
           {(
             [
               ['todas', '📅 Todas las fechas'],
@@ -960,6 +960,7 @@ export function HistoricoComprasTab() {
                   backgroundColor: on ? colors.brand : colors.surface,
                   paddingHorizontal: spacing.sm,
                   paddingVertical: 5,
+                  maxWidth: '100%',
                 }}
               >
                 <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
@@ -987,7 +988,7 @@ export function HistoricoComprasTab() {
               <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11.5 }}>✕ Limpiar fecha</Text>
             </TouchableOpacity>
           ) : null}
-        </ScrollView>
+        </View>
 
         {modoFecha === 'dia' ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
@@ -1011,10 +1012,8 @@ export function HistoricoComprasTab() {
       </View>
 
       {/* Chips de tipo de movimiento */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 6, paddingVertical: 4, marginBottom: spacing.xs }}
+      <View
+        style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 4, marginBottom: spacing.xs, width: '100%' }}
       >
         {(
           [
@@ -1038,17 +1037,19 @@ export function HistoricoComprasTab() {
                 borderWidth: 1,
                 borderColor: on ? colors.brand : colors.border,
                 backgroundColor: on ? colors.brand : colors.surface,
-                paddingHorizontal: spacing.md,
-                paddingVertical: 6,
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 5,
+                maxWidth: '100%',
+                flexShrink: 1,
               }}
             >
-              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
                 {label}
               </Text>
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
 
       {/* Buscador */}
       <TextInput

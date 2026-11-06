@@ -3384,9 +3384,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   return (
     <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, width: '100%' }}>
         <SectionTitle>Requerimientos</SectionTitle>
-        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
           {puedeVerConfigAprobacion ? (
             <TouchableOpacity
               onPress={abrirConfigModal}
@@ -3400,10 +3400,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 4,
+                maxWidth: '100%',
+                flexShrink: 1,
               }}
             >
               <Text style={{ fontSize: 11 }}>⚙️</Text>
-              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11, flexShrink: 1 }}>
                 Aprobador: {configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}{' '}
                 ({configAprobacion.exigirEnTodos || Number(configAprobacion.montoLimiteUSD) === 0
                   ? 'Todos'
@@ -3472,7 +3474,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           </View>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, width: '100%' }}>
           <TouchableOpacity
             onPress={() => setEmpresaSel([])}
             style={{
@@ -3482,6 +3484,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               backgroundColor: empresaSel.length === 0 ? colors.brand : colors.surface,
               borderWidth: 1,
               borderColor: empresaSel.length === 0 ? colors.brand : colors.border,
+              maxWidth: '100%',
             }}
           >
             <Text style={{ color: empresaSel.length === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
@@ -3501,6 +3504,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   backgroundColor: sel ? colors.brand : colors.surface,
                   borderWidth: 1,
                   borderColor: sel ? colors.brand : colors.border,
+                  maxWidth: '100%',
+                  flexShrink: 1,
                 }}
               >
                 <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
@@ -3509,7 +3514,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
 
         {empresasOpen ? (
           <View style={{ gap: 6, marginTop: 4 }}>
@@ -3777,7 +3782,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                           key={r.id}
                           summary={
                             <View>
-                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
                                 <View style={{ flex: 1, minWidth: 150 }}>
                                   <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
                                   {/* Productos a solicitar visibles de una vez en la tarjeta */}

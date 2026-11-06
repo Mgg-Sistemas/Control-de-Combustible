@@ -2653,9 +2653,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const inputStyle = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const Quick = ({ label, value, color, sub }: { label: string; value: number; color: string; sub?: string }) => (
-    <View style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
-      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>{label}</Text>
-      <Text style={{ color, fontSize: 16, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>{usd(value)}</Text>
+    <View style={{ flex: 1, minWidth: 100, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
+      <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color, fontSize: 15, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>{usd(value)}</Text>
       {sub ? <Text style={{ color: colors.muted, fontSize: 10, marginTop: 1 }}>{sub}</Text> : null}
     </View>
   );
@@ -2666,9 +2666,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
 
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, width: '100%' }}>
         <SectionTitle>Cuentas {cfg.label.toLowerCase()}</SectionTitle>
-        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
           {tipo === 'por_pagar' && puedeVerConfigAprobacion ? (
             <TouchableOpacity
               onPress={abrirConfigAprobadorModal}
@@ -2676,12 +2676,14 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 backgroundColor: colors.surfaceAlt,
                 borderWidth: 1,
                 borderColor: colors.brand,
-                paddingHorizontal: spacing.md,
+                paddingHorizontal: spacing.sm,
                 paddingVertical: spacing.xs,
                 borderRadius: radius.pill,
+                maxWidth: '100%',
+                flexShrink: 1,
               }}
             >
-              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>
                 ⚙️ Aprobador: {aprobadoresLabel}
               </Text>
             </TouchableOpacity>
@@ -2700,12 +2702,14 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   backgroundColor: colors.surfaceAlt,
                   borderWidth: 1,
                   borderColor: '#16A34A',
-                  paddingHorizontal: spacing.md,
+                  paddingHorizontal: spacing.sm,
                   paddingVertical: spacing.xs,
                   borderRadius: radius.pill,
+                  maxWidth: '100%',
+                  flexShrink: 1,
                 }}
               >
-                <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 12 }}>
+                <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 11.5 }}>
                   🧾 Lista Tesorería WS ({nMarcadas > 0 ? nMarcadas : lista.length})
                 </Text>
               </TouchableOpacity>
@@ -2720,30 +2724,32 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   backgroundColor: colors.surfaceAlt,
                   borderWidth: 1,
                   borderColor: colors.brand,
-                  paddingHorizontal: spacing.md,
+                  paddingHorizontal: spacing.sm,
                   paddingVertical: spacing.xs,
                   borderRadius: radius.pill,
+                  maxWidth: '100%',
+                  flexShrink: 1,
                 }}
               >
-                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>
                   ⚖️ Resumen ¿Se pagará?
                 </Text>
               </TouchableOpacity>
             </>
           ) : null}
-          <TouchableOpacity onPress={() => setReporteOpen(true)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-            <Text style={{ color: colors.brandText, fontWeight: '800' }}>📄 Reporte</Text>
+          <TouchableOpacity onPress={() => setReporteOpen(true)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>📄 Reporte</Text>
           </TouchableOpacity>
           {canWrite ? (
             <TouchableOpacity onPress={abrirNueva} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-              <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nueva</Text>
+              <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 11.5 }}>+ Nueva</Text>
             </TouchableOpacity>
           ) : null}
         </View>
       </View>
 
       {/* Totales — ajustados a las empresas seleccionadas */}
-      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
         <Quick label="TOTAL PENDIENTE" value={tot.pendiente} color={colors.brandText} />
         <Quick label="VENCIDO" value={tot.vencido} color={colors.dangerSoftText} sub={tot.nVencidas ? `${tot.nVencidas} cuenta(s)` : undefined} />
         <Quick label={`POR VENCER (${DIAS_POR_VENCER} DÍAS)`} value={tot.porVencer} color={colors.warningSoftText} />
@@ -2769,7 +2775,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             gap: 10,
           }}
         >
-          <View style={{ flex: 1, minWidth: 220, gap: 2 }}>
+          <View style={{ flex: 1, minWidth: 200, gap: 2 }}>
             <Text
               style={{
                 color: usarTasaEseDiaGlobal ? colors.warningSoftText : colors.successSoftText,
@@ -2790,12 +2796,14 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           <View
             style={{
               paddingVertical: 8,
-              paddingHorizontal: 14,
+              paddingHorizontal: 12,
               borderRadius: radius.pill,
               backgroundColor: usarTasaEseDiaGlobal ? '#D97706' : '#059669',
+              maxWidth: '100%',
+              flexShrink: 1,
             }}
           >
-            <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', textAlign: 'center' }}>
               {usarTasaEseDiaGlobal
                 ? '💱 ACTUALIZAR A LA TASA DEL DÍA DE HOY'
                 : '📅 QUIERO LA TASA DE ESE DÍA (DEL REQUERIMIENTO)'}
@@ -2806,10 +2814,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
       {/* 🏢 Filtro por Empresa (una o varias) */}
       <View style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xs, paddingVertical: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, paddingHorizontal: spacing.xs, paddingVertical: 4 }}>
           <TouchableOpacity
             onPress={() => setEmpresasOpen((o) => !o)}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}
+            style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, flex: 1, minWidth: 180 }}
           >
             <Text style={{ fontSize: 14 }}>🏢</Text>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
@@ -2832,8 +2840,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           ) : null}
         </View>
 
-        {/* Fichas rápidas horizontales siempre accesibles */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 4, paddingHorizontal: 2 }}>
+        {/* Fichas rápidas siempre accesibles y visibles sin recorte en teléfono */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 4, paddingHorizontal: 2, width: '100%' }}>
           <TouchableOpacity
             onPress={() => setEmpresaSel(new Set())}
             style={{
@@ -2843,6 +2851,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               backgroundColor: empresaSel.size === 0 ? colors.brand : colors.surface,
               paddingHorizontal: spacing.sm,
               paddingVertical: 4,
+              maxWidth: '100%',
             }}
           >
             <Text style={{ color: empresaSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
@@ -2872,10 +2881,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   paddingVertical: 4,
                   flexDirection: 'row',
                   alignItems: 'center',
+                  flexWrap: 'wrap',
                   gap: 4,
+                  maxWidth: '100%',
+                  flexShrink: 1,
                 }}
               >
-                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11, flexShrink: 1 }}>
                   {on ? '✓ ' : ''}{e.name}
                 </Text>
                 <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 10, fontWeight: '600' }}>
@@ -2884,7 +2896,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
 
         {/* Panel desplegable con buscador de empresas */}
         {empresasOpen ? (
@@ -2940,10 +2952,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
       {/* Filtros de estados prioritarios de Por Pagar (Esperando Aprobación, > $1,000 USD, Esperando Pago, Vencidas, Prioridad Alta, Pagadas) */}
       {tipo === 'por_pagar' ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 6, paddingVertical: 4, marginBottom: spacing.xs }}
+        <View
+          style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 4, marginBottom: spacing.xs, width: '100%' }}
         >
           {(
             [
@@ -3003,15 +3013,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       ? colors.brand
                       : colors.surfaceAlt
                     : colors.surface,
-                  paddingHorizontal: spacing.md,
-                  paddingVertical: 6,
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 5,
+                  maxWidth: '100%',
+                  flexShrink: 1,
                 }}
               >
                 <Text
                   style={{
                     color: on ? (key === 'todos' ? colors.brandContrast : activeText) : colors.text,
                     fontWeight: '800',
-                    fontSize: 12,
+                    fontSize: 11.5,
                   }}
                 >
                   {label}
@@ -3019,7 +3031,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       ) : null}
 
       {/* 📅 Filtro por Fecha Específica o Rango de Fechas (Solicitud / Marcado para Por Pagar) */}
@@ -3034,11 +3046,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           gap: 6,
         }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, width: '100%' }}>
           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
             📅 Filtrar por Fecha:
           </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, width: '100%', flexShrink: 1 }}>
             {(
               [
                 ['todas', 'Todas las fechas'],
@@ -3066,6 +3078,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     backgroundColor: on ? colors.brand : colors.surface,
                     paddingHorizontal: spacing.sm,
                     paddingVertical: 4,
+                    maxWidth: '100%',
                   }}
                 >
                   <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11 }}>
@@ -3162,7 +3175,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>✕ Limpiar fecha</Text>
               </TouchableOpacity>
             ) : null}
-          </ScrollView>
+          </View>
         </View>
 
         {modoFechaCxp !== 'todas' ? (
@@ -3371,7 +3384,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             style={vencida ? { borderLeftWidth: 4, borderLeftColor: colors.danger } : undefined}
             summary={
               <View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
                   {/* ☐/☑ Marca para el reporte: el toque se queda en la casilla, no abre la tarjeta. */}
                   <TouchableOpacity
                     onPress={() => alternarMarca(c.id)}
@@ -3382,7 +3395,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   >
                     <Text style={{ fontSize: 18, color: marcadas.has(c.id) ? colors.brandText : colors.muted }}>{marcadas.has(c.id) ? '☑' : '☐'}</Text>
                   </TouchableOpacity>
-                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>{c.contraparte}</Text>
+                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1, minWidth: 130 }} numberOfLines={1}>{c.contraparte}</Text>
                   {c.prioridad ? <Pill label={PRIORIDAD_INFO[c.prioridad as Prioridad].label} {...toneSoft(colors, PRIORIDAD_INFO[c.prioridad as Prioridad].tone)} /> : null}
                   {tipo === 'por_pagar' && c.esMayorAMil ? (
                     <Pill label="💰 Pago > $1,000 USD" {...toneSoft(colors, 'danger')} />

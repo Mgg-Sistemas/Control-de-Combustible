@@ -1660,7 +1660,7 @@ const SECTIONS: Sec[] = [
           'Me equivoqué en las horas → vuelve a tocar la opción correcta; se corrige solo.',
           '¿El nivel del tanque se escribe a mano? → No, se calcula solo.',
           'Cerré el control sin querer → queda guardado en el Histórico; sigue con la semana siguiente.',
-          'Se ve distinto en teléfono y computadora → es normal; funciona igual en ambos.',
+          'Se ve distinto en teléfono y computadora → es normal; funciona igual en ambos. En Compras y Por Pagar todas las pestañas, botones y filtros de empresa, estado y fecha se acomodan en varias filas para verse completos en el teléfono sin cortarse.',
         ]
       },
     ],

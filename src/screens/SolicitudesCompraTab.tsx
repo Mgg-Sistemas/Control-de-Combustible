@@ -1477,7 +1477,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           </View>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, width: '100%' }}>
           <TouchableOpacity
             onPress={() => setEmpresaSel([])}
             style={{
@@ -1487,6 +1487,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               backgroundColor: empresaSel.length === 0 ? colors.brand : colors.surface,
               borderWidth: 1,
               borderColor: empresaSel.length === 0 ? colors.brand : colors.border,
+              maxWidth: '100%',
             }}
           >
             <Text style={{ color: empresaSel.length === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
@@ -1506,6 +1507,8 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   backgroundColor: sel ? colors.brand : colors.surface,
                   borderWidth: 1,
                   borderColor: sel ? colors.brand : colors.border,
+                  maxWidth: '100%',
+                  flexShrink: 1,
                 }}
               >
                 <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
@@ -1514,7 +1517,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
 
         {empresasOpen ? (
           <View style={{ gap: 6, marginTop: 4 }}>
@@ -1594,7 +1597,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       </TouchableOpacity>
 
       {/* Chips de filtro por estado */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: spacing.md }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.md, width: '100%' }}>
         {[
           { key: 'todos', label: `Todos (${countTodos})` },
           { key: 'por_cotizar', label: `📋 Pendientes por Convertir (${countPorCotizar})` },
@@ -1623,6 +1626,8 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                 backgroundColor: sel ? colors.brand : colors.surfaceAlt,
                 borderWidth: 1,
                 borderColor: sel ? colors.brand : colors.border,
+                maxWidth: '100%',
+                flexShrink: 1,
               }}
             >
               <Text style={{ color: sel ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
@@ -1631,7 +1636,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
 
       {/* Barra de conteo y controles de acordeón masivo */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs, flexWrap: 'wrap', gap: 6 }}>

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Linking, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Linking, Platform, useWindowDimensions } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { ListadoProveedoresPdf } from '../components/ListadoProveedoresPdf';
@@ -689,12 +689,12 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre o Razón Social *</Text>
               <TextInput value={name} onChangeText={setName} autoCapitalize="words" placeholder="Nombre o razón social" placeholderTextColor={colors.muted} style={input} />
               
-              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-                <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm }}>
+                <View style={{ flex: 1, minWidth: 130 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>RIF</Text>
                   <TextInput value={rif} onChangeText={setRif} autoCapitalize="none" placeholder="J-000000000" placeholderTextColor={colors.muted} style={input} />
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 130 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Teléfono de contacto</Text>
                   <TextInput value={phone} onChangeText={setPhone} placeholder="04xx…" placeholderTextColor={colors.muted} style={input} keyboardType="phone-pad" />
                 </View>
@@ -719,12 +719,12 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                 <View style={{ backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 6 }}>🏦 Transferencia Bancaria Nacional</Text>
                   
-                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: 6 }}>
-                    <View style={{ flex: 2 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: 6 }}>
+                    <View style={{ flex: 2, minWidth: 140 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco emisor</Text>
                       <TextInput value={bankName} onChangeText={setBankName} autoCapitalize="words" placeholder="Ej. Banesco, Mercantil, Venezuela" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 120 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Tipo de cuenta</Text>
                       <TextInput value={accountType} onChangeText={setAccountType} autoCapitalize="words" placeholder="Corriente / Ahorro" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
@@ -733,12 +733,12 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                   <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Número de cuenta (20 dígitos)</Text>
                   <TextInput value={accountNumber} onChangeText={(t) => setAccountNumber(t.replace(/[^0-9]/g, ''))} placeholder="01340000000000000000" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, marginBottom: 6 }]} keyboardType="numeric" maxLength={20} />
 
-                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                    <View style={{ flex: 2 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    <View style={{ flex: 2, minWidth: 140 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Titular de la cuenta</Text>
                       <TextInput value={accountHolder} onChangeText={setAccountHolder} autoCapitalize="words" placeholder="Nombre o Razón social" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 120 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Cédula / RIF</Text>
                       <TextInput value={accountIdDoc} onChangeText={setAccountIdDoc} autoCapitalize="none" placeholder="J-12345678-9" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
@@ -748,16 +748,16 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                 {/* 2. Pago Móvil */}
                 <View style={{ backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 6 }}>📱 Pago Móvil</Text>
-                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                    <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    <View style={{ flex: 1, minWidth: 110 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Banco</Text>
                       <TextInput value={pagoMovilBank} onChangeText={setPagoMovilBank} autoCapitalize="words" placeholder="Ej. Banesco (0134)" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 110 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>Teléfono</Text>
                       <TextInput value={pagoMovilPhone} onChangeText={setPagoMovilPhone} placeholder="04141234567" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12 }]} keyboardType="phone-pad" />
                     </View>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 110 }}>
                       <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>C.I. / RIF</Text>
                       <TextInput value={pagoMovilId} onChangeText={setPagoMovilId} autoCapitalize="none" placeholder="V-12345678" placeholderTextColor={colors.muted} style={[input, { paddingVertical: 6, fontSize: 12, textTransform: 'none' }]} {...rawCaseField} />
                     </View>
@@ -1868,7 +1868,7 @@ function ResumenTab() {
   const maxCompany = Math.max(1, ...spend.companyArr.map((s) => s.total));
 
   const Quick = ({ label, value, color }: { label: string; value: number; color: string }) => (
-    <View style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
+    <View style={{ flex: 1, minWidth: 100, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>{label}</Text>
       <Text style={{ color, fontSize: 16, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>{usd(value)}</Text>
     </View>
@@ -1882,7 +1882,7 @@ function ResumenTab() {
       <SectionTitle>Resumen de gastos</SectionTitle>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Incluye órdenes aprobadas y recibidas (gasto comprometido).</Text>
 
-      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
         <Quick label="HOY" value={spend.hoy} color={colors.brandText} />
         <Quick label="ESTA SEMANA" value={spend.semana} color={colors.accentSoftText} />
         <Quick label="ESTE MES" value={spend.mes} color={colors.successSoftText} />
@@ -2277,21 +2277,48 @@ export default function ComprasScreen() {
     { key: 'historico', label: 'Histórico', icon: '📜' },
   ];
   const [active, setActive] = useState('solicitudes');
+  const { width: viewportW } = useWindowDimensions();
+  const isPhone = viewportW < 768;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, gap: spacing.sm }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            paddingHorizontal: isPhone ? spacing.xs : spacing.sm,
+            paddingVertical: isPhone ? 6 : spacing.sm,
+            gap: isPhone ? 6 : spacing.sm,
+            width: '100%',
+          }}
+        >
           {TABS.map((t) => {
             const on = t.key === active;
             return (
-              <TouchableOpacity key={t.key} onPress={() => setActive(t.key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
-                <Text style={{ fontSize: 15 }}>{t.icon}</Text>
-                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
+              <TouchableOpacity
+                key={t.key}
+                onPress={() => setActive(t.key)}
+                activeOpacity={0.7}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: isPhone ? 4 : 6,
+                  paddingHorizontal: isPhone ? 10 : spacing.md,
+                  paddingVertical: isPhone ? 5 : spacing.sm,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: on ? colors.brand : colors.border,
+                  backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                  maxWidth: '100%',
+                }}
+              >
+                <Text style={{ fontSize: isPhone ? 13 : 15 }}>{t.icon}</Text>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: isPhone ? 11.5 : 13 }}>{t.label}</Text>
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
       <View style={{ flex: 1 }}>
         {active === 'por_pagar' || active === 'por_cobrar' ? (
