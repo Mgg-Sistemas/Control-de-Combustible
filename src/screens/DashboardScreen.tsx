@@ -247,7 +247,14 @@ export default function DashboardScreen({ navigation }: any) {
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     ch.subscribe();
-    return () => { clearTimeout(timer); supabase.removeChannel(ch); };
+    // 🔄 RED DE SEGURIDAD (06-nov-2026): si el canal en vivo se cae EN SILENCIO, este
+    //    widget se quedaba con la foto vieja y el Inicio se "desincronizaba" del
+    //    Catálogo (161/20 vs 163/18 con la MISMA regla y los MISMOS datos). Un sondeo
+    //    suave cada 90 s y una recarga al VOLVER a la pantalla lo mantienen al día
+    //    aunque el canal muera.
+    const poll = setInterval(() => loadCounts(), 90000);
+    const unFocus = (navigation as any)?.addListener?.('focus', () => loadCounts());
+    return () => { clearTimeout(timer); clearInterval(poll); if (typeof unFocus === 'function') unFocus(); supabase.removeChannel(ch); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadCounts]);
 

@@ -37,7 +37,7 @@ ok('el cierre calcula el fin nominal del turno (7pm día / 7am noche)',
 // la hora real en que la máquina paró (lib/horaFinJornada). El tope nominal
 // sigue intacto: resolverFinJornada devuelve efectivoMs = min(fin, nominal).
 ok('el cierre efectivo nunca pasa del nominal (vía resolverFinJornada)',
-  /const fin = resolverFinJornada\(\{ startMs: new Date\(jornadaStart\)\.getTime\(\), nominalEndMs, texto: finTime \}\);/.test(sup)
+  /const fin = resolverFinJornada\(\{ startMs: new Date\(jornadaStart\)\.getTime\(\), nominalEndMs, texto: finTime, nowMs: nowCierreMs \}\);/.test(sup) // 06-nov-2026: «ahora» anclado para rondas de otro día
   && /const cierreEfectivoMs = fin\.efectivoMs;/.test(sup));
 ok('…y una hora declarada inválida NO cierra (error visible, no silencio)',
   /if \(!fin\.ok\) \{ setJornadaBusy\(false\); setNotice\('❌ ' \+ fin\.error\); return; \}/.test(sup));

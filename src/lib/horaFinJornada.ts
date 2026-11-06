@@ -55,6 +55,24 @@ const fmtHHMM = (ms: number): string => {
  * Resuelve el fin de la jornada a partir de lo escrito (o de «ahora» si viene
  * vacío), con todas las reglas de arriba. `nowMs` inyectable para probarlo.
  */
+/** ⏰ «AHORA» PARA CERRAR UNA RONDA (06-nov-2026, caso LUMINARIA 05-nov): si el fin
+ * nominal del turno de ESA ronda quedó atrás hace más de la gracia (2 h), la jornada
+ * es de OTRO día que quedó abierta (huérfana). Cerrarla con el reloj de hoy bancaba
+ * hasta 24 h que nadie trabajó (horas = ahora − inicio) y la hora declarada HH:MM se
+ * interpretaba en el día de HOY. Anclando el «ahora» al fin nominal de SU turno:
+ *  · cerrar sin hora declarada banca, como siempre, solo hasta el fin de SU turno;
+ *  · la hora declarada se interpreta en el día de ESA jornada;
+ *  · el cierre normal (incluida la noche que cruza la medianoche y se cierra entre
+ *    7 y 9 am) queda exactamente igual: la gracia de 2 h no lo toca. */
+export const GRACIA_CIERRE_RONDA_VIEJA_MS = 2 * 3600000;
+export function ahoraParaCerrarRonda(
+  nominalEndMs: number,
+  nowMs: number = Date.now(),
+  graciaMs: number = GRACIA_CIERRE_RONDA_VIEJA_MS,
+): number {
+  return nowMs > nominalEndMs + graciaMs ? nominalEndMs : nowMs;
+}
+
 export function resolverFinJornada(opts: {
   startMs: number;
   nominalEndMs: number;

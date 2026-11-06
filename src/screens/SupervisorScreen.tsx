@@ -25,7 +25,7 @@ import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts, calcularInicioJornada } from '../lib/jornada';
 // 🕐 La HORA DECLARADA de fin de la jornada (20-oct-2026, a pedido urgente:
 //    «que puedan colocar la hora en la que finalizó, por si finalizó antes»).
-import { resolverFinJornada } from '../lib/horaFinJornada';
+import { ahoraParaCerrarRonda, resolverFinJornada } from '../lib/horaFinJornada';
 import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, businessRoundDateOf, ultimaJornadaRoundDate } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal, cerrarJornadasRezagadas } from '../lib/machineRounds';
@@ -627,12 +627,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     (async () => {
       let r = await getMachineRound(ci.id, today);
       let rDate = today;
-      // Si HOY no tiene jornada abierta, rescata la de NOCHE de AYER si sigue abierta
-      // (cruza la medianoche). Así, tras las 12, el inspector la ve "en curso" y puede
-      // finalizarla — no reaparece como "sin jornada" (falso cierre a medianoche).
+      // Si HOY no tiene jornada abierta, rescata la de AYER si sigue abierta:
+      //  · la de NOCHE porque cruza la medianoche (el inspector la ve "en curso" y
+      //    puede finalizarla — no reaparece como "sin jornada" a las 12);
+      //  · ⭐ 06-nov-2026 (caso LUMINARIA): también la de DÍA que quedó abierta (el
+      //    cierre nunca llegó a la base). Antes era INVISIBLE desde el día siguiente:
+      //    nadie podía finalizarla y quedaba "trabajando" para siempre. Al cerrarla,
+      //    `ahoraParaCerrarRonda` ancla el cierre al fin de SU turno (no banca de más).
       if (!(r as any)?.jornada_start_at) {
         const ry = await getMachineRound(ci.id, yesterday);
-        if (ry && (((ry as any)?.jornada_start_at && (ry as any)?.jornada_shift === 'night') || (!r && caracasBusinessToday() === yesterday))) { r = ry; rDate = yesterday; }
+        if (ry && ((ry as any)?.jornada_start_at || (!r && caracasBusinessToday() === yesterday))) { r = ry; rDate = yesterday; }
       }
       setCurRoundDate(rDate);
       setCurRoundHours({ day: Number((r as any)?.day_hours) || 0, night: Number((r as any)?.night_hours) || 0 });
@@ -2279,7 +2283,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     //    hora real en que la máquina paró, el cierre efectivo sale de AHÍ (nunca del
     //    futuro, nunca antes del inicio, y siempre topado al fin nominal — declarar
     //    las 9pm no regala horas, igual que cerrar tarde de siempre).
-    const fin = resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs, texto: finTime });
+    // ⏰ Ronda de OTRO día que quedó abierta (06-nov-2026): el «ahora» del cierre se
+    //    ancla al fin nominal de SU turno — no banca horas de hoy en la jornada de ayer
+    //    y la hora declarada HH:MM se interpreta en el día de ESA jornada.
+    const nowCierreMs = ahoraParaCerrarRonda(nominalEndMs);
+    const cierreRondaVieja = nowCierreMs < Date.now() - 60000;
+    const fin = resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs, texto: finTime, nowMs: nowCierreMs });
     if (!fin.ok) { setJornadaBusy(false); setNotice('❌ ' + fin.error); return; }
     const cerroTarde = fin.finMs > nominalEndMs;
     const cierreEfectivoMs = fin.efectivoMs; // = min(fin declarado u «ahora», nominal) — nunca pasa del nominal
@@ -2336,7 +2345,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setHoroFin(''); setHoroFinPhoto(null); setMotivoCierre(''); setCerrarSinFinal(false); setFinTime('');
     // ⚙️ Si cerró SIN horómetro final, ofrece ponerlo ahí mismo (botón de final olvidado).
     if (!hfValid) cargarLecturasDeMaquinaDia(ci.id, roundDate).then((ls) => setFinTardia(lecturaParaCompletarFinal(ls, roundDate))).catch(() => {});
-    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${fin.declarado ? ` · fin declarado ${finTime.trim()}` : ''}${cerroTarde ? ' · cerró tarde (bancó hasta el fin del turno)' : ''}${motivo ? ` · Motivo cierre: ${motivo}` : ''}${!hfValid && (horoIni || '').trim() !== '' ? ' · ⚠️ cerró SIN horómetro final (avisado)' : ''}`); // bitácora
+    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${fin.declarado ? ` · fin declarado ${finTime.trim()}` : ''}${cerroTarde ? ' · cerró tarde (bancó hasta el fin del turno)' : ''}${cierreRondaVieja ? ' · jornada de otro día que quedó abierta: cerrada bancando solo hasta el fin de SU turno' : ''}${motivo ? ` · Motivo cierre: ${motivo}` : ''}${!hfValid && (horoIni || '').trim() !== '' ? ' · ⚠️ cerró SIN horómetro final (avisado)' : ''}`); // bitácora
     // Camión: al FINALIZAR la jornada, se registra su ENTRADA al patio.
     logTruckYardIfTruck(ci.id, ci.code, 'entrada', uid || null, fullName || null);
     // 📋 Log auditable del tramo trabajado (best-effort: no debe bloquear ni
@@ -2411,12 +2420,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const vis = await registrarVisita('parada');
     if (!vis) return false;
     if (jornadaStart) {
-      const horas = Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100);
       // El bancado se hace contra el round_date en que se INICIÓ la jornada (no el
       // "hoy" de calendario): mismo criterio que finalizarJornada (ver su comentario)
       // para que una parada marcada después de medianoche, en una jornada de noche
       // que sigue abierta, no cree un round huérfano en el día equivocado.
       const roundDate = businessRoundDateOf(new Date(jornadaStart), jornadaShift);
+      // ⏰ Igual que finalizarJornada (06-nov-2026): si la jornada abierta es de OTRO
+      //    día (quedó huérfana), el cierre se ancla al fin nominal de SU turno — marcar
+      //    la parada hoy no banca las horas de toda la noche/mañana que nadie trabajó.
+      const nominalEndMs = jornadaShift === 'night'
+        ? new Date(roundDate + 'T07:00:00-04:00').getTime() + 86400000
+        : new Date(roundDate + 'T19:00:00-04:00').getTime();
+      const nowParadaMs = ahoraParaCerrarRonda(nominalEndMs);
+      const horas = Math.max(0, Math.round(((nowParadaMs - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100);
       const prevRound = await getMachineRound(ci.id, roundDate);
       const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
       const base = Number((prevRound as any)?.[key] ?? 0);
@@ -2425,7 +2441,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const shiftStartMs = jornadaShift === 'night'
         ? new Date(roundDate + 'T19:00:00-04:00').getTime()
         : new Date(roundDate + 'T07:00:00-04:00').getTime();
-      const topeFisico = Math.min(24, Math.max(0, (Date.now() - shiftStartMs) / 3600000));
+      const topeFisico = Math.min(24, Math.max(0, (nowParadaMs - shiftStartMs) / 3600000));
       const total = Math.round(Math.min(topeFisico, base + horas) * 100) / 100;
       const res = await upsertMachineRound(ci.id, roundDate, { [key]: total, jornada_start_at: null }, uid || null);
       // Si el bancado de horas falla, NO seguimos como si hubiera ido bien: se
@@ -2438,7 +2454,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // romper el registro de la parada si falla).
       supabase.from('machine_work_segments').insert({
         machinery_id: ci.id, round_date: roundDate, shift: jornadaShift,
-        started_at: jornadaStart, ended_at: new Date().toISOString(), hours: horas,
+        started_at: jornadaStart, ended_at: new Date(nowParadaMs).toISOString(), hours: horas,
         source, recorded_by: uid || null,
       }).then(() => {}, () => {});
       setJornadaStart(null);

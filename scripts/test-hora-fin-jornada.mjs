@@ -163,7 +163,7 @@ eq('* vacío tampoco', parseHHMM(''), null);
 {
   const sup = fs.readFileSync(path.join(ROOT, 'src/screens/SupervisorScreen.tsx'), 'utf8');
   ok('⭐ el cierre resuelve el fin con la librería (no con Date.now a secas)',
-    sup.includes('const fin = resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs, texto: finTime });')
+    sup.includes('const fin = resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs, texto: finTime, nowMs: nowCierreMs });') // 06-nov-2026: el «ahora» va anclado (ronda de otro día que quedó abierta — ver test-jornada-ayer-abierta)
     && sup.includes('const cierreEfectivoMs = fin.efectivoMs;'));
   ok('⭐ una hora inválida NO cierra: error visible y return',
     sup.includes("if (!fin.ok) { setJornadaBusy(false); setNotice('❌ ' + fin.error); return; }"));
