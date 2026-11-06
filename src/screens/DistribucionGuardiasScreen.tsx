@@ -15,8 +15,20 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { personalAsignable } from '../lib/personalAsignable';
 import { cmpText } from '../lib/text';
+import { leerNumero } from '../lib/numeros';
 import { DateField } from '../components/DateField';
-import { generateGuardiasReport, GuardInspector, GuardShift } from '../lib/guardiasReport';
+import {
+  generateGuardiasReport,
+  GuardInspector,
+  GuardShift,
+  calcularPeriodosPersonaEnCiclo,
+  aplicarCambioManualEnRangos,
+  alternarDiaManualEnRangos,
+  generarPeriodosAutomaticosTrabajoDescanso,
+  calcularGruposSugeridosFormula,
+  formatearRangosCortos,
+  ModoFormulaTrabajoDescanso,
+} from '../lib/guardiasReport';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 
 const CARGOS = ['Coordinador', 'Nocturno', 'Inspector'];
@@ -95,13 +107,21 @@ export default function DistribucionGuardiasScreen() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);         // agregar inspector
-  const [descansoFor, setDescansoFor] = useState<Meta | null>(null); // agregar descanso a inspector
+  const [descansoFor, setDescansoFor] = useState<Meta | null>(null); // agregar rango manual (descanso o trabajo) a inspector
+  const [tipoRangoManual, setTipoRangoManual] = useState<'descanso' | 'trabajo'>('descanso');
   const [dFrom, setDFrom] = useState(today);
   const [dTo, setDTo] = useState(addDaysISO(today, 6));
   const [grupoOpen, setGrupoOpen] = useState(false);     // armar grupos 14x7 a mano
   const [grupoSel, setGrupoSel] = useState<Record<string, string>>({}); // metaId → grupo ('A','B','C',…)
   const [diaOpen, setDiaOpen] = useState(false);         // armar "1 día libre/semana" a mano
   const [diaSel, setDiaSel] = useState<Record<string, string>>({}); // metaId → código de día ('Lu','Ma',…)
+
+  // Modal: Calcular automáticamente por Días de Trabajo × Días de Descanso (ej. 14×7, 7×7, 5×2, etc.)
+  const [formulaOpen, setFormulaOpen] = useState(false);
+  const [formTrabajo, setFormTrabajo] = useState('14');
+  const [formDescanso, setFormDescanso] = useState('7');
+  const [formModo, setFormModo] = useState<ModoFormulaTrabajoDescanso>('escalonado_trabajo');
+  const [formGrupoSel, setFormGrupoSel] = useState<Record<string, string>>({});
 
   // Grupos DINÁMICOS: tantos como hagan falta para ~2 inspectores por grupo (mínimo 3).
   // Antes estaba fijo en A/B/C (3 grupos), y con más inspectores quedaban afuera.
@@ -173,18 +193,103 @@ export default function DistribucionGuardiasScreen() {
     await supabase.from('guard_inspector_meta').delete().eq('id', m.id);
     load();
   };
-  const agregarDescanso = async () => {
-    if (!descansoFor) return;
-    if (dTo < dFrom) { setNotice('❌ La fecha "hasta" no puede ser menor que "desde".'); return; }
-    setBusy(true);
-    const { error } = await supabase.from('guard_shifts').insert({
-      inspector_id: descansoFor.inspector_id, inspector_name: descansoFor.inspector_name,
-      from_date: dFrom, to_date: dTo, kind: 'descanso', grupo: descansoFor.grupo, created_by: uid,
-    });
-    setBusy(false);
-    if (error) { setNotice('❌ ' + error.message); return; }
-    setDescansoFor(null); load();
+  // Sincroniza en `guard_shifts` los nuevos rangos de descanso de un inspector
+  const reemplazarDescansosInspector = async (
+    m: Meta,
+    nuevosRangos: { from_date: string; to_date: string }[]
+  ): Promise<boolean> => {
+    const delRes = await supabase
+      .from('guard_shifts')
+      .delete()
+      .eq('inspector_name', m.inspector_name)
+      .eq('kind', 'descanso');
+    if (delRes.error) {
+      setNotice('❌ ' + delRes.error.message);
+      return false;
+    }
+    if (nuevosRangos.length > 0) {
+      const filas = nuevosRangos.map((r) => ({
+        inspector_id: m.inspector_id,
+        inspector_name: m.inspector_name,
+        from_date: r.from_date,
+        to_date: r.to_date,
+        kind: 'descanso',
+        grupo: m.grupo,
+        created_by: uid,
+      }));
+      const insRes = await supabase.from('guard_shifts').insert(filas);
+      if (insRes.error) {
+        setNotice('❌ ' + insRes.error.message);
+        return false;
+      }
+    }
+    return true;
   };
+
+  // Alterna manualmente un solo día en el Calendario del Ciclo entre T (Trabajo) y D (Descanso)
+  const toggleDiaCalendario = async (m: Meta, day: string) => {
+    if (busy) return;
+    const actuales = (shiftsByName.get(m.inspector_name) ?? []).filter((s) => s.kind === 'descanso');
+    const { nuevoEstado, rangosDescanso } = alternarDiaManualEnRangos(actuales, day);
+    // Actualización optimista inmediata
+    setShifts((prev) => {
+      const otros = prev.filter((s) => !(s.inspector_name === m.inspector_name && s.kind === 'descanso'));
+      const nuevos: Shift[] = rangosDescanso.map((r, idx) => ({
+        id: `temp-${m.id}-${idx}-${r.from_date}`,
+        inspector_name: m.inspector_name,
+        from_date: r.from_date,
+        to_date: r.to_date,
+        kind: 'descanso',
+        grupo: m.grupo,
+      }));
+      return [...otros, ...nuevos];
+    });
+    setBusy(true);
+    setNotice(null);
+    const ok = await reemplazarDescansosInspector(m, rangosDescanso);
+    setBusy(false);
+    if (ok) {
+      setNotice(
+        `✅ ${m.inspector_name} · ${dmy(day)} marcado como ${nuevoEstado === 'descanso' ? 'D (Descanso)' : 'T (Trabajo)'}.`
+      );
+      load();
+    } else {
+      load();
+    }
+  };
+
+  // Aplica un rango manual (Descanso D o Trabajo T) al inspector seleccionado
+  const aplicarRangoManual = async (
+    estadoForzado?: 'descanso' | 'trabajo',
+    rangoFrom?: string,
+    rangoTo?: string
+  ) => {
+    if (!descansoFor) return;
+    const f = rangoFrom ?? dFrom;
+    const t = rangoTo ?? dTo;
+    const modoAplicar = estadoForzado ?? tipoRangoManual;
+    if (t < f) {
+      setNotice('❌ La fecha "hasta" no puede ser menor que "desde".');
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    const actuales = (shiftsByName.get(descansoFor.inspector_name) ?? []).filter(
+      (s) => s.kind === 'descanso'
+    );
+    const nuevosRangos = aplicarCambioManualEnRangos(actuales, f, t, modoAplicar);
+    const ok = await reemplazarDescansosInspector(descansoFor, nuevosRangos);
+    setBusy(false);
+    if (!ok) return;
+    setDescansoFor(null);
+    setNotice(
+      `✅ ${descansoFor.inspector_name}: rango ${dmy(f)} al ${dmy(t)} marcado como ${
+        modoAplicar === 'descanso' ? '🛌 Descanso (D)' : '🛠️ Trabajo (T)'
+      }.`
+    );
+    load();
+  };
+
   const quitarShift = async (sh: Shift) => {
     await supabase.from('guard_shifts').delete().eq('id', sh.id);
     load();
@@ -193,14 +298,139 @@ export default function DistribucionGuardiasScreen() {
   // Sugerencia AUTOMÁTICA de grupos (round-robin por categoría): coordinadores,
   // nocturnos y resto se reparten en A/B/C para que NO coincidan dos coordinadores
   // (ni dos nocturnos) en la misma semana de descanso. Devuelve metaId → 'A'|'B'|'C'.
-  const computeAutoGroups = (): Record<string, string> => {
-    const letra = GRUPOS;
+  const computeAutoGroups = (gruposLista: string[] = GRUPOS): Record<string, string> => {
+    const letra = gruposLista.length ? gruposLista : GRUPOS;
+    const totalG = letra.length;
     const cat = (m: Meta) => (m.cargo === 'Coordinador' ? 0 : m.cargo === 'Nocturno' ? 1 : 2);
     const orden = [...metas].sort((a, b) => cat(a) - cat(b) || cmpText(a.inspector_name, b.inspector_name));
     const counters = [0, 0, 0];
     const out: Record<string, string> = {};
-    orden.forEach((m) => { const c = cat(m); const g = counters[c] % nGroups; counters[c]++; out[m.id] = letra[g]; });
+    orden.forEach((m) => { const c = cat(m); const g = counters[c] % totalG; counters[c]++; out[m.id] = letra[g]; });
     return out;
+  };
+
+  // Grupos dinámicos para el modal de Fórmula Trabajo × Descanso
+  const numTrabajoFormula = Math.max(1, Math.round(leerNumero(formTrabajo) || 14));
+  const numDescansoFormula = Math.max(1, Math.round(leerNumero(formDescanso) || 7));
+  const nGruposFormula = useMemo(
+    () => calcularGruposSugeridosFormula(numTrabajoFormula, numDescansoFormula),
+    [numTrabajoFormula, numDescansoFormula]
+  );
+  const GRUPOS_FORMULA = useMemo(
+    () => Array.from({ length: nGruposFormula }, (_, i) => String.fromCharCode(65 + i)),
+    [nGruposFormula]
+  );
+
+  const abrirFormulaTrabajoDescanso = () => {
+    if (metas.length === 0) {
+      setNotice('❌ Primero agrega inspectores.');
+      return;
+    }
+    const gList = Array.from(
+      { length: calcularGruposSugeridosFormula(numTrabajoFormula, numDescansoFormula) },
+      (_, i) => String.fromCharCode(65 + i)
+    );
+    const init: Record<string, string> = {};
+    let alguno = false;
+    metas.forEach((m) => {
+      if (m.grupo && gList.includes(m.grupo)) {
+        init[m.id] = m.grupo;
+        alguno = true;
+      }
+    });
+    setFormGrupoSel(alguno ? { ...computeAutoGroups(gList), ...init } : computeAutoGroups(gList));
+    setNotice(null);
+    setFormulaOpen(true);
+  };
+
+  const aplicarPresetFormula = (w: number, r: number) => {
+    setFormTrabajo(String(w));
+    setFormDescanso(String(r));
+    const gList = Array.from(
+      { length: calcularGruposSugeridosFormula(w, r) },
+      (_, i) => String.fromCharCode(65 + i)
+    );
+    setFormGrupoSel(computeAutoGroups(gList));
+  };
+
+  const generarPorFormulaTrabajoDescanso = async () => {
+    const w = Math.max(1, Math.round(leerNumero(formTrabajo) || 0));
+    const r = Math.max(1, Math.round(leerNumero(formDescanso) || 0));
+    if (w <= 0 || r <= 0) {
+      setNotice('❌ Indica cuántos días de trabajo y cuántos días de descanso (mayores a 0).');
+      return;
+    }
+    if (to < from) {
+      setNotice('❌ La fecha "Hasta" no puede ser menor que "Desde".');
+      return;
+    }
+    const esEscalonado = formModo === 'escalonado' || formModo === 'escalonado_trabajo';
+    if (esEscalonado) {
+      const faltan = metas.filter((m) => !formGrupoSel[m.id]);
+      if (faltan.length) {
+        setNotice(`❌ Falta asignar grupo a ${faltan.length} inspector(es).`);
+        return;
+      }
+    }
+    setBusy(true);
+    setNotice(null);
+    const indiceDeGrupo: Record<string, number> = {};
+    GRUPOS_FORMULA.forEach((l, i) => {
+      indiceDeGrupo[l] = i;
+    });
+
+    const nuevosShifts: any[] = [];
+    for (const m of metas) {
+      const letra = esEscalonado ? formGrupoSel[m.id] || 'A' : 'A';
+      await supabase
+        .from('guard_inspector_meta')
+        .update({ grupo: letra, updated_by: uid })
+        .eq('id', m.id);
+      const idxGrupo = esEscalonado ? indiceDeGrupo[letra] ?? 0 : 0;
+      const calc = generarPeriodosAutomaticosTrabajoDescanso({
+        from,
+        to,
+        diasTrabajo: w,
+        diasDescanso: r,
+        modo: formModo,
+        indiceGrupo: idxGrupo,
+      });
+      for (const pDesc of calc.periodosDescanso) {
+        nuevosShifts.push({
+          inspector_id: m.inspector_id,
+          inspector_name: m.inspector_name,
+          from_date: pDesc.from_date,
+          to_date: pDesc.to_date,
+          kind: 'descanso',
+          grupo: letra,
+          created_by: uid,
+        });
+      }
+    }
+    const delRes = await supabase
+      .from('guard_shifts')
+      .delete()
+      .in(
+        'inspector_name',
+        metas.map((m) => m.inspector_name)
+      );
+    if (delRes.error) {
+      setBusy(false);
+      setNotice('❌ ' + delRes.error.message);
+      return;
+    }
+    if (nuevosShifts.length) {
+      const insRes = await supabase.from('guard_shifts').insert(nuevosShifts);
+      if (insRes.error) {
+        setBusy(false);
+        setNotice('❌ ' + insRes.error.message);
+        return;
+      }
+    }
+    setBusy(false);
+    setFormulaOpen(false);
+    load();
+    setNotice(`✅ Períodos generados automáticamente: ${w} día(s) de trabajo × ${r} día(s) de descanso.`);
   };
 
   // AUTOGENERAR 14x7: abre el modal para ARMAR LOS GRUPOS A MANO. Precarga con los
@@ -324,6 +554,9 @@ export default function DistribucionGuardiasScreen() {
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Hasta</Text>
         <DateField value={to} onChange={setTo} />
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+          <TouchableOpacity onPress={abrirFormulaTrabajoDescanso} disabled={busy} style={{ flex: 1, minWidth: 165, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12.5 }}>🔢 Días Trabajo × Descanso</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={abrirGrupos} disabled={busy} style={{ flex: 1, minWidth: 130, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12.5 }}>⚙️ Grupo x semana</Text>
           </TouchableOpacity>
@@ -347,48 +580,82 @@ export default function DistribucionGuardiasScreen() {
       {/* Calendario inspector × día */}
       {metas.length > 0 ? (
         <Card>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>Calendario del ciclo</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>Calendario del ciclo</Text>
+            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
+              👆 Toca cualquier día para cambiarlo manualmente entre T (Trabajo) y D (Descanso)
+            </Text>
+          </View>
           <ScrollView horizontal showsHorizontalScrollIndicator>
             <View>
               {/* Cabecera */}
-              <View style={{ flexDirection: 'row' }}>
-                <View style={{ width: 118 }}><Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>Inspector</Text></View>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+                <View style={{ width: 152 }}><Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>Inspector (T/D)</Text></View>
                 {days.map((d) => (
-                  <View key={d} style={{ width: 22, alignItems: 'center' }}>
+                  <View key={d} style={{ width: 24, alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontSize: 9, fontWeight: '800' }}>{ddOf(d)}</Text>
                     <Text style={{ color: dowOf(d) === 'S' || dowOf(d) === 'D' ? colors.danger : colors.muted, fontSize: 8 }}>{dowOf(d)}</Text>
                   </View>
                 ))}
               </View>
-              {/* Filas */}
-              {metas.map((m) => (
-                <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                  <View style={{ width: 118, flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                    <View style={{ width: m.grupo && m.grupo.length > 1 ? 20 : 14, height: 14, borderRadius: 3, backgroundColor: m.grupo ? badgeColorOf(m.grupo) : colors.border, alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ color: '#fff', fontSize: 8, fontWeight: '900' }}>{m.grupo || '·'}</Text>
-                    </View>
-                    <Text style={{ color: colors.text, fontSize: 9.5, fontWeight: '700', flex: 1 }} numberOfLines={1}>{m.inspector_name}</Text>
-                  </View>
-                  {days.map((d) => {
-                    const st = estadoDe(m.inspector_name, d);
-                    return (
-                      <View key={d} style={{ width: 22, height: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: st === 'D' ? grupoColor(m.grupo) + '55' : 'transparent', borderWidth: 0.5, borderColor: colors.border }}>
-                        <Text style={{ color: st === 'D' ? colors.text : colors.muted, fontSize: 9, fontWeight: st === 'D' ? '800' : '400' }}>{st}</Text>
+              {/* Filas (cada celda es tocable para alternar T <-> D) */}
+              {metas.map((m) => {
+                const descList = (shiftsByName.get(m.inspector_name) ?? []).filter((s) => s.kind === 'descanso');
+                const resumen = calcularPeriodosPersonaEnCiclo(from, to, descList);
+                return (
+                  <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                    <View style={{ width: 152, flexDirection: 'row', alignItems: 'center', gap: 3, paddingRight: 4 }}>
+                      <View style={{ width: m.grupo && m.grupo.length > 1 ? 20 : 14, height: 14, borderRadius: 3, backgroundColor: m.grupo ? badgeColorOf(m.grupo) : colors.border, alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ color: '#fff', fontSize: 8, fontWeight: '900' }}>{m.grupo || '·'}</Text>
                       </View>
-                    );
-                  })}
-                </View>
-              ))}
-              {/* En descanso */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3 }}>
-                <View style={{ width: 118 }}><Text style={{ color: colors.muted, fontSize: 9, fontWeight: '800' }}>En descanso</Text></View>
+                      <Text style={{ color: colors.text, fontSize: 9.5, fontWeight: '700', flex: 1 }} numberOfLines={1}>{m.inspector_name}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 8.5, fontWeight: '800' }}>
+                        {resumen.diasTrabajo.length}T·{resumen.diasDescanso.length}D
+                      </Text>
+                    </View>
+                    {days.map((d) => {
+                      const st = estadoDe(m.inspector_name, d);
+                      return (
+                        <TouchableOpacity
+                          key={d}
+                          disabled={busy}
+                          onPress={() => toggleDiaCalendario(m, d)}
+                          style={{
+                            width: 24,
+                            height: 20,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: st === 'D' ? badgeColorOf(m.grupo) + '66' : 'transparent',
+                            borderWidth: 0.5,
+                            borderColor: colors.border,
+                          }}
+                        >
+                          <Text style={{ color: st === 'D' ? colors.text : colors.muted, fontSize: 9.5, fontWeight: st === 'D' ? '900' : '500' }}>{st}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+              {/* En turno (T) */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                <View style={{ width: 152 }}><Text style={{ color: colors.success, fontSize: 9, fontWeight: '800' }}>En trabajo (T)</Text></View>
                 {days.map((d) => (
-                  <View key={d} style={{ width: 22, alignItems: 'center' }}><Text style={{ color: colors.text, fontSize: 9, fontWeight: '700' }}>{descansoCount(d)}</Text></View>
+                  <View key={d} style={{ width: 24, alignItems: 'center' }}>
+                    <Text style={{ color: colors.success, fontSize: 9, fontWeight: '800' }}>{metas.length - descansoCount(d)}</Text>
+                  </View>
+                ))}
+              </View>
+              {/* En descanso (D) */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                <View style={{ width: 152 }}><Text style={{ color: colors.muted, fontSize: 9, fontWeight: '800' }}>En descanso (D)</Text></View>
+                {days.map((d) => (
+                  <View key={d} style={{ width: 24, alignItems: 'center' }}><Text style={{ color: colors.text, fontSize: 9, fontWeight: '700' }}>{descansoCount(d)}</Text></View>
                 ))}
               </View>
             </View>
           </ScrollView>
-          <Text style={{ color: colors.muted, fontSize: 10, marginTop: spacing.xs }}>D = en descanso · T = en turno. Color = grupo.</Text>
+          <Text style={{ color: colors.muted, fontSize: 10, marginTop: spacing.xs }}>D = en descanso · T = en turno (trabajo). Toca cualquier celda para cambiar un día manualmente.</Text>
         </Card>
       ) : null}
 
@@ -401,9 +668,10 @@ export default function DistribucionGuardiasScreen() {
       </View>
 
       {metas.length === 0 ? (
-        <EmptyState title="Sin inspectores" subtitle="Agrega inspectores y define sus rangos de descanso, o usa Autogenerar 14x7." />
+        <EmptyState title="Sin inspectores" subtitle="Agrega inspectores y define sus días de trabajo y descanso manualmente o con «🔢 Días Trabajo × Descanso»." />
       ) : metas.map((m) => {
         const desc = (shiftsByName.get(m.inspector_name) ?? []).filter((s) => s.kind === 'descanso');
+        const periodosCiclo = calcularPeriodosPersonaEnCiclo(from, to, desc);
         return (
           <Card key={m.id}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -439,17 +707,56 @@ export default function DistribucionGuardiasScreen() {
                   style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 6, color: colors.text, fontSize: 12 }} />
               ))}
             </View>
-            {/* Descansos */}
-            <View style={{ marginTop: spacing.xs }}>
-              {desc.length === 0 ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>Sin descanso definido.</Text> : desc.map((s) => (
-                <View key={s.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 }}>
-                  <Text style={{ color: colors.text, fontSize: 12 }}>🛌 Descanso: {dmy(s.from_date)} al {dmy(s.to_date)}</Text>
-                  <TouchableOpacity onPress={() => quitarShift(s)}><Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>Borrar</Text></TouchableOpacity>
-                </View>
-              ))}
-              <TouchableOpacity onPress={() => { setDescansoFor(m); setDFrom(from); setDTo(addDaysISO(from, 6)); }} style={{ marginTop: 4, alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>➕ Agregar descanso</Text>
-              </TouchableOpacity>
+            {/* Resumen de Períodos de Trabajo (T) y Descansos (D) en el ciclo */}
+            <View style={{ marginTop: spacing.xs, gap: 3 }}>
+              <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+                  🛠️ Trabajo en el ciclo ({periodosCiclo.diasTrabajo.length} d):{' '}
+                  <Text style={{ fontWeight: '400' }}>
+                    {periodosCiclo.periodosTrabajo.length > 0
+                      ? formatearRangosCortos(periodosCiclo.periodosTrabajo)
+                      : 'Sin días de trabajo en el rango'}
+                  </Text>
+                </Text>
+              </View>
+              {desc.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 11.5 }}>🛌 Sin descanso definido (trabaja todos los días del ciclo).</Text>
+              ) : (
+                desc.map((s) => (
+                  <View key={s.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
+                    <Text style={{ color: colors.text, fontSize: 12 }}>
+                      🛌 Descanso: {dmy(s.from_date)} al {dmy(s.to_date)} ({daysBetween(s.from_date, s.to_date).length} d)
+                    </Text>
+                    <TouchableOpacity onPress={() => quitarShift(s)}>
+                      <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>Borrar</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+              <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setDescansoFor(m);
+                    setTipoRangoManual('descanso');
+                    setDFrom(from);
+                    setDTo(addDaysISO(from, 6));
+                  }}
+                  style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>➕ Agregar descanso (D)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setDescansoFor(m);
+                    setTipoRangoManual('trabajo');
+                    setDFrom(from);
+                    setDTo(addDaysISO(from, 6));
+                  }}
+                  style={{ borderWidth: 1, borderColor: colors.success, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                >
+                  <Text style={{ color: colors.success, fontWeight: '700', fontSize: 11.5 }}>🛠️ Marcar días de trabajo (T)</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </Card>
         );
@@ -472,6 +779,268 @@ export default function DistribucionGuardiasScreen() {
             <TouchableOpacity onPress={() => setAddOpen(false)} style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
             </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Modal: Calcular automáticamente por Días de Trabajo × Días de Descanso */}
+      <Modal visible={formulaOpen} transparent animationType="slide" onRequestClose={() => setFormulaOpen(false)}>
+        <Pressable onPress={() => setFormulaOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%', padding: spacing.lg }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: 2 }}>
+              🔢 Calcular períodos por Días de Trabajo y Descanso
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
+              Indica cuántos días trabaja y cuántos días descansa el personal. El sistema calcula automáticamente los períodos de trabajo (T) y de descanso (D) dentro del ciclo {dmy(from)} — {dmy(to)}.
+            </Text>
+
+            {/* Atajos rápidos */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 4 }}>Esquemas frecuentes (o escribe abajo cualquier cantidad):</Text>
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: spacing.sm }}>
+              {(
+                [
+                  [14, 7, '14×7'],
+                  [7, 7, '7×7'],
+                  [21, 7, '21×7'],
+                  [10, 4, '10×4'],
+                  [6, 1, '6×1'],
+                  [5, 2, '5×2'],
+                  [4, 2, '4×2'],
+                ] as const
+              ).map(([w, r, lbl]) => {
+                const activo = numTrabajoFormula === w && numDescansoFormula === r;
+                return (
+                  <TouchableOpacity
+                    key={lbl}
+                    onPress={() => aplicarPresetFormula(w, r)}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: radius.pill,
+                      borderWidth: 1.5,
+                      borderColor: activo ? colors.success : colors.border,
+                      backgroundColor: activo ? colors.success + '22' : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: activo ? colors.success : colors.text, fontWeight: '800', fontSize: 12 }}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Inputs de Días de Trabajo y Días de Descanso */}
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: 3 }}>🛠️ Días de trabajo</Text>
+                <TextInput
+                  value={formTrabajo}
+                  onChangeText={(txt) => {
+                    setFormTrabajo(txt);
+                    const w = Math.max(1, Math.round(leerNumero(txt) || 1));
+                    const gList = Array.from(
+                      { length: calcularGruposSugeridosFormula(w, numDescansoFormula) },
+                      (_, i) => String.fromCharCode(65 + i)
+                    );
+                    setFormGrupoSel((prev) => ({ ...computeAutoGroups(gList), ...prev }));
+                  }}
+                  keyboardType="numeric"
+                  placeholder="Ej. 14"
+                  placeholderTextColor={colors.muted}
+                  style={{
+                    backgroundColor: colors.surface,
+                    borderWidth: 1.5,
+                    borderColor: colors.success,
+                    borderRadius: radius.md,
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: 8,
+                    color: colors.text,
+                    fontSize: 15,
+                    fontWeight: '800',
+                  }}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: 3 }}>🛌 Días de descanso</Text>
+                <TextInput
+                  value={formDescanso}
+                  onChangeText={(txt) => {
+                    setFormDescanso(txt);
+                    const r = Math.max(1, Math.round(leerNumero(txt) || 1));
+                    const gList = Array.from(
+                      { length: calcularGruposSugeridosFormula(numTrabajoFormula, r) },
+                      (_, i) => String.fromCharCode(65 + i)
+                    );
+                    setFormGrupoSel((prev) => ({ ...computeAutoGroups(gList), ...prev }));
+                  }}
+                  keyboardType="numeric"
+                  placeholder="Ej. 7"
+                  placeholderTextColor={colors.muted}
+                  style={{
+                    backgroundColor: colors.surface,
+                    borderWidth: 1.5,
+                    borderColor: colors.primary,
+                    borderRadius: radius.md,
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: 8,
+                    color: colors.text,
+                    fontSize: 15,
+                    fontWeight: '800',
+                  }}
+                />
+              </View>
+            </View>
+
+            {/* Botones rápidos para ajustar duración del ciclo a 1 o 2 rotaciones completas */}
+            <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginBottom: spacing.sm }}>
+              <TouchableOpacity
+                onPress={() => setTo(addDaysISO(from, numTrabajoFormula + numDescansoFormula - 1))}
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+              >
+                <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                  📏 Ajustar ciclo a 1 rotación ({numTrabajoFormula + numDescansoFormula} días)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setTo(addDaysISO(from, (numTrabajoFormula + numDescansoFormula) * 2 - 1))}
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+              >
+                <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                  📏 Ajustar a 2 rotaciones ({(numTrabajoFormula + numDescansoFormula) * 2} días)
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Modo de distribución */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 4 }}>¿Cómo distribuir los períodos?</Text>
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: spacing.sm }}>
+              {(
+                [
+                  ['escalonado_trabajo', '🔄 Por grupos (Grupo A empieza trabajando)'],
+                  ['escalonado', '🪜 Por grupos (Grupo A empieza descansando)'],
+                  ['simultaneo_trabajo_primero', '👥 Todos igual (empiezan trabajando)'],
+                ] as const
+              ).map(([mKey, mLbl]) => {
+                const on = formModo === mKey;
+                return (
+                  <TouchableOpacity
+                    key={mKey}
+                    onPress={() => setFormModo(mKey)}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: radius.md,
+                      borderWidth: 1.5,
+                      borderColor: on ? colors.primary : colors.border,
+                      backgroundColor: on ? colors.primary + '18' : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: on ? '800' : '600' }}>{mLbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {notice && formulaOpen ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12, marginBottom: spacing.xs }}>{notice}</Text> : null}
+
+            {/* Lista de personal con su grupo y vista previa de los períodos calculados */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
+                Vista previa de períodos ({dmy(from)} al {dmy(to)})
+              </Text>
+              {(formModo === 'escalonado' || formModo === 'escalonado_trabajo') ? (
+                <TouchableOpacity
+                  onPress={() => setFormGrupoSel(computeAutoGroups(GRUPOS_FORMULA))}
+                  style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3 }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>✨ Sugerir grupos</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 260 }}>
+              {[...metas]
+                .sort((a, b) => cmpText(a.inspector_name, b.inspector_name))
+                .map((m) => {
+                  const letra = formGrupoSel[m.id] || 'A';
+                  const idxG = Math.max(0, GRUPOS_FORMULA.indexOf(letra));
+                  const prevCalc = generarPeriodosAutomaticosTrabajoDescanso({
+                    from,
+                    to,
+                    diasTrabajo: numTrabajoFormula,
+                    diasDescanso: numDescansoFormula,
+                    modo: formModo,
+                    indiceGrupo: idxG,
+                  });
+                  return (
+                    <View
+                      key={m.id}
+                      style={{
+                        paddingVertical: 7,
+                        borderBottomWidth: 1,
+                        borderBottomColor: colors.border,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{ flex: 1, paddingRight: spacing.xs }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={1}>
+                            {m.inspector_name}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 10.5 }}>{m.cargo || 'Inspector'}</Text>
+                        </View>
+                        {(formModo === 'escalonado' || formModo === 'escalonado_trabajo') ? (
+                          <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
+                            {GRUPOS_FORMULA.map((g) => {
+                              const on = letra === g;
+                              return (
+                                <TouchableOpacity
+                                  key={g}
+                                  onPress={() => setFormGrupoSel((p) => ({ ...p, [m.id]: g }))}
+                                  style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 6,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    backgroundColor: on ? grupoColor(g) : colors.surfaceAlt,
+                                    borderWidth: 1.5,
+                                    borderColor: on ? grupoColor(g) : colors.border,
+                                  }}
+                                >
+                                  <Text style={{ color: on ? '#fff' : colors.muted, fontWeight: '900', fontSize: 12 }}>{g}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700', marginTop: 3 }}>
+                        🛠️ Trabajo ({prevCalc.diasTrabajoList.length} d): {formatearRangosCortos(prevCalc.periodosTrabajo)}
+                      </Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>
+                        🛌 Descanso ({prevCalc.diasDescansoList.length} d): {formatearRangosCortos(prevCalc.periodosDescanso)}
+                      </Text>
+                    </View>
+                  );
+                })}
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+              <TouchableOpacity
+                onPress={() => setFormulaOpen(false)}
+                style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={generarPorFormulaTrabajoDescanso}
+                disabled={busy}
+                style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success, opacity: busy ? 0.6 : 1 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '900' }}>
+                  {busy ? 'Generando…' : `🔢 Aplicar ${numTrabajoFormula}d T × ${numDescansoFormula}d D`}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -589,21 +1158,88 @@ export default function DistribucionGuardiasScreen() {
         </Pressable>
       </Modal>
 
-      {/* Modal: agregar descanso */}
+      {/* Modal: Marcar rango manual de Descanso (D) o de Trabajo (T) */}
       <Modal visible={!!descansoFor} transparent animationType="slide" onRequestClose={() => setDescansoFor(null)}>
         <Pressable onPress={() => setDescansoFor(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
           <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg }}>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: spacing.sm }}>🛌 Descanso · {descansoFor?.inspector_name}</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
+              {tipoRangoManual === 'descanso' ? '🛌 Marcar días de Descanso (D)' : '🛠️ Marcar días de Trabajo (T)'} · {descansoFor?.inspector_name}
+            </Text>
+
+            {/* Conmutador Descanso vs Trabajo */}
+            <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+              <TouchableOpacity
+                onPress={() => setTipoRangoManual('descanso')}
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  borderRadius: radius.md,
+                  alignItems: 'center',
+                  borderWidth: 1.5,
+                  borderColor: tipoRangoManual === 'descanso' ? colors.accent : colors.border,
+                  backgroundColor: tipoRangoManual === 'descanso' ? colors.accent + '22' : colors.surface,
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>🛌 Días de Descanso (D)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setTipoRangoManual('trabajo')}
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  borderRadius: radius.md,
+                  alignItems: 'center',
+                  borderWidth: 1.5,
+                  borderColor: tipoRangoManual === 'trabajo' ? colors.success : colors.border,
+                  backgroundColor: tipoRangoManual === 'trabajo' ? colors.success + '22' : colors.surface,
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>🛠️ Días de Trabajo (T)</Text>
+              </TouchableOpacity>
+            </View>
+
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Desde</Text>
             <DateField value={dFrom} onChange={setDFrom} />
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Hasta</Text>
             <DateField value={dTo} onChange={setDTo} />
+
+            {/* Botones rápidos para aplicar a todo el ciclo */}
+            <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: spacing.sm }}>
+              <TouchableOpacity
+                onPress={() => aplicarRangoManual('trabajo', from, to)}
+                disabled={busy}
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}
+              >
+                <Text style={{ color: colors.success, fontSize: 11, fontWeight: '800' }}>🛠️ Todo el ciclo en Trabajo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => aplicarRangoManual('descanso', from, to)}
+                disabled={busy}
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}
+              >
+                <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>🛌 Todo el ciclo en Descanso</Text>
+              </TouchableOpacity>
+            </View>
+
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
               <TouchableOpacity onPress={() => setDescansoFor(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={agregarDescanso} disabled={busy} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: busy ? 0.6 : 1 }}>
-                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : 'Guardar descanso'}</Text>
+              <TouchableOpacity
+                onPress={() => aplicarRangoManual()}
+                disabled={busy}
+                style={{
+                  flex: 2,
+                  padding: spacing.md,
+                  borderRadius: radius.md,
+                  alignItems: 'center',
+                  backgroundColor: tipoRangoManual === 'descanso' ? colors.accent : colors.success,
+                  opacity: busy ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: tipoRangoManual === 'descanso' ? colors.accentContrast : '#fff', fontWeight: '800' }}>
+                  {busy ? 'Guardando…' : tipoRangoManual === 'descanso' ? '🛌 Guardar descanso' : '🛠️ Guardar días de trabajo'}
+                </Text>
               </TouchableOpacity>
             </View>
           </Pressable>

@@ -13,10 +13,254 @@ import { cmpText } from './text';
 export type GuardInspector = { name: string; grupo: string | null; cargo: string | null; cedula: string | null; telefono: string | null; sector: string | null };
 export type GuardShift = { inspector_name: string; from_date: string; to_date: string; kind: 'turno' | 'descanso' };
 
+export type RangoFechas = {
+  from_date: string;
+  to_date: string;
+  days: number;
+};
+
+export type ModoFormulaTrabajoDescanso =
+  | 'escalonado'
+  | 'escalonado_trabajo'
+  | 'simultaneo_trabajo_primero'
+  | 'simultaneo_descanso_primero';
+
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
 /** "DD/MM" a partir de un ISO "AAAA-MM-DD" (para rangos compactos). */
 const dm = (iso: string) => { const [, m, d] = (iso || '').split('-'); return m && d ? `${d}/${m}` : iso; };
+
+/** Suma `n` días a una fecha ISO "AAAA-MM-DD" en UTC. */
+export function sumarDiasISO(iso: string, n: number): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Lista todos los días ISO ("AAAA-MM-DD") entre `from` y `to` (inclusive, máx 400 días). */
+export function listarDiasRango(from: string, to: string): string[] {
+  if (!from || !to || to < from) return [];
+  const out: string[] = [];
+  let cur = from;
+  for (let i = 0; i < 400 && cur <= to; i++) {
+    out.push(cur);
+    cur = sumarDiasISO(cur, 1);
+  }
+  return out;
+}
+
+/** Agrupa una lista de fechas ISO sueltas en rangos continuos `{ from_date, to_date, days }`. */
+export function compactarDiasEnRangos(diasIso: string[]): RangoFechas[] {
+  const unicos = Array.from(new Set((diasIso || []).filter(Boolean))).sort();
+  if (unicos.length === 0) return [];
+  const rangos: RangoFechas[] = [];
+  let inicio = unicos[0];
+  let fin = unicos[0];
+  let cuenta = 1;
+  for (let i = 1; i < unicos.length; i++) {
+    const d = unicos[i];
+    if (d === sumarDiasISO(fin, 1)) {
+      fin = d;
+      cuenta++;
+    } else {
+      rangos.push({ from_date: inicio, to_date: fin, days: cuenta });
+      inicio = d;
+      fin = d;
+      cuenta = 1;
+    }
+  }
+  rangos.push({ from_date: inicio, to_date: fin, days: cuenta });
+  return rangos;
+}
+
+/** Formatea una lista de rangos como texto legible ("06/11 al 12/11 · 20/11 al 26/11"). */
+export function formatearRangosCortos(rangos: RangoFechas[]): string {
+  if (!rangos || rangos.length === 0) return '—';
+  return rangos
+    .map((r) => (r.from_date === r.to_date ? dm(r.from_date) : `${dm(r.from_date)} al ${dm(r.to_date)}`))
+    .join(' · ');
+}
+
+/**
+ * Calcula para una persona dentro del ciclo `[from, to]` todos sus días y períodos
+ * continuos de TRABAJO (`T`) y de DESCANSO (`D`).
+ */
+export function calcularPeriodosPersonaEnCiclo(
+  from: string,
+  to: string,
+  descansos: { from_date: string; to_date: string }[]
+): {
+  diasTrabajo: string[];
+  diasDescanso: string[];
+  periodosTrabajo: RangoFechas[];
+  periodosDescanso: RangoFechas[];
+  resumenTrabajoTxt: string;
+  resumenDescansoTxt: string;
+} {
+  const todos = listarDiasRango(from, to);
+  const diasTrabajo: string[] = [];
+  const diasDescanso: string[] = [];
+
+  for (const d of todos) {
+    const enDescanso = (descansos || []).some((s) => s.from_date <= d && d <= s.to_date);
+    if (enDescanso) diasDescanso.push(d);
+    else diasTrabajo.push(d);
+  }
+
+  const periodosTrabajo = compactarDiasEnRangos(diasTrabajo);
+  const periodosDescanso = compactarDiasEnRangos(diasDescanso);
+
+  const resumenTrabajoTxt =
+    diasTrabajo.length > 0
+      ? `${diasTrabajo.length} d (${formatearRangosCortos(periodosTrabajo)})`
+      : '0 d';
+  const resumenDescansoTxt =
+    diasDescanso.length > 0
+      ? `${diasDescanso.length} d (${formatearRangosCortos(periodosDescanso)})`
+      : 'Sin descanso';
+
+  return {
+    diasTrabajo,
+    diasDescanso,
+    periodosTrabajo,
+    periodosDescanso,
+    resumenTrabajoTxt,
+    resumenDescansoTxt,
+  };
+}
+
+/**
+ * Aplica un cambio manual de rango `[cambioFrom, cambioTo]` marcándolo como `'trabajo'` (`T`)
+ * o `'descanso'` (`D`) sobre los rangos de descanso actuales de una persona.
+ * Si se marca `'trabajo'`, recorta o parte cualquier descanso que pisara esas fechas.
+ * Si se marca `'descanso'`, agrega esas fechas y une rangos contiguos.
+ */
+export function aplicarCambioManualEnRangos(
+  rangosDescansoActuales: { from_date: string; to_date: string }[],
+  cambioFrom: string,
+  cambioTo: string,
+  nuevoEstado: 'trabajo' | 'descanso'
+): RangoFechas[] {
+  if (!cambioFrom || !cambioTo || cambioTo < cambioFrom) {
+    return compactarDiasEnRangos(
+      (rangosDescansoActuales || []).flatMap((r) => listarDiasRango(r.from_date, r.to_date))
+    );
+  }
+  const setDescanso = new Set<string>();
+  for (const r of rangosDescansoActuales || []) {
+    for (const d of listarDiasRango(r.from_date, r.to_date)) {
+      setDescanso.add(d);
+    }
+  }
+  for (const d of listarDiasRango(cambioFrom, cambioTo)) {
+    if (nuevoEstado === 'descanso') setDescanso.add(d);
+    else setDescanso.delete(d);
+  }
+  return compactarDiasEnRangos(Array.from(setDescanso));
+}
+
+/**
+ * Alterna manualmente un solo día (`diaIso`) entre `'trabajo'` (`T`) y `'descanso'` (`D`),
+ * partiendo o uniendo los rangos de descanso según corresponda.
+ */
+export function alternarDiaManualEnRangos(
+  rangosDescansoActuales: { from_date: string; to_date: string }[],
+  diaIso: string
+): { nuevoEstado: 'trabajo' | 'descanso'; rangosDescanso: RangoFechas[] } {
+  const estabaEnDescanso = (rangosDescansoActuales || []).some(
+    (r) => r.from_date <= diaIso && diaIso <= r.to_date
+  );
+  const nuevoEstado: 'trabajo' | 'descanso' = estabaEnDescanso ? 'trabajo' : 'descanso';
+  const rangosDescanso = aplicarCambioManualEnRangos(
+    rangosDescansoActuales,
+    diaIso,
+    diaIso,
+    nuevoEstado
+  );
+  return { nuevoEstado, rangosDescanso };
+}
+
+/**
+ * Calcula cuántos grupos naturales sugiere la fórmula `diasTrabajo × diasDescanso`
+ * para mantener cobertura continua (ej. 14×7 -> 3 grupos, 7×7 -> 2 grupos, 21×7 -> 4 grupos, 6×1 -> 7 grupos).
+ */
+export function calcularGruposSugeridosFormula(diasTrabajo: number, diasDescanso: number): number {
+  const w = Math.max(1, Math.round(Number(diasTrabajo) || 1));
+  const r = Math.max(1, Math.round(Number(diasDescanso) || 1));
+  return Math.max(2, Math.min(12, Math.ceil((w + r) / r)));
+}
+
+/**
+ * Genera automáticamente los períodos de TRABAJO (`T`) y de DESCANSO (`D`) dentro del
+ * rango `[from, to]` a partir de la cantidad de días de trabajo (`diasTrabajo`) y
+ * días de descanso (`diasDescanso`):
+ * - `'escalonado_trabajo'` (por defecto): el Grupo A (índice 0) empieza trabajando `diasTrabajo`
+ *   y luego descansa `diasDescanso`; cada grupo siguiente va desfasado en bloques de `diasDescanso` días.
+ * - `'escalonado'`: el Grupo A descansa el primer bloque de `diasDescanso` días, el Grupo B el segundo bloque, etc.
+ * - `'simultaneo_trabajo_primero'`: empieza con `diasTrabajo` días de trabajo seguidos de `diasDescanso` de descanso, repitiéndose.
+ * - `'simultaneo_descanso_primero'`: empieza con `diasDescanso` días de descanso seguidos de `diasTrabajo` de trabajo, repitiéndose.
+ */
+export function generarPeriodosAutomaticosTrabajoDescanso(opts: {
+  from: string;
+  to: string;
+  diasTrabajo: number;
+  diasDescanso: number;
+  modo?: ModoFormulaTrabajoDescanso;
+  indiceGrupo?: number;
+}): {
+  periodosTrabajo: RangoFechas[];
+  periodosDescanso: RangoFechas[];
+  diasTrabajoList: string[];
+  diasDescansoList: string[];
+  etiquetaRotacion: string;
+  gruposSugeridos: number;
+} {
+  const w = Math.max(1, Math.round(Number(opts.diasTrabajo) || 1));
+  const r = Math.max(1, Math.round(Number(opts.diasDescanso) || 1));
+  const cicloLen = w + r;
+  const modo: ModoFormulaTrabajoDescanso = opts.modo || 'escalonado_trabajo';
+  const g = Math.max(0, Math.round(Number(opts.indiceGrupo) || 0));
+  const todos = listarDiasRango(opts.from, opts.to);
+
+  const diasTrabajoList: string[] = [];
+  const diasDescansoList: string[] = [];
+
+  for (let i = 0; i < todos.length; i++) {
+    const dia = todos[i];
+    let esDescanso = false;
+
+    if (modo === 'simultaneo_trabajo_primero') {
+      const pos = i % cicloLen;
+      esDescanso = pos >= w;
+    } else if (modo === 'simultaneo_descanso_primero') {
+      const pos = i % cicloLen;
+      esDescanso = pos < r;
+    } else if (modo === 'escalonado') {
+      // El grupo g descansa en el bloque [g * r, g * r + r - 1] dentro de cada ciclo (w + r)
+      const inicioDescanso = (g * r) % cicloLen;
+      const pos = ((i - inicioDescanso) % cicloLen + cicloLen) % cicloLen;
+      esDescanso = pos < r;
+    } else {
+      // 'escalonado_trabajo': el grupo 0 trabaja [0..w-1] y descansa [w..w+r-1];
+      // cada grupo g desplaza su ventana de descanso en g * r días.
+      const inicioDescanso = (w + g * r) % cicloLen;
+      const pos = ((i - inicioDescanso) % cicloLen + cicloLen) % cicloLen;
+      esDescanso = pos < r;
+    }
+
+    if (esDescanso) diasDescansoList.push(dia);
+    else diasTrabajoList.push(dia);
+  }
+
+  return {
+    periodosTrabajo: compactarDiasEnRangos(diasTrabajoList),
+    periodosDescanso: compactarDiasEnRangos(diasDescansoList),
+    diasTrabajoList,
+    diasDescansoList,
+    etiquetaRotacion: `${w}x${r} (${w}d trabajo × ${r}d descanso)`,
+    gruposSugeridos: calcularGruposSugeridosFormula(w, r),
+  };
+}
 
 /** Días de la semana por getUTCDay() (0=Dom..6=Sáb). */
 const DOW = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
@@ -242,24 +486,27 @@ export async function generateGuardiasReport(opts: {
   const legendGrupos = grupos.map((g) => `<span class="swatch" style="background:${colorGrupo(g)}"></span>${esc(g)}`).join(' ');
   const leyenda = `<div class="legend"><b>D</b> En descanso · <b>T</b> En turno${legendGrupos ? ' · Grupos: ' + legendGrupos : ''}</div>`;
 
-  // 2) Conformación de los grupos.
-  const descansoTxt = (name: string): string => {
-    const d = primerDescanso(name);
-    return d ? `${dm(d.from_date)} al ${dm(d.to_date)}` : '—';
+  // 2) Conformación de los grupos (con períodos de trabajo y de descanso del ciclo).
+  const resumenPersona = (name: string) => {
+    const descList = (shiftsByInsp.get(name) || []).filter((s) => s.kind === 'descanso');
+    return calcularPeriodosPersonaEnCiclo(from, to, descList);
   };
-  const filasGrupo = orden.map((i) =>
-    `<tr>
+  const filasGrupo = orden.map((i) => {
+    const res = resumenPersona(i.name);
+    return `<tr>
       <td>${esc(i.grupo || '—')}</td>
       <td><b>${esc(i.name)}</b></td>
       <td>${esc(i.cedula || '—')}</td>
       <td>${esc(i.telefono || '—')}</td>
       <td>${esc(i.sector || '—')}</td>
       <td>${esc(i.cargo || '—')}</td>
-      <td>${esc(descansoTxt(i.name))}</td>
-    </tr>`).join('');
+      <td>${esc(res.resumenTrabajoTxt)}</td>
+      <td>${esc(res.resumenDescansoTxt)}</td>
+    </tr>`;
+  }).join('');
   const tablaGrupos =
     `<table class="ir"><thead><tr>` +
-    `<th>Grupo</th><th>${esc(PL)}</th><th>Cédula</th><th>Teléfono</th><th>Sector</th><th>Cargo</th><th>Descanso del ciclo</th>` +
+    `<th>Grupo</th><th>${esc(PL)}</th><th>Cédula</th><th>Teléfono</th><th>Sector</th><th>Cargo</th><th>Trabajo del ciclo</th><th>Descanso del ciclo</th>` +
     `</tr></thead><tbody>${filasGrupo}</tbody></table>`;
 
   // Cobertura por grupo.
