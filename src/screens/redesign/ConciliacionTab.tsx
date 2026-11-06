@@ -21,17 +21,35 @@ import { cargarHorometros, claveHorometro, HorometroDia, HOROMETRO_AJUSTES_ACTIV
 import HorometroCombustibleModal from '../../components/combustible/HorometroCombustibleModal';
 import SelectorMultiple from '../../components/combustible/SelectorMultiple';
 import { filtrarPorEquipos, filtrarPorTanques, opcionesEquipos, opcionesTanques } from '../../lib/combustibleEquipos';
+import {
+  LOGOS_COMBUSTIBLE_CATALOGO,
+  LOGOS_COMBUSTIBLE_DEFECTO,
+  LogoCombustibleKey,
+  LogosReporteCombustible,
+  OPCIONES_REPORTE_CONCILIACION,
+  OpcionesActivas,
+  mezclarLogosCombustible,
+  mezclarOpciones,
+} from '../../lib/combustibleReportes';
 
 // 02-nov-2026: interruptores del «🧾 Desglose del rango». Se recuerdan por persona.
 const ETIQUETAS_OPCIONES_DESGLOSE: { k: keyof OpcionesDesglose; t: string }[] = [
   { k: 'consumos', t: 'Consumos' },
   { k: 'entradas', t: 'Entradas' },
+  { k: 'hora', t: 'Hora' },
   { k: 'placa', t: 'Placa' },
   { k: 'serial', t: 'Serial' },
+  { k: 'tanque', t: 'Tanque' },
   { k: 'horometro', t: 'Horómetro' },
   { k: 'contador', t: 'Contador de bomba' },
+  { k: 'autorizado', t: 'Autorizó' },
+  { k: 'nota', t: 'Nota' },
+  { k: 'factura', t: 'Factura (entradas)' },
+  { k: 'costo', t: 'Costo (entradas)' },
   { k: 'totalesEquipo', t: 'Totales por equipo' },
   { k: 'totalesTanque', t: 'Totales por tanque' },
+  { k: 'firmas', t: 'Firmas al pie' },
+  { k: 'marcaTexto', t: 'Marca de empresa en texto' },
 ];
 const MAX_FILAS_PANTALLA = 300;
 
@@ -89,11 +107,16 @@ export default function ConciliacionTab() {
   const puedeCorregirHorometro = HOROMETRO_AJUSTES_ACTIVOS && levelMeets(moduleLevel('consumos'), 'full');
   const [desgloseAbierto, setDesgloseAbierto] = useState(false);
   const [opcDesglose, setOpcDesglose] = useState<OpcionesDesglose>(OPCIONES_DESGLOSE_DEFECTO);
+  const [opcActa, setOpcActa] = useState<OpcionesActivas>(() => mezclarOpciones(OPCIONES_REPORTE_CONCILIACION, null));
+  const [logosPdf, setLogosPdf] = useState<LogosReporteCombustible>(() => ({ ...LOGOS_COMBUSTIBLE_DEFECTO }));
+  const [personalizarActaAbierto, setPersonalizarActaAbierto] = useState(false);
   const [horometros, setHorometros] = useState<Map<string, HorometroDia>>(new Map());
   const [cargandoHorometro, setCargandoHorometro] = useState(false);
   const [exportingDesglose, setExportingDesglose] = useState(false);
   const [editHorometro, setEditHorometro] = useState<{ machineryId: string; fecha: string; equipo: string } | null>(null);
   const claveOpciones = `comb_desglose_rango_opciones:${session?.user?.id ?? 'anon'}`;
+  const claveOpcionesActa = `comb_conciliacion_acta_opciones:${session?.user?.id ?? 'anon'}`;
+  const claveLogosConc = `comb_conciliacion_logos:${session?.user?.id ?? 'anon'}`;
 
   useEffect(() => {
     let vivo = true;
@@ -104,11 +127,19 @@ export default function ConciliacionTab() {
       } catch {
         /* sin opciones guardadas: valores por defecto */
       }
+      try {
+        const rawA = await AsyncStorage.getItem(claveOpcionesActa);
+        if (vivo && rawA) setOpcActa(mezclarOpciones(OPCIONES_REPORTE_CONCILIACION, JSON.parse(rawA)));
+      } catch { /* ignore */ }
+      try {
+        const rawL = await AsyncStorage.getItem(claveLogosConc);
+        if (vivo && rawL) setLogosPdf(mezclarLogosCombustible(JSON.parse(rawL)));
+      } catch { /* ignore */ }
     })();
     return () => {
       vivo = false;
     };
-  }, [claveOpciones]);
+  }, [claveOpciones, claveOpcionesActa, claveLogosConc]);
 
   const cambiarOpcion = (k: keyof OpcionesDesglose) => {
     setOpcDesglose((prev) => {
@@ -120,6 +151,33 @@ export default function ConciliacionTab() {
       }
       return next;
     });
+  };
+
+  const cambiarOpcionActa = (k: string) => {
+    setOpcActa((prev) => {
+      const next = { ...prev, [k]: !prev[k] };
+      try { AsyncStorage.setItem(claveOpcionesActa, JSON.stringify(next)).catch(() => {}); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const cambiarLogoPdf = (k: LogoCombustibleKey) => {
+    setLogosPdf((prev) => {
+      const next: LogosReporteCombustible = { ...prev, [k]: !prev[k] };
+      try { AsyncStorage.setItem(claveLogosConc, JSON.stringify(next)).catch(() => {}); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const aplicarLogosLote = (modo: 'todos' | 'defecto' | 'ninguno') => {
+    const next: LogosReporteCombustible =
+      modo === 'todos'
+        ? { bcv: true, sos: true, golden: true, renace: true, jhenzaen: true }
+        : modo === 'ninguno'
+        ? { bcv: false, sos: false, golden: false, renace: false, jhenzaen: false }
+        : { ...LOGOS_COMBUSTIBLE_DEFECTO };
+    setLogosPdf(next);
+    try { AsyncStorage.setItem(claveLogosConc, JSON.stringify(next)).catch(() => {}); } catch { /* ignore */ }
   };
 
   const rangoValido = /^\d{4}-\d{2}-\d{2}$/.test(desde) && /^\d{4}-\d{2}-\d{2}$/.test(hasta) && desde <= hasta;
@@ -180,7 +238,7 @@ export default function ConciliacionTab() {
     }
     setExportingDesglose(true);
     try {
-      await exportarDesgloseRangoPdf({ desglose, opciones: opcDesglose, elaboradoPor: elaboradoPor.trim() || currentUserName });
+      await exportarDesgloseRangoPdf({ desglose, opciones: opcDesglose, elaboradoPor: elaboradoPor.trim() || currentUserName, logos: logosPdf });
       toast.success('Desglose del rango descargado en PDF.');
     } catch (err: any) {
       toast.error('Error al exportar el desglose: ' + (err?.message || 'Error'));
@@ -268,14 +326,20 @@ export default function ConciliacionTab() {
   const handleDescargarPdf = async () => {
     setExportingPdf(true);
     try {
-      await exportarConciliacionPdf({
-        periodoDesde: desde,
-        periodoHasta: hasta,
-        elaboradoPor: elaboradoPor.trim() || currentUserName,
-        revisadoPor: revisadoPor.trim() || undefined,
-        observaciones: observaciones.trim() || undefined,
-        filas: filasConciliacion,
-      });
+      await exportarConciliacionPdf(
+        {
+          periodoDesde: desde,
+          periodoHasta: hasta,
+          elaboradoPor: elaboradoPor.trim() || currentUserName,
+          revisadoPor: revisadoPor.trim() || undefined,
+          observaciones: observaciones.trim() || undefined,
+          filas: filasConciliacion,
+          opciones: opcActa,
+          logos: logosPdf,
+        },
+        opcActa,
+        logosPdf,
+      );
       toast.success('Acta de conciliación descargada en PDF.');
     } catch (err: any) {
       toast.error('Error al exportar conciliación en PDF: ' + (err?.message || 'Error'));
@@ -572,8 +636,98 @@ export default function ConciliacionTab() {
           })}
         </View>
 
+        {/* 🏷️⚙️ Personalización de Logos y Columnas del Acta en PDF */}
+        <View style={{ marginTop: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, gap: spacing.xs }}>
+          <TouchableOpacity
+            onPress={() => setPersonalizarActaAbierto((v) => !v)}
+            style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text }}>
+              ⚙️ Personalizar Acta PDF y Logos del membrete
+            </Text>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: colors.primary }}>
+              {personalizarActaAbierto ? '▲ Ocultar opciones' : '▼ Elegir logos y columnas'}
+            </Text>
+          </TouchableOpacity>
+
+          {personalizarActaAbierto ? (
+            <View style={{ gap: spacing.sm, marginTop: 4 }}>
+              <View style={{ gap: 6 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
+                    🏷️ Logos del membrete (Acta y Desglose)
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                    <TouchableOpacity onPress={() => aplicarLogosLote('todos')} style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>✓ Todos</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => aplicarLogosLote('defecto')} style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>↺ Por defecto</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => aplicarLogosLote('ninguno')} style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.muted }}>🚫 Sin logos</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {LOGOS_COMBUSTIBLE_CATALOGO.map((item) => {
+                    const on = !!logosPdf[item.key];
+                    return (
+                      <TouchableOpacity
+                        key={item.key}
+                        onPress={() => cambiarLogoPdf(item.key)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: on ? colors.primary : colors.border,
+                          backgroundColor: on ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: on ? colors.primaryContrast : colors.text }}>
+                          {on ? '✓ ' : ''}{item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={{ gap: 6 }}>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
+                  📋 Qué columnas y secciones salen en el Acta PDF
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {OPCIONES_REPORTE_CONCILIACION.map((o) => {
+                    const on = opcActa[o.key] !== false;
+                    return (
+                      <TouchableOpacity
+                        key={o.key}
+                        onPress={() => cambiarOpcionActa(o.key)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: on ? colors.primary : colors.border,
+                          backgroundColor: on ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: on ? colors.primaryContrast : colors.muted }}>
+                          {on ? '✓ ' : ''}{o.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+          ) : null}
+        </View>
+
         {/* Botones de Exportación ("Sacarlo" en PDF y Excel) */}
-        <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.md, flexWrap: 'wrap' }}>
           <TouchableOpacity
             onPress={handleDescargarPdf}
             disabled={exportingPdf || exportingExcel}
@@ -664,6 +818,50 @@ export default function ConciliacionTab() {
               Del {desglose.desde} al {desglose.hasta}. Toca una opción para quitarla o ponerla: lo apagado no sale en
               pantalla ni en el PDF.
             </Text>
+
+            {/* 🏷️ Logos del membrete para el Desglose */}
+            <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, gap: 6 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
+                  🏷️ Logos del membrete (colocar u ocultar)
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                  <TouchableOpacity onPress={() => aplicarLogosLote('todos')} style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>✓ Todos</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => aplicarLogosLote('defecto')} style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>↺ Por defecto</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => aplicarLogosLote('ninguno')} style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.muted }}>🚫 Sin logos</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {LOGOS_COMBUSTIBLE_CATALOGO.map((item) => {
+                  const on = !!logosPdf[item.key];
+                  return (
+                    <TouchableOpacity
+                      key={item.key}
+                      onPress={() => cambiarLogoPdf(item.key)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: on ? colors.primary : colors.border,
+                        backgroundColor: on ? colors.primary : colors.surface,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: on ? colors.primaryContrast : colors.text }}>
+                        {on ? '✓ ' : ''}{item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               {ETIQUETAS_OPCIONES_DESGLOSE.map(({ k, t }) => {
                 const on = opcDesglose[k];

@@ -12,6 +12,13 @@ import { Authorization, Profile, Tank, Machinery, Vehicle, Company } from '../..
 import { generalCompanies } from '../../lib/companies';
 import { spacing, radius } from '../../theme';
 import { useTheme } from '../../theme/ThemeContext';
+import OpcionesReporteCombustibleModal from '../../components/combustible/OpcionesReporteCombustibleModal';
+import {
+  LogosReporteCombustible,
+  OPCIONES_REPORTE_SOLICITUDES,
+  OpcionesActivas,
+  mezclarOpciones,
+} from '../../lib/combustibleReportes';
 
 const ASSET_OPTIONS = [
   { label: 'Vehículo', value: 'vehiculo' },
@@ -55,7 +62,7 @@ function inPeriod(iso: string, period: string): boolean {
  * PDF y RecordForm. Solo cambia el look al lenguaje visual nuevo. No toca la BD.
  */
 export default function AuthorizationsPilot() {
-  const { role } = useAuth();
+  const { role, session } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
   const { data, loading, refetch } = useTable<Authorization>('authorizations', { orderBy: 'created_at', ascending: false });
@@ -67,6 +74,7 @@ export default function AuthorizationsPilot() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Authorization | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [verReporte, setVerReporte] = useState(false);
 
   const [status, setStatus] = useState('todos');
   const [companyFilter, setCompanyFilter] = useState('');
@@ -125,18 +133,65 @@ export default function AuthorizationsPilot() {
 
   const totalLitros = useMemo(() => filtered.reduce((s, a) => s + (Number(a.liters) || 0), 0), [filtered]);
 
-  const downloadPdf = async () => {
+  const downloadPdf = async (opcionesRaw?: OpcionesActivas, logos?: LogosReporteCombustible) => {
+    const op = mezclarOpciones(OPCIONES_REPORTE_SOLICITUDES, opcionesRaw || null);
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const rows = filtered.map((a) => `<tr>
-      <td>${esc(fmtDateTime(a.created_at))}</td>
-      <td>${esc(assetLabel(a))}</td>
-      <td>${esc(a.asset_kind)}</td>
-      <td>${esc(companyLabel(a))}</td>
-      <td>${esc(tankOf(a.tank_id))}</td>
-      <td style="text-align:right;font-weight:700">${(Number(a.liters) || 0).toLocaleString()}</td>
-      <td>${esc(STATUS_LBL[a.status] || a.status)}</td>
-      <td>${esc(nameOf(a.requested_by))}</td>
-    </tr>`).join('');
+    const assetNameOnly = (a: Authorization) => {
+      if (a.asset_kind === 'maquinaria') {
+        const m: any = machOf.get(a.machinery_id ?? '');
+        return m ? String(m.code || '—') : '—';
+      }
+      const v: any = vehOf.get(a.vehicle_id ?? '');
+      return v ? String(v.name || v.model || v.plate || '—') : '—';
+    };
+    const assetPlateOf = (a: Authorization) => {
+      if (a.asset_kind === 'maquinaria') {
+        const m: any = machOf.get(a.machinery_id ?? '');
+        return m ? String(m.plate || '').trim() || 'S/P' : 'S/P';
+      }
+      const v: any = vehOf.get(a.vehicle_id ?? '');
+      return v ? String(v.plate || '').trim() || 'S/P' : 'S/P';
+    };
+    const assetSerialOf = (a: Authorization) => {
+      if (a.asset_kind === 'maquinaria') {
+        const m: any = machOf.get(a.machinery_id ?? '');
+        return m ? String(m.serial || m.identifier || '').trim() || '—' : '—';
+      }
+      const v: any = vehOf.get(a.vehicle_id ?? '');
+      return v ? String(v.serial || v.identifier || '').trim() || '—' : '—';
+    };
+
+    const cols: { head: string; right?: boolean; cell: (a: Authorization) => string }[] = [];
+    if (op.fecha !== false) cols.push({ head: 'Fecha y hora', cell: (a) => `<td>${esc(fmtDateTime(a.created_at))}</td>` });
+    if (op.activo !== false) cols.push({ head: 'Activo', cell: (a) => `<td><b>${esc(assetNameOnly(a))}</b></td>` });
+    if (op.placa !== false) cols.push({ head: 'Placa', cell: (a) => `<td>${esc(assetPlateOf(a))}</td>` });
+    if (op.serial !== false) cols.push({ head: 'Serial', cell: (a) => `<td>${esc(assetSerialOf(a))}</td>` });
+    if (op.tipo !== false) cols.push({ head: 'Tipo', cell: (a) => `<td>${esc(a.asset_kind)}</td>` });
+    if (op.empresa !== false) cols.push({ head: 'Empresa', cell: (a) => `<td>${esc(companyLabel(a))}</td>` });
+    if (op.tanque !== false) cols.push({ head: 'Tanque', cell: (a) => `<td>${esc(tankOf(a.tank_id))}</td>` });
+    if (op.litros !== false) cols.push({ head: 'Litros', right: true, cell: (a) => `<td style="text-align:right;font-weight:700">${(Number(a.liters) || 0).toLocaleString()}</td>` });
+    if (op.estado !== false) cols.push({ head: 'Estado', cell: (a) => `<td>${esc(STATUS_LBL[a.status] || a.status)}</td>` });
+    if (op.solicita !== false) cols.push({ head: 'Solicita', cell: (a) => `<td>${esc(nameOf(a.requested_by))}</td>` });
+    if (op.motivo) cols.push({ head: 'Motivo', cell: (a) => `<td>${esc(a.reason || '—')}</td>` });
+
+    const rows = filtered.map((a) => `<tr>${cols.map((c) => c.cell(a)).join('')}</tr>`).join('');
+    const iLitros = cols.findIndex((c) => c.head === 'Litros');
+    const tfootHtml =
+      op.totales !== false && cols.length > 0
+        ? `<tfoot><tr>${cols
+            .map((_, idx) =>
+              idx === 0
+                ? `<td style="font-weight:800">TOTAL LITROS</td>`
+                : idx === iLitros
+                ? `<td style="text-align:right;font-weight:800">${totalLitros.toLocaleString()} L</td>`
+                : `<td></td>`,
+            )
+            .join('')}</tr></tfoot>`
+        : '';
+    const firmasHtml = op.firmas
+      ? `<div style="display:flex;justify-content:space-around;margin-top:32px;page-break-inside:avoid"><div style="width:220px;border-top:1px solid #333;text-align:center;padding-top:6px;font-size:10px;font-weight:700">Solicitado / Despachador</div><div style="width:220px;border-top:1px solid #333;text-align:center;padding-top:6px;font-size:10px;font-weight:700">Autorizado / Coordinación</div></div>`
+      : '';
+
     const parts = [
       status !== 'todos' ? `Estado: ${STATUS_LBL[status]}` : null,
       companyFilter ? `Empresa: ${companyName(companyFilter)}` : null,
@@ -146,16 +201,19 @@ export default function AuthorizationsPilot() {
     const html = pdfDocument({
       title: 'Solicitudes de combustible',
       subtitle: `${filtered.length} solicitud(es)${parts.length ? ' · ' + parts.join(' · ') : ''}`,
+      logos: logos || undefined,
+      marcaTexto: op.marcaTexto !== false,
       extraCss: `table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}`,
       body: rows
-        ? `<table><thead><tr><th>Fecha y hora</th><th>Activo</th><th>Tipo</th><th>Empresa</th><th>Tanque</th><th style="text-align:right">Litros</th><th>Estado</th><th>Solicita</th></tr></thead>
+        ? `<table><thead><tr>${cols.map((c) => `<th${c.right ? ' style="text-align:right"' : ''}>${c.head}</th>`).join('')}</tr></thead>
            <tbody>${rows}</tbody>
-           <tfoot><tr><td colspan="5" style="text-align:right;font-weight:800">TOTAL LITROS</td><td style="text-align:right;font-weight:800">${totalLitros.toLocaleString()}</td><td colspan="2"></td></tr></tfoot></table>`
+           ${tfootHtml}</table>${firmasHtml}`
         : '<p style="color:#666">Sin solicitudes para los filtros elegidos.</p>',
     });
     await exportPdf(html, 'Solicitudes de combustible');
+    setVerReporte(false);
   };
 
   const Chip = ({ on, label, onPress }: { on: boolean; label: string; onPress: () => void }) => (
@@ -201,8 +259,8 @@ export default function AuthorizationsPilot() {
             ) : null}
             <TextInput value={q} onChangeText={setQ} placeholder="Buscar por máquina / placa…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: spacing.sm }}>
-              <TouchableOpacity onPress={downloadPdf} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📄 PDF (vista previa)</Text>
+              <TouchableOpacity onPress={() => setVerReporte(true)} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>🖨️ Reporte PDF (personalizable)</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -257,6 +315,16 @@ export default function AuthorizationsPilot() {
         allowDelete
         onClose={() => setFormOpen(false)}
         onSaved={refetch}
+      />
+      <OpcionesReporteCombustibleModal
+        visible={verReporte}
+        titulo="Reporte de solicitudes de combustible"
+        opciones={OPCIONES_REPORTE_SOLICITUDES}
+        storageKey="combustible:reporte-solicitudes"
+        ocultarFechas
+        usuarioId={session?.user?.id}
+        onClose={() => setVerReporte(false)}
+        onGenerar={({ opciones, logos }) => downloadPdf(opciones, logos)}
       />
     </View>
   );

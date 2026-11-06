@@ -119,7 +119,7 @@ export default function DispatchesPilot() {
   const { data: machineryCat } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: vehiclesCat } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
   const opcionesEq = useMemo(() => opcionesEquipos(machineryCat, vehiclesCat, filasCargadas), [machineryCat, vehiclesCat, filasCargadas]);
-  const generarReporte = useCallback(async ({ desde, hasta, opciones, seleccion }: { desde: string; hasta: string; opciones: Record<string, boolean>; seleccion: string[] }) => {
+  const generarReporte = useCallback(async ({ desde, hasta, opciones, seleccion, logos }: { desde: string; hasta: string; opciones: Record<string, boolean>; seleccion: string[]; logos?: any }) => {
     const filas = await selectAllRows(
       'dispatches',
       '*, machine:machinery_id(code, plate, serial, identifier, tipo), vehicle:vehicle_id(plate, name, model, serial, identifier), tank:tank_id(id, name, fuel, is_mobile, responsable, chofer)',
@@ -134,7 +134,7 @@ export default function DispatchesPilot() {
     const horometros = opciones.horometro
       ? await cargarHorometros(consumos.map((d: any) => d.machinery_id).filter(Boolean), diaAnterior(desde), hasta)
       : new Map();
-    await exportarReporteConsumosPdf({ desde, hasta, filas: consumos, horometros }, opciones);
+    await exportarReporteConsumosPdf({ desde, hasta, filas: consumos, horometros }, opciones, logos);
   }, [toast]);
 
   // Tanques activos del sistema para deducción y auto-asignación

@@ -82,6 +82,27 @@ for (const k of ['graficas', 'tabla', 'placa', 'serial', 'horometro', 'contador'
 for (const k of ['graficas', 'tabla', 'proveedor', 'factura', 'tanque', 'costoUnitario', 'costoTotal', 'nota', 'totales']) {
   ok(`opción entradas ${k}`, R.OPCIONES_REPORTE_ENTRADAS.some((o) => o.key === k));
 }
+for (const k of ['resumen', 'hora', 'placa', 'serial', 'tanque', 'contador', 'horometro', 'autorizado', 'nota', 'totalesEquipo', 'firmas', 'marcaTexto']) {
+  ok(`opción parte diario ${k}`, R.OPCIONES_REPORTE_PARTE_DIARIO.some((o) => o.key === k));
+}
+for (const k of ['kpis', 'graficas', 'totales', 'tabla', 'hora', 'placa', 'serial', 'empresa', 'tanque', 'contador', 'horometro', 'operador', 'monto', 'nota', 'firmas', 'marcaTexto']) {
+  ok(`opción apoyo ${k}`, R.OPCIONES_REPORTE_APOYO.some((o) => o.key === k));
+}
+for (const k of ['meta', 'tipoCombustible', 'saldoInicial', 'entradas', 'despachos', 'traslados', 'saldoTeorico', 'saldoFisico', 'diferencia', 'observaciones', 'firmas', 'marcaTexto']) {
+  ok(`opción conciliación ${k}`, R.OPCIONES_REPORTE_CONCILIACION.some((o) => o.key === k));
+}
+for (const k of ['fecha', 'activo', 'placa', 'serial', 'tipo', 'empresa', 'tanque', 'litros', 'estado', 'solicita', 'motivo', 'totales', 'firmas', 'marcaTexto']) {
+  ok(`opción solicitudes ${k}`, R.OPCIONES_REPORTE_SOLICITUDES.some((o) => o.key === k));
+}
+ok('catálogo 5 logos membrete', R.LOGOS_COMBUSTIBLE_CATALOGO.length === 5 && R.LOGOS_COMBUSTIBLE_CATALOGO.some((l) => l.key === 'jhenzaen'));
+const logosMezcla = R.mezclarLogosCombustible({ bcv: false, golden: true, raro: true });
+ok('mezclarLogosCombustible respeta e ignora basura', logosMezcla.bcv === false && logosMezcla.golden === true && logosMezcla.sos === true && !('raro' in logosMezcla));
+const soloApoyo = R.filtrarConsumosApoyo(consumos, '2026-01-05');
+ok('filtrarConsumosApoyo deja solo máquinas de apoyo', soloApoyo.length === 1 && soloApoyo[0].apoyo_nombre === 'Grúa de apoyo');
+const totApoyo = R.totalesPorMaquinaApoyo(soloApoyo);
+ok('totalesPorMaquinaApoyo agrupa y suma', totApoyo.length === 1 && totApoyo[0].litros === 20 && totApoyo[0].surtidos === 1);
+const serApoyo = R.seriesApoyo(soloApoyo);
+ok('seriesApoyo calcula porEquipo y total', serApoyo.total === 20 && serApoyo.porEquipo.length === 1 && serApoyo.porEquipo[0].label.includes('Grúa de apoyo'));
 ok('diaAnterior', R.diaAnterior('2026-03-01') === '2026-02-28');
 ok('fecha válida', R.esFechaValida('2026-01-05') && !R.esFechaValida('05/01/2026'));
 

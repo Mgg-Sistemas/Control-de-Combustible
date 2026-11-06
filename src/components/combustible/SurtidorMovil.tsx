@@ -10,7 +10,9 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Switch,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { useAuth } from '../../context/AuthContext';
@@ -31,6 +33,17 @@ import {
   esRegistroAjusteTanque,
 } from '../../lib/fuelRules';
 import { exportarJornadaSurtidorPdf, FilaDespachoSurtidorPdf } from '../../lib/combustiblePdf';
+import {
+  LOGOS_COMBUSTIBLE_CATALOGO,
+  LOGOS_COMBUSTIBLE_DEFECTO,
+  LogoCombustibleKey,
+  LogosReporteCombustible,
+  OPCIONES_REPORTE_PARTE_DIARIO,
+  OpcionesActivas,
+  enRango,
+  mezclarLogosCombustible,
+  mezclarOpciones,
+} from '../../lib/combustibleReportes';
 import { useToast } from '../ToastProvider';
 // 02-nov-2026: máquina de apoyo (fuera del catálogo) y horómetro del inspector en el parte diario.
 import { APOYO_ACTIVO, armarFilaApoyo, validarApoyo, esDeApoyo, etiquetaEquipo } from '../../lib/combustibleApoyo';
@@ -158,9 +171,48 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
   // Reporte móvil de jornada
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportDate, setReportDate] = useState(todayIso());
+  const [reportDateHasta, setReportDateHasta] = useState(todayIso());
+  const [reportRango, setReportRango] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
   // 🚜 02-nov-2026: parte diario de uno o varios equipos (vacío = todos).
   const [reportEquipos, setReportEquipos] = useState<string[]>([]);
+  // 🏷️ 06-nov-2026: opciones modificables y logos del membrete en el Parte Diario de Surtido.
+  const [reportOpciones, setReportOpciones] = useState<OpcionesActivas>(() =>
+    mezclarOpciones(OPCIONES_REPORTE_PARTE_DIARIO, null),
+  );
+  const [reportLogos, setReportLogos] = useState<LogosReporteCombustible>(() => ({
+    ...LOGOS_COMBUSTIBLE_DEFECTO,
+  }));
+  const claveStorageParte = `combustible:parte-diario:${session?.user?.id || 'anon'}`;
+  const claveStorageParteLogos = `combustible:parte-diario:logos:${session?.user?.id || 'anon'}`;
+
+  useEffect(() => {
+    if (!reportModalOpen) return;
+    let vivo = true;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(claveStorageParte);
+        if (vivo && raw) setReportOpciones(mezclarOpciones(OPCIONES_REPORTE_PARTE_DIARIO, JSON.parse(raw)));
+      } catch { /* ignore */ }
+      try {
+        const rawL = await AsyncStorage.getItem(claveStorageParteLogos);
+        if (vivo && rawL) setReportLogos(mezclarLogosCombustible(JSON.parse(rawL)));
+      } catch { /* ignore */ }
+    })();
+    return () => { vivo = false; };
+  }, [reportModalOpen, claveStorageParte, claveStorageParteLogos]);
+
+  const cambiarOpcionParte = (k: string, val: boolean) => {
+    const sig = { ...reportOpciones, [k]: val };
+    setReportOpciones(sig);
+    try { AsyncStorage.setItem(claveStorageParte, JSON.stringify(sig)).catch(() => {}); } catch { /* ignore */ }
+  };
+
+  const cambiarLogoParte = (k: LogoCombustibleKey) => {
+    const sig: LogosReporteCombustible = { ...reportLogos, [k]: !reportLogos[k] };
+    setReportLogos(sig);
+    try { AsyncStorage.setItem(claveStorageParteLogos, JSON.stringify(sig)).catch(() => {}); } catch { /* ignore */ }
+  };
 
   // Último contador registrado en el tanque seleccionado
   useEffect(() => {
@@ -560,19 +612,23 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
   const handleExportarJornada = async () => {
     setGeneratingReport(true);
     try {
+      const hastaEf = reportRango ? reportDateHasta : reportDate;
       const dayDispatches = (dispatches || []).filter(
-        (d) => String(d.dispatch_date).slice(0, 10) === reportDate && !esRegistroAjusteTanque(d)
+        (d) =>
+          (reportRango
+            ? enRango(d.dispatch_date, reportDate, hastaEf)
+            : String(d.dispatch_date).slice(0, 10) === reportDate) && !esRegistroAjusteTanque(d)
       ).filter((d) => filtrarPorEquipos([d], reportEquipos).length > 0);
 
       if (dayDispatches.length === 0) {
-        toast.info('No hay despachos registrados en la fecha ' + reportDate);
+        toast.info('No hay despachos registrados en la fecha ' + (reportRango ? `${reportDate} al ${hastaEf}` : reportDate));
         return;
       }
 
       // 02-nov-2026: horómetro que cargan los inspectores (solo lectura), por jornada 7am–7am.
       // Antes las horas salían del CONTADOR de la bomba (litros), no del horómetro.
       const jornadas = dayDispatches.filter((d: any) => d.machinery_id).map((d: any) => jornadaDeDespacho(d)).sort();
-      const horometros = jornadas.length > 0
+      const horometros = reportOpciones.horometro !== false && jornadas.length > 0
         ? await cargarHorometros(
             dayDispatches.map((d: any) => d.machinery_id).filter(Boolean),
             jornadas[0],
@@ -602,14 +658,22 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
           horometroFin: h?.final ?? (d.hourmeter_h != null ? Number(d.hourmeter_h) : null),
           horasTrabajadas: horas,
           autorizadoPor: d.driver_operator,
+          nota: d.notes || null,
         };
       });
 
-      await exportarJornadaSurtidorPdf({
-        choferNombre: currentUserName,
-        fechaJornada: reportDate,
-        despachos: rows,
-      });
+      const etiquetaFecha = reportRango && reportDateHasta !== reportDate ? `${reportDate} al ${reportDateHasta}` : reportDate;
+      await exportarJornadaSurtidorPdf(
+        {
+          choferNombre: currentUserName,
+          fechaJornada: etiquetaFecha,
+          despachos: rows,
+          opciones: reportOpciones,
+          logos: reportLogos,
+        },
+        reportOpciones,
+        reportLogos,
+      );
 
       setReportModalOpen(false);
       toast.success('Parte diario descargado con éxito.');
@@ -2164,9 +2228,9 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
 
       {/* MODAL: Reporte Diario del Surtidor */}
       <Modal visible={reportModalOpen} animationType="slide" transparent={true}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.md }}>
-          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: spacing.md, zIndex: 9999 }}>
+          <View style={{ width: '100%', maxWidth: 540, maxHeight: '92%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
               <Text style={{ fontSize: 16, fontWeight: '900', color: colors.text }}>
                 📄 Parte Diario de Surtido (PDF)
               </Text>
@@ -2175,32 +2239,89 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
               </TouchableOpacity>
             </View>
 
-            <Text style={{ fontSize: 12, color: colors.muted, marginBottom: spacing.sm }}>
-              Genera e imprime el reporte oficial con todos los despachos de combustible realizados en la jornada.
-            </Text>
-
-            <View style={{ marginBottom: spacing.md }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text, marginBottom: 2 }}>
-                Fecha de la Jornada (AAAA-MM-DD)
+            <ScrollView contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.sm }}>
+              <Text style={{ fontSize: 12, color: colors.muted }}>
+                Elige la fecha (o rango), los equipos, los logos del membrete y qué columnas o secciones quieres incluir en el reporte.
               </Text>
-              <TextInput
-                value={reportDate}
-                onChangeText={setReportDate}
-                placeholder="2026-10-24"
-                placeholderTextColor={colors.muted}
-                style={{
-                  backgroundColor: colors.surfaceAlt,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: radius.sm,
-                  padding: spacing.sm,
-                  fontSize: 14,
-                  color: colors.text,
-                }}
-              />
-            </View>
 
-            <View style={{ marginBottom: spacing.md }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={() => { setReportRango(false); setReportDate(todayIso()); setReportDateHasta(todayIso()); }}
+                  style={{
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: !reportRango && reportDate === todayIso() ? colors.primary : colors.border,
+                    backgroundColor: !reportRango && reportDate === todayIso() ? colors.primary : colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: !reportRango && reportDate === todayIso() ? colors.primaryContrast : colors.text }}>
+                    Hoy
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setReportRango(!reportRango)}
+                  style={{
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: reportRango ? colors.primary : colors.border,
+                    backgroundColor: reportRango ? colors.primary : colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: reportRango ? colors.primaryContrast : colors.text }}>
+                    Rango desde–hasta
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text, marginBottom: 2 }}>
+                    {reportRango ? 'Desde (AAAA-MM-DD)' : 'Fecha de la Jornada (AAAA-MM-DD)'}
+                  </Text>
+                  <TextInput
+                    value={reportDate}
+                    onChangeText={setReportDate}
+                    placeholder="2026-11-06"
+                    placeholderTextColor={colors.muted}
+                    style={{
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.sm,
+                      padding: spacing.sm,
+                      fontSize: 13,
+                      color: colors.text,
+                    }}
+                  />
+                </View>
+                {reportRango ? (
+                  <View style={{ flex: 1, minWidth: 140 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text, marginBottom: 2 }}>
+                      Hasta (AAAA-MM-DD)
+                    </Text>
+                    <TextInput
+                      value={reportDateHasta}
+                      onChangeText={setReportDateHasta}
+                      placeholder="2026-11-06"
+                      placeholderTextColor={colors.muted}
+                      style={{
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.sm,
+                        padding: spacing.sm,
+                        fontSize: 13,
+                        color: colors.text,
+                      }}
+                    />
+                  </View>
+                ) : null}
+              </View>
+
               <SelectorMultiple
                 titulo="🚜 Equipos"
                 todosTexto="todos"
@@ -2208,7 +2329,109 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                 seleccion={reportEquipos}
                 onChange={setReportEquipos}
               />
-            </View>
+
+              {/* 🏷️ Logos del membrete */}
+              <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, gap: 6 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>
+                    🏷️ Logos del membrete (colocar u ocultar)
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const sig: LogosReporteCombustible = { bcv: true, sos: true, golden: true, renace: true, jhenzaen: true };
+                        setReportLogos(sig);
+                        try { AsyncStorage.setItem(claveStorageParteLogos, JSON.stringify(sig)).catch(() => {}); } catch { /* ignore */ }
+                      }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>✓ Todos</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const sig = { ...LOGOS_COMBUSTIBLE_DEFECTO };
+                        setReportLogos(sig);
+                        try { AsyncStorage.setItem(claveStorageParteLogos, JSON.stringify(sig)).catch(() => {}); } catch { /* ignore */ }
+                      }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>↺ Por defecto</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const sig: LogosReporteCombustible = { bcv: false, sos: false, golden: false, renace: false, jhenzaen: false };
+                        setReportLogos(sig);
+                        try { AsyncStorage.setItem(claveStorageParteLogos, JSON.stringify(sig)).catch(() => {}); } catch { /* ignore */ }
+                      }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.muted }}>🚫 Sin logos</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {LOGOS_COMBUSTIBLE_CATALOGO.map((item) => {
+                    const on = !!reportLogos[item.key];
+                    return (
+                      <TouchableOpacity
+                        key={item.key}
+                        onPress={() => cambiarLogoParte(item.key)}
+                        style={{
+                          paddingVertical: 5,
+                          paddingHorizontal: 10,
+                          borderRadius: radius.pill,
+                          borderWidth: 1,
+                          borderColor: on ? colors.primary : colors.border,
+                          backgroundColor: on ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: on ? colors.primaryContrast : colors.text }}>
+                          {on ? '✓ ' : ''}{item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* ⚙️ Qué sale en el Parte Diario */}
+              <View style={{ gap: 4 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text }}>
+                    Qué sale en el reporte
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const sig: OpcionesActivas = {};
+                        for (const o of OPCIONES_REPORTE_PARTE_DIARIO) sig[o.key] = true;
+                        setReportOpciones(sig);
+                        try { AsyncStorage.setItem(claveStorageParte, JSON.stringify(sig)).catch(() => {}); } catch { /* ignore */ }
+                      }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>✓ Marcar todo</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const sig = mezclarOpciones(OPCIONES_REPORTE_PARTE_DIARIO, null);
+                        setReportOpciones(sig);
+                        try { AsyncStorage.setItem(claveStorageParte, JSON.stringify(sig)).catch(() => {}); } catch { /* ignore */ }
+                      }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>↺ Por defecto</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                {OPCIONES_REPORTE_PARTE_DIARIO.map((o) => (
+                  <View key={o.key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 13, color: colors.text, flexShrink: 1 }}>{o.label}</Text>
+                    <Switch value={!!reportOpciones[o.key]} onValueChange={(v) => cambiarOpcionParte(o.key, v)} />
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
 
             <TouchableOpacity
               onPress={handleExportarJornada}
@@ -2219,6 +2442,7 @@ export default function SurtidorMovil({ onClose, isStandalone = false }: Surtido
                 paddingVertical: spacing.md,
                 alignItems: 'center',
                 justifyContent: 'center',
+                marginTop: spacing.sm,
               }}
             >
               {generatingReport ? (

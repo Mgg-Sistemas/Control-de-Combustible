@@ -234,23 +234,39 @@ export function armarDesgloseRango(p: EntradaDesglose): DesgloseRango {
 export type OpcionesDesglose = {
   consumos: boolean;
   entradas: boolean;
+  hora: boolean;
   placa: boolean;
   serial: boolean;
+  tanque: boolean;
   horometro: boolean;
   contador: boolean;
+  autorizado: boolean;
+  nota: boolean;
+  factura: boolean;
+  costo: boolean;
   totalesEquipo: boolean;
   totalesTanque: boolean;
+  firmas: boolean;
+  marcaTexto: boolean;
 };
 
 export const OPCIONES_DESGLOSE_DEFECTO: OpcionesDesglose = {
   consumos: true,
   entradas: true,
+  hora: true,
   placa: true,
   serial: true,
+  tanque: true,
   horometro: true,
   contador: true,
+  autorizado: true,
+  nota: true,
+  factura: true,
+  costo: true,
   totalesEquipo: true,
   totalesTanque: true,
+  firmas: false,
+  marcaTexto: true,
 };
 
 /** Mezcla lo guardado con los valores por defecto (ignora claves raras o no booleanas). */

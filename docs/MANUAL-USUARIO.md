@@ -9936,3 +9936,25 @@ Permite personalizar qué logos aparecen en el membrete del presupuesto:
 - **Campo de URL**: Permite ingresar un enlace web (`https://...`) a cualquier logotipo corporativo o data URI y presionar **+ Agregar**.
 - **Miniaturas y botón ✕**: Cada logo añadido muestra su previsualización y un botón rojo para removerlo de la lista.
 
+---
+
+### ⛽ Combustible — Reportes PDF Personalizables, Logos del Membrete y Máquinas de Apoyo (06/11/2026)
+
+Incluye los **reportes de Consumos y de Entradas**, el soporte de **máquinas de apoyo y horómetro en el parte diario**, y la personalización completa de todos los PDF del módulo de Combustible:
+
+1. **🏷️ Selección de Logos del Membrete en todos los reportes PDF de Combustible:**
+   - En cualquier reporte PDF de Combustible puedes marcar o desmarcar libremente cualquiera de los 5 logos institucionales: **🏛️ BCV**, **🛟 SOS La Guaira**, **✨ Golden Touch**, **🇻🇪 Plan Venezuela Renace** y **🏗️ Jhenzaen 2.012 C.A** (con botones rápidos **«✓ Todos»**, **«↺ Por defecto»** y **«🚫 Sin logos»**).
+   - La selección se recuerda automáticamente en tu dispositivo para cada tipo de reporte.
+
+2. **⚙️ Qué sale y qué no sale en cada reporte PDF (sin dejar huecos):**
+   - **📄 Parte Diario de Surtido (`Surtidor`):** permite elegir un día o rango de jornadas (7am–7am), filtrar equipos (mostrando siempre nombre y **Placa** con buscador), elegir los logos del membrete y encender/apagar: tarjetas de resumen, hora, placa, serial, tanque/origen, contador (ini/fin), horómetro y horas trabajadas, despachado por, observaciones, tabla de totales por equipo, firmas de pie de página y marca de texto.
+   - **⛽ Reporte de Consumos (`Consumos → 🖨️ Reporte`):** permite ocultar o mostrar KPIs, gráficas, tabla de detalle, hora, placa, serial, tanque, contador, horómetro, operador, monto, nota, totales, firmas y marca de texto, además de elegir los logos.
+   - **📥 Reporte de Entradas (`Entradas → 🖨️ Reporte`):** permite ocultar o mostrar KPIs, gráficas, tabla, proveedor, factura, tanque, costo unitario, costo total, nota, totales, firmas y marca de texto, además de elegir los logos.
+   - **⚖️ Acta de Conciliación y 🧾 Desglose del Rango (`Conciliación`):** cuenta con el panel **«⚙️ Personalizar Acta PDF y Logos del membrete»** y pastillas en el Desglose del rango para mostrar/ocultar cualquier columna o sección (datos del encabezado, tipo de combustible, saldo inicial, entradas, despachos, traslados, saldo teórico, saldo físico, diferencia, observaciones, hora, tanque, autorizado, factura, costo, firmas y marca de texto) y elegir los logos del membrete.
+   - **📋 Reporte de Solicitudes (`Solicitudes → 🖨️ Reporte PDF (personalizable)`):** permite elegir los logos del membrete y qué columnas o totales incluir en el PDF de solicitudes filtradas.
+
+3. **🆘 Nuevo Reporte PDF de Máquinas de Apoyo (`Combustible → 🆘 Máquinas de apoyo → 🖨️ Reporte PDF`):**
+   - Genera un PDF exclusivo de las máquinas de apoyo (externas al catálogo).
+   - Permite elegir una jornada o rango de fechas (7am–7am), filtrar una o varias máquinas de apoyo específicas (con buscador por nombre, **Placa**, serial o empresa), elegir los logos del membrete y personalizar qué secciones salen (tarjetas de resumen, gráficas por día y por máquina de apoyo con su placa, tabla de totales por máquina de apoyo, tabla de detalle de surtidos y bloque de firmas).
+
+

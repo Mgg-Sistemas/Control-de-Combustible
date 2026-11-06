@@ -15,6 +15,10 @@ import { levelMeets } from '../../lib/permissions';
 import { supabase } from '../../lib/supabase';
 import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../../lib/photo';
 import { APOYO_ACTIVO, agruparApoyo, esDeApoyo, normalizarApoyo } from '../../lib/combustibleApoyo';
+import { filtrarPorEquipos, opcionesApoyo } from '../../lib/combustibleEquipos';
+import { OPCIONES_REPORTE_APOYO, filtrarConsumosApoyo } from '../../lib/combustibleReportes';
+import { exportarReporteApoyoPdf } from '../../lib/combustibleReportesPdf';
+import OpcionesReporteCombustibleModal from './OpcionesReporteCombustibleModal';
 import { useToast } from '../ToastProvider';
 
 const hoy = () => new Date().toISOString().slice(0, 10);
@@ -32,7 +36,7 @@ type Juego = 'apoyo_fotos' | 'photos';
 export default function MaquinasApoyoPanel() {
   const { colors } = useTheme();
   const toast = useToast();
-  const { moduleLevel } = useAuth();
+  const { moduleLevel, session } = useAuth();
   const esFull = levelMeets(moduleLevel('consumos'), 'full');
 
   const [desde, setDesde] = useState(haceDias(30));
@@ -46,6 +50,55 @@ export default function MaquinasApoyoPanel() {
   const [editando, setEditando] = useState<{ fila: any; juego: Juego } | null>(null);
   const [fotosEdit, setFotosEdit] = useState<string[]>([]);
   const [ocupado, setOcupado] = useState(false);
+  const [verReporte, setVerReporte] = useState(false);
+  const opcionesMaquinasApoyo = useMemo(() => opcionesApoyo(filas), [filas]);
+
+  const generarReporteApoyo = useCallback(
+    async ({
+      desde: d,
+      hasta: h,
+      opciones,
+      seleccion,
+      logos,
+    }: {
+      desde: string;
+      hasta: string;
+      opciones: Record<string, boolean>;
+      seleccion: string[];
+      logos?: any;
+    }) => {
+      if (!APOYO_ACTIVO) return;
+      const { data, error } = await supabase
+        .from('dispatches')
+        .select('*')
+        .is('machinery_id', null)
+        .is('vehicle_id', null)
+        .gte('dispatch_date', d)
+        .lte('dispatch_date', h)
+        .order('dispatch_date', { ascending: true })
+        .limit(5000);
+      if (error) throw error;
+      const filtrados = filtrarPorEquipos(filtrarConsumosApoyo((data ?? []) as any[], d, h), seleccion);
+      if (filtrados.length === 0) {
+        toast.info(
+          `Sin surtidos de máquinas de apoyo${seleccion.length ? ' elegidas' : ''} en ${d === h ? d : `${d} al ${h}`}: no hay nada que imprimir.`,
+        );
+        return;
+      }
+      await exportarReporteApoyoPdf(
+        {
+          desde: d,
+          hasta: h,
+          filas: filtrados,
+          nombreTanque: (id: string) => tanques[id] || 'Bomba directa',
+        },
+        opciones,
+        logos,
+      );
+      setVerReporte(false);
+    },
+    [tanques, toast],
+  );
 
   const cargar = useCallback(async () => {
     if (!APOYO_ACTIVO) return;
@@ -165,9 +218,26 @@ export default function MaquinasApoyoPanel() {
           <TextInput value={hasta} onChangeText={setHasta} placeholder="Hasta AAAA-MM-DD" placeholderTextColor={colors.muted} style={[campo, { flexGrow: 1, flexBasis: 130 }]} />
           <TextInput value={buscar} onChangeText={setBuscar} placeholder="Buscar nombre, placa, serial o empresa" placeholderTextColor={colors.muted} style={[campo, { flexGrow: 2, flexBasis: 200 }]} />
         </View>
-        <Text style={{ color: colors.text, fontWeight: '800' }}>
-          {grupos.length} máquina(s) de apoyo · {fmt(totalLitros)} L
-        </Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+          <Text style={{ color: colors.text, fontWeight: '800' }}>
+            {grupos.length} máquina(s) de apoyo · {fmt(totalLitros)} L
+          </Text>
+          <TouchableOpacity
+            onPress={() => setVerReporte(true)}
+            style={{
+              paddingVertical: 7,
+              paddingHorizontal: spacing.md,
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              backgroundColor: colors.primary,
+            }}
+          >
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>
+              🖨️ Reporte PDF
+            </Text>
+          </TouchableOpacity>
+        </View>
         {cargando && <ActivityIndicator color={colors.primary} />}
         {!cargando && grupos.length === 0 && (
           <Text style={{ color: colors.muted, textAlign: 'center' }}>No hay surtidos a máquinas de apoyo en este rango.</Text>
@@ -179,7 +249,7 @@ export default function MaquinasApoyoPanel() {
               <View style={{ flexShrink: 1 }}>
                 <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🆘 {g.nombre}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  {[g.placa ? `Placa ${g.placa}` : null, g.empresa].filter(Boolean).join(' · ')}
+                  {[`Placa ${g.placa || 'S/P'}`, g.empresa].filter(Boolean).join(' · ')}
                 </Text>
               </View>
               <Text style={{ color: colors.primary, fontWeight: '900' }}>
@@ -268,6 +338,19 @@ export default function MaquinasApoyoPanel() {
           <Text style={{ color: '#fff', marginTop: spacing.sm }}>Toca para cerrar</Text>
         </TouchableOpacity>
       </Modal>
+
+      <OpcionesReporteCombustibleModal
+        visible={verReporte}
+        titulo="Reporte de máquinas de apoyo"
+        opciones={OPCIONES_REPORTE_APOYO}
+        storageKey="combustible:reporte-apoyo"
+        seleccion={{ titulo: '🆘 Máquinas de apoyo', todosTexto: 'todas', opciones: opcionesMaquinasApoyo }}
+        desdeInicial={desde}
+        hastaInicial={hasta}
+        usuarioId={session?.user?.id}
+        onClose={() => setVerReporte(false)}
+        onGenerar={generarReporteApoyo}
+      />
     </View>
   );
 }

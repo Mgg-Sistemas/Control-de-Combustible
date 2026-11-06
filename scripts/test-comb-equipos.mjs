@@ -31,6 +31,9 @@ const despachos = [
 ok('clave de máquina, vehículo y apoyo', E.claveEquipo(despachos[0]) === 'm:m1' && E.claveEquipo(despachos[1]) === 'v:v1' && E.claveEquipo(despachos[2]).startsWith('a:'));
 const ops = E.opcionesEquipos(maquinas, vehiculos, despachos);
 ok('opciones: catálogo + apoyo', ops.length === 4 && ops.some((o) => o.label.includes('Grúa de apoyo')));
+ok('opciones incluyen siempre Placa en sub y en maquinaria/apoyo label', ops.every((o) => o.sub.includes('Placa ')) && ops.filter((o) => !o.key.startsWith('v:')).every((o) => o.label.includes('Placa ')));
+const opsApoyo = E.opcionesApoyo(despachos);
+ok('opcionesApoyo: solo máquinas de apoyo con Placa', opsApoyo.length === 1 && opsApoyo[0].label.includes('Grúa de apoyo') && opsApoyo[0].label.includes('Placa ZZ-1'));
 ok('se busca por placa', E.buscarOpciones(ops, 'aaa000').length === 1 && E.buscarOpciones(ops, 'aaa000')[0].key === 'm:m1');
 ok('se busca por serial', E.buscarOpciones(ops, 's1')[0].key === 'm:m1');
 ok('se busca sin acentos', E.buscarOpciones(ops, 'camion').some((o) => o.key === 'v:v1'));

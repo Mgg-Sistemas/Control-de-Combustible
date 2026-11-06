@@ -34,18 +34,19 @@ export function opcionesEquipos(maquinas: any[] | null | undefined, vehiculos: a
     const serial = limpio(m.serial || m.identifier);
     out.push({
       key, orden: conConsumo.has(key) ? 0 : 1,
-      label: `🚜 ${limpio(m.code) || 'Máquina'}`,
-      sub: [limpio(m.tipo || m.name), placa && `Placa ${placa}`, serial && `Serial ${serial}`].filter(Boolean).join(' · '),
+      label: `🚜 ${limpio(m.code) || 'Máquina'} · Placa ${placa || 'S/P'}`,
+      sub: [limpio(m.tipo || m.name), placa ? `Placa ${placa}` : 'Placa S/P', serial && `Serial ${serial}`].filter(Boolean).join(' · '),
       buscar: [m.code, m.name, m.tipo, m.plate, m.serial, m.identifier].map(limpio).join(' '),
     });
   }
   for (const v of vehiculos || []) {
     if (!v?.id) continue;
     const key = `v:${v.id}`;
+    const placaV = limpio(v.plate);
     out.push({
       key, orden: conConsumo.has(key) ? 0 : 1,
-      label: `🚗 ${limpio(v.plate) || limpio(v.name) || 'Vehículo'}`,
-      sub: [limpio(v.name), limpio(v.model), limpio(v.serial || v.identifier) && `Serial ${limpio(v.serial || v.identifier)}`].filter(Boolean).join(' · '),
+      label: `🚗 ${placaV || limpio(v.name) || 'Vehículo'}${placaV && limpio(v.name) ? ` · ${limpio(v.name)}` : ''}`,
+      sub: [limpio(v.name), placaV ? `Placa ${placaV}` : 'Placa S/P', limpio(v.model), limpio(v.serial || v.identifier) && `Serial ${limpio(v.serial || v.identifier)}`].filter(Boolean).join(' · '),
       buscar: [v.plate, v.name, v.model, v.serial, v.identifier].map(limpio).join(' '),
     });
   }
@@ -54,16 +55,46 @@ export function opcionesEquipos(maquinas: any[] | null | undefined, vehiculos: a
     const key = claveEquipo(d);
     if (!key.startsWith('a:') || vistos.has(key)) continue;
     vistos.add(key);
+    const placaA = limpio(d.apoyo_placa);
+    const serialA = limpio(d.apoyo_serial);
     out.push({
       key, orden: 0,
-      label: `🆘 ${limpio(d.apoyo_nombre)}`,
-      sub: ['Máquina de apoyo', limpio(d.apoyo_placa) && `Placa ${limpio(d.apoyo_placa)}`, limpio(d.apoyo_empresa)].filter(Boolean).join(' · '),
+      label: `🆘 ${limpio(d.apoyo_nombre)} · Placa ${placaA || 'S/P'}`,
+      sub: ['Máquina de apoyo', placaA ? `Placa ${placaA}` : 'Placa S/P', serialA && `Serial ${serialA}`, limpio(d.apoyo_empresa)].filter(Boolean).join(' · '),
       buscar: [d.apoyo_nombre, d.apoyo_placa, d.apoyo_serial, d.apoyo_empresa, 'apoyo'].map(limpio).join(' '),
     });
   }
   return out
     .sort((a, b) => a.orden - b.orden || a.label.localeCompare(b.label, 'es'))
     .map(({ orden, ...o }) => o);
+}
+
+/** Opciones exclusivas de máquinas de apoyo (con nombre, placa, serial y empresa). */
+export function opcionesApoyo(despachos: any[] | null | undefined): OpcionSeleccion[] {
+  const mapa = new Map<string, { label: string; nombre: string; placa: string; serial: string; empresa: string }>();
+  for (const d of despachos || []) {
+    const key = claveEquipo(d);
+    if (!key.startsWith('a:')) continue;
+    const prev = mapa.get(key) || {
+      label: limpio(d?.apoyo_nombre) || 'Máquina de apoyo',
+      nombre: limpio(d?.apoyo_nombre) || 'Máquina de apoyo',
+      placa: '',
+      serial: '',
+      empresa: '',
+    };
+    if (!prev.placa && limpio(d?.apoyo_placa)) prev.placa = limpio(d.apoyo_placa);
+    if (!prev.serial && limpio(d?.apoyo_serial)) prev.serial = limpio(d.apoyo_serial);
+    if (!prev.empresa && limpio(d?.apoyo_empresa)) prev.empresa = limpio(d.apoyo_empresa);
+    mapa.set(key, prev);
+  }
+  return Array.from(mapa.entries())
+    .map(([key, g]) => ({
+      key,
+      label: `🆘 ${g.nombre} · Placa ${g.placa || 'S/P'}`,
+      sub: ['Máquina de apoyo', g.placa ? `Placa ${g.placa}` : 'Placa S/P', g.serial && `Serial ${g.serial}`, g.empresa].filter(Boolean).join(' · '),
+      buscar: [g.nombre, g.placa, g.serial, g.empresa, 'apoyo'].filter(Boolean).join(' '),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'es'));
 }
 
 /** Opciones de tanques. */

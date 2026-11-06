@@ -57,7 +57,7 @@ export default function IntakesPilot() {
   // 🛢 02-nov-2026: uno o varios tanques. Vacío = todos.
   const [selTanques, setSelTanques] = useState<string[]>([]);
   const opcionesTq = useMemo(() => opcionesTanques(tanks), [tanks]);
-  const generarReporte = useCallback(async ({ desde, hasta, opciones, seleccion }: { desde: string; hasta: string; opciones: Record<string, boolean>; seleccion: string[] }) => {
+  const generarReporte = useCallback(async ({ desde, hasta, opciones, seleccion, logos }: { desde: string; hasta: string; opciones: Record<string, boolean>; seleccion: string[]; logos?: any }) => {
     const filas = await selectAllRows('fuel_intakes', '*', (q) => q.gte('intake_date', desde).lte('intake_date', hasta));
     const entradas = filtrarPorTanques(filtrarEntradas(filas as any[], desde, hasta), seleccion);
     if (entradas.length === 0) {
@@ -65,7 +65,7 @@ export default function IntakesPilot() {
       return;
     }
     const nombres = new Map((tanks || []).map((t) => [t.id, t.name] as [string, string]));
-    await exportarReporteEntradasPdf({ desde, hasta, filas: entradas, nombreTanque: (id) => nombres.get(id) || '' }, opciones);
+    await exportarReporteEntradasPdf({ desde, hasta, filas: entradas, nombreTanque: (id) => nombres.get(id) || '' }, opciones, logos);
   }, [tanks, toast]);
 
   // Tanque del encargado logueado: el que tenga `responsable` = su nombre (comparación

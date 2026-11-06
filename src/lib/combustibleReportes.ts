@@ -12,10 +12,48 @@ import { esRegistroAjusteTanque } from './fuelRules';
 export type OpcionReporte = { key: string; label: string; defecto: boolean };
 export type OpcionesActivas = Record<string, boolean>;
 
+export type LogoCombustibleKey = 'bcv' | 'sos' | 'golden' | 'renace' | 'jhenzaen';
+export type LogosReporteCombustible = Record<LogoCombustibleKey, boolean>;
+
+/** Catálogo de logos institucionales disponibles en todos los reportes PDF de Combustible. */
+export const LOGOS_COMBUSTIBLE_CATALOGO: { key: LogoCombustibleKey; label: string; nombre: string }[] = [
+  { key: 'bcv', label: '🏛️ BCV', nombre: 'Banco Central de Venezuela' },
+  { key: 'sos', label: '🛟 SOS La Guaira', nombre: 'SOS La Guaira' },
+  { key: 'golden', label: '✨ Golden Touch', nombre: 'Golden Touch' },
+  { key: 'renace', label: '🇻🇪 Plan Venezuela Renace', nombre: 'Plan Venezuela Renace' },
+  { key: 'jhenzaen', label: '🏗️ Jhenzaen 2.012 C.A', nombre: 'Jhenzaen 2.012 C.A' },
+];
+
+export const LOGOS_COMBUSTIBLE_DEFECTO: LogosReporteCombustible = {
+  bcv: true,
+  sos: true,
+  golden: false,
+  renace: false,
+  jhenzaen: false,
+};
+
+/** Mezcla los logos guardados por persona con los de fábrica. */
+export function mezclarLogosCombustible(
+  guardados?: Record<string, any> | null,
+  defecto: LogosReporteCombustible = LOGOS_COMBUSTIBLE_DEFECTO,
+): LogosReporteCombustible {
+  const out: LogosReporteCombustible = { ...defecto };
+  if (guardados && typeof guardados === 'object') {
+    for (const item of LOGOS_COMBUSTIBLE_CATALOGO) {
+      if (typeof guardados[item.key] === 'boolean') {
+        out[item.key] = guardados[item.key];
+      }
+    }
+  }
+  return out;
+}
+
 /** Interruptores del reporte de Consumos. */
 export const OPCIONES_REPORTE_CONSUMOS: OpcionReporte[] = [
+  { key: 'kpis', label: '📊 Cuadros superiores de resumen', defecto: true },
   { key: 'graficas', label: '📊 Gráficas (litros por día y por máquina)', defecto: true },
   { key: 'tabla', label: '📋 Tabla de consumos del día / rango', defecto: true },
+  { key: 'hora', label: '🕒 Hora del surtido', defecto: true },
   { key: 'placa', label: '🚗 Placa', defecto: true },
   { key: 'serial', label: '🔢 Serial', defecto: true },
   { key: 'horometro', label: '⏱️ Horómetro (del inspector)', defecto: true },
@@ -25,10 +63,13 @@ export const OPCIONES_REPORTE_CONSUMOS: OpcionReporte[] = [
   { key: 'monto', label: '💲 Precio y monto', defecto: false },
   { key: 'nota', label: '📝 Nota', defecto: false },
   { key: 'totales', label: 'Σ Totales por máquina', defecto: true },
+  { key: 'firmas', label: '✍️ Firmas al pie del reporte', defecto: false },
+  { key: 'marcaTexto', label: '🏢 Marca de empresa en texto y pie', defecto: true },
 ];
 
 /** Interruptores del reporte de Entradas. */
 export const OPCIONES_REPORTE_ENTRADAS: OpcionReporte[] = [
+  { key: 'kpis', label: '📊 Cuadros superiores de resumen', defecto: true },
   { key: 'graficas', label: '📊 Gráficas (litros por tanque y por proveedor)', defecto: true },
   { key: 'tabla', label: '📋 Tabla de entradas del día / rango', defecto: true },
   { key: 'proveedor', label: '🏭 Proveedor', defecto: true },
@@ -39,6 +80,78 @@ export const OPCIONES_REPORTE_ENTRADAS: OpcionReporte[] = [
   { key: 'costoTotal', label: '💰 Costo total', defecto: false },
   { key: 'nota', label: '📝 Nota', defecto: false },
   { key: 'totales', label: 'Σ Totales por tanque y proveedor', defecto: true },
+  { key: 'firmas', label: '✍️ Firmas al pie del reporte', defecto: false },
+  { key: 'marcaTexto', label: '🏢 Marca de empresa en texto y pie', defecto: true },
+];
+
+/** Interruptores del Parte Diario de Surtido (Surtidor Móvil). */
+export const OPCIONES_REPORTE_PARTE_DIARIO: OpcionReporte[] = [
+  { key: 'resumen', label: '📊 Cinta superior de resumen (chofer, despachos, litros)', defecto: true },
+  { key: 'hora', label: '🕒 Hora del surtido', defecto: true },
+  { key: 'placa', label: '🚗 Placa', defecto: true },
+  { key: 'serial', label: '🔢 Serial', defecto: true },
+  { key: 'tanque', label: '🛢️ Tanque de origen', defecto: true },
+  { key: 'contador', label: '🔢 Contador de bomba', defecto: true },
+  { key: 'horometro', label: '⏱️ Horómetro (h)', defecto: true },
+  { key: 'autorizado', label: '👷 Autorizó', defecto: true },
+  { key: 'nota', label: '📝 Nota / observación', defecto: true },
+  { key: 'totalesEquipo', label: 'Σ Tabla resumen por máquina / equipo', defecto: true },
+  { key: 'firmas', label: '✍️ Firmas al pie del reporte', defecto: true },
+  { key: 'marcaTexto', label: '🏢 Marca de empresa en texto y pie', defecto: true },
+];
+
+/** Interruptores del Reporte de Máquinas de Apoyo (🆘). */
+export const OPCIONES_REPORTE_APOYO: OpcionReporte[] = [
+  { key: 'kpis', label: '📊 Cuadros superiores de resumen', defecto: true },
+  { key: 'graficas', label: '📊 Gráficas (litros por máquina de apoyo y por día)', defecto: true },
+  { key: 'totales', label: 'Σ Tabla resumen por máquina de apoyo', defecto: true },
+  { key: 'tabla', label: '📋 Tabla detallada de cada surtido', defecto: true },
+  { key: 'hora', label: '🕒 Hora del surtido', defecto: true },
+  { key: 'placa', label: '🚗 Placa', defecto: true },
+  { key: 'serial', label: '🔢 Serial', defecto: true },
+  { key: 'empresa', label: '🏢 Empresa / contratista', defecto: true },
+  { key: 'tanque', label: '🛢️ Tanque de origen', defecto: true },
+  { key: 'contador', label: '🔢 Contador de bomba', defecto: false },
+  { key: 'horometro', label: '⏱️ Horómetro', defecto: true },
+  { key: 'operador', label: '👷 Autorizó / operador', defecto: true },
+  { key: 'monto', label: '💲 Precio y monto', defecto: false },
+  { key: 'nota', label: '📝 Nota', defecto: true },
+  { key: 'firmas', label: '✍️ Firmas al pie del reporte', defecto: false },
+  { key: 'marcaTexto', label: '🏢 Marca de empresa en texto y pie', defecto: true },
+];
+
+/** Interruptores del Acta de Conciliación de Combustible. */
+export const OPCIONES_REPORTE_CONCILIACION: OpcionReporte[] = [
+  { key: 'meta', label: '📋 Cinta del corte (período, responsable, elaborado, revisado)', defecto: true },
+  { key: 'tipoCombustible', label: '⛽ Columna Tipo de combustible', defecto: true },
+  { key: 'saldoInicial', label: '🛢️ Columna Saldo Inicial (L)', defecto: true },
+  { key: 'entradas', label: '📥 Columna + Entradas (L)', defecto: true },
+  { key: 'despachos', label: '📤 Columna - Despachos (L)', defecto: true },
+  { key: 'traslados', label: '🔁 Columna ± Traslados (L)', defecto: true },
+  { key: 'saldoTeorico', label: '📐 Columna Saldo Teórico (L)', defecto: true },
+  { key: 'saldoFisico', label: '📏 Columna Saldo Físico (L)', defecto: true },
+  { key: 'diferencia', label: '⚖️ Columnas Diferencia (L) y % Dif.', defecto: true },
+  { key: 'observaciones', label: '📝 Bloque de Observaciones / Notas', defecto: true },
+  { key: 'firmas', label: '✍️ Firmas de conformidad al pie', defecto: true },
+  { key: 'marcaTexto', label: '🏢 Marca de empresa en texto y pie', defecto: true },
+];
+
+/** Interruptores del Reporte de Solicitudes de Combustible. */
+export const OPCIONES_REPORTE_SOLICITUDES: OpcionReporte[] = [
+  { key: 'fecha', label: '🕒 Fecha y hora', defecto: true },
+  { key: 'activo', label: '🚜 Activo (máquina / vehículo)', defecto: true },
+  { key: 'placa', label: '🚗 Placa', defecto: true },
+  { key: 'serial', label: '🔢 Serial', defecto: true },
+  { key: 'tipo', label: '🏷️ Tipo de activo', defecto: true },
+  { key: 'empresa', label: '🏢 Empresa', defecto: true },
+  { key: 'tanque', label: '🛢️ Tanque de origen', defecto: true },
+  { key: 'litros', label: '⛽ Litros solicitados', defecto: true },
+  { key: 'estado', label: '📌 Estado', defecto: true },
+  { key: 'solicita', label: '👷 Solicitado por', defecto: true },
+  { key: 'motivo', label: '📝 Motivo', defecto: false },
+  { key: 'totales', label: 'Σ Total de litros al pie', defecto: true },
+  { key: 'firmas', label: '✍️ Firmas al pie del reporte', defecto: false },
+  { key: 'marcaTexto', label: '🏢 Marca de empresa en texto y pie', defecto: true },
 ];
 
 /** Opciones de fábrica + lo que la persona guardó (solo claves conocidas y booleanas). */
@@ -183,6 +296,86 @@ export function seriesEntradas(rows: any[], nombreTanque: (id: string) => string
     porDia: agruparSuma(rows, (i: any) => dia(i.intake_date), (i: any) => num(i.liters), true),
     total: redondear((rows || []).reduce((s, i: any) => s + num(i.liters), 0)),
     costo: redondear((rows || []).reduce((s, i: any) => s + num(i.total_cost), 0)),
+  };
+}
+
+/** ¿Es un surtido de máquina de apoyo (sin máquina/vehículo del catálogo y con apoyo_nombre)? */
+export function esFilaApoyo(d: any): boolean {
+  if (!d || d.machinery_id || d.vehicle_id) return false;
+  if (esRegistroAjusteTanque(d)) return false;
+  return String(d.apoyo_nombre ?? '').trim().length > 0;
+}
+
+/** Surtidos de máquinas de apoyo del día o rango, ordenados por fecha y hora. */
+export function filtrarConsumosApoyo<T = any>(rows: T[], desde: string, hasta?: string | null): T[] {
+  return filtrarConsumos(rows, desde, hasta).filter(esFilaApoyo);
+}
+
+export type TotalMaquinaApoyo = {
+  clave: string;
+  nombre: string;
+  placa: string;
+  serial: string;
+  empresa: string;
+  litros: number;
+  surtidos: number;
+  monto: number;
+};
+
+const normApoyo = (v: any) =>
+  String(v ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+
+/** Totales agrupados por máquina de apoyo (nombre + placa), ordenados de mayor a menor consumo. */
+export function totalesPorMaquinaApoyo(rows: any[]): TotalMaquinaApoyo[] {
+  const m = new Map<string, TotalMaquinaApoyo>();
+  for (const d of rows || []) {
+    if (!esFilaApoyo(d)) continue;
+    const nombre = String(d.apoyo_nombre ?? '').trim() || 'Máquina de apoyo';
+    const placa = String(d.apoyo_placa ?? '').trim();
+    const serial = String(d.apoyo_serial ?? '').trim();
+    const empresa = String(d.apoyo_empresa ?? '').trim();
+    const clave = `a:${normApoyo(nombre)}|${normApoyo(placa).replace(/[\s-]/g, '')}`;
+    const prev = m.get(clave) || {
+      clave,
+      nombre,
+      placa: '',
+      serial: '',
+      empresa: '',
+      litros: 0,
+      surtidos: 0,
+      monto: 0,
+    };
+    prev.litros = redondear(prev.litros + num(d.liters));
+    prev.surtidos += 1;
+    prev.monto = redondear(prev.monto + num(d.total_amount));
+    if (!prev.placa && placa) prev.placa = placa;
+    if (!prev.serial && serial) prev.serial = serial;
+    if (!prev.empresa && empresa) prev.empresa = empresa;
+    m.set(clave, prev);
+  }
+  return Array.from(m.values()).sort((a, b) => b.litros - a.litros || a.nombre.localeCompare(b.nombre));
+}
+
+/** Series de gráficas para el reporte de Máquinas de Apoyo. */
+export function seriesApoyo(rows: any[]): { porDia: Barra[]; porEquipo: Barra[]; total: number; monto: number; maquinas: number } {
+  const soloApoyo = (rows || []).filter(esFilaApoyo);
+  const tot = totalesPorMaquinaApoyo(soloApoyo);
+  const porDia = agruparSuma(soloApoyo, (d: any) => dia(d.dispatch_date), (d: any) => num(d.liters), true);
+  const porEquipo: Barra[] = tot.map((t) => ({
+    label: `🆘 ${t.nombre} · Placa ${t.placa || 'S/P'}${t.empresa ? ` (${t.empresa})` : ''}`,
+    value: t.litros,
+  }));
+  return {
+    porDia,
+    porEquipo,
+    total: redondear(soloApoyo.reduce((s, d: any) => s + num(d.liters), 0)),
+    monto: redondear(soloApoyo.reduce((s, d: any) => s + num(d.total_amount), 0)),
+    maquinas: tot.length,
   };
 }
 

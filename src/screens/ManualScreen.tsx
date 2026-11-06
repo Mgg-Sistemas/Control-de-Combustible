@@ -129,6 +129,9 @@ const SECTIONS: Sec[] = [
         ]
       },
       { t: 'note', text: 'El sistema no deja sacar más litros de los que hay. Si te avisa, revisa el tanque.' },
+      { t: 'note', text: '🖨️ REPORTES DE CONSUMOS Y DE ENTRADAS (PDF PERSONALIZABLE): en Consumos y en Entradas puedes exportar un PDF eligiendo rango de fechas (por jornada 7am–7am), equipos y qué columnas o gráficas mostrar.' },
+      { t: 'note', text: '🆘 MÁQUINAS DE APOYO Y HORÓMETRO EN EL PARTE DIARIO: en Surtidor puedes registrar surtidos a máquinas de apoyo (externas al catálogo) con su nombre, placa, serial, empresa y fotos; y en la pestaña «🆘 Máquinas de apoyo» puedes verlas agrupadas, completar sus datos y consultar su historial.' },
+      { t: 'note', text: '🏷️ LOGOS DEL MEMBRETE Y PERSONALIZACIÓN EN TODOS LOS REPORTES PDF DE COMBUSTIBLE + REPORTE PDF DE MÁQUINAS DE APOYO (06/11/2026): ahora TODOS los reportes PDF del módulo de Combustible —Parte Diario de Surtido, Consumos, Entradas, Acta de Conciliación, Desglose del Rango y Solicitudes— permiten elegir qué logos institucionales salen en el membrete (🏛️ BCV, 🛟 SOS La Guaira, ✨ Golden Touch, 🇻🇪 Plan Venezuela Renace, 🏗️ Jhenzaen 2.012 C.A, o ninguno) y activar/desactivar cualquier columna, tarjeta de resumen, gráfica, bloque de firmas o marca de texto (lo desmarcado se omite por completo sin dejar columnas vacías). Además, en la pestaña «🆘 Máquinas de apoyo» se incorporó el botón «🖨️ Reporte PDF» para generar el reporte exclusivo de máquinas de apoyo filtrando por fecha o rango de jornadas, seleccionando máquinas de apoyo específicas (con buscador por nombre, placa, serial o empresa) y personalizando logos y columnas.' },
     ],
   },
   {
