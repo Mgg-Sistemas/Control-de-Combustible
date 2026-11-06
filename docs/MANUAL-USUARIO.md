@@ -9975,5 +9975,26 @@ Complemento directo del **🤝 Acta de Compromiso y Entrega de Herramientas**, p
    - **Motivo de devolución y Estatus de Solvencia:** permite elegir el motivo (*Fin de relación laboral / Liquidación*, *Cambio de cargo*, *Cierre de jornada*, *Cambio por deterioro*, *Vacaciones / Reposo*, *Auditoría*) y emite la constancia de solvencia (**✅ Conforme / Paz y Salvo**, **⚠️ Con novedad** o **⏳ Devolución parcial**).
    - **Firmas digitales, foto con 📷 Cámara / 🖼️ Galería y PDF (`AR-HER-AAAA-NNN`):** guarda en el expediente del trabajador, marca el acta de entrega original como **«✅ YA DEVUELTA»** e imprime el PDF formal de recepción (o planilla en blanco).
 
+---
+
+### 🖼️ Ficha Técnica — Tamaño Libre, Movimiento de Imágenes y Control de Páginas (06/11/2026)
+
+En **Catálogo → 📄 Ficha técnica**, el editor ahora permite acomodar las imágenes y páginas del documento con libertad total:
+
+1. **Más fotos en Página 1 y 1 a 4 fotos por fila:**
+   - En **🖼️ Fotos de Página 1** puedes añadir todas las fotos adicionales que necesites con **«📷 Cámara (+ Foto en Pág. 1)»** o **«🖼️ Galería (+ Foto en Pág. 1)»**, e intercambiar la Foto 1 y la Foto 2 con **«⇄ Intercambiar Foto 1 y 2»**.
+   - Tanto en Página 1 como en cada sección del Anexo puedes elegir **1 (Ancho completo), 2, 3 o 4 fotos por fila**.
+2. **Achicar o agrandar sin complicaciones:**
+   - Debajo de cada foto tienes los botones directos **«➖ Achicar»** y **«➕ Agrandar»** (además de un ajuste general por sección), y dentro de **«🖐️ Mover libre / Tamaño»** puedes elegir tamaños rápidos (*Pequeña, Mediana, Grande, Extra grande*) y el **ancho individual en la hoja** (*25%, 33%, 50%, 75% o 100%*).
+3. **Movimiento libre, Zoom y Encuadre por foto (`🖐️ Mover libre / Tamaño`):**
+   - Al activarlo en una foto, puedes **arrastrar la imagen directamente con el dedo o con el mouse** sobre su vista previa para acomodarla, o usar los botones **⬅️ Izq · ⬆️ Arriba · ⬇️ Abajo · ➡️ Der** y **🔍 Zoom − / +**.
+   - Puedes elegir foto por foto si se muestra **«🖼️ Entera (sin cortar)»** o **«✂️ Llenar cuadro»**, alinearla a la izquierda/centro/derecha o marcar **«📄 Pasar esta foto a página nueva»**.
+4. **Mover fotos de una página a otra en un toque (`📦 Cambiar de página`):**
+   - En cualquier foto toca **«📦 Cambiar de página»** y elige a dónde enviarla (*Página 1*, *Sección 1*, *Sección 2*, o *➕ Enviar a una página nueva*) sin tener que borrarla ni volverla a subir.
+   - Con **«◀ Ant.»** y **«Sig. ▶»** cambias el orden de las fotos dentro de la misma página.
+5. **Unir secciones en la misma página para evitar hojas en blanco:**
+   - Cada sección del anexo tiene el botón **«📄 Empieza en página nueva» / «⬆️ Sigue en la misma página anterior»**: al ponerla en *Sigue en la misma página anterior*, se imprime justo debajo de la sección previa aprovechando el espacio libre de la hoja.
+
+
 
 

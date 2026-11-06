@@ -61,17 +61,28 @@ export type FichaFoto = {
   url: string;
   leyenda?: string;        // Título de la foto, sale en negrita debajo (ej. «FILTRO DE AIRE»)
   descripcion?: string;    // Subtítulo explicativo opcional, debajo del título
+  // 📐 Ajustes libres por foto (06-nov-2026): tamaño, ancho, encuadre, zoom y posición
+  altoPx?: number | null;  // Alto personalizado en el PDF (ej. 140..520 px)
+  anchoPct?: 25 | 33 | 50 | 75 | 100 | null; // Ancho en la fila (null = automático según columnas)
+  encuadre?: 'auto' | 'completa' | 'rellenar' | null; // Ajuste individual sin afectar las demás fotos
+  zoom?: number | null;    // Escala de zoom (1 = normal, 0.5..3)
+  posX?: number | null;    // Desplazamiento horizontal libre en % (-100..100)
+  posY?: number | null;    // Desplazamiento vertical libre en % (-100..100)
+  alineacion?: 'izquierda' | 'centro' | 'derecha' | null; // Alineación en la hoja
+  saltoPaginaAntes?: boolean | null; // Si es true, fuerza salto de página antes de esta foto
 };
 
 /** 📎 Una sección del anexo fotográfico (01-nov-2026), como en la ficha hecha a
  *  mano: «1. VISTAS ESTRUCTURALES Y TREN DE RODAJE», «2. CABINA DE MANDO…».
- *  Cada sección empieza en página nueva, numerada, con sus fotos en 2 o 3
- *  columnas y cada foto con su título y su explicación. */
+ *  Por defecto cada sección empieza en página nueva, numerada, con sus fotos en
+ *  1, 2, 3 o 4 columnas; si `mismaPagina` es true, continúa en la página anterior. */
 export type FichaAnexo = {
   id: string;
   titulo: string;
   subtitulo?: string | null;   // Texto explicativo de la sección, debajo del título
-  columnas?: 2 | 3;
+  columnas?: 1 | 2 | 3 | 4;
+  altoFotosPx?: number | null; // Alto general para las fotos de esta sección (px)
+  mismaPagina?: boolean | null; // true = sigue en la misma página sin dejar espacio en blanco
   fotos: FichaFoto[];
 };
 
@@ -98,8 +109,14 @@ export type FichaPersonalizada = {
   // 🖼️ Fotos de Vista General en Página 1 (garantizadas en la primera página):
   fotoPrincipalUrl?: string | null;       // Foto 1 (Vista Lateral o General)
   fotoPrincipalLeyenda?: string | null;   // Leyenda foto 1
+  fotoPrincipalOculta?: boolean | null;   // true si el usuario quitó o movió explícitamente la Foto 1
+  fotoPrincipalConfig?: Partial<FichaFoto> | null; // Tamaño, ancho, zoom y posición de Foto 1
   fotoSecundariaUrl?: string | null;      // Foto 2 (Vista Posterior o Frontal lado a lado)
   fotoSecundariaLeyenda?: string | null;  // Leyenda foto 2
+  fotoSecundariaConfig?: Partial<FichaFoto> | null; // Tamaño, ancho, zoom y posición de Foto 2
+  fotosPagina1?: FichaFoto[];             // Fotos adicionales en la Página 1 (3ra, 4ta, etc.)
+  fotosP1Columnas?: 1 | 2 | 3 | 4 | null; // Cantidad de fotos por fila en Página 1
+  fotosP1AltoPx?: number | null;          // Alto general de las fotos de Página 1
   seccionFotosTitulo?: string | null;     // Título sección fotos P1 (ej. "VISTA GENERAL DEL EQUIPO")
   seccionFotosTag?: string | null;        // Tag lateral (ej. "Insonorizado Heavy-Duty")
   // 📐 Cómo sale la tabla de especificaciones en el PDF (01-nov-2026):
@@ -191,6 +208,7 @@ export function elegirFichaMasReciente(
     ...base,
     fotoPrincipalUrl: base.fotoPrincipalUrl ?? local.fotoPrincipalUrl ?? null,
     fotoSecundariaUrl: base.fotoSecundariaUrl ?? local.fotoSecundariaUrl ?? null,
+    fotosPagina1: (base.fotosPagina1 && base.fotosPagina1.length > 0) ? base.fotosPagina1 : (local.fotosPagina1 ?? []),
     fotosExtra: (base.fotosExtra && base.fotosExtra.length > 0) ? base.fotosExtra : (local.fotosExtra ?? []),
   };
 }
@@ -216,17 +234,250 @@ export function ordenarRenglonesComoReferencia(renglones: FichaRenglon[]): Ficha
 }
 
 /** Quita lo que no debe subir a la nube: fotos que solo existen en el teléfono
- *  (dataURL), también dentro de las secciones del anexo. */
+ *  (dataURL), también dentro de las secciones del anexo y de Página 1. */
 export function limpiarFichaParaNube(data: FichaPersonalizada): FichaPersonalizada {
   const esDataUrl = (u?: string | null) => typeof u === 'string' && u.startsWith('data:');
   return {
     ...data,
     fotoPrincipalUrl: esDataUrl(data.fotoPrincipalUrl) ? undefined : data.fotoPrincipalUrl,
     fotoSecundariaUrl: esDataUrl(data.fotoSecundariaUrl) ? undefined : data.fotoSecundariaUrl,
+    ...(data.fotosPagina1
+      ? { fotosPagina1: (data.fotosPagina1 ?? []).filter((f) => !esDataUrl(f.url)) }
+      : {}),
     fotosExtra: (data.fotosExtra ?? []).filter((f) => !esDataUrl(f.url)),
     ...(data.anexos
       ? { anexos: data.anexos.map((a) => ({ ...a, fotos: (a.fotos ?? []).filter((f) => !esDataUrl(f.url)) })) }
       : {}),
+  };
+}
+
+export type OrigenFotoFicha =
+  | { tipo: 'p1-slot'; slot: 1 | 2 }
+  | { tipo: 'p1-extra'; fotoId: string }
+  | { tipo: 'anexo'; seccionId: string; fotoId: string }
+  | { tipo: 'fotos-extra'; fotoId: string };
+
+export type DestinoFotoFicha =
+  | { tipo: 'p1' }
+  | { tipo: 'anexo'; seccionId: string }
+  | { tipo: 'nueva-seccion'; titulo?: string };
+
+/** Normaliza y limita los ajustes de tamaño, zoom y posición libre de una foto. */
+export function ajustarTransformFoto(
+  actual: Partial<FichaFoto> | null | undefined,
+  patch: Partial<Pick<FichaFoto, 'altoPx' | 'anchoPct' | 'encuadre' | 'zoom' | 'posX' | 'posY' | 'alineacion' | 'saltoPaginaAntes'>>
+): Partial<FichaFoto> {
+  const next: Partial<FichaFoto> = { ...(actual ?? {}), ...patch };
+  if (next.altoPx !== undefined && next.altoPx !== null) {
+    const h = Number(next.altoPx);
+    next.altoPx = isFinite(h) && h > 0 ? Math.max(80, Math.min(650, Math.round(h))) : null;
+  }
+  if (next.zoom !== undefined && next.zoom !== null) {
+    const z = Number(next.zoom);
+    next.zoom = isFinite(z) && z > 0 ? Math.round(Math.max(0.5, Math.min(3, z)) * 100) / 100 : null;
+  }
+  if (next.posX !== undefined && next.posX !== null) {
+    const px = Number(next.posX);
+    next.posX = isFinite(px) ? Math.round(Math.max(-100, Math.min(100, px)) * 10) / 10 : null;
+  }
+  if (next.posY !== undefined && next.posY !== null) {
+    const py = Number(next.posY);
+    next.posY = isFinite(py) ? Math.round(Math.max(-100, Math.min(100, py)) * 10) / 10 : null;
+  }
+  return next;
+}
+
+/** Reordena una foto dentro de una misma lista (subir/anterior = -1, bajar/siguiente = +1). */
+export function reordenarFotoEnLista(fotos: FichaFoto[], fotoId: string, delta: -1 | 1): FichaFoto[] {
+  const arr = [...(fotos ?? [])];
+  const i = arr.findIndex((f) => f.id === fotoId);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= arr.length) return arr;
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  return arr;
+}
+
+/** Intercambia la Foto 1 y la Foto 2 de la Página 1 junto con sus leyendas y tamaños. */
+export function intercambiarFotosP1(data: FichaPersonalizada): FichaPersonalizada {
+  return {
+    ...data,
+    fotoPrincipalUrl: data.fotoSecundariaUrl ?? null,
+    fotoPrincipalLeyenda: data.fotoSecundariaLeyenda ?? null,
+    fotoPrincipalConfig: data.fotoSecundariaConfig ?? null,
+    fotoSecundariaUrl: data.fotoPrincipalUrl ?? null,
+    fotoSecundariaLeyenda: data.fotoPrincipalLeyenda ?? null,
+    fotoSecundariaConfig: data.fotoPrincipalConfig ?? null,
+  };
+}
+
+/**
+ * Mueve cualquier foto entre la Página 1, las secciones del Anexo o una sección
+ * nueva, conservando su leyenda, descripción, tamaño, encuadre y posición libre.
+ */
+export function moverFotoEntrePaginas(
+  data: FichaPersonalizada,
+  origen: OrigenFotoFicha,
+  destino: DestinoFotoFicha,
+  fallbackUrlSlot1?: string | null
+): FichaPersonalizada {
+  let extraida: FichaFoto | null = null;
+  const next: FichaPersonalizada = {
+    ...data,
+    fotosPagina1: [...(data.fotosPagina1 ?? [])],
+    fotosExtra: [...(data.fotosExtra ?? [])],
+    anexos: (data.anexos ?? []).map((a) => ({ ...a, fotos: [...(a.fotos ?? [])] })),
+  };
+
+  if (origen.tipo === 'p1-slot') {
+    if (origen.slot === 1) {
+      const url = next.fotoPrincipalUrl || (!next.fotoPrincipalOculta ? fallbackUrlSlot1 : null) || null;
+      if (!url) return data;
+      extraida = {
+        ...(next.fotoPrincipalConfig ?? {}),
+        id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        url,
+        leyenda: next.fotoPrincipalLeyenda ?? '',
+      };
+      next.fotoPrincipalUrl = null;
+      next.fotoPrincipalLeyenda = null;
+      next.fotoPrincipalConfig = null;
+      next.fotoPrincipalOculta = true;
+    } else {
+      const url = next.fotoSecundariaUrl || null;
+      if (!url) return data;
+      extraida = {
+        ...(next.fotoSecundariaConfig ?? {}),
+        id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        url,
+        leyenda: next.fotoSecundariaLeyenda ?? '',
+      };
+      next.fotoSecundariaUrl = null;
+      next.fotoSecundariaLeyenda = null;
+      next.fotoSecundariaConfig = null;
+    }
+  } else if (origen.tipo === 'p1-extra') {
+    const idx = (next.fotosPagina1 ?? []).findIndex((f) => f.id === origen.fotoId);
+    if (idx < 0) return data;
+    extraida = next.fotosPagina1![idx];
+    next.fotosPagina1 = next.fotosPagina1!.filter((f) => f.id !== origen.fotoId);
+  } else if (origen.tipo === 'anexo') {
+    const sec = (next.anexos ?? []).find((a) => a.id === origen.seccionId);
+    const idx = sec ? sec.fotos.findIndex((f) => f.id === origen.fotoId) : -1;
+    if (!sec || idx < 0) return data;
+    extraida = sec.fotos[idx];
+    next.anexos = (next.anexos ?? []).map((a) =>
+      a.id === origen.seccionId ? { ...a, fotos: a.fotos.filter((f) => f.id !== origen.fotoId) } : a
+    );
+  } else if (origen.tipo === 'fotos-extra') {
+    const idx = (next.fotosExtra ?? []).findIndex((f) => f.id === origen.fotoId);
+    if (idx < 0) return data;
+    extraida = next.fotosExtra![idx];
+    next.fotosExtra = next.fotosExtra!.filter((f) => f.id !== origen.fotoId);
+  }
+
+  if (!extraida || !extraida.url) return data;
+
+  if (destino.tipo === 'p1') {
+    const slot1Ocupado = Boolean(next.fotoPrincipalUrl || (!next.fotoPrincipalOculta && fallbackUrlSlot1));
+    if (!slot1Ocupado) {
+      const { id: _id, url, leyenda, ...cfg } = extraida;
+      next.fotoPrincipalUrl = url;
+      next.fotoPrincipalLeyenda = leyenda ?? '';
+      next.fotoPrincipalConfig = Object.keys(cfg).length > 0 ? cfg : null;
+      next.fotoPrincipalOculta = false;
+    } else if (!next.fotoSecundariaUrl) {
+      const { id: _id, url, leyenda, ...cfg } = extraida;
+      next.fotoSecundariaUrl = url;
+      next.fotoSecundariaLeyenda = leyenda ?? '';
+      next.fotoSecundariaConfig = Object.keys(cfg).length > 0 ? cfg : null;
+    } else {
+      next.fotosPagina1 = [...(next.fotosPagina1 ?? []), extraida];
+    }
+  } else if (destino.tipo === 'anexo') {
+    next.anexos = (next.anexos ?? []).map((a) =>
+      a.id === destino.seccionId ? { ...a, fotos: [...(a.fotos ?? []), extraida!] } : a
+    );
+  } else if (destino.tipo === 'nueva-seccion') {
+    const nuevaSec: FichaAnexo = {
+      id: `a-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      titulo: String(destino.titulo ?? '').trim().toUpperCase() || 'REGISTRO FOTOGRÁFICO ADICIONAL',
+      columnas: 2,
+      fotos: [extraida],
+    };
+    next.anexos = [...(next.anexos ?? []), nuevaSec];
+  }
+
+  return next;
+}
+
+/**
+ * Calcula los estilos CSS inline para el recuadro y la etiqueta <img> de una foto
+ * cuando el usuario personalizó su alto, ancho, alineación, encuadre, zoom o posición.
+ * Si todo está por defecto, devuelve cadenas vacías para mantener el HTML limpio.
+ */
+export function estiloFotoEnPapel(
+  f?: Partial<FichaFoto> | null,
+  op?: { altoSeccionPx?: number | null }
+): { boxStyle: string; imgStyle: string; necesitaClip: boolean } {
+  if (!f && !op?.altoSeccionPx) return { boxStyle: '', imgStyle: '', necesitaClip: false };
+  const boxParts: string[] = [];
+  const imgParts: string[] = [];
+
+  if (f?.anchoPct && [25, 33, 50, 75, 100].includes(Number(f.anchoPct))) {
+    const w = Number(f.anchoPct);
+    if (w === 100) {
+      boxParts.push('width:100%;flex:0 0 100%');
+    } else if (w === 75) {
+      boxParts.push('width:calc(75% - 5px);flex:0 0 calc(75% - 5px)');
+    } else if (w === 50) {
+      boxParts.push('width:calc(50% - 5px);flex:0 0 calc(50% - 5px)');
+    } else if (w === 33) {
+      boxParts.push('width:calc(33.333% - 7px);flex:0 0 calc(33.333% - 7px)');
+    } else if (w === 25) {
+      boxParts.push('width:calc(25% - 8px);flex:0 0 calc(25% - 8px)');
+    }
+  }
+
+  if (f?.alineacion === 'centro') {
+    boxParts.push('margin-left:auto;margin-right:auto');
+  } else if (f?.alineacion === 'derecha') {
+    boxParts.push('margin-left:auto;margin-right:0');
+  } else if (f?.alineacion === 'izquierda') {
+    boxParts.push('margin-left:0;margin-right:auto');
+  }
+
+  if (f?.saltoPaginaAntes) {
+    boxParts.push('page-break-before:always;break-before:page');
+  }
+
+  const altoEfectivo =
+    f?.altoPx && isFinite(Number(f.altoPx)) && Number(f.altoPx) > 0
+      ? Math.round(Number(f.altoPx))
+      : op?.altoSeccionPx && isFinite(Number(op.altoSeccionPx)) && Number(op.altoSeccionPx) > 0
+        ? Math.round(Number(op.altoSeccionPx))
+        : null;
+  if (altoEfectivo) {
+    imgParts.push(`height:${altoEfectivo}px;max-height:${altoEfectivo}px`);
+  }
+
+  if (f?.encuadre === 'completa') {
+    imgParts.push('object-fit:contain');
+  } else if (f?.encuadre === 'rellenar') {
+    imgParts.push('object-fit:cover');
+  }
+
+  const z = f?.zoom && isFinite(Number(f.zoom)) && Number(f.zoom) > 0 ? Number(f.zoom) : 1;
+  const px = f?.posX && isFinite(Number(f.posX)) ? Number(f.posX) : 0;
+  const py = f?.posY && isFinite(Number(f.posY)) ? Number(f.posY) : 0;
+  const necesitaClip = z !== 1 || px !== 0 || py !== 0;
+  if (necesitaClip) {
+    imgParts.push(`transform:translate(${px}%,${py}%) scale(${z});transform-origin:center center`);
+  }
+
+  return {
+    boxStyle: boxParts.join(';'),
+    imgStyle: imgParts.join(';'),
+    necesitaClip,
   };
 }
 
@@ -510,9 +761,12 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   // ── FOTOS DE VISTA GENERAL (PÁGINA 1) ─────────────────────────────────────
   // La foto 1 es:
   // 1) p?.fotoPrincipalUrl (si el usuario la asignó o cambió en la personalización)
-  // 2) m.photo_url (la foto que ya tiene cargada la máquina o vehículo en el catálogo)
+  // 2) m.photo_url (la foto que ya tiene cargada la máquina o vehículo en el catálogo, salvo que se haya ocultado)
   // 3) La primera foto de fotosExtra (si el usuario subió fotos en el modal)
-  const foto1 = p?.fotoPrincipalUrl || m.photo_url || (p?.fotosExtra && p.fotosExtra[0]?.url) || null;
+  const foto1 = p?.fotoPrincipalUrl
+    || (!p?.fotoPrincipalOculta ? m.photo_url : null)
+    || (!p?.fotoPrincipalOculta && p?.fotosExtra && p.fotosExtra[0]?.url)
+    || null;
   // En una ficha personalizada la leyenda es la que se escribió: vacía = sin
   // leyenda (la foto de la ficha de referencia va sola, a todo lo ancho).
   const leyenda1 = p && p.fotoPrincipalLeyenda !== undefined
@@ -530,7 +784,9 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
 
   if (p?.fotoSecundariaUrl) {
     foto2 = p.fotoSecundariaUrl;
-    leyenda2 = p.fotoSecundariaLeyenda || 'Vista complementaria del equipo';
+    leyenda2 = p.fotoSecundariaLeyenda !== undefined && p.fotoSecundariaLeyenda !== null
+      ? String(p.fotoSecundariaLeyenda).trim()
+      : 'Vista complementaria del equipo';
   } else if (p?.fotosExtra && p.fotosExtra.length > 0) {
     if (foto1 === m.photo_url || foto1 === p?.fotoPrincipalUrl) {
       foto2 = p.fotosExtra[0]?.url || null;
@@ -541,8 +797,10 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
     }
   }
 
+  const fotosExtraP1: FichaFoto[] = (p?.fotosPagina1 ?? []).filter((f) => f && String(f.url ?? '').trim());
+
   // Fotos de componentes para Página 2 (cualquier foto extra que no se haya usado en Página 1)
-  const fotosUsadasP1 = new Set([foto1, foto2].filter(Boolean));
+  const fotosUsadasP1 = new Set([foto1, foto2, ...fotosExtraP1.map((f) => f.url)].filter(Boolean));
   const fotosComponentes = (p?.fotosExtra ?? []).filter((f) => !fotosUsadasP1.has(f.url));
 
   // El título de la sección de fotos: en una ficha personalizada, vacío = sin
@@ -557,26 +815,64 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   const capHtml = (t: string) => (t ? `<div class="foto-p1-cap">${esc(t)}</div>` : '');
 
   const imgVista = imgPapel;
+  const colsP1 = p?.fotosP1Columnas;
+  const anchoAutoColP1: 25 | 33 | 50 | 100 | null =
+    colsP1 === 1 ? 100 : colsP1 === 2 ? 50 : colsP1 === 3 ? 33 : colsP1 === 4 ? 25 : null;
+  const est1 = estiloFotoEnPapel(
+    p?.fotoPrincipalConfig || anchoAutoColP1
+      ? { ...(p?.fotoPrincipalConfig ?? {}), anchoPct: p?.fotoPrincipalConfig?.anchoPct ?? anchoAutoColP1 }
+      : null,
+    { altoSeccionPx: p?.fotosP1AltoPx }
+  );
+  const est2 = estiloFotoEnPapel(
+    p?.fotoSecundariaConfig || anchoAutoColP1
+      ? { ...(p?.fotoSecundariaConfig ?? {}), anchoPct: p?.fotoSecundariaConfig?.anchoPct ?? anchoAutoColP1 }
+      : null,
+    { altoSeccionPx: p?.fotosP1AltoPx }
+  );
+  const attrBox1 = est1.boxStyle ? ` style="${est1.boxStyle}"` : '';
+  const attrImg1 = est1.imgStyle ? `style="${est1.imgStyle}"` : '';
+  const attrBox2 = est2.boxStyle ? ` style="${est2.boxStyle}"` : '';
+  const attrImg2 = est2.imgStyle ? `style="${est2.imgStyle}"` : '';
+
+  const extraP1Html = fotosExtraP1.map((f) => {
+    const ef = estiloFotoEnPapel(
+      anchoAutoColP1 && !f.anchoPct ? { ...f, anchoPct: anchoAutoColP1 } : f,
+      { altoSeccionPx: p?.fotosP1AltoPx }
+    );
+    const bStyle = ef.boxStyle ? ` style="${ef.boxStyle}"` : '';
+    const iStyle = ef.imgStyle ? `style="${ef.imgStyle}"` : '';
+    const imgTag = imgVista(f.url, iStyle);
+    return `
+        <div class="foto-p1-col"${bStyle}>
+          ${ef.necesitaClip ? `<div class="anx-foto-clip">${imgTag}</div>` : imgTag}
+          ${capHtml(String(f.leyenda ?? '').trim())}
+          ${String(f.descripcion ?? '').trim() ? `<div class="anx-desc" style="padding:2px 8px 5px">${esc(f.descripcion)}</div>` : ''}
+        </div>`;
+  }).join('');
+
   let vistaGeneralHtml = '';
-  if (foto1 && foto2) {
+  if ((foto1 && foto2) || (foto1 && fotosExtraP1.length > 0) || (!foto1 && (foto2 || fotosExtraP1.length > 0))) {
+    const img2Tag = foto2 ? imgVista(foto2, attrImg2) : '';
     vistaGeneralHtml = `
       ${secFotosHd}
       <div class="fotos-p1-grid">
-        <div class="foto-p1-col">
-          ${imgPapel(foto1)}
+        ${foto1 ? `<div class="foto-p1-col"${attrBox1}>
+          ${est1.necesitaClip ? `<div class="anx-foto-clip">${imgVista(foto1, attrImg1)}</div>` : `${imgPapel(foto1, attrImg1)}`}
           ${capHtml(leyenda1)}
-        </div>
-        <div class="foto-p1-col">
-          ${imgVista(foto2)}
+        </div>` : ''}
+        ${foto2 ? `<div class="foto-p1-col"${attrBox2}>
+          ${est2.necesitaClip ? `<div class="anx-foto-clip">${img2Tag}</div>` : img2Tag}
           ${capHtml(leyenda2)}
-        </div>
+        </div>` : ''}${extraP1Html}
       </div>
     `;
   } else if (foto1) {
+    const img1Single = imgVista(foto1, attrImg1);
     vistaGeneralHtml = `
       ${secFotosHd}
-      <div class="foto-p1-single">
-        ${imgVista(foto1)}
+      <div class="foto-p1-single"${attrBox1}>
+        ${est1.necesitaClip ? `<div class="anx-foto-clip">${img1Single}</div>` : img1Single}
         ${capHtml(leyenda1)}
       </div>
     `;
@@ -584,10 +880,9 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
 
   // ── ANEXO FOTOGRÁFICO POR SECCIONES (01-nov-2026) ─────────────────────────
   // Como la ficha de referencia: «1. VISTAS ESTRUCTURALES Y TREN DE RODAJE»,
-  // «2. CABINA DE MANDO…», cada sección en página nueva, numerada, con sus
-  // fotos en 2 o 3 columnas y cada foto con su título en negrita y, si se
-  // escribió, su explicación debajo. Las fotos extra de antes (sin sección)
-  // salen como una sección más, para no perderlas.
+  // «2. CABINA DE MANDO…», cada sección en página nueva (o en la misma página
+  // si el usuario activó `mismaPagina`), numerada, con sus fotos en 1, 2, 3 o 4
+  // columnas y cada foto con su título en negrita y su tamaño/posición libre.
   const seccionesAnexo: FichaAnexo[] = (p?.anexos ?? [])
     .map((a) => ({ ...a, fotos: (a?.fotos ?? []).filter((f) => f && String(f.url ?? '').trim()) }))
     .filter((a) => a.fotos.length > 0);
@@ -601,27 +896,37 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   }
   const imgAnexo = imgPapel; // misma foto reducida (alias, como imgVista)
   const anexosHtml = seccionesAnexo.map((a, i) => {
-    const cols = a.columnas === 3 ? 3 : 2;
+    const cols = a.columnas === 1 ? 1 : a.columnas === 3 ? 3 : a.columnas === 4 ? 4 : 2;
+    const secStyle = a.mismaPagina ? ' style="page-break-before:avoid;break-before:avoid;margin-top:16px"' : '';
     return `
-      <div class="anx-sec">
+      <div class="anx-sec"${secStyle}>
         <div class="sec-hd"><div class="sec-title">${i + 1}. ${esc(String(a.titulo ?? '').trim() || 'Registro fotográfico')}</div></div>
         ${String(a.subtitulo ?? '').trim() ? `<div class="anx-sub">${esc(a.subtitulo)}</div>` : ''}
         <div class="anx-grid c${cols}">
-          ${a.fotos.map((f) => `
-            <div class="anx-foto">
-              ${imgAnexo(f.url)}
+          ${a.fotos.map((f) => {
+            const ef = estiloFotoEnPapel(f, { altoSeccionPx: a.altoFotosPx });
+            const fBoxAttr = ef.boxStyle ? ` style="${ef.boxStyle}"` : '';
+            const fImgAttr = ef.imgStyle ? `style="${ef.imgStyle}"` : '';
+            const tagImg = imgAnexo(f.url, fImgAttr);
+            return `
+            <div class="anx-foto"${fBoxAttr}>
+              ${ef.necesitaClip ? `<div class="anx-foto-clip">${tagImg}</div>` : tagImg}
               ${String(f.leyenda ?? '').trim() ? `<div class="anx-cap">${esc(f.leyenda)}</div>` : ''}
               ${String(f.descripcion ?? '').trim() ? `<div class="anx-desc">${esc(f.descripcion)}</div>` : ''}
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
       </div>
     `;
   }).join('');
 
   // La foto de la placa y la del horómetro del catálogo van al anexo automático,
-  // salvo que el usuario ya las haya puesto en una sección (no se repiten).
-  const urlsEnAnexo = new Set(seccionesAnexo.flatMap((a) => a.fotos.map((f) => f.url)));
+  // salvo que el usuario ya las haya puesto en una sección o en Página 1 (no se repiten).
+  const urlsEnAnexo = new Set([
+    ...seccionesAnexo.flatMap((a) => a.fotos.map((f) => f.url)),
+    ...Array.from(fotosUsadasP1),
+  ]);
   const fotoPlacaAuto = m.photo_serial_url && !urlsEnAnexo.has(m.photo_serial_url) ? m.photo_serial_url : null;
   const fotoHorometroAuto = m.fotoHorometroUrl && !urlsEnAnexo.has(m.fotoHorometroUrl) ? m.fotoHorometroUrl : null;
 
@@ -679,8 +984,8 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   table.ft td.k{color:#111827;width:38%;font-weight:700}
   table.ft tr:nth-child(even) td{background:#F5F8FC}
 
-  .fotos-p1-grid{display:flex;gap:10px;margin:8px 0;page-break-inside:avoid}
-  .foto-p1-col{flex:1;min-width:0;border:1px solid ${BORDE};border-radius:6px;overflow:hidden;background:#FAFBFD;text-align:center}
+  .fotos-p1-grid{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0;page-break-inside:avoid}
+  .foto-p1-col{flex:1;min-width:160px;border:1px solid ${BORDE};border-radius:6px;overflow:hidden;background:#FAFBFD;text-align:center}
   .foto-p1-col img{width:100%;height:165px;object-fit:contain;background:#FAFBFD;display:block;margin:0 auto}
   .foto-p1-single{border:1px solid ${BORDE};border-radius:4px;overflow:hidden;background:#FAFBFD;text-align:center;margin:10px 0;page-break-inside:avoid}
   .foto-p1-single img{width:100%;height:260px;object-fit:contain;background:#FAFBFD;display:block;margin:0 auto}
@@ -698,11 +1003,16 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   .anx-sub{font-size:10px;color:#475569;margin:-2px 0 8px}
   .anx-grid{display:flex;flex-wrap:wrap;gap:10px}
   .anx-foto{page-break-inside:avoid;text-align:center}
+  .anx-foto-clip{overflow:hidden;border-radius:3px;background:#F5F7FA}
+  .anx-grid.c1 .anx-foto{width:100%}
   .anx-grid.c2 .anx-foto{width:calc(50% - 5px)}
   .anx-grid.c3 .anx-foto{width:calc(33.333% - 7px)}
+  .anx-grid.c4 .anx-foto{width:calc(25% - 8px)}
   .anx-foto img{width:100%;object-fit:contain;background:#F5F7FA;display:block;border-radius:3px}
+  .anx-grid.c1 .anx-foto img{height:360px}
   .anx-grid.c2 .anx-foto img{height:290px}
   .anx-grid.c3 .anx-foto img{height:190px}
+  .anx-grid.c4 .anx-foto img{height:145px}
   .anx-cap{font-size:9px;font-weight:800;color:#111827;text-transform:uppercase;margin-top:5px;letter-spacing:.2px}
   .anx-desc{font-size:8.5px;color:#64748B;margin-top:2px}
 

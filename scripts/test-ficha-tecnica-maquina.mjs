@@ -372,6 +372,129 @@ const FR = loadTs(path.join(ROOT, 'src/lib/fotoRemota.ts'));
   ok('🖼️ la ficha ofrece las dos opciones, completas por defecto', modal.includes('Completas (sin recortar)') && modal.includes("(data.encuadreFotos ?? 'completa')"));
 }
 
+// ── 7) 🖐️ TAMAÑO LIBRE, MOVIMIENTO DE FOTOS Y CONTROL DE PÁGINAS (06-nov-2026) ──
+{
+  // Ajuste y límites de tamaño, zoom y posición libre
+  const aj = F.ajustarTransformFoto({ altoPx: 200 }, { altoPx: 900, zoom: 5, posX: -150, posY: 25.44, anchoPct: 50, encuadre: 'completa', alineacion: 'centro' });
+  eq('ajustarTransformFoto limita altoPx (80..650), zoom (0.5..3) y posX/posY (-100..100)', aj, {
+    altoPx: 650,
+    zoom: 3,
+    posX: -100,
+    posY: 25.4,
+    anchoPct: 50,
+    encuadre: 'completa',
+    alineacion: 'centro',
+  });
+
+  // Reordenar fotos dentro de una misma sección o página
+  const lista = [
+    { id: 'f1', url: 'https://x/1.jpg' },
+    { id: 'f2', url: 'https://x/2.jpg' },
+    { id: 'f3', url: 'https://x/3.jpg' },
+  ];
+  eq('reordenarFotoEnLista mueve hacia adelante y hacia atrás',
+    F.reordenarFotoEnLista(lista, 'f2', -1).map((x) => x.id),
+    ['f2', 'f1', 'f3']);
+
+  // Intercambiar Foto 1 y Foto 2 de Página 1
+  const intercambiada = F.intercambiarFotosP1({
+    fotoPrincipalUrl: 'https://x/p1.jpg',
+    fotoPrincipalLeyenda: 'Uno',
+    fotoPrincipalConfig: { altoPx: 220 },
+    fotoSecundariaUrl: 'https://x/p2.jpg',
+    fotoSecundariaLeyenda: 'Dos',
+    fotoSecundariaConfig: { altoPx: 180 },
+  });
+  eq('intercambiarFotosP1 intercambia URLs, leyendas y tamaños de Foto 1 y Foto 2',
+    [intercambiada.fotoPrincipalUrl, intercambiada.fotoPrincipalLeyenda, intercambiada.fotoPrincipalConfig?.altoPx, intercambiada.fotoSecundariaUrl],
+    ['https://x/p2.jpg', 'Dos', 180, 'https://x/p1.jpg']);
+
+  // Mover fotos entre páginas (de Anexo a Página 1, entre secciones y a nueva página)
+  const fichaBase = {
+    fotoPrincipalUrl: 'https://x/f-principal.jpg',
+    fotoPrincipalLeyenda: 'Principal',
+    fotoSecundariaUrl: 'https://x/f-secundaria.jpg',
+    fotoSecundariaLeyenda: 'Secundaria',
+    fotosPagina1: [],
+    anexos: [
+      {
+        id: 'sec-1',
+        titulo: 'SECCIÓN 1',
+        columnas: 2,
+        fotos: [
+          { id: 'fa-1', url: 'https://x/placa-sucre.jpg', leyenda: 'PLACA SUCRE', altoPx: 240, zoom: 1.3, posX: 10, posY: -5 },
+        ],
+      },
+      {
+        id: 'sec-2',
+        titulo: 'SECCIÓN 2',
+        columnas: 3,
+        fotos: [],
+      },
+    ],
+  };
+
+  // Mover fa-1 de Sección 1 a Página 1 (como Foto 1 y 2 están ocupadas, entra como 3ra foto en Página 1)
+  const movAP1 = F.moverFotoEntrePaginas(fichaBase, { tipo: 'anexo', seccionId: 'sec-1', fotoId: 'fa-1' }, { tipo: 'p1' });
+  ok('⭐⭐ mover foto del Anexo a Página 1 la saca de la sección y la agrega a Página 1 con su tamaño y zoom',
+    movAP1.anexos[0].fotos.length === 0
+    && movAP1.fotosPagina1.length === 1
+    && movAP1.fotosPagina1[0].url === 'https://x/placa-sucre.jpg'
+    && movAP1.fotosPagina1[0].altoPx === 240
+    && movAP1.fotosPagina1[0].zoom === 1.3);
+
+  // Mover esa foto de Página 1 a una página/sección nueva
+  const movANueva = F.moverFotoEntrePaginas(movAP1, { tipo: 'p1-extra', fotoId: 'fa-1' }, { tipo: 'nueva-seccion', titulo: 'Placas y Seriales' });
+  ok('⭐⭐ mover foto a nueva página crea la sección y traslada la foto',
+    movANueva.fotosPagina1.length === 0
+    && movANueva.anexos.length === 3
+    && movANueva.anexos[2].titulo === 'PLACAS Y SERIALES'
+    && movANueva.anexos[2].fotos[0].url === 'https://x/placa-sucre.jpg');
+
+  // HTML con múltiples fotos en Página 1, sección en la misma página (sin salto), 4 columnas, tamaño y movimiento libre
+  const htmlLibre = F.fichaTecnicaMaquinaHtml(XCMG, {
+    personalizada: {
+      ...movAP1,
+      fotosP1Columnas: 3,
+      anexos: [
+        {
+          id: 'sec-a',
+          titulo: 'VISTAS EN 4 COLUMNAS',
+          columnas: 4,
+          mismaPagina: true,
+          altoFotosPx: 180,
+          fotos: [
+            {
+              id: 'f-custom',
+              url: 'https://x/custom.jpg',
+              leyenda: 'FOTO MOVIDA LIBREMENTE',
+              altoPx: 310,
+              anchoPct: 75,
+              encuadre: 'completa',
+              zoom: 1.4,
+              posX: 15,
+              posY: -10,
+              alineacion: 'centro',
+            },
+          ],
+        },
+      ],
+    },
+  });
+  ok('⭐⭐ el PDF imprime 3+ fotos en Página 1 con su ancho personalizado',
+    htmlLibre.includes('https://x/placa-sucre.jpg') && htmlLibre.includes('PLACA SUCRE'));
+  ok('⭐⭐ sección con mismaPagina=true evita salto de página (page-break-before:avoid)',
+    htmlLibre.includes('page-break-before:avoid;break-before:avoid'));
+  ok('⭐⭐ sección soporta 1 y 4 columnas además de 2 y 3',
+    htmlLibre.includes('anx-grid c4') && htmlLibre.includes('.anx-grid.c1 .anx-foto{width:100%}'));
+  ok('⭐⭐ foto con tamaño, ancho, zoom y posición libre aplica transform, height, width y clip en el PDF',
+    htmlLibre.includes('height:310px;max-height:310px')
+    && htmlLibre.includes('width:calc(75% - 5px)')
+    && htmlLibre.includes('margin-left:auto;margin-right:auto')
+    && htmlLibre.includes('transform:translate(15%,-10%) scale(1.4)')
+    && htmlLibre.includes('class="anx-foto-clip"'));
+}
+
 // ── Resultado ───────────────────────────────────────────────────────────────
 console.log('\nFICHA TÉCNICA DEL CATÁLOGO — documento y botón\n');
 if (failures.length) console.log(failures.join('\n'));

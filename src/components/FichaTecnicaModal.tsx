@@ -40,10 +40,16 @@ import {
   MaquinaFichaTecnica,
   OpcionesFichaTecnica,
   FichaAnexo,
+  OrigenFotoFicha,
+  DestinoFotoFicha,
   ayudaCampoFicha,
   ordenarRenglonesComoReferencia,
   SECCIONES_ANEXO_SUGERIDAS,
   nombreDeMaquina,
+  ajustarTransformFoto,
+  reordenarFotoEnLista,
+  intercambiarFotosP1,
+  moverFotoEntrePaginas,
 } from '../lib/fichaTecnicaMaquina';
 import {
   GuardadoFicha,
@@ -99,6 +105,10 @@ export function FichaTecnicaModal({
   const [nuevaFotoLeyenda, setNuevaFotoLeyenda] = useState('');
   // Sección del anexo que está subiendo una foto (para el aviso «Subiendo…»).
   const [subiendoEn, setSubiendoEn] = useState<string | null>(null);
+  // Foto que tiene abierto el panel de movimiento libre / zoom o el de cambiar de página
+  const [fotoAjustandoId, setFotoAjustandoId] = useState<string | null>(null);
+  const [fotoMoviendoId, setFotoMoviendoId] = useState<string | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number; posX: number; posY: number } | null>(null);
   // La ficha que está abierta AHORA: si mientras sube una foto se cierra y se
   // abre otra, la foto no debe caer en la ficha nueva.
   const fichaAbiertaRef = useRef<string | null>(null);
@@ -260,25 +270,53 @@ export function FichaTecnicaModal({
   const setFotoPrincipalLeyenda = (l: string) => setData((d) => (d ? { ...d, fotoPrincipalLeyenda: l } : null));
   const setFotoSecundariaLeyenda = (l: string) => setData((d) => (d ? { ...d, fotoSecundariaLeyenda: l } : null));
 
-  // Manejo de fotos de Página 1
+  // Manejo de fotos de Página 1 (sube a Storage si hay machineId para que se vea en cualquier equipo)
+  const elegirOSubirFoto = async (via: 'camara' | 'galeria'): Promise<{ ok: boolean; url?: string; error?: string }> => {
+    if (machineId) {
+      const up = via === 'galeria'
+        ? await pickPhotoFromGalleryAndUpload(machineId, 'ficha-anexo')
+        : await takePhotoAndUpload(machineId, 'ficha-anexo');
+      if (up.ok && up.url) return { ok: true, url: up.url };
+      if (up.error && !/cancel/i.test(up.error)) {
+        // Si falla Storage por red, cae a foto local para no bloquear al usuario
+        const loc = via === 'galeria' ? await elegirFotoLocal() : await capturarFotoLocal();
+        if (loc.ok && loc.dataUrl) return { ok: true, url: loc.dataUrl };
+      }
+      return { ok: false, error: up.error };
+    }
+    const loc = via === 'galeria' ? await elegirFotoLocal() : await capturarFotoLocal();
+    return { ok: loc.ok, url: loc.dataUrl, error: loc.error };
+  };
+
   const tomarFotoP1 = async (slot: 1 | 2, via: 'camara' | 'galeria') => {
     if (fotoTomando) return;
     setFotoTomando(true);
     try {
-      const res = via === 'galeria' ? await elegirFotoLocal() : await capturarFotoLocal();
-      if (res.ok && res.dataUrl) {
+      const res = await elegirOSubirFoto(via);
+      if (res.ok && res.url) {
         if (slot === 1) {
-          setData((d) => (d ? {
-            ...d,
-            fotoPrincipalUrl: res.dataUrl,
-            fotoPrincipalLeyenda: d.fotoPrincipalLeyenda || 'Vista general de la unidad en campo operativo',
-          } : null));
+          setData((d) => {
+            if (!d) return null;
+            const next: FichaPersonalizada = {
+              ...d,
+              fotoPrincipalUrl: res.url,
+              fotoPrincipalOculta: false,
+              fotoPrincipalLeyenda: d.fotoPrincipalLeyenda || 'Vista general de la unidad en campo operativo',
+            };
+            programarGuardado(next);
+            return next;
+          });
         } else {
-          setData((d) => (d ? {
-            ...d,
-            fotoSecundariaUrl: res.dataUrl,
-            fotoSecundariaLeyenda: d.fotoSecundariaLeyenda || 'Vista posterior / lateral del equipo',
-          } : null));
+          setData((d) => {
+            if (!d) return null;
+            const next: FichaPersonalizada = {
+              ...d,
+              fotoSecundariaUrl: res.url,
+              fotoSecundariaLeyenda: d.fotoSecundariaLeyenda || 'Vista posterior / lateral del equipo',
+            };
+            programarGuardado(next);
+            return next;
+          });
         }
         toast.success(`Foto ${slot} de Página 1 actualizada.`);
       } else if (res.error) {
@@ -291,11 +329,142 @@ export function FichaTecnicaModal({
 
   const eliminarFotoP1 = (slot: 1 | 2) => {
     if (slot === 1) {
-      setData((d) => (d ? { ...d, fotoPrincipalUrl: null, fotoPrincipalLeyenda: null } : null));
+      setData((d) => {
+        if (!d) return null;
+        const next: FichaPersonalizada = { ...d, fotoPrincipalUrl: null, fotoPrincipalLeyenda: null, fotoPrincipalConfig: null, fotoPrincipalOculta: true };
+        programarGuardado(next);
+        return next;
+      });
     } else {
-      setData((d) => (d ? { ...d, fotoSecundariaUrl: null, fotoSecundariaLeyenda: null } : null));
+      setData((d) => {
+        if (!d) return null;
+        const next: FichaPersonalizada = { ...d, fotoSecundariaUrl: null, fotoSecundariaLeyenda: null, fotoSecundariaConfig: null };
+        programarGuardado(next);
+        return next;
+      });
     }
     toast.info(`Foto ${slot} de Página 1 quitada.`);
+  };
+
+  const actualizarConfigFotoP1 = (slot: 1 | 2, patch: Partial<FichaFoto>) => {
+    setData((d) => {
+      if (!d) return null;
+      const actual = slot === 1 ? d.fotoPrincipalConfig : d.fotoSecundariaConfig;
+      const ajustada = ajustarTransformFoto(actual, patch);
+      const next: FichaPersonalizada = slot === 1
+        ? { ...d, fotoPrincipalConfig: ajustada }
+        : { ...d, fotoSecundariaConfig: ajustada };
+      programarGuardado(next);
+      return next;
+    });
+  };
+
+  const subirFotoExtraP1 = async (via: 'camara' | 'galeria') => {
+    if (fotoTomando) return;
+    setFotoTomando(true);
+    try {
+      const res = await elegirOSubirFoto(via);
+      if (res.ok && res.url) {
+        setData((d) => {
+          if (!d) return null;
+          // Si Foto 1 o Foto 2 están libres, ocupa primero esos lugares; si no, agrega como foto adicional en Página 1
+          if (!d.fotoPrincipalUrl) {
+            const next: FichaPersonalizada = {
+              ...d,
+              fotoPrincipalUrl: res.url,
+              fotoPrincipalOculta: false,
+              fotoPrincipalLeyenda: d.fotoPrincipalLeyenda || 'Vista general del equipo',
+            };
+            programarGuardado(next);
+            return next;
+          }
+          if (!d.fotoSecundariaUrl) {
+            const next: FichaPersonalizada = {
+              ...d,
+              fotoSecundariaUrl: res.url,
+              fotoSecundariaLeyenda: d.fotoSecundariaLeyenda || 'Vista complementaria del equipo',
+            };
+            programarGuardado(next);
+            return next;
+          }
+          const nueva: FichaFoto = {
+            id: `fp1-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            url: res.url!,
+            leyenda: '',
+          };
+          const next: FichaPersonalizada = {
+            ...d,
+            fotosPagina1: [...(d.fotosPagina1 ?? []), nueva],
+          };
+          programarGuardado(next);
+          return next;
+        });
+        toast.success('Foto agregada a la Página 1.');
+      } else if (res.error) {
+        toast.error(res.error);
+      }
+    } finally {
+      setFotoTomando(false);
+    }
+  };
+
+  const actualizarFotoExtraP1 = (fotoId: string, patch: Partial<FichaFoto>) => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = {
+        ...d,
+        fotosPagina1: (d.fotosPagina1 ?? []).map((f) =>
+          f.id === fotoId ? { ...f, ...ajustarTransformFoto(f, patch), ...(patch.leyenda !== undefined ? { leyenda: patch.leyenda } : {}), ...(patch.descripcion !== undefined ? { descripcion: patch.descripcion } : {}) } : f
+        ),
+      };
+      programarGuardado(next);
+      return next;
+    });
+  };
+
+  const eliminarFotoExtraP1 = (fotoId: string) => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = {
+        ...d,
+        fotosPagina1: (d.fotosPagina1 ?? []).filter((f) => f.id !== fotoId),
+      };
+      programarGuardado(next);
+      return next;
+    });
+  };
+
+  const moverOrdenFotoP1Extra = (fotoId: string, delta: -1 | 1) => {
+    setData((d) => {
+      if (!d) return null;
+      const next: FichaPersonalizada = {
+        ...d,
+        fotosPagina1: reordenarFotoEnLista(d.fotosPagina1 ?? [], fotoId, delta),
+      };
+      programarGuardado(next);
+      return next;
+    });
+  };
+
+  const handleIntercambiarFotosP1 = () => {
+    setData((d) => {
+      if (!d) return null;
+      const next = intercambiarFotosP1(d);
+      programarGuardado(next);
+      return next;
+    });
+    toast.info('Se intercambiaron la Foto 1 y la Foto 2.');
+  };
+
+  const handleMoverFotoEntrePaginas = (origen: OrigenFotoFicha, destino: DestinoFotoFicha, nombreDestino: string) => {
+    setData((d) => {
+      if (!d) return null;
+      const next = moverFotoEntrePaginas(d, origen, destino, machine.photo_url);
+      programarGuardado(next);
+      return next;
+    });
+    setFotoMoviendoId(null);
+    toast.success(`Foto movida a ${nombreDestino}.`);
   };
 
   // Agregar / editar / quitar renglón
@@ -576,11 +745,454 @@ export function FichaTecnicaModal({
 
   const actualizarFotoAnexo = (secId: string, fotoId: string, patch: Partial<FichaFoto>) =>
     cambiarAnexos((as) =>
-      as.map((a) => (a.id === secId ? { ...a, fotos: (a.fotos ?? []).map((f) => (f.id === fotoId ? { ...f, ...patch } : f)) } : a))
+      as.map((a) =>
+        a.id === secId
+          ? {
+              ...a,
+              fotos: (a.fotos ?? []).map((f) =>
+                f.id === fotoId
+                  ? {
+                      ...f,
+                      ...ajustarTransformFoto(f, patch),
+                      ...(patch.leyenda !== undefined ? { leyenda: patch.leyenda } : {}),
+                      ...(patch.descripcion !== undefined ? { descripcion: patch.descripcion } : {}),
+                    }
+                  : f
+              ),
+            }
+          : a
+      )
+    );
+
+  const moverFotoEnSeccionAnexo = (secId: string, fotoId: string, delta: -1 | 1) =>
+    cambiarAnexos((as) =>
+      as.map((a) => (a.id === secId ? { ...a, fotos: reordenarFotoEnLista(a.fotos ?? [], fotoId, delta) } : a))
     );
 
   const eliminarFotoAnexo = (secId: string, fotoId: string) =>
     cambiarAnexos((as) => as.map((a) => (a.id === secId ? { ...a, fotos: (a.fotos ?? []).filter((f) => f.id !== fotoId) } : a)));
+
+  /**
+   * Barra interactiva de Tamaño, Ancho, Movimiento Libre (Arrastrar + Flechas + Zoom)
+   * y Cambio de Página para cualquier foto (de Página 1 o del Anexo).
+   */
+  const renderControlesFoto = ({
+    uid,
+    url,
+    cfg,
+    altoDefaultPx,
+    origen,
+    onPatch,
+    onMoveOrder,
+    canMovePrev,
+    canMoveNext,
+  }: {
+    uid: string;
+    url: string;
+    cfg: Partial<FichaFoto>;
+    altoDefaultPx: number;
+    origen: OrigenFotoFicha;
+    onPatch: (patch: Partial<FichaFoto>) => void;
+    onMoveOrder?: (delta: -1 | 1) => void;
+    canMovePrev?: boolean;
+    canMoveNext?: boolean;
+  }) => {
+    const abiertoAjuste = fotoAjustandoId === uid;
+    const abiertoMover = fotoMoviendoId === uid;
+    const altoActual = cfg.altoPx && cfg.altoPx > 0 ? Math.round(cfg.altoPx) : altoDefaultPx;
+    const zoomActual = cfg.zoom && cfg.zoom > 0 ? Number(cfg.zoom) : 1;
+    const posXActual = cfg.posX ? Number(cfg.posX) : 0;
+    const posYActual = cfg.posY ? Number(cfg.posY) : 0;
+    const encuadreEfectivo =
+      cfg.encuadre === 'rellenar' || (!cfg.encuadre && data?.encuadreFotos === 'rellenar')
+        ? 'cover'
+        : 'contain';
+    const previewH = Math.max(90, Math.min(220, Math.round(altoActual * 0.55)));
+
+    return (
+      <View style={{ marginTop: 4, gap: 6 }}>
+        {/* Vista previa interactiva (con soporte de arrastrar cuando está abierto Movimiento Libre) */}
+        <View
+          onStartShouldSetResponder={() => abiertoAjuste}
+          onMoveShouldSetResponder={() => abiertoAjuste}
+          onResponderGrant={(e) => {
+            dragStartRef.current = {
+              x: e.nativeEvent.pageX,
+              y: e.nativeEvent.pageY,
+              posX: posXActual,
+              posY: posYActual,
+            };
+          }}
+          onResponderMove={(e) => {
+            if (!dragStartRef.current) return;
+            const dx = (e.nativeEvent.pageX - dragStartRef.current.x) * 0.45;
+            const dy = (e.nativeEvent.pageY - dragStartRef.current.y) * 0.45;
+            onPatch({
+              posX: Math.round((dragStartRef.current.posX + dx) * 10) / 10,
+              posY: Math.round((dragStartRef.current.posY + dy) * 10) / 10,
+            });
+          }}
+          onResponderRelease={() => {
+            dragStartRef.current = null;
+          }}
+          style={{
+            height: previewH,
+            borderRadius: radius.sm,
+            overflow: 'hidden',
+            backgroundColor: '#f1f5f9',
+            borderWidth: abiertoAjuste ? 2 : 1,
+            borderColor: abiertoAjuste ? '#0284c7' : colors.border,
+            position: 'relative',
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <Image
+            source={{ uri: url }}
+            style={{
+              width: '100%',
+              height: '100%',
+              resizeMode: encuadreEfectivo,
+              transform: [
+                { translateX: (posXActual / 100) * 160 },
+                { translateY: (posYActual / 100) * previewH },
+                { scale: zoomActual },
+              ],
+            }}
+          />
+          {abiertoAjuste ? (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                bottom: 4,
+                left: 6,
+                right: 6,
+                backgroundColor: 'rgba(22,50,79,0.82)',
+                borderRadius: 4,
+                paddingVertical: 2,
+                paddingHorizontal: 6,
+              }}
+            >
+              <Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '700', textAlign: 'center' }}>
+                🖐️ Arrastra la imagen con el dedo o el mouse para correrla libremente
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Fila 1: Tamaño rápido (- / +), Orden y botones de Movimiento Libre y Mover de Página */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+          <TouchableOpacity
+            onPress={() => onPatch({ altoPx: Math.max(90, altoActual - 25) })}
+            style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 7 }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10 }}>➖ Achicar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onPatch({ altoPx: null })}
+            style={{ backgroundColor: cfg.altoPx ? '#e0f2fe' : colors.surface, borderWidth: 1, borderColor: cfg.altoPx ? '#0284c7' : colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6 }}
+          >
+            <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 9.5 }}>
+              Alto: {cfg.altoPx ? `${altoActual}px` : `Auto (${altoDefaultPx}px)`}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onPatch({ altoPx: Math.min(620, altoActual + 25) })}
+            style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 7 }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10 }}>➕ Agrandar</Text>
+          </TouchableOpacity>
+
+          {onMoveOrder ? (
+            <>
+              <TouchableOpacity
+                onPress={() => onMoveOrder(-1)}
+                disabled={!canMovePrev}
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, opacity: canMovePrev ? 1 : 0.35 }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 10 }}>◀ Ant.</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => onMoveOrder(1)}
+                disabled={!canMoveNext}
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, opacity: canMoveNext ? 1 : 0.35 }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 10 }}>Sig. ▶</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+
+          <TouchableOpacity
+            onPress={() => {
+              setFotoAjustandoId(abiertoAjuste ? null : uid);
+              setFotoMoviendoId(null);
+            }}
+            style={{
+              backgroundColor: abiertoAjuste ? '#0284c7' : colors.surfaceAlt,
+              borderWidth: 1,
+              borderColor: abiertoAjuste ? '#0284c7' : colors.border,
+              borderRadius: radius.sm,
+              paddingVertical: 4,
+              paddingHorizontal: 7,
+            }}
+          >
+            <Text style={{ color: abiertoAjuste ? '#fff' : colors.text, fontWeight: '800', fontSize: 10 }}>
+              🖐️ Mover libre / Tamaño
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              setFotoMoviendoId(abiertoMover ? null : uid);
+              setFotoAjustandoId(null);
+            }}
+            style={{
+              backgroundColor: abiertoMover ? '#16324F' : colors.surfaceAlt,
+              borderWidth: 1,
+              borderColor: abiertoMover ? '#16324F' : colors.border,
+              borderRadius: radius.sm,
+              paddingVertical: 4,
+              paddingHorizontal: 7,
+            }}
+          >
+            <Text style={{ color: abiertoMover ? '#fff' : colors.text, fontWeight: '800', fontSize: 10 }}>
+              📦 Cambiar de página
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Panel desplegable 1: Movimiento libre, Zoom, Ancho y Encuadre individual */}
+        {abiertoAjuste ? (
+          <View style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: '#0284c7', borderRadius: radius.sm, padding: 8, gap: 6 }}>
+            {/* Presets de tamaño (alto) y ancho en la fila */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginRight: 2 }}>Tamaño rápido:</Text>
+              {([
+                [null, 'Auto'],
+                [140, 'Pequeña'],
+                [210, 'Mediana'],
+                [290, 'Grande'],
+                [380, 'Extra grande'],
+              ] as const).map(([hVal, lbl]) => {
+                const act = (cfg.altoPx ?? null) === hVal;
+                return (
+                  <TouchableOpacity
+                    key={String(lbl)}
+                    onPress={() => onPatch({ altoPx: hVal })}
+                    style={{
+                      paddingHorizontal: 7,
+                      paddingVertical: 3,
+                      borderRadius: radius.pill,
+                      backgroundColor: act ? '#16324F' : colors.surface,
+                      borderWidth: 1,
+                      borderColor: act ? '#16324F' : colors.border,
+                    }}
+                  >
+                    <Text style={{ color: act ? '#fff' : colors.text, fontSize: 9.5, fontWeight: '700' }}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginRight: 2 }}>Ancho en la hoja:</Text>
+              {([
+                [null, 'Auto (según fila)'],
+                [25, '1/4 (25%)'],
+                [33, '1/3 (33%)'],
+                [50, 'Mitad (50%)'],
+                [75, '3/4 (75%)'],
+                [100, 'Ancho completo (100%)'],
+              ] as const).map(([wVal, lbl]) => {
+                const act = (cfg.anchoPct ?? null) === wVal;
+                return (
+                  <TouchableOpacity
+                    key={String(lbl)}
+                    onPress={() => onPatch({ anchoPct: wVal })}
+                    style={{
+                      paddingHorizontal: 7,
+                      paddingVertical: 3,
+                      borderRadius: radius.pill,
+                      backgroundColor: act ? '#16324F' : colors.surface,
+                      borderWidth: 1,
+                      borderColor: act ? '#16324F' : colors.border,
+                    }}
+                  >
+                    <Text style={{ color: act ? '#fff' : colors.text, fontSize: 9.5, fontWeight: '700' }}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Encuadre individual de esta foto */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginRight: 2 }}>Encuadre de esta foto:</Text>
+              {([
+                [null, 'Usar general'],
+                ['completa', '🖼️ Entera (sin cortar)'],
+                ['rellenar', '✂️ Llenar cuadro'],
+              ] as const).map(([encVal, lbl]) => {
+                const act = (cfg.encuadre ?? null) === encVal;
+                return (
+                  <TouchableOpacity
+                    key={String(lbl)}
+                    onPress={() => onPatch({ encuadre: encVal })}
+                    style={{
+                      paddingHorizontal: 7,
+                      paddingVertical: 3,
+                      borderRadius: radius.pill,
+                      backgroundColor: act ? '#16324F' : colors.surface,
+                      borderWidth: 1,
+                      borderColor: act ? '#16324F' : colors.border,
+                    }}
+                  >
+                    <Text style={{ color: act ? '#fff' : colors.text, fontSize: 9.5, fontWeight: '700' }}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Controles de Movimiento libre (flechas) y Zoom */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginRight: 2 }}>Correr imagen:</Text>
+              <TouchableOpacity
+                onPress={() => onPatch({ posX: posXActual - 6 })}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 8 }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10 }}>⬅️ Izq</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => onPatch({ posY: posYActual - 6 })}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 8 }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10 }}>⬆️ Arriba</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => onPatch({ posY: posYActual + 6 })}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 8 }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10 }}>⬇️ Abajo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => onPatch({ posX: posXActual + 6 })}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 8 }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10 }}>➡️ Der</Text>
+              </TouchableOpacity>
+
+              <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginLeft: 4 }}>Zoom:</Text>
+              <TouchableOpacity
+                onPress={() => onPatch({ zoom: Math.max(0.5, Math.round((zoomActual - 0.1) * 100) / 100) })}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 7 }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10 }}>🔍 −</Text>
+              </TouchableOpacity>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10 }}>{Math.round(zoomActual * 100)}%</Text>
+              <TouchableOpacity
+                onPress={() => onPatch({ zoom: Math.min(3, Math.round((zoomActual + 0.1) * 100) / 100) })}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 7 }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 10 }}>🔍 +</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => onPatch({ zoom: null, posX: null, posY: null, altoPx: null, anchoPct: null, encuadre: null, alineacion: null })}
+                style={{ backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fca5a5', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 7, marginLeft: 'auto' }}
+              >
+                <Text style={{ color: '#991b1b', fontWeight: '800', fontSize: 9.5 }}>🔄 Restablecer foto</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Alineación en la hoja y salto de página individual */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', marginRight: 2 }}>Posición en la hoja:</Text>
+              {([
+                ['izquierda', '⬅️ Izquierda'],
+                ['centro', '⏺️ Centrada'],
+                ['derecha', '➡️ Derecha'],
+              ] as const).map(([alVal, lbl]) => {
+                const act = cfg.alineacion === alVal;
+                return (
+                  <TouchableOpacity
+                    key={alVal}
+                    onPress={() => onPatch({ alineacion: act ? null : alVal })}
+                    style={{
+                      paddingHorizontal: 7,
+                      paddingVertical: 3,
+                      borderRadius: radius.pill,
+                      backgroundColor: act ? '#16324F' : colors.surface,
+                      borderWidth: 1,
+                      borderColor: act ? '#16324F' : colors.border,
+                    }}
+                  >
+                    <Text style={{ color: act ? '#fff' : colors.text, fontSize: 9.5, fontWeight: '700' }}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              <TouchableOpacity
+                onPress={() => onPatch({ saltoPaginaAntes: !cfg.saltoPaginaAntes })}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: radius.pill,
+                  backgroundColor: cfg.saltoPaginaAntes ? '#0284c7' : colors.surface,
+                  borderWidth: 1,
+                  borderColor: cfg.saltoPaginaAntes ? '#0284c7' : colors.border,
+                  marginLeft: 'auto',
+                }}
+              >
+                <Text style={{ color: cfg.saltoPaginaAntes ? '#fff' : colors.text, fontSize: 9.5, fontWeight: '700' }}>
+                  {cfg.saltoPaginaAntes ? '📄 Empezando en página nueva' : '📄 Pasar esta foto a página nueva'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {/* Panel desplegable 2: Mover esta foto a otra página / sección */}
+        {abiertoMover ? (
+          <View style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: '#16324F', borderRadius: radius.sm, padding: 8, gap: 5 }}>
+            <Text style={{ color: '#16324F', fontSize: 10, fontWeight: '800' }}>
+              📦 ¿A qué página o sección quieres pasar esta foto?
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+              {origen.tipo !== 'p1-slot' && origen.tipo !== 'p1-extra' ? (
+                <TouchableOpacity
+                  onPress={() => handleMoverFotoEntrePaginas(origen, { tipo: 'p1' }, 'Página 1 (Vista General)')}
+                  style={{ backgroundColor: '#0284c7', borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 9 }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>➔ Pasar a Página 1 (Vista General)</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {(data?.anexos ?? []).map((sec, idx) => {
+                if (origen.tipo === 'anexo' && origen.seccionId === sec.id) return null;
+                const nom = `${idx + 1}. ${(sec.titulo || 'Sección').slice(0, 28)}`;
+                return (
+                  <TouchableOpacity
+                    key={sec.id}
+                    onPress={() => handleMoverFotoEntrePaginas(origen, { tipo: 'anexo', seccionId: sec.id }, `Sección ${idx + 1}`)}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 8 }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 10, fontWeight: '700' }}>➔ Sección {nom}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              <TouchableOpacity
+                onPress={() => handleMoverFotoEntrePaginas(origen, { tipo: 'nueva-seccion' }, 'Nueva página del anexo')}
+                style={{ backgroundColor: '#16324F', borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 9 }}
+              >
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>➕ Enviar a una página nueva</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+      </View>
+    );
+  };
 
   const setSeccionObsTitulo = (t: string) =>
     setData((d) => {
@@ -1063,11 +1675,11 @@ export function FichaTecnicaModal({
                   </View>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
-                  Van debajo de las observaciones. Con una sola foto sale a todo lo ancho; con dos, lado a lado. Título y leyenda vacíos = la foto sale sola, como la ficha de referencia.
+                  Van debajo de las observaciones. Puedes poner 1, 2, 3 o más fotos en la Página 1, cambiarles el tamaño (achicar o agrandar), moverlas libremente o pasarlas a otra página.
                 </Text>
 
                 {/* 🖼️ Cómo entran las fotos (04-nov-2026): completas por defecto; vale para TODAS las fotos de la ficha. */}
-                <View style={{ flexDirection: 'row', gap: 4, marginBottom: spacing.sm, flexWrap: 'wrap', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', gap: 4, marginBottom: spacing.xs, flexWrap: 'wrap', alignItems: 'center' }}>
                   <Text style={{ color: colors.muted, fontSize: 10, marginRight: 2 }}>Fotos en el PDF:</Text>
                   {([['completa', '🖼️ Completas (sin recortar)'], ['rellenar', '✂️ Rellenar el cuadro (recorta los bordes)']] as const).map(([valor, label]) => {
                     const activo = (data.encuadreFotos ?? 'completa') === valor;
@@ -1088,6 +1700,60 @@ export function FichaTecnicaModal({
                       </TouchableOpacity>
                     );
                   })}
+                </View>
+
+                {/* Disposición rápida y tamaño general en Página 1 */}
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.sm, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Text style={{ color: colors.muted, fontSize: 10 }}>Fotos por fila en Pág. 1:</Text>
+                  {([
+                    [null, 'Auto'],
+                    [1, '1 (Ancho completo)'],
+                    [2, '2 por fila'],
+                    [3, '3 por fila'],
+                    [4, '4 por fila'],
+                  ] as const).map(([colsVal, lbl]) => {
+                    const act = (data.fotosP1Columnas ?? null) === colsVal;
+                    return (
+                      <TouchableOpacity
+                        key={String(lbl)}
+                        onPress={() => {
+                          setData((d) => {
+                            if (!d) return null;
+                            const next: FichaPersonalizada = { ...d, fotosP1Columnas: colsVal };
+                            programarGuardado(next);
+                            return next;
+                          });
+                        }}
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: radius.pill,
+                          backgroundColor: act ? '#16324F' : colors.surface,
+                          borderWidth: 1,
+                          borderColor: act ? '#16324F' : colors.border,
+                        }}
+                      >
+                        <Text style={{ color: act ? '#fff' : colors.text, fontSize: 10, fontWeight: '700' }}>{lbl}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  {data.fotoPrincipalUrl && data.fotoSecundariaUrl ? (
+                    <TouchableOpacity
+                      onPress={handleIntercambiarFotosP1}
+                      style={{
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: radius.pill,
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        marginLeft: 'auto',
+                      }}
+                    >
+                      <Text style={{ color: '#16324F', fontSize: 10, fontWeight: '800' }}>⇄ Intercambiar Foto 1 y 2</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
@@ -1113,10 +1779,10 @@ export function FichaTecnicaModal({
                   </View>
                 </View>
 
-                {/* Grid con las 2 fotos de Página 1 */}
+                {/* Grid con las fotos de Página 1 */}
                 <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                   {/* FOTO 1: PRINCIPAL */}
-                  <View style={{ flex: 1, minWidth: 240, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8 }}>
+                  <View style={{ flex: 1, minWidth: 250, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 11 }}>Foto 1 · Principal (Vista Lateral / Frontal)</Text>
                       {data.fotoPrincipalUrl ? (
@@ -1127,8 +1793,15 @@ export function FichaTecnicaModal({
                     </View>
 
                     {data.fotoPrincipalUrl ? (
-                      <View style={{ height: 110, borderRadius: radius.sm, overflow: 'hidden', marginBottom: 6, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: colors.border }}>
-                        <Image source={{ uri: data.fotoPrincipalUrl }} style={{ width: '100%', height: '100%', resizeMode: 'cover' }} />
+                      <View style={{ marginBottom: 6 }}>
+                        {renderControlesFoto({
+                          uid: 'p1-slot-1',
+                          url: data.fotoPrincipalUrl,
+                          cfg: data.fotoPrincipalConfig ?? {},
+                          altoDefaultPx: data.fotoSecundariaUrl || (data.fotosPagina1 ?? []).length > 0 ? 165 : 260,
+                          origen: { tipo: 'p1-slot', slot: 1 },
+                          onPatch: (patch) => actualizarConfigFotoP1(1, patch),
+                        })}
                       </View>
                     ) : (
                       <View style={{ height: 70, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', marginBottom: 6, backgroundColor: colors.background }}>
@@ -1163,7 +1836,7 @@ export function FichaTecnicaModal({
                   </View>
 
                   {/* FOTO 2: SECUNDARIA */}
-                  <View style={{ flex: 1, minWidth: 240, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8 }}>
+                  <View style={{ flex: 1, minWidth: 250, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 11 }}>Foto 2 · Secundaria (Vista Posterior / Cabina)</Text>
                       {data.fotoSecundariaUrl ? (
@@ -1174,8 +1847,15 @@ export function FichaTecnicaModal({
                     </View>
 
                     {data.fotoSecundariaUrl ? (
-                      <View style={{ height: 110, borderRadius: radius.sm, overflow: 'hidden', marginBottom: 6, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: colors.border }}>
-                        <Image source={{ uri: data.fotoSecundariaUrl }} style={{ width: '100%', height: '100%', resizeMode: 'cover' }} />
+                      <View style={{ marginBottom: 6 }}>
+                        {renderControlesFoto({
+                          uid: 'p1-slot-2',
+                          url: data.fotoSecundariaUrl,
+                          cfg: data.fotoSecundariaConfig ?? {},
+                          altoDefaultPx: 165,
+                          origen: { tipo: 'p1-slot', slot: 2 },
+                          onPatch: (patch) => actualizarConfigFotoP1(2, patch),
+                        })}
                       </View>
                     ) : (
                       <View style={{ height: 70, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', marginBottom: 6, backgroundColor: colors.background }}>
@@ -1208,6 +1888,76 @@ export function FichaTecnicaModal({
                       </TouchableOpacity>
                     </View>
                   </View>
+                </View>
+
+                {/* Fotos adicionales en Página 1 (3ra, 4ta, etc.) */}
+                {(data.fotosPagina1 ?? []).length > 0 ? (
+                  <View style={{ marginTop: 8, gap: 8 }}>
+                    <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 11 }}>
+                      ➕ Más fotos en Página 1 ({(data.fotosPagina1 ?? []).length}):
+                    </Text>
+                    {(data.fotosPagina1 ?? []).map((fp, fpi) => (
+                      <View
+                        key={fp.id}
+                        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8, gap: 5 }}
+                      >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 11 }}>
+                            Foto {fpi + 3} de Página 1
+                          </Text>
+                          <TouchableOpacity onPress={() => eliminarFotoExtraP1(fp.id)} style={{ padding: 2 }}>
+                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>✕ Quitar</Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {renderControlesFoto({
+                          uid: `p1-extra-${fp.id}`,
+                          url: fp.url,
+                          cfg: fp,
+                          altoDefaultPx: 165,
+                          origen: { tipo: 'p1-extra', fotoId: fp.id },
+                          onPatch: (patch) => actualizarFotoExtraP1(fp.id, patch),
+                          onMoveOrder: (delta) => moverOrdenFotoP1Extra(fp.id, delta),
+                          canMovePrev: fpi > 0,
+                          canMoveNext: fpi < (data.fotosPagina1 ?? []).length - 1,
+                        })}
+
+                        <TextInput
+                          value={fp.leyenda ?? ''}
+                          onChangeText={(t) => actualizarFotoExtraP1(fp.id, { leyenda: t })}
+                          placeholder="Título / Leyenda de la foto"
+                          placeholderTextColor={colors.muted}
+                          style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, fontWeight: '700', color: colors.text }}
+                        />
+                        <TextInput
+                          value={fp.descripcion ?? ''}
+                          onChangeText={(t) => actualizarFotoExtraP1(fp.id, { descripcion: t })}
+                          placeholder="Explicación adicional (opcional)"
+                          placeholderTextColor={colors.muted}
+                          style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, color: colors.text }}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
+                {/* Botón para agregar más fotos en la Página 1 */}
+                <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                  <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700' }}>+ Agregar más fotos en Página 1:</Text>
+                  <TouchableOpacity
+                    onPress={() => subirFotoExtraP1('camara')}
+                    disabled={fotoTomando}
+                    style={{ backgroundColor: '#16324F', borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 10 }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10.5 }}>📷 Cámara (+ Foto en Pág. 1)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => subirFotoExtraP1('galeria')}
+                    disabled={fotoTomando}
+                    style={{ backgroundColor: '#16324F', borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 10 }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10.5 }}>🖼️ Galería (+ Foto en Pág. 1)</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -1309,10 +2059,15 @@ export function FichaTecnicaModal({
                   </View>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
-                  Cada sección sale en su propia página, numerada («1. VISTAS ESTRUCTURALES…»), con sus fotos en 2 o 3 columnas. A cada foto ponle un título (sale en negrita debajo) y, si hace falta, una explicación. Las fotos se suben a la nube; la sección sin fotos no sale.
+                  Cada sección puede empezar en página nueva o seguir en la misma página anterior (para no dejar hojas en blanco). Elige 1, 2, 3 o 4 fotos por fila, cámbiales el tamaño (➖/➕), muévelas libremente o pásalas de una página a otra.
                 </Text>
 
-                {(data.anexos ?? []).map((a, ai) => (
+                {(data.anexos ?? []).map((a, ai) => {
+                  const colsAct = a.columnas === 1 ? 1 : a.columnas === 3 ? 3 : a.columnas === 4 ? 4 : 2;
+                  const altoBaseSeccion = a.altoFotosPx && a.altoFotosPx > 0
+                    ? Math.round(a.altoFotosPx)
+                    : colsAct === 1 ? 360 : colsAct === 3 ? 190 : colsAct === 4 ? 145 : 290;
+                  return (
                   <View
                     key={a.id}
                     style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 8, marginBottom: 8, gap: 6 }}
@@ -1344,10 +2099,12 @@ export function FichaTecnicaModal({
                       placeholderTextColor={colors.muted}
                       style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 6, fontSize: 10.5, color: colors.text }}
                     />
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+
+                    {/* Controles de la sección: Fotos por fila (1, 2, 3, 4), Salto de página y Tamaño general */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                       <Text style={{ color: colors.muted, fontSize: 10 }}>Fotos por fila:</Text>
-                      {([2, 3] as const).map((n) => {
-                        const activo = (a.columnas === 3 ? 3 : 2) === n;
+                      {([1, 2, 3, 4] as const).map((n) => {
+                        const activo = colsAct === n;
                         return (
                           <TouchableOpacity
                             key={n}
@@ -1358,31 +2115,85 @@ export function FichaTecnicaModal({
                           </TouchableOpacity>
                         );
                       })}
+
+                      <Text style={{ color: colors.muted, fontSize: 10, marginLeft: 4 }}>Tamaño sección:</Text>
+                      <TouchableOpacity
+                        onPress={() => actualizarSeccionAnexo(a.id, { altoFotosPx: Math.max(90, altoBaseSeccion - 25) })}
+                        style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
+                      >
+                        <Text style={{ color: colors.text, fontSize: 9.5, fontWeight: '800' }}>➖</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => actualizarSeccionAnexo(a.id, { altoFotosPx: null })}
+                        style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: a.altoFotosPx ? '#e0f2fe' : colors.surfaceAlt, borderWidth: 1, borderColor: a.altoFotosPx ? '#0284c7' : colors.border }}
+                      >
+                        <Text style={{ color: '#16324F', fontSize: 9.5, fontWeight: '800' }}>
+                          {a.altoFotosPx ? `${altoBaseSeccion}px` : 'Auto'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => actualizarSeccionAnexo(a.id, { altoFotosPx: Math.min(600, altoBaseSeccion + 25) })}
+                        style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
+                      >
+                        <Text style={{ color: colors.text, fontSize: 9.5, fontWeight: '800' }}>➕</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => actualizarSeccionAnexo(a.id, { mismaPagina: !a.mismaPagina })}
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: radius.pill,
+                          backgroundColor: a.mismaPagina ? '#0284c7' : colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: a.mismaPagina ? '#0284c7' : colors.border,
+                          marginLeft: 'auto',
+                        }}
+                      >
+                        <Text style={{ color: a.mismaPagina ? '#fff' : colors.text, fontSize: 9.5, fontWeight: '800' }}>
+                          {a.mismaPagina ? '⬆️ Sigue en la misma página anterior' : '📄 Empieza en página nueva'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
 
-                    {(a.fotos ?? []).map((f) => (
-                      <View key={f.id} style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6 }}>
-                        <Image source={{ uri: f.url }} style={{ width: 72, height: 56, borderRadius: radius.sm, backgroundColor: colors.background }} />
-                        <View style={{ flex: 1, gap: 4 }}>
+                    {(a.fotos ?? []).map((f, fi) => (
+                      <View key={f.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8, gap: 5 }}>
+                        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                          <Text style={{ color: '#16324F', fontWeight: '900', fontSize: 10.5 }}>
+                            Foto {fi + 1}
+                          </Text>
                           <TextInput
                             value={f.leyenda ?? ''}
                             onChangeText={(t) => actualizarFotoAnexo(a.id, f.id, { leyenda: t })}
                             placeholder="Título de la foto (ej. FILTRO DE AIRE)"
                             placeholderTextColor={colors.muted}
                             autoCapitalize="characters"
-                            style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, fontWeight: '700', color: colors.text }}
+                            style={{ flex: 1, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, fontWeight: '700', color: colors.text }}
                           />
-                          <TextInput
-                            value={f.descripcion ?? ''}
-                            onChangeText={(t) => actualizarFotoAnexo(a.id, f.id, { descripcion: t })}
-                            placeholder="Qué se ve (opcional, ej. Parte N° 800194923)"
-                            placeholderTextColor={colors.muted}
-                            style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, color: colors.text }}
-                          />
+                          <TouchableOpacity onPress={() => eliminarFotoAnexo(a.id, f.id)} style={{ padding: 4 }}>
+                            <Text style={{ color: colors.danger, fontWeight: '900' }}>✕ Quitar</Text>
+                          </TouchableOpacity>
                         </View>
-                        <TouchableOpacity onPress={() => eliminarFotoAnexo(a.id, f.id)} style={{ padding: 4 }}>
-                          <Text style={{ color: colors.danger, fontWeight: '900' }}>✕</Text>
-                        </TouchableOpacity>
+
+                        <TextInput
+                          value={f.descripcion ?? ''}
+                          onChangeText={(t) => actualizarFotoAnexo(a.id, f.id, { descripcion: t })}
+                          placeholder="Qué se ve / explicación (opcional, ej. Parte N° 800194923)"
+                          placeholderTextColor={colors.muted}
+                          style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 5, fontSize: 10.5, color: colors.text }}
+                        />
+
+                        {renderControlesFoto({
+                          uid: `anx-${a.id}-${f.id}`,
+                          url: f.url,
+                          cfg: f,
+                          altoDefaultPx: altoBaseSeccion,
+                          origen: { tipo: 'anexo', seccionId: a.id, fotoId: f.id },
+                          onPatch: (patch) => actualizarFotoAnexo(a.id, f.id, patch),
+                          onMoveOrder: (delta) => moverFotoEnSeccionAnexo(a.id, f.id, delta),
+                          canMovePrev: fi > 0,
+                          canMoveNext: fi < (a.fotos ?? []).length - 1,
+                        })}
                       </View>
                     ))}
 
@@ -1419,7 +2230,8 @@ export function FichaTecnicaModal({
                       ) : null}
                     </View>
                   </View>
-                ))}
+                  );
+                })}
 
                 <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 4 }}>+ Agregar sección:</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
@@ -1459,7 +2271,7 @@ export function FichaTecnicaModal({
                     <View
                       key={f.id}
                       style={{
-                        width: 110,
+                        width: 150,
                         borderWidth: 1,
                         borderColor: colors.border,
                         borderRadius: radius.sm,
@@ -1467,12 +2279,28 @@ export function FichaTecnicaModal({
                         backgroundColor: colors.surface,
                       }}
                     >
-                      <Image source={{ uri: f.url }} style={{ width: 110, height: 80 }} />
-                      <View style={{ padding: 4 }}>
+                      <Image source={{ uri: f.url }} style={{ width: 150, height: 90 }} />
+                      <View style={{ padding: 5, gap: 4 }}>
                         <Text style={{ color: colors.text, fontSize: 9.5 }} numberOfLines={2}>{f.leyenda || 'Foto'}</Text>
-                        <TouchableOpacity onPress={() => eliminarFotoExtra(f.id)} style={{ alignSelf: 'flex-end', marginTop: 2 }}>
-                          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>Eliminar</Text>
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, justifyContent: 'space-between' }}>
+                          <TouchableOpacity
+                            onPress={() => handleMoverFotoEntrePaginas({ tipo: 'fotos-extra', fotoId: f.id }, { tipo: 'p1' }, 'Página 1')}
+                            style={{ backgroundColor: '#0284c7', borderRadius: 4, paddingVertical: 2, paddingHorizontal: 5 }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 9 }}>➔ Pág. 1</Text>
+                          </TouchableOpacity>
+                          {(data.anexos ?? [])[0] ? (
+                            <TouchableOpacity
+                              onPress={() => handleMoverFotoEntrePaginas({ tipo: 'fotos-extra', fotoId: f.id }, { tipo: 'anexo', seccionId: data.anexos![0].id }, 'Sección 1')}
+                              style={{ backgroundColor: '#16324F', borderRadius: 4, paddingVertical: 2, paddingHorizontal: 5 }}
+                            >
+                              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 9 }}>➔ Sec. 1</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          <TouchableOpacity onPress={() => eliminarFotoExtra(f.id)}>
+                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 10 }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
                   ))}
