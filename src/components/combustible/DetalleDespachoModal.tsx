@@ -48,7 +48,6 @@ export default function DetalleDespachoModal({
   const { colors } = useTheme();
   const toast = useToast();
 
-  const [incluirFotoTexto, setIncluirFotoTexto] = useState(true);
   const [fotoActivaIdx, setFotoActivaIdx] = useState(0);
   const [fotoZoomUrl, setFotoZoomUrl] = useState<string | null>(null);
   const [copiadoMsg, setCopiadoMsg] = useState(false);
@@ -61,11 +60,10 @@ export default function DetalleDespachoModal({
       setFotoZoomUrl(null);
       setCopiadoMsg(false);
       setCopiadoImg(false);
-      setIncluirFotoTexto(true);
     }
   }, [visible, despacho?.id]);
 
-  const datosBase = useMemo(() => {
+  const datosEfectivos = useMemo(() => {
     if (!despacho) return null;
     return armarDatosMensajeDesdeDespacho(despacho, {
       machineryList,
@@ -74,14 +72,6 @@ export default function DetalleDespachoModal({
       registradoPor,
     });
   }, [despacho, machineryList, vehiclesList, tanksList, registradoPor]);
-
-  const datosEfectivos = useMemo(() => {
-    if (!datosBase) return null;
-    return {
-      ...datosBase,
-      incluirFotosEnTexto: incluirFotoTexto,
-    };
-  }, [datosBase, incluirFotoTexto]);
 
   const textoMensaje = useMemo(() => {
     if (!datosEfectivos) return '';
@@ -456,29 +446,6 @@ export default function DetalleDespachoModal({
                 <Text style={{ fontSize: 12, fontWeight: '900', color: colors.text }}>
                   📋 MENSAJE DE COMBUSTIBLE (COPIAR Y PEGAR)
                 </Text>
-                {fotos.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setIncluirFotoTexto((v) => !v)}
-                    style={{
-                      paddingHorizontal: 8,
-                      paddingVertical: 3,
-                      borderRadius: radius.pill,
-                      borderWidth: 1,
-                      borderColor: incluirFotoTexto ? colors.primary : colors.border,
-                      backgroundColor: incluirFotoTexto ? colors.primary : colors.surface,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 10.5,
-                        fontWeight: '800',
-                        color: incluirFotoTexto ? colors.primaryContrast : colors.muted,
-                      }}
-                    >
-                      {incluirFotoTexto ? '✓ Con foto en el mensaje' : '+ Incluir foto en el mensaje'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
               </View>
 
               <TextInput
@@ -578,3 +545,4 @@ export default function DetalleDespachoModal({
     </Modal>
   );
 }
+

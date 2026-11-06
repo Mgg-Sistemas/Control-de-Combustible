@@ -10005,8 +10005,7 @@ En **Combustible** (**📱 Surtidor Móvil**, **⛽ Consumos** y **🆘 Máquina
    - Muestra en una tarjeta destacada y dentro del texto del comprobante el **Nombre / Código de la maquinaria**, su **🚗 Placa** (`placa` o `S/P`) y su **🔢 Serial** (`serial` o `S/S`), además del tanque de origen, fecha y hora reales del despacho, litros surtidos, contador de bomba, horómetro y autorizado/operador.
 2. **Copiar y pegar el mensaje (`📋 COPIAR MENSAJE`):**
    - Presenta un cuadro de vista previa con el texto completo seleccionable y el botón **«📋 COPIAR MENSAJE»**, que copia todo el comprobante al portapapeles en un toque para pegarlo (`Ctrl+V` / Pegar) en cualquier chat o documento, además del botón **«💬 REENVIAR POR WHATSAPP»**.
-3. **Mandar la imagen subida en la aplicación además del mensaje:**
-   - Incluye el enlace directo de la(s) foto(s) subida(s) en el texto del mensaje (con opción de encenderlo o apagarlo).
+3. **Mandar la imagen subida en la aplicación además del mensaje (sin enlaces largos en el texto):**
    - **«📤 MANDAR IMAGEN + MENSAJE»:** en dispositivos compatibles comparte el archivo de imagen junto con el texto del comprobante en un solo paso; en PC copia el mensaje, descarga la foto lista para adjuntar y abre WhatsApp.
    - **«🖼️ COPIAR IMAGEN»** (en web/PC): copia la foto subida directamente al portapapeles como imagen para pegarla con `Ctrl+V` dentro del chat de WhatsApp Web / Desktop.
    - **«⬇️ DESCARGAR FOTO»:** guarda la imagen original subida en el despacho.

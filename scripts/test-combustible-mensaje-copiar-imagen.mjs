@@ -123,7 +123,7 @@ console.log('COMBUSTIBLE — Mensaje copiable con Nombre, Placa, Serial e Imagen
   );
   ok('El mensaje incluye línea dedicada de Placa', msg.includes('🚗 *Placa:* A88BC1K'), msg);
   ok('El mensaje incluye línea dedicada de Serial', msg.includes('🔢 *Serial:* CAT0320DJK991'), msg);
-  ok('El mensaje incluye la foto subida del despacho', msg.includes('📷 *Foto del despacho:* https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/photos/bomba1.jpg'), msg);
+  ok('El mensaje NO incluye el enlace URL de la foto en el texto', !msg.includes('Foto del despacho:') && !msg.includes('https://'), msg);
   ok('El mensaje incluye litros, contador y autorizado', msg.includes('32,03 L') && msg.includes('0 → 33') && msg.includes('ROBINSSON ROA'), msg);
 }
 
@@ -142,10 +142,7 @@ console.log('COMBUSTIBLE — Mensaje copiable con Nombre, Placa, Serial e Imagen
   const msg = construirMensajeWhatsapp(datos);
 
   ok('En maquinaria sin placa muestra S/P y conserva el Serial', msg.includes('🚗 *Placa:* S/P') && msg.includes('🔢 *Serial:* SN-JUMBO-02'), msg);
-  ok('Con múltiples fotos incluye todas las fotos numeradas', msg.includes('📷 *Foto 1:* https://ejemplo.com/foto1.jpg') && msg.includes('📷 *Foto 2:* https://ejemplo.com/foto2.jpg'), msg);
-
-  const msgSinFoto = construirMensajeWhatsapp({ ...datos, incluirFotosEnTexto: false });
-  ok('Permite desactivar la foto en el texto si el usuario lo prefiere', !msgSinFoto.includes('📷 *Foto'));
+  ok('Conserva las fotos en datos.fotos para compartir/copiar/descargar sin ensuciar el texto con URLs', datos.fotos.length === 2 && !msg.includes('https://'), msg);
 }
 
 // 3. Máquina de apoyo fuera de catálogo (con apoyo_nombre, apoyo_placa, apoyo_serial y apoyo_fotos)

@@ -220,17 +220,6 @@ export function construirMensajeWhatsapp(d: DatosMensajeCombustible): string {
   lineas.push(`📅 *Fecha y hora:* ${fechaStr} ${horaStr}`);
   if (d.nota) lineas.push(`📝 *Nota:* ${d.nota}`);
 
-  const fotosLimpias = (d.fotos || []).map((u) => String(u || '').trim()).filter(Boolean);
-  if (d.incluirFotosEnTexto !== false && fotosLimpias.length > 0) {
-    if (fotosLimpias.length === 1) {
-      lineas.push(`📷 *Foto del despacho:* ${fotosLimpias[0]}`);
-    } else {
-      fotosLimpias.forEach((u, idx) => {
-        lineas.push(`📷 *Foto ${idx + 1}:* ${u}`);
-      });
-    }
-  }
-
   lineas.push('');
   lineas.push(`🏢 *SOS La Guaira / BCV*${d.registradoPor ? ` · Reg.: ${d.registradoPor}` : ''}`);
 
