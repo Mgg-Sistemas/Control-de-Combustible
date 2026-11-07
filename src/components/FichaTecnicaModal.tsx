@@ -194,13 +194,26 @@ export function FichaTecnicaModal({
     toast.error(`La ficha quedó guardada solo en este dispositivo: ${res.error ?? 'la nube no la aceptó.'}`);
   };
 
+  // 💾 07-nov-2026 (el disco de Supabase se llenó): cada guardado de la ficha reescribe la
+  // configuración compartida y deja un registro en la auditoría. El guardado automático
+  // esperaba solo 0,8 s y guardaba aunque nada hubiera cambiado: una ficha llenada a mano
+  // dejaba decenas de registros. Ahora espera 2,5 s sin escribir y NO guarda si la ficha
+  // es igual a la última que se mandó.
+  const ultimoGuardado = useRef<string | null>(null);
+  const guardarSiCambio = (next: FichaPersonalizada) => {
+    const huella = JSON.stringify(next);
+    if (huella === ultimoGuardado.current) return;
+    ultimoGuardado.current = huella;
+    saveFichaPersonalizada(mid, next).then(avisarSiNoLlegoALaNube).catch(() => {});
+  };
+
   /** Guarda un momento después de dejar de escribir. */
   const programarGuardado = (next: FichaPersonalizada) => {
     if (temporizadorGuardado.current) clearTimeout(temporizadorGuardado.current);
     temporizadorGuardado.current = setTimeout(() => {
       temporizadorGuardado.current = null;
-      saveFichaPersonalizada(mid, next).then(avisarSiNoLlegoALaNube).catch(() => {});
-    }, 800);
+      guardarSiCambio(next);
+    }, 2500);
   };
 
   const cancelarGuardadoPendiente = () => {
@@ -214,6 +227,7 @@ export function FichaTecnicaModal({
     cancelarGuardadoPendiente();
     const finalData = consolidarDatosActuales(data);
     setData(finalData);
+    ultimoGuardado.current = JSON.stringify(finalData);
     const res = await saveFichaPersonalizada(mid, finalData);
     if (res.nube) toast.success('Ficha técnica guardada.');
     else toast.error(`La ficha quedó guardada solo en este dispositivo: ${res.error ?? 'la nube no la aceptó.'}`);
@@ -236,7 +250,7 @@ export function FichaTecnicaModal({
   const cerrar = () => {
     if (temporizadorGuardado.current && data) {
       cancelarGuardadoPendiente();
-      saveFichaPersonalizada(mid, data).then(avisarSiNoLlegoALaNube).catch(() => {});
+      guardarSiCambio(data);
     }
     onClose();
   };
@@ -249,6 +263,7 @@ export function FichaTecnicaModal({
       cancelarGuardadoPendiente();
       const finalData = consolidarDatosActuales(data);
       setData(finalData);
+      ultimoGuardado.current = JSON.stringify(finalData);
       avisarSiNoLlegoALaNube(await saveFichaPersonalizada(mid, finalData));
       await onExport(finalData);
     } catch (e: any) {
