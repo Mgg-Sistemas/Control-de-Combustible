@@ -119,6 +119,11 @@ export function FichaTecnicaModal({
   // aceptó sale una sola vez por apertura, no en cada tecla.
   const temporizadorGuardado = useRef<ReturnType<typeof setTimeout> | null>(null);
   const avisoNubeDado = useRef(false);
+  // La última ficha que se mandó a guardar, para no repetir un guardado igual
+  // (ver `guardarSiCambio`). ⚠️ 07-nov-2026: estaba declarada DESPUÉS del
+  // `return null` y React tumbaba la app al abrir la ficha (error #310: un hook
+  // que unas veces se ejecuta y otras no). Todos los hooks van aquí arriba.
+  const ultimoGuardado = useRef<string | null>(null);
   useEffect(() => () => {
     if (temporizadorGuardado.current) clearTimeout(temporizadorGuardado.current);
   }, []);
@@ -198,8 +203,8 @@ export function FichaTecnicaModal({
   // configuración compartida y deja un registro en la auditoría. El guardado automático
   // esperaba solo 0,8 s y guardaba aunque nada hubiera cambiado: una ficha llenada a mano
   // dejaba decenas de registros. Ahora espera 2,5 s sin escribir y NO guarda si la ficha
-  // es igual a la última que se mandó.
-  const ultimoGuardado = useRef<string | null>(null);
+  // es igual a la última que se mandó. (`ultimoGuardado` se declara arriba, con los
+  // demás useRef: ningún hook puede ir después del `return null` de la ventana.)
   const guardarSiCambio = (next: FichaPersonalizada) => {
     const huella = JSON.stringify(next);
     if (huella === ultimoGuardado.current) return;
