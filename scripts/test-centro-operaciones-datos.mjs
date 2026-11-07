@@ -314,8 +314,10 @@ ok('🔐 a profiles solo se le lee (nombres)', cadenas.filter((c) => c.tabla ===
 const importos = [...src.matchAll(/^\s*import\s[^;]*?from\s+['"]([^'"]+)['"]/gm)].map((x) => x[1]);
 // ⭐ M3 (mesa de maquinaria §7): la lista cerrada suma SOLO ./machineLiveStatus (la regla única
 //    del estado de inspección), con los nombres exactos de abajo.
-ok('importa solo ./supabase, ./centroOperaciones, ./text, el TIPO del Reporte General y ./machineLiveStatus (ni react ni AsyncStorage)',
-  importos.includes('./supabase') && importos.every((i) => ['./supabase', './centroOperaciones', './text', './centroOperacionesReporteGeneral', './machineLiveStatus'].includes(i)));
+ok('importa solo ./supabase, ./centroOperaciones, ./text, el TIPO del Reporte General , ./machineLiveStatus y la producción (ni react ni AsyncStorage)',
+  importos.includes('./supabase') && importos.every((i) => ['./supabase', './centroOperaciones', './text', './centroOperacionesReporteGeneral', './machineLiveStatus',
+    // 06-nov-2026: la librería pura de la ⚙️ producción de trituración (filas ↔ tipos).
+    './centroOperacionesProduccion'].includes(i)));
 {
   // Lote 6 A1: también el margen de «hora futura» de la lib (la devolución a servicio se aplaza con la misma regla).
   const NOMBRES_LIB = ['fetchAveriaCat', 'fetchJornadaCat', 'fetchInspByShift', 'fetchNovedadesInspeccion', 'makeLiveStatusOf', 'estadoConteoDe', 'ESTADO_CONTEO_INFO', 'MARGEN_HORA_FUTURA_MS'];

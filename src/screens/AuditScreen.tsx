@@ -144,6 +144,8 @@ const TABLE_LABEL: Record<string, string> = {
   actas_recepcion: 'Acta de recepción de equipo',
   cop_movimientos: 'Centro de Operaciones · Movimiento',
   cop_reportes_generales: 'Centro de Operaciones · Reporte general',
+  cop_equipos_trituracion: 'Centro de Operaciones · Equipo de trituración',
+  cop_produccion: 'Centro de Operaciones · Producción de trituración',
   inspection_records: 'Inspección general',
   whatsapp_directory: 'Directorio de WhatsApp',
 };

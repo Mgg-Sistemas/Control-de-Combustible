@@ -37,6 +37,8 @@ import {
   ESTADO_CONTEO_INFO, MARGEN_HORA_FUTURA_MS, estadoConteoDe, fetchAveriaCat, fetchInspByShift, fetchJornadaCat, fetchNovedadesInspeccion, makeLiveStatusOf,
 } from './machineLiveStatus';
 import { cmpText, norm } from './text';
+import { equipoAFila, filaAEquipo, filaAProduccion, produccionAFila } from './centroOperacionesProduccion';
+import type { EquipoTrituracion, ModoProduccion, Produccion, RepartoItem } from './centroOperacionesProduccion';
 
 /** El aviso de cuando la base no guardó nada (0 filas o rechazo de permisos). */
 export const NO_SE_GUARDO = 'No se guardó: no tienes permiso o se perdió la conexión.';
@@ -549,6 +551,11 @@ export type DatosReporteCompleto = {
   unidades: Unidad[];
   /** Las listas del sitio y las generales (patios, materiales…). */
   listas: ItemLista[];
+  /** ⚙️ La producción de trituración del período (06-nov-2026). Opcional: los papeles
+   *  viejos y las pruebas que no la traen salen con la sección vacía. */
+  produccion?: Produccion[];
+  /** Los equipos de trituración del sitio (activos e inactivos). */
+  equiposTrituracion?: EquipoTrituracion[];
 };
 
 /**
@@ -563,14 +570,18 @@ export async function cargarDatosReporteCompleto(sitioId: string, desde: string,
   if (!fechaValida(desde) || !fechaValida(hasta) || desde > hasta) {
     throw new Error('No se pudo armar el Reporte completo: el período no es válido (revisa las fechas desde y hasta).');
   }
-  const [reportes, movimientos, anteriores, unidades, listas] = await Promise.all([
+  const [reportes, movimientos, anteriores, unidades, listas, produccion, equiposTrituracion] = await Promise.all([
     cargarReportesGenerales(sitioId, desde, hasta),
     cargarMovimientos(sitioId, desde, hasta),
     cargarPiezasAnteriores(sitioId, desde),
     cargarUnidades(sitioId),
     cargarListas(sitioId),
+    // ⚙️ Si las tablas de la trituración aún no existen en la base, el papel sale igual
+    //    (con su sección vacía); cualquier otro error SÍ se dice.
+    cargarProduccion(sitioId, desde, hasta).catch((e) => { if (esFaltaTablaProduccion(e)) return [] as Produccion[]; throw e; }),
+    cargarEquiposTrituracion(sitioId).catch((e) => { if (esFaltaTablaProduccion(e)) return [] as EquipoTrituracion[]; throw e; }),
   ]);
-  return { reportes, movimientos, anteriores, unidades, listas };
+  return { reportes, movimientos, anteriores, unidades, listas, produccion, equiposTrituracion };
 }
 
 /** Ids por consulta al vincular: la lista viaja en la dirección (URL) y no puede ser eterna. */
@@ -1265,4 +1276,121 @@ export async function darAccesoSitio(sitioId: string, userId: string): Promise<v
 /** Le quita el acceso (la fila queda, inactiva: se sabe quién lo tuvo). */
 export async function quitarAccesoSitio(id: string): Promise<void> {
   await escribir(supabase.from('cop_sitio_accesos').update({ activo: false } as any).eq('id', id).select('id'), 'No se quitó el acceso');
+}
+
+// ═══════════════════════════ ⚙️ Producción de trituración (06-nov-2026) ═══════════════════════════
+//
+// Dos tablas propias, aparte de `cop_movimientos`: la producción NO es un movimiento (no
+// suma viajes, ni descuenta ni limita las salidas). La RLS es la del resto del módulo:
+// ver = cualquier nivel; anotar y corregir = Escritura o Full; borrar y administrar los
+// equipos = Full. La base calcula las toneladas y revisa los % y el tope de 24 h.
+
+export const TABLA_EQUIPOS_TRITURACION = 'cop_equipos_trituracion';
+export const TABLA_PRODUCCION = 'cop_produccion';
+const COLS_EQUIPO_TRIT = 'id, sitio_id, nombre, tipo, codigo, serial, th_defecto, activo, orden, nota';
+const COLS_PRODUCCION = 'id, sitio_id, fecha, equipo_id, equipo_nombre, modo, horas, t_por_hora, toneladas, reparto, nota, created_by_nombre, created_at, updated_by_nombre, updated_at';
+
+/** Las tablas de la trituración todavía no existen en la base (falta correr su SQL). */
+export const FALTA_TABLA_PRODUCCION = 'La producción de trituración todavía no está activada en la base de datos: avísale al administrador del sistema.';
+export function esFaltaTablaProduccion(e: unknown): boolean {
+  const msg = String((e as { message?: unknown } | null)?.message ?? e ?? '');
+  const code = String((e as { code?: unknown } | null)?.code ?? '');
+  if (code === '42P01' || code === 'PGRST205' || msg === FALTA_TABLA_PRODUCCION) return true;
+  return /cop_(produccion|equipos_trituracion)/i.test(msg) && /does not exist|schema cache|could not find/i.test(msg);
+}
+
+/** La base dice sus propios rechazos en español (trigger `cop_produccion_validar`): se pasan tal cual. */
+function errorProduccion(e: any, prefijo: string): Error {
+  if (esFaltaTablaProduccion(e)) return new Error(FALTA_TABLA_PRODUCCION);
+  const code = String(e?.code ?? '');
+  const msg = String(e?.message ?? e ?? '');
+  if (code === 'P0001' && msg) return new Error(`${prefijo}: ${msg}`);
+  if (code === '23514' || /check constraint/i.test(msg)) return new Error(`${prefijo}: hay una cifra fuera de rango (horas de 0 a 24, t/h de 0 a 5.000).`);
+  return errorEnEspanol(e, prefijo, 'Ya hay un equipo activo con ese nombre en este sitio.');
+}
+
+/** Una escritura que terminó en `.select('id')`: error en español; 0 filas = la RLS la rechazó callada. */
+async function escribirProduccion(consulta: PromiseLike<Respuesta>, prefijo: string): Promise<string> {
+  const { data, error } = await consulta;
+  if (error) throw errorProduccion(error, prefijo);
+  const filas = Array.isArray(data) ? data : [];
+  if (filas.length === 0) throw new Error(NO_SE_GUARDO);
+  return String(filas[0].id);
+}
+
+/** Los equipos de trituración del sitio (activos e inactivos), en su orden. */
+export async function cargarEquiposTrituracion(sitioId: string): Promise<EquipoTrituracion[]> {
+  let filas: any[];
+  try {
+    filas = await selectAllRows('cop_equipos_trituracion', COLS_EQUIPO_TRIT, (q: any) => q.eq('sitio_id', sitioId).order('orden', { ascending: true }));
+  } catch (e) {
+    if (esFaltaTablaProduccion(e)) throw new Error(FALTA_TABLA_PRODUCCION);
+    throw errorDeLectura(e, 'los equipos de trituración');
+  }
+  return filas.map(filaAEquipo).sort((a, b) => (a.orden - b.orden) || cmpText(a.nombre, b.nombre));
+}
+
+/** Crea (sin id) o edita un equipo. Dar de baja = `activo: false`; nunca se borra. Solo Full. */
+export async function guardarEquipoTrituracion(e: Partial<EquipoTrituracion>): Promise<string> {
+  const { id: _fuera, ...fila } = equipoAFila(e);
+  const id = opcional(e.id);
+  return escribirProduccion(
+    id
+      ? supabase.from('cop_equipos_trituracion').update(fila).eq('id', id).select('id')
+      : supabase.from('cop_equipos_trituracion').insert(fila).select('id'),
+    'No se guardó el equipo',
+  );
+}
+
+/** La producción del sitio con FECHA DE JORNADA entre `desde` y `hasta` (ambas incluidas). */
+export async function cargarProduccion(sitioId: string, desde: string, hasta: string): Promise<Produccion[]> {
+  let filas: any[];
+  try {
+    filas = await selectAllRows('cop_produccion', COLS_PRODUCCION, (q: any) => q
+      .eq('sitio_id', sitioId).gte('fecha', desde).lte('fecha', hasta)
+      .order('fecha', { ascending: true }).order('created_at', { ascending: true }));
+  } catch (e) {
+    if (esFaltaTablaProduccion(e)) throw new Error(FALTA_TABLA_PRODUCCION);
+    throw errorDeLectura(e, 'la producción de trituración');
+  }
+  return filas.map(filaAProduccion);
+}
+
+/** Los últimos cribados del sitio (para proponer los mismos % de cada equipo). */
+export async function cargarUltimosCribados(sitioId: string): Promise<Produccion[]> {
+  const { data, error } = await supabase.from('cop_produccion').select(COLS_PRODUCCION)
+    .eq('sitio_id', sitioId).eq('modo', 'cribado')
+    .order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(30);
+  if (error) {
+    if (esFaltaTablaProduccion(error)) throw new Error(FALTA_TABLA_PRODUCCION);
+    throw errorDeLectura(error, 'los últimos cribados');
+  }
+  return (data ?? []).map(filaAProduccion);
+}
+
+/** Anota (sin id) o corrige una línea de producción. Devuelve el id. */
+export async function guardarProduccion(id: string | null, p: {
+  sitioId: string; fecha: string; equipo: EquipoTrituracion;
+  modo: ModoProduccion; horas: number; tPorHora: number; reparto: RepartoItem[]; nota: string | null;
+}): Promise<string> {
+  const prefijo = id ? 'No se guardó la corrección' : 'No se anotó la producción';
+  if (!fechaValida(p.fecha)) throw new Error(`${prefijo}: la fecha de la jornada no es válida.`);
+  const fila = produccionAFila(p);
+  const cual = opcional(id);
+  return escribirProduccion(
+    cual
+      ? supabase.from('cop_produccion').update(fila).eq('id', cual).select('id')
+      : supabase.from('cop_produccion').insert(fila).select('id'),
+    prefijo,
+  );
+}
+
+/** Borra una línea (solo Full; sin permiso o si ya no existe vuelve con 0 filas y se avisa). */
+export async function borrarProduccion(id: string): Promise<void> {
+  try {
+    await escribirProduccion(supabase.from('cop_produccion').delete().eq('id', id).select('id'), 'No se borró la línea');
+  } catch (e: any) {
+    if (e?.message === NO_SE_GUARDO) throw new Error(NO_SE_BORRO);
+    throw e;
+  }
 }

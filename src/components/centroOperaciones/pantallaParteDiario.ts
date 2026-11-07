@@ -34,21 +34,23 @@ import type { PermLevel } from '../../lib/permissions';
 // ═══════════════════════════ B-I1 / B-M7 · Lo que quedó sin guardar ═══════════════════════════
 
 /** Los bloques del Parte diario que pueden quedar con algo escrito y sin guardar. */
-export type ClaveSinGuardar = 'reporte' | 'patios' | 'agregados' | 'acero' | 'aluminio' | 'maquinaria' | 'bloques';
+export type ClaveSinGuardar = 'reporte' | 'produccion' | 'patios' | 'agregados' | 'acero' | 'aluminio' | 'maquinaria' | 'bloques';
 
 /** Cómo se llama cada bloque: los MISMOS títulos de ParteDiarioTab (la prueba lo vigila). */
 export const ETIQUETAS_SIN_GUARDAR: Record<ClaveSinGuardar, string> = {
   reporte: '1 · 📊 Reporte General',
-  patios: '2 · 🚪 Entrada por patio',
-  agregados: '3 · 🚚 Salidas de agregados',
-  acero: '4 · 🔩 Acero',
-  aluminio: '5 · ♻️ Aluminio y plástico',
-  maquinaria: '6 · 🚜 Maquinaria',
-  bloques: '7 · 🧱 Bloques',
+  // ⚙️ 06-nov-2026: «de segundo» (pedido de la encargada); los demás corren un número.
+  produccion: '2 · ⚙️ Producción de trituración',
+  patios: '3 · 🚪 Entrada por patio',
+  agregados: '4 · 🚚 Salidas de agregados',
+  acero: '5 · 🔩 Acero',
+  aluminio: '6 · ♻️ Aluminio y plástico',
+  maquinaria: '7 · 🚜 Maquinaria',
+  bloques: '8 · 🧱 Bloques',
 };
 
 /** El orden de la hoja. */
-const ORDEN: ClaveSinGuardar[] = ['reporte', 'patios', 'agregados', 'acero', 'aluminio', 'maquinaria', 'bloques'];
+const ORDEN: ClaveSinGuardar[] = ['reporte', 'produccion', 'patios', 'agregados', 'acero', 'aluminio', 'maquinaria', 'bloques'];
 
 /** Los bloques marcados «sin guardar», en el orden de la hoja (no en el que se marcaron). */
 export function bloquesSinGuardar(sucios: Partial<Record<ClaveSinGuardar, boolean>> | null | undefined): ClaveSinGuardar[] {

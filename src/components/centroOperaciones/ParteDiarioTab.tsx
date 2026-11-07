@@ -4,11 +4,12 @@
 // (7am a 7am; por defecto `caracasBusinessToday()`, con ◀ ▶ de a un día y sin pasar de
 // hoy, ni con el calendario: lote 5 B7); debajo, los bloques plegables EN EL ORDEN DE SU HOJA:
 //   1) Reporte General (pegado de WhatsApp)      → BloqueReporteGeneral
-//   2) Entrada por patio                          → BloquePatios
-//   3) Salidas · 4) Acero · 5) Aluminio y plástico → SalidasAgregados / SalidasAcero /
+//   2) ⚙️ Producción de trituración (06-nov-2026) → BloqueProduccion
+//   3) Entrada por patio                          → BloquePatios
+//   4) Salidas · 5) Acero · 6) Aluminio y plástico → SalidasAgregados / SalidasAcero /
 //                                                   SalidasAluminioPlastico (./BloqueSalidas)
-//   6) Maquinaria                                  → BloqueMaquinaria
-//   7) Bloques                                     → BloqueBloques
+//   7) Maquinaria                                  → BloqueMaquinaria
+//   8) Bloques                                     → BloqueBloques
 //
 // ⭐ LA JORNADA VIVE EN LA PANTALLA (lote 5 B2): la recibe como `fecha` y la cambia con
 //    `alCambiarFecha`. Así ir a ⚙️ Ajustes (o a otro sitio) y volver no la devuelve sola
@@ -60,6 +61,7 @@ import { BloqueMaquinaria } from './BloqueMaquinaria';
 import type { ConteoMaquinaria, EstadosMaquinaria } from './BloqueMaquinaria';
 import { textoConteoDelSitio } from '../../lib/centroOperacionesMaquinariaBloques';
 import { BloqueBloques } from './BloqueBloques';
+import { BloqueProduccion } from './BloqueProduccion';
 import { moverJornada, puedeAvanzar, textoToneladasRg, textoViajesRg } from './parteDiario';
 import { resumenSalidas } from './salidasParteDiario';
 import type { ClaseSalida } from './salidasParteDiario';
@@ -165,11 +167,13 @@ export function ParteDiarioTab({ sitio, nivel, fecha, alCambiarFecha, alSinGuard
   const marcar = useMemo(() => {
     const de = (clave: ClaveSinGuardar) => (v: boolean) => setSucios((s) => (!!s[clave] === v ? s : { ...s, [clave]: v }));
     return {
-      reporte: de('reporte'), patios: de('patios'), agregados: de('agregados'), acero: de('acero'),
+      reporte: de('reporte'), produccion: de('produccion'), patios: de('patios'), agregados: de('agregados'), acero: de('acero'),
       aluminio: de('aluminio'), maquinaria: de('maquinaria'), bloques: de('bloques'),
     };
   }, []);
   const [conteoMaq, setConteoMaq] = useState<ConteoMaquinaria>(null);
+  // ⚙️ Lo que dice plegado el bloque de producción («10 h · 2.650,00 t · ≈ 1.892,86 m³»).
+  const [resumenProd, setResumenProd] = useState<{ texto: string; alerta: boolean }>({ texto: 'Cargando…', alerta: false });
   // M8: el grupo EFECTIVO de cada unidad (lo decide el bloque 🚜 con inspección) para el 🔧 de las salidas.
   const [estadosMaq, setEstadosMaq] = useState<EstadosMaquinaria>(null);
 
@@ -262,33 +266,38 @@ export function ParteDiarioTab({ sitio, nivel, fecha, alCambiarFecha, alSinGuard
         />
       </Bloque>
 
-      {/* ── 2) ENTRADA POR PATIO ── */}
-      <Bloque titulo="2 · 🚪 Entrada por patio" resumen="Viajes por patio, de 7am a 7pm" sinGuardar={sucios.patios} abiertoPorDefecto>
+      {/* ── 2) PRODUCCIÓN DE TRITURACIÓN (06-nov-2026) ── */}
+      <Bloque titulo="2 · ⚙️ Producción de trituración" resumen={resumenProd.texto} alerta={resumenProd.alerta} sinGuardar={sucios.produccion} abiertoPorDefecto>
+        <BloqueProduccion sitio={sitio} nivel={nivel} fecha={fecha} listas={salidas.listas} movimientosDelDia={salidas.delDia} alResumen={setResumenProd} alSinGuardar={marcar.produccion} />
+      </Bloque>
+
+      {/* ── 3) ENTRADA POR PATIO ── */}
+      <Bloque titulo="3 · 🚪 Entrada por patio" resumen="Viajes por patio, de 7am a 7pm" sinGuardar={sucios.patios} abiertoPorDefecto>
         <BloquePatios sitio={sitio} nivel={nivel} fecha={fecha} reporte={reporteDelDia} cargandoReporte={cargandoReporte} errorReporte={errorRg} alReintentarReporte={recargarReporte} alSinGuardar={marcar.patios} />
       </Bloque>
 
-      {/* ── 3) SALIDAS ── */}
-      <Bloque titulo="3 · 🚚 Salidas de agregados" resumen={resAgregados.texto} alerta={resAgregados.alerta} sinGuardar={sucios.agregados}>
+      {/* ── 4) SALIDAS ── */}
+      <Bloque titulo="4 · 🚚 Salidas de agregados" resumen={resAgregados.texto} alerta={resAgregados.alerta} sinGuardar={sucios.agregados}>
         <SalidasAgregados sitio={sitio} nivel={nivel} fecha={fecha} datos={salidas} incrustado alSinGuardar={marcar.agregados} gruposUnidades={estadosMaq} />
       </Bloque>
 
-      {/* ── 4) ACERO ── */}
-      <Bloque titulo="4 · 🔩 Acero" resumen={resAcero.texto} alerta={resAcero.alerta} sinGuardar={sucios.acero}>
+      {/* ── 5) ACERO ── */}
+      <Bloque titulo="5 · 🔩 Acero" resumen={resAcero.texto} alerta={resAcero.alerta} sinGuardar={sucios.acero}>
         <SalidasAcero sitio={sitio} nivel={nivel} fecha={fecha} datos={salidas} incrustado alSinGuardar={marcar.acero} gruposUnidades={estadosMaq} />
       </Bloque>
 
-      {/* ── 5) ALUMINIO Y PLÁSTICO ── */}
-      <Bloque titulo="5 · ♻️ Aluminio y plástico" resumen={resAluminio.texto} alerta={resAluminio.alerta} sinGuardar={sucios.aluminio}>
+      {/* ── 6) ALUMINIO Y PLÁSTICO ── */}
+      <Bloque titulo="6 · ♻️ Aluminio y plástico" resumen={resAluminio.texto} alerta={resAluminio.alerta} sinGuardar={sucios.aluminio}>
         <SalidasAluminioPlastico sitio={sitio} nivel={nivel} fecha={fecha} datos={salidas} incrustado alSinGuardar={marcar.aluminio} />
       </Bloque>
 
-      {/* ── 6) MAQUINARIA ── */}
-      <Bloque titulo="6 · 🚜 Maquinaria" resumen={resumenMaq} alerta={alertaMaq} sinGuardar={sucios.maquinaria}>
+      {/* ── 7) MAQUINARIA ── */}
+      <Bloque titulo="7 · 🚜 Maquinaria" resumen={resumenMaq} alerta={alertaMaq} sinGuardar={sucios.maquinaria}>
         <BloqueMaquinaria sitio={sitio} nivel={nivel} fecha={fecha} alConteo={setConteoMaq} alSinGuardar={marcar.maquinaria} alEstados={setEstadosMaq} />
       </Bloque>
 
-      {/* ── 7) BLOQUES ── */}
-      <Bloque titulo="7 · 🧱 Bloques" resumen="Producción del día, ventas e inventario disponible" sinGuardar={sucios.bloques}>
+      {/* ── 8) BLOQUES ── */}
+      <Bloque titulo="8 · 🧱 Bloques" resumen="Producción del día, ventas e inventario disponible" sinGuardar={sucios.bloques}>
         <BloqueBloques sitio={sitio} nivel={nivel} fecha={fecha} alSinGuardar={marcar.bloques} />
       </Bloque>
     </View>

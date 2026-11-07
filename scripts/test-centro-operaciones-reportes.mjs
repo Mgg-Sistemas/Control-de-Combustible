@@ -635,7 +635,7 @@ const RC = loadTs(path.join(ROOT, 'src/lib/centroOperacionesReporteCompleto.ts')
   eq('⭐ PD5b el subtítulo son JORNADAS enteras: sin la hora de corte de los otros papeles', a.subtitulo, 'Sitio 1 · del 06/10/2026 al 08/10/2026');
   const esperado = intenta('cuerpo directo', () => RC.cuerpoReporteCompleto(RC.modeloReporteCompleto({ ...DATOS, sitio: 'Sitio 1', desde: RANGO.desde, hasta: RANGO.hasta, hoy: '2026-10-09' }), op()), 'x');
   eq('⭐ PD5b el cuerpo es el del Reporte completo con TODO el período: los filtros, el buscador y la hora de corte no lo tocan', a.cuerpo, esperado);
-  ok('PD5b …las 7 secciones numeradas', a.cuerpo.includes('1. Reporte General desglosado') && a.cuerpo.includes('7. Bloques'));
+  ok('PD5b …las 8 secciones numeradas (⚙️ producción de segunda, 06-nov)', a.cuerpo.includes('1. Reporte General desglosado') && a.cuerpo.includes('2. Producción de trituración') && a.cuerpo.includes('8. Bloques'));
   ok('PD5b …lo de fuera del período no entra', !a.cuerpo.includes('>99<') && !a.cuerpo.includes('103'));
   ok('PD5b …y el texto del usuario sale escapado', a.cuerpo.includes('Transportista &lt;A&gt; &amp; B') && !a.cuerpo.includes('<A>'));
   eq('PD5b una hoja, sin resumen editable, sin tabla por unidad ni nombres de hojas', [a.hojas, a.resumen, a.porUnidad, a.nombresHojas], [1, null, [], []]);
@@ -657,12 +657,12 @@ const RC = loadTs(path.join(ROOT, 'src/lib/centroOperacionesReporteCompleto.ts')
     const sinInsp = armarC({ completo: { datos: DATOS_V, hoy: '2026-10-09', inspeccion: null, emitidoMs: EMITIDO } });
     ok('⭐ M5 …si no se leyó: el aviso arriba y la vinculada sin marca «Sin dato» (nunca «Disponible»)',
       sinInsp.cuerpo.includes('No se pudo leer el estado de inspección al emitir: se imprime lo marcado en el sitio.')
-      && /<tr><td>V-1<\/td><td>—<\/td><td>Sin dato<\/td>/.test(sinInsp.cuerpo), sinInsp.cuerpo.slice(sinInsp.cuerpo.indexOf('6. Maquinaria'), sinInsp.cuerpo.indexOf('7. Bloques')));
+      && /<tr><td>V-1<\/td><td>—<\/td><td>Sin dato<\/td>/.test(sinInsp.cuerpo), sinInsp.cuerpo.slice(sinInsp.cuerpo.indexOf('7. Maquinaria'), sinInsp.cuerpo.indexOf('8. Bloques')));
     const ocultaInsp = armarC({ op: op({ ocultosSecciones: ['maquinaria'] }), completo: { datos: DATOS_V, hoy: '2026-10-09', inspeccion: null, emitidoMs: EMITIDO } });
     ok('M5 …con la sección oculta, ni el aviso ni la hora (lo oculto no deja rastro)', !/inspección|Estado al emitir|Maquinaria/i.test(ocultaInsp.cuerpo));
   }
   const oc = armarC({ op: op({ ocultosSecciones: ['patios', 'maquinaria'], emitida: 'A & B' }) });
-  ok('⭐ PD5b lo escondido no deja rastro y la numeración sigue', !oc.cuerpo.includes('Entrada por patio') && !oc.cuerpo.includes('Maquinaria') && oc.cuerpo.includes('5. Bloques') && !/oculto|sin patios/i.test(oc.cuerpo));
+  ok('⭐ PD5b lo escondido no deja rastro y la numeración sigue', !oc.cuerpo.includes('Entrada por patio') && !oc.cuerpo.includes('Maquinaria') && oc.cuerpo.includes('6. Bloques') && !/oculto|sin patios/i.test(oc.cuerpo));
   eq('PD5b la emisión escrita sale escapada UNA vez (la del membrete)', oc.emitida, 'A &amp; B');
   eq('PD5b …o la hora real que pone la pantalla', armarC({ ahora: '25 oct. 2026, 05:00 p. m.' }).emitida, '25 oct. 2026, 05:00 p. m.');
   const sinHtml = armarC({}, false);
@@ -695,7 +695,7 @@ const RC = loadTs(path.join(ROOT, 'src/lib/centroOperacionesReporteCompleto.ts')
   const vistas = intenta('seccionesEnPantalla', () => R.seccionesEnPantalla(a.completo, op({ ocultosSecciones: ['patios'] })), []);
   eq('PD5b la pantalla dice sus secciones visibles, numeradas como el papel, y cuáles saldrán sin registros',
     vistas.map((s) => [s.n, s.k, s.vacia]),
-    [[1, 'reporteGeneral', false], [2, 'agregados', false], [3, 'acero', true], [4, 'aluminioPlastico', true], [5, 'maquinaria', false], [6, 'bloques', false]]);
+    [[1, 'reporteGeneral', false], [2, 'produccion', true], [3, 'agregados', false], [4, 'acero', true], [5, 'aluminioPlastico', true], [6, 'maquinaria', false], [7, 'bloques', false]]);
   eq('PD5b …sin modelo todavía, ninguna', intenta('seccionesEnPantalla vacío', () => R.seccionesEnPantalla(null, op()), null), []);
   // A4: la venta de bloques no es un viaje, tampoco en «viajes por unidad» de la pantalla.
   const venta = mov({ tipo: 'salida', fecha: '2026-10-07', material: 'Bloques', cantidad: 10, viajes: null, unidadIngresada: 'u', destino: 'Cliente Prueba' });

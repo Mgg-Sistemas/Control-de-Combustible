@@ -92,6 +92,7 @@ const PORCLAVE = new Map(MODULOS_AUDITORIA.map((m) => [m.key, m]));
  */
 export const AUDITADAS_FUERA_DEL_GIT = [
   'cop_sitios', 'cop_unidades', 'cop_movimientos', 'cop_listas', 'cop_ajustes', 'cop_reportes_generales', 'cop_sitio_accesos',
+  'cop_equipos_trituracion', 'cop_produccion',
   'inventory_requirements', 'cuenta_abonos', 'cuenta_notas_espera', 'direct_purchases', 'suppliers',
   'servicios', 'service_categories', 'service_kinds',
   'camion_cubicaje', 'camion_cubicaje_carga', 'camion_taras', 'tique_config', 'tique_emisiones',
@@ -136,7 +137,7 @@ const TABLA_A_MODULO: Record<string, string> = {
   // Su trigger de auditoría NO está en ningún .sql del repo: ver AUDITADAS_FUERA_DEL_GIT.
   cop_sitios: 'centro_operaciones', cop_unidades: 'centro_operaciones', cop_movimientos: 'centro_operaciones',
   cop_listas: 'centro_operaciones', cop_ajustes: 'centro_operaciones', cop_reportes_generales: 'centro_operaciones',
-  cop_sitio_accesos: 'centro_operaciones',
+  cop_sitio_accesos: 'centro_operaciones', cop_equipos_trituracion: 'centro_operaciones', cop_produccion: 'centro_operaciones',
   // 🍽️ Cocina y distribución de comida
   food_distributions: 'alimentacion', food_company_meals: 'alimentacion', comida_precios: 'alimentacion', comida_cuentas_config: 'alimentacion',
   comida_contactos: 'alimentacion', comida_empresas_ocultas: 'alimentacion', comida_facturas: 'alimentacion', comida_pagos: 'alimentacion',

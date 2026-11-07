@@ -89,6 +89,8 @@ const MODULO_FIJOS = [
   'src/lib/centroOperacionesMaquinariaBloques.ts',
   // La librería pura del 📄 Reporte completo (PD5a, 25-oct-2026).
   'src/lib/centroOperacionesReporteCompleto.ts',
+  // La librería pura de la ⚙️ producción de trituración (06-nov-2026).
+  'src/lib/centroOperacionesProduccion.ts',
   'src/screens/CentroOperacionesScreen.tsx',
 ];
 const DIR_COMPONENTES = 'src/components/centroOperaciones/';

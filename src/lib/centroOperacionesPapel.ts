@@ -43,8 +43,8 @@ import type { EdicionResumen, ResumenFrentes, TarjetaFrentes } from './frentesRe
  *  `centroOperacionesReporteCompleto.ts`, pero sus secciones, su título y su nombre de
  *  archivo viven acá con los de los otros papeles (una sola fuente). */
 export type PapelCop = 'completo' | 'consolidado' | 'corte' | 'listado';
-/** Las 7 secciones del Reporte completo, en el orden de su hoja. */
-export type SeccionCompleto = 'reporteGeneral' | 'patios' | 'agregados' | 'acero' | 'aluminioPlastico' | 'maquinaria' | 'bloques';
+/** Las 8 secciones del Reporte completo, en el orden de su hoja (⚙️ producción, 06-nov-2026). */
+export type SeccionCompleto = 'reporteGeneral' | 'produccion' | 'patios' | 'agregados' | 'acero' | 'aluminioPlastico' | 'maquinaria' | 'bloques';
 export type SeccionConsolidado = 'presentacion' | 'tarjetas' | 'transportistas' | 'internos' | 'salidas' | 'origenes' | 'textoSalidas';
 /** Las secciones del corte que se pueden esconder (viven en el mismo `ocultosSecciones`). */
 export type SeccionCorte = 'tarjetas' | 'consideraciones';
@@ -126,6 +126,8 @@ export type OcultableCop<K extends string> = { k: K; etiqueta: string; enArchivo
  *  el nombre del archivo nombra solo las de ESE papel. */
 const SECCIONES_DEL_COMPLETO: OcultableCop<SeccionCompleto>[] = [
   { k: 'reporteGeneral', etiqueta: 'Reporte General desglosado', enArchivo: 'reporte general' },
+  // ⚙️ 06-nov-2026: «de segundo», como en su hoja del Parte diario.
+  { k: 'produccion', etiqueta: 'Producción de trituración', enArchivo: 'producción' },
   { k: 'patios', etiqueta: 'Entrada por patio', enArchivo: 'patios' },
   { k: 'agregados', etiqueta: 'Salida de agregados', enArchivo: 'agregados' },
   { k: 'acero', etiqueta: 'Acero', enArchivo: 'acero' },

@@ -212,9 +212,10 @@ console.log('🏭 CENTRO DE OPERACIONES · REPORTE COMPLETO\n');
   eq('exporta modeloReporteCompleto', typeof RC.modeloReporteCompleto, 'function');
   eq('exporta cuerpoReporteCompleto', typeof RC.cuerpoReporteCompleto, 'function');
   const S = RC.SECCIONES_COMPLETO ?? [];
-  eq('⭐ SECCIONES_COMPLETO: las 7, en el orden de su hoja', S.map((s) => s.k),
-    ['reporteGeneral', 'patios', 'agregados', 'acero', 'aluminioPlastico', 'maquinaria', 'bloques']);
-  ok('SECCIONES_COMPLETO: cada una con etiqueta y nombre para el archivo', S.length === 7 && S.every((s) => String(s.etiqueta).trim() && String(s.enArchivo).trim()));
+  // 06-nov-2026: la ⚙️ producción de trituración entra de segunda, como en su hoja.
+  eq('⭐ SECCIONES_COMPLETO: las 8, en el orden de su hoja', S.map((s) => s.k),
+    ['reporteGeneral', 'produccion', 'patios', 'agregados', 'acero', 'aluminioPlastico', 'maquinaria', 'bloques']);
+  ok('SECCIONES_COMPLETO: cada una con etiqueta y nombre para el archivo', S.length === 8 && S.every((s) => String(s.etiqueta).trim() && String(s.enArchivo).trim()));
   ok('SECCIONES_COMPLETO: los nombres del archivo no se repiten', new Set(S.map((s) => s.enArchivo)).size === S.length);
   ok('SECCIONES_COMPLETO: el nombre del archivo no lleva caracteres prohibidos', S.every((s) => !/[\\/:*?"<>|]/.test(s.enArchivo)));
   eq('TITULO_REPORTE_COMPLETO', RC.TITULO_REPORTE_COMPLETO, 'Reporte completo');
@@ -256,7 +257,7 @@ if (M) {
   ok('RG: los días seguidos sin reporte se dicen como un tramo', h.includes('Jornadas sin Reporte General: del 02/10/2026 al 09/10/2026'));
   // Un solo día sin reporte: «Sin registros…», sin la línea de jornadas faltantes.
   const m1 = intenta('RG un día sin reporte', () => RC.modeloReporteCompleto(entrada({ desde: '2026-10-07', hasta: '2026-10-07' })), null);
-  const h1 = m1 ? intenta('RG un día sin reporte (cuerpo)', () => RC.cuerpoReporteCompleto(m1, { ocultosSecciones: ['patios', 'agregados', 'acero', 'aluminioPlastico', 'maquinaria', 'bloques'] })) : '';
+  const h1 = m1 ? intenta('RG un día sin reporte (cuerpo)', () => RC.cuerpoReporteCompleto(m1, { ocultosSecciones: ['produccion', 'patios', 'agregados', 'acero', 'aluminioPlastico', 'maquinaria', 'bloques'] })) : '';
   ok('RG: un día sin Reporte General → «Sin registros en el período.»', cuenta(h1, 'Sin registros en el período.') === 1 && !h1.includes('Jornadas sin Reporte General'));
   // Las sumas no cuadran con el total del reporte: se dice, en tono neutro.
   const m2 = intenta('RG descuadre', () => RC.modeloReporteCompleto(entrada({
@@ -368,7 +369,7 @@ if (M) {
   eq('PD5b A11: sin saber qué día es hoy → igual lo dice', mx?.maquinaria.notaAhora, 'El estado de las máquinas es el del momento de emitir este papel.');
   const hm1 = m1 ? intenta('maquinaria un día hoy (cuerpo)', () => RC.cuerpoReporteCompleto(m1, OP)) : '';
   ok('PD5b A11: …y el papel lo imprime dentro de la sección 6', hm1.includes('Estado de las máquinas al momento de emitir este papel.')
-    && hm1.indexOf('Estado de las máquinas al momento') > hm1.indexOf('6. Maquinaria') && hm1.indexOf('Estado de las máquinas al momento') < hm1.indexOf('7. Bloques'));
+    && hm1.indexOf('Estado de las máquinas al momento') > hm1.indexOf('7. Maquinaria') && hm1.indexOf('Estado de las máquinas al momento') < hm1.indexOf('8. Bloques'));
 }
 
 // ═══════════════════ 6b. Maquinaria según inspección (M5, mesa de maquinaria §4.3) ═══════════════════
@@ -402,7 +403,7 @@ const INSP5 = {
 /** El texto de la fila (`<tr>…</tr>`) de una unidad en el papel. */
 const filaDe = (html, codigo) => (String(html).match(/<tr>(?:(?!<\/tr>).)*<\/tr>/gs) ?? []).find((tr) => tr.includes(`>${codigo}`)) ?? '';
 /** El HTML de la sección 6 (de su título hasta el de la 7). */
-const sec6 = (html) => { const s = String(html); const i = s.indexOf('6. Maquinaria'); const j = s.indexOf('7. Bloques'); return i >= 0 ? s.slice(i, j > i ? j : undefined) : ''; };
+const sec6 = (html) => { const s = String(html); const i = s.indexOf('7. Maquinaria'); const j = s.indexOf('8. Bloques'); return i >= 0 ? s.slice(i, j > i ? j : undefined) : ''; };
 {
   const m = intenta('M5 modelo con inspección', () => RC.modeloReporteCompleto(entrada({ unidades: FLOTA5, inspeccion: INSP5, emitidoMs: AHORA_M5, hasta: '2026-10-25', desde: '2026-10-25', hoy: '2026-10-25' })), null);
   const h = m ? intenta('M5 cuerpo con inspección', () => RC.cuerpoReporteCompleto(m, OP)) : '';
@@ -597,13 +598,13 @@ if (M) {
   const h = intenta('oculto', () => RC.cuerpoReporteCompleto(M, { ocultosSecciones: ['patios'] }));
   ok('⭐ oculto: sin el título de la sección', !h.includes('Entrada por patio'));
   ok('⭐ oculto: ni sus datos', !h.includes('Patios 21') && !h.includes('Terraza Vieja'));
-  ok('⭐ oculto: la numeración sigue sin hueco (la 3.ª visible es la 2)', h.includes('1. Reporte General desglosado') && h.includes('2. Salida de agregados') && !h.includes('3. Salida de agregados'));
+  ok('⭐ oculto: la numeración sigue sin hueco (la 4.ª visible es la 3)', h.includes('1. Reporte General desglosado') && h.includes('2. Producción de trituración') && h.includes('3. Salida de agregados') && !h.includes('4. Salida de agregados'));
   ok('oculto: las opciones no se anuncian en el papel', !/oculto|sin patios/i.test(h));
   const completo = intenta('completo', () => RC.cuerpoReporteCompleto(M, OP));
-  ok('completo: las 7 numeradas 1 a 7', ['1. Reporte General desglosado', '2. Entrada por patio', '3. Salida de agregados', '4. Acero', '5. Aluminio y plástico', '6. Maquinaria', '7. Bloques'].every((t) => completo.includes(t)));
+  ok('completo: las 8 numeradas 1 a 8', ['1. Reporte General desglosado', '2. Producción de trituración', '3. Entrada por patio', '4. Salida de agregados', '5. Acero', '6. Aluminio y plástico', '7. Maquinaria', '8. Bloques'].every((t) => completo.includes(t)));
   const todoOculto = intenta('todo oculto', () => RC.cuerpoReporteCompleto(M, { ocultosSecciones: (RC.SECCIONES_COMPLETO ?? []).map((s) => s.k) }));
   ok('todo oculto: ninguna sección ni leyenda', !/\d\. /.test(todoOculto.replace(/<[^>]*>/g, ' ').replace(/\d{2}\/\d{2}\/\d{4}/g, '')) && !todoOculto.includes('Sin registros'));
-  ok('oculto: op sin ocultosSecciones = todo a la vista', intenta('op vacío', () => RC.cuerpoReporteCompleto(M, {})).includes('7. Bloques'));
+  ok('oculto: op sin ocultosSecciones = todo a la vista', intenta('op vacío', () => RC.cuerpoReporteCompleto(M, {})).includes('8. Bloques'));
 }
 
 // ═══════════════════ Período vacío ═══════════════════
@@ -613,10 +614,10 @@ if (M) {
     reportes: [], movimientos: [], anteriores: null, unidades: [], listas: [],
   }), null);
   const h = m ? intenta('vacío (cuerpo)', () => RC.cuerpoReporteCompleto(m, OP)) : '';
-  eq('⭐ vacío: las 7 secciones con «Sin registros en el período.»', cuenta(h, 'Sin registros en el período.'), 7);
+  eq('⭐ vacío: las 8 secciones con «Sin registros en el período.»', cuenta(h, 'Sin registros en el período.'), 8);
   ok('⭐ vacío: sin NaN, Infinity ni undefined', h.length > 0 && !/NaN|Infinity|undefined|null/.test(h));
   ok('vacío: cada sección conserva su título', ['Reporte General desglosado', 'Entrada por patio', 'Salida de agregados', 'Acero', 'Aluminio y plástico', 'Maquinaria', 'Bloques'].every((t) => h.includes(t)));
-  ok('vacío: el modelo marca las 7 vacías', m && ['reporteGeneral', 'patios', 'agregados', 'acero', 'aluminioPlastico', 'maquinaria', 'bloques'].every((k) => m[k].vacio === true));
+  ok('vacío: el modelo marca las 8 vacías', m && ['reporteGeneral', 'produccion', 'patios', 'agregados', 'acero', 'aluminioPlastico', 'maquinaria', 'bloques'].every((k) => m[k].vacio === true));
   const mal = intenta('período al revés', () => RC.modeloReporteCompleto({
     sitio: '', desde: '2026-10-08', hasta: '2026-10-06', hoy: 'basura', reportes: REPORTES, movimientos: MOVS, anteriores: null, unidades: [], listas: [],
   }), null);
@@ -645,8 +646,8 @@ if (typeof D.cargarDatosReporteCompleto !== 'function') {
     return [];
   };
   const d = await D.cargarDatosReporteCompleto(SITIO, '2026-10-06', '2026-10-08');
-  eq('datos: lee reportes, unidades y listas una vez, y cop_movimientos dos (el período y lo anterior con piezas)',
-    lecturas.map((l) => l.tabla).sort(), ['cop_listas', 'cop_movimientos', 'cop_movimientos', 'cop_reportes_generales', 'cop_unidades']);
+  eq('datos: lee reportes, unidades, listas, equipos y producción una vez, y cop_movimientos dos (el período y lo anterior con piezas)',
+    lecturas.map((l) => l.tabla).sort(), ['cop_equipos_trituracion', 'cop_listas', 'cop_movimientos', 'cop_movimientos', 'cop_produccion', 'cop_reportes_generales', 'cop_unidades']);
   const periodo = lecturas.find((l) => l.tabla === 'cop_movimientos' && !esAnterior(l));
   const anterior = lecturas.find(esAnterior);
   eq('datos: los movimientos del período (la lectura de siempre)', filtros(periodo ?? { ops: [] }),

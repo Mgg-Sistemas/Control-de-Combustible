@@ -45,6 +45,7 @@ import { spacing, radius } from '../../theme';
 import { levelMeets } from '../../lib/permissions';
 import { useAuth } from '../../context/AuthContext';
 import AccesosSitio from './AccesosSitio';
+import EquiposTrituracionAjustes from './EquiposTrituracionAjustes';
 import { cmpText, norm } from '../../lib/text';
 import type { ClaseLista, ItemLista, Sitio } from '../../lib/centroOperaciones';
 import {
@@ -850,6 +851,9 @@ export default function AjustesTab({ sitio, nivel, alCambiarSitios }: Props) {
               </View>
             ) : null}
           </Card>
+
+          {/* ── 🏗️ EQUIPOS DE TRITURACIÓN (06-nov-2026) ─────────────────── */}
+          <EquiposTrituracionAjustes key={`trit-${sitio.id}`} sitio={sitio} />
 
           {/* ── 📝 TEXTOS FIJOS DEL PAPEL ───────────────────────────────── */}
           <Card>

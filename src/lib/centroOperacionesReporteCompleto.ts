@@ -4,7 +4,9 @@
 // sitio en un período (un día o un rango de jornadas), en el orden de su hoja:
 //   1) Reporte General desglosado (empresas y frentes, con su %; en un rango, la SUMA
 //      de los días y las jornadas que no lo tienen),
-//   2) Entrada por patio contra el total del Reporte General de ESAS jornadas,
+//   2) ⚙️ Producción de trituración (06-nov-2026): horas × t/h por equipo y modo, lo que
+//      salió de cada producto y, solo para informar, lo producido contra lo que salió,
+//   ·) Entrada por patio contra el total del Reporte General de ESAS jornadas,
 //   3) Salida de agregados (por material y destino, con los km congelados y el vehículo),
 //   4) Acero (quién se lo lleva, m³ y t o «pendiente de pesaje»),
 //   5) Aluminio y plástico (t, empresa, destino),
@@ -53,6 +55,8 @@ import type { ModeloMaquinariaPapel, VinculadaParaLeer } from './centroOperacion
 import { NOSOTROS, esNosotros, salidasDeClase, vehiculoDe } from '../components/centroOperaciones/salidasParteDiario';
 import { esRenglonDePatio, patiosGuardados, sumaPatios, textoPatiosVsReporte } from '../components/centroOperaciones/parteDiario';
 import { cmpText, norm } from './text';
+import { NOTA_CERNIDOR, etiquetaModo, producidoVsSalido, totalesProduccion } from './centroOperacionesProduccion';
+import type { FilaProducidoSalido, Produccion } from './centroOperacionesProduccion';
 
 // ═══════════════════════════ Secciones y opciones ═══════════════════════════
 
@@ -128,6 +132,21 @@ export type ModeloReporteCompleto = {
     sumaFrentes: { viajes: number; toneladas: number };
     /** Avisos neutros (texto plano): las filas no suman el total del reporte. */
     notas: string[];
+  };
+  /** ⚙️ Producción de trituración (06-nov-2026). */
+  produccion: {
+    vacio: boolean;
+    lineas: number;
+    horas: number;
+    toneladas: number;
+    m3: number;
+    /** Por equipo y modo. `tph` = la t/h si fue siempre la misma; si cambió, null y va el promedio. */
+    porEquipo: { equipo: string; modo: string; horas: number; tph: number | null; tphPromedio: number; toneladas: number; m3: number }[];
+    porProducto: { producto: string; toneladas: number; m3: number }[];
+    /** Por jornada (solo si el período tiene más de una). */
+    porJornada: { fecha: string; horas: number; toneladas: number }[];
+    /** Informativo: lo producido contra lo que salió en agregados (nunca descuenta). */
+    vsSalido: FilaProducidoSalido[];
   };
   patios: {
     vacio: boolean;
@@ -605,6 +624,43 @@ function seccionBloques(
   };
 }
 
+// ═══════════════════════════ ⚙️ Producción de trituración ═══════════════════════════
+
+function seccionProduccion(prods: Produccion[], movs: Movimiento[], dias: string[]): ModeloReporteCompleto['produccion'] {
+  const delPeriodo = (prods ?? []).filter((p) => p && dias.includes(p.fecha));
+  const t = totalesProduccion(delPeriodo);
+  const grupos = new Map<string, { equipo: string; modo: string; horas: number; toneladas: number; m3: number; tphs: Set<number> }>();
+  for (const p of delPeriodo) {
+    const k = `${llave(p.equipoNombre)}|${p.modo}`;
+    const tp = totalesProduccion([p]);
+    const g = grupos.get(k) ?? { equipo: limpia(p.equipoNombre) || 'Equipo', modo: etiquetaModo(p.modo), horas: 0, toneladas: 0, m3: 0, tphs: new Set<number>() };
+    g.horas = r2(g.horas + tp.horas);
+    g.toneladas = r2(g.toneladas + tp.toneladas);
+    g.m3 = r2(g.m3 + tp.m3);
+    g.tphs.add(p.tPorHora);
+    grupos.set(k, g);
+  }
+  const porEquipo = [...grupos.values()]
+    .map((g) => ({ equipo: g.equipo, modo: g.modo, horas: g.horas, tph: g.tphs.size === 1 ? [...g.tphs][0] : null, tphPromedio: g.horas > 0 ? r2(g.toneladas / g.horas) : 0, toneladas: g.toneladas, m3: g.m3 }))
+    .sort((a, b) => cmpText(a.equipo, b.equipo) || cmpText(a.modo, b.modo));
+  const porJornada = dias.length > 1
+    ? dias.map((f) => { const d = totalesProduccion(delPeriodo.filter((p) => p.fecha === f)); return { fecha: f, horas: d.horas, toneladas: d.toneladas }; }).filter((x) => x.horas > 0)
+    : [];
+  // La comparación solo sale si en el período SALIÓ algo de agregados (si no, sería una tabla de «—»).
+  const vs = delPeriodo.length ? producidoVsSalido(delPeriodo, movs) : [];
+  return {
+    vacio: delPeriodo.length === 0,
+    lineas: t.lineas,
+    horas: t.horas,
+    toneladas: t.toneladas,
+    m3: t.m3,
+    porEquipo,
+    porProducto: t.porProducto,
+    porJornada,
+    vsSalido: vs.some((x) => x.salidoT !== null || x.salidoM3 !== null) ? vs : [],
+  };
+}
+
 // ═══════════════════════════ El modelo completo ═══════════════════════════
 
 /**
@@ -629,6 +685,7 @@ export function modeloReporteCompleto(e: EntradaReporteCompleto): ModeloReporteC
     periodo: periodoCop(rango),
     jornadas: dias.length,
     reporteGeneral,
+    produccion: seccionProduccion(e?.produccion ?? [], movs, dias),
     patios: seccionPatios(movs, listas, dias, porFecha),
     agregados: seccionAgregados(movs),
     acero: seccionAcero(movs),
@@ -646,6 +703,8 @@ const fmtViajes = (n: number): string => finito(n).toLocaleString('es-VE', { max
 const fmt2 = (n: number): string => finito(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtEntero = (n: number): string => finito(n).toLocaleString('es-VE', { maximumFractionDigits: 0 });
 const fmtPct = (n: number): string => `${finito(n).toLocaleString('es-VE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+/** Horas y t/h: hasta 2 decimales, sin ceros de más («10,5»). */
+const fmtHoras = (n: number): string => finito(n).toLocaleString('es-VE', { maximumFractionDigits: 2 });
 const fmtKm = (n: number | null): string => (esNum(n) ? n.toLocaleString('es-VE', { maximumFractionDigits: 1 }) : SIN_DATO);
 /** m³ o toneladas: con 2 decimales, o «—» si es «sin dato». */
 const fmtDato = (n: number | null): string => (esNum(n) ? fmt2(n) : SIN_DATO);
@@ -686,6 +745,48 @@ function htmlReporteGeneral(m: ModeloReporteCompleto): string {
   partes.push(tablaRg('Frente', r.frentes, r.sumaFrentes) || nota('El Reporte General no trae frentes.'));
   for (const t of r.notas) partes.push(nota(t));
   if (m.jornadas > 1 && r.jornadasSinReporte.length) partes.push(nota(`Jornadas sin Reporte General: ${textoFechas(r.jornadasSinReporte)}.`));
+  return partes.join('');
+}
+
+function htmlProduccion(m: ModeloReporteCompleto): string {
+  const p = m.produccion;
+  type PorEquipo = ModeloReporteCompleto['produccion']['porEquipo'][number];
+  type PorProducto = ModeloReporteCompleto['produccion']['porProducto'][number];
+  type PorJornada = ModeloReporteCompleto['produccion']['porJornada'][number];
+  const partes: string[] = [tarjetas([
+    ['Horas trituradas', fmtHoras(p.horas)],
+    ['Toneladas producidas', `${fmt2(p.toneladas)} t`],
+    ['Metros cúbicos (aprox.)', `${fmt2(p.m3)} m³`],
+  ])];
+  partes.push(tablaSiHay<PorEquipo>([
+    { titulo: 'Equipo', celda: (f) => esc(f.equipo) },
+    { titulo: 'Modo', celda: (f) => esc(f.modo) },
+    { titulo: 'Horas', num: true, celda: (f) => fmtHoras(f.horas), total: fmtHoras(p.horas) },
+    { titulo: 't/h', num: true, celda: (f) => (f.tph !== null ? fmtHoras(f.tph) : `${fmtHoras(f.tphPromedio)}<small>promedio</small>`) },
+    { titulo: 'Toneladas', num: true, celda: (f) => fmt2(f.toneladas), total: fmt2(p.toneladas) },
+    { titulo: 'm³', num: true, celda: (f) => fmt2(f.m3), total: fmt2(p.m3) },
+  ], p.porEquipo));
+  partes.push(tablaSiHay<PorProducto>([
+    { titulo: 'Producto', celda: (f) => esc(f.producto) },
+    { titulo: 'Toneladas', num: true, celda: (f) => fmt2(f.toneladas), total: fmt2(p.toneladas) },
+    { titulo: 'm³', num: true, celda: (f) => fmt2(f.m3), total: fmt2(p.m3) },
+  ], p.porProducto, 'Total producido'));
+  if (p.porJornada.length > 1) {
+    partes.push(tablaSiHay<PorJornada>([
+      { titulo: 'Jornada', celda: (f) => esc(fechaCop(f.fecha)) },
+      { titulo: 'Horas', num: true, celda: (f) => fmtHoras(f.horas), total: fmtHoras(p.horas) },
+      { titulo: 'Toneladas', num: true, celda: (f) => fmt2(f.toneladas), total: fmt2(p.toneladas) },
+    ], p.porJornada));
+  }
+  if (p.vsSalido.length) {
+    partes.push(tablaSiHay<FilaProducidoSalido>([
+      { titulo: 'Producto', celda: (f) => esc(f.producto) },
+      { titulo: 'Producido (t)', num: true, celda: (f) => (f.producidoT > 0 ? fmt2(f.producidoT) : SIN_DATO) },
+      { titulo: 'Salió (t)', num: true, celda: (f) => fmtDato(f.salidoT) },
+      { titulo: 'Diferencia (t)', num: true, celda: (f) => (f.diferenciaT === null ? SIN_DATO : `${f.diferenciaT > 0 ? '+' : ''}${fmt2(f.diferenciaT)}`) },
+    ], p.vsSalido));
+    partes.push(nota(NOTA_CERNIDOR));
+  }
   return partes.join('');
 }
 
@@ -843,6 +944,7 @@ function htmlBloques(m: ModeloReporteCompleto): string {
 
 const PINTORES: Record<SeccionCompleto, (m: ModeloReporteCompleto) => string> = {
   reporteGeneral: htmlReporteGeneral,
+  produccion: htmlProduccion,
   patios: htmlPatios,
   agregados: htmlAgregados,
   acero: htmlAcero,

@@ -142,15 +142,16 @@ const p = (fn, ...a) => llamar(P, fn, ...a);
     p('bloquesSinGuardar', { bloques: true, agregados: true, reporte: true, maquinaria: false }), ['reporte', 'agregados', 'bloques']);
   eq('1.1 * sin nada: ninguno', p('bloquesSinGuardar', {}), []);
   eq('1.1 * null no revienta', p('bloquesSinGuardar', null), []);
-  eq('⭐ 1.1 B-M7 los siete, también los patios y la maquinaria',
-    p('bloquesSinGuardar', { maquinaria: true, patios: true, aluminio: true, acero: true, agregados: true, reporte: true, bloques: true }),
-    ['reporte', 'patios', 'agregados', 'acero', 'aluminio', 'maquinaria', 'bloques']);
+  eq('⭐ 1.1 B-M7 los ocho, también los patios, la producción y la maquinaria',
+    p('bloquesSinGuardar', { maquinaria: true, patios: true, aluminio: true, acero: true, agregados: true, reporte: true, bloques: true, produccion: true }),
+    ['reporte', 'produccion', 'patios', 'agregados', 'acero', 'aluminio', 'maquinaria', 'bloques']);
   eq('1.1 * los nombres son los títulos de los bloques del Parte diario', P.ETIQUETAS_SIN_GUARDAR, {
-    reporte: '1 · 📊 Reporte General', patios: '2 · 🚪 Entrada por patio', agregados: '3 · 🚚 Salidas de agregados',
-    acero: '4 · 🔩 Acero', aluminio: '5 · ♻️ Aluminio y plástico', maquinaria: '6 · 🚜 Maquinaria', bloques: '7 · 🧱 Bloques',
+    reporte: '1 · 📊 Reporte General', produccion: '2 · ⚙️ Producción de trituración', patios: '3 · 🚪 Entrada por patio',
+    agregados: '4 · 🚚 Salidas de agregados', acero: '5 · 🔩 Acero', aluminio: '6 · ♻️ Aluminio y plástico',
+    maquinaria: '7 · 🚜 Maquinaria', bloques: '8 · 🧱 Bloques',
   });
   const t = p('textoSalirSinGuardar', ['reporte', 'agregados']);
-  ok('⭐ 1.1 B-I1 la pregunta nombra los bloques con algo sin guardar', typeof t === 'string' && t.includes('1 · 📊 Reporte General') && t.includes('3 · 🚚 Salidas de agregados'), t);
+  ok('⭐ 1.1 B-I1 la pregunta nombra los bloques con algo sin guardar', typeof t === 'string' && t.includes('1 · 📊 Reporte General') && t.includes('4 · 🚚 Salidas de agregados'), t);
   ok('⭐ 1.1 * y dice que si sale, se pierde', typeof t === 'string' && /se pierde/.test(t) && /📅 Parte diario/.test(t), t);
   ok('1.1 * y pregunta si lo descarta', typeof t === 'string' && /¿Descartarlo\?/.test(t), t);
 }
@@ -401,9 +402,9 @@ const PURA_DESDE_PANTALLA = '../components/centroOperaciones/pantallaParteDiario
 // ——— 2.2 B-M7: patios, maquinaria y pendientes de pesaje también son «sin guardar» ———
 {
   ok('⭐ 2.2 B-M7 el bloque 2 (patios) dice «✏️ sin guardar» y BloquePatios lo avisa',
-    /<Bloque titulo="2 · 🚪 Entrada por patio"[^>]*sinGuardar=\{sucios\.patios\}/.test(tab) && /<BloquePatios\b[^>]*alSinGuardar=\{marcar\.patios\}/.test(tab));
-  ok('⭐ 2.2 * el bloque 6 (maquinaria) también', /<Bloque titulo="6 · 🚜 Maquinaria"[^>]*sinGuardar=\{sucios\.maquinaria\}/.test(tab) && /<BloqueMaquinaria\b[^>]*alSinGuardar=\{marcar\.maquinaria\}/.test(tab));
-  ok('2.2 * los siete bloques marcan con marcar.*', [...tab.matchAll(/alSinGuardar=\{marcar\.\w+\}/g)].length === 7);
+    /<Bloque titulo="3 · 🚪 Entrada por patio"[^>]*sinGuardar=\{sucios\.patios\}/.test(tab) && /<BloquePatios\b[^>]*alSinGuardar=\{marcar\.patios\}/.test(tab));
+  ok('⭐ 2.2 * el bloque 7 (maquinaria) también', /<Bloque titulo="7 · 🚜 Maquinaria"[^>]*sinGuardar=\{sucios\.maquinaria\}/.test(tab) && /<BloqueMaquinaria\b[^>]*alSinGuardar=\{marcar\.maquinaria\}/.test(tab));
+  ok('2.2 * los ocho bloques marcan con marcar.*', [...tab.matchAll(/alSinGuardar=\{marcar\.\w+\}/g)].length === 8);
   ok('⭐ 2.2 BloquePatios: «sin guardar» = cambios por guardar, campos con error o patios escritos en otra jornada',
     /alSinGuardar\?: \(sinGuardar: boolean\) => void/.test(pat) && /const sinGuardar = hayCambios \|\| conError\.length > 0 \|\| otrasJornadas\.length > 0;/.test(pat)
     && /alSinGuardar\?\.\(sinGuardar\)/.test(pat) && /jornadasConPatiosEscritos\(editados, fecha\)/.test(pat));

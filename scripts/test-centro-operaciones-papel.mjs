@@ -634,8 +634,8 @@ ok('R2: una unidad con nombre y placa distintos sigue con las dos', HK.includes(
   eq('PD5b: ficha() con lo vacío fuera y escapada', intenta('ficha', () => P.ficha([['Sitio', 'A & B'], ['Corte', '  ']])),
     '<div class="cop-ficha"><span><b>Sitio:</b> A &amp; B</span></div>');
   eq('PD5b: tabla() sin filas ni totales no dibuja nada', intenta('tabla vacía', () => P.tabla([{ titulo: 'X', celda: (f) => f }], [])), '');
-  eq('⭐ PD5b: SECCIONES_COP.completo = las 7 del Reporte completo, en el orden de su hoja', (P.SECCIONES_COP?.completo ?? []).map((s) => s.k),
-    ['reporteGeneral', 'patios', 'agregados', 'acero', 'aluminioPlastico', 'maquinaria', 'bloques']);
+  eq('⭐ PD5b: SECCIONES_COP.completo = las 8 del Reporte completo (⚙️ producción, 06-nov), en el orden de su hoja', (P.SECCIONES_COP?.completo ?? []).map((s) => s.k),
+    ['reporteGeneral', 'produccion', 'patios', 'agregados', 'acero', 'aluminioPlastico', 'maquinaria', 'bloques']);
   eq('PD5b: el Reporte completo no tiene columnas que esconder', P.COLUMNAS_COP?.completo, []);
   eq('PD5b: su título de siempre', intenta('tituloCop completo', () => P.tituloCop('completo', { titulo: '' })), 'Reporte completo');
   eq('⭐ PD5b: el nombre del archivo dice el papel y lo escondido (como los otros papeles)',

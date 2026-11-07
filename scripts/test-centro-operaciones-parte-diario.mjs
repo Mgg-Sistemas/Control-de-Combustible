@@ -311,7 +311,7 @@ const pantalla = sinComentarios(leer(PANTALLA));
 {
   const titulos = [...tab.matchAll(/<Bloque\s+titulo="([^"]+)"/g)].map((x) => x[1]);
   eq('⭐ 2.3 los bloques van en el orden de su hoja', titulos.map((t) => t.replace(/^\d+ · \S+ /, '')),
-    ['Reporte General', 'Entrada por patio', 'Salidas de agregados', 'Acero', 'Aluminio y plástico', 'Maquinaria', 'Bloques']);
+    ['Reporte General', 'Producción de trituración', 'Entrada por patio', 'Salidas de agregados', 'Acero', 'Aluminio y plástico', 'Maquinaria', 'Bloques']);
   ok('2.3 * numerados del 1 al 7', titulos.every((t, i) => t.startsWith(`${i + 1} · `)), titulos.join(' | '));
   ok('⭐ 2.3 plegar NO desmonta (display none, no un children condicional)', /display:\s*abierto\s*\?\s*'flex'\s*:\s*'none'/.test(tab) && !/\{abierto \? children/.test(tab));
   ok('⭐ 2.3 (L5-B14) Patios recibe el error del Reporte General y su Reintentar (no se queda «cargando…»)',
@@ -341,7 +341,7 @@ const pantalla = sinComentarios(leer(PANTALLA));
   // Lote 5 B10: los encabezados plegados dicen lo importante.
   ok('⭐ 2.4 L5-B10 el acero plegado dice cuántas esperan pesaje (resumenSalidas), con tono de aviso',
     /resumenSalidas\(datos\.delDia, datos\.pendientes, clase, sitioId\)/.test(tab) && /const resAcero = resumenDeSalidas\(salidas, 'acero', sitio\.id\);/.test(tab)
-    && /<Bloque titulo="4 · 🔩 Acero" resumen=\{resAcero\.texto\} alerta=\{resAcero\.alerta\}/.test(tab));
+    && /<Bloque titulo="5 · 🔩 Acero" resumen=\{resAcero\.texto\} alerta=\{resAcero\.alerta\}/.test(tab));
   ok('⭐ 2.4 L5-B10 la maquinaria plegada dice «✅ n · 🔧 m» (y ⛔ ❔ ⚠️ si hay) con la regla del bloque (alConteo + textoConteoDelSitio corto)',
     /alConteo=\{setConteoMaq\}/.test(tab) && /textoConteoDelSitio\(conteoMaq, 'corto'\)/.test(tab) && !/conteoMaq\.disponibles/.test(tab));
   ok('2.4 * con alguna que no coincide con inspección, o sin verificar / sin dato (lote 6 B9), el encabezado va en tono de aviso',
