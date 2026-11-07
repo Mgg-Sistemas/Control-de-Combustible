@@ -201,6 +201,19 @@ eq('↕ ordenar como la referencia: fijos y equivalentes primero, lo demás desp
 const limpia = F.limpiarFichaParaNube({ anexos: [{ id: 'a', titulo: 't', fotos: [{ id: '1', url: 'data:image/jpeg;base64,xx' }, { id: '2', url: fotoUrl(2) }] }] });
 eq('⭐ una foto que solo está en el teléfono no sube a la nube, tampoco dentro del anexo', limpia.anexos[0].fotos.map((f) => f.id), ['2']);
 
+// ── La ventana no tumba la app (07-nov-2026) ────────────────────────────────
+// Un hook (useState, useRef, useEffect…) después del `return null` de la ventana
+// hace que React cuente distinto entre la ventana cerrada y la abierta y rompe
+// toda la pantalla (error #310). Pasó con `ultimoGuardado` el 07-nov-2026.
+{
+  const modal = fs.readFileSync(path.join(ROOT, 'src/components/FichaTecnicaModal.tsx'), 'utf8');
+  const corte = modal.indexOf('if (!visible || !machine) return null;');
+  const despues = corte >= 0 ? modal.slice(corte) : '';
+  const hooksTarde = (despues.match(/\buse[A-Z][A-Za-z]*\s*[<(]/g) || []);
+  ok('⭐⭐ ningún hook va después del «return null» de la ventana (si no, la app se cae al abrir la ficha)',
+    corte >= 0 && hooksTarde.length === 0, hooksTarde.join(', '));
+}
+
 // ── Resultado ───────────────────────────────────────────────────────────────
 console.log('\nFICHA TÉCNICA — campos fijos y lo vacío no sale\n');
 if (failures.length) console.log(failures.join('\n'));
