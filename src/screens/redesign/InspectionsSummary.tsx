@@ -1967,6 +1967,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           ) : inspShown.length === 0 ? (
             inspQ.trim() ? null : <Text style={{ color: colors.muted, fontSize: 12.5, paddingVertical: spacing.md, textAlign: 'center' }}>Sin inspectores {shiftIcon} para el {shortDate(selDay)}.</Text>
           ) : (
+            <>
+            {/* 📋 07-nov-2026 (reportado: «la eficiencia no muestra la realidad de las máquinas
+                asignadas»): el 🟢 de cada barra son las que TRABAJAN AHORA, no las asignadas
+                (las paradas, averiadas y ya cerradas no entran ahí). Ahora cada barra dice
+                también cuántas tiene asignadas en el turno (📋), y esta leyenda lo explica. */}
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>
+              ⚡ eficiencia · 🟢 trabajando ahora · 📋 asignadas en este turno (sin las inactivas ni las «en espera» del Catálogo)
+            </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
               {inspShown.map((ins) => {
                 const on = ins.name === selInsp;
@@ -1984,11 +1992,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                       <View style={{ height: h, width: '100%', backgroundColor: barColor }} />
                     </View>
                     <Text style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: '700', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>🟢 {ins.iniActivas.length}</Text>
+                    <Text style={{ color: on ? colors.brandText : colors.text, fontSize: 9.5, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>📋 {ins.total}</Text>
                     <Text numberOfLines={2} style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: on ? '800' : '600', textAlign: 'center', marginTop: 2, height: 24 }}>{ins.name}</Text>
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
+            </>
           )}
 
           {/* 🧩 Máquinas por asignar (cajón MAQUINAS FALTANTES): desplegable con la

@@ -193,6 +193,12 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
     return t && !/^[\d.,\s-]+$/.test(t) ? t : null;
   };
   const inspCount = (id: string) => Object.values(assignMap).filter((s) => s.day?.id === id || s.night?.id === id).length;
+  // 07-nov-2026: de las asignadas, cuántas están inactivas o «en espera» en el Catálogo.
+  // La gráfica de eficiencia no las cuenta (no se pueden trabajar): así los dos números cuadran.
+  const inspInactivas = (id: string) => machines.filter((m) => {
+    const s = assignMap[m.id];
+    return !!s && (s.day?.id === id || s.night?.id === id) && !necesitaInspector(m);
+  }).length;
   const inspMachText = useMemo(() => {
     const acc: Record<string, string[]> = {};
     machines.forEach((m) => {
@@ -544,12 +550,13 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                 <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                   {inspectors.filter((p) => matchInsp(p, inspQuery)).map((p) => {
                     const count = inspCount(p.id);
+                    const inactivas = count > 0 ? inspInactivas(p.id) : 0;
                     return (
                       <TouchableOpacity key={p.id} onPress={() => { setCheckInspector({ id: p.id, name: p.name }); setCheckQuery(''); setCheckFilter('mine'); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
                         <Text style={{ fontSize: 20 }}>👮</Text>
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>{p.name}</Text>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>{p.role || 'inspector'}{count > 0 ? ` · ${count} máquina(s)` : ''}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>{p.role || 'inspector'}{count > 0 ? ` · ${count} máquina(s)` : ''}{inactivas > 0 ? ` (${inactivas} inactiva(s) o en espera)` : ''}</Text>
                         </View>
                         <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 18 }}>›</Text>
                       </TouchableOpacity>

@@ -3793,12 +3793,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                 {inspectors.filter((p) => matchInsp(p, inspQuery)).map((p) => {
                   const count = Object.values(assignMap).filter((s) => s.day?.id === p.id || s.night?.id === p.id).length;
+                  // 07-nov-2026: cuántas de sus asignadas están inactivas o «en espera» (la eficiencia no las cuenta).
+                  const inactivas = count > 0 ? machines.filter((m) => { const s = assignMap[m.id]; return !!s && (s.day?.id === p.id || s.night?.id === p.id) && !necesitaInspector(m); }).length : 0;
                   return (
                     <TouchableOpacity key={p.id} onPress={() => { setCheckInspector({ id: p.id, name: p.name }); setCheckQuery(''); setCheckFilter('mine'); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
                       <Text style={{ fontSize: 20 }}>👮</Text>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>{p.name}</Text>
-                        <Text style={{ color: colors.muted, fontSize: 11 }}>{p.role || 'inspector'}{count > 0 ? ` · ${count} máquina(s)` : ''}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{p.role || 'inspector'}{count > 0 ? ` · ${count} máquina(s)` : ''}{inactivas > 0 ? ` (${inactivas} inactiva(s) o en espera)` : ''}</Text>
                       </View>
                       <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 18 }}>›</Text>
                     </TouchableOpacity>
