@@ -241,6 +241,27 @@ const prod = (o) => ({ id: 'p' + Math.random(), sitioId: 'S', fecha: '2026-11-06
   check(!RC.cuerpoReporteCompleto(m, {}).includes('Salió (t)'), 'sin salidas en el período: no sale la comparación');
 }
 
+// ═══════ 9b. De punta a punta: lo cargado llega a la HOJA (bug 09-nov-2026) ═══════
+// María anotó 7,84 h × 229 t/h el 02/11 y en «👁️ Ver la hoja aquí» la sección 2 decía
+// «Sin registros en el período.»: `armarPapelCop` copiaba los datos a mano y dejaba fuera la
+// producción. Esta prueba pasa por el MISMO camino que la pestaña 📄 Reportes.
+{
+  const R = loadTs(path.join(ROOT, 'src/lib/centroOperacionesReportes.ts'));
+  const op = { ...PAPEL.OPCIONES_PAPEL_POR_DEFECTO, ocultosSecciones: [], ocultosColumnas: [], logos: { ...PAPEL.OPCIONES_PAPEL_POR_DEFECTO.logos } };
+  const lineaMaria = prod({ id: 'm', fecha: '2026-11-02', horas: 7.84, tPorHora: 229, toneladas: 1795.36, nota: 'Mandíbula abierta' });
+  const datos = { reportes: [], movimientos: [], anteriores: [], unidades: [], listas: LISTAS, produccion: [lineaMaria], equiposTrituracion: [EQ1] };
+  const armado = R.armarPapelCop({
+    papel: 'completo', sitio: 'CDT', base: [], rango: { desde: '2026-11-02', hasta: '2026-11-05', corteHora: null },
+    filtros: { tipos: [], unidadIds: [], transportistas: [], texto: '' }, op, edicion: null,
+    completo: { datos, hoy: '2026-11-09' },
+  });
+  const sec2 = armado.cuerpo.slice(armado.cuerpo.indexOf('2. Producción de trituración'), armado.cuerpo.indexOf('3. Entrada por patio'));
+  check(armado.completo && armado.completo.produccion.vacio === false && armado.completo.produccion.horas === 7.84,
+    '⭐ el Reporte completo de la pestaña 📄 Reportes RECIBE la producción cargada (no la deja en el camino)', armado.completo?.produccion);
+  check(sec2.includes('Horas trituradas') && !sec2.includes('Sin registros en el período.'),
+    '⭐ la hoja muestra la sección 2 con lo anotado (no «Sin registros en el período.»)');
+}
+
 // ═══════ 10. La pantalla y la base: cableado ═══════
 {
   const tab = fs.readFileSync(path.join(ROOT, 'src/components/centroOperaciones/ParteDiarioTab.tsx'), 'utf8');

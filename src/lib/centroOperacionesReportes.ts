@@ -506,7 +506,9 @@ export type EntradaPapelCop = {
 };
 
 /** Lo que el Reporte completo necesita de la base (= `DatosReporteCompleto` de la capa de datos). */
-export type DatosDelCompleto = Pick<EntradaReporteCompleto, 'reportes' | 'movimientos' | 'anteriores' | 'unidades' | 'listas'>;
+// 07/09-nov-2026: + la producción de trituración y sus equipos (se quedaban por fuera y la
+// sección 2 del Reporte completo salía «Sin registros» aunque estuviera anotada).
+export type DatosDelCompleto = Pick<EntradaReporteCompleto, 'reportes' | 'movimientos' | 'anteriores' | 'unidades' | 'listas' | 'produccion' | 'equiposTrituracion'>;
 
 export type PapelArmadoCop = {
   /** Ya escapados (pdfDocument los pega tal cual). */
@@ -556,7 +558,7 @@ export function armarPapelCop(e: EntradaPapelCop, opciones?: { conCuerpo?: boole
     //    en el subtítulo ni en lo que cuenta; los filtros tampoco (`filtrosDelPapel` → nada).
     const jornadas: RangoCop = { desde: rango.desde, hasta: rango.hasta, corteHora: null };
     const d = e.completo?.datos;
-    const datos: DatosDelCompleto = { reportes: d?.reportes ?? [], movimientos: d?.movimientos ?? [], anteriores: d?.anteriores ?? [], unidades: d?.unidades ?? [], listas: d?.listas ?? [] };
+    const datos: DatosDelCompleto = { reportes: d?.reportes ?? [], movimientos: d?.movimientos ?? [], anteriores: d?.anteriores ?? [], unidades: d?.unidades ?? [], listas: d?.listas ?? [], produccion: d?.produccion ?? [], equiposTrituracion: d?.equiposTrituracion ?? [] };
     const modelo = modeloReporteCompleto({
       ...datos, sitio: e.sitio, desde: jornadas.desde, hasta: jornadas.hasta, hoy: e.completo?.hoy ?? '',
       inspeccion: e.completo?.inspeccion ?? null, emitidoMs: e.completo?.emitidoMs ?? null,
