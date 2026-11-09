@@ -71,6 +71,7 @@ import CajaScreen from '../screens/CajaScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import SolicitudMaterialScreen from '../screens/SolicitudMaterialScreen';
 import CentroOperacionesScreen from '../screens/CentroOperacionesScreen';
+import DeliveryScreen from '../screens/DeliveryScreen';
 import InspeccionesScreen from '../screens/InspeccionesScreen';
 import ManguerasScreen from '../screens/ManguerasScreen';
 import MachineTraceabilityScreen from '../screens/MachineTraceabilityScreen';
@@ -299,6 +300,7 @@ function MoreStack() {
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="SolicitudMaterial" component={SolicitudMaterialScreen} options={{ title: 'Pedir Material / Repuesto' }} />
       <Stack.Screen name="CentroOperaciones" component={CentroOperacionesScreen} options={{ title: 'Centro de Operaciones' }} />
+      <Stack.Screen name="Delivery" component={DeliveryScreen} options={{ title: 'Delivery de compras' }} />
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
       <Stack.Screen name="FabricacionHub" component={FabricacionHubScreen} options={{ title: 'Fabricación' }} />
       <Stack.Screen name="Mangueras" component={ManguerasScreen} options={{ title: 'Mangueras hidráulicas' }} />
@@ -512,6 +514,24 @@ function CombustibleStack() {
  *  Inventario, sin pasar por Inicio ni el menú "Más" (mismo patrón que
  *  `esRolCombustible`/`esRolAsistencia`). */
 const INVENTARIO_MODULES = ['inventario'];
+/** 🛵 Rol personalizado cuyo ÚNICO acceso es Delivery (el motorizado, 09-nov-2026): entra
+ *  DIRECTO a su pantalla, sin pasar por Inicio ni «Más» (mismo patrón que Inventario). */
+function esRolDelivery(appRole: AppRole | null): boolean {
+  const mods = appRole?.modules ?? {};
+  const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
+  return activos.length > 0 && activos.every((k) => k === 'delivery');
+}
+function DeliveryStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={screenHeader}>
+      <Stack.Screen name="DeliveryHome" component={DeliveryScreen} options={{ title: 'Delivery de compras' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
+    </Stack.Navigator>
+  );
+}
+
 function esRolInventario(appRole: AppRole | null): boolean {
   const mods = appRole?.modules ?? {};
   const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
@@ -897,6 +917,7 @@ const moreScreens = {
   Inventario: 'inventario',
   SolicitudMaterial: 'pedir-material',
   CentroOperaciones: 'centro-operaciones',
+  Delivery: 'delivery',
   InspeccionesMaq: 'inspecciones-maquinaria',
   FabricacionHub: 'fabricacion',
   Mangueras: 'fabricacion/mangueras',
@@ -936,7 +957,7 @@ const moreScreens = {
  *  (ver `pickTree` más abajo). `operador` es una pantalla suelta sin Stack/Tab,
  *  así que no tiene config de `linking` propia; `cocina` sí tiene su propio
  *  Stack (ver `CocinaStack`), con config de `linking` en `TREE_LINKING`. */
-type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'coordOperadores' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina' | 'obrasPublicas' | 'lavadoMaquinaria' | 'viajesCamiones';
+type TreeKey = 'delivery' | 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'coordOperadores' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina' | 'obrasPublicas' | 'lavadoMaquinaria' | 'viajesCamiones';
 
 /**
  * LINKING (web) por árbol: sincroniza la URL con la pantalla activa, así la
@@ -1098,6 +1119,7 @@ function pickTree(ctx: {
   if (appRole && role !== 'admin' && esRolAsistencia(appRole)) return { key: 'asistencia', node: <AsistenciaStack /> };
   // Rol por módulos cuyo único acceso es INVENTARIO: directo a Inventario.
   if (appRole && role !== 'admin' && esRolInventario(appRole)) return { key: 'inventario', node: <InventarioStack /> };
+  if (appRole && role !== 'admin' && esRolDelivery(appRole)) return { key: 'delivery', node: <DeliveryStack /> };
   // Rol por módulos cuyo único acceso es el KIOSCO DE PLANTA: directo al Kiosco.
   if (appRole && role !== 'admin' && esRolFabricacionPlanta(appRole)) return { key: 'fabricacionPlanta', node: <FabricacionPlantaStack /> };
   // Rol LISTERO: su único acceso es registrar viajes de camiones → directo a esa pantalla.

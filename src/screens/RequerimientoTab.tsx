@@ -115,6 +115,8 @@ import {
   resumirCambiosCabeceraCompra,
 } from '../lib/comprasHistorico';
 import { TimelineExpedienteBox } from './HistoricoComprasTab';
+import { estadoDeliveryDe } from '../lib/deliveryDb';
+import { ESTADO_DELIVERY, fechaHoraVE } from '../lib/delivery';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -466,6 +468,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     });
     return set;
   }, [cuentasData]);
+  // 🛵 09-nov-2026: en qué paso va el DELIVERY de los requerimientos aprobados (lo hace el
+  //    motorizado en su pantalla). Solo informa: si no carga, la tarjeta no lo muestra.
+  const [deliveryDe, setDeliveryDe] = useState<Record<string, { estado: string; repartidor: string | null; cuando: string | null }>>({});
+  const firmaAprobados = useMemo(() => reqs.filter((r) => r.status === 'aprobado').map((r) => r.id).join(','), [reqs]);
+  useEffect(() => {
+    let vivo = true;
+    const ids = firmaAprobados ? firmaAprobados.split(',') : [];
+    estadoDeliveryDe(ids).then((m) => { if (vivo) setDeliveryDe(m); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [firmaAprobados]);
 
   // Crear / editar requerimiento (editId != null → estamos editando ese requerimiento)
   const [createOpen, setCreateOpen] = useState(false);
@@ -4079,6 +4091,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                               {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
                               {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
                               {r.motorizado_nombre ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>🏍️ Motorizado responsable: {r.motorizado_nombre}</Text> : null}
+                              {r.status === 'aprobado' && deliveryDe[r.id] ? (() => {
+                                const dv = deliveryDe[r.id];
+                                const et = ESTADO_DELIVERY[dv.estado as keyof typeof ESTADO_DELIVERY];
+                                return et ? <Text style={{ color: dv.estado === 'cancelado' ? colors.danger : colors.brandText, fontSize: 11, marginTop: 2, fontWeight: '700' }}>🛵 Delivery: {et.emoji} {et.label}{dv.repartidor ? ` · ${dv.repartidor}` : ''}{dv.cuando ? ` · ${fechaHoraVE(dv.cuando)}` : ''}</Text> : null;
+                              })() : null}
 
                               {/* 📜 Línea de tiempo / Histórico de movimientos del Requerimiento */}
                               {(() => {

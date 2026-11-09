@@ -42,6 +42,8 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Acta de Recepción de Equipo', route: 'ActaRecepcion', desc: 'Inspección física inicial, checklist de componentes y anexo fotográfico', icon: '📋', module: 'actas_recepcion' },
   { label: 'Pedir Material / Repuesto', route: 'SolicitudMaterial', desc: 'Consultar existencias en almacén, pedir despacho o solicitar compra técnica', icon: '📦', module: 'solicitudes_material' },
   { label: 'Centro de Operaciones', route: 'CentroOperaciones', desc: 'Sitios, flota, entradas, movimientos y salidas, con sus reportes', icon: '🏭', module: 'centro_operaciones' },
+  // 🛵 09-nov-2026: los motorizados buscan las compras pagadas donde el proveedor y las entregan en almacén.
+  { label: 'Delivery de compras', route: 'Delivery', desc: 'Motorizados: qué buscar, dónde, y en qué paso va cada compra pagada', icon: '🛵', module: 'delivery' },
   // (Kiosco de planta se quitó del menú: salía duplicado con la tarjeta del hub de
   //  Fabricación. Los roles "solo kiosco" entran directo al Kiosco por su panel, ver
   //  navigation `fabricacionPlanta`. La pantalla/ruta PlantaKiosk sigue existiendo.)
