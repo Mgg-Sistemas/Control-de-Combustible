@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, ScrollView, FlatList, SectionL
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import UsuariosActividad from '../components/UsuariosActividad';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
@@ -347,6 +348,8 @@ export default function AuditScreen() {
   const [to, setTo] = useState(caracasToday());     // fin del rango
   const [userFilter, setUserFilter] = useState('__all__');
   const [tableFilter, setTableFilter] = useState('__all__');
+  // 👥 09-nov-2026: «Bitácora» (lo de siempre) o «Usuarios» (quién se conecta, cuánto y qué hace).
+  const [vista, setVista] = useState<'bitacora' | 'usuarios'>('bitacora');
   const [q, setQ] = useState('');
   // Buscar en TODO el historial (ignora el rango Desde–Hasta): para encontrar TODO lo
   // que le pasó a una máquina/inspector/usuario en particular, sin tener que adivinar
@@ -965,12 +968,35 @@ export default function AuditScreen() {
     </TouchableOpacity>
   );
 
+  // 👥 Las dos vistas de la Auditoría.
+  const pestanasVista = (
+    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+      {([['bitacora', '🕵️ Bitácora'], ['usuarios', '👥 Usuarios']] as const).map(([k, label]) => (
+        <TouchableOpacity key={k} onPress={() => setVista(k)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: vista === k ? colors.primary : colors.border, backgroundColor: vista === k ? colors.primary : colors.surfaceAlt }}>
+          <Text style={{ color: vista === k ? colors.primaryContrast : colors.text, fontWeight: '900' }}>{label}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+  if (vista === 'usuarios') {
+    return (
+      <Screen>
+        <View style={{ gap: spacing.md }}>
+          <SectionTitle>🛡️ Auditoría de usuarios</SectionTitle>
+          {pestanasVista}
+          <UsuariosActividad />
+        </View>
+      </Screen>
+    );
+  }
+
   // Cabecera (banner, rango, búsqueda, chips) como ListHeaderComponent del FlatList.
   // Se pasa como ELEMENTO (no función) para que el TextInput no pierda el foco al escribir.
   const listHeader = (
     <View style={{ gap: spacing.md }}>
       <ConfigBanner />
       <SectionTitle>🕵️ Auditoría — quién hace qué</SectionTitle>
+      {pestanasVista}
 
       {/* La consulta falló: se avisa. Sin esto se veía igual que "no hay nada". */}
       {loadError ? (

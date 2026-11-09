@@ -3,6 +3,7 @@ import { AppState, Platform } from 'react-native';
 import { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { consumeSoftReload } from '../lib/version';
+import { enviarLatido, LATIDO_MS } from '../lib/actividadUsuarios';
 import { nameToEmail, validateName } from '../lib/username';
 import { UserRole, AppRole } from '../types/database';
 import { PermLevel, defaultLevel, maxLevel, MODULE_HEREDA_DE, nivelDeFicha, fichaDesdeFila, type FichaRol, type VistaTelefono } from '../lib/permissions';
@@ -360,8 +361,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
+    // 👥 LATIDO DE ACTIVIDAD (09-nov-2026, panel «Usuarios» de 📜 Auditoría): cada 60 s, solo
+    //    con la pantalla visible y nunca en las sesiones anónimas de los QR. Una escritura
+    //    chiquita por minuto; si falla, el siguiente minuto vuelve a intentar.
+    const esAnonima = !!(session.user as any)?.is_anonymous;
+    const latir = () => {
+      if (esAnonima || !active) return;
+      if (Platform.OS === 'web' && (globalThis as any).document?.visibilityState === 'hidden') return;
+      if (Platform.OS !== 'web' && AppState.currentState !== 'active') return;
+      void enviarLatido();
+    };
+    latir();
+    const latido = setInterval(latir, LATIDO_MS);
+    const alVolver = () => { if ((globalThis as any).document?.visibilityState === 'visible') latir(); };
+    if (Platform.OS === 'web') { try { (globalThis as any).document?.addEventListener?.('visibilitychange', alVolver); } catch { /* sin documento */ } }
+
     return () => {
       active = false;
+      clearInterval(latido);
+      if (Platform.OS === 'web') { try { (globalThis as any).document?.removeEventListener?.('visibilitychange', alVolver); } catch { /* sin documento */ } }
       if (permCh) supabase.removeChannel(permCh);
       if (copCh) supabase.removeChannel(copCh);
       if (fichaCh) supabase.removeChannel(fichaCh);

@@ -108,6 +108,7 @@ import HaulDashboard from '../screens/acarreo/HaulDashboard';
 import TrasladoMaquinariaScreen from '../screens/TrasladoMaquinariaScreen';
 import ActaRecepcionScreen from '../screens/ActaRecepcionScreen';
 import ServicioFletesScreen from '../screens/ServicioFletesScreen';
+import { pantallaDeEstado, setPantallaActual } from '../lib/actividadUsuarios';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -1295,6 +1296,8 @@ export default function RootNavigator() {
       // Título fijo de la pestaña del navegador (web). Sin esto, React Navigation
       // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
       documentTitle={{ formatter: () => 'SOS LA GUAIRA' }}
+      // 👥 09-nov-2026: la pantalla abierta viaja en el latido de actividad (panel «Usuarios»).
+      onStateChange={(st) => setPantallaActual(pantallaDeEstado(st))}
     >
       {qrComidaId && !loggedInReal ? (
         // QR de DISTRIBUCIÓN DE COMIDA: LOGIN DIRECTO (sin vista anónima).
