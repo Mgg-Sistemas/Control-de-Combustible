@@ -352,7 +352,9 @@ ok('la tarjeta esta montada en el panel', /<TiqueConfigCard uid=\{uid\}/.test(sc
 //    este aviso el primer ticket despues de guardar sale con el formato viejo y
 //    parece que el guardado no funciono.
 ok('...y le avisa a la pantalla cuando se guarda',
-  /<TiqueConfigCard uid=\{uid\} onGuardado=\{setConfigTique\} \/>/.test(scr));
+  // 09-nov-2026: además de recibir la configuración, la pantalla relee formatos y
+  // asignaciones (`versionTique`); antes eso lo hacía de rebote el bucle de lecturas.
+  /<TiqueConfigCard uid=\{uid\} onGuardado=\{\(c\) => \{ setConfigTique\(c\); setVersionTique\(\(v\) => v \+ 1\); \}\} \/>/.test(scr));
 ok('la tarjeta llama a onGuardado despues de guardar bien',
   /onGuardado\?\.\(config\);/.test(card));
 

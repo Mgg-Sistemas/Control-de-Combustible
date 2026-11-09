@@ -2584,6 +2584,18 @@ export default function ViajesCamionesScreen() {
   const [foliosFormatos, setFoliosFormatos] = useState<Record<string, string>>({});
   const [sinTablaTique, setSinTablaTique] = useState(false);
 
+  // 💸 09-nov-2026 (la factura de Supabase subió): este efecto dependía de `configTique`
+  //    y él mismo lo cambiaba con cada lectura → se releía EN BUCLE, sin parar, mientras la
+  //    pantalla estuviera abierta (127.243 lecturas en 2,7 días, ~15 GB de tráfico diario
+  //    cuando la fila pesaba 333 KB). Ahora se lee al abrir, cuando la tarjeta de
+  //    configuración guarda (`versionTique`), y cada 5 minutos para tomar lo que cambie
+  //    otro equipo. Lo sellado aquí y aún no subido (`foliosFormatos`) no se pisa: se
+  //    junta con lo de la base, que manda.
+  const [versionTique, setVersionTique] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setVersionTique((v) => v + 1), 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     let vivo = true;
     leerConfigTique().then((r) => {
@@ -2591,11 +2603,11 @@ export default function ViajesCamionesScreen() {
       setConfigTique(r.config);
       setFormatosTique(r.formatos);
       setAsignacionesFormatos(r.asignaciones);
-      setFoliosFormatos(r.foliosFormatos);
+      setFoliosFormatos((prev) => ({ ...prev, ...r.foliosFormatos }));
       setSinTablaTique(r.sinTabla);
     });
     return () => { vivo = false; };
-  }, [configTique]);
+  }, [versionTique]);
 
   const formatoDeViaje = React.useCallback(
     (r: any) => {
@@ -5854,7 +5866,7 @@ export default function ViajesCamionesScreen() {
           {/* Qué sale en el ticket. Va acá, pegado a las obras, porque las dos
               cosas se configuran una vez y se dejan quietas: la obra de cada
               listero y el formato del papel. */}
-          <TiqueConfigCard uid={uid} onGuardado={setConfigTique} />
+          <TiqueConfigCard uid={uid} onGuardado={(c) => { setConfigTique(c); setVersionTique((v) => v + 1); }} />
 
           {/* Lo que hay que pagarle a cada empresa por los viajes de sus camiones
               (15-sep-2026). Vive acá y solo acá: no toca jornadas ni Control de Pagos. */}
