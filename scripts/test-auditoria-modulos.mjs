@@ -134,7 +134,6 @@ console.log('LOS MODULOS DE LA AUDITORIA\n');
     traslados_maquinaria: 'equipos',      // Traslados y Salidas de Maquinaria
     actas_recepcion: 'equipos',           // Acta de Recepción de Equipo
     centro_operaciones: 'centro_operaciones', // 🏭 mini sistema aislado (23-oct-2026), tablas cop_*
-    delivery: 'delivery',                 // 🛵 motorizados de Compras (09-nov-2026), tablas delivery_*
   };
   for (const it of items) {
     ok(`⭐ el menu "${it.label}" (${it.menu}) esta contemplado`, it.menu in MENU_A_MODULO);
