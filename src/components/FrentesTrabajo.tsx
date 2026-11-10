@@ -23,6 +23,8 @@ import { useToast } from './ToastProvider';
 import { DateField } from './DateField';
 import { Plegable } from './Plegable';
 import { Toggle } from './CubicajeTab';
+import { FrentesTablero } from './FrentesTablero';
+import { planMover } from '../lib/frentesTablero';
 import {
   listAsignacionesFrente, listAsignacionesFrenteRango, asignarFrente, quitarAsignacionFrente,
   // ⛏️ El frente PEGAJOSO de maquinaria (19-oct-2026): vigentes a una fecha y
@@ -556,6 +558,48 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     onCambio();
   };
 
+  /**
+   * ⛏️ MOVER DESDE EL TABLERO (10-nov-2026). Con las MISMAS funciones de siempre:
+   *  · máquinas (pegajoso): asignar = reasignar; quitar = «sin frente desde ese día»;
+   *  · camiones (del día): primero se ASIGNA el destino y después se quitan los otros
+   *    frentes de ese día (así, si algo falla, nadie queda sin frente a medias); con
+   *    «además» se agrega sin quitar.
+   * Los fallos se cuentan aparte: nunca se dice «listo» si algo no se guardó.
+   */
+  const mover = async (ids: string[], destino: string | null, ademas: boolean) => {
+    const plan = planMover(ids, destino, asignaciones, esMaq, ademas);
+    if (!plan.asignar.length && !plan.quitar.length && !plan.sinFrenteDesde.length) { toast.info('No había nada que cambiar.'); return; }
+    setGuardando(true);
+    const fallos: string[] = [];
+    try {
+      if (destino && plan.asignar.length) {
+        const r = await asignarFrente(fecha, plan.asignar, destino, uid, userName, fuente);
+        if (r.error) fallos.push(r.error);
+      }
+      // Si no se pudo asignar el destino, NO se quita lo que tenían (no quedan en el aire).
+      if (!fallos.length) {
+        for (const q of plan.quitar) {
+          const { error } = await quitarAsignacionFrente(fecha, q.machineryId, q.frenteId, fuente);
+          if (error) fallos.push(`${codigoDe(q.machineryId)}: ${error}`);
+        }
+        for (const id of plan.sinFrenteDesde) {
+          const { error } = await quitarFrenteDesde(fecha, id, uid, userName, fuente);
+          if (error) fallos.push(`${codigoDe(id)}: ${error}`);
+        }
+      }
+    } finally {
+      setGuardando(false);
+      setRecarga((n) => n + 1);
+      onCambio();
+    }
+    if (fallos.length) { toast.error(`No se guardó todo: ${fallos.join(' · ')}`); return; }
+    const n = new Set([...plan.asignar, ...plan.quitar.map((q) => q.machineryId), ...plan.sinFrenteDesde]).size;
+    const nombre = destino ? (frentes.find((f) => f.id === destino)?.nombre ?? 'el frente') : null;
+    toast.success(destino
+      ? `${n} ${n === 1 ? E.singular : E.plural} → ⛏️ ${nombre}${esMaq ? ' (se queda ahí hasta que lo cambies).' : ` el ${dmy(fecha)}.`}`
+      : `${n} ${n === 1 ? E.singular : E.plural} quedaron sin frente${esMaq ? ` desde el ${dmy(fecha)}` : ` el ${dmy(fecha)}`}.`);
+  };
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text } as const;
   const codigoDe = (id: string) => {
     const c = camiones.find((x) => x.id === id);
@@ -665,6 +709,49 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const ocultos = CHECKS.filter((c) => FRENTES_POR_DEFECTO[c.k] === true && !op[c.k]).length;
   const extrasOn = CHECKS.filter((c) => c.k !== 'sinCamiones' && FRENTES_POR_DEFECTO[c.k] !== true && !!op[c.k]).length;
 
+  // 📋 La confirmación de REPETIR un día: la misma en el tablero y en el historial.
+  const confirmacionRepetir = repetir ? (
+                  <View style={{ borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.sm, marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                      📋 ¿Repetir los frentes del {dmy(repetir.origen)} en el {dmy(fecha)}?
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                      {textoPlanRepetir(repetir.plan, E.unidad)}
+                    </Text>
+                    {/* Lo que va a quedar, frente por frente. */}
+                    {repetir.plan.porFrente.map((x) => (
+                      <Text key={`rep-${x.frenteId}`} style={{ color: colors.text, fontSize: 11.5, marginTop: 2 }}>
+                        ⛏️ {frentes.find((f) => f.id === x.frenteId)?.nombre ?? x.frenteId} · {x.machineryIds.length} {E.unidad}
+                      </Text>
+                    ))}
+                    {/* Lo que NO se copia se dice por su código, no por su id: un
+                        equipo de baja o fuera de esta lista no se inventa. */}
+                    {repetir.plan.equiposFuera.length ? (
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                        No se copian, ya no están en la lista: {repetir.plan.equiposFuera.slice(0, 6).map((id) => codigoDe(id)).join(' · ')}
+                        {repetir.plan.equiposFuera.length > 6 ? ` y ${repetir.plan.equiposFuera.length - 6} más` : ''}
+                      </Text>
+                    ) : null}
+                    {repetir.plan.conVariosFrentes.length > 0 && !esMaq ? (
+                      <Text style={{ color: colors.warning, fontSize: 10.5, marginTop: 2 }}>{avisoVarios}</Text>
+                    ) : null}
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                      <TouchableOpacity disabled={repitiendo} onPress={repetirDia}
+                        style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 6, alignItems: 'center', opacity: repitiendo ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>
+                          {repitiendo ? 'Copiando…' : '✅ Sí, repetir'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setRepetir(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                        <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>✕ Cancelar</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>
+                      Lo que el día {dmy(fecha)} ya tenga NO se borra: esto suma.
+                    </Text>
+                  </View>
+  ) : null;
+
   return (
     <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>⛏️ FRENTES DE TRABAJO · {activos.length}</Text>
@@ -680,7 +767,30 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
         </Text>
       ) : (
         <>
-          {/* ── El catálogo ── */}
+          {/* ⛏️ EL TABLERO (10-nov-2026): la vista principal. Debajo, plegado, todo lo de siempre. */}
+          <FrentesTablero
+            equipos={camiones}
+            asignaciones={asignaciones}
+            frentes={frentes}
+            esMaq={esMaq}
+            singular={E.singular}
+            plural={E.plural}
+            editable={canFull && activos.length > 0}
+            guardando={guardando}
+            fecha={fecha}
+            onFecha={setFecha}
+            onMover={mover}
+            onRepetirAnterior={canFull && !esMaq ? () => pedirRepetir(diasAntes(fecha, 1)) : undefined}
+          />
+          {confirmacionRepetir && repetir?.origen === diasAntes(fecha, 1) ? <View style={{ marginTop: spacing.sm }}>{confirmacionRepetir}</View> : null}
+          {canFull && activos.length > 0 && asignaciones.length > 0 ? (
+            <TouchableOpacity disabled={pdfBusy} onPress={exportarPdf} style={{ alignSelf: 'flex-start', marginTop: spacing.sm }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{pdfBusy ? 'Generando…' : '📄 PDF del día (opciones abajo)'}</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {/* ── El catálogo (plegado: no estorba en el día a día) ── */}
+          <Plegable titulo="⚙️ Los frentes: crear, renombrar, apagar o borrar" resumen={`${activos.length} activo(s)${frentes.length > activos.length ? ` · ${frentes.length - activos.length} desactivado(s)` : ''}`} abiertaPorDefecto={frentes.length === 0}>
           {canFull ? (
             <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
               <TextInput
@@ -774,9 +884,12 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
             </View>
           )}
 
+          </Plegable>
+
           {/* ── La asignación del día ── */}
           {canFull && activos.length > 0 ? (
             <View style={{ marginTop: spacing.md }}>
+              <Plegable titulo="📋 Asignar en lista (la vista de antes)" resumen="marcar varios y varios frentes a la vez">
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>{esMaq ? 'ASIGNAR O REASIGNAR EL FRENTE (queda hasta que lo cambies)' : 'ASIGNAR EL FRENTE DEL DÍA'}</Text>
               <View style={{ marginTop: spacing.xs }}>
                 <DateField value={fecha} onChange={setFecha} />
@@ -831,6 +944,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                   ⛏️ Asignar {marcados.size > 0 ? `${marcados.size} ${E.unidad}` : ''} a {frenteSel.size > 1 ? `${frenteSel.size} frentes` : 'el frente'}
                 </Text>
               </TouchableOpacity>
+              </Plegable>
 
               {/* Lo asignado ese día, agrupado por frente, con su ✕. */}
               {asignaciones.length > 0 ? (
@@ -850,6 +964,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                       </Text>
                     </TouchableOpacity>
                   </View>
+                  <Plegable titulo="📃 Lista por frente (con ✕ para quitar)" resumen={`${camionesAsignados} ${E.unidad}`}>
                   {activos.filter((f) => asignaciones.some((a) => a.frenteId === f.id)).map((f) => (
                     <View key={`g-${f.id}`} style={{ marginTop: 4 }}>
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>⛏️ {f.nombre}</Text>
@@ -867,6 +982,8 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                       ))}
                     </View>
                   ))}
+
+                  </Plegable>
 
                   {/* ⛏️ POR CUÁLES FRENTES SALE (06-oct-2026, a pedido: «sacar
                       el reporte por uno o varios frentes que yo seleccione»).
@@ -1179,47 +1296,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                     ARRIBA de la lista: copiar un día entero escribe muchas filas
                     de una vez y no hay «deshacer», así que primero se ve qué va
                     a quedar — incluido lo que NO se puede copiar. */}
-                {repetir ? (
-                  <View style={{ borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.sm, marginBottom: spacing.sm }}>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
-                      📋 ¿Repetir los frentes del {dmy(repetir.origen)} en el {dmy(fecha)}?
-                    </Text>
-                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
-                      {textoPlanRepetir(repetir.plan, E.unidad)}
-                    </Text>
-                    {/* Lo que va a quedar, frente por frente. */}
-                    {repetir.plan.porFrente.map((x) => (
-                      <Text key={`rep-${x.frenteId}`} style={{ color: colors.text, fontSize: 11.5, marginTop: 2 }}>
-                        ⛏️ {frentes.find((f) => f.id === x.frenteId)?.nombre ?? x.frenteId} · {x.machineryIds.length} {E.unidad}
-                      </Text>
-                    ))}
-                    {/* Lo que NO se copia se dice por su código, no por su id: un
-                        equipo de baja o fuera de esta lista no se inventa. */}
-                    {repetir.plan.equiposFuera.length ? (
-                      <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
-                        No se copian, ya no están en la lista: {repetir.plan.equiposFuera.slice(0, 6).map((id) => codigoDe(id)).join(' · ')}
-                        {repetir.plan.equiposFuera.length > 6 ? ` y ${repetir.plan.equiposFuera.length - 6} más` : ''}
-                      </Text>
-                    ) : null}
-                    {repetir.plan.conVariosFrentes.length > 0 && !esMaq ? (
-                      <Text style={{ color: colors.warning, fontSize: 10.5, marginTop: 2 }}>{avisoVarios}</Text>
-                    ) : null}
-                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
-                      <TouchableOpacity disabled={repitiendo} onPress={repetirDia}
-                        style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 6, alignItems: 'center', opacity: repitiendo ? 0.6 : 1 }}>
-                        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>
-                          {repitiendo ? 'Copiando…' : '✅ Sí, repetir'}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setRepetir(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: 6 }}>
-                        <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>✕ Cancelar</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>
-                      Lo que el día {dmy(fecha)} ya tenga NO se borra: esto suma.
-                    </Text>
-                  </View>
-                ) : null}
+                {confirmacionRepetir}
                 {historial.length === 0 ? (
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     No hay asignaciones registradas en los últimos {DIAS_HISTORIAL} días.
