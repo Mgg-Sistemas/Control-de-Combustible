@@ -6,7 +6,7 @@
 // No guarda nada por su cuenta: le pide a la pantalla que MUEVA (`onMover`), y la pantalla lo
 // hace con las mismas funciones de siempre. La lógica de qué sale dónde: lib/frentesTablero.ts.
 import React, { useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { DateField } from './DateField';
@@ -44,6 +44,13 @@ export function FrentesTablero({ equipos, asignaciones, frentes, esMaq, singular
   const [moviendo, setMoviendo] = useState<{ id: string; caja: string } | null>(null);
   const [ademas, setAdemas] = useState(false);
   const [verTodosSin, setVerTodosSin] = useState(false);
+  /** Cajas desplegadas a mano (a pedido, 10-nov: «que todos los frentes y sin frente salgan
+   *  plegados por si yo lo quiero desplegar»). Arranca todo plegado; 'sin' = la de sin frente. */
+  const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
+  const buscando = query.trim() !== '' || empresa !== null;
+  /** Al buscar o filtrar por empresa se abren solas las cajas con resultados (si no, no se verían). */
+  const abierta = (caja: string, cuantos: number) => abiertas.has(caja) || (buscando && cuantos > 0) || moviendo?.caja === caja;
+  const alternar = (caja: string) => setAbiertas((p) => { const n = new Set(p); if (n.has(caja)) n.delete(caja); else n.add(caja); return n; });
 
   const t = useMemo(() => armarTablero(equipos, asignaciones, frentes, { query, empresa, soloSinFrente: soloSin }), [equipos, asignaciones, frentes, query, empresa, soloSin]);
   const activos = useMemo(() => frentes.filter((f) => f.activo).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')), [frentes]);
@@ -149,15 +156,16 @@ export function FrentesTablero({ equipos, asignaciones, frentes, esMaq, singular
 
       {/* Buscador y filtros */}
       <TextInput value={query} onChangeText={setQuery} placeholder={`🔎 Buscar ${singular}: código, placa, serial, empresa…`} placeholderTextColor={colors.muted} style={input} autoCorrect={false} />
+      {/* Empresas en varias filas (no una tira horizontal: en PC no se podía correr con el mouse). */}
       {t.empresas.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
           <TouchableOpacity onPress={() => setEmpresa(null)} style={pill(empresa === null)}><Text style={{ color: empresa === null ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>Todas las empresas</Text></TouchableOpacity>
           {t.empresas.map((em) => (
             <TouchableOpacity key={em} onPress={() => setEmpresa(empresa === em ? null : em)} style={pill(empresa === em)}>
               <Text style={{ color: empresa === em ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🏢 {em}</Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
       ) : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
         <TouchableOpacity onPress={() => setSoloSin((v) => !v)} style={pill(soloSin, colors.warning)}>
@@ -168,36 +176,61 @@ export function FrentesTablero({ equipos, asignaciones, frentes, esMaq, singular
             <Text style={{ color: varios ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>☑️ Mover varios a la vez</Text>
           </TouchableOpacity>
         ) : null}
+        {/* Desplegar / plegar todas las cajas de una vez */}
+        {(() => {
+          const todas = ['sin', ...t.cajas.map((c) => c.frenteId)];
+          const todasAbiertas = todas.every((k) => abiertas.has(k));
+          return (
+            <TouchableOpacity onPress={() => setAbiertas(todasAbiertas ? new Set() : new Set(todas))} style={pill(false)}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{todasAbiertas ? '▴ Plegar todos' : '▾ Desplegar todos'}</Text>
+            </TouchableOpacity>
+          );
+        })()}
       </View>
       {barraVarios}
 
-      {/* ⚠️ Sin frente: siempre arriba */}
+      {/* ⚠️ Sin frente: siempre arriba (plegada; se despliega tocando el título) */}
       <View style={{ padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningSoftBg }}>
-        <Text style={{ color: colors.warningSoftText, fontWeight: '900' }}>⚠️ SIN FRENTE ({t.sinFrente.length})</Text>
-        {t.sinFrente.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{query || empresa ? 'Ninguno con esa búsqueda.' : `Todos los ${plural} tienen frente. 👍`}</Text> : null}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-          {sinMostrados.map((e) => ficha(e, 'sin'))}
-        </View>
-        {t.sinFrente.length > MAX_SIN_FRENTE ? (
-          <TouchableOpacity onPress={() => setVerTodosSin((v) => !v)} style={{ marginTop: spacing.xs }}>
-            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{verTodosSin ? 'Ver menos' : `Ver los ${t.sinFrente.length} (o usa el buscador)`}</Text>
-          </TouchableOpacity>
+        <TouchableOpacity onPress={() => alternar('sin')} activeOpacity={0.7}>
+          <Text style={{ color: colors.warningSoftText, fontWeight: '900' }}>{abierta('sin', t.sinFrente.length) ? '▾' : '▸'} ⚠️ SIN FRENTE ({t.sinFrente.length})</Text>
+        </TouchableOpacity>
+        {abierta('sin', t.sinFrente.length) ? (
+          <>
+            {t.sinFrente.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{query || empresa ? 'Ninguno con esa búsqueda.' : `Todos los ${plural} tienen frente. 👍`}</Text> : null}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+              {sinMostrados.map((e) => ficha(e, 'sin'))}
+            </View>
+            {t.sinFrente.length > MAX_SIN_FRENTE ? (
+              <TouchableOpacity onPress={() => setVerTodosSin((v) => !v)} style={{ marginTop: spacing.xs }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{verTodosSin ? 'Ver menos' : `Ver los ${t.sinFrente.length} (o usa el buscador)`}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {panelAqui('sin')}
+          </>
         ) : null}
-        {panelAqui('sin')}
       </View>
 
-      {/* Una caja por frente: columnas en PC, una debajo de otra en el teléfono */}
+      {/* Una caja por frente (plegadas): columnas en PC, una debajo de otra en el teléfono */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-        {t.cajas.map((c) => (
-          <View key={c.frenteId} style={{ flexGrow: 1, flexBasis: 280, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, borderTopWidth: 4, borderTopColor: c.color, backgroundColor: colors.surface }}>
-            <Text style={{ color: colors.text, fontWeight: '900' }}>⛏️ {c.nombre} <Text style={{ color: c.color }}>({c.equipos.length})</Text>{!c.activo ? <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 11 }}> · desactivado</Text> : null}</Text>
-            {c.equipos.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{query || empresa ? 'Ninguno con esa búsqueda.' : `Sin ${plural} ${esMaq ? 'asignados' : 'este día'}.`}</Text> : null}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-              {c.equipos.map((e) => ficha(e, c.frenteId, c.color))}
+        {t.cajas.map((c) => {
+          const ab = abierta(c.frenteId, c.equipos.length);
+          return (
+            <View key={c.frenteId} style={{ flexGrow: 1, flexBasis: 280, minWidth: 0, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, borderTopWidth: 4, borderTopColor: c.color, backgroundColor: colors.surface, alignSelf: 'flex-start' }}>
+              <TouchableOpacity onPress={() => alternar(c.frenteId)} activeOpacity={0.7}>
+                <Text style={{ color: colors.text, fontWeight: '900' }}>{ab ? '▾' : '▸'} ⛏️ {c.nombre} <Text style={{ color: c.color }}>({c.equipos.length})</Text>{!c.activo ? <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 11 }}> · desactivado</Text> : null}</Text>
+              </TouchableOpacity>
+              {ab ? (
+                <>
+                  {c.equipos.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{query || empresa ? 'Ninguno con esa búsqueda.' : `Sin ${plural} ${esMaq ? 'asignados' : 'este día'}.`}</Text> : null}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                    {c.equipos.map((e) => ficha(e, c.frenteId, c.color))}
+                  </View>
+                  {panelAqui(c.frenteId)}
+                </>
+              ) : null}
             </View>
-            {panelAqui(c.frenteId)}
-          </View>
-        ))}
+          );
+        })}
       </View>
       {barraVarios}
     </View>

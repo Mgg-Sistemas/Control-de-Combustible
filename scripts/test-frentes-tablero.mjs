@@ -77,6 +77,10 @@ check((ft.match(/\{confirmacionRepetir\}/g) || []).length === 2, 'la confirmaci�
 check(/exportarPdf/.test(ft) && /Por cuáles frentes sale el reporte/.test(ft), 'el PDF y sus opciones siguen igual');
 const tab = fs.readFileSync(path.join(ROOT, 'src/components/FrentesTablero.tsx'), 'utf8');
 check(/flexBasis: 280/.test(tab) && /flexWrap: 'wrap'/.test(tab), 'columnas en PC, una debajo de otra en el teléfono');
+check(/useState<Set<string>>\(new Set\(\)\)/.test(tab) && /abierta\('sin', t\.sinFrente\.length\) \?/.test(tab) && /const ab = abierta\(c\.frenteId/.test(tab), '⭐ «Sin frente» y cada frente arrancan PLEGADOS y se despliegan tocando el título');
+check(/buscando && cuantos > 0/.test(tab), 'al buscar, se abren solas las cajas con resultados');
+check(/Desplegar todos/.test(tab) && /Plegar todos/.test(tab), 'botón para desplegar / plegar todas de una vez');
+check(!/horizontal/.test(tab.replace(/\{\/\*[\s\S]*?\*\/\}/g, '')) && !/ScrollView/.test(tab), '⭐ las empresas van en varias filas (en PC una tira horizontal no se corre con el mouse)');
 
 if (fallas.length) { console.error(fallas.join('\n')); console.error(`\n❌ test-frentes-tablero: ${fallas.length} falla(s), ${ok} ok`); process.exit(1); }
 console.log(`✅ test-frentes-tablero: ${ok} ok, 0 fallas`);
