@@ -9,13 +9,29 @@
 // (asignar / quitar / «sin frente desde»): nada cambia en cómo se guarda ni en los reportes.
 // Es pura (sin React ni Supabase); la prueba es scripts/test-frentes-tablero.mjs.
 
-export type EquipoTablero = { id: string; code: string; plate?: string | null; serial?: string | null; companyName?: string | null; marca?: string | null; modelo?: string | null };
+export type EquipoTablero = {
+  id: string; code: string; plate?: string | null; serial?: string | null; companyName?: string | null; marca?: string | null; modelo?: string | null;
+  /** Estado del equipo (máquinas: el VIVO del Catálogo; camiones: Operativa/En espera/Retirada). */
+  estado?: string | null;
+  /** Categoría: la clasificación de la ficha (Excavadora, Volteo, Retro…). */
+  clasificacion?: string | null;
+};
 export type AsignacionTablero = { machineryId: string; frenteId: string; frenteNombre: string; jornada?: string };
 export type FrenteTablero = { id: string; nombre: string; activo: boolean };
-export type FiltrosTablero = { query?: string; empresa?: string | null; soloSinFrente?: boolean };
+export type FiltrosTablero = {
+  query?: string; empresa?: string | null; soloSinFrente?: boolean;
+  /** Filtrar por estado y por categoría (10-nov-2026, a pedido). null = todos. */
+  estado?: string | null; categoria?: string | null;
+  /** 🔎 Buscar FRENTE por su nombre: solo salen las cajas que coinciden. */
+  frenteQuery?: string;
+};
 
 export type CajaFrente = { frenteId: string; nombre: string; activo: boolean; color: string; equipos: EquipoTablero[] };
-export type Tablero = { sinFrente: EquipoTablero[]; cajas: CajaFrente[]; totalEquipos: number; conFrente: number; empresas: string[] };
+export type Tablero = { sinFrente: EquipoTablero[]; cajas: CajaFrente[]; totalEquipos: number; conFrente: number; empresas: string[]; estados: string[]; categorias: string[] };
+
+/** Cómo se llama lo que no trae estado o categoría (para poder filtrarlo igual). */
+export const SIN_DATO = 'Sin dato';
+const valorDe = (v: unknown) => String(v ?? '').trim() || SIN_DATO;
 
 /** Colores fijos por posición: cada frente se reconoce de un vistazo (y en modo oscuro también). */
 export const COLORES_FRENTES = ['#2563EB', '#16A34A', '#D97706', '#9333EA', '#DC2626', '#0891B2', '#DB2777', '#65A30D', '#7C3AED', '#EA580C', '#0D9488', '#4F46E5'];
@@ -37,7 +53,12 @@ export function armarTablero(equipos: EquipoTablero[], asignaciones: AsignacionT
   const asigs = (asignaciones ?? []).filter((a) => a && ids.has(a.machineryId) && a.frenteId);
   const conAlgo = new Set(asigs.map((a) => a.machineryId));
   const empresa = norm(f.empresa);
-  const pasa = (e: EquipoTablero) => coincide(e, f.query) && (!empresa || norm(e.companyName) === empresa);
+  const estado = norm(f.estado);
+  const categoria = norm(f.categoria);
+  const pasa = (e: EquipoTablero) => coincide(e, f.query)
+    && (!empresa || norm(e.companyName) === empresa)
+    && (!estado || norm(valorDe(e.estado)) === estado)
+    && (!categoria || norm(valorDe(e.clasificacion)) === categoria);
   const porCodigo = (a: EquipoTablero, b: EquipoTablero) => cmp(a.code ?? '', b.code ?? '');
 
   const sinFrente = lista.filter((e) => !conAlgo.has(e.id) && pasa(e)).sort(porCodigo);
@@ -49,6 +70,8 @@ export function armarTablero(equipos: EquipoTablero[], asignaciones: AsignacionT
   // Un frente que llega en la asignación pero ya no está en el catálogo (borrado): igual se muestra.
   for (const a of asigs) if (!base.some((x) => x.id === a.frenteId)) base.push({ id: a.frenteId, nombre: a.frenteNombre || 'Frente', activo: false });
   const porId = new Map(lista.map((e) => [e.id, e]));
+  // El color se fija por la posición en la lista COMPLETA: buscar un frente no le cambia el color.
+  const fq = norm(f.frenteQuery);
   const cajas: CajaFrente[] = f.soloSinFrente ? [] : base.map((fr, i) => {
     const vistos = new Set<string>();
     const eq: EquipoTablero[] = [];
@@ -59,10 +82,15 @@ export function armarTablero(equipos: EquipoTablero[], asignaciones: AsignacionT
       if (e && pasa(e)) eq.push(e);
     }
     return { frenteId: fr.id, nombre: fr.nombre, activo: fr.activo, color: COLORES_FRENTES[i % COLORES_FRENTES.length], equipos: eq.sort(porCodigo) };
-  });
+  }).filter((c) => !fq || norm(c.nombre).includes(fq));
 
   const empresas = [...new Set(lista.map((e) => String(e.companyName ?? '').trim()).filter(Boolean))].sort(cmp);
-  return { sinFrente, cajas, totalEquipos: lista.length, conFrente: conAlgo.size, empresas };
+  // Estados y categorías que de verdad hay en la lista («Sin dato» al final, si hay).
+  const valores = (k: 'estado' | 'clasificacion') => {
+    const s = [...new Set(lista.map((e) => valorDe(e[k])))].filter((v) => v !== SIN_DATO).sort(cmp);
+    return lista.some((e) => valorDe(e[k]) === SIN_DATO) ? [...s, SIN_DATO] : s;
+  };
+  return { sinFrente, cajas, totalEquipos: lista.length, conFrente: conAlgo.size, empresas, estados: valores('estado'), categorias: valores('clasificacion') };
 }
 
 /** Lo que hay que escribir para MOVER unos equipos (lo hace la pantalla con las funciones de siempre). */
@@ -105,6 +133,12 @@ export function planMover(ids: string[], destino: string | null, asignaciones: A
     if (yaLoTiene && (ademas || otros.length === 0)) plan.sinCambio.push(id);
   }
   return plan;
+}
+
+/** Los frentes a los que se puede mover, filtrados por el buscador del panel (por nombre). */
+export function frentesQueCoinciden<T extends { nombre: string }>(frentes: T[], q: string | undefined): T[] {
+  const n = norm(q);
+  return n ? frentes.filter((f) => norm(f.nombre).includes(n)) : frentes;
 }
 
 /** Cómo se lee el equipo en una ficha: «A12BC3 · ABC-123». */

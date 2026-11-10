@@ -76,11 +76,34 @@ check(/⚙️ Los frentes: crear, renombrar, apagar o borrar/.test(ft), 'el cat�
 check((ft.match(/\{confirmacionRepetir\}/g) || []).length === 2, 'la confirmación de «repetir» es UNA pieza usada en el tablero y en el historial');
 check(/exportarPdf/.test(ft) && /Por cuáles frentes sale el reporte/.test(ft), 'el PDF y sus opciones siguen igual');
 const tab = fs.readFileSync(path.join(ROOT, 'src/components/FrentesTablero.tsx'), 'utf8');
-check(/flexBasis: 280/.test(tab) && /flexWrap: 'wrap'/.test(tab), 'columnas en PC, una debajo de otra en el teléfono');
+check(/ANCHO_CAJA/.test(tab) && /onLayout/.test(tab) && /width: ab \? '100%' : anchoCol/.test(tab), '⭐ cuadrícula pareja: columnas del mismo ancho en PC (una en el teléfono) y la caja desplegada a todo el ancho (no se descuadra)');
+check(/numberOfLines=\{ab \? undefined : 1\}/.test(tab), 'plegadas: el nombre en una sola línea (todas del mismo alto)');
 check(/useState<Set<string>>\(new Set\(\)\)/.test(tab) && /abierta\('sin', t\.sinFrente\.length\) \?/.test(tab) && /const ab = abierta\(c\.frenteId/.test(tab), '⭐ «Sin frente» y cada frente arrancan PLEGADOS y se despliegan tocando el título');
 check(/buscando && cuantos > 0/.test(tab), 'al buscar, se abren solas las cajas con resultados');
 check(/Desplegar todos/.test(tab) && /Plegar todos/.test(tab), 'botón para desplegar / plegar todas de una vez');
-check(!/horizontal/.test(tab.replace(/\{\/\*[\s\S]*?\*\/\}/g, '')) && !/ScrollView/.test(tab), '⭐ las empresas van en varias filas (en PC una tira horizontal no se corre con el mouse)');
+check(!/horizontal/.test(tab.replace(/\{\/\*[\s\S]*?\*\/\}/g, '')), '⭐ las empresas van en varias filas (en PC una tira horizontal no se corre con el mouse)');
+check(/<Modal\b/.test(tab) && /Buscar el frente por su nombre/.test(tab) && /frentesQueCoinciden\(activos, buscaDestino\)/.test(tab), '⭐ «Mover a:» es una ventana con BUSCADOR de frentes (los nombres largos ya no se salen de la caja)');
+check(/Buscar frente por su nombre/.test(tab) && /frenteQuery/.test(tab), '🔎 buscador de frentes también arriba, para encontrar la caja');
+check(/grupo\('ESTADO'/.test(tab) && /grupo\('CATEGORÍA'/.test(tab) && /grupo\('EMPRESA'/.test(tab), 'filtros por estado, categoría y empresa');
+
+// Filtros nuevos (lib)
+const EQ2 = [
+  { id: 'm1', code: 'EX1', estado: 'Operativa', clasificacion: 'Excavadora' },
+  { id: 'm2', code: 'EX2', estado: 'Averiada', clasificacion: 'Excavadora' },
+  { id: 'm3', code: 'RT1', estado: 'Operativa', clasificacion: 'Retroexcavadora' },
+  { id: 'm4', code: 'XX1' },
+];
+const AS2 = [{ machineryId: 'm1', frenteId: 'f1', frenteNombre: 'Tanaguarena' }, { machineryId: 'm2', frenteId: 'f2', frenteNombre: 'Muelle' }];
+const t2 = T.armarTablero(EQ2, AS2, FR);
+eq([t2.estados, t2.categorias], [['Averiada', 'Operativa', 'Sin dato'], ['Excavadora', 'Retroexcavadora', 'Sin dato']], 'estados y categorías que hay en la lista («Sin dato» al final)');
+const porEstado = T.armarTablero(EQ2, AS2, FR, { estado: 'operativa' });
+eq([porEstado.sinFrente.map((e) => e.code), porEstado.cajas.find((c) => c.nombre === 'Muelle').equipos.length], [['RT1'], 0], '⭐ filtro por ESTADO (en sin frente y en las cajas)');
+eq(T.armarTablero(EQ2, AS2, FR, { categoria: 'Excavadora' }).sinFrente.length, 0, '⭐ filtro por CATEGORÍA');
+eq(T.armarTablero(EQ2, AS2, FR, { categoria: 'Sin dato' }).sinFrente.map((e) => e.code), ['XX1'], 'se puede filtrar los que no tienen categoría');
+const pf = T.armarTablero(EQ2, AS2, FR, { frenteQuery: 'tana' });
+eq(pf.cajas.map((c) => c.nombre), ['Tanaguarena'], '⭐ buscar frente por nombre: solo esa caja');
+eq(pf.cajas[0].color, t2.cajas.find((c) => c.nombre === 'Tanaguarena').color, 'buscar un frente no le cambia el color');
+eq(T.frentesQueCoinciden(FR, 'MUÉ').map((f) => f.nombre), ['Muelle'], 'el buscador de la ventana encuentra sin importar mayúsculas ni acentos');
 
 if (fallas.length) { console.error(fallas.join('\n')); console.error(`\n❌ test-frentes-tablero: ${fallas.length} falla(s), ${ok} ok`); process.exit(1); }
 console.log(`✅ test-frentes-tablero: ${ok} ok, 0 fallas`);
