@@ -145,6 +145,51 @@ async function assetToBody(asset: any): Promise<Blob | Uint8Array | null> {
   return null;
 }
 
+// ── 🗜️ OPTIMIZAR TODA IMAGEN ANTES DE GUARDARLA (11-nov-2026) ─────────────────
+// A pedido: «necesito que todas las imágenes que se suban en SOS se optimicen
+// automáticamente… que no pesen tanto y no consuman tanto» (y se apagó en Supabase el
+// redimensionador al vuelo, que cobraba por foto). UNA sola regla para todo el sistema:
+// máximo 1600 px de lado y JPEG comprimido (≈100-300 KB). La usan las subidas al Storage
+// Y las fotos que se guardan dentro de la base como data-url (actas, inventario…), que
+// eran las más caras: cada vez que se abre la lista se vuelven a descargar.
+// Si optimizar falla, se guarda la original (nunca se pierde una foto por esto).
+
+/** Un asset del selector (cámara o galería) → data-url JPEG optimizado. */
+export async function optimizarAssetADataUrl(asset: any): Promise<string | null> {
+  const r = await assetADataUrlLocal(asset);
+  return r.ok && r.dataUrl ? r.dataUrl : null;
+}
+
+/** Un asset del selector → el cuerpo a subir al Storage, ya optimizado. */
+export async function optimizarAssetParaSubir(asset: any): Promise<Blob | Uint8Array | null> {
+  return await assetToBody(asset);
+}
+
+/** ¿Es una imagen que vale la pena recomprimir? (no PDF, ni GIF animado, ni SVG). */
+export function esImagenOptimizable(tipo?: string | null, nombre?: string | null): boolean {
+  const t = String(tipo ?? '').toLowerCase();
+  const n = String(nombre ?? '').toLowerCase();
+  if (t === 'application/pdf' || /\.pdf$/.test(n)) return false;
+  if (/gif|svg/.test(t) || /\.(gif|svg)$/.test(n)) return false;
+  return t.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif|bmp)$/.test(n);
+}
+
+/** (WEB) Un archivo elegido con <input type=file> o un data-url → Blob JPEG optimizado; null si no se pudo. */
+export async function optimizarImagenWeb(origen: Blob | string): Promise<Blob | null> {
+  if (Platform.OS !== 'web') return null;
+  let url = '';
+  let temporal = false;
+  try {
+    if (typeof origen === 'string') url = origen;
+    else { url = (globalThis as any).URL.createObjectURL(origen); temporal = true; }
+    const r = await resizeImageWeb(url);
+    // Solo si de verdad pesa menos (una imagen ya chica no se agranda).
+    if (r && (typeof origen === 'string' || r.size < (origen as Blob).size)) return r;
+    return null;
+  } catch { return null; }
+  finally { if (temporal) { try { (globalThis as any).URL.revokeObjectURL(url); } catch {} } }
+}
+
 /** Sube el cuerpo (blob/bytes) al bucket 'machinery' y devuelve la URL pública. */
 async function uploadToMachinery(path: string, body: Blob | Uint8Array): Promise<{ ok: boolean; url?: string; error?: string }> {
   const up = await supabase.storage.from('machinery').upload(path, body as any, { contentType: 'image/jpeg', upsert: true });
@@ -281,10 +326,12 @@ export async function pickAndUploadDocFile(
     });
     if (!file) return { ok: false };
     const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-    const ext = isPdf ? 'pdf' : ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg');
+    // 🗜️ Una imagen se sube OPTIMIZADA (JPEG ≤1600 px); un PDF va tal cual.
+    const opt = !isPdf && esImagenOptimizable(file.type, file.name) ? await optimizarImagenWeb(file) : null;
+    const ext = isPdf ? 'pdf' : opt ? 'jpg' : ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg');
     const path = `${folder}/${id}/${Date.now()}.${ext}`;
-    const up = await supabase.storage.from('machinery').upload(path, file, {
-      contentType: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
+    const up = await supabase.storage.from('machinery').upload(path, opt ?? file, {
+      contentType: opt ? 'image/jpeg' : (file.type || (isPdf ? 'application/pdf' : 'image/jpeg')),
       upsert: true,
     });
     if (up.error) return { ok: false, error: up.error.message };
@@ -362,10 +409,12 @@ export async function pickAndUploadDocFiles(
     for (let i = 0; i < selectedFiles.length; i++) {
       const file = selectedFiles[i];
       const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-      const ext = isPdf ? 'pdf' : ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg');
+      // 🗜️ Cada imagen se sube OPTIMIZADA (JPEG ≤1600 px); los PDF van tal cual.
+      const opt = !isPdf && esImagenOptimizable(file.type, file.name) ? await optimizarImagenWeb(file) : null;
+      const ext = isPdf ? 'pdf' : opt ? 'jpg' : ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg');
       const path = `${folder}/${id}/${Date.now()}_${i}.${ext}`;
-      const up = await supabase.storage.from('machinery').upload(path, file, {
-        contentType: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
+      const up = await supabase.storage.from('machinery').upload(path, opt ?? file, {
+        contentType: opt ? 'image/jpeg' : (file.type || (isPdf ? 'application/pdf' : 'image/jpeg')),
         upsert: true,
       });
       if (!up.error) {

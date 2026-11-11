@@ -22,7 +22,7 @@ import {
   extraerCondicionesPago,
   inyectarCondicionesPagoEnNota,
 } from '../lib/cuentasPago';
-import { pickAndUploadDocFile, takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../lib/photo';
+import { pickAndUploadDocFile, takePhotoAndUpload, pickPhotoFromGalleryAndUpload, optimizarAssetParaSubir } from '../lib/photo';
 import * as ImagePicker from 'expo-image-picker';
 import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
 import { extraerFotoProducto, empaquetarNotaConFotoProducto, limpiarNotaFotoProducto, FotoProductoData } from '../lib/comprasDirectas';
@@ -504,7 +504,14 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
       const path = `${folder}/${id}/${Date.now()}.jpg`;
 
       let up: any;
-      if (Platform.OS === 'web') {
+      // 🗜️ 11-nov-2026: la foto se sube OPTIMIZADA (JPEG ≤1600 px); si no se pudo, la original.
+      const optimizada = await optimizarAssetParaSubir(asset);
+      if (optimizada) {
+        up = await supabase.storage.from('machinery').upload(path, optimizada as any, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      } else if (Platform.OS === 'web') {
         const resp = await fetch(asset.uri);
         const blob = await resp.blob();
         up = await supabase.storage.from('machinery').upload(path, blob, {

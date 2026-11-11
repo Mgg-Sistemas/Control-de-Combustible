@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { optimizarAssetADataUrl } from '../lib/photo';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -321,7 +322,8 @@ export default function ActaRecepcionScreen({ navigation, route }: any) {
 
       if (!res.canceled && res.assets && res.assets[0]) {
         const asset = res.assets[0];
-        const uri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+        // 🗜️ 11-nov-2026: el anexo va DENTRO de la base: se guarda OPTIMIZADO (JPEG ≤1600 px).
+        const uri = (await optimizarAssetADataUrl(asset)) ?? (asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri);
         const defaultTitulo = `Evidencia Fotográfica ${fotos.length + 1}`;
         setFotos([...fotos, { uri, titulo: defaultTitulo }]);
         toast.success('Foto agregada al anexo fotográfico.');

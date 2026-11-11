@@ -23,7 +23,7 @@ import { leerNumero } from '../lib/numeros';
 import { rawCaseField } from '../lib/fonts';
 import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee, Cuenta, AuditLog } from '../types/database';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
-import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile, pickAndUploadRequirementFiles, pickAndUploadDocFiles } from '../lib/photo';
+import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile, pickAndUploadRequirementFiles, pickAndUploadDocFiles, optimizarAssetParaSubir } from '../lib/photo';
 import { FormatoAdjunto, empaquetarFormatosEnObservaciones, extraerFormatosAdjuntos, limpiarObservacionesFormatos } from '../lib/formatosAdjuntos';
 import * as ImagePicker from 'expo-image-picker';
 import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
@@ -1502,7 +1502,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const path = `${folder}/${id}/${Date.now()}.jpg`;
 
       let up: any;
-      if (Platform.OS === 'web') {
+      // 🗜️ 11-nov-2026: la foto se sube OPTIMIZADA (JPEG ≤1600 px); si no se pudo, la original.
+      const optimizada = await optimizarAssetParaSubir(asset);
+      if (optimizada) {
+        up = await supabase.storage.from('machinery').upload(path, optimizada as any, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+      } else if (Platform.OS === 'web') {
         const resp = await fetch(asset.uri);
         const blob = await resp.blob();
         up = await supabase.storage.from('machinery').upload(path, blob, {

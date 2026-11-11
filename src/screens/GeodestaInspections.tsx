@@ -13,7 +13,7 @@ import { supabase } from '../lib/supabase';
 import { spacing, radius } from '../theme';
 import { levelMeets } from '../lib/permissions';
 import { captureHighAccuracy } from '../lib/geodesta';
-import { captureAndUploadPhoto } from '../lib/photo';
+import { captureAndUploadPhoto, optimizarImagenWeb } from '../lib/photo';
 import { PhotoAnnotator } from '../components/PhotoAnnotator';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 
@@ -105,7 +105,8 @@ export default function GeodestaInspections({ route }: any) {
   const onAnnSave = async (dataUrl: string) => {
     setAnnOpen(false); setBusy(true);
     try {
-      const blob = await (await fetch(dataUrl)).blob();
+      // 🗜️ 11-nov-2026: optimizada (JPEG ≤1600 px) antes de subir; si no se pudo, la original.
+      const blob = (await optimizarImagenWeb(dataUrl)) ?? await (await fetch(dataUrl)).blob();
       const path = `${projectId}/geodesta-insp/${Date.now()}.jpg`;
       const up = await supabase.storage.from('machinery').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
       if (up.error) { toast.error(up.error.message); return; }

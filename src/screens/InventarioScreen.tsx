@@ -13,7 +13,7 @@ import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Vehicle, Employee, InventoryRequirement, RequirementLine, InventoryTransfer, UniformDelivery, InventoryStockRequest } from '../types/database';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import * as ImagePicker from 'expo-image-picker';
-import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload, pickAndUploadDocFile } from '../lib/photo';
+import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload, pickAndUploadDocFile, optimizarAssetADataUrl } from '../lib/photo';
 import { notaEntregaHtml, NotaItem, LogosConfig, NotaFoto } from '../lib/notaEntrega';
 import { COMPANY_NAME } from '../lib/company';
 import { etiquetaVehiculo, textoBusquedaVehiculo, detalleVehiculoNota, ladoTrasladoEnPalabras, PASOS_SIN_MIGRACION, PASOS_SIN_MIGRACION_TRASLADO, quitarColumnas, quitarColumnasFila } from '../lib/salidaVehiculo';
@@ -1808,7 +1808,8 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
       });
       if (!res.canceled && res.assets && res.assets[0]) {
         const a = res.assets[0];
-        const uri = a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri;
+        // 🗜️ 11-nov-2026: optimizada (JPEG ≤1600 px) antes de guardarla.
+        const uri = (await optimizarAssetADataUrl(a)) ?? (a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri);
         if (uri) setFotos((prev) => [...prev, { uri }]);
       }
     } catch (err: any) {
@@ -1830,9 +1831,10 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
         allowsMultipleSelection: true,
       });
       if (!res.canceled && res.assets && res.assets.length) {
-        const nuevas = res.assets.map((a) => ({
-          uri: a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri,
-        })).filter((x) => !!x.uri);
+        // 🗜️ 11-nov-2026: cada una optimizada (JPEG ≤1600 px) antes de guardarla.
+        const nuevas = (await Promise.all(res.assets.map(async (a) => ({
+          uri: (await optimizarAssetADataUrl(a)) ?? (a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri),
+        })))).filter((x) => !!x.uri);
         setFotos((prev) => [...prev, ...nuevas]);
       }
     } catch (err: any) {
@@ -2465,7 +2467,8 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
       });
       if (!res.canceled && res.assets && res.assets[0]) {
         const a = res.assets[0];
-        const uri = a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri;
+        // 🗜️ 11-nov-2026: optimizada (JPEG ≤1600 px) antes de guardarla.
+        const uri = (await optimizarAssetADataUrl(a)) ?? (a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri);
         if (uri) setTrFotos((prev) => [...prev, { uri }]);
       }
     } catch (err: any) {
@@ -2487,9 +2490,10 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
         allowsMultipleSelection: true,
       });
       if (!res.canceled && res.assets && res.assets.length) {
-        const nuevas = res.assets.map((a) => ({
-          uri: a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri,
-        })).filter((x) => !!x.uri);
+        // 🗜️ 11-nov-2026: cada una optimizada (JPEG ≤1600 px) antes de guardarla.
+        const nuevas = (await Promise.all(res.assets.map(async (a) => ({
+          uri: (await optimizarAssetADataUrl(a)) ?? (a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri),
+        })))).filter((x) => !!x.uri);
         setTrFotos((prev) => [...prev, ...nuevas]);
       }
     } catch (err: any) {
