@@ -181,32 +181,78 @@ export function unirDeTraslados(lista: TrasladoRuta[], campo: 'equipo' | 'autori
  * quién lo autoriza). Lo que el FLETE tiene escrito manda; lo que le falta se completa con los
  * traslados del MISMO chuto ese día (solo se leen). Nada se inventa: si no está, queda vacío.
  */
+/** Lo que traen los VIAJES DE CAMIONES vinculados a un flete (VIAJES_IDS), ya leídos. */
+export type ViajeVinculado = { chofer?: string | null; frente?: string | null; obra?: string | null; placa?: string | null; codigo?: string | null };
+
+/** Los valores DISTINTOS de una lista de textos, unidos con « / » (en el orden en que vienen). */
+export function unirDistintos(valores: (string | null | undefined)[]): string {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const x of valores) {
+    const v = limpiarLugar(x);
+    if (!v || vistos.has(v.toUpperCase())) continue;
+    vistos.add(v.toUpperCase());
+    out.push(v);
+  }
+  return out.join(' / ');
+}
+
+export type OrigenDato = 'flete' | 'viajes' | 'traslado' | '';
+
+/**
+ * 🧾 Una fila de la RELACIÓN DE VIAJES (11-nov-2026, a pedido: el reporte consolidado «así»,
+ * como la hoja de Excel). Cada casilla se llena en este orden, sin inventar nada:
+ *   1) lo ESCRITO en el flete (manda siempre);
+ *   2) los VIAJES DE CAMIONES vinculados al flete (los que se importaron, VIAJES_IDS):
+ *      chofer, frente (de dónde recogen = ORIGEN), obra/ubicación (a dónde llevan = DESTINO)
+ *      y la placa si el flete no tiene camión;
+ *   3) la autorización de TRASLADOS Y SALIDAS del MISMO chuto ese día: chofer, equipo
+ *      trasladado, quién lo autoriza y la ruta.
+ * Si no está en ninguno de los tres, queda vacío. Solo LEE: nada se escribe en ningún lado.
+ */
 export function filaRelacionViajes(
   flete: { fecha: string; viajes: number; placa?: string | null; codigo?: string | null; chofer?: string; equipo?: string; autoriza?: string; origen?: string; destino?: string },
   traslados: TrasladoRuta[],
-): { fecha: string; chofer: string; vehiculo: string; equipo: string; origen: string; destino: string; viajes: number; autoriza: string; completadoDeTraslado: boolean } {
-  const delChuto = clasificarTraslados(traslados ?? [], { plate: flete.placa, fecha: flete.fecha }).sugeridos;
+  viajesVinculados: ViajeVinculado[] = [],
+): { fecha: string; chofer: string; vehiculo: string; equipo: string; origen: string; destino: string; viajes: number; autoriza: string; completadoDeTraslado: boolean; fuentes: Record<'chofer' | 'vehiculo' | 'equipo' | 'origen' | 'destino' | 'autoriza', OrigenDato> } {
+  const vv = viajesVinculados ?? [];
+  // Sin camión en el flete («General»), la placa sale de sus viajes.
+  const placaViajes = unirDistintos(vv.map((v) => v.placa));
+  const placaFlete = String(flete.placa ?? '').trim();
+  const placaParaCruzar = placaFlete || placaViajes;
+  const delChuto = clasificarTraslados(traslados ?? [], { plate: placaParaCruzar, fecha: flete.fecha }).sugeridos;
   const ruta = rutaDeTraslados(delChuto);
-  const pick = (propio: string | undefined, deTraslado: string) => {
+  const pick = (propio: string | undefined | null, deViajes: string, deTraslado: string): { v: string; f: OrigenDato } => {
     const p = String(propio ?? '').trim();
-    return p ? { v: p, t: false } : { v: deTraslado, t: !!deTraslado };
+    if (p) return { v: p, f: 'flete' };
+    if (deViajes) return { v: deViajes, f: 'viajes' };
+    if (deTraslado) return { v: deTraslado, f: 'traslado' };
+    return { v: '', f: '' };
   };
-  const chofer = pick(flete.chofer, unirDeTraslados(delChuto, 'chofer'));
-  const equipo = pick(flete.equipo, unirDeTraslados(delChuto, 'equipo'));
-  const autoriza = pick(flete.autoriza, unirDeTraslados(delChuto, 'autoriza'));
-  const origen = pick(flete.origen, ruta?.origen ?? '');
-  const destino = pick(flete.destino, ruta?.destino ?? '');
+  const chofer = pick(flete.chofer, unirDistintos(vv.map((v) => v.chofer)), unirDeTraslados(delChuto, 'chofer'));
+  const origen = pick(flete.origen, unirDistintos(vv.map((v) => v.frente)), ruta?.origen ?? '');
+  const destino = pick(flete.destino, unirDistintos(vv.map((v) => v.obra)), ruta?.destino ?? '');
+  // El equipo trasladado y quién lo autoriza no los registra el viaje: solo el flete o el traslado.
+  const equipo = pick(flete.equipo, '', unirDeTraslados(delChuto, 'equipo'));
+  const autoriza = pick(flete.autoriza, '', unirDeTraslados(delChuto, 'autoriza'));
+  // VEHÍCULO = la placa del CHUTO (la máquina guarda «CHUTO/LOWBOY»: va el primer pedazo).
+  const primerPedazo = (x: string) => x.split(/[\/,;]/).map((y) => y.trim()).find(Boolean) || '';
+  const vehiculo: { v: string; f: OrigenDato } = placaFlete
+    ? { v: primerPedazo(placaFlete), f: 'flete' }
+    : placaViajes
+      ? { v: placaViajes.split(' / ').map(primerPedazo).filter(Boolean).join(' / '), f: 'viajes' }
+      : { v: String(flete.codigo ?? '').trim(), f: flete.codigo ? 'flete' : '' };
   return {
     fecha: flete.fecha,
     chofer: chofer.v,
-    // VEHÍCULO = la placa del CHUTO (la máquina guarda «CHUTO/LOWBOY»: va el primer pedazo).
-    vehiculo: (String(flete.placa ?? '').split(/[\/,;]/).map((x) => x.trim()).find(Boolean) || String(flete.codigo ?? '').trim()),
+    vehiculo: vehiculo.v,
     equipo: equipo.v,
     origen: origen.v,
     destino: destino.v,
     viajes: Number(flete.viajes) || 0,
     autoriza: autoriza.v,
-    completadoDeTraslado: chofer.t || equipo.t || autoriza.t || origen.t || destino.t,
+    completadoDeTraslado: [chofer, equipo, autoriza, origen, destino].some((x) => x.f === 'traslado'),
+    fuentes: { chofer: chofer.f, vehiculo: vehiculo.f, equipo: equipo.f, origen: origen.f, destino: destino.f, autoriza: autoriza.f },
   };
 }
 

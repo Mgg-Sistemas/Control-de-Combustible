@@ -58,6 +58,24 @@ const f4 = R.filaRelacionViajes({ fecha: '2026-11-01', viajes: 1, placa: null, c
 eq([f4.vehiculo, f4.equipo, f4.autoriza, f4.completadoDeTraslado], ['CHUTO CON VOLQUETA', '', '', false], 'sin placa ni traslado: no se inventa nada (vacío)');
 eq(R.filaRelacionViajes({ fecha: '2026-10-23', viajes: 1, placa: 'A22CY0J' }, []).equipo, '', 'si no se pudieron leer los traslados, sale con lo del flete');
 
+// ── 2b) ⭐⭐ Los fletes IMPORTADOS de Viajes de camiones (VIAJES_IDS): sus viajes llenan lo que falta ──
+// Caso real del 11-nov: 9 de 10 fletes del período salían en blanco; todos tenían sus viajes vinculados.
+const VV = [
+  { chofer: 'PEDRO PEREZ', frente: 'Tanaguarena', obra: 'Muelle Norte', placa: 'A22CY0J/LOW123', codigo: 'CHUTO CON LOWBOY' },
+  { chofer: 'Pedro Perez', frente: 'Tanaguarena', obra: 'Playa Grande', placa: 'A22CY0J/LOW123' },
+];
+const g1 = R.filaRelacionViajes({ fecha: '2026-09-29', viajes: 3, placa: 'A22CY0J/LOW123', codigo: 'CHUTO CON LOWBOY' }, [], VV);
+eq([g1.chofer, g1.vehiculo, g1.origen, g1.destino, g1.fuentes.chofer, g1.fuentes.origen], ['PEDRO PEREZ', 'A22CY0J', 'Tanaguarena', 'Muelle Norte / Playa Grande', 'viajes', 'viajes'], '⭐ chofer, ORIGEN = frente (de dónde recogen) y DESTINO = obra (a dónde llevan) salen de sus viajes (sin repetir)');
+eq([g1.equipo, g1.autoriza], ['', ''], 'el viaje no registra equipo trasladado ni quién autoriza: no se inventan');
+const g2 = R.filaRelacionViajes({ fecha: '2026-09-26', viajes: 4, placa: null, codigo: 'General' }, [], VV);
+eq([g2.vehiculo, g2.fuentes.vehiculo], ['A22CY0J', 'viajes'], '⭐ flete «General» (sin camión): la placa sale de sus viajes');
+const g3 = R.filaRelacionViajes({ fecha: '2026-10-24', viajes: 1, placa: null, codigo: 'General' }, TR, [{ chofer: 'X', frente: 'F', obra: 'O', placa: 'A22CY0J' }]);
+eq([g3.chofer, g3.origen, g3.equipo, g3.autoriza, g3.fuentes.equipo], ['X', 'F', 'TRACTOR DE ORUGA D9 / RETROEXCAVADORA', 'CHELI - INVERSIONES / SR CHELI', 'traslado'], '⭐ orden: lo del viaje antes que el traslado; equipo y autoriza del traslado del chuto que dicen sus viajes');
+const g4 = R.filaRelacionViajes({ fecha: '2026-09-29', viajes: 1, placa: 'A22CY0J', chofer: 'Escrito a mano', origen: 'Mi origen' }, TR, VV);
+eq([g4.chofer, g4.origen, g4.destino, g4.fuentes.chofer], ['Escrito a mano', 'Mi origen', 'Muelle Norte / Playa Grande', 'flete'], '⭐ lo escrito en el flete MANDA sobre sus viajes');
+eq(R.filaRelacionViajes({ fecha: '2026-09-26', viajes: 1, codigo: 'General' }, [], []).vehiculo, 'General', 'sin nada de dónde sacarlo: queda como estaba');
+eq(R.unirDistintos(['A', ' a ', null, '—', 'B']), 'A / B', 'unirDistintos: sin repetir ni vacíos');
+
 // ── 3) El papel: columnas del Excel y TOTAL de viajes ──
 const filas = [f2, f1, { ...f1, fecha: '2026-10-23' }, { ...f3, equipo: 'RETROEXCAVADORA', autoriza: 'SR CHELI', origen: 'Centro de acopio', destino: 'El Tigre', viajes: 1 }];
 const html = P.relacionViajesHtml({ companyName: 'Todas las empresas', periodLabel: 'Del 12/10/2026 al 11/11/2026', filas, emitido: '11/11/2026' });
@@ -76,7 +94,10 @@ check(/onPress=\{imprimirRelacionViajes\}/.test(scr) && /Reporte Consolidado · 
 check(/traslados = await cargarRutasDeTraslados\(\);/.test(scr) && /la relación sale solo con lo escrito en cada flete/.test(scr), 'lee los traslados al generar; si fallan, avisa y sale igual');
 check(/equipo: formEquipo,\s*autoriza: formAutoriza,/.test(scr) && /equipo: importEquipo,\s*autoriza: importAutoriza,/.test(scr), 'registrar, editar e importar guardan el equipo y quién autoriza');
 check(/unirDeTraslados\(lista, 'equipo'\)/.test(scr) && /unirDeTraslados\(lista, 'autoriza'\)/.test(scr), '«Traer de Traslados» también llena el equipo y quién autoriza');
+check(/viajesPorId = await cargarViajesVinculados\(notas\.flatMap\(\(n\) => n\.viajeIds \?\? \[\]\)\)/.test(scr) && /\}, traslados, vinculados\);/.test(scr), '⭐ al generar lee los viajes vinculados de cada flete (una vez) y los usa');
+check(/No se pudieron leer los Viajes de camiones/.test(scr), 'si fallan los viajes, avisa y sale igual');
 const db = fs.readFileSync(path.join(ROOT, 'src/lib/fleteRutaTrasladoDb.ts'), 'utf8');
+check(/from\('camion_viajes'\)\.select\(columnas\)\.in\('id', tramo\)/.test(db) && /'id, chofer_name, machine_code, ubicacion_nombre, frente_nombre, placa_snap'/.test(db) && !/\.(update|insert|delete|upsert)\(/.test(db), '⭐ de los viajes: solo lectura, solo chofer/frente/obra/placa, de a 150');
 check(/'autoriza:datos->firmas->>autorizadoPorEmpresa'/.test(db) && /'chofer:datos->transporte->>conductorNombre'/.test(db) && !/'datos'|servicio|monto/.test(db.replace(/\/\/.*$/gm, '')), 'de Traslados solo columnas sueltas, sin montos');
 
 const iHtml = process.argv.indexOf('--html');

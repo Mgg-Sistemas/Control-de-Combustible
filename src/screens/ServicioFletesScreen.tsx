@@ -40,7 +40,7 @@ import {
   filaRelacionViajes,
   MAX_LUGAR_FLETE,
 } from '../lib/fleteRutaTraslado';
-import { cargarRutasDeTraslados } from '../lib/fleteRutaTrasladoDb';
+import { cargarRutasDeTraslados, cargarViajesVinculados } from '../lib/fleteRutaTrasladoDb';
 
 // 🚫 Exento (26/10/2026): se registra pero no se cobra ni se paga. Gris pizarra,
 // para que no se confunda con el azul de «por pagar» ni el verde de «por cobrar».
@@ -788,12 +788,21 @@ export default function ServicioFletesScreen({ navigation }: any) {
       } catch {
         toast.warn('No se pudieron leer los Traslados: la relación sale solo con lo escrito en cada flete.');
       }
+      // Los viajes de camiones vinculados (los que se importaron): una lectura, solo lo de la hoja.
+      const notas = filteredFletes.map((f) => parseFleteNote(f.note));
+      let viajesPorId = new Map<string, any>();
+      try {
+        viajesPorId = await cargarViajesVinculados(notas.flatMap((n) => n.viajeIds ?? []));
+      } catch {
+        toast.warn('No se pudieron leer los Viajes de camiones: esas filas salen con lo que haya en el flete y en Traslados.');
+      }
       const comp = companies.find((c) => c.id === selectedCompanyId);
       const mach = machinery.find((m) => m.id === selectedMachineId);
       const coName = comp ? comp.name : (selectedMachineId !== '__all__' && mach?.company_id ? (companies.find((c) => c.id === mach.company_id)?.name || 'Varias empresas') : 'Todas las empresas');
-      const filas = filteredFletes.map((f) => {
+      const filas = filteredFletes.map((f, i) => {
         const m = f.machinery || machinery.find((x) => x.id === f.machinery_id);
-        const p = parseFleteNote(f.note);
+        const p = notas[i];
+        const vinculados = (p.viajeIds ?? []).map((id) => viajesPorId.get(id)).filter(Boolean);
         return filaRelacionViajes({
           fecha: f.flete_date,
           viajes: Number(f.viajes) || 0,
@@ -804,7 +813,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
           autoriza: p.autoriza,
           origen: p.origen,
           destino: p.destino,
-        }, traslados);
+        }, traslados, vinculados);
       });
       await exportarRelacionViajesFletes({
         companyName: coName,
