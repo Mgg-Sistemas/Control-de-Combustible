@@ -24,7 +24,15 @@ import { rawCaseField } from '../lib/fonts';
 import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier, RequirementStatus, Machinery, Employee, Cuenta, AuditLog } from '../types/database';
 import { exportPdf, urlToDataUri } from '../lib/pdf';
 import { pickAndUploadRequirementFile, captureAndUploadPhoto, pickAndUploadDocFile, pickAndUploadRequirementFiles, pickAndUploadDocFiles, optimizarAssetParaSubir } from '../lib/photo';
-import { FormatoAdjunto, empaquetarFormatosEnObservaciones, extraerFormatosAdjuntos, limpiarObservacionesFormatos } from '../lib/formatosAdjuntos';
+import {
+  FormatoAdjunto,
+  empaquetarFormatosEnObservaciones,
+  extraerFormatosAdjuntos,
+  limpiarObservacionesFormatos,
+  resolverFotoReferenciaItem,
+  construirNombreDescargaFoto,
+  construirUrlDescargaDirecta,
+} from '../lib/formatosAdjuntos';
 import * as ImagePicker from 'expo-image-picker';
 import { extraerCapturaPago, limpiarNotasUsuario, empaquetarNotasConCaptura, CapturaPagoInfo } from '../lib/proveedorPago';
 import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
@@ -2013,8 +2021,41 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
     setFacturaViewerUrl(url);
     setFacturaViewerTipo(tipo || 'image');
-    setFacturaViewerNombre(nombre || 'Factura');
+    setFacturaViewerNombre(nombre || 'Foto de referencia');
     setFacturaViewerOpen(true);
+  };
+
+  const descargarArchivoUrl = async (url?: string | null, nombre?: string | null) => {
+    if (!url) return;
+    const filename = construirNombreDescargaFoto(nombre, url);
+    const directUrl = construirUrlDescargaDirecta(url, filename);
+    if (Platform.OS === 'web') {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+        return;
+      } catch {
+        const a = document.createElement('a');
+        a.href = directUrl;
+        a.download = filename;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
+    }
+    Linking.openURL(directUrl);
   };
 
   // ── Control de Almacén: Despacho Físico ────────────────────────────────────
@@ -2668,7 +2709,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         total_bs: String(totBsNum),
         currency: 'USD',
         note: it.note ?? '',
-        image_url: it.image_url ?? '',
+        image_url: resolverFotoReferenciaItem(it, r) ?? '',
         supplier_id: it.supplier_id || null,
         supplier_name: it.supplier_name || null,
         metodo_pago: (it as any).metodo_pago || null,
@@ -3001,13 +3042,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const fmts = extraerFormatosAdjuntos(r);
     const target = formatoItem || fmts[0] || (r.attachment_url ? { url: r.attachment_url, name: r.attachment_name } : null);
     if (!target?.url) return;
-    if (Platform.OS === 'web') {
-      const a = document.createElement('a');
-      a.href = target.url; a.download = target.name || 'formato'; a.target = '_blank'; a.rel = 'noopener';
-      a.click();
-    } else {
-      Linking.openURL(target.url);
-    }
+    descargarArchivoUrl(target.url, target.name || r.code || 'formato');
   };
 
   // Revierte un requerimiento RECHAZADO de vuelta a PENDIENTE (p. ej. si el rechazo
@@ -4004,7 +4039,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                           : ''}
                                       </Text>
                                     </View>
-                                    {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
+                                    {(() => {
+                                      const fotoItemUrl = resolverFotoReferenciaItem(it, r);
+                                      if (!fotoItemUrl) return null;
+                                      return (
+                                        <TouchableOpacity
+                                          onPress={() => abrirVisorFactura(fotoItemUrl, 'image', `📷 ${it.name || r.code || 'Foto de referencia'}`)}
+                                          style={{ alignItems: 'center', gap: 3 }}
+                                          activeOpacity={0.75}
+                                        >
+                                          <Image
+                                            source={{ uri: fotoItemUrl }}
+                                            style={{ width: 46, height: 46, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }}
+                                          />
+                                          <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
+                                            <Text style={{ color: colors.brandText, fontSize: 9.5, fontWeight: '800' }}>🔍 Ver foto</Text>
+                                          </View>
+                                        </TouchableOpacity>
+                                      );
+                                    })()}
                                   </View>
                                 );
                               })}
@@ -5511,19 +5564,35 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   ) : null}
 
                   {/* Imagen de referencia del producto: sale en el PDF junto a su descripción. */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                     {x.image_url ? (
-                      <Image source={{ uri: x.image_url }} style={{ width: 52, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} />
+                      <TouchableOpacity
+                        onPress={() => abrirVisorFactura(x.image_url, 'image', `📷 ${x.name || 'Foto de referencia del producto'}`)}
+                        activeOpacity={0.75}
+                      >
+                        <Image
+                          source={{ uri: x.image_url }}
+                          style={{ width: 52, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }}
+                        />
+                      </TouchableOpacity>
                     ) : (
                       <View style={{ width: 52, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
                         <Text style={{ fontSize: 22 }}>📷</Text>
                       </View>
                     )}
-                    <TouchableOpacity onPress={() => subirImagenProducto(x.key)} disabled={subiendoImgKey === x.key} style={{ flex: 1, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoImgKey === x.key ? 0.6 : 1 }}>
+                    <TouchableOpacity onPress={() => subirImagenProducto(x.key)} disabled={subiendoImgKey === x.key} style={{ flex: 1, minWidth: 130, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center', opacity: subiendoImgKey === x.key ? 0.6 : 1 }}>
                       <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>{subiendoImgKey === x.key ? '⏳ Subiendo…' : x.image_url ? '🖼️ Cambiar imagen' : '🖼️ Imagen del producto'}</Text>
                     </TouchableOpacity>
                     {x.image_url ? (
-                      <TouchableOpacity onPress={() => upd(x.key, 'image_url', '')}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => abrirVisorFactura(x.image_url, 'image', `📷 ${x.name || 'Foto de referencia del producto'}`)}
+                        style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>👁️ Ver / Descargar</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {x.image_url ? (
+                      <TouchableOpacity onPress={() => upd(x.key, 'image_url', '')} style={{ paddingHorizontal: spacing.xs, paddingVertical: spacing.xs }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
                     ) : null}
                   </View>
 
@@ -5943,18 +6012,35 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     <TouchableOpacity
                       onPress={() => {
                         if (currentFmt) {
-                          descargarFormato({
-                            ...previewReq!,
-                            attachment_url: currentFmt.url,
-                            attachment_name: currentFmt.name,
-                            attachment_type: currentFmt.kind,
-                          });
+                          descargarFormato(
+                            {
+                              ...previewReq!,
+                              attachment_url: currentFmt.url,
+                              attachment_name: currentFmt.name,
+                              attachment_type: currentFmt.kind,
+                            },
+                            currentFmt
+                          );
                         }
                       }}
                       style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
                     >
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar / Abrir archivo</Text>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar archivo</Text>
                     </TouchableOpacity>
+                    {currentFmt?.url ? (
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (Platform.OS === 'web') {
+                            window.open(currentFmt.url, '_blank', 'noopener,noreferrer');
+                          } else {
+                            Linking.openURL(currentFmt.url);
+                          }
+                        }}
+                        style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>↗️ Abrir original</Text>
+                      </TouchableOpacity>
+                    ) : null}
                     {reqFormatos.length > 1 && safeIndex < reqFormatos.length - 1 ? (
                       <TouchableOpacity
                         onPress={() => setPreviewIndex((i) => Math.min(reqFormatos.length - 1, i + 1))}
@@ -6673,55 +6759,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         </Screen>
       </Modal>
 
-      {/* ── Modal: Visor de Factura Adjunta ── */}
-      <Modal visible={facturaViewerOpen} animationType="fade" transparent onRequestClose={() => setFacturaViewerOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: spacing.md }}>
-          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%', overflow: 'hidden' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
-                🧾 {facturaViewerNombre || 'Factura'}
-              </Text>
-              <TouchableOpacity onPress={() => setFacturaViewerOpen(false)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
-                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={{ padding: spacing.md }}>
-              {facturaViewerUrl ? (
-                facturaViewerTipo === 'pdf' ? (
-                  Platform.OS === 'web'
-                    ? React.createElement('iframe', { src: facturaViewerUrl, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
-                    : <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginVertical: 20 }}>Toca "⬇️ Descargar / Abrir" para ver el PDF.</Text>
-                ) : (
-                  <Image source={{ uri: facturaViewerUrl }} style={{ width: '100%', height: 420, borderRadius: radius.md }} resizeMode="contain" />
-                )
-              ) : null}
-            </ScrollView>
-            <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', gap: spacing.sm }}>
-              <TouchableOpacity
-                onPress={() => setFacturaViewerOpen(false)}
-                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
-              >
-                <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
-              </TouchableOpacity>
-              {facturaViewerUrl ? (
-                <TouchableOpacity
-                  onPress={() => {
-                    if (Platform.OS === 'web') {
-                      window.open(facturaViewerUrl, '_blank');
-                    } else {
-                      Linking.openURL(facturaViewerUrl);
-                    }
-                  }}
-                  style={{ flex: 2, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
-                >
-                  <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Abrir / Descargar</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       {/* ── Modal: Configuración de Usuario Designado para Aprobar Requerimientos (solo responsables de sistemas) ── */}
       <Modal visible={configModalOpen && puedeVerConfigAprobacion} animationType="fade" transparent onRequestClose={() => setConfigModalOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: spacing.md }}>
@@ -7146,6 +7183,83 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           onGuardar={(plan) => guardarPlanReq(planReq.req, plan)}
           onClose={() => setPlanReq(null)}
         />
+      ) : null}
+
+      {/* ── Modal: Visor de Foto de Referencia / Factura / Comprobante (al final para abrirse sobre cualquier otro modal) ── */}
+      {facturaViewerOpen ? (
+        <Modal visible animationType="fade" transparent onRequestClose={() => setFacturaViewerOpen(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.82)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+            <View style={{ width: '100%', maxWidth: 680, backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '92%', overflow: 'hidden' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={2}>
+                  {/^(📷|🧾|📎|🖼️|🔍)/.test(facturaViewerNombre || '') ? facturaViewerNombre : `📷 ${facturaViewerNombre || 'Foto de referencia'}`}
+                </Text>
+                <TouchableOpacity onPress={() => setFacturaViewerOpen(false)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={{ padding: spacing.md }}>
+                {facturaViewerUrl ? (
+                  facturaViewerTipo === 'pdf' ? (
+                    Platform.OS === 'web'
+                      ? React.createElement('iframe', { src: facturaViewerUrl, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
+                      : <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginVertical: 20 }}>Toca "⬇️ Descargar" o "↗️ Abrir original" para ver el PDF.</Text>
+                  ) : (
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => {
+                        if (Platform.OS === 'web') {
+                          window.open(facturaViewerUrl, '_blank', 'noopener,noreferrer');
+                        } else {
+                          Linking.openURL(facturaViewerUrl);
+                        }
+                      }}
+                    >
+                      <Image
+                        source={{ uri: facturaViewerUrl }}
+                        style={{ width: '100%', height: 450, borderRadius: radius.md, backgroundColor: '#0F172A' }}
+                        resizeMode="contain"
+                      />
+                      <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 6 }}>
+                        💡 Toca «⬇️ Descargar» para guardar la imagen o «↗️ Abrir original» para hacer zoom completo.
+                      </Text>
+                    </TouchableOpacity>
+                  )
+                ) : null}
+              </ScrollView>
+              <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                <TouchableOpacity
+                  onPress={() => setFacturaViewerOpen(false)}
+                  style={{ flex: 1, minWidth: 90, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+                </TouchableOpacity>
+                {facturaViewerUrl ? (
+                  <>
+                    <TouchableOpacity
+                      onPress={() => descargarArchivoUrl(facturaViewerUrl, facturaViewerNombre)}
+                      style={{ flex: 1.5, minWidth: 130, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                    >
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (Platform.OS === 'web') {
+                          window.open(facturaViewerUrl, '_blank', 'noopener,noreferrer');
+                        } else {
+                          Linking.openURL(facturaViewerUrl);
+                        }
+                      }}
+                      style={{ flex: 1.5, minWidth: 130, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+                    >
+                      <Text style={{ color: colors.brandText, fontWeight: '800' }}>↗️ Abrir original</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        </Modal>
       ) : null}
     </Screen>
   );

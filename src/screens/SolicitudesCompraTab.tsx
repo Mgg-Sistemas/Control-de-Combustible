@@ -45,6 +45,7 @@ import {
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
 import { anexarEventoHistorial, calcularDiffItemsCompra, resumirCambiosCabeceraCompra } from '../lib/comprasHistorico';
+import { construirNombreDescargaFoto, construirUrlDescargaDirecta } from '../lib/formatosAdjuntos';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -2971,29 +2972,6 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         </View>
       </Modal>
 
-      {/* ── MODAL: FOTO AMPLIADA ─────────────────────────────────────────────── */}
-      <Modal visible={Boolean(fotoModalUrl)} transparent animationType="fade">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
-          <View style={{ width: '100%', maxWidth: 500, backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, gap: spacing.md }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '800', color: colors.text, fontSize: 14 }}>📷 Muestra Técnica Adjunta</Text>
-              <TouchableOpacity onPress={() => setFotoModalUrl(null)}>
-                <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 18 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            {fotoModalUrl ? (
-              <Image source={{ uri: fotoModalUrl }} style={{ width: '100%', height: 350, borderRadius: radius.md, resizeMode: 'contain', backgroundColor: '#000' }} />
-            ) : null}
-            <TouchableOpacity
-              onPress={() => setFotoModalUrl(null)}
-              style={{ backgroundColor: colors.brand, paddingVertical: 10, borderRadius: radius.md, alignItems: 'center' }}
-            >
-              <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>Cerrar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       {/* ── MODAL: EDITAR SOLICITUD DE COMPRA ─────────────────────────────────── */}
       <Modal visible={Boolean(editTarget)} animationType="slide" onRequestClose={() => setEditTarget(null)}>
         <Screen>
@@ -3414,24 +3392,41 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                       {/* Foto / Muestra Técnica */}
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {tieneFoto ? (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Image
-                              source={{ uri: it.image_url }}
-                              style={{ width: 50, height: 50, borderRadius: radius.sm, backgroundColor: '#000' }}
-                            />
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <TouchableOpacity onPress={() => setFotoModalUrl(it.image_url)} activeOpacity={0.75}>
+                              <Image
+                                source={{ uri: it.image_url }}
+                                style={{ width: 52, height: 52, borderRadius: radius.sm, backgroundColor: '#000', borderWidth: 1, borderColor: colors.brand }}
+                              />
+                            </TouchableOpacity>
                             <TouchableOpacity
                               onPress={() => setFotoModalUrl(it.image_url)}
                               style={{
-                                backgroundColor: colors.surface,
-                                borderWidth: 1,
-                                borderColor: colors.border,
-                                paddingHorizontal: 8,
-                                paddingVertical: 4,
+                                backgroundColor: colors.brand,
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
                                 borderRadius: radius.sm,
                               }}
                             >
+                              <Text style={{ color: colors.brandContrast, fontSize: 11.5, fontWeight: '800' }}>
+                                👁️ Ver / Descargar
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => subirFotoRenglon(idx)}
+                              disabled={estaSubiendo}
+                              style={{
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.brand,
+                                paddingHorizontal: 8,
+                                paddingVertical: 5,
+                                borderRadius: radius.sm,
+                                opacity: estaSubiendo ? 0.6 : 1,
+                              }}
+                            >
                               <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>
-                                🔍 Ver Ampliada
+                                {estaSubiendo ? '⏳ Subiendo…' : '🖼️ Cambiar imagen'}
                               </Text>
                             </TouchableOpacity>
                             <TouchableOpacity
@@ -3441,7 +3436,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                                 borderWidth: 1,
                                 borderColor: colors.danger,
                                 paddingHorizontal: 8,
-                                paddingVertical: 4,
+                                paddingVertical: 5,
                                 borderRadius: radius.sm,
                               }}
                             >
@@ -3945,6 +3940,93 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           </ScrollView>
         </Screen>
       </Modal>
+
+      {/* ── MODAL: FOTO AMPLIADA (al final para abrirse sobre cualquier otro modal) ── */}
+      {fotoModalUrl ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setFotoModalUrl(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+            <View style={{ width: '100%', maxWidth: 640, backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, gap: spacing.md }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ fontWeight: '800', color: colors.text, fontSize: 14 }}>📷 Muestra Técnica / Foto de Referencia</Text>
+                <TouchableOpacity onPress={() => setFotoModalUrl(null)}>
+                  <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 18 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    window.open(fotoModalUrl, '_blank', 'noopener,noreferrer');
+                  } else {
+                    Linking.openURL(fotoModalUrl);
+                  }
+                }}
+              >
+                <Image source={{ uri: fotoModalUrl }} style={{ width: '100%', height: 420, borderRadius: radius.md, resizeMode: 'contain', backgroundColor: '#0F172A' }} />
+                <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 6 }}>
+                  💡 Toca «⬇️ Descargar» para guardar la imagen o «↗️ Abrir original» para hacer zoom completo.
+                </Text>
+              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                <TouchableOpacity
+                  onPress={() => setFotoModalUrl(null)}
+                  style={{ flex: 1, minWidth: 90, borderWidth: 1, borderColor: colors.border, paddingVertical: 10, borderRadius: radius.md, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={async () => {
+                    const filename = construirNombreDescargaFoto('muestra_tecnica', fotoModalUrl);
+                    const directUrl = construirUrlDescargaDirecta(fotoModalUrl, filename);
+                    if (Platform.OS === 'web') {
+                      try {
+                        const res = await fetch(fotoModalUrl);
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        const blob = await res.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = blobUrl;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+                        return;
+                      } catch {
+                        const a = document.createElement('a');
+                        a.href = directUrl;
+                        a.download = filename;
+                        a.target = '_blank';
+                        a.rel = 'noopener noreferrer';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        return;
+                      }
+                    }
+                    Linking.openURL(directUrl);
+                  }}
+                  style={{ flex: 1.5, minWidth: 130, backgroundColor: colors.brand, paddingVertical: 10, borderRadius: radius.md, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      window.open(fotoModalUrl, '_blank', 'noopener,noreferrer');
+                    } else {
+                      Linking.openURL(fotoModalUrl);
+                    }
+                  }}
+                  style={{ flex: 1.5, minWidth: 130, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingVertical: 10, borderRadius: radius.md, alignItems: 'center' }}
+                >
+                  <Text style={{ color: colors.brandText, fontWeight: '800' }}>↗️ Abrir original</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </Screen>
   );
 }

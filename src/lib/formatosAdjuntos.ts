@@ -111,3 +111,96 @@ export function extraerFormatosAdjuntos(
   return lista;
 }
 
+/**
+ * Resuelve la URL de la foto de referencia de un renglón de requerimiento o solicitud.
+ * 1) Si el ítem tiene su propio `image_url`, devuelve esa URL.
+ * 2) Si el requerimiento tiene un único renglón (`items.length === 1`), el ítem no tiene `image_url`,
+ *    y `attachment_url` es una imagen de muestra (no PDF ni factura/comprobante de pago),
+ *    devuelve `attachment_url` (solicitudes de 1 ítem donde la foto quedó en `attachment_url`).
+ */
+export function resolverFotoReferenciaItem(
+  item: { image_url?: string | null } | null | undefined,
+  req?: {
+    items?: Array<{ image_url?: string | null }> | null;
+    attachment_url?: string | null;
+    attachment_type?: string | null;
+    attachment_name?: string | null;
+    observaciones?: string | null;
+    nota?: string | null;
+  } | null
+): string | null {
+  const propia = typeof item?.image_url === 'string' ? item.image_url.trim() : '';
+  if (propia) return propia;
+
+  if (!req || !Array.isArray(req.items) || req.items.length !== 1) return null;
+  const attUrl = typeof req.attachment_url === 'string' ? req.attachment_url.trim() : '';
+  if (!attUrl) return null;
+
+  const esPdf =
+    req.attachment_type === 'pdf' ||
+    /\.pdf(\?|$)/i.test(attUrl) ||
+    /\.pdf$/i.test(req.attachment_name || '');
+  if (esPdf) return null;
+
+  const textoObs = String(req.observaciones || req.nota || '');
+  const mFac = textoObs.match(/\[FACTURA PROVEEDOR:[^\]]+\]/i)?.[0] || '';
+  const mRec = textoObs.match(/\[RECIBO PAGO:[^\]]+\]/i)?.[0] || '';
+  const esSoporteFiscalOPago =
+    (mFac && (mFac.includes(attUrl) || mFac.includes(encodeURIComponent(attUrl)))) ||
+    (mRec && (mRec.includes(attUrl) || mRec.includes(encodeURIComponent(attUrl))));
+  if (esSoporteFiscalOPago) return null;
+
+  const esImagen =
+    req.attachment_type === 'image' ||
+    /\.(jpe?g|png|webp|gif|heic|bmp)(\?|$)/i.test(attUrl);
+  return esImagen ? attUrl : null;
+}
+
+/**
+ * Construye un nombre de archivo limpio para descargar una foto de referencia o soporte.
+ */
+export function construirNombreDescargaFoto(
+  nombreItem?: string | null,
+  url?: string | null,
+  codigoReq?: string | null
+): string {
+  const cleanUrl = typeof url === 'string' ? url.split('?')[0].split('#')[0] : '';
+  const mExt = cleanUrl.match(/\.(jpe?g|png|webp|gif|pdf|heic|bmp)$/i);
+  const ext = mExt ? `.${mExt[1].toLowerCase()}` : '.jpg';
+
+  const limpiar = (s?: string | null) =>
+    String(s || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/^(📷|🧾|📎|🖼️|🔍)\s*/g, '')
+      .replace(/[^\w\d\-]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 50);
+
+  const cod = limpiar(codigoReq);
+  const sinExt = String(nombreItem || '').replace(/\.(jpe?g|png|webp|gif|pdf|heic|bmp)$/i, '');
+  const base = limpiar(sinExt);
+  const combinado = [cod, base].filter(Boolean).join('_') || 'foto_referencia';
+  return `${combinado}${ext}`;
+}
+
+/**
+ * Genera una URL con parámetro `?download=<nombre>` para Supabase Storage,
+ * lo que fuerza la cabecera `Content-Disposition: attachment` en el navegador.
+ */
+export function construirUrlDescargaDirecta(
+  url: string | null | undefined,
+  nombreArchivo?: string | null
+): string {
+  const clean = typeof url === 'string' ? url.trim() : '';
+  if (!clean) return '';
+  const filename = construirNombreDescargaFoto(nombreArchivo, clean);
+  if (/\/storage\/v1\/object\/public\//i.test(clean) && !/[?&]download=/i.test(clean)) {
+    const sep = clean.includes('?') ? '&' : '?';
+    return `${clean}${sep}download=${encodeURIComponent(filename)}`;
+  }
+  return clean;
+}
+
+
