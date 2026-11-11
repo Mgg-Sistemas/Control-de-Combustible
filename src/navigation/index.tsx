@@ -71,6 +71,7 @@ import CajaScreen from '../screens/CajaScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import SolicitudMaterialScreen from '../screens/SolicitudMaterialScreen';
 import CentroOperacionesScreen from '../screens/CentroOperacionesScreen';
+import GpsScreen from '../screens/GpsScreen';
 import InspeccionesScreen from '../screens/InspeccionesScreen';
 import ManguerasScreen from '../screens/ManguerasScreen';
 import MachineTraceabilityScreen from '../screens/MachineTraceabilityScreen';
@@ -299,6 +300,7 @@ function MoreStack() {
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="SolicitudMaterial" component={SolicitudMaterialScreen} options={{ title: 'Pedir Material / Repuesto' }} />
       <Stack.Screen name="CentroOperaciones" component={CentroOperacionesScreen} options={{ title: 'Centro de Operaciones' }} />
+      <Stack.Screen name="Gps" component={GpsScreen} options={{ title: 'GPS de los vehículos' }} />
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
       <Stack.Screen name="FabricacionHub" component={FabricacionHubScreen} options={{ title: 'Fabricación' }} />
       <Stack.Screen name="Mangueras" component={ManguerasScreen} options={{ title: 'Mangueras hidráulicas' }} />
@@ -891,6 +893,7 @@ const moreScreens = {
   Inventario: 'inventario',
   SolicitudMaterial: 'pedir-material',
   CentroOperaciones: 'centro-operaciones',
+  Gps: 'gps',
   InspeccionesMaq: 'inspecciones-maquinaria',
   FabricacionHub: 'fabricacion',
   Mangueras: 'fabricacion/mangueras',
