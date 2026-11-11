@@ -471,23 +471,17 @@ function ViajesStack() {
   );
 }
 
-/** Pantalla "de inicio" dentro del árbol `tabs` para un rol PERSONALIZADO cuyos
- *  módulos son una MEZCLA (no calza en ningún panel dedicado ni en el combo
- *  100% combustible de `esRolCombustible`): entra por el PRIMER módulo que sí
- *  tenga — Control Maquinaria, Mapa o Catálogo — en vez de "Inicio" (KPIs
- *  globales de tanques/combustible que puede no gestionar). Si no tiene ninguno
- *  de esos tres, cae en el menú "Más" (agrupa lo que sí tenga: Combustible,
- *  Nómina, etc.). El admin (ve todo) siempre entra por Inicio, su panel real.
- *  `name` = pantalla del Tab.Navigator; `path` = URL equivalente (deben ir
- *  siempre juntos: si difieren, recargar la página manda a Inicio y pisa esto). */
-function tabsHomeRoute(role: UserRole | null, appRole: AppRole | null, canSee: (k: string) => boolean): { name: string; path: string } {
+/** Pantalla "de inicio" dentro del árbol `tabs`.
+ *  ⭐ REGLA ÚNICA (11-nov-2026, a pedido: «los que tengan permiso, que los lleve
+ *  directo a Inicio, y los que no, que los lleve al apartado Más y listo»):
+ *    · admin o con permiso «Inicio» → Inicio;
+ *    · sin permiso de Inicio → «Más» (ahí está todo lo que sí puede usar).
+ *  (Antes un rol personalizado entraba primero por Control, Mapa o Catálogo aunque
+ *  tuviera Inicio.) `name` = pantalla del Tab.Navigator; `path` = URL equivalente
+ *  (deben ir siempre juntos: si difieren, recargar la página manda a otra parte). */
+function tabsHomeRoute(role: UserRole | null, _appRole: AppRole | null, canSee: (k: string) => boolean): { name: string; path: string } {
   const puedeInicio = role === 'admin' || canSee('inicio');
-  if (puedeInicio && (!appRole || role === 'admin')) return { name: 'Dashboard', path: '/inicio' };
-  if (canSee('control_maquinaria')) return { name: 'ControlMaquinaria', path: '/control' };
-  if (canSee('mapa')) return { name: 'Map', path: '/mapa' };
-  if (canSee('equipos')) return { name: 'Equipos', path: '/catalogo' };
-  if (puedeInicio) return { name: 'Dashboard', path: '/inicio' };
-  return { name: 'More', path: '/mas' };
+  return puedeInicio ? { name: 'Dashboard', path: '/inicio' } : { name: 'More', path: '/mas' };
 }
 
 /** Panel de un rol personalizado cuyo ÚNICO acceso es de combustible (cualquier
@@ -1259,6 +1253,25 @@ export default function RootNavigator() {
   // pantalla de inicio del rol, para que el botón "atrás" del navegador
   // siempre parta de una URL válida en vez de una "/" que ninguna config
   // reconoce (la causa más común de quedarse "sin pantalla" al ir atrás).
+  // ⭐ AL CERRAR SESIÓN O CAMBIAR DE USUARIO (11-nov-2026): la dirección de la página
+  //    (soslaguaira.com/mas/control-pagos…) se quedaba con la pantalla del ANTERIOR; el
+  //    siguiente que entraba en ese mismo navegador caía ahí (o en una pantalla que no
+  //    tiene) en vez de su inicio. Ahora se limpia a «/» y, al entrar, el efecto de abajo
+  //    la lleva a SU inicio. Recargar (F5) con la misma sesión NO pasa por aquí: conserva
+  //    la pantalla donde estaba.
+  const uidAnterior = React.useRef<string | null | undefined>(undefined);
+  React.useEffect(() => {
+    if (loading) return;
+    const uid = loggedInReal ? (session?.user?.id ?? null) : null;
+    const antes = uidAnterior.current;
+    uidAnterior.current = uid;
+    if (antes === undefined || antes === uid || !antes) return; // primera carga, sin cambio, o recién entra
+    if (inQrFlow || Platform.OS !== 'web') return;
+    try {
+      const w: any = globalThis;
+      if (w.location.pathname !== '/') w.history.replaceState({}, '', '/' + w.location.search);
+    } catch {}
+  }, [loading, loggedInReal, session?.user?.id, inQrFlow]);
   React.useEffect(() => {
     if (inQrFlow || Platform.OS !== 'web' || !treeKey) return;
     // El árbol `tabs` no tiene una única "pantalla de inicio" fija: depende del
