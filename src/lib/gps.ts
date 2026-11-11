@@ -231,7 +231,7 @@ export function diasParaVencer(vence: number | string | null | undefined, ahora:
   return Math.floor(((ms as number) - ahora) / 86400000);
 }
 
-export type EquipoCatalogo = { id: string; code?: string | null; plate?: string | null; marca?: string | null; modelo?: string | null; clasificacion?: string | null };
+export type EquipoCatalogo = { id: string; code?: string | null; plate?: string | null; marca?: string | null; modelo?: string | null; clasificacion?: string | null; empresa?: string | null };
 const norm = (s: unknown) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 const compacto = (s: unknown) => norm(s).replace(/\s+/g, '');
 

@@ -300,9 +300,39 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     });
   }
 
+  // ── 📡 CAPA GPS (10-nov-2026): la posición de iTrackSafeX de las máquinas con GPS. Llega por
+  //    mensaje SOLO cuando alguien toca «Actualizar» en la app; se dibuja aparte de los pines
+  //    de siempre (que son la ubicación marcada en el sistema) y no recarga el mapa.
+  var gpsLayer = L.layerGroup().addTo(map);
+  function escH(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+  function drawGps(puntos, foco){
+    gpsLayer.clearLayers();
+    var bb = []; var abrir = null;
+    (puntos || []).forEach(function(p){
+      var lat = Number(p.lat), lng = Number(p.lng);
+      if (!isFinite(lat) || !isFinite(lng)) return;
+      var col = p.viejo ? '#6B7280' : (p.enMarcha ? '#16A34A' : '#7C3AED');
+      var icon = L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
+        html: '<div style="width:26px;height:26px;border-radius:50%;background:' + col + ';border:3px solid #fff;box-shadow:0 0 0 2px ' + col + ',0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;font-size:13px">📡</div>' });
+      var url = (typeof p.url === 'string' && /^https?:[/][/]([a-z0-9-]+[.])*itracksafe[.]com[/]/i.test(p.url)) ? p.url : null;
+      var html = '<b>📡 ' + escH(p.nombre) + '</b><br/>' + (p.lineas || []).map(escH).join('<br/>')
+        + '<br/><a href="https://www.google.com/maps?q=' + lat + ',' + lng + '" target="_blank" rel="noopener">Google Maps</a>'
+        + (url ? ' · <a href="' + escH(url) + '" target="_blank" rel="noopener">Ver recorrido en iTrackSafeX</a>' : '');
+      var m = L.marker([lat, lng], { icon: icon, zIndexOffset: 1000 }).addTo(gpsLayer);
+      m.bindPopup(html);
+      m.bindTooltip('📡 ' + escH(p.nombre), { direction: 'top', offset: [0, -14] });
+      bb.push([lat, lng]);
+      if (foco && foco === p.id) abrir = m;
+    });
+    if (abrir){ map.setView(abrir.getLatLng(), 15); abrir.openPopup(); }
+    else if (foco === '*' && bb.length === 1) map.setView(bb[0], 14);
+    else if (foco === '*' && bb.length > 1) map.fitBounds(bb, { padding: [40, 40], maxZoom: 14 });
+  }
+
   // ── Mensajes desde la app (leyendas y filtros van FUERA del mapa) ──
   window.addEventListener('message', function(e){
     var d = (e && e.data) || {};
+    if (d.type === 'map-gps'){ drawGps(d.puntos, d.foco || null); return; }
     if (d.type === 'map-filter-company'){ currentCompany = d.company || null; refresh(); }
     else if (d.type === 'map-routes'){ routesOn = !!d.on; refresh(); }
     else if (d.type === 'map-zones'){
@@ -339,8 +369,15 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
 </script></body></html>`;
 }
 
-export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets, canEdit = true, locateMode = false, zoneOffsets, zoneEdit = false, showRoutes = false }: {
+/** 📡 Un punto de GPS para la capa del mapa (lo arma la pantalla con lo que respondió iTrackSafeX). */
+export type GpsPinMapa = { id: string; nombre: string; lat: number; lng: number; viejo: boolean; enMarcha: boolean; lineas: string[]; url: string | null };
+
+export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets, canEdit = true, locateMode = false, zoneOffsets, zoneEdit = false, showRoutes = false, gps, gpsFoco }: {
   pins: MapPin[];
+  /** 📡 Capa GPS (10-nov-2026): se manda por mensaje, no recarga el mapa. */
+  gps?: GpsPinMapa[];
+  /** A qué punto GPS ir: su id, '*' = encuadrar todos, null = no mover. Cambia la `n` para repetir. */
+  gpsFoco?: { id: string; n: number } | null;
   onDelete?: (id: string, name?: string) => void;
   selectedCompany?: string | null;
   zones?: Set<number>;
@@ -362,6 +399,10 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
   useEffect(() => { post({ type: 'map-locate-mode', on: locateMode }); }, [locateMode]);
   useEffect(() => { post({ type: 'map-zone-edit', on: zoneEdit }); }, [zoneEdit]);
   useEffect(() => { post({ type: 'map-routes', on: showRoutes }); }, [showRoutes]);
+  // La capa se repinta cuando cambian los puntos (sin mover el mapa); ir a un punto solo
+  // cuando se pide (gpsFoco cambia), así el mapa no salta solo.
+  useEffect(() => { post({ type: 'map-gps', puntos: gps ?? [], foco: null }); }, [gps]);
+  useEffect(() => { if (gpsFoco) post({ type: 'map-gps', puntos: gps ?? [], foco: gpsFoco.id }); }, [gpsFoco]); // eslint-disable-line react-hooks/exhaustive-deps
   // Los desfases de sectores van por mensaje (NO incrustados en el HTML): así al
   // guardar uno no se recarga el mapa (antes el sector "se quitaba" al soltarlo).
   useEffect(() => { post({ type: 'map-zone-offsets', offsets: zoneOffsets ?? {} }); }, [zoneOffsets]);
@@ -375,6 +416,7 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
     post({ type: 'map-locate-mode', on: locateMode });
     post({ type: 'map-zone-edit', on: zoneEdit });
     post({ type: 'map-routes', on: showRoutes });
+    post({ type: 'map-gps', puntos: gps ?? [], foco: null });
   };
   const onLoad = () => pushState();
   useEffect(() => {

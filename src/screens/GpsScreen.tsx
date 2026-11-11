@@ -1,5 +1,7 @@
-// 📡 GPS DE LOS VEHÍCULOS (iTrackSafeX) — 10-nov-2026.
-// Ver la ubicación de uno, varios o todos los vehículos SOLO cuando se toca «Actualizar».
+// 📡 GPS DE LOS VEHÍCULOS (iTrackSafeX) — 10-nov-2026. ADMINISTRAR LOS ENLACES: cargar, renovar,
+// vincular a la máquina del Catálogo (obligatorio) y quitar. La UBICACIÓN se ve en el 🗺️ Mapa
+// de la maquinaria (panel «📡 GPS de las máquinas», components/GpsPanelMapa.tsx). Aquí el 📡 de
+// cada fila sirve para PROBAR que el enlace responde.
 //   · La lista de enlaces se lee UNA vez al abrir (tabla gps_enlaces, permiso «GPS»).
 //   · Las posiciones se piden DIRECTO a iTrackSafeX desde este teléfono/PC, de 5 en 5:
 //     Supabase no recibe ni guarda ninguna (cero escrituras, cero tráfico por consulta).
@@ -15,7 +17,6 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { levelMeets } from '../lib/permissions';
-import { GpsMap, type PuntoGps } from '../components/GpsMap';
 import {
   leerEnlaces, consultarPosicion, enTandas, haceCuanto, frescura, diasParaVencer, sugerirEquipo, nombreVehiculo, urlParaAbrir,
   GPS_TANDA, GPS_AVISO_DIAS, type ResultadoGps, type EquipoCatalogo,
@@ -46,7 +47,6 @@ export default function GpsScreen() {
   const [pidiendo, setPidiendo] = useState<Set<string>>(new Set());
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
-  const [seleccion, setSeleccion] = useState<string | null>(null);
   const [ahora, setAhora] = useState(Date.now());
   // Agregar / renovar enlaces
   const [agregar, setAgregar] = useState(false);
@@ -99,26 +99,9 @@ export default function GpsScreen() {
       return r;
     });
     setAhora(Date.now());
-    if (lista.length === 1) setSeleccion(lista[0].id);
     if (bien < lista.length) toast.warn(`${bien} de ${lista.length} con ubicación. Revisa los que dicen por qué no.`);
     else toast.success(lista.length === 1 ? 'Ubicación actualizada.' : `${bien} vehículos actualizados.`);
   };
-
-  const puntos = useMemo<PuntoGps[]>(() => enlaces.flatMap((e) => {
-    const c = consultas[e.id];
-    if (!c || !c.ok) return [];
-    const fr = frescura(c.reporte, ahora);
-    return [{
-      id: e.id, nombre: nombreVehiculo(e), lat: c.lat, lng: c.lng, viejo: fr === 'viejo', enMarcha: c.enMarcha, rumbo: c.rumbo,
-      url: urlParaAbrir(e),
-      lineas: [
-        `Último reporte: ${haceCuanto(c.reporte, ahora)}${fr === 'viejo' ? ' (fuera de línea)' : ''}`,
-        c.enMarcha ? `🟢 En marcha · ${Math.round(c.velocidad)} km/h` : '⏸️ Detenido',
-        ...(c.estadoTexto ? [c.estadoTexto] : []),
-        `Consultado ${haceCuanto(c.cuando, ahora)}`,
-      ],
-    }];
-  }), [enlaces, consultas, ahora]);
 
   // ── Agregar / renovar ──
   const revisarTexto = async () => {
@@ -151,6 +134,15 @@ export default function GpsScreen() {
   const guardarPropuestas = async () => {
     const buenas = propuestas.filter((p) => p.valido);
     if (!buenas.length) { toast.warn('No hay enlaces vigentes para guardar.'); return; }
+    // ⭐ Cada GPS es de una MÁQUINA DEL CATÁLOGO (obligatorio), y una máquina tiene un solo GPS.
+    if (buenas.some((p) => !p.machineryId)) { toast.warn('Elige la máquina del Catálogo de cada enlace antes de guardar.'); return; }
+    const usadas = new Map<string, string>();
+    for (const p of buenas) {
+      const otra = enlaces.find((e) => e.machineryId === p.machineryId && e.deviceId !== p.deviceId);
+      if (otra) { toast.warn(`${nombreEquipo(p.machineryId)} ya tiene otro GPS (${otra.nombre ?? otra.deviceId}). Quítalo primero o elige otra máquina.`); return; }
+      if (usadas.has(p.machineryId!)) { toast.warn(`Elegiste la misma máquina (${nombreEquipo(p.machineryId)}) para dos GPS.`); return; }
+      usadas.set(p.machineryId!, p.deviceId);
+    }
     setGuardando(true);
     const r = await guardarEnlacesGps(buenas.map(({ valido: _v, mensaje: _m, renuevaA: _r, ...n }) => n), uid);
     setGuardando(false);
@@ -203,7 +195,7 @@ export default function GpsScreen() {
 
   const listaEquipos = (catalogo ?? []).filter((c) => {
     const q = buscaEquipo.trim().toLowerCase();
-    return !q || [c.code, c.plate, c.marca, c.modelo, c.clasificacion].some((v) => String(v ?? '').toLowerCase().includes(q));
+    return !q || [c.code, c.plate, c.marca, c.modelo, c.clasificacion, c.empresa].some((v) => String(v ?? '').toLowerCase().includes(q));
   }).slice(0, 60);
 
   return (
@@ -273,7 +265,7 @@ export default function GpsScreen() {
                     <>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>{p.vence ? `Vale hasta el ${fechaCorta(Date.parse(p.vence))}` : 'Sin fecha de vencimiento'}{p.renuevaA ? ` · renueva el de ${p.renuevaA}` : ''}</Text>
                       <TouchableOpacity onPress={() => { setEligiendo({ tipo: 'propuesta', i }); void cargarCatalogo(); }} style={{ marginTop: 4 }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>🚛 Vehículo del catálogo: {nombreEquipo(p.machineryId)} (cambiar)</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{p.machineryId ? `🚛 Máquina del Catálogo: ${nombreEquipo(p.machineryId)} (cambiar)` : '⚠️ Elige la máquina del Catálogo (obligatorio)'}</Text>
                       </TouchableOpacity>
                     </>
                   ) : <Text style={{ color: colors.danger, fontSize: 12 }}>{p.mensaje} No se guarda.</Text>}
@@ -287,11 +279,10 @@ export default function GpsScreen() {
         </Card>
       ) : null}
 
-      {/* El mapa */}
-      <GpsMap puntos={puntos} seleccion={seleccion} />
-      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, marginBottom: spacing.sm }}>
-        🟢 en marcha · 🔵 detenido · ⚪ gris: la última posición tiene más de 1 hora (equipo fuera de línea).
-      </Text>
+      <Card>
+        <Text style={{ color: colors.text, fontWeight: '800' }}>🗺️ La ubicación se ve en el Mapa de la maquinaria</Text>
+        <Text style={{ color: colors.muted, fontSize: 12 }}>Abre 🗺️ Mapa → «📡 GPS de las máquinas» y toca 📡. Aquí se cargan, renuevan y vinculan los enlaces; el 📡 de cada fila sirve para probar que responde.</Text>
+      </Card>
 
       {/* La lista */}
       {enlaces.length > 6 ? <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar vehículo: nombre, código, placa…" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.xs }]} autoCorrect={false} /> : null}
@@ -308,7 +299,8 @@ export default function GpsScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                 <TouchableOpacity onPress={() => setMarcados((p) => { const n = new Set(p); if (n.has(e.id)) n.delete(e.id); else n.add(e.id); return n; })} style={{ flex: 1 }}>
                   <Text style={{ color: colors.text, fontWeight: '900' }}>{on ? '☑️' : '⬜'} {nombreVehiculo(e)}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11 }}>GPS: {e.nombre || '—'}{e.deviceId ? ` · ${e.deviceId}` : ''}{!e.machineryId ? ' · sin vincular al catálogo' : ''}</Text>
+                  {e.equipo?.empresa || e.equipo?.clasificacion ? <Text style={{ color: colors.muted, fontSize: 11 }}>{[e.equipo?.empresa, e.equipo?.clasificacion].filter(Boolean).join(' · ')}</Text> : null}
+                  <Text style={{ color: e.machineryId ? colors.muted : colors.warning, fontSize: 11 }}>GPS: {e.nombre || '—'}{e.deviceId ? ` · ${e.deviceId}` : ''}{!e.machineryId ? ' · ⚠️ sin máquina del Catálogo: vincúlalo' : ''}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity disabled={pidiendo.has(e.id)} onPress={() => actualizar([e])} style={pill(false)}>
                   <Text style={{ color: colors.brandText, fontWeight: '900' }}>{pidiendo.has(e.id) ? '⏳' : '📡'}</Text>
@@ -316,20 +308,19 @@ export default function GpsScreen() {
               </View>
               {c ? (
                 c.ok ? (
-                  <TouchableOpacity onPress={() => setSeleccion(e.id)}>
+                  <View>
                     <Text style={{ color: fr === 'viejo' ? colors.muted : colors.text, fontSize: 12, marginTop: 2 }}>
                       {fr === 'en_linea' ? '🟢 En línea' : fr === 'reciente' ? '🟡 Hace poco' : '⚪ Fuera de línea'} · último reporte {haceCuanto(c.reporte, ahora)} · {c.enMarcha ? `en marcha ${Math.round(c.velocidad)} km/h` : 'detenido'}
                     </Text>
                     {c.estadoTexto ? <Text style={{ color: colors.muted, fontSize: 11 }}>{c.estadoTexto}</Text> : null}
-                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>🗺️ Ver en el mapa</Text>
-                  </TouchableOpacity>
+                  </View>
                 ) : <Text style={{ color: colors.danger, fontSize: 12, marginTop: 2 }}>⚠️ {c.mensaje}</Text>
               ) : <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Toca 📡 para ver dónde está.</Text>}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: 4 }}>
                 <TouchableOpacity onPress={() => Linking.openURL(urlParaAbrir(e))}><Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>↗️ Abrir en iTrackSafeX</Text></TouchableOpacity>
                 {puedeEditar ? (
                   <>
-                    <TouchableOpacity onPress={() => { setEligiendo({ tipo: 'enlace', id: e.id }); void cargarCatalogo(); }}><Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🚛 {e.machineryId ? 'Cambiar vehículo' : 'Vincular al catálogo'}</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => { setEligiendo({ tipo: 'enlace', id: e.id }); void cargarCatalogo(); }}><Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🚛 {e.machineryId ? 'Cambiar máquina' : 'Vincular a la máquina del Catálogo'}</Text></TouchableOpacity>
                     <TouchableOpacity onPress={() => quitar(e)}><Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>🗑️ Quitar</Text></TouchableOpacity>
                   </>
                 ) : null}
@@ -344,17 +335,14 @@ export default function GpsScreen() {
         <Modal visible transparent animationType="fade" onRequestClose={() => setEligiendo(null)}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.md, zIndex: 9999 }}>
             <View style={{ backgroundColor: colors.background, borderRadius: radius.md, padding: spacing.md, maxWidth: 560, width: '100%', maxHeight: '90%', alignSelf: 'center', gap: spacing.sm }}>
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>🚛 ¿Qué vehículo del catálogo es?</Text>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>🚛 ¿Qué máquina del Catálogo es?</Text>
               <TextInput value={buscaEquipo} onChangeText={setBuscaEquipo} placeholder="🔎 Código, placa, marca, modelo…" placeholderTextColor={colors.muted} style={input} autoCorrect={false} />
               <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 6 }}>
                 {catalogo === null ? <Loading /> : null}
-                <TouchableOpacity onPress={() => elegirEquipo(null)} style={{ padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
-                  <Text style={{ color: colors.muted, fontWeight: '800' }}>— Sin vincular (se ve con el nombre del GPS)</Text>
-                </TouchableOpacity>
                 {listaEquipos.map((c) => (
                   <TouchableOpacity key={c.id} onPress={() => elegirEquipo(c.id)} style={{ padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>{c.code ?? '—'}{c.plate ? ` · ${c.plate}` : ''}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>{[c.marca, c.modelo, c.clasificacion].filter(Boolean).join(' · ')}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>{[c.empresa, c.clasificacion, c.marca, c.modelo].filter(Boolean).join(' · ')}</Text>
                   </TouchableOpacity>
                 ))}
                 {catalogo && listaEquipos.length === 60 ? <Text style={{ color: colors.muted, fontSize: 11 }}>Hay más: escribe para buscar.</Text> : null}

@@ -131,9 +131,37 @@ eq([G.diasParaVencer(AHORA + 10.5 * 86400000, AHORA), G.diasParaVencer(new Date(
   const nav = leer('src/navigation/index.tsx');
   const more = leer('src/screens/MoreScreen.tsx');
   check(/name="Gps" component=\{GpsScreen\}/.test(nav) && /Gps: 'gps'/.test(nav) && /route: 'Gps'.*module: 'gps'/.test(more), 'en «Más» → «GPS de los vehículos»');
-  const mapa = leer('src/components/GpsMap.tsx');
-  check(/integrity="sha256-/.test(mapa), 'el mapa carga Leaflet con su huella (integrity)');
-  check(/sandbox: 'allow-scripts allow-popups allow-popups-to-escape-sandbox'/.test(mapa) && !/allow-same-origin/.test(mapa) && /urlSegura\(p\.url\)/.test(mapa), '🔒 el mapa va aislado de la app y solo enlaza a itracksafe.com');
+  // ⭐ EN EL MISMO MAPA DE LA MAQUINARIA (a pedido): capa 📡 aparte, por mensaje, sin recargar.
+  check(!fs.existsSync(path.join(ROOT, 'src/components/GpsMap.tsx')), 'ya no hay un mapa aparte para el GPS');
+  const vm = leer('src/components/VenezuelaMap.tsx');
+  check(/var gpsLayer = L\.layerGroup\(\)/.test(vm) && /d\.type === 'map-gps'/.test(vm) && /gpsLayer\.clearLayers\(\)/.test(vm), '⭐ el mapa de la maquinaria tiene la capa 📡 GPS (se repinta por mensaje, sin recargar)');
+  check(/escH\(p\.nombre\)/.test(vm) && /itracksafe\[\.\]com\[\/\]\/i\.test\(p\.url\)/.test(vm), '🔒 dentro del mapa: textos escapados y solo enlaces de itracksafe.com');
+  check(/post\(\{ type: 'map-gps', puntos: gps \?\? \[\], foco: null \}\); \}, \[gps\]\)/.test(vm), 'repintar la capa NO mueve el mapa (solo ir a un punto cuando se pide)');
+  const ms = leer('src/screens/MapScreen.tsx');
+  check(/const verGps = moduleLevel\('gps'\) !== 'none'/.test(ms) && /\{verGps \? <GpsPanelMapa/.test(ms) && (ms.match(/gps=\{gpsPins\}/g) || []).length === 2, '⭐ el panel 📡 sale en el Mapa solo con el permiso, y la capa va también en pantalla completa');
+  const panel = leer('src/components/GpsPanelMapa.tsx');
+  check(/consultarPosicion\(e\.authcode\)/.test(panel) && /enTandas\(lista, GPS_TANDA/.test(panel) && !/supabase\./.test(panel), '⭐ en el Mapa: directo a iTrackSafeX, de 5 en 5, sin escribir en Supabase');
+  check(/frescura\(c\.reporte, c\.cuando\)/.test(panel) && /\}\), \[enlaces, consultas\]\);/.test(panel), 'la capa no cambia sola cada minuto (usa la hora de la consulta)');
+  check(/if \(!abierto \|\| enlaces\) return;/.test(panel), 'la lista de enlaces se lee UNA vez y solo si abres el panel');
+  check(/Elige la máquina del Catálogo de cada enlace antes de guardar/.test(scr) && !/Sin vincular \(se ve/.test(scr), '⭐ cada GPS es de una máquina del Catálogo (obligatorio)');
+  check(/ya tiene otro GPS/.test(scr), 'una máquina, un solo GPS');
+  // El script que corre DENTRO del mapa sigue siendo JavaScript válido (si se rompe, se cae el mapa entero).
+  {
+    const Module2 = require('module'); const orig = Module2._load;
+    require.extensions['.ts'] = function (mod, fn) { mod._compile(ts.transpileModule(fs.readFileSync(fn, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019, esModuleInterop: true } }).outputText, fn); };
+    const falso = new Proxy(function () {}, { get: () => new Proxy(function () {}, { get: () => ({}) }) });
+    Module2._load = function (r) { if (r === 'react' || r === 'react-native' || r === './ui' || /theme/.test(r)) return falso; return orig.apply(this, arguments); };
+    try {
+      const abs = path.join(ROOT, 'src/components/VenezuelaMap.tsx');
+      const out = ts.transpileModule(vm + '\nmodule.exports.__buildHtml = buildHtml;', { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019, jsx: ts.JsxEmit.React, esModuleInterop: true } }).outputText;
+      const m = new Module2(abs); m.filename = abs; m.paths = Module2._nodeModulePaths(path.dirname(abs)); m._compile(out, abs);
+      const html = m.exports.__buildHtml([{ id: 'a', name: 'X', lat: 10, lng: -66, active: '1h', operational: true, company: 'C', route: [] }], false, true);
+      const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((x) => x[1]);
+      let compila = scripts.length > 0;
+      for (const sc of scripts) { try { new Function(sc); } catch { compila = false; } }
+      check(compila && scripts.some((sc) => sc.includes('drawGps')), '⭐ el script DENTRO del mapa compila (con la capa GPS)');
+    } finally { Module2._load = orig; }
+  }
   check(/Linking\.openURL\(urlParaAbrir\(e\)\)/.test(scr) && !/e\.url \|\|/.test(scr), '🔒 «Abrir en iTrackSafeX» solo abre enlaces seguros');
   const man = leer('src/screens/ManualScreen.tsx');
   check(/GPS DE LOS VEHÍCULOS/.test(man), 'el manual lo explica');

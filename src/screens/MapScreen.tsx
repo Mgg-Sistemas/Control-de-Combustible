@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, Modal, ScrollView, Dimensions, TextInput 
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useToast } from '../components/ToastProvider';
-import { VenezuelaMap, MapPin, companyLegend, MAP_ZONES } from '../components/VenezuelaMap';
+import { VenezuelaMap, MapPin, companyLegend, MAP_ZONES, type GpsPinMapa } from '../components/VenezuelaMap';
+import { GpsPanelMapa } from '../components/GpsPanelMapa';
 import { supabase } from '../lib/supabase';
 import { nextRtInstanceId } from '../hooks/useRealtime';
 import { elapsedSince } from '../lib/time';
@@ -64,8 +65,13 @@ export default function MapScreen({ navigation, route }: any) {
   const toast = useToast();
   const rtId = useRef(0);
   if (!rtId.current) rtId.current = nextRtInstanceId();
-  const { role } = useAuth();
+  const { role, moduleLevel } = useAuth();
   const isAdmin = role === 'admin';
+  // 📡 GPS (10-nov-2026): la capa de iTrackSafeX en ESTE mapa, solo con el permiso «GPS».
+  const verGps = moduleLevel('gps') !== 'none';
+  const [gpsPins, setGpsPins] = useState<GpsPinMapa[]>([]);
+  const [gpsFoco, setGpsFoco] = useState<{ id: string; n: number } | null>(null);
+  const irAGps = React.useCallback((id: string) => setGpsFoco((f) => ({ id, n: (f?.n ?? 0) + 1 })), []);
   const [pins, setPins] = useState<MapPin[] | null>(null);
   const [refBusy, setRefBusy] = useState(false); // generando el PDF de "Referencias"
   const [trace, setTrace] = useState<TraceRow[]>([]);
@@ -711,7 +717,10 @@ export default function MapScreen({ navigation, route }: any) {
             <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⛶ Ver el mapa en pantalla completa</Text>
           </TouchableOpacity>
 
-          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} zoneOffsets={zoneOffsets} zoneEdit={isAdmin && zoneEdit} showRoutes={showRoutes} />
+          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} zoneOffsets={zoneOffsets} zoneEdit={isAdmin && zoneEdit} showRoutes={showRoutes} gps={gpsPins} gpsFoco={gpsFoco} />
+
+          {/* 📡 GPS de las máquinas (iTrackSafeX): solo con el permiso «GPS». */}
+          {verGps ? <GpsPanelMapa onPuntos={setGpsPins} onFoco={irAGps} /> : null}
 
           {/* Tipo de maquinaria (capas) — DEBAJO del mapa. */}
           {tipoMaqCard}
@@ -947,6 +956,7 @@ export default function MapScreen({ navigation, route }: any) {
               zoneOffsets={zoneOffsets}
               zoneEdit={isAdmin && zoneEdit}
               showRoutes={showRoutes}
+              gps={gpsPins}
             />
           </View>
         </View>

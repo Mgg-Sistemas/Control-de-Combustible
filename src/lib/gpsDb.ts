@@ -15,7 +15,8 @@ export type EnlaceGps = {
   url: string | null;
   vence: string | null;
   machineryId: string | null;
-  equipo: { code: string | null; plate: string | null } | null;
+  /** La máquina del Catálogo a la que pertenece el GPS. */
+  equipo: { code: string | null; plate: string | null; clasificacion: string | null; empresa: string | null } | null;
 };
 
 /** «Esa tabla no existe todavía»: falta correr el SQL del GPS. */
@@ -34,14 +35,14 @@ const fila = (r: any): EnlaceGps => ({
   url: r.url ?? null,
   vence: r.vence ?? null,
   machineryId: r.machinery_id ?? null,
-  equipo: r.machinery ? { code: r.machinery.code ?? null, plate: r.machinery.plate ?? null } : null,
+  equipo: r.machinery ? { code: r.machinery.code ?? null, plate: r.machinery.plate ?? null, clasificacion: r.machinery.clasificacion ?? null, empresa: r.machinery.company?.name ?? null } : null,
 });
 
 /** La lista de enlaces: UNA lectura al abrir la pantalla (unos 6 KB para 30 vehículos). */
 export async function listarEnlacesGps(): Promise<{ enlaces: EnlaceGps[]; faltaSql: boolean; error: string | null }> {
   const { data, error } = await supabase
     .from('gps_enlaces')
-    .select('id, nombre, device_id, authcode, serverid, url, vence, machinery_id, machinery:machinery_id(code, plate)')
+    .select('id, nombre, device_id, authcode, serverid, url, vence, machinery_id, machinery:machinery_id(code, plate, clasificacion, company:company_id(name))')
     .order('nombre', { ascending: true });
   if (error) return { enlaces: [], faltaSql: esFaltaTablaGps(error), error: esFaltaTablaGps(error) ? null : error.message };
   return { enlaces: (data ?? []).map(fila), faltaSql: false, error: null };
@@ -49,10 +50,10 @@ export async function listarEnlacesGps(): Promise<{ enlaces: EnlaceGps[]; faltaS
 
 /** El catálogo para vincular (solo se lee al abrir «Agregar enlaces» o «Vincular»). */
 export async function catalogoParaGps(): Promise<EquipoCatalogo[]> {
-  const rows = await selectAllRows('machinery', 'id, code, plate, marca, modelo, clasificacion, active');
+  const rows = await selectAllRows('machinery', 'id, code, plate, marca, modelo, clasificacion, active, company:company_id(name)');
   return (rows as any[])
     .filter((m) => m.active !== false)
-    .map((m) => ({ id: String(m.id), code: m.code ?? null, plate: m.plate ?? null, marca: m.marca ?? null, modelo: m.modelo ?? null, clasificacion: m.clasificacion ?? null }));
+    .map((m) => ({ id: String(m.id), code: m.code ?? null, plate: m.plate ?? null, marca: m.marca ?? null, modelo: m.modelo ?? null, clasificacion: m.clasificacion ?? null, empresa: m.company?.name ?? null }));
 }
 
 /** Un enlace ya COMPROBADO con iTrackSafeX (por eso siempre trae su deviceId). */
