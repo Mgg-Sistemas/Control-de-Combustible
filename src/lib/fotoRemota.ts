@@ -16,12 +16,24 @@
 //    límite del plan, archivo raro), el `onerror` del <img> vuelve a la foto
 //    original. La ficha nunca sale sin la foto por culpa de esta mejora.
 //
-// PURA (sin imports): se prueba sola en scripts/test-foto-remota.mjs.
+// ⛔ APAGADO EL 11-nov-2026 (USAR_TRANSFORMADOR = false). Supabase avisó: «Storage Image
+//    Transformations 104 / 100 (104%)… you have exceeded your Pro Plan quota». El plan trae
+//    100 fotos ORIGINALES transformadas por ciclo de cobro y el Catálogo tiene ~271 fotos de
+//    equipo: cada ficha técnica nueva gastaba cuota, y con el tope de gasto encendido Supabase
+//    puede restringir. Desde el 21-oct las fotos NUEVAS ya se suben achicadas (1600 px,
+//    photo.ts), así que el transformador solo le servía a las viejas pesadas. Ahora el papel
+//    pide la foto ORIGINAL (cero transformaciones). El código queda para volver a encenderlo
+//    si algún día conviene (p. ej. sin tope de gasto: ~5 $ por cada 1.000 fotos).
+//
+// PURA (sin imports): se prueba en scripts/test-ficha-tecnica-maquina.mjs.
 
 /** Cómo se sirve un archivo público del Storage… */
 export const RUTA_PUBLICA = '/storage/v1/object/public/';
 /** …y cómo se le pide al transformador que lo achique. */
 export const RUTA_RENDER = '/storage/v1/render/image/public/';
+
+/** ⛔ El transformador de imágenes de Supabase: APAGADO (cuota del plan, ver arriba). */
+export const USAR_TRANSFORMADOR = false;
 
 /** Lo que cabe bien en una hoja impresa sin arrastrar megas. */
 export const ANCHO_PAPEL = 1100;
@@ -32,8 +44,10 @@ export const CALIDAD_PAPEL = 65;
  * público del Storage (una `data:`, una foto de otro servidor, un vacío): no se
  * inventa un enlace que no existe.
  */
-export function fotoLigeraUrl(url: string | null | undefined, ancho = ANCHO_PAPEL, calidad = CALIDAD_PAPEL): string {
+export function fotoLigeraUrl(url: string | null | undefined, ancho = ANCHO_PAPEL, calidad = CALIDAD_PAPEL, usar = USAR_TRANSFORMADOR): string {
   const u = String(url ?? '').trim();
+  // Apagado: la foto tal cual (no gasta cuota de transformaciones).
+  if (!usar) return u;
   if (!u || !u.includes(RUTA_PUBLICA)) return u;
   // Una URL ya transformada no se transforma dos veces.
   if (u.includes(RUTA_RENDER)) return u;

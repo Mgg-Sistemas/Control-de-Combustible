@@ -225,29 +225,30 @@ ok('el formulario del Catálogo edita peso y dimensiones de la ficha',
 const FR = loadTs(path.join(ROOT, 'src/lib/fotoRemota.ts'));
 {
   const publica = 'https://xyz.supabase.co/storage/v1/object/public/machinery/abc/123.jpg';
-  ok('⭐⭐ una foto pública del Storage se pide REDUCIDA (misma foto, menos megas)',
-    FR.fotoLigeraUrl(publica) === 'https://xyz.supabase.co/storage/v1/render/image/public/machinery/abc/123.jpg?width=1100&quality=65');
-  ok('* lo que no es del Storage se deja intacto (no se inventa un enlace)',
-    FR.fotoLigeraUrl('https://otra.com/foto.jpg') === 'https://otra.com/foto.jpg'
-    && FR.fotoLigeraUrl('data:image/png;base64,AAA') === 'data:image/png;base64,AAA'
-    && FR.fotoLigeraUrl(null) === '' && FR.fotoLigeraUrl(undefined) === '');
-  ok('* una URL con query conserva la suya', /\?t=9&width=1100&quality=65$/.test(FR.fotoLigeraUrl(`${publica}?t=9`)));
-  ok('* y una ya transformada no se transforma dos veces',
-    FR.fotoLigeraUrl(FR.fotoLigeraUrl(publica)) === FR.fotoLigeraUrl(publica));
-  // ⭐ SIEMPRE CON RESPALDO: si el transformador falla, vuelve la original.
+  // ⛔ 11-nov-2026: el transformador quedó APAGADO (Supabase: «Storage Image Transformations
+  //    104 / 100», cuota del plan). La ficha pide la foto ORIGINAL: cero transformaciones.
+  ok('⭐⭐ APAGADO: el papel pide la foto ORIGINAL (no gasta la cuota de transformaciones)',
+    FR.USAR_TRANSFORMADOR === false && FR.fotoLigeraUrl(publica) === publica && FR.fotoLigeraUrl(`${publica}?t=9`) === `${publica}?t=9`);
   const img = FR.imgPapel(publica);
-  ok('⭐⭐ el <img> cae solo a la foto ORIGINAL si la reducida falla',
-    /render\/image/.test(img)
-    && img.includes(`data-orig="${publica}"`)
-    && img.includes('onerror="this.onerror=null;this.src=this.dataset.orig"'));
+  ok('⭐⭐ el <img> de la ficha va directo a la original, sin render/image',
+    img === `<img src="${publica}" alt=""/>` && !/render\/image/.test(img));
+  // La lógica del transformador sigue probada (por si se vuelve a encender), con usar = true.
+  ok('* (encendido) una foto pública del Storage se pediría REDUCIDA',
+    FR.fotoLigeraUrl(publica, 1100, 65, true) === 'https://xyz.supabase.co/storage/v1/render/image/public/machinery/abc/123.jpg?width=1100&quality=65');
+  ok('* (encendido) lo que no es del Storage se deja intacto (no se inventa un enlace)',
+    FR.fotoLigeraUrl('https://otra.com/foto.jpg', 1100, 65, true) === 'https://otra.com/foto.jpg'
+    && FR.fotoLigeraUrl('data:image/png;base64,AAA', 1100, 65, true) === 'data:image/png;base64,AAA'
+    && FR.fotoLigeraUrl(null) === '' && FR.fotoLigeraUrl(undefined) === '');
+  ok('* (encendido) una URL con query conserva la suya', /\?t=9&width=1100&quality=65$/.test(FR.fotoLigeraUrl(`${publica}?t=9`, 1100, 65, true)));
+  ok('* (encendido) y una ya transformada no se transforma dos veces',
+    FR.fotoLigeraUrl(FR.fotoLigeraUrl(publica, 1100, 65, true), 1100, 65, true) === FR.fotoLigeraUrl(publica, 1100, 65, true));
   ok('* sin foto no hay etiqueta (lo vacío no sale, regla de la ficha)', FR.imgPapel(null) === '' && FR.imgPapel('  ') === '');
   // ⛔ SEGURIDAD: lo guardado en la base se imprime como HTML. Ni la URL arma
   //    código (va en data-orig, el onerror es fijo) ni pasa otro esquema.
   const sucia = "https://xyz.supabase.co/storage/v1/object/public/machinery/a'+alert(1)+'.jpg";
   const imgSucia = FR.imgPapel(sucia);
-  ok('⭐⭐ una comilla guardada en la URL NO se cuela al onerror (nada de JavaScript armado)',
-    imgSucia.includes('onerror="this.onerror=null;this.src=this.dataset.orig"')
-    && !/onerror="[^"]*alert/.test(imgSucia));
+  ok('⭐⭐ una comilla guardada en la URL NO arma JavaScript (no hay onerror; la comilla va escapada)',
+    !/onerror/.test(imgSucia) && imgSucia.startsWith('<img src="https://xyz.supabase.co/'));
   ok('⭐ un enlace que no es foto (javascript:, file:…) no se imprime',
     FR.imgPapel('javascript:alert(1)') === '' && FR.imgPapel('file:///etc/passwd') === ''
     && FR.urlDeFotoSegura('data:image/png;base64,AAA') === 'data:image/png;base64,AAA');
