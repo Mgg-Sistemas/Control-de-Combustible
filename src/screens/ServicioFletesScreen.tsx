@@ -41,6 +41,16 @@ import {
   MAX_LUGAR_FLETE,
 } from '../lib/fleteRutaTraslado';
 import { cargarRutasDeTraslados, cargarViajesVinculados } from '../lib/fleteRutaTrasladoDb';
+import {
+  descargarPlantillaFletes,
+  descargarRelacionExcel,
+  elegirExcel,
+  leerExcelFletes,
+  validarFilasFletes,
+  fechaDeCelda,
+  type FilaValidada,
+  type FilaExcelFlete,
+} from '../lib/fletesExcel';
 
 // 🚫 Exento (26/10/2026): se registra pero no se cobra ni se paga. Gris pizarra,
 // para que no se confunda con el azul de «por pagar» ni el verde de «por cobrar».
@@ -775,13 +785,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
   //    Sin montos; entran todos los fletes de la selección. Lo que el flete no tiene escrito
   //    (chofer, equipo, quién autoriza, ruta) se completa con Traslados y salidas del MISMO
   //    chuto ese día — solo se LEEN, una vez, al generar.
-  const imprimirRelacionViajes = async () => {
-    if (filteredFletes.length === 0) {
-      toast.error('No hay fletes en la selección para exportar.');
-      return;
-    }
-    setPdfBusy(true);
-    try {
+  const armarRelacion = async () => {
       let traslados: TrasladoRuta[] = [];
       try {
         traslados = await cargarRutasDeTraslados();
@@ -815,6 +819,17 @@ export default function ServicioFletesScreen({ navigation }: any) {
           destino: p.destino,
         }, traslados, vinculados);
       });
+      return { coName, filas, notas };
+  };
+
+  const imprimirRelacionViajes = async () => {
+    if (filteredFletes.length === 0) {
+      toast.error('No hay fletes en la selección para exportar.');
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      const { coName, filas } = await armarRelacion();
       await exportarRelacionViajesFletes({
         companyName: coName,
         periodLabel: `Del ${fmtDate(dateFrom)} al ${fmtDate(dateTo)}`,
@@ -824,6 +839,87 @@ export default function ServicioFletesScreen({ navigation }: any) {
       toast.error('Error al generar la relación: ' + (err?.message || err));
     } finally {
       setPdfBusy(false);
+    }
+  };
+
+  // ── 📊 EXCEL (11-nov-2026): plantilla, relación en Excel y carga con validación ──
+  const [excelBusy, setExcelBusy] = useState(false);
+  const [cargaExcel, setCargaExcel] = useState<{ filas: FilaValidada[]; incluir: Set<number> } | null>(null);
+  const [guardandoExcel, setGuardandoExcel] = useState(false);
+  const vehiculosRef = useMemo(() => machinery.map((m) => ({ id: m.id, code: m.code, plate: m.plate ?? null, company_id: (m as any).company_id ?? null })), [machinery]);
+
+  const bajarPlantilla = () => {
+    if (!descargarPlantillaFletes(vehiculosRef, companies)) toast.info('La plantilla se descarga desde la PC (navegador).');
+  };
+
+  // La relación en Excel: las MISMAS filas que el PDF + tipo, precio, empresa, cliente y nota.
+  const bajarRelacionExcel = async () => {
+    if (filteredFletes.length === 0) { toast.error('No hay fletes en la selección para exportar.'); return; }
+    setExcelBusy(true);
+    try {
+      const { coName, filas, notas } = await armarRelacion();
+      const xls: FilaExcelFlete[] = filteredFletes.map((f, i) => ({
+        fecha: f.flete_date, chofer: filas[i].chofer, vehiculo: filas[i].vehiculo, equipo: filas[i].equipo,
+        origen: filas[i].origen, destino: filas[i].destino, viajes: filas[i].viajes, autoriza: filas[i].autoriza,
+        tipo: notas[i].operacionTipo, precio: Number(f.precio) || 0, empresa: f.company?.name || companies.find((c) => c.id === f.company_id)?.name || '',
+        cliente: notas[i].cliente || '', nota: notas[i].detalle || '',
+      }));
+      if (!descargarRelacionExcel(xls, vehiculosRef, companies, `Relacion de viajes - ${coName} - ${dateFrom} a ${dateTo}`)) toast.info('El Excel se descarga desde la PC (navegador).');
+    } catch (err: any) {
+      toast.error('Error al generar el Excel: ' + (err?.message || err));
+    } finally {
+      setExcelBusy(false);
+    }
+  };
+
+  // Subir: se LEE y se VALIDA; nada se guarda hasta confirmar en la vista previa.
+  const subirExcel = async () => {
+    const data = await elegirExcel();
+    if (!data) return;
+    setExcelBusy(true);
+    try {
+      const leido = leerExcelFletes(data);
+      if (leido.error) { toast.error(leido.error); return; }
+      // Lo que ya está en el sistema esas fechas (para no repetir): una lectura, columnas mínimas.
+      const fechas = [...new Set(leido.filas.map((f) => fechaDeCelda(f.fecha)).filter(Boolean) as string[])];
+      let existentes: any[] = [];
+      for (let i = 0; i < fechas.length; i += 100) {
+        const { data: ex, error } = await supabase.from('fletes').select('flete_date, machinery_id, viajes, note').in('flete_date', fechas.slice(i, i + 100));
+        if (error) throw new Error('No se pudieron revisar los fletes que ya existen: ' + error.message + '. No se cargó nada.');
+        existentes = existentes.concat(ex ?? []);
+      }
+      const filas = validarFilasFletes(leido.filas, { vehiculos: vehiculosRef, empresas: companies, existentes });
+      setCargaExcel({ filas, incluir: new Set(filas.filter((f) => f.estado === 'nueva').map((f) => f.n)) });
+    } catch (err: any) {
+      toast.error(err?.message || String(err));
+    } finally {
+      setExcelBusy(false);
+    }
+  };
+
+  const guardarCargaExcel = async () => {
+    if (!cargaExcel) return;
+    const aGuardar = cargaExcel.filas.filter((f) => f.insertar && f.estado !== 'error' && cargaExcel.incluir.has(f.n));
+    if (!aGuardar.length) { toast.warn('No hay filas marcadas para guardar.'); return; }
+    setGuardandoExcel(true);
+    let guardadas = 0;
+    try {
+      for (let i = 0; i < aGuardar.length; i += 100) {
+        const tramo = aGuardar.slice(i, i + 100);
+        const { data, error } = await supabase.from('fletes').insert(tramo.map((f) => f.insertar!)).select('id');
+        if (error) throw new Error(error.message);
+        // La base puede rechazar sin error y con 0 filas: no se dice «listo» si no se guardó.
+        if ((data ?? []).length !== tramo.length) throw new Error('La base no aceptó todas las filas (¿tienes permiso para registrar fletes?).');
+        guardadas += tramo.length;
+      }
+      toast.success(`${guardadas} flete(s) cargado(s) desde Excel.`);
+      setCargaExcel(null);
+      await loadData();
+    } catch (err: any) {
+      toast.error(`Se guardaron ${guardadas} de ${aGuardar.length}. Error: ${err?.message || err}`);
+      if (guardadas) await loadData();
+    } finally {
+      setGuardandoExcel(false);
     }
   };
 
@@ -924,6 +1020,20 @@ export default function ServicioFletesScreen({ navigation }: any) {
               <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>
                 💲 Consolidado con montos (PDF)
               </Text>
+            </TouchableOpacity>
+
+            {/* 📊 Excel (11-nov-2026): plantilla, relación en Excel y subir con validación. */}
+            <TouchableOpacity onPress={bajarRelacionExcel} disabled={excelBusy || filteredFletes.length === 0}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#15803D', opacity: filteredFletes.length === 0 ? 0.5 : 1 }}>
+              <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 13 }}>📊 Relación en Excel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={bajarPlantilla}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#15803D' }}>
+              <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 13 }}>📥 Plantilla Excel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={subirExcel} disabled={excelBusy}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: '#15803D', opacity: excelBusy ? 0.6 : 1 }}>
+              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 13 }}>{excelBusy ? '⏳ Leyendo…' : '📤 Subir Excel'}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1471,6 +1581,59 @@ export default function ServicioFletesScreen({ navigation }: any) {
       </Card>
 
       {/* Modal: Filtro de Camión / Máquina */}
+      {/* 📤 VISTA PREVIA DE LA CARGA POR EXCEL: nada se guarda hasta confirmar. */}
+      {cargaExcel ? (() => {
+        const nuevas = cargaExcel.filas.filter((f) => f.estado === 'nueva').length;
+        const repetidas = cargaExcel.filas.filter((f) => f.estado === 'repetida_archivo' || f.estado === 'repetida_sistema').length;
+        const errores = cargaExcel.filas.filter((f) => f.estado === 'error').length;
+        const marcadas = cargaExcel.filas.filter((f) => f.estado !== 'error' && cargaExcel.incluir.has(f.n)).length;
+        const alternar = (n: number) => setCargaExcel((c) => { if (!c) return c; const inc = new Set(c.incluir); if (inc.has(n)) inc.delete(n); else inc.add(n); return { ...c, incluir: inc }; });
+        return (
+          <Modal visible transparent animationType="fade" onRequestClose={() => !guardandoExcel && setCargaExcel(null)}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.md, zIndex: 9999 }}>
+              <View style={{ backgroundColor: colors.background, borderRadius: radius.md, padding: spacing.md, maxWidth: 900, width: '100%', maxHeight: '92%', alignSelf: 'center', gap: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 17 }}>📤 Revisar antes de cargar</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Nada se ha guardado todavía. Se van a cargar solo las filas marcadas.</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  <Text style={{ color: '#15803D', fontWeight: '900' }}>✅ {nuevas} nueva(s)</Text>
+                  <Text style={{ color: colors.warning, fontWeight: '900' }}>   🔁 {repetidas} repetida(s) (no se suben salvo que las marques)</Text>
+                  <Text style={{ color: colors.danger, fontWeight: '900' }}>   ❌ {errores} con error (no se suben)</Text>
+                </View>
+                <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 6 }}>
+                  {cargaExcel.filas.map((f) => {
+                    const esError = f.estado === 'error';
+                    const esRep = f.estado === 'repetida_archivo' || f.estado === 'repetida_sistema';
+                    const on = !esError && cargaExcel.incluir.has(f.n);
+                    const color = esError ? colors.danger : esRep ? colors.warning : '#15803D';
+                    return (
+                      <TouchableOpacity key={f.n} disabled={esError} onPress={() => alternar(f.n)}
+                        style={{ padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderLeftWidth: 5, borderColor: colors.border, borderLeftColor: color, backgroundColor: colors.surface, opacity: esError || on ? 1 : 0.7 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                          {esError ? '❌' : on ? '☑️' : '⬜'} Fila {f.n} · {f.ver.fecha} · {f.ver.vehiculo} · {f.ver.viajes} viaje(s) · {f.ver.tipo}{f.ver.precio ? ` · $${f.ver.precio}` : ''}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                          {[f.ver.empresa, f.ver.chofer, f.ver.origen || f.ver.destino ? `${f.ver.origen || '—'} → ${f.ver.destino || '—'}` : ''].filter(Boolean).join(' · ')}
+                        </Text>
+                        {f.errores.map((e, i) => <Text key={`e${i}`} style={{ color: colors.danger, fontSize: 11.5 }}>• {e}</Text>)}
+                        {f.avisos.map((a, i) => <Text key={`a${i}`} style={{ color: colors.warning, fontSize: 11.5 }}>• {a}{esRep ? ' Toca para subirla igual.' : ''}</Text>)}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'flex-end' }}>
+                  <TouchableOpacity disabled={guardandoExcel} onPress={() => setCargaExcel(null)} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar (no cargar nada)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity disabled={guardandoExcel || marcadas === 0} onPress={guardarCargaExcel} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: '#15803D', opacity: marcadas === 0 ? 0.5 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '900' }}>{guardandoExcel ? 'Guardando…' : `💾 Cargar ${marcadas} flete(s)`}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        );
+      })() : null}
+
       <Modal visible={filterMachineModal} transparent animationType="fade" onRequestClose={() => setFilterMachineModal(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, maxHeight: '80%', borderWidth: 1, borderColor: colors.border }}>
