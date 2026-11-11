@@ -5,6 +5,7 @@
 import React, { useMemo } from 'react';
 import { Platform, View, Text, TouchableOpacity, Linking } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
+import { urlSegura } from '../lib/gps';
 import { spacing, radius } from '../theme';
 
 export type PuntoGps = {
@@ -25,13 +26,13 @@ export type PuntoGps = {
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 function armarHtml(puntos: PuntoGps[], seleccion: string | null): string {
-  const datos = JSON.stringify(puntos.map((p) => ({
+  const datos = JSON.stringify(puntos.map((p) => { const url = urlSegura(p.url); return {
     id: p.id, lat: p.lat, lng: p.lng, viejo: p.viejo, enMarcha: p.enMarcha, rumbo: p.rumbo,
     nombre: esc(p.nombre),
     html: '<b>' + esc(p.nombre) + '</b><br/>' + p.lineas.map(esc).join('<br/>')
       + '<br/><a href="https://www.google.com/maps?q=' + p.lat + ',' + p.lng + '" target="_blank" rel="noopener">Google Maps</a>'
-      + (p.url ? ' · <a href="' + esc(p.url) + '" target="_blank" rel="noopener">Ver en iTrackSafeX</a>' : ''),
-  }))).replace(/</g, '\\u003c');
+      + (url ? ' · <a href="' + esc(url) + '" target="_blank" rel="noopener">Ver en iTrackSafeX</a>' : ''),
+  }; })).replace(/</g, '\\u003c');
   const sel = JSON.stringify(seleccion);
   return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
@@ -75,6 +76,8 @@ export function GpsMap({ puntos, seleccion = null, height = 420 }: { puntos: Pun
     return React.createElement('iframe' as any, {
       srcDoc: html,
       title: 'Mapa GPS',
+      // 🔒 Aislado de la app (origen propio): puede correr Leaflet y abrir enlaces en otra pestaña, nada más.
+      sandbox: 'allow-scripts allow-popups allow-popups-to-escape-sandbox',
       allow: 'fullscreen',
       style: { width: '100%', height, border: `1px solid ${colors.border}`, borderRadius: radius.md },
     } as any);

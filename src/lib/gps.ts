@@ -59,21 +59,38 @@ export function leerEnlaces(texto: string): EnlaceLeido[] {
     const a = RX_AUTH.exec(url);
     const antes = src.slice(desde, m.index);
     desde = m.index + m[0].length;
-    if (!a) continue;
+    if (!a || !urlSegura(url)) continue; // solo enlaces de itracksafe.com
     const authcode = a[1].toLowerCase();
     if (vistos.has(authcode)) continue;
     vistos.add(authcode);
-    const sv = /serverid=([0-9a-zA-Z_-]+)/.exec(url);
+    const sv = /serverid=(\d{1,4})(?!\d)/.exec(url);
+    const serverid = sv ? sv[1] : '0';
     // El nombre: lo que hay entre «view» y «track» en el texto de ANTES del enlace.
     const n = /view\s+(.+?)\s+track/i.exec(antes) ?? /ver\s+(?:el\s+)?(?:recorrido\s+de\s+)?(.+?)\s*[,:：]/i.exec(antes);
-    out.push({ nombre: n ? n[1].trim() : null, authcode, serverid: sv ? sv[1] : '0', url });
+    // 🔒 Lo pegado NO se guarda tal cual: el enlace se REARMA con el código y el servidor.
+    out.push({ nombre: n ? n[1].trim().slice(0, 80) : null, authcode, serverid, url: urlDeEnlace(authcode, serverid) });
   }
   return out;
 }
 
 /** La dirección para abrir el enlace en la página de iTrackSafeX (si no se guardó el original). */
 export const urlDeEnlace = (authcode: string, serverid = '0') =>
-  `http://itracksafe.com/#/tracking?authcode=${authcode}&language=es&serverid=${serverid}`;
+  `http://itracksafe.com/#/tracking?authcode=${encodeURIComponent(authcode)}&language=es&serverid=${encodeURIComponent(serverid)}`;
+
+/**
+ * 🔒 Solo direcciones http(s) de itracksafe.com. Todo enlace que se pinta o se abre pasa por
+ * aquí: un «javascript:» o una página ajena guardados en la base no llegan a la pantalla.
+ */
+export function urlSegura(u: string | null | undefined): string | null {
+  try {
+    const x = new URL(String(u ?? ''));
+    return (x.protocol === 'https:' || x.protocol === 'http:') && /(^|\.)itracksafe\.com$/i.test(x.hostname) ? x.href : null;
+  } catch { return null; }
+}
+
+/** Lo que se abre al tocar «Abrir en iTrackSafeX»: el guardado si es seguro; si no, se rearma. */
+export const urlParaAbrir = (e: { url?: string | null; authcode: string; serverid?: string | null }) =>
+  urlSegura(e.url) ?? urlDeEnlace(e.authcode, e.serverid ?? '0');
 
 export type PosicionGps = {
   ok: true;

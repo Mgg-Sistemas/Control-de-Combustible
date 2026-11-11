@@ -38,6 +38,12 @@ eq(L.map((x) => x.nombre), ['Fordterritory', 'Gandola Trakker Iveco'], '⭐ saca
 eq(L[0].serverid, '0', 'guarda el serverid');
 check(L[0].url.startsWith('http://itracksafe.com/#/tracking?authcode='), 'guarda el enlace para abrirlo en iTrackSafeX');
 eq(G.leerEnlaces('hola, nada por aquí'), [], 'sin enlaces: lista vacía');
+// 🔒 Seguridad: lo pegado no se guarda tal cual, y solo se abren enlaces de itracksafe.com
+eq(G.leerEnlaces(`https://evil.example/x?authcode=${A1}`), [], '🔒 un enlace de OTRA página con authcode se ignora');
+eq(G.leerEnlaces(`http://itracksafe.com.evil.example/#/tracking?authcode=${A1}`), [], '🔒 tampoco uno que solo se PARECE (itracksafe.com.otro)');
+eq(G.leerEnlaces(`http://itracksafe.com/#/tracking?authcode=${A1}&serverid=0"><script>x</script>`)[0].url, `http://itracksafe.com/#/tracking?authcode=${A1}&language=es&serverid=0`, '🔒 el enlace se REARMA con código y servidor (lo pegado no se guarda)');
+eq([G.urlSegura('javascript:alert(1)'), G.urlSegura('https://evil.example/'), G.urlSegura('https://web.itracksafe.com/x')], [null, null, 'https://web.itracksafe.com/x'], '🔒 urlSegura: solo http(s) de itracksafe.com');
+eq(G.urlParaAbrir({ url: 'javascript:alert(1)', authcode: A1, serverid: '0' }), `http://itracksafe.com/#/tracking?authcode=${A1}&language=es&serverid=0`, '🔒 si lo guardado no es seguro, se abre el rearmado');
 eq(G.leerEnlaces(`http://itracksafe.com/#/tracking?authcode=${A1}`)[0].nombre, null, 'un enlace solo (sin texto) también sirve');
 
 // ── 2) Entender la respuesta ──
@@ -127,6 +133,8 @@ eq([G.diasParaVencer(AHORA + 10.5 * 86400000, AHORA), G.diasParaVencer(new Date(
   check(/name="Gps" component=\{GpsScreen\}/.test(nav) && /Gps: 'gps'/.test(nav) && /route: 'Gps'.*module: 'gps'/.test(more), 'en «Más» → «GPS de los vehículos»');
   const mapa = leer('src/components/GpsMap.tsx');
   check(/integrity="sha256-/.test(mapa), 'el mapa carga Leaflet con su huella (integrity)');
+  check(/sandbox: 'allow-scripts allow-popups allow-popups-to-escape-sandbox'/.test(mapa) && !/allow-same-origin/.test(mapa) && /urlSegura\(p\.url\)/.test(mapa), '🔒 el mapa va aislado de la app y solo enlaza a itracksafe.com');
+  check(/Linking\.openURL\(urlParaAbrir\(e\)\)/.test(scr) && !/e\.url \|\|/.test(scr), '🔒 «Abrir en iTrackSafeX» solo abre enlaces seguros');
   const man = leer('src/screens/ManualScreen.tsx');
   check(/GPS DE LOS VEHÍCULOS/.test(man), 'el manual lo explica');
 }

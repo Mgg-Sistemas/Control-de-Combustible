@@ -17,7 +17,7 @@ import { spacing, radius } from '../theme';
 import { levelMeets } from '../lib/permissions';
 import { GpsMap, type PuntoGps } from '../components/GpsMap';
 import {
-  leerEnlaces, consultarPosicion, enTandas, haceCuanto, frescura, diasParaVencer, sugerirEquipo, nombreVehiculo, urlDeEnlace,
+  leerEnlaces, consultarPosicion, enTandas, haceCuanto, frescura, diasParaVencer, sugerirEquipo, nombreVehiculo, urlParaAbrir,
   GPS_TANDA, GPS_AVISO_DIAS, type ResultadoGps, type EquipoCatalogo,
 } from '../lib/gps';
 import { listarEnlacesGps, catalogoParaGps, guardarEnlacesGps, vincularEnlaceGps, borrarEnlaceGps, type EnlaceGps, type EnlaceNuevo } from '../lib/gpsDb';
@@ -110,7 +110,7 @@ export default function GpsScreen() {
     const fr = frescura(c.reporte, ahora);
     return [{
       id: e.id, nombre: nombreVehiculo(e), lat: c.lat, lng: c.lng, viejo: fr === 'viejo', enMarcha: c.enMarcha, rumbo: c.rumbo,
-      url: e.url || urlDeEnlace(e.authcode, e.serverid),
+      url: urlParaAbrir(e),
       lineas: [
         `Último reporte: ${haceCuanto(c.reporte, ahora)}${fr === 'viejo' ? ' (fuera de línea)' : ''}`,
         c.enMarcha ? `🟢 En marcha · ${Math.round(c.velocidad)} km/h` : '⏸️ Detenido',
@@ -326,7 +326,7 @@ export default function GpsScreen() {
                 ) : <Text style={{ color: colors.danger, fontSize: 12, marginTop: 2 }}>⚠️ {c.mensaje}</Text>
               ) : <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Toca 📡 para ver dónde está.</Text>}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: 4 }}>
-                <TouchableOpacity onPress={() => Linking.openURL(e.url || urlDeEnlace(e.authcode, e.serverid))}><Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>↗️ Abrir en iTrackSafeX</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => Linking.openURL(urlParaAbrir(e))}><Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>↗️ Abrir en iTrackSafeX</Text></TouchableOpacity>
                 {puedeEditar ? (
                   <>
                     <TouchableOpacity onPress={() => { setEligiendo({ tipo: 'enlace', id: e.id }); void cargarCatalogo(); }}><Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🚛 {e.machineryId ? 'Cambiar vehículo' : 'Vincular al catálogo'}</Text></TouchableOpacity>
