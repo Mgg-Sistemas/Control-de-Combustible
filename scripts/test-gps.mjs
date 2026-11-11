@@ -164,7 +164,7 @@ eq([G.diasParaVencer(AHORA + 10.5 * 86400000, AHORA), G.diasParaVencer(new Date(
   }
   check(/Linking\.openURL\(urlParaAbrir\(e\)\)/.test(scr) && !/e\.url \|\|/.test(scr), '🔒 «Abrir en iTrackSafeX» solo abre enlaces seguros');
   const man = leer('src/screens/ManualScreen.tsx');
-  check(/GPS DE LOS VEHÍCULOS/.test(man), 'el manual lo explica');
+  check(/GPS DE LAS MÁQUINAS/.test(man) && /panel «📡 GPS de las máquinas»/.test(man), 'el manual lo explica (en el Mapa)');
 }
 
 // ── 8) (Opcional) un enlace REAL ──
