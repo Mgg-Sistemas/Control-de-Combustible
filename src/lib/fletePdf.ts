@@ -73,6 +73,9 @@ export interface ParsedFleteNote {
   conductor?: string;
   cedulaConductor?: string;
   cliente?: string;
+  /** 🧾 El equipo que se trasladó (EQ:) y quién lo autoriza (AUT:) — 11-nov-2026. */
+  equipo?: string;
+  autoriza?: string;
   detalle: string;
   viajeIds?: string[];
   tickets?: string[];
@@ -88,6 +91,8 @@ export function parseFleteNote(raw?: string | null): ParsedFleteNote {
   let conductor = '';
   let cedulaConductor = '';
   let cliente = '';
+  let equipo = '';
+  let autoriza = '';
   let detalle = str;
   let viajeIds: string[] = [];
   let tickets: string[] = [];
@@ -110,10 +115,12 @@ export function parseFleteNote(raw?: string | null): ParsedFleteNote {
     conductor = valorMeta(meta, 'CHOF') ?? '';
     cedulaConductor = valorMeta(meta, 'CI') ?? '';
     cliente = valorMeta(meta, 'CLIENTE') ?? '';
+    equipo = valorMeta(meta, 'EQ') ?? '';
+    autoriza = valorMeta(meta, 'AUT') ?? '';
     viajeIds = (valorMeta(meta, 'VIAJES_IDS') ?? '').split(',').map((x) => x.trim()).filter(Boolean);
     tickets = (valorMeta(meta, 'TICKETS') ?? '').split(',').map((x) => x.trim()).filter(Boolean);
   }
-  return { operacionTipo, operacionEstado, modalidad, origen, destino, conductor, cedulaConductor, cliente, detalle, viajeIds, tickets };
+  return { operacionTipo, operacionEstado, modalidad, origen, destino, conductor, cedulaConductor, cliente, equipo, autoriza, detalle, viajeIds, tickets };
 }
 
 /**
@@ -158,6 +165,8 @@ export function formatFleteNote(opts: {
   conductor?: string;
   cedulaConductor?: string;
   cliente?: string;
+  equipo?: string;
+  autoriza?: string;
   detalle?: string;
   viajeIds?: string[];
   tickets?: string[];
@@ -173,6 +182,8 @@ export function formatFleteNote(opts: {
     ['CHOF', opts.conductor],
     ['CI', opts.cedulaConductor],
     ['CLIENTE', opts.cliente],
+    ['EQ', opts.equipo],
+    ['AUT', opts.autoriza],
   ];
   for (const [clave, valor] of campos) {
     const limpio = limpiarCampoNota(valor);
@@ -211,6 +222,8 @@ export function rehacerNotaFlete(
     conductor: p.conductor,
     cedulaConductor: p.cedulaConductor,
     cliente: p.cliente,
+    equipo: p.equipo,
+    autoriza: p.autoriza,
     detalle: p.detalle,
     viajeIds: p.viajeIds,
     tickets: p.tickets,
@@ -885,4 +898,105 @@ export async function exportarReporteConsolidadoFletes(opts: FleteReportOpts): P
 
   const safeTitle = (machineCode || companyName || 'Fletes').replace(/\s+/g, '_');
   return await exportPdf(html, `Relacion_Fletes_${safeTitle}_${nowStamp().replace(/[^a-zA-Z0-9]/g, '_')}`);
+}
+
+// ── 🧾 RELACIÓN DE VIAJES (11-nov-2026) ─────────────────────────────────────────
+// A pedido: «necesito que el reporte consolidado de los fletes me salga así» — la hoja de
+// Excel «RELACION DE VIAJES»: FECHA · NOMBRE Y APELLIDO · VEHICULO · EQUIPO · ORIGEN ·
+// DESTINO · VIAJES · QUIEN LO AUTORIZA, con la fila TOTAL (suma de viajes). Sin montos:
+// entran TODOS los fletes de la selección (por pagar, por cobrar y exentos). El de montos
+// sigue en su botón aparte. Cada fila la arma `filaRelacionViajes` (fleteRutaTraslado.ts):
+// lo escrito en el flete manda y lo que falta se completa con Traslados y salidas.
+
+export interface FilaRelacionViajes {
+  fecha: string;
+  chofer: string;
+  vehiculo: string;
+  equipo: string;
+  origen: string;
+  destino: string;
+  viajes: number;
+  autoriza: string;
+}
+
+/** El HTML de la Relación de viajes (puro: se prueba sin imprimir). */
+export function relacionViajesHtml(opts: { companyName: string; periodLabel?: string; filas: FilaRelacionViajes[]; emitido?: string }): string {
+  const filas = [...(opts.filas ?? [])].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+  const total = filas.reduce((s, f) => s + (Number(f.viajes) || 0), 0);
+  const celda = (v: string) => (String(v ?? '').trim() ? esc(v) : '');
+  const cuerpo = filas.map((f) => `<tr>
+      <td>${fmtDate(f.fecha)}</td>
+      <td>${celda(f.chofer)}</td>
+      <td>${celda(f.vehiculo)}</td>
+      <td>${celda(f.equipo)}</td>
+      <td>${celda(f.origen)}</td>
+      <td>${celda(f.destino)}</td>
+      <td>${Number(f.viajes) || 0}</td>
+      <td>${celda(f.autoriza)}</td>
+    </tr>`).join('');
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Relación de viajes - ${esc(opts.companyName)}</title>
+  <style>
+    @page { size: A4 landscape; margin: 12mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #000; background: #fff; margin: 0; }
+    .cab { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #BFBFBF; padding-bottom: 6px; margin-bottom: 4px; }
+    .cab img { height: 44px; width: auto; }
+    .cab .t { flex: 1; text-align: center; }
+    .cab h1 { margin: 0; font-size: 15pt; font-weight: 800; letter-spacing: .3px; }
+    .cab p { margin: 2px 0 0; font-size: 9.5pt; color: #404040; }
+    .cab .lado { width: 90px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10pt; }
+    th { background: #1F3864; color: #fff; font-weight: 700; font-size: 8.8pt; text-transform: uppercase; padding: 9px 6px; border: 1px solid #1F3864; text-align: center; }
+    td { border: 1px solid #A6A6A6; padding: 9px 6px; text-align: center; text-transform: uppercase; vertical-align: middle; }
+    tr { page-break-inside: avoid; }
+    tr.tot td { background: #B4C6E7; font-weight: 800; border-color: #8EA9DB; }
+    tr.tot td.izq { text-align: left; }
+    .pie { margin-top: 10px; font-size: 8pt; color: #7F7F7F; text-align: right; }
+  </style>
+</head>
+<body>
+  <div class="cab">
+    <div class="lado">${LOGO_DATA_URI ? `<img src="${LOGO_DATA_URI}" alt="" />` : ''}</div>
+    <div class="t">
+      <h1>RELACIÓN DE VIAJES</h1>
+      <p>${esc(opts.companyName)}${opts.periodLabel ? ` · ${esc(opts.periodLabel)}` : ''}</p>
+    </div>
+    <div class="lado"></div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 9%">Fecha</th>
+        <th style="width: 14%">Nombre y apellido</th>
+        <th style="width: 10%">Vehículo</th>
+        <th style="width: 15%">Equipo</th>
+        <th style="width: 14%">Origen</th>
+        <th style="width: 14%">Destino</th>
+        <th style="width: 7%">Viajes</th>
+        <th style="width: 17%">Quién lo autoriza</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${cuerpo}
+      <tr class="tot">
+        <td class="izq">TOTAL</td><td></td><td></td><td></td><td></td><td></td>
+        <td>${total}</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="pie">Generado ${esc(opts.emitido ?? nowStamp())}</div>
+</body>
+</html>`;
+}
+
+/** Genera y descarga la Relación de viajes. */
+export async function exportarRelacionViajesFletes(opts: { companyName: string; periodLabel?: string; filas: FilaRelacionViajes[] }): Promise<boolean> {
+  const html = relacionViajesHtml({ ...opts, emitido: nowStamp() });
+  const safe = (opts.companyName || 'Fletes').replace(/\s+/g, '_');
+  return await exportPdf(html, `Relacion_de_Viajes_${safe}_${nowStamp().replace(/[^a-zA-Z0-9]/g, '_')}`);
 }

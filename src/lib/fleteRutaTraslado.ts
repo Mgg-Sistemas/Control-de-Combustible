@@ -34,6 +34,10 @@ export type TrasladoRuta = {
   chuto: string;
   lowboy: string;
   equipo: string;
+  /** «Autorizado por» de la autorización de traslado (empresa o persona). 11-nov-2026. */
+  autoriza: string;
+  /** El chofer que escribieron en el traslado. 11-nov-2026. */
+  chofer: string;
   creadoMs: number;
 };
 
@@ -100,6 +104,8 @@ export function filaATrasladoRuta(row: any): TrasladoRuta | null {
     chuto: normalizarPlaca(chutoTxt),
     lowboy: normalizarPlaca(row.placa_lowboy),
     equipo,
+    autoriza: limpiarLugar(row.autoriza),
+    chofer: limpiarLugar(row.chofer),
     creadoMs: Number.isFinite(creadoMs) ? creadoMs : 0,
   };
 }
@@ -154,6 +160,54 @@ export function paresDeRuta(lista: TrasladoRuta[]): { o: string; d: string }[] {
     pares.push({ o: t.origen, d: t.destino });
   }
   return pares;
+}
+
+/** Los valores DISTINTOS de un campo de varios traslados, unidos con « / » (en orden de registro). */
+export function unirDeTraslados(lista: TrasladoRuta[], campo: 'equipo' | 'autoriza' | 'chofer'): string {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const t of [...lista].sort(porRegistro)) {
+    const v = String(t[campo] ?? '').trim();
+    if (!v || vistos.has(v.toUpperCase())) continue;
+    vistos.add(v.toUpperCase());
+    out.push(v);
+  }
+  return out.join(' / ');
+}
+
+/**
+ * 🧾 Una fila de la RELACIÓN DE VIAJES (11-nov-2026, a pedido: el reporte consolidado «así»,
+ * como la hoja de Excel: fecha, nombre y apellido, vehículo, equipo, origen, destino, viajes y
+ * quién lo autoriza). Lo que el FLETE tiene escrito manda; lo que le falta se completa con los
+ * traslados del MISMO chuto ese día (solo se leen). Nada se inventa: si no está, queda vacío.
+ */
+export function filaRelacionViajes(
+  flete: { fecha: string; viajes: number; placa?: string | null; codigo?: string | null; chofer?: string; equipo?: string; autoriza?: string; origen?: string; destino?: string },
+  traslados: TrasladoRuta[],
+): { fecha: string; chofer: string; vehiculo: string; equipo: string; origen: string; destino: string; viajes: number; autoriza: string; completadoDeTraslado: boolean } {
+  const delChuto = clasificarTraslados(traslados ?? [], { plate: flete.placa, fecha: flete.fecha }).sugeridos;
+  const ruta = rutaDeTraslados(delChuto);
+  const pick = (propio: string | undefined, deTraslado: string) => {
+    const p = String(propio ?? '').trim();
+    return p ? { v: p, t: false } : { v: deTraslado, t: !!deTraslado };
+  };
+  const chofer = pick(flete.chofer, unirDeTraslados(delChuto, 'chofer'));
+  const equipo = pick(flete.equipo, unirDeTraslados(delChuto, 'equipo'));
+  const autoriza = pick(flete.autoriza, unirDeTraslados(delChuto, 'autoriza'));
+  const origen = pick(flete.origen, ruta?.origen ?? '');
+  const destino = pick(flete.destino, ruta?.destino ?? '');
+  return {
+    fecha: flete.fecha,
+    chofer: chofer.v,
+    // VEHÍCULO = la placa del CHUTO (la máquina guarda «CHUTO/LOWBOY»: va el primer pedazo).
+    vehiculo: (String(flete.placa ?? '').split(/[\/,;]/).map((x) => x.trim()).find(Boolean) || String(flete.codigo ?? '').trim()),
+    equipo: equipo.v,
+    origen: origen.v,
+    destino: destino.v,
+    viajes: Number(flete.viajes) || 0,
+    autoriza: autoriza.v,
+    completadoDeTraslado: chofer.t || equipo.t || autoriza.t || origen.t || destino.t,
+  };
 }
 
 /** Lo más largo que cabe en el origen o el destino de un flete (lo mismo que guarda la nota). */

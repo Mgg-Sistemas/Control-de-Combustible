@@ -101,7 +101,11 @@ const NOTAS_EXISTENTES = [
 test('Ruta del flete: origen y destino editables y traídos de Traslados y salidas', async (t) => {
   await t.test('1. las notas que ya existen se leen exactamente igual que antes', () => {
     for (const n of NOTAS_EXISTENTES) {
-      assert.deepEqual(pdf.parseFleteNote(n), parseViejo(n), `nota: ${n}`);
+      // 11-nov-2026: la nota ganó EQ (equipo trasladado) y AUT (quién autoriza), para la
+      // Relación de viajes. En las notas que ya existen salen VACÍOS y todo lo demás igual.
+      const { equipo, autoriza, ...resto } = pdf.parseFleteNote(n);
+      assert.deepEqual(resto, parseViejo(n), `nota: ${n}`);
+      assert.deepEqual([equipo, autoriza], ['', ''], `nota: ${n}`);
     }
   });
 

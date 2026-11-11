@@ -21,6 +21,7 @@ import { caracasParts } from '../lib/jornada';
 import {
   exportarComprobanteFlete,
   exportarReporteConsolidadoFletes,
+  exportarRelacionViajesFletes,
   parseFleteNote,
   formatFleteNote,
   rehacerNotaFlete,
@@ -35,6 +36,8 @@ import {
   buscarTraslados,
   rutaDeTraslados,
   paresDeRuta,
+  unirDeTraslados,
+  filaRelacionViajes,
   MAX_LUGAR_FLETE,
 } from '../lib/fleteRutaTraslado';
 import { cargarRutasDeTraslados } from '../lib/fleteRutaTrasladoDb';
@@ -132,6 +135,11 @@ export default function ServicioFletesScreen({ navigation }: any) {
   const [formDestino, setFormDestino] = useState('');
   const [importOrigen, setImportOrigen] = useState('');
   const [importDestino, setImportDestino] = useState('');
+  // 🧾 Relación de viajes (11-nov-2026): el equipo trasladado y quién lo autoriza.
+  const [formEquipo, setFormEquipo] = useState('');
+  const [formAutoriza, setFormAutoriza] = useState('');
+  const [importEquipo, setImportEquipo] = useState('');
+  const [importAutoriza, setImportAutoriza] = useState('');
   const [rutaPara, setRutaPara] = useState<null | 'form' | 'import'>(null);
   const [rutaTraslados, setRutaTraslados] = useState<TrasladoRuta[]>([]);
   const [rutaCargando, setRutaCargando] = useState(false);
@@ -250,6 +258,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
     setImportNote('');
     setImportOrigen('');
     setImportDestino('');
+    setImportEquipo('');
+    setImportAutoriza('');
     setImportModalVisible(true);
     if (defMachine) {
       fetchCandidateViajes(defMachine, today);
@@ -306,6 +316,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
       cliente: importCliente,
       origen: importOrigen,
       destino: importDestino,
+      equipo: importEquipo,
+      autoriza: importAutoriza,
       detalle: importNote || `Flete importado desde ${selectedViajeIds.length} viaje(s) de camión`,
       viajeIds: selectedViajeIds,
       tickets,
@@ -415,6 +427,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
     setFormNote('');
     setFormOrigen('');
     setFormDestino('');
+    setFormEquipo('');
+    setFormAutoriza('');
     setModalVisible(true);
   };
 
@@ -433,6 +447,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
     setFormNote(parsed.detalle || '');
     setFormOrigen(parsed.origen || '');
     setFormDestino(parsed.destino || '');
+    setFormEquipo(parsed.equipo || '');
+    setFormAutoriza(parsed.autoriza || '');
     setModalVisible(true);
   };
 
@@ -495,6 +511,8 @@ export default function ServicioFletesScreen({ navigation }: any) {
       detalle: formNote,
       origen: formOrigen,
       destino: formDestino,
+      equipo: formEquipo,
+      autoriza: formAutoriza,
     };
     const fullNote = origFlete ? rehacerNotaFlete(origFlete.note, delFormulario) : formatFleteNote(delFormulario);
 
@@ -590,12 +608,19 @@ export default function ServicioFletesScreen({ navigation }: any) {
       setRutaAviso('Son demasiadas rutas para un solo flete: toca la que corresponde o escribe un resumen a mano.');
       return;
     }
+    // 🧾 También el equipo trasladado y quién lo autoriza (si el traslado los trae).
+    const eq = unirDeTraslados(lista, 'equipo');
+    const aut = unirDeTraslados(lista, 'autoriza');
     if (rutaPara === 'import') {
       setImportOrigen(r.origen);
       setImportDestino(r.destino);
+      if (eq && eq.length <= MAX_LUGAR_FLETE) setImportEquipo(eq);
+      if (aut && aut.length <= MAX_LUGAR_FLETE) setImportAutoriza(aut);
     } else {
       setFormOrigen(r.origen);
       setFormDestino(r.destino);
+      if (eq && eq.length <= MAX_LUGAR_FLETE) setFormEquipo(eq);
+      if (aut && aut.length <= MAX_LUGAR_FLETE) setFormAutoriza(aut);
     }
     setRutaPara(null);
   };
@@ -607,6 +632,10 @@ export default function ServicioFletesScreen({ navigation }: any) {
     setOrigen: (v: string) => void,
     destino: string,
     setDestino: (v: string) => void,
+    equipo: string,
+    setEquipo: (v: string) => void,
+    autoriza: string,
+    setAutoriza: (v: string) => void,
   ) => {
     const estiloCampo = {
       backgroundColor: colors.surface,
@@ -620,7 +649,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
     };
     return (
       <View style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
-        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>📍 Ruta del flete (opcional)</Text>
+        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>📍 Ruta del flete (opcional) · sale en la Relación de viajes</Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4, flexWrap: 'wrap' }}>
           <View style={{ flex: 1, minWidth: 140 }}>
             <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>Origen / carga</Text>
@@ -639,6 +668,31 @@ export default function ServicioFletesScreen({ navigation }: any) {
               value={destino}
               onChangeText={setDestino}
               placeholder="A dónde llega"
+              placeholderTextColor={colors.muted}
+              maxLength={240}
+              style={estiloCampo}
+            />
+          </View>
+        </View>
+        {/* 🧾 Para la Relación de viajes (11-nov-2026): qué equipo se trasladó y quién lo autoriza. */}
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4, flexWrap: 'wrap' }}>
+          <View style={{ flex: 1, minWidth: 140 }}>
+            <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>Equipo trasladado</Text>
+            <TextInput
+              value={equipo}
+              onChangeText={setEquipo}
+              placeholder="Ej. Jumbo martillo"
+              placeholderTextColor={colors.muted}
+              maxLength={240}
+              style={estiloCampo}
+            />
+          </View>
+          <View style={{ flex: 1, minWidth: 140 }}>
+            <Text style={{ color: colors.muted, fontSize: 11.5, fontWeight: '700' }}>Quién lo autoriza</Text>
+            <TextInput
+              value={autoriza}
+              onChangeText={setAutoriza}
+              placeholder="Ej. Ezequiel Gómez"
               placeholderTextColor={colors.muted}
               maxLength={240}
               style={estiloCampo}
@@ -717,7 +771,54 @@ export default function ServicioFletesScreen({ navigation }: any) {
     }
   };
 
-  // Exportar Reporte Consolidado (Por Empresa, Por Camión o General)
+  // 🧾 RELACIÓN DE VIAJES (11-nov-2026, a pedido: el consolidado «así», como la hoja de Excel).
+  //    Sin montos; entran todos los fletes de la selección. Lo que el flete no tiene escrito
+  //    (chofer, equipo, quién autoriza, ruta) se completa con Traslados y salidas del MISMO
+  //    chuto ese día — solo se LEEN, una vez, al generar.
+  const imprimirRelacionViajes = async () => {
+    if (filteredFletes.length === 0) {
+      toast.error('No hay fletes en la selección para exportar.');
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      let traslados: TrasladoRuta[] = [];
+      try {
+        traslados = await cargarRutasDeTraslados();
+      } catch {
+        toast.warn('No se pudieron leer los Traslados: la relación sale solo con lo escrito en cada flete.');
+      }
+      const comp = companies.find((c) => c.id === selectedCompanyId);
+      const mach = machinery.find((m) => m.id === selectedMachineId);
+      const coName = comp ? comp.name : (selectedMachineId !== '__all__' && mach?.company_id ? (companies.find((c) => c.id === mach.company_id)?.name || 'Varias empresas') : 'Todas las empresas');
+      const filas = filteredFletes.map((f) => {
+        const m = f.machinery || machinery.find((x) => x.id === f.machinery_id);
+        const p = parseFleteNote(f.note);
+        return filaRelacionViajes({
+          fecha: f.flete_date,
+          viajes: Number(f.viajes) || 0,
+          placa: m?.plate ?? null,
+          codigo: m?.code || f.code,
+          chofer: p.conductor,
+          equipo: p.equipo,
+          autoriza: p.autoriza,
+          origen: p.origen,
+          destino: p.destino,
+        }, traslados);
+      });
+      await exportarRelacionViajesFletes({
+        companyName: coName,
+        periodLabel: `Del ${fmtDate(dateFrom)} al ${fmtDate(dateTo)}`,
+        filas,
+      });
+    } catch (err: any) {
+      toast.error('Error al generar la relación: ' + (err?.message || err));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  // Exportar Reporte Consolidado CON MONTOS (Por Empresa, Por Camión o General)
   const imprimirReporteConsolidado = async () => {
     if (filteredFletes.length === 0) {
       toast.error('No hay fletes en la selección para exportar.');
@@ -777,6 +878,25 @@ export default function ServicioFletesScreen({ navigation }: any) {
           </View>
           <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', flexShrink: 1, maxWidth: '100%' }}>
             <TouchableOpacity
+              onPress={imprimirRelacionViajes}
+              disabled={pdfBusy || filteredFletes.length === 0}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                paddingVertical: spacing.sm,
+                paddingHorizontal: spacing.md,
+                borderRadius: radius.md,
+                backgroundColor: '#1F3864',
+                opacity: filteredFletes.length === 0 ? 0.5 : 1,
+              }}
+            >
+              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 13 }}>
+                📑 Reporte Consolidado · Relación de viajes (PDF)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               onPress={imprimirReporteConsolidado}
               disabled={pdfBusy || filteredFletes.length === 0}
               style={{
@@ -793,7 +913,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               }}
             >
               <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>
-                📑 Reporte Consolidado (PDF)
+                💲 Consolidado con montos (PDF)
               </Text>
             </TouchableOpacity>
 
@@ -1675,7 +1795,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               })()}
 
               {/* 📍 Ruta: origen y destino (27/10/2026) */}
-              {camposRuta('form', formOrigen, setFormOrigen, formDestino, setFormDestino)}
+              {camposRuta('form', formOrigen, setFormOrigen, formDestino, setFormDestino, formEquipo, setFormEquipo, formAutoriza, setFormAutoriza)}
 
               {/* Nota */}
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>
@@ -2126,7 +2246,7 @@ export default function ServicioFletesScreen({ navigation }: any) {
               </View>
 
               {/* 📍 Ruta: origen y destino (27/10/2026) */}
-              {camposRuta('import', importOrigen, setImportOrigen, importDestino, setImportDestino)}
+              {camposRuta('import', importOrigen, setImportOrigen, importDestino, setImportDestino, importEquipo, setImportEquipo, importAutoriza, setImportAutoriza)}
 
               {/* Observaciones opcionales */}
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>

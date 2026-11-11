@@ -19,6 +19,9 @@ const COLUMNAS: string = [
   'placa_lowboy:datos->transporte->>placaLowboy',
   'equipo_codigo:datos->maquinaria->>codigo',
   'equipo_tipo:datos->maquinaria->>tipo',
+  // 11-nov-2026: para la Relación de viajes (quién autoriza y el chofer). Siguen sin montos.
+  'autoriza:datos->firmas->>autorizadoPorEmpresa',
+  'chofer:datos->transporte->>conductorNombre',
 ].join(', ');
 
 /** Los traslados vivos (no borrados), los más nuevos primero. */
