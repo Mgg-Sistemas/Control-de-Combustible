@@ -11,7 +11,7 @@ import { spacing, radius } from '../theme';
 import { leerNumero } from '../lib/numeros';
 import {
   PlanPago, PartePlan, METODOS_PARTE, TASAS, CONCEPTOS, PLANTILLAS, PlantillaPlan, aplicarPlantilla,
-  validarPlan, monedaDeMetodo, montoEnMoneda, baseEIva, nuevoIdParte, TasaTipo,
+  validarPlan, monedaDeMetodo, montoEnMoneda, baseEIva, nuevoIdParte, TasaTipo, parteTieneTasaBcvEnOtraMoneda,
 } from '../lib/planPago';
 
 type Fila = PartePlan & { montoTxt: string; tasaTxt: string };
@@ -48,7 +48,7 @@ export function PlanPagoModal({ visible, titulo, totalUsd, alicuotaIva, planInic
     tasa_tipo: monedaDeMetodo(f.metodo) === 'VES' ? (f.tasa_tipo ?? 'bcv') : null,
     tasa: monedaDeMetodo(f.metodo) === 'VES' ? (leerNumero(f.tasaTxt) || null) : null,
   })), [filas]);
-  const error = validarPlan(partes, totalUsd);
+  const error = validarPlan(partes, totalUsd, tasaBcv);
   const suma = r2(partes.reduce((s, p) => s + p.monto_usd, 0));
   const { base, iva } = baseEIva(totalUsd, alicuotaIva);
 
@@ -57,7 +57,36 @@ export function PlanPagoModal({ visible, titulo, totalUsd, alicuotaIva, planInic
   const agregar = () => setFilas((prev) => [...prev, aFila({
     id: nuevoIdParte(), concepto: 'parte', monto_usd: Math.max(0, r2(totalUsd - suma)), metodo: 'transferencia_bs', tasa_tipo: 'bcv', tasa: Number(tasaBcv) > 0 ? Number(tasaBcv) : null,
   })]);
-  const elegirTasa = (i: number, t: TasaTipo) => setFila(i, { tasa_tipo: t, ...(t === 'bcv' && Number(tasaBcv) > 0 ? { tasaTxt: String(tasaBcv) } : {}) });
+  const elegirTasa = (i: number, t: TasaTipo) => {
+    setFilas((prev) => {
+      const tasaBcvEnFilas = prev
+        .filter((x) => (x.tasa_tipo ?? 'bcv') === 'bcv')
+        .map((x) => leerNumero(x.tasaTxt))
+        .find((v) => v > 0);
+      return prev.map((f, k) => {
+        if (k !== i) return f;
+        if (t === 'bcv') {
+          return {
+            ...f,
+            tasa_tipo: 'bcv',
+            tasaTxt: Number(tasaBcv) > 0 ? String(tasaBcv) : (tasaBcvEnFilas ? String(tasaBcvEnFilas) : f.tasaTxt),
+          };
+        }
+        // Si cambia a Euro, USDT u Otra y tenía puesta la tasa BCV (o venía de BCV),
+        // se limpia para obligar a escribir la tasa real y que no quede pegada la BCV:
+        const n = leerNumero(f.tasaTxt);
+        const eraIgualABcv =
+          (Number(tasaBcv) > 0 && Math.abs(r2(n) - r2(Number(tasaBcv))) < 0.01) ||
+          Boolean(tasaBcvEnFilas && Math.abs(r2(n) - r2(tasaBcvEnFilas)) < 0.01);
+        const limpiar = (f.tasa_tipo ?? 'bcv') === 'bcv' || eraIgualABcv;
+        return {
+          ...f,
+          tasa_tipo: t,
+          tasaTxt: limpiar ? '' : f.tasaTxt,
+        };
+      });
+    });
+  };
 
   const guardar = async (quitar = false) => {
     if (!quitar && error) return;
@@ -122,17 +151,48 @@ export function PlanPagoModal({ visible, titulo, totalUsd, alicuotaIva, planInic
                       ...(m.moneda === 'VES' && !f.tasa_tipo ? { tasa_tipo: 'bcv' as TasaTipo, tasaTxt: Number(tasaBcv) > 0 ? String(tasaBcv) : f.tasaTxt } : {}),
                     }), m.key))}
                   </View>
-                  {ves ? (
-                    <View style={{ gap: 6 }}>
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                        <Text style={{ color: colors.muted, fontSize: 12 }}>Tasa:</Text>
-                        {TASAS.map((t) => chip((f.tasa_tipo ?? 'bcv') === t.key, t.label, () => elegirTasa(i, t.key), t.key))}
-                        <TextInput value={f.tasaTxt} onChangeText={(t) => setFila(i, { tasaTxt: t })} keyboardType="decimal-pad" inputMode="decimal"
-                          placeholder="Bs por $" placeholderTextColor={colors.muted} style={[input, { width: 120 }]} />
+                  {ves ? (() => {
+                    const tipoActual = f.tasa_tipo ?? 'bcv';
+                    const placeholderTasa =
+                      tipoActual === 'euro' ? 'Tasa Euro (Bs/€)' :
+                      tipoActual === 'usdt' ? 'Tasa USDT (Bs/$)' :
+                      tipoActual === 'manual' ? 'Escribe tasa (Bs/$)' :
+                      'Tasa BCV (Bs/$)';
+                    const repiteBcv = parteTieneTasaBcvEnOtraMoneda(p, partes, tasaBcv);
+                    const faltaTasa = !(Number(p.tasa) > 0);
+                    return (
+                      <View style={{ gap: 6 }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>Tasa:</Text>
+                          {TASAS.map((t) => chip(tipoActual === t.key, t.label, () => elegirTasa(i, t.key), t.key))}
+                          <TextInput
+                            value={f.tasaTxt}
+                            onChangeText={(t) => setFila(i, { tasaTxt: t })}
+                            keyboardType="decimal-pad"
+                            inputMode="decimal"
+                            placeholder={placeholderTasa}
+                            placeholderTextColor={colors.muted}
+                            style={[
+                              input,
+                              {
+                                flexGrow: 1,
+                                minWidth: 145,
+                                borderColor: repiteBcv || faltaTasa ? colors.danger : colors.border,
+                              },
+                            ]}
+                          />
+                        </View>
+                        {repiteBcv ? (
+                          <View style={{ backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.sm, paddingVertical: 5, paddingHorizontal: 8 }}>
+                            <Text style={{ color: '#92400E', fontSize: 11.5, fontWeight: '800' }}>
+                              ⚠️ Dice {tipoActual === 'euro' ? 'Euro' : 'USDT'}, pero tiene escrita la misma tasa BCV ({fmt(Number(p.tasa))}). Escribe la tasa {tipoActual === 'euro' ? 'Euro' : 'USDT'} real o cambia el botón a BCV.
+                            </Text>
+                          </View>
+                        ) : null}
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>= Bs {fmt(montoEnMoneda(p))}</Text>
                       </View>
-                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>= Bs {fmt(montoEnMoneda(p))}</Text>
-                    </View>
-                  ) : null}
+                    );
+                  })() : null}
                 </View>
               );
             })}

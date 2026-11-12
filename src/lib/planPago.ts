@@ -121,12 +121,51 @@ export function aplicarPlantilla(
   }
 }
 
+const mismoValorTasa = (a?: number | null, b?: number | null): boolean =>
+  Number(a) > 0 && Number(b) > 0 && Math.abs(r2(Number(a)) - r2(Number(b))) < 0.005;
+
+/**
+ * Detecta si una parte en Bs marcada como 'euro' o 'usdt' tiene exactamente
+ * la misma tasa que la tasa BCV del día o que otra parte 'bcv' del mismo plan (caso REQ-0275).
+ */
+export function parteTieneTasaBcvEnOtraMoneda(
+  p: PartePlan,
+  partesDelPlan: PartePlan[],
+  tasaBcvRef?: number | null,
+): boolean {
+  if (monedaDeMetodo(p.metodo) !== 'VES') return false;
+  if (p.tasa_tipo !== 'euro' && p.tasa_tipo !== 'usdt') return false;
+  const tasaParte = Number(p.tasa) || 0;
+  if (!(tasaParte > 0)) return false;
+  const tasaBcvPlan = (partesDelPlan || []).find(
+    (x) => monedaDeMetodo(x.metodo) === 'VES' && (x.tasa_tipo ?? 'bcv') === 'bcv' && Number(x.tasa) > 0,
+  )?.tasa;
+  return mismoValorTasa(tasaParte, tasaBcvRef) || mismoValorTasa(tasaParte, tasaBcvPlan);
+}
+
+/**
+ * Devuelve un aviso claro si un plan ya guardado en BD tiene una parte Euro o USDT
+ * con exactamente el mismo valor que la tasa BCV (sin romper la lectura del plan).
+ */
+export function advertenciaPlanGuardado(
+  partes: PartePlan[],
+  tasaBcvRef?: number | null,
+): string | null {
+  const idx = (partes || []).findIndex((p) => parteTieneTasaBcvEnOtraMoneda(p, partes, tasaBcvRef));
+  if (idx === -1) return null;
+  const p = partes[idx];
+  return `La parte ${idx + 1} dice tasa ${etiquetaTasa(p.tasa_tipo)} (${montoEs(Number(p.tasa))}) igual a la tasa BCV. Verifica y edita el plan si la tasa ${etiquetaTasa(p.tasa_tipo)} es distinta.`;
+}
+
 /** Valida el plan contra el total de la cuenta. Devuelve el mensaje de error o null. */
-export function validarPlan(partes: PartePlan[], totalUsd: number): string | null {
+export function validarPlan(partes: PartePlan[], totalUsd: number, tasaBcv?: number | null): string | null {
   if (!partes || partes.length === 0) return 'Agrega al menos una parte.';
   for (const [i, p] of partes.entries()) {
     if (!(Number(p.monto_usd) > 0)) return `La parte ${i + 1} no tiene monto en $.`;
     if (monedaDeMetodo(p.metodo) === 'VES' && !(Number(p.tasa) > 0)) return `La parte ${i + 1} se paga en Bs: escribe su tasa.`;
+    if (parteTieneTasaBcvEnOtraMoneda(p, partes, tasaBcv)) {
+      return `La parte ${i + 1} dice tasa ${etiquetaTasa(p.tasa_tipo)} (${montoEs(Number(p.tasa))}), que es igual a la tasa BCV. Escribe la tasa ${etiquetaTasa(p.tasa_tipo)} real o elige BCV.`;
+    }
   }
   const suma = r2(partes.reduce((s, p) => s + (Number(p.monto_usd) || 0), 0));
   const dif = r2(suma - r2(totalUsd));

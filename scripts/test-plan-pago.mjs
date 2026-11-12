@@ -98,5 +98,25 @@ ok('el plan del formulario se guarda al crear y al editar', req.includes('await 
 ok('al editar se carga el plan guardado', req.includes('setPlanForm(planGuardado)'));
 ok('interruptor presente', /export const PLAN_PAGO_ACTIVO = (true|false);/.test(lib));
 
+// 12-nov-2026: Validación de tasa Euro/USDT duplicada con BCV (caso REQ-0275) y tasa propia del ítem
+const planReq0275 = [
+  { id: 'p1', concepto: 'base', monto_usd: 300, metodo: 'transferencia_bs', tasa_tipo: 'euro', tasa: 901.62 },
+  { id: 'p2', concepto: 'iva', monto_usd: 48, metodo: 'transferencia_bs', tasa_tipo: 'bcv', tasa: 901.62 },
+];
+ok('detecta parte Euro con misma tasa que parte BCV en el mismo plan (caso REQ-0275)', P.parteTieneTasaBcvEnOtraMoneda(planReq0275[0], planReq0275) === true);
+ok('validarPlan bloquea guardar si Euro tiene la misma tasa que la parte BCV', /dice tasa Euro.*igual a la tasa BCV/i.test(P.validarPlan(planReq0275, 348) || ''));
+ok('validarPlan bloquea guardar una sola parte Euro si coincide con tasaBcv del día', /dice tasa Euro.*igual a la tasa BCV/i.test(P.validarPlan([planReq0275[0]], 300, 901.62) || ''));
+ok('advertenciaPlanGuardado avisa en tarjetas ya guardadas con tasa Euro == BCV', /dice tasa Euro.*igual a la tasa BCV/i.test(P.advertenciaPlanGuardado(planReq0275, 901.62) || ''));
+const planEuroReal = [
+  { id: 'p1', concepto: 'base', monto_usd: 300, metodo: 'transferencia_bs', tasa_tipo: 'euro', tasa: 985.5 },
+  { id: 'p2', concepto: 'iva', monto_usd: 48, metodo: 'transferencia_bs', tasa_tipo: 'bcv', tasa: 901.62 },
+];
+ok('cuando la tasa Euro es distinta de BCV, validarPlan aprueba', P.validarPlan(planEuroReal, 348, 901.62) === null);
+ok('cuando la tasa Euro es distinta de BCV, advertenciaPlanGuardado devuelve null', P.advertenciaPlanGuardado(planEuroReal, 901.62) === null);
+
+const modal = fs.readFileSync(path.join(raiz, 'src/components/PlanPagoModal.tsx'), 'utf8');
+ok('PlanPagoModal limpia tasaTxt al cambiar de BCV a Euro/USDT/Otra', modal.includes("tasaTxt: limpiar ? '' : f.tasaTxt") && modal.includes('validarPlan(partes, totalUsd, tasaBcv)'));
+ok('RequerimientoTab ya no congela el primer dígito con bsVacio/usdVacio y permite cambiar tasa del ítem', !req.includes('const bsVacio =') && !req.includes('const usdVacio =') && req.includes('handleTasaItemChange') && req.includes('✏️ Cambiar tasa'));
+
 console.log(`\n${pass} ok, ${fail} fallas`);
 if (fail) { failures.forEach((f) => console.log('  ✗ ' + f)); process.exit(1); }

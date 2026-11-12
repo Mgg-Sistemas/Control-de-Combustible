@@ -120,7 +120,7 @@ import {
 import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
 import { MensajeCuentaModal } from '../components/MensajeCuentaModal';
 import { PlanPagoModal } from '../components/PlanPagoModal';
-import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, estadoPartes, lineaParte, tituloParte } from '../lib/planPago';
+import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, estadoPartes, lineaParte, tituloParte, advertenciaPlanGuardado } from '../lib/planPago';
 import { DatosMensajeCuenta, DesgloseProveedorMensaje, ModoMensajeCuenta } from '../lib/cuentaMensaje';
 import { desgloseProveedoresDeReq } from '../lib/requerimientoPdfDatos';
 import { quitarTodasLasMarcasDeTexto } from '../lib/requerimientoFlujo';
@@ -4423,8 +4423,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   const pl = planDeCuenta(c);
                   if (!pl && !puedeOperarCxp) return null;
                   const est = pl ? estadosPlanDe(c, pl.plan) : [];
+                  const advPlan = pl ? advertenciaPlanGuardado(pl.plan.partes, tasaBcv) : null;
                   return (
-                    <View style={{ marginTop: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, gap: 3 }}>
+                    <View style={{ marginTop: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: advPlan ? '#F59E0B' : colors.border, backgroundColor: colors.surfaceAlt, gap: 3 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                         <Text style={{ color: colors.text, fontWeight: '900', fontSize: 12 }}>
                           📋 Plan de pago{pl?.delReq ? ' (del requerimiento)' : ''}
@@ -4442,6 +4443,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                       )) : (
                         <Text style={{ color: colors.muted, fontSize: 11 }}>Sin plan: se paga todo junto. Defínelo si una parte va en Bs y otra en $, USDT o Zelle.</Text>
                       )}
+                      {advPlan ? (
+                        <View style={{ marginTop: 2, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 8 }}>
+                          <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800' }}>
+                            ⚠️ {advPlan}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                   );
                 })() : null}

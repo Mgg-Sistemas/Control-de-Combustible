@@ -64,7 +64,7 @@ import {
   type ArchivoSoporte,
 } from '../lib/requerimientoExpediente';
 import { PlanPagoModal } from '../components/PlanPagoModal';
-import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, lineaParte, validarPlan } from '../lib/planPago';
+import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, lineaParte, validarPlan, advertenciaPlanGuardado } from '../lib/planPago';
 import { EditarSoporteReqModal, type TipoSoporteReq } from '../components/EditarSoporteReqModal';
 import { machineLabel, machineMatches } from '../lib/machineLabel';
 // 👤 Quién solicitó / quién autorizó, para qué (vehículo o maquinaria), a qué
@@ -153,6 +153,9 @@ export interface PresupuestoItem {
   total_bs?: string;        // Precio total por la cantidad del ítem en Bs
   archivos?: FormatoAdjunto[]; // Uno o varios archivos/fotos de presupuesto adjuntos
   nota?: string;
+  usd_manual?: boolean;
+  bs_manual?: boolean;
+  tasa_propia?: number;
 }
 
 export const METODOS_PAGO_COTIZACION = [
@@ -186,6 +189,11 @@ type ReqRow = {
   exento?: boolean;    // 🧾 Cuadrito Exento de IVA
   presupuestos?: PresupuestoItem[]; // 📋 Cotizaciones / Presupuestos alternos (uno o varios)
   presupuestosAbierto?: boolean;
+  usd_manual?: boolean;   // true si el usuario escribió manualmente en $ USD
+  bs_manual?: boolean;    // true si el usuario escribió manualmente en Bs
+  tasa_propia?: number;   // Tasa Bs/$ personalizada del ítem
+  tasa_manual?: string;   // Texto editable cuando el usuario escribe la tasa del ítem directamente
+  tasa_abierta?: boolean; // true cuando está desplegado el editor rápido de tasa del ítem
 };
 const REQ_STATUS: Record<string, { label: string; color: string; short: string }> = {
   pendiente: { label: '⏳ Pendiente', color: '#D97706', short: 'Pendiente' },
@@ -1091,7 +1099,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }));
   };
 
-  // Manejo de precio en dólares ($ USD): respeta si el usuario está ingresando por unidad o el total
+  // Manejo de precio en dólares ($ USD): actualiza Bs EN CADA TECLA usando la tasa activa
+  // (la tasa propia del ítem si fue fijada explícitamente, o la tasa BCV del día).
   const handlePrecioUsdChange = (key: string, val: string) => {
     const clean = onlyDecimal(val);
     const numUsd = parseNum(clean);
@@ -1099,30 +1108,61 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       if (x.key !== key) return x;
       const q = Math.max(0.0001, parseNum(x.qty) || 1);
       const modo = x.modo_precio || 'unidad';
+      const tasaManualNum = parseNum(x.tasa_manual || '');
+      const tasaActiva = tasaManualNum > 0
+        ? tasaManualNum
+        : (x.bs_manual && x.tasa_propia && x.tasa_propia > 0 ? x.tasa_propia : (rate && rate > 0 ? rate : 0));
+
+      if (clean === '' || numUsd <= 0) {
+        const vacio = clean === '' ? '' : '0';
+        return {
+          ...x,
+          price: modo === 'unidad' ? clean : (clean === '' ? '' : '0'),
+          total_usd: modo === 'total' ? clean : '0',
+          price_bs: x.bs_manual ? x.price_bs : vacio,
+          total_bs: x.bs_manual ? x.total_bs : '0',
+          usd_manual: false,
+          tasa_propia: tasaManualNum > 0 ? tasaManualNum : undefined,
+        };
+      }
+
       if (modo === 'total') {
-        const totBsActual = x.total_bs || '';
-        const bsVacio = !totBsActual || totBsActual === '0' || totBsActual === '0.00';
-        const nuevoTotBs = bsVacio && rate && rate > 0 && numUsd > 0
-          ? fmtClean(numUsd * rate)
-          : (clean === '' ? '' : totBsActual);
+        const nuevoTotBs = tasaActiva > 0
+          ? fmtClean(numUsd * tasaActiva)
+          : (x.total_bs || '');
         const unitUsd = numUsd > 0 ? fmtClean(numUsd / q) : (clean === '' ? '' : '0');
         const numTotBs = parseNum(nuevoTotBs);
         const unitBs = numTotBs > 0 ? fmtClean(numTotBs / q) : (nuevoTotBs === '' ? '' : '0');
-        return { ...x, total_usd: clean, total_bs: nuevoTotBs, price: unitUsd, price_bs: unitBs };
+        return {
+          ...x,
+          total_usd: clean,
+          total_bs: nuevoTotBs,
+          price: unitUsd,
+          price_bs: unitBs,
+          usd_manual: true,
+        };
       } else {
-        const bsVacio = !x.price_bs || x.price_bs === '' || x.price_bs === '0' || x.price_bs === '0.00';
-        const nuevoBs = bsVacio && rate && rate > 0 && numUsd > 0
-          ? fmtClean(numUsd * rate)
-          : (clean === '' ? '' : x.price_bs);
+        const nuevoBs = tasaActiva > 0
+          ? fmtClean(numUsd * tasaActiva)
+          : x.price_bs;
         const totUsd = numUsd > 0 ? fmtClean(numUsd * q) : '0';
         const numBs = parseNum(nuevoBs);
         const totBs = numBs > 0 ? fmtClean(numBs * q) : '0';
-        return { ...x, price: clean, price_bs: nuevoBs, total_usd: totUsd, total_bs: totBs };
+        return {
+          ...x,
+          price: clean,
+          price_bs: nuevoBs,
+          total_usd: totUsd,
+          total_bs: totBs,
+          usd_manual: true,
+        };
       }
     }));
   };
 
-  // Manejo de precio en bolívares (Bs): respeta si el usuario está ingresando por unidad o el total
+  // Manejo de precio en bolívares (Bs):
+  // - Si el usuario NO había escrito manualmente en $ USD (!x.usd_manual), convierte Bs -> $ USD en cada tecla con la tasa activa.
+  // - Si el usuario YA había escrito en $ USD (x.usd_manual && u > 0), mantiene fijo el $ USD y calcula la tasa propia implícita (Bs / $).
   const handlePrecioBsChange = (key: string, val: string) => {
     const clean = onlyDecimal(val);
     const numBs = parseNum(clean);
@@ -1130,30 +1170,103 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       if (x.key !== key) return x;
       const q = Math.max(0.0001, parseNum(x.qty) || 1);
       const modo = x.modo_precio || 'unidad';
+      const tasaManualNum = parseNum(x.tasa_manual || '');
+      const tasaBase = tasaManualNum > 0 ? tasaManualNum : (rate && rate > 0 ? rate : 0);
+
+      if (clean === '' || numBs <= 0) {
+        const vacio = clean === '' ? '' : '0';
+        return {
+          ...x,
+          price_bs: modo === 'unidad' ? clean : (clean === '' ? '' : '0'),
+          total_bs: modo === 'total' ? clean : '0',
+          price: x.usd_manual ? x.price : vacio,
+          total_usd: x.usd_manual ? x.total_usd : '0',
+          bs_manual: false,
+          tasa_propia: undefined,
+          tasa_manual: undefined,
+        };
+      }
+
       if (modo === 'total') {
-        const totUsdActual = x.total_usd || '';
-        const usdVacio = !totUsdActual || totUsdActual === '0' || totUsdActual === '0.00';
-        const nuevoTotUsd = usdVacio && rate && rate > 0 && numBs > 0
-          ? fmtClean(numBs / rate)
-          : totUsdActual;
+        const totUsdExistente = parseNum(x.total_usd || '0') || (parseNum(x.price) * q);
+        const mantenerUsdManual = Boolean(x.usd_manual && totUsdExistente > 0 && tasaManualNum <= 0);
+        const nuevoTotUsd = mantenerUsdManual
+          ? (x.total_usd || fmtClean(totUsdExistente))
+          : (tasaBase > 0 ? fmtClean(numBs / tasaBase) : (x.total_usd || ''));
         const unitBs = numBs > 0 ? fmtClean(numBs / q) : (clean === '' ? '' : '0');
         const numTotUsd = parseNum(nuevoTotUsd);
         const unitUsd = numTotUsd > 0 ? fmtClean(numTotUsd / q) : x.price;
-        return { ...x, total_bs: clean, total_usd: nuevoTotUsd, price_bs: unitBs, price: unitUsd };
+        const nuevaTasaPropia = mantenerUsdManual && numTotUsd > 0 ? (numBs / numTotUsd) : (tasaManualNum > 0 ? tasaManualNum : undefined);
+        return {
+          ...x,
+          total_bs: clean,
+          total_usd: nuevoTotUsd,
+          price_bs: unitBs,
+          price: unitUsd,
+          bs_manual: true,
+          tasa_propia: nuevaTasaPropia,
+        };
       } else {
-        const usdVacio = !x.price || x.price === '' || x.price === '0' || x.price === '0.00';
-        const nuevoUsd = usdVacio && rate && rate > 0 && numBs > 0
-          ? fmtClean(numBs / rate)
-          : x.price;
+        const usdExistente = parseNum(x.price);
+        const mantenerUsdManual = Boolean(x.usd_manual && usdExistente > 0 && tasaManualNum <= 0);
+        const nuevoUsd = mantenerUsdManual
+          ? x.price
+          : (tasaBase > 0 ? fmtClean(numBs / tasaBase) : x.price);
         const totBs = numBs > 0 ? fmtClean(numBs * q) : '0';
         const numUsd = parseNum(nuevoUsd);
         const totUsd = numUsd > 0 ? fmtClean(numUsd * q) : '0';
-        return { ...x, price_bs: clean, price: nuevoUsd, total_bs: totBs, total_usd: totUsd };
+        const nuevaTasaPropia = mantenerUsdManual && numUsd > 0 ? (numBs / numUsd) : (tasaManualNum > 0 ? tasaManualNum : undefined);
+        return {
+          ...x,
+          price_bs: clean,
+          price: nuevoUsd,
+          total_bs: totBs,
+          total_usd: totUsd,
+          bs_manual: true,
+          tasa_propia: nuevaTasaPropia,
+        };
       }
     }));
   };
 
-  // Recomputar manualmente con la tasa BCV (botón 🔄)
+  // Cambiar directamente la tasa de un ítem (Bs por $) y recalcular sus Bolívares al instante
+  const handleTasaItemChange = (key: string, val: string) => {
+    const clean = onlyDecimal(val);
+    const nuevaTasa = parseNum(clean);
+    setRows((r) => r.map((x) => {
+      if (x.key !== key) return x;
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
+      const tasaEfectiva = nuevaTasa > 0 ? nuevaTasa : (rate && rate > 0 ? rate : 0);
+      if (modo === 'total') {
+        const tU = parseNum(x.total_usd || '0') || (parseNum(x.price) * q);
+        const tB = tU > 0 && tasaEfectiva > 0 ? fmtClean(tU * tasaEfectiva) : x.total_bs;
+        const numTB = parseNum(tB || '0');
+        return {
+          ...x,
+          tasa_manual: clean,
+          tasa_propia: nuevaTasa > 0 ? nuevaTasa : undefined,
+          bs_manual: nuevaTasa > 0,
+          total_bs: tB,
+          price_bs: numTB > 0 ? fmtClean(numTB / q) : x.price_bs,
+        };
+      } else {
+        const u = parseNum(x.price);
+        const bs = u > 0 && tasaEfectiva > 0 ? fmtClean(u * tasaEfectiva) : x.price_bs;
+        const numB = parseNum(bs);
+        return {
+          ...x,
+          tasa_manual: clean,
+          tasa_propia: nuevaTasa > 0 ? nuevaTasa : undefined,
+          bs_manual: nuevaTasa > 0,
+          price_bs: bs,
+          total_bs: numB > 0 ? fmtClean(numB * q) : x.total_bs,
+        };
+      }
+    }));
+  };
+
+  // Recomputar manualmente con la tasa BCV (botón 🔄), limpiando tasa manual / Bs congelado
   const recomputarDesdeBcv = (key: string, base: 'USD' | 'VES') => {
     if (!rate || rate <= 0) return toast.info('No hay tasa BCV activa para convertir.');
     setRows((r) => r.map((x) => {
@@ -1164,20 +1277,52 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         if (modo === 'total') {
           const tU = parseNum(x.total_usd || '0') || (parseNum(x.price) * q);
           const tB = fmtClean(tU * rate);
-          return { ...x, total_bs: tB, price_bs: fmtClean((tU * rate) / q) };
+          return {
+            ...x,
+            total_bs: tB,
+            price_bs: fmtClean((tU * rate) / q),
+            usd_manual: tU > 0,
+            bs_manual: false,
+            tasa_propia: undefined,
+            tasa_manual: undefined,
+          };
         }
         const u = parseNum(x.price);
         const bs = fmtClean(u * rate);
-        return { ...x, price_bs: bs, total_bs: fmtClean(u * rate * q) };
+        return {
+          ...x,
+          price_bs: bs,
+          total_bs: fmtClean(u * rate * q),
+          usd_manual: u > 0,
+          bs_manual: false,
+          tasa_propia: undefined,
+          tasa_manual: undefined,
+        };
       } else {
         if (modo === 'total') {
           const tB = parseNum(x.total_bs || '0') || (parseNum(x.price_bs) * q);
           const tU = fmtClean(tB / rate);
-          return { ...x, total_usd: tU, price: fmtClean((tB / rate) / q) };
+          return {
+            ...x,
+            total_usd: tU,
+            price: fmtClean((tB / rate) / q),
+            usd_manual: false,
+            bs_manual: tB > 0,
+            tasa_propia: undefined,
+            tasa_manual: undefined,
+          };
         }
         const b = parseNum(x.price_bs);
         const u = fmtClean(b / rate);
-        return { ...x, price: u, total_usd: fmtClean((b / rate) * q) };
+        return {
+          ...x,
+          price: u,
+          total_usd: fmtClean((b / rate) * q),
+          usd_manual: false,
+          bs_manual: b > 0,
+          tasa_propia: undefined,
+          tasa_manual: undefined,
+        };
       }
     }));
   };
@@ -1234,42 +1379,90 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const list = (x.presupuestos || []).map((c) => {
         if (c.id !== cotId) return c;
         const modo = c.modo_precio || 'unidad';
+        const tasaActiva = (c.bs_manual && c.tasa_propia && c.tasa_propia > 0)
+          ? c.tasa_propia
+          : (rate && rate > 0 ? rate : 0);
+
         if (campo === 'precio_usd' || campo === 'total_usd') {
           const clean = onlyDecimal(val);
           const numU = parseNum(clean);
+          if (clean === '' || numU <= 0) {
+            const vacio = clean === '' ? '' : '0';
+            return {
+              ...c,
+              precio_usd: modo === 'unidad' ? clean : '',
+              total_usd: modo === 'total' ? clean : '',
+              precio_bs: c.bs_manual ? c.precio_bs : vacio,
+              total_bs: c.bs_manual ? c.total_bs : vacio,
+              usd_manual: false,
+              tasa_propia: undefined,
+            };
+          }
           if (modo === 'total') {
-            const bsVacio = !c.total_bs || c.total_bs === '0' || c.total_bs === '0.00';
-            const nuevoTotBs = bsVacio && rate && rate > 0 && numU > 0 ? fmtClean(numU * rate) : (clean === '' ? '' : (c.total_bs || ''));
+            const nuevoTotBs = tasaActiva > 0 ? fmtClean(numU * tasaActiva) : (c.total_bs || '');
             const unitUsd = numU > 0 ? fmtClean(numU / q) : '';
             const numTotBs = parseNum(nuevoTotBs);
             const unitBs = numTotBs > 0 ? fmtClean(numTotBs / q) : c.precio_bs;
-            return { ...c, total_usd: clean, total_bs: nuevoTotBs, precio_usd: unitUsd, precio_bs: unitBs };
+            return { ...c, total_usd: clean, total_bs: nuevoTotBs, precio_usd: unitUsd, precio_bs: unitBs, usd_manual: true };
           } else {
-            const bsVacio = !c.precio_bs || c.precio_bs === '0' || c.precio_bs === '0.00';
-            const nuevoBs = bsVacio && rate && rate > 0 && numU > 0 ? fmtClean(numU * rate) : (clean === '' ? '' : c.precio_bs);
+            const nuevoBs = tasaActiva > 0 ? fmtClean(numU * tasaActiva) : c.precio_bs;
             const totUsd = numU > 0 ? fmtClean(numU * q) : '';
             const numBs = parseNum(nuevoBs);
             const totBs = numBs > 0 ? fmtClean(numBs * q) : (c.total_bs || '');
-            return { ...c, precio_usd: clean, precio_bs: nuevoBs, total_usd: totUsd, total_bs: totBs };
+            return { ...c, precio_usd: clean, precio_bs: nuevoBs, total_usd: totUsd, total_bs: totBs, usd_manual: true };
           }
         }
         if (campo === 'precio_bs' || campo === 'total_bs') {
           const clean = onlyDecimal(val);
           const numB = parseNum(clean);
+          if (clean === '' || numB <= 0) {
+            const vacio = clean === '' ? '' : '0';
+            return {
+              ...c,
+              precio_bs: modo === 'unidad' ? clean : '',
+              total_bs: modo === 'total' ? clean : '',
+              precio_usd: c.usd_manual ? c.precio_usd : vacio,
+              total_usd: c.usd_manual ? c.total_usd : vacio,
+              bs_manual: false,
+              tasa_propia: undefined,
+            };
+          }
           if (modo === 'total') {
-            const usdVacio = !c.total_usd || c.total_usd === '0' || c.total_usd === '0.00';
-            const nuevoTotUsd = usdVacio && rate && rate > 0 && numB > 0 ? fmtClean(numB / rate) : (c.total_usd || '');
+            const totUsdExistente = parseNum(c.total_usd || '0') || (parseNum(c.precio_usd) * q);
+            const mantenerUsdManual = Boolean(c.usd_manual && totUsdExistente > 0);
+            const nuevoTotUsd = mantenerUsdManual
+              ? (c.total_usd || fmtClean(totUsdExistente))
+              : (rate && rate > 0 ? fmtClean(numB / rate) : (c.total_usd || ''));
             const unitBs = numB > 0 ? fmtClean(numB / q) : '';
             const numTotUsd = parseNum(nuevoTotUsd);
             const unitUsd = numTotUsd > 0 ? fmtClean(numTotUsd / q) : c.precio_usd;
-            return { ...c, total_bs: clean, total_usd: nuevoTotUsd, precio_bs: unitBs, precio_usd: unitUsd };
+            return {
+              ...c,
+              total_bs: clean,
+              total_usd: nuevoTotUsd,
+              precio_bs: unitBs,
+              precio_usd: unitUsd,
+              bs_manual: true,
+              tasa_propia: mantenerUsdManual && numTotUsd > 0 ? (numB / numTotUsd) : undefined,
+            };
           } else {
-            const usdVacio = !c.precio_usd || c.precio_usd === '0' || c.precio_usd === '0.00';
-            const nuevoUsd = usdVacio && rate && rate > 0 && numB > 0 ? fmtClean(numB / rate) : c.precio_usd;
+            const usdExistente = parseNum(c.precio_usd);
+            const mantenerUsdManual = Boolean(c.usd_manual && usdExistente > 0);
+            const nuevoUsd = mantenerUsdManual
+              ? c.precio_usd
+              : (rate && rate > 0 ? fmtClean(numB / rate) : c.precio_usd);
             const totBs = numB > 0 ? fmtClean(numB * q) : '';
             const numUsd = parseNum(nuevoUsd);
             const totUsd = numUsd > 0 ? fmtClean(numUsd * q) : (c.total_usd || '');
-            return { ...c, precio_bs: clean, precio_usd: nuevoUsd, total_bs: totBs, total_usd: totUsd };
+            return {
+              ...c,
+              precio_bs: clean,
+              precio_usd: nuevoUsd,
+              total_bs: totBs,
+              total_usd: totUsd,
+              bs_manual: true,
+              tasa_propia: mantenerUsdManual && numUsd > 0 ? (numB / numUsd) : undefined,
+            };
           }
         }
         return { ...c, [campo]: val };
@@ -1355,6 +1548,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const tUsd = parseNum(cot.total_usd || '0') || (uUsd * q);
       const tBs = parseNum(cot.total_bs || '0') || (uBs * q);
       const matchingSupplier = suppliers.find((s) => s.name.trim().toLowerCase() === cot.proveedor.trim().toLowerCase());
+      const finalUUsd = uUsd > 0 ? uUsd : (tUsd > 0 ? tUsd / q : parseNum(x.price));
+      const finalUBs = uBs > 0 ? uBs : (tBs > 0 ? tBs / q : parseNum(x.price_bs));
+      const tasaCot = finalUUsd > 0 && finalUBs > 0 ? (finalUBs / finalUUsd) : 0;
+      const tieneTasaPropia = Boolean(tasaCot > 0 && rate && rate > 0 && Math.abs(tasaCot - rate) > 0.05);
       return {
         ...x,
         modo_precio: modo,
@@ -1362,6 +1559,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         price_bs: uBs > 0 ? fmtClean(uBs) : (tBs > 0 ? fmtClean(tBs / q) : x.price_bs),
         total_usd: tUsd > 0 ? fmtClean(tUsd) : (uUsd > 0 ? fmtClean(uUsd * q) : x.total_usd),
         total_bs: tBs > 0 ? fmtClean(tBs) : (uBs > 0 ? fmtClean(uBs * q) : x.total_bs),
+        usd_manual: finalUUsd > 0,
+        bs_manual: Boolean(cot.bs_manual || tieneTasaPropia),
+        tasa_propia: tieneTasaPropia ? tasaCot : cot.tasa_propia,
+        tasa_manual: tieneTasaPropia ? fmtClean(tasaCot) : undefined,
         supplier_name: cot.proveedor || x.supplier_name,
         supplier_id: matchingSupplier ? matchingSupplier.id : x.supplier_id,
         metodo_pago: cot.metodo_pago || x.metodo_pago,
@@ -2693,9 +2894,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setRows(r.items.map((it) => {
       const q = Math.max(0.0001, Number(it.qty) || 1);
       const pUsdNum = it.price_usd != null ? it.price_usd : (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, tasaDelReq));
-      const pBsNum = it.price_bs != null ? it.price_bs : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdNum * rate * 100) / 100 : 0));
+      const pBsNum = (it.price_bs != null && Number(it.price_bs) > 0)
+        ? Number(it.price_bs)
+        : (it.currency === 'VES' ? Number(it.est_price) || 0 : (rate && rate > 0 ? Math.round(pUsdNum * rate * 100) / 100 : 0));
       const totUsdNum = it.total_usd != null && Number(it.total_usd) > 0 ? Number(it.total_usd) : Math.round(pUsdNum * q * 100) / 100;
       const totBsNum = it.total_bs != null && Number(it.total_bs) > 0 ? Number(it.total_bs) : Math.round(pBsNum * q * 100) / 100;
+      const tasaImpl = pUsdNum > 0 && pBsNum > 0 ? (pBsNum / pUsdNum) : 0;
+      // Solo preservar como tasa propia manual si es una tasa realista (>= 50% de BCV) y distinta de BCV.
+      // Si es menor al 50% de BCV (ej. 72.13 Bs/$ por el bug antiguo del primer dígito), no bloquear bs_manual.
+      const minTasaValida = rate && rate > 0 ? rate * 0.5 : 10;
+      const tieneTasaPropia = tasaImpl >= minTasaValida && (!rate || Math.abs(tasaImpl - rate) > 0.05);
       return {
         key: `${Date.now()}-${s++}`,
         product_id: it.product_id,
@@ -2714,11 +2922,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         supplier_name: it.supplier_name || null,
         metodo_pago: (it as any).metodo_pago || null,
         exento: Boolean(it.exento),
+        usd_manual: pUsdNum > 0,
+        bs_manual: tieneTasaPropia,
+        tasa_propia: tieneTasaPropia ? tasaImpl : undefined,
+        tasa_manual: tieneTasaPropia ? fmtClean(tasaImpl) : undefined,
         presupuestos: Array.isArray(it.cotizaciones) ? it.cotizaciones.map((c: any, ci: number) => {
           const cUnitUsd = Number(c.precio_usd ?? c.price ?? 0);
-          const cUnitBs = Number(c.precio_bs ?? (rate && rate > 0 ? Math.round(cUnitUsd * rate * 100) / 100 : 0));
+          const cUnitBs = Number(c.precio_bs && Number(c.precio_bs) > 0 ? c.precio_bs : (rate && rate > 0 ? Math.round(cUnitUsd * rate * 100) / 100 : 0));
           const cTotUsd = c.total_usd != null && Number(c.total_usd) > 0 ? Number(c.total_usd) : Math.round(cUnitUsd * q * 100) / 100;
           const cTotBs = c.total_bs != null && Number(c.total_bs) > 0 ? Number(c.total_bs) : Math.round(cUnitBs * q * 100) / 100;
+          const cTasa = cUnitUsd > 0 && cUnitBs > 0 ? (cUnitBs / cUnitUsd) : 0;
+          const cotTieneTasaPropia = cTasa >= minTasaValida && (!rate || Math.abs(cTasa - rate) > 0.05);
           return {
             id: c.id || `cot-${ci}-${Date.now()}`,
             proveedor: c.proveedor || c.supplier_name || '',
@@ -2731,6 +2945,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             total_bs: String(cTotBs),
             archivos: Array.isArray(c.archivos) ? c.archivos : [],
             nota: c.nota || c.note || '',
+            usd_manual: cUnitUsd > 0,
+            bs_manual: cotTieneTasaPropia,
+            tasa_propia: cotTieneTasaPropia ? cTasa : undefined,
           };
         }) : [],
         presupuestosAbierto: false,
@@ -4112,8 +4329,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                       const cta: any = (cuentasData || []).find((c: any) => c.inventory_requirement_id === r.id);
                                       const ctaPropio = !!normalizarPlan(cta?.plan_pago);
                                       if (!plan && !canWrite) return null;
+                                      const advPlan = plan ? advertenciaPlanGuardado(plan.partes, rate) : null;
                                       return (
-                                        <View style={{ marginTop: spacing.xs, padding: spacing.xs, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, gap: 2 }}>
+                                        <View style={{ marginTop: spacing.xs, padding: spacing.xs, borderRadius: radius.sm, borderWidth: 1, borderColor: advPlan ? '#F59E0B' : colors.border, gap: 2 }}>
                                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📋 Plan de pago</Text>
                                             {canWrite ? (
@@ -4127,6 +4345,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                           )) : (
                                             <Text style={{ color: colors.muted, fontSize: 11 }}>Sin plan: se paga todo junto.</Text>
                                           )}
+                                          {advPlan ? (
+                                            <View style={{ marginTop: 2, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 8 }}>
+                                              <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800' }}>
+                                                ⚠️ {advPlan}
+                                              </Text>
+                                            </View>
+                                          ) : null}
                                           {ctaPropio ? (
                                             <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic' }}>Por Pagar ya tiene su propio plan para esta cuenta: manda el de Por Pagar.</Text>
                                           ) : null}
@@ -5227,28 +5452,113 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     );
                   })()}
 
-                  {/* Indicador de Tasa Implícita del Renglón si se ingresó USD y Bs manualmente */}
+                  {/* Indicador y Editor Interactivo de Tasa del Renglón */}
                   {(() => {
                     const u = parseNum(x.price);
                     const b = parseNum(x.price_bs);
-                    const tasaItem = u > 0 && b > 0 ? (b / u) : null;
-                    const esDistinto = tasaItem && rate && Math.abs(tasaItem - rate) > 0.05;
+                    const tasaManualNum = parseNum(x.tasa_manual || '');
+                    const tasaItem = u > 0 && b > 0 ? (b / u) : (tasaManualNum > 0 ? tasaManualNum : null);
+                    const esDistinto = Boolean(tasaItem && rate && Math.abs(tasaItem - rate) > 0.05);
+                    const esSospechosaBaja = Boolean(tasaItem && rate && tasaItem < rate * 0.5);
                     const metObj = x.metodo_pago ? METODOS_PAGO_COTIZACION.find((m) => m.key === x.metodo_pago) : null;
 
-                    if (!tasaItem && !metObj) return null;
+                    if (!tasaItem && !metObj && !x.tasa_abierta) return null;
 
                     return (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, marginTop: 4, flexWrap: 'wrap', gap: 4 }}>
-                        {tasaItem ? (
-                          <Text style={{ fontSize: 10.5, color: '#0D9488', fontWeight: '800' }}>
-                            ⚡ Tasa propia del ítem: {tasaItem.toFixed(2)} Bs/$ {esDistinto ? `(BCV: ${rate?.toFixed(2)})` : ''}
-                          </Text>
-                        ) : <View />}
-                        {metObj ? (
-                          <View style={{ backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#86EFAC', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
-                            <Text style={{ fontSize: 10, color: '#15803D', fontWeight: '800' }}>
-                              {metObj.icon} Cotizado en: {metObj.label}
+                      <View style={{
+                        marginTop: 6,
+                        paddingVertical: 6,
+                        paddingHorizontal: 8,
+                        borderRadius: radius.sm,
+                        backgroundColor: esSospechosaBaja ? '#FEF2F2' : (esDistinto ? '#FFFBEB' : colors.surfaceAlt),
+                        borderWidth: 1,
+                        borderColor: esSospechosaBaja ? colors.danger : (esDistinto ? '#F59E0B' : colors.border),
+                        gap: 6,
+                      }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                          <TouchableOpacity
+                            onPress={() => upd(x.key, 'tasa_abierta', !x.tasa_abierta)}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingVertical: 2 }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={{ fontSize: 11, color: esSospechosaBaja ? colors.danger : (esDistinto ? '#D97706' : '#0D9488'), fontWeight: '800' }}>
+                              ⚡ Tasa propia del ítem: {tasaItem ? `${tasaItem.toFixed(2)} Bs/$` : (rate ? `${rate.toFixed(2)} Bs/$` : 'BCV')} {esDistinto ? `(BCV: ${rate?.toFixed(2)})` : ''}
                             </Text>
+                            <View style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: esDistinto ? '#F59E0B' : '#0D9488',
+                              borderRadius: radius.pill,
+                              paddingHorizontal: 8,
+                              paddingVertical: 2,
+                            }}>
+                              <Text style={{ fontSize: 10.5, color: esDistinto ? '#D97706' : '#0D9488', fontWeight: '800' }}>
+                                {x.tasa_abierta ? '▲ Cerrar' : '✏️ Cambiar tasa'}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            {esDistinto && rate && rate > 0 ? (
+                              <TouchableOpacity
+                                onPress={() => recomputarDesdeBcv(x.key, 'USD')}
+                                style={{
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.brand,
+                                  borderRadius: radius.pill,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 3,
+                                }}
+                              >
+                                <Text style={{ fontSize: 10.5, color: colors.brandText, fontWeight: '800' }}>
+                                  🔄 Usar BCV ({rate.toFixed(2)})
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {metObj ? (
+                              <View style={{ backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#86EFAC', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                                <Text style={{ fontSize: 10, color: '#15803D', fontWeight: '800' }}>
+                                  {metObj.icon} Cotizado en: {metObj.label}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+
+                        {esSospechosaBaja && rate ? (
+                          <Text style={{ fontSize: 11, color: colors.danger, fontWeight: '800' }}>
+                            ⚠️ Los Bs de este renglón parecen desactualizados respecto al precio en $ ({tasaItem?.toFixed(2)} Bs/$ vs BCV {rate.toFixed(2)}). Toca «🔄 Usar BCV» o «✏️ Cambiar tasa».
+                          </Text>
+                        ) : null}
+
+                        {x.tasa_abierta ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                            <Text style={{ fontSize: 11.5, color: colors.text, fontWeight: '700' }}>
+                              Escribe la tasa para este ítem (Bs por $):
+                            </Text>
+                            <TextInput
+                              value={x.tasa_manual !== undefined ? x.tasa_manual : (tasaItem ? fmtClean(tasaItem) : '')}
+                              onChangeText={(t) => handleTasaItemChange(x.key, t)}
+                              keyboardType="decimal-pad"
+                              inputMode="decimal"
+                              placeholder={rate ? String(rate) : '0.00'}
+                              placeholderTextColor={colors.muted}
+                              style={[inp, { width: 120, paddingVertical: 4, paddingHorizontal: 8, textAlign: 'right', fontWeight: '800', fontSize: 13 }]}
+                            />
+                            {rate && rate > 0 ? (
+                              <TouchableOpacity
+                                onPress={() => {
+                                  recomputarDesdeBcv(x.key, 'USD');
+                                  upd(x.key, 'tasa_abierta', false);
+                                }}
+                                style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: radius.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}
+                              >
+                                <Text style={{ fontSize: 11, color: colors.brandText, fontWeight: '800' }}>
+                                  🔄 Volver a BCV ({rate.toFixed(2)})
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
                           </View>
                         ) : null}
                       </View>
