@@ -27,6 +27,8 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
+  Platform,
+  Linking,
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -46,6 +48,12 @@ import {
   ordenarRenglonesComoReferencia,
   SECCIONES_ANEXO_SUGERIDAS,
   nombreDeMaquina,
+  placaDeMaquina,
+  etiquetaMaquinaConPlaca,
+  extraerStoragePathsFichaAnexo,
+  contarFotosFicha,
+  formatearBytesFicha,
+  vacioEnFicha,
   ajustarTransformFoto,
   reordenarFotoEnLista,
   intercambiarFotosP1,
@@ -53,15 +61,31 @@ import {
 } from '../lib/fichaTecnicaMaquina';
 import {
   GuardadoFicha,
+  FichaDocumentoPdf,
   getFichaPersonalizada,
   saveFichaPersonalizada,
+  saveFichaSoloLocal,
   deleteFichaPersonalizada,
+  limpiarFotosAnexoHuerfanas,
+  listarDocumentosPdfFicha,
+  registrarDocumentosPdfSubidos,
+  guardarSnapshotPlantillaEnDocumentos,
+  renombrarDocumentoPdfFicha,
+  eliminarDocumentoPdfFicha,
   construirFichaInicial,
   resolverNuevoRenglon,
   aplicarPendientesFicha,
   sincronizarFichaConCatalogo,
 } from '../lib/fichaTecnicaStorage';
-import { capturarFotoLocal, elegirFotoLocal, takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../lib/photo';
+import {
+  capturarFotoLocal,
+  elegirFotoLocal,
+  takePhotoAndUpload,
+  pickPhotoFromGalleryAndUpload,
+  pickAndUploadFichaPdfFiles,
+  removeMachineryStoragePaths,
+} from '../lib/photo';
+import { construirUrlDescargaDirecta } from '../lib/formatosAdjuntos';
 
 export function FichaTecnicaModal({
   visible,
@@ -84,6 +108,28 @@ export function FichaTecnicaModal({
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [data, setData] = useState<FichaPersonalizada | null>(null);
+
+  // 📄 12-nov-2026: Bandeja de Documentos PDF y pestaña de Plantilla del Sistema.
+  // ⚠️ Todos los hooks van arriba, antes del retorno temprano cuando la ventana está cerrada.
+  const [tabActiva, setTabActiva] = useState<'pdfs' | 'plantilla'>('pdfs');
+  const [docsPdf, setDocsPdf] = useState<FichaDocumentoPdf[]>([]);
+  const [cargandoDocsPdf, setCargandoDocsPdf] = useState(false);
+  const [tituloNuevoPdf, setTituloNuevoPdf] = useState('');
+  const [subiendoPdfInfo, setSubiendoPdfInfo] = useState<{
+    actual: number;
+    total: number;
+    nombre: string;
+    sizeBytes: number;
+  } | null>(null);
+  const [errorSubidaPdf, setErrorSubidaPdf] = useState<string | null>(null);
+  const [editandoTituloDocId, setEditandoTituloDocId] = useState<string | null>(null);
+  const [editandoTituloDocTxt, setEditandoTituloDocTxt] = useState('');
+  const [confirmarBorrarDocId, setConfirmarBorrarDocId] = useState<string | null>(null);
+  const [borrandoDocId, setBorrandoDocId] = useState<string | null>(null);
+  const [tieneFichaGuardada, setTieneFichaGuardada] = useState(false);
+  const [confirmarBorrarPlantilla, setConfirmarBorrarPlantilla] = useState(false);
+  const [guardandoSnapshotDoc, setGuardandoSnapshotDoc] = useState(false);
+  const pathsAnexoConocidosRef = useRef<Set<string>>(new Set());
 
   // Estados para formulario de agregar renglón
   const [catRenglonSel, setCatRenglonSel] = useState<'Datos Generales' | 'Componentes Principales' | '__otra__'>('Componentes Principales');
@@ -128,20 +174,36 @@ export function FichaTecnicaModal({
     if (temporizadorGuardado.current) clearTimeout(temporizadorGuardado.current);
   }, []);
   useEffect(() => {
-    if (visible) avisoNubeDado.current = false;
+    if (visible) {
+      avisoNubeDado.current = false;
+      setTabActiva('pdfs');
+      setConfirmarBorrarDocId(null);
+      setConfirmarBorrarPlantilla(false);
+      setEditandoTituloDocId(null);
+      setErrorSubidaPdf(null);
+    }
   }, [visible]);
 
-  // Cargar personalización previa o inicial
+  // Cargar personalización previa o inicial y lista de documentos PDF
   useEffect(() => {
     if (!visible || !machine) return;
     setLoading(true);
+    setCargandoDocsPdf(true);
     const mid = machineId || machine.code || 'default';
     const inicial = construirFichaInicial(machine, options);
+
+    listarDocumentosPdfFicha(mid)
+      .then((lista) => setDocsPdf(lista))
+      .catch(() => setDocsPdf([]))
+      .finally(() => setCargandoDocsPdf(false));
+
     getFichaPersonalizada(mid)
       .then((saved) => {
         if (saved) {
+          setTieneFichaGuardada(true);
+          pathsAnexoConocidosRef.current = new Set(extraerStoragePathsFichaAnexo(saved));
           const sincronizada = sincronizarFichaConCatalogo(saved, inicial);
-          setData({
+          const cargada: FichaPersonalizada = {
             ...sincronizada,
             fotoPrincipalUrl: saved.fotoPrincipalUrl !== undefined ? saved.fotoPrincipalUrl : (machine.photo_url || null),
             fotoPrincipalLeyenda: saved.fotoPrincipalLeyenda !== undefined ? saved.fotoPrincipalLeyenda : (machine.photo_url ? 'Vista general de la unidad en campo operativo' : null),
@@ -149,12 +211,19 @@ export function FichaTecnicaModal({
             // ficha de referencia) no debe volver al texto por defecto.
             seccionFotosTitulo: saved.seccionFotosTitulo ?? 'VISTA GENERAL DEL EQUIPO',
             seccionFotosTag: saved.seccionFotosTag ?? (machine.clasificacion || 'Vista en Terreno'),
-          });
+          };
+          ultimoGuardado.current = JSON.stringify(cargada);
+          setData(cargada);
         } else {
+          setTieneFichaGuardada(false);
+          pathsAnexoConocidosRef.current = new Set();
+          ultimoGuardado.current = JSON.stringify(inicial);
           setData(inicial);
         }
       })
       .catch(() => {
+        setTieneFichaGuardada(false);
+        pathsAnexoConocidosRef.current = new Set();
         setData(inicial);
       })
       .finally(() => setLoading(false));
@@ -163,6 +232,8 @@ export function FichaTecnicaModal({
   if (!visible || !machine) return null;
 
   const mid = machineId || machine.code || 'default';
+  const esUuidMaquinaria = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mid) && String(options.fallbackSubtitulo ?? '').toLowerCase() !== 'vehículo';
+  const placaActual = placaDeMaquina(machine);
 
   const consolidarDatosActuales = (actual: FichaPersonalizada): FichaPersonalizada => {
     const res = aplicarPendientesFicha(actual, {
@@ -199,17 +270,15 @@ export function FichaTecnicaModal({
     toast.error(`La ficha quedó guardada solo en este dispositivo: ${res.error ?? 'la nube no la aceptó.'}`);
   };
 
-  // 💾 07-nov-2026 (el disco de Supabase se llenó): cada guardado de la ficha reescribe la
-  // configuración compartida y deja un registro en la auditoría. El guardado automático
-  // esperaba solo 0,8 s y guardaba aunque nada hubiera cambiado: una ficha llenada a mano
-  // dejaba decenas de registros. Ahora espera 2,5 s sin escribir y NO guarda si la ficha
-  // es igual a la última que se mandó. (`ultimoGuardado` se declara arriba, con los
-  // demás useRef: ningún hook puede ir después del `return null` de la ventana.)
+  // 💾 07-nov-2026 / 12-nov-2026: mientras el usuario edita la plantilla, el guardado
+  // diferido (2,5 s) guarda el borrador SOLO en el dispositivo (`saveFichaSoloLocal`),
+  // sin tocar `tique_config` ni generar filas en `audit_log`. La nube solo se escribe
+  // cuando el usuario pulsa explícitamente «💾 Guardar» o «📄 Exportar PDF».
   const guardarSiCambio = (next: FichaPersonalizada) => {
     const huella = JSON.stringify(next);
     if (huella === ultimoGuardado.current) return;
     ultimoGuardado.current = huella;
-    saveFichaPersonalizada(mid, next).then(avisarSiNoLlegoALaNube).catch(() => {});
+    saveFichaSoloLocal(mid, next).catch(() => {});
   };
 
   /** Guarda un momento después de dejar de escribir. */
@@ -226,7 +295,7 @@ export function FichaTecnicaModal({
     temporizadorGuardado.current = null;
   };
 
-  // Guardar personalización
+  // Guardar personalización en la nube + liberar fotos de anexo descartadas
   const guardar = async () => {
     if (!data) return;
     cancelarGuardadoPendiente();
@@ -234,20 +303,38 @@ export function FichaTecnicaModal({
     setData(finalData);
     ultimoGuardado.current = JSON.stringify(finalData);
     const res = await saveFichaPersonalizada(mid, finalData);
-    if (res.nube) toast.success('Ficha técnica guardada.');
-    else toast.error(`La ficha quedó guardada solo en este dispositivo: ${res.error ?? 'la nube no la aceptó.'}`);
+    if (res.nube) {
+      setTieneFichaGuardada(true);
+      await limpiarFotosAnexoHuerfanas(pathsAnexoConocidosRef.current, finalData);
+      pathsAnexoConocidosRef.current = new Set(extraerStoragePathsFichaAnexo(finalData));
+      toast.success('Ficha técnica guardada en el sistema.');
+    } else {
+      toast.error(`La ficha quedó guardada solo en este dispositivo: ${res.error ?? 'la nube no la aceptó.'}`);
+    }
   };
 
-  // Restablecer al catálogo
+  // Restablecer al catálogo (y liberar fotos anexas del Storage)
   const restablecer = async () => {
     cancelarGuardadoPendiente();
+    const fotosABorrar = Array.from(
+      new Set([
+        ...Array.from(pathsAnexoConocidosRef.current),
+        ...extraerStoragePathsFichaAnexo(data),
+      ])
+    );
+    if (fotosABorrar.length > 0) {
+      await removeMachineryStoragePaths(fotosABorrar).catch(() => {});
+    }
+    pathsAnexoConocidosRef.current = new Set();
     const res = await deleteFichaPersonalizada(mid);
     const inicial = construirFichaInicial(machine, options);
     setData(inicial);
+    setTieneFichaGuardada(false);
+    setConfirmarBorrarPlantilla(false);
     setNuevoCampoEtq('');
     setNuevoCampoVal('');
     setNuevoCampoCat('');
-    if (res.nube) toast.info('Valores restablecidos a los datos originales del catálogo.');
+    if (res.nube) toast.info('Ficha de plantilla eliminada y espacio liberado.');
     else toast.error(`Se restableció en este dispositivo, pero no en la nube: ${res.error ?? 'sin conexión.'}`);
   };
 
@@ -268,13 +355,175 @@ export function FichaTecnicaModal({
       cancelarGuardadoPendiente();
       const finalData = consolidarDatosActuales(data);
       setData(finalData);
+      const cambioRespectoAGuardado = JSON.stringify(finalData) !== ultimoGuardado.current;
       ultimoGuardado.current = JSON.stringify(finalData);
-      avisarSiNoLlegoALaNube(await saveFichaPersonalizada(mid, finalData));
+      if (cambioRespectoAGuardado || tieneFichaGuardada) {
+        const res = await saveFichaPersonalizada(mid, finalData);
+        avisarSiNoLlegoALaNube(res);
+        if (res.nube) {
+          setTieneFichaGuardada(true);
+          await limpiarFotosAnexoHuerfanas(pathsAnexoConocidosRef.current, finalData);
+          pathsAnexoConocidosRef.current = new Set(extraerStoragePathsFichaAnexo(finalData));
+        }
+      }
       await onExport(finalData);
     } catch (e: any) {
       toast.error(e?.message ?? 'No se pudo exportar la ficha.');
     } finally {
       setExporting(false);
+    }
+  };
+
+  // Acciones de la Bandeja de Documentos PDF
+  const handleSubirPdfs = async () => {
+    if (subiendoPdfInfo) return;
+    setErrorSubidaPdf(null);
+    try {
+      const up = await pickAndUploadFichaPdfFiles(mid, (info) => setSubiendoPdfInfo(info));
+      setSubiendoPdfInfo(null);
+      if (!up.ok || !up.files || up.files.length === 0) {
+        if (up.error) {
+          setErrorSubidaPdf(up.error);
+          toast.error(up.error);
+        }
+        return;
+      }
+      if (up.rejected && up.rejected.length > 0) {
+        setErrorSubidaPdf(up.rejected.join(' '));
+      }
+      const reg = await registrarDocumentosPdfSubidos({
+        machineId: mid,
+        isMachineryUuid: esUuidMaquinaria,
+        machineCode: machine.code || nombreDeMaquina(machine),
+        machinePlate: placaActual,
+        tituloBase: tituloNuevoPdf.trim() || null,
+        createdByName: options.emitidoPor || null,
+        files: up.files,
+      });
+      if (!reg.ok || !reg.docs) {
+        toast.error(reg.error ?? 'No se pudieron registrar los documentos PDF.');
+        return;
+      }
+      setTituloNuevoPdf('');
+      setDocsPdf((prev) => [...reg.docs!, ...prev]);
+      toast.success(
+        reg.docs.length === 1
+          ? 'Documento PDF subido y guardado.'
+          : `${reg.docs.length} documentos PDF subidos y guardados.`
+      );
+    } catch (e: any) {
+      setSubiendoPdfInfo(null);
+      toast.error(e?.message ?? 'Error al subir el documento PDF.');
+    }
+  };
+
+  const handleGuardarSnapshotPlantilla = async () => {
+    if (!data || guardandoSnapshotDoc) return;
+    setGuardandoSnapshotDoc(true);
+    try {
+      const finalData = consolidarDatosActuales(data);
+      setData(finalData);
+      const res = await guardarSnapshotPlantillaEnDocumentos({
+        machineId: mid,
+        isMachineryUuid: esUuidMaquinaria,
+        machineCode: machine.code || nombreDeMaquina(machine),
+        machinePlate: placaActual,
+        titulo: tituloNuevoPdf.trim() || `Ficha Técnica ${machine.code || nombreDeMaquina(machine)}`,
+        subtitulo: finalData.subtitulo || null,
+        createdByName: options.emitidoPor || null,
+        ficha: finalData,
+      });
+      if (!res.ok || !res.doc) {
+        toast.error(res.error ?? 'No se pudo guardar el documento.');
+        return;
+      }
+      setTituloNuevoPdf('');
+      setDocsPdf((prev) => [res.doc!, ...prev]);
+      toast.success('Ficha técnica guardada en la lista de documentos de la máquina.');
+    } finally {
+      setGuardandoSnapshotDoc(false);
+    }
+  };
+
+  const handleVerDocPdf = async (doc: FichaDocumentoPdf) => {
+    if (doc.origen === 'plantilla' && doc.datos) {
+      setExporting(true);
+      try {
+        await onExport(doc.datos);
+      } catch (e: any) {
+        toast.error(e?.message ?? 'No se pudo abrir el documento PDF.');
+      } finally {
+        setExporting(false);
+      }
+      return;
+    }
+    if (!doc.fileUrl) {
+      toast.error('Este documento no tiene enlace de archivo disponible.');
+      return;
+    }
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.open(doc.fileUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      Linking.openURL(doc.fileUrl).catch(() => toast.error('No se pudo abrir el PDF.'));
+    }
+  };
+
+  const handleDescargarDocPdf = async (doc: FichaDocumentoPdf) => {
+    if (doc.origen === 'plantilla' && doc.datos) {
+      await handleVerDocPdf(doc);
+      return;
+    }
+    if (!doc.fileUrl) {
+      toast.error('Este documento no tiene enlace de descarga.');
+      return;
+    }
+    const nombreArchivo = doc.fileName?.toLowerCase().endsWith('.pdf') ? doc.fileName : `${doc.titulo || 'Ficha_Tecnica'}.pdf`;
+    const urlDescarga = construirUrlDescargaDirecta(doc.fileUrl, nombreArchivo);
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const a = document.createElement('a');
+      a.href = urlDescarga;
+      a.download = nombreArchivo;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } else {
+      Linking.openURL(urlDescarga).catch(() => toast.error('No se pudo descargar el PDF.'));
+    }
+  };
+
+  const handleConfirmarRenombrarDoc = async (docId: string) => {
+    const limpio = editandoTituloDocTxt.trim();
+    if (!limpio) {
+      toast.error('Escribe un nombre para el documento.');
+      return;
+    }
+    const res = await renombrarDocumentoPdfFicha(docId, limpio);
+    if (!res.ok) {
+      toast.error(res.error ?? 'No se pudo renombrar el documento.');
+      return;
+    }
+    setDocsPdf((prev) => prev.map((d) => (d.id === docId ? { ...d, titulo: limpio } : d)));
+    setEditandoTituloDocId(null);
+    setEditandoTituloDocTxt('');
+    toast.success('Nombre del documento actualizado.');
+  };
+
+  const handleEliminarDocPdf = async (doc: FichaDocumentoPdf) => {
+    if (borrandoDocId) return;
+    setBorrandoDocId(doc.id);
+    try {
+      const res = await eliminarDocumentoPdfFicha(doc);
+      if (!res.ok) {
+        toast.error(res.error ?? 'No se pudo eliminar el documento.');
+        return;
+      }
+      setDocsPdf((prev) => prev.filter((d) => d.id !== doc.id));
+      setConfirmarBorrarDocId(null);
+      toast.success('Documento eliminado y espacio liberado en el almacenamiento.');
+    } finally {
+      setBorrandoDocId(null);
     }
   };
 
@@ -1253,7 +1502,7 @@ export function FichaTecnicaModal({
             overflow: 'hidden',
           }}
         >
-          {/* Cabecera del modal */}
+          {/* Cabecera del modal (SIEMPRE muestra Código/Nombre + PLACA) */}
           <View
             style={{
               padding: spacing.md,
@@ -1265,14 +1514,82 @@ export function FichaTecnicaModal({
           >
             <View style={{ flex: 1 }}>
               <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>
-                📄 Personalizar Ficha Técnica · {machine.code || 'Equipo'}
+                📄 Ficha Técnica · {machine.code || nombreDeMaquina(machine)}
               </Text>
-              <Text style={{ color: '#AFC4DB', fontSize: 11, marginTop: 2 }}>
-                Edita títulos, especificaciones, observaciones y fotos con el estilo moderno de alta calidad
-              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                <View style={{ backgroundColor: '#EAB308', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                  <Text style={{ color: '#16324F', fontWeight: '900', fontSize: 11.5 }}>
+                    🏷️ PLACA: {placaActual}
+                  </Text>
+                </View>
+                <Text style={{ color: '#AFC4DB', fontSize: 11, fontWeight: '600' }}>
+                  {[machine.clasificacion, machine.marca, machine.modelo].filter(Boolean).join(' · ') || 'Documentos PDF y plantilla técnica'}
+                </Text>
+              </View>
             </View>
             <TouchableOpacity onPress={cerrar} style={{ padding: 6 }}>
               <Text style={{ color: '#fff', fontSize: 18, fontWeight: '900' }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Barra superior de 2 pestañas grandes (apta para teléfono y PC) */}
+          <View
+            style={{
+              flexDirection: 'row',
+              backgroundColor: colors.surface,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border,
+              paddingHorizontal: spacing.sm,
+              paddingTop: 6,
+              gap: 6,
+            }}
+          >
+            <TouchableOpacity
+              onPress={() => setTabActiva('pdfs')}
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                paddingHorizontal: 10,
+                borderTopLeftRadius: radius.md,
+                borderTopRightRadius: radius.md,
+                backgroundColor: tabActiva === 'pdfs' ? '#16324F' : colors.surfaceAlt,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text
+                style={{
+                  color: tabActiva === 'pdfs' ? '#fff' : colors.text,
+                  fontWeight: '900',
+                  fontSize: 12.5,
+                }}
+              >
+                📄 Documentos PDF ({docsPdf.length + (tieneFichaGuardada ? 1 : 0)})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setTabActiva('plantilla')}
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                paddingHorizontal: 10,
+                borderTopLeftRadius: radius.md,
+                borderTopRightRadius: radius.md,
+                backgroundColor: tabActiva === 'plantilla' ? '#16324F' : colors.surfaceAlt,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text
+                style={{
+                  color: tabActiva === 'plantilla' ? '#fff' : colors.text,
+                  fontWeight: '900',
+                  fontSize: 12.5,
+                }}
+              >
+                ✏️ Plantilla del sistema {tieneFichaGuardada ? '· ✓' : ''}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -1281,8 +1598,439 @@ export function FichaTecnicaModal({
               <ActivityIndicator size="large" color={colors.primary} />
               <Text style={{ color: colors.muted, marginTop: spacing.sm }}>Cargando datos de la ficha…</Text>
             </View>
+          ) : tabActiva === 'pdfs' ? (
+            <ScrollView style={{ padding: spacing.md }} keyboardShouldPersistTaps="handled">
+              {/* BLOQUE 1: SUBIR UNO O VARIOS DOCUMENTOS PDF */}
+              <View
+                style={{
+                  marginBottom: spacing.md,
+                  padding: spacing.md,
+                  backgroundColor: colors.surfaceAlt,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ color: '#16324F', fontWeight: '900', fontSize: 13, marginBottom: 4 }}>
+                  ⬆️ Subir documento(s) PDF de Ficha Técnica
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
+                  Puedes subir uno o varios archivos PDF para {etiquetaMaquinaConPlaca(machine)}, verlos, descargarlos o eliminarlos cuando quieras (máx. 15 MB por PDF).
+                </Text>
+
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 3 }}>
+                  Nombre o etiqueta opcional para el documento (si lo dejas vacío usa el nombre del archivo):
+                </Text>
+                <TextInput
+                  value={tituloNuevoPdf}
+                  onChangeText={setTituloNuevoPdf}
+                  placeholder="Ej. Ficha Técnica Oficial, Anexo Fotográfico, Certificado…"
+                  placeholderTextColor={colors.muted}
+                  style={{
+                    backgroundColor: colors.surface,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.sm,
+                    padding: 9,
+                    color: colors.text,
+                    marginBottom: spacing.sm,
+                    fontSize: 12.5,
+                  }}
+                />
+
+                <TouchableOpacity
+                  onPress={handleSubirPdfs}
+                  disabled={Boolean(subiendoPdfInfo)}
+                  style={{
+                    backgroundColor: '#16324F',
+                    paddingVertical: 12,
+                    paddingHorizontal: spacing.md,
+                    borderRadius: radius.md,
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: 8,
+                    opacity: subiendoPdfInfo ? 0.7 : 1,
+                  }}
+                >
+                  {subiendoPdfInfo ? <ActivityIndicator size="small" color="#fff" /> : null}
+                  <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13.5 }}>
+                    {subiendoPdfInfo
+                      ? `Subiendo ${subiendoPdfInfo.actual}/${subiendoPdfInfo.total}: ${subiendoPdfInfo.nombre}…`
+                      : '⬆️ Seleccionar y subir archivo(s) PDF'}
+                  </Text>
+                </TouchableOpacity>
+
+                {errorSubidaPdf ? (
+                  <View
+                    style={{
+                      marginTop: spacing.xs,
+                      padding: 8,
+                      backgroundColor: '#FEF2F2',
+                      borderWidth: 1,
+                      borderColor: '#FCA5A5',
+                      borderRadius: radius.sm,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <Text style={{ color: '#B91C1C', fontSize: 11.5, fontWeight: '700', flex: 1 }}>
+                      ⚠️ {errorSubidaPdf}
+                    </Text>
+                    <TouchableOpacity onPress={() => setErrorSubidaPdf(null)} style={{ padding: 4 }}>
+                      <Text style={{ color: '#B91C1C', fontWeight: '900' }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* BLOQUE 2: FICHA TÉCNICA CREADA EN EL SISTEMA (Conserva las 75 fichas actuales) */}
+              <View
+                style={{
+                  marginBottom: spacing.md,
+                  padding: spacing.md,
+                  backgroundColor: colors.surface,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: tieneFichaGuardada ? '#EAB308' : colors.border,
+                  borderLeftWidth: 4,
+                  borderLeftColor: tieneFichaGuardada ? '#EAB308' : '#16324F',
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  <Text style={{ color: '#16324F', fontWeight: '900', fontSize: 13 }}>
+                    {tieneFichaGuardada
+                      ? '📋 Ficha Técnica del Sistema (Guardada)'
+                      : '📋 Ficha Técnica Automática del Sistema'}
+                  </Text>
+                  <View
+                    style={{
+                      backgroundColor: tieneFichaGuardada ? '#FEF9C3' : colors.surfaceAlt,
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 4,
+                    }}
+                  >
+                    <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 10.5 }}>
+                      {etiquetaMaquinaConPlaca(machine)}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 4, marginBottom: spacing.sm }}>
+                  {tieneFichaGuardada
+                    ? `Especificaciones cargadas: ${(data.renglones ?? []).filter((r) => !vacioEnFicha(r.valor)).length} · Fotos: ${contarFotosFicha(data, machine.photo_url)}`
+                    : 'Generada con los datos actuales del catálogo. Puedes verla como PDF o personalizarla.'}
+                </Text>
+
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={handleExport}
+                    disabled={exporting}
+                    style={{
+                      backgroundColor: '#16324F',
+                      paddingVertical: 9,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.sm,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                      👁️ Ver / Descargar PDF
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleGuardarSnapshotPlantilla}
+                    disabled={guardandoSnapshotDoc}
+                    style={{
+                      backgroundColor: '#0284C7',
+                      paddingVertical: 9,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.sm,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                      {guardandoSnapshotDoc ? 'Guardando…' : '📥 Guardar como documento en la lista'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setTabActiva('plantilla')}
+                    style={{
+                      backgroundColor: colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      paddingVertical: 9,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.sm,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
+                      ✏️ Editar plantilla
+                    </Text>
+                  </TouchableOpacity>
+
+                  {tieneFichaGuardada ? (
+                    confirmarBorrarPlantilla ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TouchableOpacity
+                          onPress={restablecer}
+                          style={{
+                            backgroundColor: '#DC2626',
+                            paddingVertical: 9,
+                            paddingHorizontal: 12,
+                            borderRadius: radius.sm,
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>
+                            ⚠️ ¿Seguro? Confirmar borrado
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => setConfirmarBorrarPlantilla(false)}
+                          style={{
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            paddingVertical: 9,
+                            paddingHorizontal: 10,
+                            borderRadius: radius.sm,
+                          }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={() => setConfirmarBorrarPlantilla(true)}
+                        style={{
+                          backgroundColor: colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: '#FCA5A5',
+                          paddingVertical: 9,
+                          paddingHorizontal: 12,
+                          borderRadius: radius.sm,
+                        }}
+                      >
+                        <Text style={{ color: '#DC2626', fontWeight: '800', fontSize: 12 }}>
+                          🗑️ Eliminar ficha de plantilla
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  ) : null}
+                </View>
+              </View>
+
+              {/* BLOQUE 3: LISTA DE DOCUMENTOS PDF DE LA MÁQUINA */}
+              <View style={{ marginBottom: spacing.md }}>
+                <Text style={{ color: '#16324F', fontWeight: '900', fontSize: 13, marginBottom: spacing.xs }}>
+                  📂 Documentos PDF guardados en esta máquina ({docsPdf.length})
+                </Text>
+
+                {cargandoDocsPdf ? (
+                  <View style={{ padding: 20, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 6 }}>Cargando documentos PDF…</Text>
+                  </View>
+                ) : docsPdf.length === 0 ? (
+                  <View
+                    style={{
+                      padding: spacing.md,
+                      backgroundColor: colors.surfaceAlt,
+                      borderRadius: radius.md,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }}>
+                      Todavía no hay archivos PDF subidos para {etiquetaMaquinaConPlaca(machine)}. Usa el botón «⬆️ Seleccionar y subir archivo(s) PDF» de arriba para adjuntar uno o varios.
+                    </Text>
+                  </View>
+                ) : (
+                  docsPdf.map((doc) => {
+                    const pesoTxt = formatearBytesFicha(doc.fileSize);
+                    const fechaTxt = doc.createdAt ? new Date(doc.createdAt).toLocaleString('es-VE') : '';
+                    const esEditando = editandoTituloDocId === doc.id;
+                    const esConfirmando = confirmarBorrarDocId === doc.id;
+                    return (
+                      <View
+                        key={doc.id}
+                        style={{
+                          marginBottom: spacing.sm,
+                          padding: spacing.md,
+                          backgroundColor: colors.surface,
+                          borderRadius: radius.md,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                        }}
+                      >
+                        {esEditando ? (
+                          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                            <TextInput
+                              value={editandoTituloDocTxt}
+                              onChangeText={setEditandoTituloDocTxt}
+                              placeholder="Título del documento PDF"
+                              placeholderTextColor={colors.muted}
+                              style={{
+                                flex: 1,
+                                backgroundColor: colors.surfaceAlt,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                borderRadius: radius.sm,
+                                padding: 8,
+                                color: colors.text,
+                                fontSize: 12.5,
+                              }}
+                            />
+                            <TouchableOpacity
+                              onPress={() => handleConfirmarRenombrarDoc(doc.id)}
+                              style={{ backgroundColor: '#16324F', paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.sm }}
+                            >
+                              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Guardar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => {
+                                setEditandoTituloDocId(null);
+                                setEditandoTituloDocTxt('');
+                              }}
+                              style={{ paddingVertical: 8, paddingHorizontal: 8 }}
+                            >
+                              <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13.5 }}>
+                                {doc.origen === 'plantilla' ? '📋' : '📄'} {doc.titulo}
+                              </Text>
+                              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                                {[
+                                  doc.fileName,
+                                  pesoTxt ? `📦 ${pesoTxt}` : null,
+                                  doc.createdByName ? `👤 ${doc.createdByName}` : null,
+                                  fechaTxt ? `📅 ${fechaTxt}` : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => {
+                                setEditandoTituloDocId(doc.id);
+                                setEditandoTituloDocTxt(doc.titulo);
+                              }}
+                              style={{ padding: 4 }}
+                            >
+                              <Text style={{ color: '#0284C7', fontWeight: '800', fontSize: 11.5 }}>✏️ Renombrar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.sm }}>
+                          <TouchableOpacity
+                            onPress={() => handleVerDocPdf(doc)}
+                            style={{
+                              backgroundColor: '#16324F',
+                              paddingVertical: 8,
+                              paddingHorizontal: 12,
+                              borderRadius: radius.sm,
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>👁️ Ver / Abrir PDF</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() => handleDescargarDocPdf(doc)}
+                            style={{
+                              backgroundColor: '#0284C7',
+                              paddingVertical: 8,
+                              paddingHorizontal: 12,
+                              borderRadius: radius.sm,
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Descargar</Text>
+                          </TouchableOpacity>
+
+                          {esConfirmando ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <TouchableOpacity
+                                onPress={() => handleEliminarDocPdf(doc)}
+                                disabled={borrandoDocId === doc.id}
+                                style={{
+                                  backgroundColor: '#DC2626',
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 12,
+                                  borderRadius: radius.sm,
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>
+                                  {borrandoDocId === doc.id ? 'Eliminando…' : '⚠️ ¿Seguro? Confirmar'}
+                                </Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() => setConfirmarBorrarDocId(null)}
+                                style={{
+                                  backgroundColor: colors.surfaceAlt,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 10,
+                                  borderRadius: radius.sm,
+                                }}
+                              >
+                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              onPress={() => setConfirmarBorrarDocId(doc.id)}
+                              style={{
+                                backgroundColor: colors.surfaceAlt,
+                                borderWidth: 1,
+                                borderColor: '#FCA5A5',
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                borderRadius: radius.sm,
+                              }}
+                            >
+                              <Text style={{ color: '#DC2626', fontWeight: '800', fontSize: 12 }}>🗑️ Eliminar</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            </ScrollView>
           ) : (
             <ScrollView style={{ padding: spacing.md }} keyboardShouldPersistTaps="handled">
+              {/* Aviso de guardado explícito (no llena la auditoría mientras escribes) */}
+              <View
+                style={{
+                  marginBottom: spacing.sm,
+                  padding: 8,
+                  backgroundColor: colors.surfaceAlt,
+                  borderRadius: radius.sm,
+                  borderLeftWidth: 3,
+                  borderLeftColor: '#0284C7',
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                  💡 Mientras editas, tu borrador se guarda solo en este dispositivo sin llenar la base de datos. Pulsa «💾 Guardar» o «📄 Exportar PDF» abajo para guardarlo en la nube.
+                </Text>
+              </View>
+
               {/* SECCIÓN 1: CABECERA Y TÍTULO */}
               <View style={{ marginBottom: spacing.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
                 <Text style={{ color: '#16324F', fontWeight: '800', fontSize: 12, marginBottom: spacing.xs, textTransform: 'uppercase' }}>

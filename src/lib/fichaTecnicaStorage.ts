@@ -32,13 +32,18 @@ import {
   elegirFichaMasReciente,
   limpiarFichaParaNube,
   SECCIONES_ANEXO_SUGERIDAS,
+  extraerStoragePathDeUrlMachinery,
+  extraerStoragePathsFichaAnexo,
 } from './fichaTecnicaMaquina';
+import { UploadedFichaPdfFile, removeMachineryStoragePaths } from './photo';
 import { dmy } from './informeTecnico';
 
 export { resolverNuevoRenglon, aplicarPendientesFicha, sincronizarFichaConCatalogo };
 
 const PREFIX = '@ficha_tecnica_custom_';
+const PREFIX_PDFS = '@ficha_tecnica_pdfs_';
 const TABLA_CONFIG = 'tique_config';
+const TABLA_DOCS_PDF = 'ficha_tecnica_documentos';
 
 const limpiarParaNube = limpiarFichaParaNube;
 
@@ -251,3 +256,277 @@ export function construirFichaInicial(
     fotosExtra: [],
   };
 }
+
+/**
+ * Guarda el borrador de la ficha SOLO en el dispositivo (`AsyncStorage`) mientras la
+ * persona escribe, sin llamar a `tique_config` ni escribir en `audit_log`.
+ * La escritura en la nube (`saveFichaPersonalizada`) se hace únicamente cuando el
+ * usuario pulsa «💾 Guardar ficha» o «📄 Descargar / imprimir PDF».
+ */
+export async function saveFichaSoloLocal(machineId: string, data: FichaPersonalizada): Promise<void> {
+  if (!machineId) return;
+  const conFecha: FichaPersonalizada = { ...data, actualizadoEn: new Date().toISOString() };
+  try {
+    await AsyncStorage.setItem(`${PREFIX}${machineId}`, JSON.stringify(conFecha));
+  } catch (e) {
+    console.warn('[fichaTecnicaStorage] error guardando borrador local:', e);
+  }
+}
+
+/**
+ * Elimina del Storage (`machinery`) las fotos de `/ficha-anexo/` que antes estaban en la ficha
+ * y fueron quitadas por el usuario al guardar o al eliminar la ficha de plantilla.
+ */
+export async function limpiarFotosAnexoHuerfanas(
+  pathsAnteriores: Iterable<string>,
+  fichaActual: FichaPersonalizada | null
+): Promise<void> {
+  const actuales = new Set(extraerStoragePathsFichaAnexo(fichaActual));
+  const aBorrar: string[] = [];
+  for (const p of pathsAnteriores) {
+    if (p && !actuales.has(p)) aBorrar.push(p);
+  }
+  if (aBorrar.length > 0) {
+    await removeMachineryStoragePaths(aBorrar).catch(() => {});
+  }
+}
+
+// ============================================================================
+// 📄 BANDEJA DE DOCUMENTOS PDF DE FICHA TÉCNICA POR EQUIPO (12-nov-2026)
+// ============================================================================
+
+export type FichaDocumentoPdf = {
+  id: string;
+  machineId: string;
+  machineCode: string | null;
+  machinePlate: string | null;
+  titulo: string;
+  subtitulo: string | null;
+  fileName: string;
+  storageBucket: string;
+  storagePath: string | null;
+  fileUrl: string | null;
+  fileSize: number | null;
+  origen: 'subido' | 'plantilla';
+  datos: FichaPersonalizada | null;
+  createdAt: string;
+  createdByName: string | null;
+};
+
+function mapRowToDocPdf(r: any): FichaDocumentoPdf {
+  return {
+    id: String(r.id),
+    machineId: String(r.machine_id ?? ''),
+    machineCode: r.machine_code ?? null,
+    machinePlate: r.machine_plate ?? null,
+    titulo: String(r.titulo ?? 'Ficha Técnica PDF').trim() || 'Ficha Técnica PDF',
+    subtitulo: r.subtitulo ?? null,
+    fileName: String(r.file_name ?? 'ficha-tecnica.pdf'),
+    storageBucket: String(r.storage_bucket ?? 'machinery'),
+    storagePath: r.storage_path ?? null,
+    fileUrl: r.file_url ?? null,
+    fileSize: r.file_size != null ? Number(r.file_size) : null,
+    origen: r.origen === 'plantilla' ? 'plantilla' : 'subido',
+    datos: r.datos && typeof r.datos === 'object' && Object.keys(r.datos).length > 0 ? (r.datos as FichaPersonalizada) : null,
+    createdAt: String(r.created_at ?? new Date().toISOString()),
+    createdByName: r.created_by_name ?? null,
+  };
+}
+
+/** Lista los documentos PDF activos (`anulado_at IS NULL`) de una máquina o vehículo. */
+export async function listarDocumentosPdfFicha(machineId: string): Promise<FichaDocumentoPdf[]> {
+  if (!machineId) return [];
+  try {
+    const { data, error } = await supabase
+      .from(TABLA_DOCS_PDF)
+      .select('id, machine_id, machine_code, machine_plate, titulo, subtitulo, file_name, storage_bucket, storage_path, file_url, file_size, origen, datos, created_at, created_by_name')
+      .eq('machine_id', machineId)
+      .is('anulado_at', null)
+      .order('created_at', { ascending: false });
+
+    if (!error && Array.isArray(data)) {
+      const list = data.map(mapRowToDocPdf);
+      await AsyncStorage.setItem(`${PREFIX_PDFS}${machineId}`, JSON.stringify(list)).catch(() => {});
+      return list;
+    }
+  } catch {
+    // Fallback a copia local si no hay conexión
+  }
+  try {
+    const raw = await AsyncStorage.getItem(`${PREFIX_PDFS}${machineId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+/** Registra en `public.ficha_tecnica_documentos` uno o varios archivos PDF subidos al Storage. */
+export async function registrarDocumentosPdfSubidos(params: {
+  machineId: string;
+  isMachineryUuid?: boolean;
+  machineCode?: string | null;
+  machinePlate?: string | null;
+  tituloBase?: string | null;
+  createdByName?: string | null;
+  files: UploadedFichaPdfFile[];
+}): Promise<{ ok: boolean; docs?: FichaDocumentoPdf[]; error?: string }> {
+  if (!params.machineId || !params.files?.length) {
+    return { ok: false, error: 'No hay archivos PDF para registrar.' };
+  }
+  const tituloLimpio = String(params.tituloBase ?? '').trim();
+  const rows = params.files.map((f, idx) => {
+    const baseName = String(f.name ?? '').replace(/\.pdf$/i, '').trim() || 'Ficha Técnica PDF';
+    const titulo = tituloLimpio
+      ? params.files.length > 1
+        ? `${tituloLimpio} (${idx + 1})`
+        : tituloLimpio
+      : baseName;
+    return {
+      machine_id: params.machineId,
+      machinery_id: params.isMachineryUuid ? params.machineId : null,
+      machine_code: params.machineCode ?? null,
+      machine_plate: params.machinePlate ?? null,
+      titulo,
+      file_name: f.name || `${baseName}.pdf`,
+      storage_bucket: 'machinery',
+      storage_path: f.storagePath,
+      file_url: f.url,
+      file_size: f.sizeBytes ?? null,
+      origen: 'subido',
+      datos: {},
+      created_by_name: params.createdByName ?? null,
+    };
+  });
+
+  try {
+    const { data, error } = await supabase
+      .from(TABLA_DOCS_PDF)
+      .insert(rows)
+      .select('id, machine_id, machine_code, machine_plate, titulo, subtitulo, file_name, storage_bucket, storage_path, file_url, file_size, origen, datos, created_at, created_by_name');
+
+    if (error || !data || data.length === 0) {
+      return {
+        ok: false,
+        error: error?.message ?? 'No tienes permiso para guardar documentos en esta máquina.',
+      };
+    }
+    const creados = data.map(mapRowToDocPdf);
+    return { ok: true, docs: creados };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Error de red al registrar los PDFs.' };
+  }
+}
+
+/**
+ * Guarda una copia congelada (snapshot) de la Ficha Técnica del sistema dentro de la
+ * bandeja de documentos de la máquina (`public.ficha_tecnica_documentos`), permitiendo
+ * conservar versiones históricas o convertir cualquiera de las 75 fichas creadas en un
+ * documento permanente de la máquina.
+ */
+export async function guardarSnapshotPlantillaEnDocumentos(params: {
+  machineId: string;
+  isMachineryUuid?: boolean;
+  machineCode?: string | null;
+  machinePlate?: string | null;
+  titulo?: string | null;
+  subtitulo?: string | null;
+  createdByName?: string | null;
+  ficha: FichaPersonalizada;
+}): Promise<{ ok: boolean; doc?: FichaDocumentoPdf; error?: string }> {
+  if (!params.machineId) return { ok: false, error: 'Falta identificar el equipo.' };
+  const fichaLimpia = limpiarParaNube({ ...params.ficha, actualizadoEn: new Date().toISOString() });
+  const sizeEst = new Blob([JSON.stringify(fichaLimpia)]).size;
+  const row = {
+    machine_id: params.machineId,
+    machinery_id: params.isMachineryUuid ? params.machineId : null,
+    machine_code: params.machineCode ?? null,
+    machine_plate: params.machinePlate ?? null,
+    titulo: String(params.titulo ?? '').trim() || 'Ficha Técnica del Sistema (PDF)',
+    subtitulo: params.subtitulo ?? params.ficha.subtitulo ?? null,
+    file_name: `Ficha_${String(params.machineCode || params.machineId).replace(/[^\w.-]/g, '_')}.pdf`,
+    storage_bucket: 'machinery',
+    storage_path: null,
+    file_url: null,
+    file_size: sizeEst,
+    origen: 'plantilla',
+    datos: fichaLimpia,
+    created_by_name: params.createdByName ?? null,
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from(TABLA_DOCS_PDF)
+      .insert(row)
+      .select('id, machine_id, machine_code, machine_plate, titulo, subtitulo, file_name, storage_bucket, storage_path, file_url, file_size, origen, datos, created_at, created_by_name')
+      .single();
+
+    if (error || !data) {
+      return { ok: false, error: error?.message ?? 'No se pudo guardar el documento de ficha técnica.' };
+    }
+    return { ok: true, doc: mapRowToDocPdf(data) };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Error al guardar el documento de ficha técnica.' };
+  }
+}
+
+/** Cambia el título o etiqueta de un documento de ficha técnica. */
+export async function renombrarDocumentoPdfFicha(
+  docId: string,
+  nuevoTitulo: string
+): Promise<{ ok: boolean; error?: string }> {
+  const limpio = String(nuevoTitulo ?? '').trim();
+  if (!docId || !limpio) return { ok: false, error: 'Escribe un título válido.' };
+  try {
+    const { data, error } = await supabase
+      .from(TABLA_DOCS_PDF)
+      .update({ titulo: limpio, updated_at: new Date().toISOString() })
+      .eq('id', docId)
+      .select('id');
+    if (error || !data || data.length === 0) {
+      return { ok: false, error: error?.message ?? 'No tienes permiso para renombrar este documento.' };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Error al renombrar el documento.' };
+  }
+}
+
+/**
+ * Elimina un documento PDF de la bandeja:
+ * 1) Si tiene un archivo `.pdf` subido al bucket 'machinery', lo borra físicamente de
+ *    Supabase Storage para liberar los megabytes de inmediato.
+ * 2) En la base de datos marca `anulado_at = now()` (cumpliendo la regla de cero DELETE en tablas).
+ */
+export async function eliminarDocumentoPdfFicha(
+  doc: FichaDocumentoPdf
+): Promise<{ ok: boolean; error?: string }> {
+  if (!doc?.id) return { ok: false, error: 'Documento inválido.' };
+  try {
+    const pathStorage =
+      doc.storagePath ||
+      extraerStoragePathDeUrlMachinery(doc.fileUrl, 'fichas-tecnicas-pdf/');
+
+    if (pathStorage) {
+      await removeMachineryStoragePaths([pathStorage]).catch(() => {});
+    }
+
+    const { data, error } = await supabase
+      .from(TABLA_DOCS_PDF)
+      .update({ anulado_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', doc.id)
+      .select('id');
+
+    if (error || !data || data.length === 0) {
+      return {
+        ok: false,
+        error: error?.message ?? 'No tienes permiso para eliminar este documento.',
+      };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Error al eliminar el documento.' };
+  }
+}
+

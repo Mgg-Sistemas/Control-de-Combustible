@@ -488,6 +488,26 @@ fecha y de qué turno era. Sin foto subida, la ficha sale sin ella.
 > - El **número de página** sale al imprimir desde **Chrome o Edge** (computadora) y desde Android con el sistema al
 >   día. En Safari, Firefox o iPhone la ficha sale igual, pero sin el pie de página.
 
+> **📄 Bandeja de Documentos PDF de Ficha Técnica y guardado sin llenar la base (12/11/2026):**
+> Al tocar **«📄 Ficha técnica»** en cualquier máquina o vehículo del Catálogo, la ventana abre directo en la pestaña
+> **«📄 Documentos PDF»** (mostrando siempre en la cabecera el **Código/Nombre** y la **🏷️ PLACA** del equipo) y ofrece
+> dos pestañas arriba: **«📄 Documentos PDF (N)»** y **«✏️ Plantilla del sistema»**.
+> 1. **Subir uno o varios PDF (máx. 15 MB c/u):** puedes escribir un título opcional y pulsar **«📤 Subir PDF(s)»** para
+>    seleccionar uno o varios archivos `.pdf` desde el teléfono o la PC. Cada documento queda guardado por máquina en
+>    su propia bandeja con título, nombre de archivo, peso, fecha y usuario.
+> 2. **Ver, descargar, renombrar y eliminar liberando espacio:** cada documento PDF tiene botones **«👁️ Ver / Abrir PDF»**,
+>    **«⬇️ Descargar»**, **«✏️ Renombrar»** y **«🗑️ Eliminar»** (con confirmación en dos toques: **«¿Eliminar? Toca para confirmar»**).
+>    Al confirmar la eliminación, se borra el archivo físico en Supabase Storage para **recuperar espacio real de inmediato**
+>    y la fila queda marcada con `anulado_at` para auditoría (sin `DELETE` en base de datos).
+> 3. **Las fichas ya creadas en el sistema no se pierden:** si el equipo tiene ficha creada con el editor del sistema,
+>    aparece arriba en la misma bandeja la tarjeta **«📋 Ficha Técnica del Sistema (Guardada)»** con botones para
+>    **«👁️ Ver / Descargar PDF»**, **«📥 Guardar como documento en la lista»** (congela una copia en la bandeja con fecha),
+>    **«✏️ Editar plantilla»** y **«🗑️ Eliminar ficha de plantilla»** (en dos toques, borrando también sus fotos de anexo
+>    del almacenamiento).
+> 4. **Guardado liviano mientras escribes:** en la pestaña **«✏️ Plantilla del sistema»**, los cambios mientras tecleas se
+>    guardan **solo localmente en el dispositivo** y únicamente se envían a Supabase cuando pulsas explícitamente
+>    **«💾 Guardar»** o **«📄 Exportar PDF»** (limpiando además del almacenamiento las fotos de anexo que hayas quitado).
+
 **Los vehículos también:** la tarjeta de cada 🚗 vehículo tiene su mismo botón
 **«📄 Ficha técnica»** — abre el mismo editor y permite exportar con sus datos (marca, modelo, placa, serial, capacidad del
 tanque en L, rendimiento en km/L, empresa, encargado y sus fotos). Lo que un vehículo no

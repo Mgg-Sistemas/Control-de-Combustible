@@ -201,6 +201,35 @@ eq('↕ ordenar como la referencia: fijos y equivalentes primero, lo demás desp
 const limpia = F.limpiarFichaParaNube({ anexos: [{ id: 'a', titulo: 't', fotos: [{ id: '1', url: 'data:image/jpeg;base64,xx' }, { id: '2', url: fotoUrl(2) }] }] });
 eq('⭐ una foto que solo está en el teléfono no sube a la nube, tampoco dentro del anexo', limpia.anexos[0].fotos.map((f) => f.id), ['2']);
 
+// ── Helpers puros para Bandeja de Documentos PDF y limpieza de Storage (12-nov-2026) ──
+eq('placaDeMaquina extrae placa real o S/P cuando no hay', [
+  F.placaDeMaquina({ code: 'CAMION 1', plate: 'A91BR6F' }),
+  F.placaDeMaquina({ code: 'JUMBO', plate: '  ' }),
+  F.placaDeMaquina({ code: 'RETRO', plate: '—' }),
+], ['A91BR6F', 'S/P', 'S/P']);
+eq('etiquetaMaquinaConPlaca incluye código/nombre y PLACA siempre',
+  F.etiquetaMaquinaConPlaca({ code: 'CAMION PLATAFORMA', plate: 'A91BR6F' }),
+  'CAMION PLATAFORMA · Placa: A91BR6F');
+eq('extraerStoragePathDeUrlMachinery decodifica rutas del bucket machinery',
+  F.extraerStoragePathDeUrlMachinery('https://ddcwqmuqdqnsrtpticpx.supabase.co/storage/v1/object/public/machinery/abc-123/ficha-anexo/1700.jpg?t=1'),
+  'abc-123/ficha-anexo/1700.jpg');
+eq('extraerStoragePathsFichaAnexo devuelve solo fotos bajo /ficha-anexo/ sin duplicados',
+  F.extraerStoragePathsFichaAnexo({
+    fotoPrincipalUrl: 'https://x.supabase.co/storage/v1/object/public/machinery/m1/equipo.jpg',
+    fotoSecundariaUrl: 'https://x.supabase.co/storage/v1/object/public/machinery/m1/ficha-anexo/p2.jpg',
+    fotosPagina1: [{ id: 'x1', url: 'https://x.supabase.co/storage/v1/object/public/machinery/m1/ficha-anexo/p2.jpg', leyenda: '' }],
+    anexos: [{ id: 'a1', titulo: 'T', fotos: [{ id: 'f1', url: 'https://x.supabase.co/storage/v1/object/public/machinery/m1/ficha-anexo/a1.jpg', leyenda: '' }] }],
+  }),
+  ['m1/ficha-anexo/p2.jpg', 'm1/ficha-anexo/a1.jpg']);
+eq('contarFotosFicha cuenta fotos visibles en Página 1 y anexos',
+  F.contarFotosFicha(conAnexo, MAQ.photo_url),
+  4);
+eq('formatearBytesFicha formatea B, KB y MB', [
+  F.formatearBytesFicha(512),
+  F.formatearBytesFicha(204800),
+  F.formatearBytesFicha(3145728),
+], ['512 B', '200 KB', '3,00 MB']);
+
 // ── La ventana no tumba la app (07-nov-2026) ────────────────────────────────
 // Un hook (useState, useRef, useEffect…) después del `return null` de la ventana
 // hace que React cuente distinto entre la ventana cerrada y la abierta y rompe

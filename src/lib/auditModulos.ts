@@ -101,7 +101,7 @@ export const AUDITADAS_FUERA_DEL_GIT = [
   'comida_contactos', 'comida_empresas_ocultas', 'comida_facturas', 'comida_pagos', 'food_extra_items',
   'horometro_ajustes', 'horometro_cambios', 'horometro_cierres', 'horometro_fotos', 'horometro_precios',
   'lecturas_horometro_trabajo', 'maquinaria_frente_asignaciones', 'maquinaria_frentes', 'sos_automatizacion_config', 'jornadas_cierre_config',
-  'actas_recepcion', 'traslados_maquinaria', 'machinery_precio_historial',
+  'actas_recepcion', 'traslados_maquinaria', 'machinery_precio_historial', 'ficha_tecnica_documentos',
   'employee_commitment_acts', 'staff_cargo_tariffs', 'staff_pay_config', 'staff_pay_item_docs', 'staff_pay_items', 'staff_payments',
   'inventory_stock_requests', 'bcv_rates', 'stock_movements',
   'machine_day_operators', 'role_templates',
@@ -131,7 +131,7 @@ const TABLA_A_MODULO: Record<string, string> = {
   truck_yard_logs: 'asistencia_camiones', truck_attendance: 'asistencia_camiones',
   // 🚜 Catálogo de equipos: las fichas y su ubicación en el mapa
   machinery: 'equipos', vehicles: 'equipos', machinery_locations: 'equipos', map_zone_offsets: 'equipos',
-  actas_recepcion: 'equipos', traslados_maquinaria: 'equipos', machinery_precio_historial: 'equipos',
+  actas_recepcion: 'equipos', traslados_maquinaria: 'equipos', machinery_precio_historial: 'equipos', ficha_tecnica_documentos: 'equipos',
   // 🏭 Centro de Operaciones (23-oct-2026): sus seis tablas propias, aisladas (la sexta,
   // el Reporte General pegado del 📅 Parte diario, desde el 25-oct-2026).
   // Su trigger de auditoría NO está en ningún .sql del repo: ver AUDITADAS_FUERA_DEL_GIT.

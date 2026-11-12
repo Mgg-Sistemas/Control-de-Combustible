@@ -645,3 +645,131 @@ export async function removeMachineryPhoto(
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
+
+/** Tope sano por documento PDF de Ficha Técnica (15 MB) para no llenar el Storage con escaneos gigantes. */
+export const MAX_FICHA_PDF_BYTES = 15 * 1024 * 1024;
+
+export type UploadedFichaPdfFile = {
+  url: string;
+  storagePath: string;
+  name: string;
+  sizeBytes: number;
+};
+
+/** Limpia un nombre de archivo para usarlo como clave segura en Supabase Storage (sin tildes, ñ ni espacios). */
+export function sanitizarSlugPdfStorage(fileName: string): string {
+  const sinExt = String(fileName ?? '')
+    .replace(/\.pdf$/i, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 60);
+  return sinExt || 'ficha_tecnica';
+}
+
+/**
+ * Selecciona UNO O VARIOS archivos PDF (.pdf) desde la PC o el navegador del teléfono
+ * y los sube al bucket 'machinery' bajo `fichas-tecnicas-pdf/<machineId>/`.
+ */
+export async function pickAndUploadFichaPdfFiles(
+  machineId: string,
+  onProgress?: (info: { actual: number; total: number; nombre: string; sizeBytes: number }) => void
+): Promise<{ ok: boolean; files?: UploadedFichaPdfFile[]; rejected?: string[]; error?: string }> {
+  if (!machineId) return { ok: false, error: 'Falta identificar el equipo.' };
+  if (Platform.OS !== 'web') {
+    return {
+      ok: false,
+      error: 'La subida directa de archivos PDF está disponible desde la versión Web (soslaguaira.com) en teléfono o PC.',
+    };
+  }
+
+  const selectedFiles = await new Promise<File[] | null>((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = 'application/pdf,.pdf';
+    let done = false;
+    const finish = (f: File[] | null) => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('focus', onFocus);
+      resolve(f);
+    };
+    const onFocus = () => setTimeout(() => finish(null), 1500);
+    input.onchange = () => {
+      const arr = input.files ? Array.from(input.files) : [];
+      finish(arr.length > 0 ? arr : null);
+    };
+    window.addEventListener('focus', onFocus);
+    input.click();
+  });
+
+  if (!selectedFiles || selectedFiles.length === 0) return { ok: false };
+
+  const files: UploadedFichaPdfFile[] = [];
+  const rejected: string[] = [];
+
+  for (let i = 0; i < selectedFiles.length; i++) {
+    const file = selectedFiles[i];
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    if (!isPdf) {
+      rejected.push(`«${file.name}» no es un archivo PDF (.pdf).`);
+      continue;
+    }
+    if (file.size > MAX_FICHA_PDF_BYTES) {
+      const mb = (file.size / (1024 * 1024)).toFixed(1);
+      rejected.push(`«${file.name}» pesa ${mb} MB y supera el tope de 15 MB por PDF.`);
+      continue;
+    }
+    onProgress?.({
+      actual: i + 1,
+      total: selectedFiles.length,
+      nombre: file.name,
+      sizeBytes: file.size,
+    });
+    const slug = sanitizarSlugPdfStorage(file.name);
+    const storagePath = `fichas-tecnicas-pdf/${machineId}/${Date.now()}_${i}_${slug}.pdf`;
+    const up = await supabase.storage.from('machinery').upload(storagePath, file, {
+      contentType: 'application/pdf',
+      upsert: true,
+    });
+    if (up.error) {
+      rejected.push(`«${file.name}»: ${up.error.message}`);
+      continue;
+    }
+    const { data } = supabase.storage.from('machinery').getPublicUrl(storagePath);
+    files.push({
+      url: data.publicUrl,
+      storagePath,
+      name: file.name,
+      sizeBytes: file.size,
+    });
+  }
+
+  if (files.length === 0) {
+    return {
+      ok: false,
+      rejected,
+      error: rejected.length > 0 ? rejected.join(' ') : 'No se pudo subir ningún PDF.',
+    };
+  }
+  return { ok: true, files, rejected: rejected.length > 0 ? rejected : undefined };
+}
+
+/**
+ * Elimina archivos del bucket 'machinery' para liberar espacio real en Supabase Storage
+ * (se usa al borrar un documento PDF de ficha técnica o fotos descartadas de `ficha-anexo/`).
+ */
+export async function removeMachineryStoragePaths(paths: string[]): Promise<{ ok: boolean; error?: string }> {
+  const clean = Array.from(new Set((paths || []).map((p) => String(p ?? '').trim()).filter(Boolean)));
+  if (clean.length === 0) return { ok: true };
+  try {
+    const { error } = await supabase.storage.from('machinery').remove(clean);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'No se pudo liberar el archivo del Storage.' };
+  }
+}

@@ -1337,4 +1337,87 @@ export function sincronizarFichaConCatalogo(
   };
 }
 
+/** Devuelve la placa limpia de una máquina o vehículo (o 'S/P' si no tiene). */
+export function placaDeMaquina(m?: MaquinaFichaTecnica | null): string {
+  if (!m) return 'S/P';
+  const p = !vacioEnFicha(m.plate) ? String(m.plate).trim() : (!vacioEnFicha(m.identifier) ? String(m.identifier).trim() : '');
+  return p || 'S/P';
+}
+
+/** Etiqueta obligatoria de maquinaria con Código/Nombre y Placa. */
+export function etiquetaMaquinaConPlaca(m?: MaquinaFichaTecnica | null): string {
+  if (!m) return 'Equipo · Placa: S/P';
+  const codigoONombre = String(m.code ?? '').trim() || nombreDeMaquina(m);
+  return `${codigoONombre} · Placa: ${placaDeMaquina(m)}`;
+}
+
+/** Extrae el path dentro del bucket 'machinery' para una URL de `ficha-anexo/` (o '' si no aplica). */
+export function extraerStoragePathDeUrlMachinery(url?: string | null, filtroSubcarpeta?: string): string {
+  const u = String(url ?? '').trim();
+  if (!u || u.startsWith('data:')) return '';
+  const marcador = '/storage/v1/object/public/machinery/';
+  const idx = u.indexOf(marcador);
+  if (idx < 0) return '';
+  const rawPath = u.slice(idx + marcador.length).split('?')[0].split('#')[0];
+  let limpio = rawPath;
+  try {
+    limpio = decodeURIComponent(rawPath);
+  } catch {
+    limpio = rawPath;
+  }
+  if (filtroSubcarpeta && !limpio.includes(filtroSubcarpeta)) return '';
+  return limpio;
+}
+
+/** Recolecta todos los paths en el bucket 'machinery' bajo `/ficha-anexo/` referenciados por una ficha. */
+export function extraerStoragePathsFichaAnexo(ficha?: FichaPersonalizada | null): string[] {
+  if (!ficha) return [];
+  const urls: (string | null | undefined)[] = [
+    ficha.fotoPrincipalUrl,
+    ficha.fotoSecundariaUrl,
+    ...(ficha.fotosPagina1 ?? []).map((f) => f?.url),
+    ...(ficha.fotosExtra ?? []).map((f) => f?.url),
+  ];
+  for (const sec of ficha.anexos ?? []) {
+    for (const f of sec?.fotos ?? []) {
+      urls.push(f?.url);
+    }
+  }
+  const paths = new Set<string>();
+  for (const u of urls) {
+    const p = extraerStoragePathDeUrlMachinery(u, '/ficha-anexo/');
+    if (p) paths.add(p);
+  }
+  return Array.from(paths);
+}
+
+/** Cuenta cuántas fotos activas tiene cargadas una ficha técnica (Página 1 + Anexos). */
+export function contarFotosFicha(ficha?: FichaPersonalizada | null, fallbackUrlSlot1?: string | null): number {
+  if (!ficha) return fallbackUrlSlot1 ? 1 : 0;
+  let total = 0;
+  if (ficha.fotoPrincipalUrl || (!ficha.fotoPrincipalOculta && fallbackUrlSlot1)) total += 1;
+  if (ficha.fotoSecundariaUrl) total += 1;
+  total += (ficha.fotosPagina1 ?? []).filter((f) => Boolean(f?.url)).length;
+  const anexosConFotos = (ficha.anexos ?? []).reduce(
+    (acc, a) => acc + (a?.fotos ?? []).filter((f) => Boolean(f?.url)).length,
+    0
+  );
+  if (anexosConFotos > 0) {
+    total += anexosConFotos;
+  } else {
+    total += (ficha.fotosExtra ?? []).filter((f) => Boolean(f?.url)).length;
+  }
+  return total;
+}
+
+/** Formatea un tamaño en bytes de forma clara para el usuario («245 KB», «1,8 MB»). */
+export function formatearBytesFicha(bytes?: number | null): string {
+  const n = Number(bytes);
+  if (!isFinite(n) || n <= 0) return '';
+  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2).replace('.', ',')} MB`;
+}
+
+
 
