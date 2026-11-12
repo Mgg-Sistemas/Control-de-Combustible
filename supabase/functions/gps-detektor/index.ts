@@ -39,7 +39,28 @@ function fechaVe(ms: number): string {
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
 }
 
-/** Le pregunta a Detektor (formulario POST, como su manual). Devuelve la lista o lanza con su mensaje. */
+/** Lo que Detektor contestó, recortado y SIN el usuario ni la clave (para el registro y el aviso). */
+function recorte(texto: string, usuario: string, pass: string): string {
+  let t = texto.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const s of [usuario, pass, encodeURIComponent(usuario), encodeURIComponent(pass)]) if (s) t = t.split(s).join('***');
+  return t.slice(0, 240);
+}
+
+/** «AAAA-MM-DD HH:MM:SS» → las otras formas en que Detektor podría esperar la fecha. */
+function variantesFecha(params: Record<string, string>): Record<string, string>[] {
+  const f = (v: string, modo: number) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}:\d{2}:\d{2}))?$/.exec(v);
+    if (!m) return v;
+    if (modo === 1) return `${m[1]}-${m[2]}-${m[3]}`;                       // solo el día
+    return `${m[3]}/${m[2]}/${m[1]}${m[4] ? ' ' + m[4] : ''}`;              // DD/MM/AAAA
+  };
+  if (!params.fechainicio || !/ \d{2}:/.test(params.fechainicio)) return [params];
+  return [params, ...[1, 2].map((modo) => ({ ...params, fechainicio: f(params.fechainicio, modo), fechafinal: f(params.fechafinal, modo) }))];
+}
+
+/** Le pregunta a Detektor (formulario POST, como su manual). Devuelve la lista o lanza con su mensaje.
+ *  Si Detektor se cae (500) con la fecha completa, reintenta con otras formas de fecha y recuerda la que sirvió. */
+const formaQueSirve = new Map<string, number>();
 async function detektor(servicio: string, params: Record<string, string>): Promise<unknown[]> {
   const usuario = Deno.env.get('DETEKTOR_USUARIO');
   const pass = Deno.env.get('DETEKTOR_CLAVE');
@@ -47,6 +68,25 @@ async function detektor(servicio: string, params: Record<string, string>): Promi
   const clave = `${servicio}|${JSON.stringify(params)}`;
   const c = cache.get(clave);
   if (c && Date.now() - c.t < CACHE_MS) return c.filas;
+  const variantes = variantesFecha(params);
+  const primero = formaQueSirve.get(servicio) ?? 0;
+  const orden = [primero, ...variantes.map((_, i) => i).filter((i) => i !== primero)].filter((i) => i < variantes.length);
+  let ultimo: Error | null = null;
+  for (const i of orden) {
+    try {
+      const filas = await unaConsulta(servicio, variantes[i], usuario, pass);
+      formaQueSirve.set(servicio, i);
+      cache.set(clave, { t: Date.now(), filas });
+      return filas;
+    } catch (e) {
+      ultimo = e as Error;
+      if (!(e as any)?.reintentar) throw e;
+    }
+  }
+  throw ultimo ?? new Error('Detektor no respondió.');
+}
+
+async function unaConsulta(servicio: string, params: Record<string, string>, usuario: string, pass: string): Promise<unknown[]> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 25_000);
   try {
@@ -57,14 +97,20 @@ async function detektor(servicio: string, params: Record<string, string>): Promi
       signal: ctrl.signal,
     });
     const texto = await res.text();
-    if (!res.ok) throw new Error(`Detektor respondió ${res.status}.`);
+    if (!res.ok) {
+      const quePaso = recorte(texto, usuario, pass);
+      const p = { ...params } as Record<string, string>;
+      console.error(`[gps-detektor] ${servicio} → ${res.status} · fechas ${p.fechainicio ?? ''} / ${p.fechafinal ?? ''} · placas ${p.placas_alias ?? p.placa_alias ?? ''} · respuesta: ${quePaso || '(vacía)'}`);
+      const err = new Error(`Detektor respondió ${res.status}${quePaso ? ': ' + quePaso.slice(0, 120) : '.'}`);
+      (err as any).reintentar = res.status >= 500;
+      throw err;
+    }
     let d: any;
     try { d = JSON.parse(texto); } catch { throw new Error('Detektor respondió algo que no es JSON.'); }
     if (!Array.isArray(d)) {
       if (d?.status === 'fail') throw new Error(`Detektor: ${d.info || 'error'}`);
       if (Array.isArray(d?.data)) d = d.data; else throw new Error('Detektor respondió algo que no se entiende.');
     }
-    cache.set(clave, { t: Date.now(), filas: d });
     return d;
   } catch (e) {
     if ((e as any)?.name === 'AbortError') throw new Error('Detektor tardó demasiado en responder.');
