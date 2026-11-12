@@ -46,16 +46,25 @@ function recorte(texto: string, usuario: string, pass: string): string {
   return t.slice(0, 240);
 }
 
-/** «AAAA-MM-DD HH:MM:SS» → las otras formas en que Detektor podría esperar la fecha. */
-function variantesFecha(params: Record<string, string>): Record<string, string>[] {
-  const f = (v: string, modo: number) => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}:\d{2}:\d{2}))?$/.exec(v);
-    if (!m) return v;
-    if (modo === 1) return `${m[1]}-${m[2]}-${m[3]}`;                       // solo el día
-    return `${m[3]}/${m[2]}/${m[1]}${m[4] ? ' ' + m[4] : ''}`;              // DD/MM/AAAA
-  };
-  if (!params.fechainicio || !/ \d{2}:/.test(params.fechainicio)) return [params];
-  return [params, ...[1, 2].map((modo) => ({ ...params, fechainicio: f(params.fechainicio, modo), fechafinal: f(params.fechafinal, modo) }))];
+type Pedido = { params: Record<string, string>; nombre: string };
+
+/** Las formas de pedir lo mismo, por si Detektor se cae (500) con la del manual: la fecha sin hora,
+ *  la placa con el otro nombre de campo (placa_alias / placas_alias), y con «tiempodetencion».
+ *  12-nov: wsDetenciones dio 500 VACÍO con la fecha completa, solo el día y DD/MM/AAAA. */
+function variantesPedido(params: Record<string, string>): Pedido[] {
+  const v: Pedido[] = [{ params, nombre: 'manual' }];
+  const placa = params.placas_alias ?? params.placa_alias;
+  const conHora = !!params.fechainicio && / \d{2}:/.test(params.fechainicio);
+  if (placa === undefined) {
+    if (conHora) v.push({ params: { ...params, fechainicio: params.fechainicio.slice(0, 10), fechafinal: params.fechafinal.slice(0, 10) }, nombre: 'solo-dia' });
+    return v;
+  }
+  const ambas = { ...params, placas_alias: placa, placa_alias: placa };
+  v.push({ params: ambas, nombre: 'placa-dos-nombres' });
+  v.push({ params: { ...ambas, tiempodetencion: '5' }, nombre: 'con-tiempodetencion' });
+  if (conHora) v.push({ params: { ...ambas, tiempodetencion: '5', fechainicio: params.fechainicio.slice(0, 10), fechafinal: params.fechafinal.slice(0, 10) }, nombre: 'solo-dia' });
+  // Por GET NO: el usuario y la clave quedarían en la dirección (y en los registros de los servidores).
+  return v;
 }
 
 /** Le pregunta a Detektor (formulario POST, como su manual). Devuelve la lista o lanza con su mensaje.
@@ -68,13 +77,14 @@ async function detektor(servicio: string, params: Record<string, string>): Promi
   const clave = `${servicio}|${JSON.stringify(params)}`;
   const c = cache.get(clave);
   if (c && Date.now() - c.t < CACHE_MS) return c.filas;
-  const variantes = variantesFecha(params);
+  const variantes = variantesPedido(params);
   const primero = formaQueSirve.get(servicio) ?? 0;
   const orden = [primero, ...variantes.map((_, i) => i).filter((i) => i !== primero)].filter((i) => i < variantes.length);
   let ultimo: Error | null = null;
   for (const i of orden) {
     try {
       const filas = await unaConsulta(servicio, variantes[i], usuario, pass);
+      if (i !== 0) console.log(`[gps-detektor] ${servicio} funcionó con la forma «${variantes[i].nombre}»`);
       formaQueSirve.set(servicio, i);
       cache.set(clave, { t: Date.now(), filas });
       return filas;
@@ -86,7 +96,8 @@ async function detektor(servicio: string, params: Record<string, string>): Promi
   throw ultimo ?? new Error('Detektor no respondió.');
 }
 
-async function unaConsulta(servicio: string, params: Record<string, string>, usuario: string, pass: string): Promise<unknown[]> {
+async function unaConsulta(servicio: string, pedido: Pedido, usuario: string, pass: string): Promise<unknown[]> {
+  const { params } = pedido;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 25_000);
   try {
@@ -100,7 +111,7 @@ async function unaConsulta(servicio: string, params: Record<string, string>, usu
     if (!res.ok) {
       const quePaso = recorte(texto, usuario, pass);
       const p = { ...params } as Record<string, string>;
-      console.error(`[gps-detektor] ${servicio} → ${res.status} · fechas ${p.fechainicio ?? ''} / ${p.fechafinal ?? ''} · placas ${p.placas_alias ?? p.placa_alias ?? ''} · respuesta: ${quePaso || '(vacía)'}`);
+      console.error(`[gps-detektor] ${servicio} → ${res.status} · forma ${pedido.nombre} · fechas ${p.fechainicio ?? ''} / ${p.fechafinal ?? ''} · placas ${p.placas_alias ?? p.placa_alias ?? ''} · respuesta: ${quePaso || '(vacía)'}`);
       const err = new Error(`Detektor respondió ${res.status}${quePaso ? ': ' + quePaso.slice(0, 120) : '.'}`);
       (err as any).reintentar = res.status >= 500;
       throw err;
@@ -175,7 +186,13 @@ Deno.serve(async (req) => {
       // El servicio acepta UNA placa o «*»: con varias se pide «*» y se dejan solo las vinculadas.
       const filas = await detektor('wsResumenActividadDiaria', { fechainicio: desde, fechafinal: hasta, placa_alias: placas.length === 1 ? placas[0] : '*', tiempodetencion: String(Math.max(1, Math.min(60, Number(body?.tiempodetencion) || 5))) });
       const ok = new Set(placas.map(norm));
-      return json({ ok: true, filas: filas.filter((r: any) => ok.has(norm(r?.placa)) || ok.has(norm(r?.alias))) });
+      const mias = filas.filter((r: any) => ok.has(norm(r?.placa)) || ok.has(norm(r?.alias)));
+      // Diagnóstico (12-nov): cómo nombra Detektor cada dato y un valor de muestra del último día.
+      const ultimoDia = mias.reduce((m: string, r: any) => (String(r?.fecha ?? '') > m ? String(r?.fecha ?? '') : m), '');
+      const muestra = mias.filter((r: any) => String(r?.fecha ?? '') === ultimoDia).slice(0, 12)
+        .map((r: any) => `${r?.motivo ?? '?'}=${r?.valor ?? '?'}`).join(' | ');
+      if (muestra) console.log(`[gps-detektor] resumen ${ultimoDia} · campos: ${Object.keys(mias[0] ?? {}).join(',')} · ${muestra}`);
+      return json({ ok: true, filas: mias });
     }
 
     if (accion === 'detenciones') {

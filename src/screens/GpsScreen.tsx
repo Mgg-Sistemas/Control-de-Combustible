@@ -21,7 +21,8 @@ import { caracasBusinessToday } from '../lib/caracasDay';
 import { vehiculosDeLaCuenta, sugerirEquipo, nombreVehiculo, normalizarPlaca, leerResumenDiario, type EquipoCatalogo, type ActividadDia } from '../lib/gps';
 import { listarVehiculosGps, catalogoParaGps, vincularVehiculoGps, quitarVehiculoGps, consultarDetektor, type VehiculoGps } from '../lib/gpsDb';
 
-const fmtH = (h: number | null) => (h == null ? '—' : `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`);
+// Se redondea el TOTAL de minutos primero: 2 h 59 min 50 s = 3:00, no «2:60».
+const fmtH = (h: number | null) => { if (h == null) return '—'; const min = Math.round(h * 60); return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`; };
 const fmtKm = (k: number | null) => (k == null ? '—' : k.toLocaleString('es-VE', { maximumFractionDigits: 1 }));
 const dmy = (iso: string) => { const [a, m, d] = iso.split('-'); return d && m && a ? `${d}/${m}/${a}` : iso; };
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
