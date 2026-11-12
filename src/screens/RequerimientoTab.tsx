@@ -131,9 +131,10 @@ import {
   evaluarCupoRequerimientos,
   obtenerConfigLimitesCompras,
   validarOperacionConLimite,
+  verificarPuedeAgregarItem,
 } from '../lib/limitesCompras';
 import { suscribirConfigLimitesCompras } from '../lib/limitesComprasStorage';
-import { CupoLimiteBanner } from '../components/CupoLimiteBanner';
+import { ContadorLimiteItemsBar, CupoLimiteBanner } from '../components/CupoLimiteBanner';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const qtyFmt = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString();
@@ -1016,28 +1017,70 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const newKey = () => `${Date.now()}-${seq++}-${rows.length}`;
   const fmtClean = (n: number) => (n > 0 ? (Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, '') : '0');
 
-  const addBlank = () => setRows((r) => [...r, {
-    key: newKey(),
-    product_id: null,
-    name: '',
-    unit: '',
-    qty: '1',
-    modo_precio: 'unidad',
-    price: '0',
-    price_bs: '0',
-    total_usd: '0',
-    total_bs: '0',
-    currency: 'USD',
-    note: '',
-    image_url: '',
-    exento: false,
-    presupuestos: [],
-    presupuestosAbierto: false,
-  }]);
+  const cantidadItemsOriginalesEdit = editId
+    ? ((allReqs || []).find((x) => x.id === editId)?.items?.length ?? 0)
+    : 0;
+
+  const addBlank = () => {
+    const chk = verificarPuedeAgregarItem({
+      tipo: 'requerimiento',
+      itemsActualesCount: rows.length,
+      esEdicion: Boolean(editId),
+      cantidadItemsOriginales: cantidadItemsOriginalesEdit,
+      cfg: configLimites,
+      userId: uid,
+      isAdmin,
+    });
+    if (!chk.ok) {
+      toast.error(
+        chk.error ||
+          `Se alcanzó el límite máximo de ${chk.topeEfectivo} ítems / cosas por requerimiento.`,
+      );
+      return;
+    }
+    setRows((r) => [...r, {
+      key: newKey(),
+      product_id: null,
+      name: '',
+      unit: '',
+      qty: '1',
+      modo_precio: 'unidad',
+      price: '0',
+      price_bs: '0',
+      total_usd: '0',
+      total_bs: '0',
+      currency: 'USD',
+      note: '',
+      image_url: '',
+      exento: false,
+      presupuestos: [],
+      presupuestosAbierto: false,
+    }]);
+  };
   const addFromProduct = (it: InventoryLevel) => {
+    const blankIdx = rows.findIndex(
+      (x) => !x.product_id && !x.name.trim() && (parseNum(x.price) === 0 || x.price === '0'),
+    );
+    const chk = verificarPuedeAgregarItem({
+      tipo: 'requerimiento',
+      itemsActualesCount: rows.length,
+      esEdicion: Boolean(editId),
+      cantidadItemsOriginales: cantidadItemsOriginalesEdit,
+      esFusionDeStockExistente: blankIdx >= 0,
+      cfg: configLimites,
+      userId: uid,
+      isAdmin,
+    });
+    if (!chk.ok) {
+      toast.error(
+        chk.error ||
+          `Se alcanzó el límite máximo de ${chk.topeEfectivo} ítems / cosas por requerimiento.`,
+      );
+      return;
+    }
     const pUsd = Number(it.avg_cost) || 0;
     const pBs = rate && rate > 0 ? fmtClean(pUsd * rate) : '0';
-    setRows((r) => [...r, {
+    const nuevaFila: ReqRow = {
       key: newKey(),
       product_id: it.id,
       name: it.name,
@@ -1054,7 +1097,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       exento: false,
       presupuestos: [],
       presupuestosAbierto: false,
-    }]);
+    };
+    setRows((r) => {
+      const idxVacio = r.findIndex(
+        (x) => !x.product_id && !x.name.trim() && (parseNum(x.price) === 0 || x.price === '0'),
+      );
+      const chkSinFusion = verificarPuedeAgregarItem({
+        tipo: 'requerimiento',
+        itemsActualesCount: r.length,
+        esEdicion: Boolean(editId),
+        cantidadItemsOriginales: cantidadItemsOriginalesEdit,
+        cfg: configLimites,
+        userId: uid,
+        isAdmin,
+      });
+      if (!chkSinFusion.ok && idxVacio >= 0) {
+        return r.map((x, idx) => (idx === idxVacio ? { ...nuevaFila, key: x.key } : x));
+      }
+      return [...r, nuevaFila];
+    });
     setPickOpen(false); setQ('');
   };
   const upd = (key: string, field: keyof ReqRow, val: any) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
@@ -2621,6 +2682,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       tipo: 'requerimiento',
       esEdicion: Boolean(editId),
       cantidadItems: items.length,
+      cantidadItemsOriginales: cantidadItemsOriginalesEdit,
       montoTotalUsd: createTotalUsd,
       reqs: allReqs,
       cfg: configLimites,
@@ -2628,7 +2690,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       isAdmin,
     });
     if (!checkLim.ok) {
-      const m = checkLim.error || 'Se alcanzó el límite máximo de requerimientos.';
+      const m = checkLim.error || 'Se alcanzó el límite máximo de ítems por requerimiento.';
       setFormErr(m);
       return toast.error(m);
     }
@@ -5318,6 +5380,18 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 <TextInput value={area} onChangeText={setArea} placeholder="Escribe el área (ej. ADMINISTRACIÓN)" placeholderTextColor={colors.muted} autoCapitalize="characters" style={[inp, { marginTop: 6 }]} />
               ) : null}
             </Card>
+
+            <ContadorLimiteItemsBar
+              tipo="requerimiento"
+              itemsActuales={rows.length}
+              esEdicion={Boolean(editId)}
+              cantidadItemsOriginales={cantidadItemsOriginalesEdit}
+              cfg={configLimites}
+              userId={uid}
+              isAdmin={isAdmin}
+              puedeConfigurar={puedeConfigurarLimites}
+              usuariosDisponibles={usuariosSistema}
+            />
 
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <TouchableOpacity onPress={() => setPickOpen((v) => !v)} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>📦 Del inventario</Text></TouchableOpacity>

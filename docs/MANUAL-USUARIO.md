@@ -10077,18 +10077,19 @@ En **Combustible** (**📱 Surtidor Móvil**, **⛽ Consumos** y **🆘 Máquina
 
 ---
 
-### 📊 Límite Máximo Ajustable para Solicitudes de Compra y Requerimientos (12/11/2026)
+### 📦 Límite Máximo Ajustable de Ítems / Cosas dentro de Solicitudes y Requerimientos (12/11/2026)
 
-En **📦 Pedir Material / Repuestos**, **🛒 Compras → 📥 Solicitudes** y **🛒 Compras → 📝 Requerimientos**, el administrador puede fijar y manipular en cualquier momento los límites máximos para todos los usuarios (con sincronización en tiempo real en teléfono y computadora):
+En **📦 Pedir Material / Repuestos**, **🛒 Compras → 📥 Solicitudes** y **🛒 Compras → 📝 Requerimientos**, el administrador puede fijar y manipular en cualquier momento **la cantidad máxima de cosas o ítems (repuestos, materiales o renglones) que se pueden incluir dentro de una Solicitud o de un Requerimiento** (con sincronización en tiempo real en teléfono y computadora):
 
-1. **Barra de Cupo Visible en Teléfono y PC (`CupoLimiteBanner`):**
-   - Muestra en tiempo real cuántas solicitudes o requerimientos lleva el usuario frente a su máximo configurado (por ejemplo `2 / 5 activos` o `Sin límite ∞`), con indicador de color (**🟢 Disponible**, **🟡 Cerca del tope**, **🔴 Límite alcanzado**).
-   - **Botones rápidos de 1 toque para el Administrador:** directamente desde la barra superior (sin abrir menús) el administrador puede pulsar **`+1`**, **`+5`** o **`∞ Sin límite`** para ampliar el cupo general al instante, o tocar **`⚙️ Ajustar límites`** para abrir el panel completo.
-2. **Panel de Configuración Completa (`⚙️ Ajustar límites`):**
-   - **📥 Tope de Solicitudes de Compra por usuario:** ajustable con chips rápidos (`Sin límite ∞`, `1`, `2`, `3`, `5`, `10`, `15`, `20`, `30`, `50`) o escribiendo cualquier número, eligiendo si se cuenta sobre **«⏳ Activas (pendientes / en revisión)»** o **«📅 Por jornada (7am–7am Caracas)»**, más el máximo de renglones/ítems por solicitud.
-   - **📝 Tope de Requerimientos por usuario:** ajustable de la misma forma (`0 = Sin límite ∞` o cualquier tope entero), por **«⏳ Activos (en curso / por pagar)»** o **«📅 Por jornada (7am–7am Caracas)»**, más el máximo de renglones/ítems por requerimiento y un **tope opcional de monto en USD (`$`) por requerimiento**.
+1. **Barra Superior y Contador en Vivo dentro del Formulario (`CupoLimiteBanner` y `ContadorLimiteItemsBar`):**
+   - Muestra en tiempo real el máximo de ítems permitido por solicitud o requerimiento (por ejemplo `15 ítems / cosas` o `Sin límite ∞`) y, dentro del formulario de creación o edición, lleva la cuenta en vivo de los ítems agregados (`3 / 10 ítems`) con indicador de color (**🟢 Disponible**, **🟡 Cerca del tope**, **🔴 Límite alcanzado**).
+   - **Botones rápidos de 1 toque para el Administrador:** tanto en la barra superior como **dentro del mismo formulario donde se agregan los productos**, el administrador puede pulsar las pastillas rápidas (**`3`**, **`5`**, **`10`**, **`15`**, **`20`**, **`30`**, **`50`**, **`∞ Sin límite`**) o los botones **`+1`** y **`+5`** para cambiar el máximo de ítems al instante sin salir de lo que está haciendo.
+2. **Panel de Configuración Completa (`⚙️ Ajustar máx. ítems`):**
+   - **📥 Máximo de ítems / cosas dentro de cada Solicitud:** ajustable con pastillas rápidas (`3`, `5`, `10`, `15`, `20`, `30`, `50`, `∞ Sin límite`), botones `-5`, `-1`, `+1`, `+5` o escribiendo cualquier número libre.
+   - **📝 Máximo de ítems / cosas dentro de cada Requerimiento:** incluye un interruptor rápido **`🔗 Usar este mismo máximo de ítems también en Requerimientos`** para igualar ambos topes en un toque, o permite fijar un número independiente y un **tope opcional de monto en USD (`$`) por requerimiento**.
    - **🗂️ Máximo de tarjetas mostradas en bandeja:** permite elegir cuántas tarjetas se pintan a la vez (`20`, `30`, `50`, `100`, `200` o `Todas ∞`), aplicado **siempre después** de los filtros de búsqueda, empresa, estado, prioridad y fechas, con botón **«➕ Ver más»** / **«Ver todas»** al pie de la lista.
-   - **👑 Alcance para Administradores y 👤 Excepciones por Usuario:** interruptor para decidir si el límite aplica también a administradores (por defecto exentos) y buscador de usuarios para asignar un cupo personalizado o ilimitado a personas específicas sin alterar la regla general.
-3. **Flujo Operativo Seguro (sin bloqueos accidentales):**
-   - El límite **solo restringe la creación de nuevas solicitudes o nuevos requerimientos** cuando el usuario ya alcanzó su cupo.
-   - **Nunca bloquea** editar una solicitud o requerimiento existente, responder aclaratorias técnicas, cancelar solicitudes propias, convertir una solicitud existente en requerimiento, aprobar, enviar a **Por Pagar** ni registrar la recepción en **Almacén**.
+   - **👑 Alcance para Administradores y 👤 Excepciones por Usuario:** interruptor para decidir si el límite de ítems aplica también a administradores (por defecto exentos) y buscador de usuarios para asignar un máximo de ítems personalizado o ilimitado a personas específicas.
+3. **Flujo Operativo Seguro y Protección de Registros Existentes:**
+   - Si en el carrito de **Pedir Material** se vuelve a agregar el mismo repuesto de almacén (`stock`), el sistema suma su cantidad en el mismo renglón sin consumir un ítem adicional.
+   - Si una solicitud o requerimiento ya existente tenía más ítems antes de que el administrador bajara el límite (por ejemplo tenía 12 ítems y el límite se bajó a 5), al editarlo se **respetan sus 12 ítems originales** para que pueda corregirse y guardarse sin obligar a borrar renglones.
+   - **Nunca bloquea** convertir una solicitud en requerimiento, responder aclaratorias técnicas, cancelar solicitudes propias, aprobar, enviar a **Por Pagar** ni registrar la recepción en **Almacén**.

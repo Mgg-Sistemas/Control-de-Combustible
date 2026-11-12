@@ -54,9 +54,11 @@ import {
   aplicarLimiteTarjetasVisibles,
   evaluarCupoSolicitudes,
   obtenerConfigLimitesCompras,
+  validarOperacionConLimite,
+  verificarPuedeAgregarItem,
 } from '../lib/limitesCompras';
 import { suscribirConfigLimitesCompras } from '../lib/limitesComprasStorage';
-import { CupoLimiteBanner, UsuarioSimpleLimite } from '../components/CupoLimiteBanner';
+import { ContadorLimiteItemsBar, CupoLimiteBanner, UsuarioSimpleLimite } from '../components/CupoLimiteBanner';
 
 const usd = (n: number) =>
   `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, {
@@ -942,6 +944,22 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const agregarRenglonEdicion = () => {
+    const chkAdd = verificarPuedeAgregarItem({
+      tipo: 'solicitud',
+      itemsActualesCount: editItems.length,
+      esEdicion: true,
+      cantidadItemsOriginales: Array.isArray(editTarget?.items) ? editTarget.items.length : 0,
+      cfg: configLimites,
+      userId: uid,
+      isAdmin: role === 'admin',
+    });
+    if (!chkAdd.ok) {
+      toast.error(
+        chkAdd.error ||
+          `Se alcanzó el límite máximo de ${chkAdd.topeEfectivo} ítems / cosas por solicitud.`,
+      );
+      return;
+    }
     setEditItems((prev) => [
       ...prev,
       {
@@ -1010,6 +1028,20 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       if (q <= 0) {
         return toast.error(`El renglón #${i + 1} («${it.name}») debe tener una cantidad mayor a 0.`);
       }
+    }
+
+    const chkLimite = validarOperacionConLimite({
+      tipo: 'solicitud',
+      esEdicion: true,
+      cantidadItems: editItems.length,
+      cantidadItemsOriginales: Array.isArray(editTarget.items) ? editTarget.items.length : 0,
+      reqs: allReqs,
+      cfg: configLimites,
+      userId: uid,
+      isAdmin: role === 'admin',
+    });
+    if (!chkLimite.ok) {
+      return toast.error(chkLimite.error || 'Se alcanzó el límite máximo de ítems por solicitud.');
     }
 
     setEditBusy(true);
@@ -3298,6 +3330,18 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                   </Text>
                 </TouchableOpacity>
               </View>
+
+              <ContadorLimiteItemsBar
+                tipo="solicitud"
+                itemsActuales={editItems.length}
+                esEdicion={true}
+                cantidadItemsOriginales={Array.isArray(editTarget?.items) ? editTarget.items.length : 0}
+                cfg={configLimites}
+                userId={uid}
+                isAdmin={role === 'admin'}
+                puedeConfigurar={puedeConfigurarLimites}
+                usuariosDisponibles={usuariosLista}
+              />
 
               <View style={{ gap: spacing.md }}>
                 {editItems.map((it, idx) => {

@@ -92,9 +92,10 @@ import {
   evaluarCupoSolicitudes,
   obtenerConfigLimitesCompras,
   validarOperacionConLimite,
+  verificarPuedeAgregarItem,
 } from '../lib/limitesCompras';
 import { suscribirConfigLimitesCompras } from '../lib/limitesComprasStorage';
-import { CupoLimiteBanner } from '../components/CupoLimiteBanner';
+import { ContadorLimiteItemsBar, CupoLimiteBanner } from '../components/CupoLimiteBanner';
 
 export interface SolicitudCartItem {
   id: string;
@@ -220,6 +221,10 @@ export default function SolicitudMaterialScreen() {
 
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
 
+  // Carrito de repuestos / materiales agregados
+  const [cartItems, setCartItems] = useState<SolicitudCartItem[]>([]);
+  const [submittingCart, setSubmittingCart] = useState<boolean>(false);
+
   const cupoSolicitudes = useMemo(
     () =>
       evaluarCupoSolicitudes({
@@ -227,8 +232,9 @@ export default function SolicitudMaterialScreen() {
         cfg: configLimites,
         userId: uid,
         isAdmin: role === 'admin',
+        itemsActualesCount: cartItems.length,
       }),
-    [requirements, configLimites, uid, role],
+    [requirements, configLimites, uid, role, cartItems.length],
   );
 
   // ── Expediente Completo (PDF - Falta 2) ──
@@ -357,24 +363,27 @@ export default function SolicitudMaterialScreen() {
     );
   };
 
-  // Carrito de repuestos / materiales agregados
-  const [cartItems, setCartItems] = useState<SolicitudCartItem[]>([]);
-  const [submittingCart, setSubmittingCart] = useState<boolean>(false);
-
-  const agregarItemAlCarrito = (item: Omit<SolicitudCartItem, 'id'>) => {
-    if (item.tipo === 'compra') {
-      const compraEnCarrito = cartItems.filter((x) => x.tipo === 'compra').length;
-      if (
-        cupoSolicitudes.activo &&
-        !cupoSolicitudes.exentoPorRol &&
-        cupoSolicitudes.maxItems > 0 &&
-        compraEnCarrito + 1 > cupoSolicitudes.maxItems
-      ) {
-        toast.error(
-          `El límite máximo es de ${cupoSolicitudes.maxItems} productos de compra por solicitud.`,
-        );
-        return;
-      }
+  const agregarItemAlCarrito = (item: Omit<SolicitudCartItem, 'id'>): boolean => {
+    const esFusionDeStockExistente = Boolean(
+      item.tipo === 'stock' &&
+        item.itemId &&
+        cartItems.some((x) => x.tipo === 'stock' && x.itemId === item.itemId),
+    );
+    const chkItem = verificarPuedeAgregarItem({
+      tipo: 'solicitud',
+      itemsActualesCount: cartItems.length,
+      esEdicion: false,
+      esFusionDeStockExistente,
+      cfg: configLimites,
+      userId: uid,
+      isAdmin: role === 'admin',
+    });
+    if (!chkItem.ok) {
+      toast.error(
+        chkItem.error ||
+          `Se alcanzó el límite máximo de ${chkItem.topeEfectivo} ítems / cosas por solicitud.`,
+      );
+      return false;
     }
     const id = 'it-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
     setCartItems((prev) => {
@@ -394,6 +403,7 @@ export default function SolicitudMaterialScreen() {
       return [...prev, { ...item, id }];
     });
     toast.success(`"${item.name}" agregado a tu lista (${qtyFmt(item.qty)} ${item.unit}).`);
+    return true;
   };
 
   const quitarItemDelCarrito = (id: string) => {
@@ -738,20 +748,17 @@ export default function SolicitudMaterialScreen() {
       return toast.error('Indica el área o departamento de destino.');
     }
 
-    const compraItemsPre = cartItems.filter((it) => it.tipo === 'compra');
-    if (compraItemsPre.length > 0) {
-      const checkLimite = validarOperacionConLimite({
-        tipo: 'solicitud',
-        esEdicion: false,
-        cantidadItems: compraItemsPre.length,
-        reqs: requirements,
-        cfg: configLimites,
-        userId: uid,
-        isAdmin: role === 'admin',
-      });
-      if (!checkLimite.ok) {
-        return toast.error(checkLimite.error || 'Se alcanzó el límite máximo de solicitudes.');
-      }
+    const checkLimite = validarOperacionConLimite({
+      tipo: 'solicitud',
+      esEdicion: false,
+      cantidadItems: cartItems.length,
+      reqs: requirements,
+      cfg: configLimites,
+      userId: uid,
+      isAdmin: role === 'admin',
+    });
+    if (!checkLimite.ok) {
+      return toast.error(checkLimite.error || 'Se alcanzó el límite máximo de ítems por solicitud.');
     }
 
     setSubmittingCart(true);
@@ -1119,6 +1126,21 @@ export default function SolicitudMaterialScreen() {
     if (renglones.length === 0) return toast.error('La solicitud necesita al menos un renglón.');
     const malo = renglones.findIndex((x) => !x.name || !(x.qtyNum > 0));
     if (malo >= 0) return toast.error(`El renglón ${malo + 1} necesita nombre y una cantidad mayor que cero.`);
+
+    const itemsAntesCheck: any[] = Array.isArray(editTarget.items) ? editTarget.items : [];
+    const checkLimiteEdicion = validarOperacionConLimite({
+      tipo: 'solicitud',
+      esEdicion: true,
+      cantidadItems: renglones.length,
+      cantidadItemsOriginales: itemsAntesCheck.length,
+      reqs: requirements,
+      cfg: configLimites,
+      userId: uid,
+      isAdmin: role === 'admin',
+    });
+    if (!checkLimiteEdicion.ok) {
+      return toast.error(checkLimiteEdicion.error || 'Se alcanzó el límite máximo de ítems por solicitud.');
+    }
 
     setEditBusy(true);
     try {
@@ -1997,6 +2019,16 @@ export default function SolicitudMaterialScreen() {
                 ? 'Puedes pedir uno o más repuestos y se irán agregando aquí con la cantidad que necesitas.'
                 : 'Revisa las cantidades antes de enviar la solicitud a Almacén o Compras.'}
             </Text>
+
+            <ContadorLimiteItemsBar
+              tipo="solicitud"
+              itemsActuales={cartItems.length}
+              esEdicion={false}
+              cfg={configLimites}
+              userId={uid}
+              isAdmin={role === 'admin'}
+              puedeConfigurar={puedeConfigurarLimites}
+            />
 
             {cartItems.length === 0 ? (
               <View
@@ -3799,7 +3831,7 @@ export default function SolicitudMaterialScreen() {
                   onPress={() => {
                     if (!stockItem) return;
                     const qty = Math.max(1, parseNum(stockQty));
-                    agregarItemAlCarrito({
+                    const ok = agregarItemAlCarrito({
                       tipo: 'stock',
                       itemId: stockItem.id,
                       name: stockItem.name,
@@ -3810,7 +3842,7 @@ export default function SolicitudMaterialScreen() {
                       urgency: stockUrgencia,
                       reason: stockMotivo.trim() || undefined,
                     });
-                    setModalStockOpen(false);
+                    if (ok) setModalStockOpen(false);
                   }}
                   style={{
                     backgroundColor: colors.brand,
@@ -4160,7 +4192,7 @@ export default function SolicitudMaterialScreen() {
                       );
                     }
                     const qty = Math.max(1, parseNum(compraQty));
-                    agregarItemAlCarrito({
+                    const ok = agregarItemAlCarrito({
                       tipo: 'compra',
                       itemId: compraProductId,
                       name: compraItemName.trim(),
@@ -4175,7 +4207,7 @@ export default function SolicitudMaterialScreen() {
                         direccion: compraProvDireccion.trim(),
                       } : null,
                     });
-                    setModalCompraOpen(false);
+                    if (ok) setModalCompraOpen(false);
                   }}
                   style={{
                     backgroundColor: colors.brand,
@@ -4288,6 +4320,16 @@ export default function SolicitudMaterialScreen() {
               />
 
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: 4 }}>Repuestos pedidos</Text>
+              <ContadorLimiteItemsBar
+                tipo="solicitud"
+                itemsActuales={editRenglones.length}
+                esEdicion={true}
+                cantidadItemsOriginales={Array.isArray(editTarget?.items) ? editTarget.items.length : 0}
+                cfg={configLimites}
+                userId={uid}
+                isAdmin={role === 'admin'}
+                puedeConfigurar={puedeConfigurarLimites}
+              />
               {editRenglones.map((x, idx) => (
                 <View
                   key={idx}
@@ -4336,8 +4378,25 @@ export default function SolicitudMaterialScreen() {
                 </View>
               ))}
               <TouchableOpacity
-                onPress={() => setEditRenglones((rs) => [...rs, { name: '', qty: '1', unit: 'UND', note: '', image_url: null }])}
-                disabled={editRenglones.length >= 50}
+                onPress={() => {
+                  const chkAdd = verificarPuedeAgregarItem({
+                    tipo: 'solicitud',
+                    itemsActualesCount: editRenglones.length,
+                    esEdicion: true,
+                    cantidadItemsOriginales: Array.isArray(editTarget?.items) ? editTarget.items.length : 0,
+                    cfg: configLimites,
+                    userId: uid,
+                    isAdmin: role === 'admin',
+                  });
+                  if (!chkAdd.ok) {
+                    toast.error(
+                      chkAdd.error ||
+                        `Se alcanzó el límite máximo de ${chkAdd.topeEfectivo} ítems / cosas por solicitud.`,
+                    );
+                    return;
+                  }
+                  setEditRenglones((rs) => [...rs, { name: '', qty: '1', unit: 'UND', note: '', image_url: null }]);
+                }}
                 style={{ alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 10, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md }}
               >
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>+ Agregar otro repuesto</Text>

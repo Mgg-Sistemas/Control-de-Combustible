@@ -1,23 +1,33 @@
 // ============================================================================
-// 📊 LÍMITES AJUSTABLES PARA SOLICITUDES DE COMPRA Y REQUERIMIENTOS (12-nov-2026)
+// 📊 LÍMITE MÁXIMO AJUSTABLE DE ÍTEMS (COSAS / RENGLONES) DENTRO DE UNA
+//    SOLICITUD O REQUERIMIENTO (12-nov-2026)
 //
 // Permite al administrador colocar y manipular cuando lo necesite un límite
-// máximo para todos los usuarios (y excepciones opcionales por usuario):
-//  1) Solicitudes de Compra: máximo por usuario (en curso / pendientes o por
-//     jornada 7am–7am Caracas) y máximo de renglones (ítems) por solicitud.
-//  2) Requerimientos: máximo por usuario (en curso / pendientes o por jornada
-//     7am–7am Caracas), máximo de renglones (ítems) y monto máximo en USD ($).
+// máximo de cosas/ítems para todos los usuarios (y excepciones opcionales por
+// usuario):
+//  1) Solicitudes (`Pedir Material / Repuestos` y `Compras → Solicitudes`):
+//     máximo de productos/renglones (`maxItemsPorSolicitud`, 0 = Sin límite / ∞).
+//  2) Requerimientos (`Compras → Requerimientos`):
+//     máximo de productos/renglones (`maxItemsPorRequerimiento`, 0 = Sin límite / ∞)
+//     y monto máximo opcional en USD (`maxMontoUsdRequerimiento`, 0 = Sin límite).
 //  3) Visualización en bandejas: cantidad máxima ajustable de tarjetas visibles
 //     en pantalla (aplicado SIEMPRE después de los filtros de búsqueda/estado/
 //     empresa/fecha para no esconder resultados al buscar).
 //
-// Reglas blindadas (consenso de los 8 agentes):
+// Reglas blindadas (consenso y refutaciones de los 8 agentes):
+//  - JAMÁS se bloquea a un usuario por la cantidad de solicitudes o requerimientos
+//    creados: el límite controla exclusivamente cuántas COSAS / ÍTEMS van dentro
+//    de cada solicitud o requerimiento.
 //  - `0`, `null`, `""` o `<= 0` significa SIEMPRE «Sin límite» (`0`), evitando
 //    que una comparación `0 >= 0` bloquee por accidente el sistema.
-//  - El tope de cantidad de solicitudes/requerimientos SOLO aplica al CREAR un
-//    registro nuevo: JAMÁS bloquea editar uno existente, cancelar, responder
-//    aclaratorias técnicas, convertir una Solicitud en Requerimiento, pasar a
-//    Por Pagar ni recibir en Almacén.
+//  - Regla de Derechos Adquiridos ("Grandfathering" en edición): si una solicitud
+//    o requerimiento existente se creó cuando el límite era mayor (ej. tenía 12
+//    ítems y hoy el límite se bajó a 5), al editarlo para corregir precios,
+//    proveedor, notas, responder aclaratorias o quitar renglones se permite
+//    guardar mientras `cantidadItems <= Math.max(maxItems, cantidadItemsOriginales)`.
+//    Solo se impide AGREGAR nuevos ítems por encima del tope vigente.
+//  - En `Pedir Material`, aumentar la cantidad (`qty`) de un mismo ítem de almacén
+//    que ya está en la lista fusiona el renglón y NO consume un ítem extra.
 // ============================================================================
 import type { InventoryRequirement } from '../types/database';
 import { leerNumero } from './numeros';
@@ -36,7 +46,11 @@ export type ModoConteoLimite = 'activos' | 'jornada';
 export interface ExcepcionLimiteUsuario {
   userId: string;
   userName?: string | null;
-  /** null/undefined = usa el general; 0 = sin límite para este usuario; >0 = tope propio */
+  /** null/undefined = usa el general; 0 = sin límite de ítems para este usuario; >0 = tope propio de ítems por solicitud */
+  maxItemsSolicitud?: number | null;
+  /** null/undefined = usa el general; 0 = sin límite de ítems para este usuario; >0 = tope propio de ítems por requerimiento */
+  maxItemsRequerimiento?: number | null;
+  /** Alias legado para compatibilidad de lectura/escritura */
   maxSolicitudes?: number | null;
   maxRequerimientos?: number | null;
   maxMontoUsd?: number | null;
@@ -44,43 +58,40 @@ export interface ExcepcionLimiteUsuario {
 
 export interface ConfigLimitesCompras {
   activo: boolean;
-  /** Máximo de Solicitudes de Compra por usuario (0 = sin límite / ∞). */
-  maxSolicitudesPorUsuario: number;
-  /** 'activos' (en curso pendientes) o 'jornada' (día de trabajo 7am–7am Caracas). */
-  modoConteoSolicitudes: ModoConteoLimite;
-  /** Máximo de productos/renglones por Solicitud de Compra (0 = sin límite; default 50). */
+  /** Máximo de productos/renglones (cosas) dentro de cada Solicitud (0 = sin límite / ∞; default 0 = sin límite o configurable). */
   maxItemsPorSolicitud: number;
-  /** Máximo de Requerimientos por usuario (0 = sin límite / ∞). */
-  maxRequerimientosPorUsuario: number;
-  /** 'activos' (pendientes de enviar a Por Pagar) o 'jornada' (7am–7am Caracas). */
-  modoConteoRequerimientos: ModoConteoLimite;
-  /** Máximo de productos/renglones por Requerimiento (0 = sin límite; default 50). */
+  /** Máximo de productos/renglones (cosas) dentro de cada Requerimiento (0 = sin límite / ∞). */
   maxItemsPorRequerimiento: number;
   /** Monto máximo en USD ($) por Requerimiento al crearlo/guardarlo (0 = sin límite). */
   maxMontoUsdRequerimiento: number;
   /** Cantidad máxima de tarjetas visibles por defecto en las bandejas (0 = todas; default 50). */
   maxTarjetasVisibles: number;
-  /** Si true, el límite también aplica a los usuarios con rol admin. Default false. */
+  /** Si true, el límite de ítems también aplica a los usuarios con rol admin. Default false. */
   aplicarAAdmins: boolean;
   /** Excepciones opcionales para usuarios puntuales (userId -> ExcepcionLimiteUsuario). */
   excepcionesPorUsuario: Record<string, ExcepcionLimiteUsuario>;
+  /** Campos informativos/legados conservados en 0 (nunca bloquean por cantidad de documentos). */
+  maxSolicitudesPorUsuario: number;
+  modoConteoSolicitudes: ModoConteoLimite;
+  maxRequerimientosPorUsuario: number;
+  modoConteoRequerimientos: ModoConteoLimite;
 }
 
 export const CONFIG_LIMITES_COMPRAS_DEFAULT: ConfigLimitesCompras = {
   activo: true,
-  maxSolicitudesPorUsuario: 0,
-  modoConteoSolicitudes: 'activos',
   maxItemsPorSolicitud: 50,
-  maxRequerimientosPorUsuario: 0,
-  modoConteoRequerimientos: 'activos',
   maxItemsPorRequerimiento: 50,
   maxMontoUsdRequerimiento: 0,
   maxTarjetasVisibles: 50,
   aplicarAAdmins: false,
   excepcionesPorUsuario: {},
+  maxSolicitudesPorUsuario: 0,
+  modoConteoSolicitudes: 'activos',
+  maxRequerimientosPorUsuario: 0,
+  modoConteoRequerimientos: 'activos',
 };
 
-export const OPCIONES_RAPIDAS_TOPE = [0, 3, 5, 10, 15, 20, 30, 50] as const;
+export const OPCIONES_RAPIDAS_TOPE = [0, 1, 2, 3, 5, 10, 15, 20, 30, 50] as const;
 export const OPCIONES_TARJETAS_VISIBLES = [20, 30, 50, 100, 200, 0] as const;
 
 let memoriaConfigLimites: ConfigLimitesCompras = { ...CONFIG_LIMITES_COMPRAS_DEFAULT };
@@ -116,6 +127,11 @@ export function normalizarModoConteo(raw: unknown): ModoConteoLimite {
   return 'activos';
 }
 
+function normalizarCampoExcepcionEntero(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  return normalizarTopeEntero(raw, 500);
+}
+
 export function normalizarConfigLimitesCompras(
   raw?: Partial<ConfigLimitesCompras> | Record<string, any> | null,
 ): ConfigLimitesCompras {
@@ -130,34 +146,40 @@ export function normalizarConfigLimitesCompras(
   for (const [uid, val] of Object.entries(excRaw)) {
     if (!uid || !val || typeof val !== 'object') continue;
     const v = val as any;
+    const maxItemsSol =
+      v.maxItemsSolicitud !== undefined
+        ? normalizarCampoExcepcionEntero(v.maxItemsSolicitud)
+        : normalizarCampoExcepcionEntero(v.maxSolicitudes);
+    const maxItemsReq =
+      v.maxItemsRequerimiento !== undefined
+        ? normalizarCampoExcepcionEntero(v.maxItemsRequerimiento)
+        : normalizarCampoExcepcionEntero(v.maxRequerimientos);
+    const maxMonto =
+      v.maxMontoUsd === null || v.maxMontoUsd === undefined || v.maxMontoUsd === ''
+        ? v.maxMontoUsdRequerimiento === null ||
+          v.maxMontoUsdRequerimiento === undefined ||
+          v.maxMontoUsdRequerimiento === ''
+          ? null
+          : normalizarTopeMontoUsd(v.maxMontoUsdRequerimiento)
+        : normalizarTopeMontoUsd(v.maxMontoUsd);
+
     excepcionesPorUsuario[uid] = {
       userId: uid,
-      userName: v.userName ? String(v.userName) : null,
-      maxSolicitudes:
-        v.maxSolicitudes === null || v.maxSolicitudes === undefined || v.maxSolicitudes === ''
-          ? null
-          : normalizarTopeEntero(v.maxSolicitudes),
-      maxRequerimientos:
-        v.maxRequerimientos === null || v.maxRequerimientos === undefined || v.maxRequerimientos === ''
-          ? null
-          : normalizarTopeEntero(v.maxRequerimientos),
-      maxMontoUsd:
-        v.maxMontoUsd === null || v.maxMontoUsd === undefined || v.maxMontoUsd === ''
-          ? null
-          : normalizarTopeMontoUsd(v.maxMontoUsd),
+      userName: v.userName ? String(v.userName) : v.nombre ? String(v.nombre) : null,
+      maxItemsSolicitud: maxItemsSol,
+      maxItemsRequerimiento: maxItemsReq,
+      maxSolicitudes: maxItemsSol,
+      maxRequerimientos: maxItemsReq,
+      maxMontoUsd: maxMonto,
     };
   }
 
   return {
     activo: raw.activo !== false,
-    maxSolicitudesPorUsuario: normalizarTopeEntero(raw.maxSolicitudesPorUsuario),
-    modoConteoSolicitudes: normalizarModoConteo(raw.modoConteoSolicitudes),
     maxItemsPorSolicitud:
       raw.maxItemsPorSolicitud === undefined
         ? CONFIG_LIMITES_COMPRAS_DEFAULT.maxItemsPorSolicitud
         : normalizarTopeEntero(raw.maxItemsPorSolicitud, 500),
-    maxRequerimientosPorUsuario: normalizarTopeEntero(raw.maxRequerimientosPorUsuario),
-    modoConteoRequerimientos: normalizarModoConteo(raw.modoConteoRequerimientos),
     maxItemsPorRequerimiento:
       raw.maxItemsPorRequerimiento === undefined
         ? CONFIG_LIMITES_COMPRAS_DEFAULT.maxItemsPorRequerimiento
@@ -169,6 +191,10 @@ export function normalizarConfigLimitesCompras(
         : normalizarTopeEntero(raw.maxTarjetasVisibles, 5000),
     aplicarAAdmins: Boolean(raw.aplicarAAdmins),
     excepcionesPorUsuario,
+    maxSolicitudesPorUsuario: normalizarTopeEntero(raw.maxSolicitudesPorUsuario),
+    modoConteoSolicitudes: normalizarModoConteo(raw.modoConteoSolicitudes),
+    maxRequerimientosPorUsuario: normalizarTopeEntero(raw.maxRequerimientosPorUsuario),
+    modoConteoRequerimientos: normalizarModoConteo(raw.modoConteoRequerimientos),
   };
 }
 
@@ -210,17 +236,18 @@ export interface LimitesEfectivosUsuario {
   activo: boolean;
   exentoPorRol: boolean;
   tieneExcepcionPersonal: boolean;
-  maxSolicitudes: number;
-  modoConteoSolicitudes: ModoConteoLimite;
   maxItemsSolicitud: number;
-  maxRequerimientos: number;
-  modoConteoRequerimientos: ModoConteoLimite;
   maxItemsRequerimiento: number;
   maxMontoUsdRequerimiento: number;
   maxTarjetasVisibles: number;
+  /** Campos legados informativos */
+  maxSolicitudes: number;
+  modoConteoSolicitudes: ModoConteoLimite;
+  maxRequerimientos: number;
+  modoConteoRequerimientos: ModoConteoLimite;
 }
 
-/** Resuelve el límite efectivo para un usuario dado (aplicando excepción individual si existe). */
+/** Resuelve el límite de ítems efectivo para un usuario dado (aplicando excepción individual si existe). */
 export function resolverLimitesParaUsuario(
   cfg: ConfigLimitesCompras,
   userId?: string | null,
@@ -228,35 +255,48 @@ export function resolverLimitesParaUsuario(
 ): LimitesEfectivosUsuario {
   const norm = normalizarConfigLimitesCompras(cfg);
   const exc = userId ? norm.excepcionesPorUsuario[userId] : undefined;
+  const excItemsSol =
+    exc?.maxItemsSolicitud !== undefined && exc?.maxItemsSolicitud !== null
+      ? exc.maxItemsSolicitud
+      : exc?.maxSolicitudes;
+  const excItemsReq =
+    exc?.maxItemsRequerimiento !== undefined && exc?.maxItemsRequerimiento !== null
+      ? exc.maxItemsRequerimiento
+      : exc?.maxRequerimientos;
+
   const tieneExcepcionPersonal = Boolean(
     exc &&
-      (exc.maxSolicitudes !== null && exc.maxSolicitudes !== undefined ||
-        exc.maxRequerimientos !== null && exc.maxRequerimientos !== undefined ||
-        exc.maxMontoUsd !== null && exc.maxMontoUsd !== undefined),
+      ((excItemsSol !== null && excItemsSol !== undefined) ||
+        (excItemsReq !== null && excItemsReq !== undefined) ||
+        (exc.maxMontoUsd !== null && exc.maxMontoUsd !== undefined)),
   );
   const exentoPorRol = Boolean(isAdmin && !norm.aplicarAAdmins);
+
+  const maxItemsSolicitud =
+    excItemsSol !== null && excItemsSol !== undefined
+      ? normalizarTopeEntero(excItemsSol, 500)
+      : norm.maxItemsPorSolicitud;
+
+  const maxItemsRequerimiento =
+    excItemsReq !== null && excItemsReq !== undefined
+      ? normalizarTopeEntero(excItemsReq, 500)
+      : norm.maxItemsPorRequerimiento;
 
   return {
     activo: norm.activo,
     exentoPorRol,
     tieneExcepcionPersonal,
-    maxSolicitudes:
-      exc && exc.maxSolicitudes !== null && exc.maxSolicitudes !== undefined
-        ? normalizarTopeEntero(exc.maxSolicitudes)
-        : norm.maxSolicitudesPorUsuario,
-    modoConteoSolicitudes: norm.modoConteoSolicitudes,
-    maxItemsSolicitud: norm.maxItemsPorSolicitud,
-    maxRequerimientos:
-      exc && exc.maxRequerimientos !== null && exc.maxRequerimientos !== undefined
-        ? normalizarTopeEntero(exc.maxRequerimientos)
-        : norm.maxRequerimientosPorUsuario,
-    modoConteoRequerimientos: norm.modoConteoRequerimientos,
-    maxItemsRequerimiento: norm.maxItemsPorRequerimiento,
+    maxItemsSolicitud,
+    maxItemsRequerimiento,
     maxMontoUsdRequerimiento:
       exc && exc.maxMontoUsd !== null && exc.maxMontoUsd !== undefined
         ? normalizarTopeMontoUsd(exc.maxMontoUsd)
         : norm.maxMontoUsdRequerimiento,
     maxTarjetasVisibles: norm.maxTarjetasVisibles,
+    maxSolicitudes: maxItemsSolicitud,
+    modoConteoSolicitudes: norm.modoConteoSolicitudes,
+    maxRequerimientos: maxItemsRequerimiento,
+    modoConteoRequerimientos: norm.modoConteoRequerimientos,
   };
 }
 
@@ -284,13 +324,7 @@ function caeEnJornadaActual(createdAt?: string | null, ahoraRef?: Date): boolean
   return ts >= desdeMs && ts < hastaMs;
 }
 
-/**
- * Cuenta cuántas Solicitudes de Compra computables tiene el usuario según el modo configurado:
- * - 'activos': Solicitudes de compra aún no convertidas en requerimiento y en estado
- *              'pendiente' o 'aclaratoria_solicitada' (excluye rechazadas/canceladas).
- * - 'jornada': Solicitudes de compra creadas por el usuario en la jornada actual
- *              (7:00 AM a 7:00 AM hora Caracas), excluyendo canceladas y rechazadas.
- */
+/** Conteo informativo de solicitudes del usuario (no bloquea la creación de solicitudes). */
 export function contarSolicitudesDeUsuario(
   reqs: Partial<InventoryRequirement>[],
   userId?: string | null,
@@ -314,13 +348,7 @@ export function contarSolicitudesDeUsuario(
   return total;
 }
 
-/**
- * Cuenta cuántos Requerimientos computables tiene el usuario según el modo configurado:
- * - 'activos': Requerimientos en bandeja de Requerimientos con estado 'pendiente'
- *              o 'aclaratoria_solicitada' (pendientes de enviar a Por Pagar).
- * - 'jornada': Requerimientos creados en la jornada actual (7:00 AM a 7:00 AM Caracas),
- *              excluyendo rechazados/cancelados.
- */
+/** Conteo informativo de requerimientos del usuario (no bloquea la creación de requerimientos). */
 export function contarRequerimientosDeUsuario(
   reqs: Partial<InventoryRequirement>[],
   userId?: string | null,
@@ -347,13 +375,17 @@ export interface EstadoCupoOperativo {
   tipo: 'solicitud' | 'requerimiento';
   activo: boolean;
   modo: ModoConteoLimite;
+  /** Cantidad de ítems actualmente en borrador (si se proporciona) */
   usados: number;
-  limite: number; // 0 = sin límite
-  disponibles: number; // Infinity cuando no hay límite
-  porcentaje: number; // 0 a 100
+  /** Límite máximo de ítems por solicitud/requerimiento (0 = sin límite / ∞) */
+  limite: number;
+  disponibles: number;
+  porcentaje: number;
   enTope: boolean;
   cercaDelTope: boolean;
   exentoPorRol: boolean;
+  tieneExcepcionPersonal: boolean;
+  /** Siempre true para abrir el formulario; el límite controla cuántos ítems caben dentro */
   permitidoCrear: boolean;
   maxItems: number;
   maxMontoUsd: number;
@@ -362,36 +394,38 @@ export interface EstadoCupoOperativo {
   motivoBloqueo: string | null;
 }
 
-/** Evalúa el estado del cupo de Solicitudes de Compra para el usuario actual. */
+/**
+ * Evalúa el límite de ítems por Solicitud para el usuario actual.
+ * `itemsActualesCount` (opcional) permite reflejar cuántos ítems lleva en su lista actual.
+ */
 export function evaluarCupoSolicitudes(params: {
-  reqs: Partial<InventoryRequirement>[];
+  reqs?: Partial<InventoryRequirement>[];
   cfg: ConfigLimitesCompras;
   userId?: string | null;
   isAdmin?: boolean;
   ahoraRef?: Date;
+  itemsActualesCount?: number;
 }): EstadoCupoOperativo {
   const eff = resolverLimitesParaUsuario(params.cfg, params.userId, params.isAdmin);
-  const usados = contarSolicitudesDeUsuario(
-    params.reqs,
-    params.userId,
-    eff.modoConteoSolicitudes,
-    params.ahoraRef,
-  );
-  const limite = eff.activo ? eff.maxSolicitudes : 0;
-  const disponibles = limite > 0 ? Math.max(0, limite - usados) : Number.POSITIVE_INFINITY;
-  const porcentaje = limite > 0 ? Math.min(100, Math.round((usados / limite) * 100)) : 0;
-  const alcanzotopeBruto = eff.activo && limite > 0 && usados >= limite;
-  const enTope = alcanzotopeBruto && !eff.exentoPorRol;
-  const cercaDelTope = eff.activo && limite > 0 && !alcanzotopeBruto && usados / limite >= 0.75;
-  const etiquetaModo = eff.modoConteoSolicitudes === 'jornada' ? 'hoy (jornada)' : 'en curso';
+  const maxItems = eff.activo ? eff.maxItemsSolicitud : 0;
+  const usados = Math.max(0, Math.floor(Number(params.itemsActualesCount ?? 0) || 0));
+  const disponibles = maxItems > 0 ? Math.max(0, maxItems - usados) : Number.POSITIVE_INFINITY;
+  const porcentaje = maxItems > 0 ? Math.min(100, Math.round((usados / maxItems) * 100)) : 0;
+  const alcanzoTopeItems = eff.activo && maxItems > 0 && usados >= maxItems;
+  const enTope = alcanzoTopeItems && !eff.exentoPorRol;
+  const cercaDelTope = eff.activo && maxItems > 0 && !alcanzoTopeItems && usados / maxItems >= 0.8;
 
   const resumenCorto =
-    limite > 0
-      ? `Solicitudes ${etiquetaModo}: ${usados} de ${limite} · Disponibles: ${disponibles}`
-      : `Solicitudes ${etiquetaModo}: ${usados} · Sin límite máximo (∞)`;
+    maxItems > 0
+      ? params.itemsActualesCount !== undefined
+        ? `Ítems en esta solicitud: ${usados} de ${maxItems} máx. · Disponibles: ${disponibles}`
+        : `Máximo permitido por solicitud: ${maxItems} ${maxItems === 1 ? 'ítem / producto' : 'ítems / productos'}`
+      : params.itemsActualesCount !== undefined
+      ? `Ítems en esta solicitud: ${usados} · Sin límite de ítems (∞)`
+      : `Máximo por solicitud: Sin límite de ítems (∞)`;
 
   const motivoBloqueo = enTope
-    ? `Alcanzaste el límite máximo permitido de ${limite} solicitud(es) de compra ${etiquetaModo} (${usados}/${limite}). Espera a que se procese alguna de las anteriores, cancela una que no necesites o pide al administrador que amplíe el límite.`
+    ? `Alcanzaste el límite máximo de ${maxItems} ${maxItems === 1 ? 'ítem/producto' : 'ítems/productos'} dentro de una misma solicitud (${usados}/${maxItems}).`
     : null;
 
   return {
@@ -399,51 +433,54 @@ export function evaluarCupoSolicitudes(params: {
     activo: eff.activo,
     modo: eff.modoConteoSolicitudes,
     usados,
-    limite,
+    limite: maxItems,
     disponibles,
     porcentaje,
     enTope,
     cercaDelTope,
     exentoPorRol: eff.exentoPorRol,
-    permitidoCrear: !enTope,
-    maxItems: eff.activo ? eff.maxItemsSolicitud : 0,
+    tieneExcepcionPersonal: eff.tieneExcepcionPersonal,
+    permitidoCrear: true,
+    maxItems,
     maxMontoUsd: 0,
-    etiquetaModo,
+    etiquetaModo: 'por solicitud',
     resumenCorto,
     motivoBloqueo,
   };
 }
 
-/** Evalúa el estado del cupo de Requerimientos para el usuario actual. */
+/**
+ * Evalúa el límite de ítems por Requerimiento para el usuario actual.
+ * `itemsActualesCount` (opcional) permite reflejar cuántos ítems lleva en el formulario actual.
+ */
 export function evaluarCupoRequerimientos(params: {
-  reqs: Partial<InventoryRequirement>[];
+  reqs?: Partial<InventoryRequirement>[];
   cfg: ConfigLimitesCompras;
   userId?: string | null;
   isAdmin?: boolean;
   ahoraRef?: Date;
+  itemsActualesCount?: number;
 }): EstadoCupoOperativo {
   const eff = resolverLimitesParaUsuario(params.cfg, params.userId, params.isAdmin);
-  const usados = contarRequerimientosDeUsuario(
-    params.reqs,
-    params.userId,
-    eff.modoConteoRequerimientos,
-    params.ahoraRef,
-  );
-  const limite = eff.activo ? eff.maxRequerimientos : 0;
-  const disponibles = limite > 0 ? Math.max(0, limite - usados) : Number.POSITIVE_INFINITY;
-  const porcentaje = limite > 0 ? Math.min(100, Math.round((usados / limite) * 100)) : 0;
-  const alcanzoTopeBruto = eff.activo && limite > 0 && usados >= limite;
-  const enTope = alcanzoTopeBruto && !eff.exentoPorRol;
-  const cercaDelTope = eff.activo && limite > 0 && !alcanzoTopeBruto && usados / limite >= 0.75;
-  const etiquetaModo = eff.modoConteoRequerimientos === 'jornada' ? 'hoy (jornada)' : 'en curso';
+  const maxItems = eff.activo ? eff.maxItemsRequerimiento : 0;
+  const usados = Math.max(0, Math.floor(Number(params.itemsActualesCount ?? 0) || 0));
+  const disponibles = maxItems > 0 ? Math.max(0, maxItems - usados) : Number.POSITIVE_INFINITY;
+  const porcentaje = maxItems > 0 ? Math.min(100, Math.round((usados / maxItems) * 100)) : 0;
+  const alcanzoTopeItems = eff.activo && maxItems > 0 && usados >= maxItems;
+  const enTope = alcanzoTopeItems && !eff.exentoPorRol;
+  const cercaDelTope = eff.activo && maxItems > 0 && !alcanzoTopeItems && usados / maxItems >= 0.8;
 
   const resumenCorto =
-    limite > 0
-      ? `Requerimientos ${etiquetaModo}: ${usados} de ${limite} · Disponibles: ${disponibles}`
-      : `Requerimientos ${etiquetaModo}: ${usados} · Sin límite máximo (∞)`;
+    maxItems > 0
+      ? params.itemsActualesCount !== undefined
+        ? `Ítems en este requerimiento: ${usados} de ${maxItems} máx. · Disponibles: ${disponibles}`
+        : `Máximo permitido por requerimiento: ${maxItems} ${maxItems === 1 ? 'ítem / producto' : 'ítems / productos'}`
+      : params.itemsActualesCount !== undefined
+      ? `Ítems en este requerimiento: ${usados} · Sin límite de ítems (∞)`
+      : `Máximo por requerimiento: Sin límite de ítems (∞)`;
 
   const motivoBloqueo = enTope
-    ? `Alcanzaste el límite máximo permitido de ${limite} requerimiento(s) ${etiquetaModo} (${usados}/${limite}). Envía o procesa los pendientes o pide al administrador que amplíe el límite.`
+    ? `Alcanzaste el límite máximo de ${maxItems} ${maxItems === 1 ? 'ítem/producto' : 'ítems/productos'} dentro de un mismo requerimiento (${usados}/${maxItems}).`
     : null;
 
   return {
@@ -451,37 +488,130 @@ export function evaluarCupoRequerimientos(params: {
     activo: eff.activo,
     modo: eff.modoConteoRequerimientos,
     usados,
-    limite,
+    limite: maxItems,
     disponibles,
     porcentaje,
     enTope,
     cercaDelTope,
     exentoPorRol: eff.exentoPorRol,
-    permitidoCrear: !enTope,
-    maxItems: eff.activo ? eff.maxItemsRequerimiento : 0,
+    tieneExcepcionPersonal: eff.tieneExcepcionPersonal,
+    permitidoCrear: true,
+    maxItems,
     maxMontoUsd: eff.activo ? eff.maxMontoUsdRequerimiento : 0,
-    etiquetaModo,
+    etiquetaModo: 'por requerimiento',
     resumenCorto,
     motivoBloqueo,
   };
 }
 
 /**
- * Valida antes de crear o editar una Solicitud de Compra o un Requerimiento.
+ * Calcula el tope efectivo de ítems respetando Derechos Adquiridos ("Grandfathering"):
+ * Si se está editando una solicitud o requerimiento que ya tenía `cantidadItemsOriginales`
+ * mayor al límite actual, permite conservar o reducir esa cantidad sin bloquear el guardado.
+ */
+export function calcularTopeEfectivoItems(
+  maxItemsConfigurado: number,
+  esEdicion?: boolean,
+  cantidadItemsOriginales?: number,
+): number {
+  const max = normalizarTopeEntero(maxItemsConfigurado, 500);
+  if (max <= 0) return 0; // 0 = Sin límite (∞)
+  if (esEdicion && (cantidadItemsOriginales ?? 0) > max) {
+    return Math.floor(Number(cantidadItemsOriginales));
+  }
+  return max;
+}
+
+/**
+ * Verifica si se puede agregar 1 ítem más en vivo dentro de un formulario
+ * (carrito de Pedir Material, modal de Editar Solicitud o modal de Nuevo/Editar Requerimiento).
+ */
+export function verificarPuedeAgregarItem(params: {
+  tipo: 'solicitud' | 'requerimiento';
+  itemsActualesCount: number;
+  esEdicion?: boolean;
+  cantidadItemsOriginales?: number;
+  esFusionDeStockExistente?: boolean;
+  cfg: ConfigLimitesCompras;
+  userId?: string | null;
+  isAdmin?: boolean;
+}): {
+  ok: boolean;
+  maxItems: number;
+  topeEfectivo: number;
+  disponibles: number;
+  error?: string;
+} {
+  const cupo =
+    params.tipo === 'solicitud'
+      ? evaluarCupoSolicitudes({ ...params, itemsActualesCount: params.itemsActualesCount })
+      : evaluarCupoRequerimientos({ ...params, itemsActualesCount: params.itemsActualesCount });
+
+  if (!cupo.activo || cupo.exentoPorRol || cupo.maxItems <= 0) {
+    return {
+      ok: true,
+      maxItems: cupo.maxItems,
+      topeEfectivo: 0,
+      disponibles: Number.POSITIVE_INFINITY,
+    };
+  }
+
+  // Si en Pedir Material está sumando más cantidad a un ítem de stock que ya está en la lista,
+  // no agrega un renglón nuevo: siempre se permite.
+  if (params.esFusionDeStockExistente) {
+    return {
+      ok: true,
+      maxItems: cupo.maxItems,
+      topeEfectivo: cupo.maxItems,
+      disponibles: Math.max(0, cupo.maxItems - params.itemsActualesCount),
+    };
+  }
+
+  const topeEfectivo = calcularTopeEfectivoItems(
+    cupo.maxItems,
+    params.esEdicion,
+    params.cantidadItemsOriginales,
+  );
+
+  if (topeEfectivo > 0 && params.itemsActualesCount >= topeEfectivo) {
+    const docLabel = params.tipo === 'solicitud' ? 'solicitud' : 'requerimiento';
+    return {
+      ok: false,
+      maxItems: cupo.maxItems,
+      topeEfectivo,
+      disponibles: 0,
+      error: `Límite alcanzado: máximo ${cupo.maxItems} ${
+        cupo.maxItems === 1 ? 'ítem/producto' : 'ítems/productos'
+      } dentro de una misma ${docLabel} (llevas ${params.itemsActualesCount}). Quita un ítem, envía primero esta ${docLabel} o pide al administrador subir el máximo.`,
+    };
+  }
+
+  return {
+    ok: true,
+    maxItems: cupo.maxItems,
+    topeEfectivo,
+    disponibles: Math.max(0, topeEfectivo - params.itemsActualesCount),
+  };
+}
+
+/**
+ * Valida antes de guardar una Solicitud o un Requerimiento.
  *
- * ⚠️ Regla de oro (Refutación Agente 5):
- * - Si `esEdicion === true`, JAMÁS bloquea por la cantidad de solicitudes/requerimientos
- *   en curso (`usados >= limite`), para no impedir corregir una solicitud, responder
- *   una aclaratoria o editar un requerimiento existente.
- * - Sí valida el tope de renglones (`maxItems`) y, en requerimientos, el tope de
- *   monto en USD (`maxMontoUsd`) si están configurados (> 0) y el usuario no está exento.
+ * Reglas blindadas (Consenso de los 8 Agentes):
+ * - NUNCA bloquea por cantidad de solicitudes o requerimientos creados por el usuario.
+ * - Valida que la cantidad de cosas/ítems (`cantidadItems`) no supere el máximo configurado
+ *   (`maxItemsPorSolicitud` / `maxItemsPorRequerimiento`).
+ * - Si `esEdicion === true`, respeta `cantidadItemsOriginales` (Grandfathering): si el
+ *   registro ya tenía 10 ítems y el límite bajó a 5, permite editar precios, proveedor o
+ *   quitar renglones (`<= 10`), bloqueando únicamente si intenta subir a 11.
  */
 export function validarOperacionConLimite(params: {
   tipo: 'solicitud' | 'requerimiento';
   esEdicion?: boolean;
   cantidadItems: number;
+  cantidadItemsOriginales?: number;
   montoTotalUsd?: number;
-  reqs: Partial<InventoryRequirement>[];
+  reqs?: Partial<InventoryRequirement>[];
   cfg: ConfigLimitesCompras;
   userId?: string | null;
   isAdmin?: boolean;
@@ -489,21 +619,21 @@ export function validarOperacionConLimite(params: {
 }): { ok: boolean; error?: string; cupo: EstadoCupoOperativo } {
   const cupo =
     params.tipo === 'solicitud'
-      ? evaluarCupoSolicitudes(params)
-      : evaluarCupoRequerimientos(params);
+      ? evaluarCupoSolicitudes({ ...params, itemsActualesCount: params.cantidadItems })
+      : evaluarCupoRequerimientos({ ...params, itemsActualesCount: params.cantidadItems });
 
   if (!cupo.activo || cupo.exentoPorRol) {
     return { ok: true, cupo };
   }
 
-  // 1. Tope de cantidad de solicitudes / requerimientos (SOLO al crear uno nuevo)
-  if (!params.esEdicion && cupo.enTope && cupo.motivoBloqueo) {
-    return { ok: false, error: cupo.motivoBloqueo, cupo };
-  }
-
-  // 2. Tope de productos / renglones por documento
-  if (cupo.maxItems > 0 && params.cantidadItems > cupo.maxItems) {
-    const docLabel = params.tipo === 'solicitud' ? 'solicitud de compra' : 'requerimiento';
+  // 1. Tope de productos / renglones (cosas) dentro de la solicitud o requerimiento
+  const topeEfectivo = calcularTopeEfectivoItems(
+    cupo.maxItems,
+    params.esEdicion,
+    params.cantidadItemsOriginales,
+  );
+  if (topeEfectivo > 0 && params.cantidadItems > topeEfectivo) {
+    const docLabel = params.tipo === 'solicitud' ? 'solicitud' : 'requerimiento';
     return {
       ok: false,
       error: `El límite máximo es de ${cupo.maxItems} productos/renglones por ${docLabel} (intentas guardar ${params.cantidadItems}). Reduce los renglones o pide al administrador subir el máximo.`,
@@ -511,7 +641,7 @@ export function validarOperacionConLimite(params: {
     };
   }
 
-  // 3. Tope de monto en USD (para requerimientos cuando maxMontoUsd > 0)
+  // 2. Tope opcional de monto en USD (para requerimientos cuando maxMontoUsd > 0)
   if (
     params.tipo === 'requerimiento' &&
     cupo.maxMontoUsd > 0 &&
@@ -545,7 +675,7 @@ export interface ResultadoRecorteVisible<T> {
 
 /**
  * Aplica el límite ajustable de tarjetas visibles DESPUÉS de haber filtrado por
- * búsqueda, empresa, estado, prioridad y fecha (Invariante Agente 8).
+ * búsqueda, empresa, estado, prioridad y fecha.
  */
 export function aplicarLimiteTarjetasVisibles<T>(
   listaFiltrada: T[],
@@ -571,4 +701,3 @@ export function aplicarLimiteTarjetasVisibles<T>(
     limiteAplicado: lim,
   };
 }
-
