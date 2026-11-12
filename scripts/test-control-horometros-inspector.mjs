@@ -34,7 +34,8 @@ ok('🔒 la librería NO escribe en la base (sin insert/update/delete/upsert/rpc
 
 // ── El formato del papel ─────────────────────────────────────────────────────
 ok('📄 título CONTROL DE HORÓMETROS', lib.includes("title: 'CONTROL DE HORÓMETROS'"));
-ok('📄 horizontal como la planilla física', lib.includes('@page{size:A4 landscape}'));
+ok('📄 formato Carta Vertical (letter portrait) bien distribuido',
+  lib.includes('@page{size:letter portrait') && lib.includes('table-layout:fixed') && !lib.includes('@page{size:A4 landscape}'));
 ok('📄 cabecera INSPECTOR / FECHA / DÍA',
   lib.includes('<b>INSPECTOR:</b>') && lib.includes('<b>FECHA:</b>') && lib.includes('<b>DÍA:</b>'));
 ['EMPRESA', 'PLACA / SERIAL', 'HORÓMETRO<br/>INICIO', 'HORA<br/>INICIO', 'HORÓMETRO<br/>FINAL', 'HORA<br/>FINAL', 'FRENTE', 'OBSERVACIÓN'].forEach((col) =>

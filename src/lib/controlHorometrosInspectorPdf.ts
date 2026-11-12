@@ -159,7 +159,8 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
 }
 
 /**
- * Genera y descarga el PDF de la planilla, horizontal como el papel. Las filas van
+ * Genera y descarga el PDF de la planilla en formato Carta Vertical (letter portrait),
+ * bien organizado para que las 9 columnas quepan completas sin cortarse. Las filas van
  * NUMERADAS por posición (1, 2, 3…) y la observación es la que escribió el
  * inspector en pantalla (clave: machineryId).
  */
@@ -191,15 +192,26 @@ export async function generarControlHorometrosPdf(opts: {
       <span><b>TURNO:</b> ${esc(turnoTxt)}</span>
     </div>
     <table class="cho">
+      <colgroup>
+        <col style="width:4%"/>
+        <col style="width:14%"/>
+        <col style="width:15%"/>
+        <col style="width:10%"/>
+        <col style="width:8.5%"/>
+        <col style="width:10%"/>
+        <col style="width:8.5%"/>
+        <col style="width:13%"/>
+        <col style="width:17%"/>
+      </colgroup>
       <thead><tr>
-        <th class="c" style="width:26px">№</th>
-        <th style="width:14%">EMPRESA</th>
-        <th style="width:13%">PLACA / SERIAL</th>
-        <th class="c" style="width:9%">HORÓMETRO<br/>INICIO</th>
-        <th class="c" style="width:8%">HORA<br/>INICIO</th>
-        <th class="c" style="width:9%">HORÓMETRO<br/>FINAL</th>
-        <th class="c" style="width:8%">HORA<br/>FINAL</th>
-        <th style="width:12%">FRENTE</th>
+        <th class="c">№</th>
+        <th>EMPRESA</th>
+        <th>PLACA / SERIAL</th>
+        <th class="c">HORÓMETRO<br/>INICIO</th>
+        <th class="c">HORA<br/>INICIO</th>
+        <th class="c">HORÓMETRO<br/>FINAL</th>
+        <th class="c">HORA<br/>FINAL</th>
+        <th>FRENTE</th>
         <th>OBSERVACIÓN</th>
       </tr></thead>
       <tbody>${cuerpo || '<tr><td colspan="9" class="none">Sin máquinas asignadas este turno.</td></tr>'}</tbody>
@@ -207,21 +219,35 @@ export async function generarControlHorometrosPdf(opts: {
     <div class="firma"><div class="linea"></div><div class="rotulo">${esc(inspectorName)} · Inspector</div></div>`;
 
   const extraCss = `
-    @page{size:A4 landscape}
-    .meta{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:11.5px;color:#111;margin:2px 0 10px}
+    @page{size:letter portrait;margin:10mm 9mm}
+    @media screen{body{max-width:215.9mm;margin:0 auto;padding:10mm 9mm}}
+    .top{gap:10px;align-items:center}
+    .brand{gap:10px}
+    .logo-box img{height:50px;width:auto}
+    .logo-cap{font-size:8.5px;max-width:105px}
+    .doc-title{font-size:20px;letter-spacing:.5px;line-height:1.08}
+    .doc-sub{font-size:10.5px;margin-top:3px}
+    .emit{font-size:10px}
+    .rule{margin:8px 0 10px;height:3px}
+    .company{font-size:10.5px;line-height:1.4;margin-bottom:6px}
+    .company b{font-size:11.5px}
+    .meta{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:10.5px;color:#111;margin:2px 0 8px;padding:5px 8px;background:#F8FAFC;border:1px solid #CBD5E1;border-radius:4px}
     .meta b{color:#1E3A5F}
-    table.cho{width:100%;border-collapse:collapse;font-size:10.5px}
-    .cho th{background:#EEF2F7;color:#1E3A5F;border:1px solid #94A3B8;padding:5px 6px;font-size:9px;letter-spacing:.3px;text-align:left}
-    .cho td{border:1px solid #94A3B8;padding:6px;vertical-align:top;min-height:22px}
+    table.cho{width:100%;table-layout:fixed;border-collapse:collapse;font-size:9.5px}
+    .cho thead{display:table-header-group}
+    .cho tfoot{display:table-row-group}
+    .cho tr{page-break-inside:avoid;break-inside:avoid}
+    .cho th{background:#EEF2F7;color:#1E3A5F;border:1px solid #94A3B8;padding:4px 3px;font-size:8px;font-weight:800;letter-spacing:0;line-height:1.15;text-align:left;overflow-wrap:break-word;word-wrap:break-word}
+    .cho td{border:1px solid #94A3B8;padding:4.5px 3.5px;vertical-align:middle;min-height:22px;line-height:1.2;overflow-wrap:break-word;word-wrap:break-word;word-break:break-word}
     .cho .c{text-align:center}
-    .cho .num{font-weight:800}
-    .cho .mini{color:#6B7280;font-size:8.5px;margin-top:1px}
-    .cho .obs{min-width:150px}
+    .cho td.c{white-space:nowrap}
+    .cho .num{font-weight:800;font-size:9px}
+    .cho .mini{color:#4B5563;font-size:8px;margin-top:1px;line-height:1.1;white-space:normal}
+    .cho .obs{min-width:0;width:auto}
     .cho .none{color:#6B7280;text-align:center;padding:14px 0}
-    .cho tr{page-break-inside:avoid}
-    .firma{margin-top:44px;width:260px}
+    .firma{margin-top:32px;width:220px;page-break-inside:avoid;break-inside:avoid}
     .firma .linea{border-top:1px solid #111}
-    .firma .rotulo{font-size:10.5px;color:#374151;text-align:center;margin-top:4px}
+    .firma .rotulo{font-size:10px;color:#374151;text-align:center;margin-top:4px}
   `;
 
   const html = pdfDocument({

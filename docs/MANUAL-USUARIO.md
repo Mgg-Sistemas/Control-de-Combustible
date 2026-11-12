@@ -2252,7 +2252,7 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > Lo que no se registró queda **en blanco**, como en el papel — el sistema **nunca inventa un
 > número** que termina en un documento. Se elige el día con **◀ ▶** y el turno ☀️/🌙 igual que
 > en el reporte de jornada (día de **negocio**: la noche pertenece al día en que arrancó). El PDF
-> sale **horizontal**, como la planilla. Solo lee: no cambia nada en el sistema.
+> sale en **formato Carta Vertical (`letter portrait`) bien organizado (12/11/2026)**, con sus 9 columnas distribuidas al 100% del ancho de la hoja vertical sin cortarse. Solo lee: no cambia nada en el sistema.
 >
 > **👥 Coordinador de inspectores y administradores (16-oct-2026):** también tienen el botón, y
 > dentro de la ventana les salen pastillas para elegir de quién es la planilla: **«👤 Yo»** o
