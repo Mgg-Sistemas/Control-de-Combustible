@@ -91,6 +91,8 @@ const MODULO_FIJOS = [
   'src/lib/centroOperacionesReporteCompleto.ts',
   // La librería pura de la ⚙️ producción de trituración (06-nov-2026).
   'src/lib/centroOperacionesProduccion.ts',
+  // La librería pura del 🔁 movimiento entre patios (11-nov-2026).
+  'src/lib/centroOperacionesInternos.ts',
   'src/screens/CentroOperacionesScreen.tsx',
 ];
 const DIR_COMPONENTES = 'src/components/centroOperaciones/';
