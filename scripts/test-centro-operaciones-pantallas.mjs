@@ -247,9 +247,11 @@ const p = (fn, ...a) => llamar(P, fn, ...a);
   eq('1.7 * con la marca y sin leer: manda su marca, «sin verificar»', [marcadaSinLeer.estado, marcadaSinLeer.inspeccion],
     ['🔧 Averiada · la marcó el sitio hoy 06:10 a. m.', '🔎 Inspección: no se pudo leer · tu marca, sin verificar']);
   const pausa = L(vin({ codigo: 'UNI-09', estado: 'disponible', estadoAt: '2026-10-15T14:00:00Z', estadoNota: 'vieja' }), leida({ 'M-UNI-09': dice('espera') }));
-  eq('⭐ 1.7 en espera con una marca vieja: manda la oficina, la marca en pausa, pastillas apagadas y sin su nota',
-    [pausa.estado, pausa.aviso, pausa.porQueNo, pausa.nota],
-    ['⏳ Esperando instrucciones — lo maneja la oficina (Control de Maquinaria)', '🏭 Tu marca ✅ del 15/10 está en pausa mientras la oficina la tenga así.', 'Lo maneja la oficina (Control de Maquinaria).', null]);
+  // ⭐ 11-nov-2026 (decidido con el cliente): ya no hay «pausa» ni «lo maneja la oficina»: en el
+  //    Centro manda la marca del sitio (solo ahí) aunque la oficina la tenga en espera.
+  ok('⭐ 1.7 en espera con una marca del sitio: manda SU marca en el Centro (sin «pausa» ni «lo maneja la oficina»)',
+    pausa.porQueNo == null && !/pausa/.test(String(pausa.aviso ?? '')) && /Disponible/.test(String(pausa.estado)) && !/lo maneja la oficina/i.test(String(pausa.estado)),
+    JSON.stringify(pausa));
   const superada = L(vin({ codigo: 'UNI-11', estado: 'averiada', estadoAt: '2026-10-25T10:05:00Z', estadoNota: 'nota vieja' }),
     leida({ 'M-UNI-11': dice('operativa', { enVivo: 'trabajando', novedad: { ms: Date.parse('2026-10-25T11:25:00Z'), que: 'jornada', motivo: null } }) }));
   eq('⭐ 1.7 una marca que quedó atrás: manda inspección y dice por qué (sin la nota vieja)',
@@ -295,10 +297,10 @@ const p = (fn, ...a) => llamar(P, fn, ...a);
     ['nota', 'caucho', 'marca']);
   eq('⭐ 1.7 B1 * «📝 nota» NUNCA se vuelve una marca nueva: si la marca dejó de mandar (quedó atrás, otra pastilla, la oficina), el editor se apaga (modo null) y lo dice',
     [ed(filaSinVerificar, 'disponible', true).modo, ed(filaSuperada, 'averiada', true).modo, ed(filaSuperada, 'averiada', true).aviso, ed(fila(vin({ codigo: 'UNI-09', estado: 'disponible', estadoAt: '2026-10-15T14:00:00Z' }), leida({ 'M-UNI-09': dice('espera') })), 'disponible', true).modo],
-    [null, null, 'Tu marca ya no manda (inspección registró algo nuevo, o la oficina la tiene): cierra y, si hace falta, vuelve a marcarla.', null]);
-  eq('⭐ 1.7 * en espera (oficina): no se puede (modo null) y dice por qué',
-    [ed(fila(vin({ codigo: 'UNI-09' }), leida({ 'M-UNI-09': dice('espera') })), 'averiada').modo, ed(fila(vin({ codigo: 'UNI-09' }), leida({ 'M-UNI-09': dice('espera') })), 'averiada').aviso],
-    [null, 'Lo maneja la oficina (Control de Maquinaria).']);
+    [null, null, 'Tu marca ya no manda (inspección registró algo nuevo, o la oficina la tiene): cierra y, si hace falta, vuelve a marcarla.', 'nota']);
+  const edEsp = ed(fila(vin({ codigo: 'UNI-09' }), leida({ 'M-UNI-09': dice('espera') })), 'averiada');
+  ok('⭐ 1.7 * en espera (oficina) SÍ se puede marcar desde el 11-nov (modo «marca», sin «lo maneja la oficina»)',
+    edEsp.modo === 'marca' && !/Lo maneja la oficina/.test(String(edEsp.aviso ?? '')), JSON.stringify(edEsp));
   eq('1.7 * una del sitio: la misma pastilla es la nota', ed(fila(u({ codigo: 'P', estado: 'disponible' }), null), 'disponible').modo, 'nota');
 
   // B-M2: una nota escrita que se perdería.

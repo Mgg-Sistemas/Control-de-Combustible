@@ -384,7 +384,9 @@ const FLOTA5 = [
   vin5('UNI-07', 'MQ-7', { placa: 'AAA-002' }),
   vin5('UNI-02', 'MQ-2'),
   unidad({ codigo: 'PROP-1', placa: 'AAA-003', estado: 'disponible', estadoAt: T5('17:30', '2026-10-22') }),
-  vin5('UNI-09', 'MQ-9', { estado: 'disponible', estadoAt: T5('09:00', '2026-10-15'), estadoNota: 'nota en pausa' }),
+  // 11-nov-2026: ya no hay «marca en pausa» (la marca del sitio manda aunque la oficina la tenga en espera);
+  // UNI-09 queda SIN marca: en espera según inspección.
+  vin5('UNI-09', 'MQ-9'),
   vin5('UNI-05', 'MQ-5', { estado: 'averiada', estadoAt: T5('06:00'), estadoNota: 'nota superada' }),
   vin5('UNI-11', 'MQ-11'),
   vin5('UNI-12', 'MQ-12', { activo: false, estado: 'averiada', estadoAt: T5('05:00') }), // dada de baja
@@ -426,7 +428,7 @@ const sec6 = (html) => { const s = String(html); const i = s.indexOf('7. Maquina
   const rP = filaDe(s6, 'PROP-1');
   ok('⭐ M5.6 la unidad del sitio: «— solo del sitio» y su «desde»', rP.includes('Disponible') && rP.includes('desde 22/10') && rP.includes('— solo del sitio') && rP.includes('AAA-003'), rP);
   const r09 = filaDe(s6, 'UNI-09');
-  ok('M5.7 en espera: la palabra del sistema y la marca vieja en pausa no se imprime', r09.includes('Esperando instrucciones') && !r09.includes('nota en pausa') && !s6.includes('nota en pausa'), r09);
+  ok('M5.7 en espera (sin marca del sitio): la palabra del sistema', r09.includes('Esperando instrucciones'), r09);
   const r05 = filaDe(s6, 'UNI-05');
   ok('⭐ M5.8 una marca SUPERADA no sale como vigente (ni su nota)', r05.includes('Disponible') && r05.includes('según inspección') && !r05.includes('Averiada') && !s6.includes('nota superada'), r05);
   ok('⭐ M5.9 sin horas trabajadas, sin inspectores, sin «trabajando ahora»', !/trabaj|horas|inspector/i.test(s6.replace(/Inspección/g, '')), s6);
@@ -444,7 +446,7 @@ const sec6 = (html) => { const s = String(html); const i = s.indexOf('7. Maquina
   ok('⭐ M5.12 * las vinculadas SIN marca salen «Sin dato», NUNCA «Disponible» (el arreglo de M5)',
     ['UNI-07', 'UNI-02', 'UNI-11'].every((c) => { const r = filaDe(ss, c); return r.includes('Sin dato') && !r.includes('Disponible') && !r.includes('Averiada'); }), ['UNI-07', 'UNI-02', 'UNI-11'].map((c) => filaDe(ss, c)).join('\n'));
   ok('M5.12 * las marcadas salen con su marca «sin verificar» y sin «≠»', filaDe(ss, 'UNI-03').includes('sin verificar') && !ss.includes('≠'));
-  ok('M5.12 * la tarjeta «Sin dato» las cuenta', ss.includes('<span>Sin dato</span><b>3</b>'), ss);
+  ok('M5.12 * la tarjeta «Sin dato» las cuenta', ss.includes('<span>Sin dato</span><b>4</b>'), ss);
   ok('M5.12 * y la unidad del sitio sigue igual', filaDe(ss, 'PROP-1').includes('— solo del sitio'));
 
   // ── Antes de M5 una vinculada sin marca salía «Disponible» en el papel: nunca más ──
@@ -487,7 +489,7 @@ const sec6 = (html) => { const s = String(html); const i = s.indexOf('7. Maquina
     { machineryId: 'MQ-3', estadoAt: T5('06:10'), conMarca: true },
     { machineryId: 'MQ-7', estadoAt: null, conMarca: false },
     { machineryId: 'MQ-2', estadoAt: null, conMarca: false },
-    { machineryId: 'MQ-9', estadoAt: T5('09:00', '2026-10-15'), conMarca: true },
+    { machineryId: 'MQ-9', estadoAt: null, conMarca: false },
     { machineryId: 'MQ-5', estadoAt: T5('06:00'), conMarca: true },
     { machineryId: 'MQ-11', estadoAt: null, conMarca: false },
   ]);

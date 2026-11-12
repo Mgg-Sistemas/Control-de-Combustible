@@ -46,6 +46,7 @@ import { levelMeets, PermLevel } from '../../lib/permissions';
 import { caracasBusinessToday } from '../../lib/caracasDay';
 import { conTope } from '../../lib/centroOperaciones';
 import type { EstadoUnidad, Sitio, Unidad } from '../../lib/centroOperaciones';
+import { ESTADOS_UNIDAD_TODOS } from '../../lib/centroOperaciones';
 import { dmy, secuenciaDePedidos } from '../../lib/centroOperacionesCarga';
 import {
   NO_SE_GUARDO,
@@ -86,7 +87,10 @@ import {
 } from './pantallaParteDiario';
 import type { LecturaInspeccion } from './pantallaParteDiario';
 
-const ESTADOS: EstadoUnidad[] = ['disponible', 'averiada'];
+// 11-nov-2026: los 6 estados del Catálogo (la marca vive solo en el Centro).
+const ESTADOS: readonly EstadoUnidad[] = ESTADOS_UNIDAD_TODOS;
+/** El color de cada marca: los del Catálogo (ESTADO_CONTEO_INFO). */
+const COLOR_MARCA: Record<EstadoUnidad, string> = { disponible: '#15803D', averiada: '#B91C1C', parada: '#B45309', espera: '#B45309', retirada: '#4B5563', transferida: '#0D9488' };
 
 /** Los conteos que el Parte diario muestra en el encabezado plegado (null = no se sabe). */
 export type ConteoMaquinaria = ConteoDelSitio | null;
@@ -418,8 +422,8 @@ export function BloqueMaquinaria({ sitio, nivel, fecha, alConteo, alSinGuardar, 
   } as const;
   const pastilla = (on: boolean, estado: EstadoUnidad, apagada: boolean) => ({
     paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1,
-    borderColor: on ? (estado === 'averiada' ? colors.danger : colors.success) : colors.border,
-    backgroundColor: on ? (estado === 'averiada' ? colors.danger : colors.success) : colors.surface,
+    borderColor: on ? COLOR_MARCA[estado] : colors.border,
+    backgroundColor: on ? COLOR_MARCA[estado] : colors.surface,
     opacity: guardando || apagada ? 0.5 : 1,
   });
   const textoPastilla = (on: boolean) => ({ color: on ? '#ffffff' : colors.text, fontWeight: '800' as const, fontSize: 12 });
@@ -542,7 +546,7 @@ export function BloqueMaquinaria({ sitio, nivel, fecha, alConteo, alSinGuardar, 
                         <Text style={ayuda}>{[u.descripcion, u.chofer ? `👷 ${u.chofer}` : ''].filter(Boolean).join(' · ')}</Text>
                       ) : null}
                     </View>
-                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, flexShrink: 1, maxWidth: '100%' }}>
                       {ESTADOS.map((s) => {
                         // ⭐ Encendida = la marca que MANDA (o la elegida en el editor); nunca la guardada a secas.
                         const on = (abierta ? abierta.estado : e.encendida) === s;

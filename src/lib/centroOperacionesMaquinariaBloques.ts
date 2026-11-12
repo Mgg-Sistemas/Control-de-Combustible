@@ -19,6 +19,7 @@
 // sistema (`machineLiveStatus.ts`) solo toma TIPOS: lo que dice inspección le llega ya leído.
 // `scripts/test-centro-operaciones-maquinaria-bloques.mjs` lo prueba solo.
 import type { EstadoUnidad, ItemLista, Movimiento, QueHechoInspeccion, Unidad } from './centroOperaciones';
+import { ESTADOS_UNIDAD_TODOS } from './centroOperaciones';
 import { fraseHechoInspeccion, momentoCaracas, numeroDeCampo } from './centroOperaciones';
 // Solo TIPOS: esta librería no habla con la base (lo que dice inspección le llega ya leído).
 import type { EstadoInspeccion, InspeccionMaquina } from './centroOperacionesDb';
@@ -80,7 +81,23 @@ export const SUB_SITIO_INFO: Record<SubSitio, { icono: string; uno: string; vari
 export const MARCA_INFO: Record<EstadoUnidad, { icono: string; etiqueta: string }> = {
   disponible: { icono: '✅', etiqueta: 'Disponible' },
   averiada: { icono: '🔧', etiqueta: 'Averiada' },
+  // 11-nov-2026: los otros estados del Catálogo (mismos íconos que ESTADO_CONTEO_INFO).
+  parada: { icono: '🟡', etiqueta: 'Parada' },
+  espera: { icono: '⏳', etiqueta: 'En espera' },
+  retirada: { icono: '⬛', etiqueta: 'Retirada' },
+  transferida: { icono: '🔁', etiqueta: 'Transferida' },
 };
+
+/** El grupo en que cuenta una MARCA del sitio: parada es disponible; en espera, retirada y
+ *  transferida son «no disponibles» (como en las tarjetas del Catálogo). */
+export function grupoDeMarca(m: EstadoUnidad): GrupoSitio {
+  if (m === 'averiada') return 'averiada';
+  if (m === 'espera' || m === 'retirada' || m === 'transferida') return 'oficina';
+  return 'disponible';
+}
+/** La palabra del sistema de una marca (parada / espera / retirada / transferida). */
+export const subDeMarca = (m: EstadoUnidad | null): SubSitio | null =>
+  (m === 'parada' || m === 'espera' || m === 'retirada' || m === 'transferida' ? m : null);
 
 /** Lo que manda: inspección, la marca del sitio sobre una vinculada, o una unidad del sitio. */
 export type FuenteEstado = 'inspeccion' | 'sitio' | 'propia';
@@ -142,7 +159,7 @@ const subDeConteo = (e: EstadoConteo | null | undefined): SubSitio | null =>
 
 /** La marca válida de la unidad (lo demás no es una marca). */
 const marcaDe = (u: Unidad | null | undefined): EstadoUnidad | null =>
-  (u?.estado === 'disponible' || u?.estado === 'averiada' ? u.estado : null);
+  (u?.estado && (ESTADOS_UNIDAD_TODOS as readonly string[]).includes(u.estado) ? u.estado : null);
 
 /** El instante de la marca (ms) o NaN si no tiene una fecha que se entienda. */
 const msDeLaMarca = (u: Unidad | null | undefined): number => {
@@ -193,7 +210,7 @@ export function estadoDelSitio(u: Unidad, insp: EstadoInspeccion | null | undefi
   const marca = marcaDe(u);
   const machineryId = String(u?.machineryId ?? '').trim();
   const base: EstadoDelSitio = {
-    grupo: marca ?? 'sin_dato', sub: null, fuente: 'propia', marca, marcaEstado: marca ? 'vigente' : null, superadaPor: null,
+    grupo: marca ? grupoDeMarca(marca) : 'sin_dato', sub: subDeMarca(marca), fuente: 'propia', marca, marcaEstado: marca ? 'vigente' : null, superadaPor: null,
     noCoincide: false, sinVerificar: false, puedeMarcar: true, porQueNo: null, puedeSoltar: false, encendida: marca,
     vinculada: !!machineryId, fueraDelCatalogo: false, inspeccion: null, grupoInspeccion: null, avisoMarca: null,
   };
@@ -209,21 +226,22 @@ export function estadoDelSitio(u: Unidad, insp: EstadoInspeccion | null | undefi
   }
 
   const grupoInspeccion = grupoDeConteo(leida.estado) ?? 'sin_dato';
-  const oficina = esOficina(leida.estado);
   const marcaMs = msDeLaMarca(u);
   const hecho = ultimoHecho(leida, ahoraMs);
   let marcaEstado: EstadoDeLaMarca | null = null;
   let superadaPor: HechoInspeccion | null = null;
   if (marca) {
-    // Un hecho no desaparece: una marca superada lo sigue estando aunque después la oficina la
-    // ponga en espera. Si no hay hecho posterior y la oficina la tiene, queda en pausa.
+    // Un hecho no desaparece: una marca superada lo sigue estando.
+    // ⭐ 11-nov-2026 (decidido con el cliente): la marca del sitio YA NO queda «en pausa» cuando la
+    //    oficina tiene la máquina en espera, retirada o transferida: en el Centro manda lo que ella
+    //    marque (solo dentro del Centro) hasta el primer hecho nuevo de inspección.
     if (Number.isFinite(marcaMs) && hecho && hecho.ms > marcaMs) { marcaEstado = 'superada'; superadaPor = hecho; }
-    else marcaEstado = oficina ? 'pausa' : 'vigente';
+    else marcaEstado = 'vigente';
   }
   const manda = marcaEstado === 'vigente' && marca ? marca : null;
   // Una marca sin fecha no se puede comparar con los hechos: manda, pero «sin verificar».
   const sinVerificar = !!manda && !Number.isFinite(marcaMs);
-  const grupo: GrupoSitio = manda ?? grupoInspeccion;
+  const grupo: GrupoSitio = manda ? grupoDeMarca(manda) : grupoInspeccion;
 
   let avisoMarca: string | null = null;
   if (marca && marcaEstado === 'superada' && superadaPor) {
@@ -232,22 +250,21 @@ export function estadoDelSitio(u: Unidad, insp: EstadoInspeccion | null | undefi
     if (h && ahora && h.jornada === ahora.jornada) {
       avisoMarca = conPunto(`↪️ Tu marca ${MARCA_INFO[marca].icono} ${MARCA_INFO[marca].etiqueta} ${deCuando(marcaMs, ahoraMs)} quedó atrás: ${superadaPor.texto}`);
     }
-  } else if (marca && marcaEstado === 'pausa') {
-    const cuando = Number.isFinite(marcaMs) ? ` ${deCuando(marcaMs, ahoraMs)}` : '';
-    avisoMarca = `🏭 Tu marca ${MARCA_INFO[marca].icono}${cuando} está en pausa mientras la oficina la tenga así.`;
   }
+  // (11-nov-2026: ya no hay marca «en pausa»: ver arriba.)
 
   return {
     ...base,
     grupo,
-    sub: manda ? null : subDeConteo(leida.estado),
+    sub: manda ? subDeMarca(manda) : subDeConteo(leida.estado),
     fuente: manda ? 'sitio' : 'inspeccion',
     marcaEstado,
     superadaPor,
     noCoincide: !!manda && !sinVerificar && grupo !== grupoInspeccion,
     sinVerificar,
-    puedeMarcar: !oficina,
-    porQueNo: oficina ? POR_QUE_NO_OFICINA : null,
+    // 11-nov-2026: se puede marcar SIEMPRE (también si la oficina la tiene en espera/retirada/transferida).
+    puedeMarcar: true,
+    porQueNo: null,
     puedeSoltar: !!marca,
     encendida: manda,
     inspeccion: leida,

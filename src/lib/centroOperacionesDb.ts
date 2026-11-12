@@ -138,7 +138,8 @@ const CAMPOS_LISTA: readonly Campo[] = [
 ];
 
 /** Las marcas que el sitio le puede poner a una unidad (`cop_unidades.estado`). */
-const ESTADOS_UNIDAD: readonly string[] = ['disponible', 'averiada'];
+// 11-nov-2026: las 6 marcas del Catálogo (la base las acepta desde el SQL de ese día).
+const ESTADOS_UNIDAD: readonly string[] = ['disponible', 'averiada', 'parada', 'espera', 'retirada', 'transferida'];
 
 /** Lo que el sello de la base le dice al renglón (solo se LEE). */
 const COLUMNAS_SELLO_MOVIMIENTO = 'created_by_nombre, created_at, updated_by_nombre, updated_at';
@@ -914,7 +915,7 @@ export async function guardarMarcaUnidad(
   const prefijo = 'No se guardó el estado de la unidad';
   const cual = unidadParaMarca(id, prefijo);
   const estado = marca?.estado;
-  if (!estado || !ESTADOS_UNIDAD.includes(estado)) throw new Error(`${prefijo}: elige «Disponible» o «Averiada».`);
+  if (!estado || !ESTADOS_UNIDAD.includes(estado)) throw new Error(`${prefijo}: elige uno de los estados.`);
   const maquina = opcional(guardia?.machineryId)?.trim();
   const leidaAt = opcional(guardia?.leidaAt)?.trim();
   if (maquina && leidaAt) {

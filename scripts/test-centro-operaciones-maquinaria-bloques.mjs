@@ -279,10 +279,12 @@ const leerCrudo = (r) => (fs.existsSync(path.join(ROOT, r)) ? fs.readFileSync(pa
   eq('7b.7 ⭐ sin marca + Parada → ✅ Disponible con 🟡 (D3)', corto(E(vin(), leida(dice('parada')))),
     ['disponible', 'parada', 'inspeccion', null, null, false, false, true, false]);
   const esp = E(vin(), leida(dice('espera')));
-  eq('7b.8 ⭐ sin marca + En espera → ⛔ oficina, no se puede marcar (D4/D5)', corto(esp), ['oficina', 'espera', 'inspeccion', null, null, false, false, false, false]);
-  ok('7b.8b * y dice por qué: lo maneja la oficina', /oficina/.test(esp.porQueNo ?? ''));
-  eq('7b.9 sin marca + Retirada → ⛔ oficina (retirada)', corto(E(vin(), leida(dice('retirada')))), ['oficina', 'retirada', 'inspeccion', null, null, false, false, false, false]);
-  eq('7b.10 sin marca + Transferida → ⛔ oficina (transferida)', corto(E(vin(), leida(dice('transferida')))), ['oficina', 'transferida', 'inspeccion', null, null, false, false, false, false]);
+  // ⭐ 11-nov-2026 (decidido con el cliente): aunque la oficina la tenga en espera, retirada o
+  //    transferida, en el Centro SÍ se puede marcar (la marca vive solo en el Centro).
+  eq('7b.8 ⭐ sin marca + En espera → ⛔ oficina según inspección, y SÍ se puede marcar (11-nov)', corto(esp), ['oficina', 'espera', 'inspeccion', null, null, false, false, true, false]);
+  ok('7b.8b * y ya no dice «lo maneja la oficina»', esp.porQueNo === null);
+  eq('7b.9 sin marca + Retirada → ⛔ oficina (retirada), se puede marcar', corto(E(vin(), leida(dice('retirada')))), ['oficina', 'retirada', 'inspeccion', null, null, false, false, true, false]);
+  eq('7b.10 sin marca + Transferida → ⛔ oficina (transferida), se puede marcar', corto(E(vin(), leida(dice('transferida')))), ['oficina', 'transferida', 'inspeccion', null, null, false, false, true, false]);
 
   // ── Con marca VIGENTE (posterior a todo hecho) ──
   eq('7b.11 ⭐ marca 🔧 posterior a todo hecho + inspección Operativa → manda ella, ⚠️ no coincide',
@@ -321,12 +323,16 @@ const leerCrudo = (r) => (fs.existsSync(path.join(ROOT, r)) ? fs.readFileSync(pa
   eq('7b.22 un hecho a la MISMA hora que la marca no la vence (tiene que ser posterior)',
     E(conMarca('averiada'), leida(dice('operativa', { novedad: nov('jornada', '08:00') }))).marcaEstado, 'vigente');
 
-  // ── Oficina con marca vieja: EN PAUSA ──
+  // ── Oficina con marca del sitio: 11-nov-2026, YA NO hay «pausa»: manda su marca (solo en el Centro) ──
   const pausa = E(conMarca('disponible', { estadoAt: T('08:00', '2026-10-15') }), leida(dice('espera')));
-  eq('7b.23 ⭐ En espera con marca ✅ → «pausa», manda la oficina, pastillas apagadas, «↩️» sí',
-    corto(pausa), ['oficina', 'espera', 'inspeccion', 'pausa', null, false, false, false, true]);
-  eq('7b.23b * y lo dice', pausa.avisoMarca, '🏭 Tu marca ✅ del 15/10 está en pausa mientras la oficina la tenga así.');
-  eq('7b.24 Retirada y Transferida con marca → pausa', [E(conMarca('averiada'), leida(dice('retirada'))).marcaEstado, E(conMarca('averiada'), leida(dice('transferida'))).marcaEstado], ['pausa', 'pausa']);
+  eq('7b.23 ⭐ En espera con marca ✅ → manda SU marca en el Centro (no coincide con la oficina), se puede cambiar y soltar',
+    corto(pausa), ['disponible', null, 'sitio', 'vigente', 'disponible', true, false, true, true]);
+  eq('7b.23b * y no hay aviso de pausa', pausa.avisoMarca, null);
+  eq('7b.24 Retirada y Transferida con marca → manda la marca', [E(conMarca('averiada'), leida(dice('retirada'))).marcaEstado, E(conMarca('averiada'), leida(dice('transferida'))).marcaEstado], ['vigente', 'vigente']);
+  // ⭐ Los 6 estados como marca del sitio (11-nov-2026)
+  eq('7b.24c ⭐ marca 🟡 Parada → cuenta como disponible, con su 🟡', corto(E(conMarca('parada'), leida(dice('operativa')))), ['disponible', 'parada', 'sitio', 'vigente', 'parada', false, false, true, true]);
+  eq('7b.24d ⭐ marca ⏳ En espera sobre una que inspección da operativa → ⛔ no disponible y «no coincide» (📲 avisar)', corto(E(conMarca('espera'), leida(dice('operativa')))), ['oficina', 'espera', 'sitio', 'vigente', 'espera', true, false, true, true]);
+  eq('7b.24e ⭐ unidad DEL SITIO marcada ⬛ Retirada / 🔁 Transferida → ⛔ con su palabra', [corto(E(unidad({ codigo: 'P-R', estado: 'retirada' }), null)).slice(0, 2), corto(E(unidad({ codigo: 'P-T', estado: 'transferida' }), null)).slice(0, 2)], [['oficina', 'retirada'], ['oficina', 'transferida']]);
   eq('7b.24b un hecho no desaparece: superada antes de la espera sigue superada', E(conMarca('averiada'), leida(dice('espera', { novedad: nov('jornada', '09:00') }))).marcaEstado, 'superada');
 
   // ── Reserva A2: machinery.reactivated_at ──
@@ -374,18 +380,18 @@ const leerCrudo = (r) => (fs.existsSync(path.join(ROOT, r)) ? fs.readFileSync(pa
   eq('7b.39 A3: otra pastilla → «marca»', M(conMarca('averiada'), leida(dice('operativa')), 'disponible'), 'marca');
   eq('7b.40 A3: vinculada sin marca → «marca»', M(vin(), leida(dice('averiada')), 'averiada'), 'marca');
   eq('7b.41 A3: del sitio, misma pastilla → «nota»; la otra → «marca»', [M(unidad({ codigo: 'P' }), null, 'disponible'), M(unidad({ codigo: 'P' }), null, 'averiada')], ['nota', 'marca']);
-  eq('7b.42 ⭐ A3: marca en pausa (o sin marca en la oficina) → nada: pastillas apagadas', [M(conMarca('averiada'), leida(dice('espera')), 'averiada'), M(vin(), leida(dice('retirada')), 'disponible')], [null, null]);
+  eq('7b.42 ⭐ 11-nov: con la oficina también se marca (la misma pastilla vigente → «nota»; sin marca → «marca»)', [M(conMarca('averiada'), leida(dice('espera')), 'averiada'), M(vin(), leida(dice('retirada')), 'disponible')], ['nota', 'marca']);
   eq('7b.42b ⭐ B1 (lote 6): «📝 nota» (soloNota) en la marca que manda aunque esté sin verificar → «nota»; otra pastilla o sin marca → «marca»; en pausa → nada', [
     M(conMarca('averiada'), null, 'averiada', true), M(vin({ estado: 'averiada', estadoAt: null }), leida(dice('operativa')), 'averiada', true),
     M(conMarca('averiada'), null, 'disponible', true), M(vin(), leida(dice('averiada')), 'averiada', true), M(conMarca('averiada'), leida(dice('espera')), 'averiada', true),
     M(conMarca('averiada'), leida(dice('operativa', { novedad: nov('jornada', '10:00') })), 'averiada', true)],
-    ['nota', 'nota', 'marca', 'marca', null, 'marca']);
+    ['nota', 'nota', 'marca', 'marca', 'nota', 'marca']);
   eq('7b.43 A3: la pastilla encendida solo con marca vigente o en una del sitio', [
     E(conMarca('averiada'), leida(dice('operativa'))).encendida,
     E(conMarca('averiada'), leida(dice('operativa', { novedad: nov('jornada', '10:00') }))).encendida,
     E(conMarca('averiada'), leida(dice('espera'))).encendida,
     E(vin(), leida(dice('averiada'))).encendida,
-    E(unidad({ codigo: 'P', estado: 'averiada' }), null).encendida], ['averiada', null, null, null, 'averiada']);
+    E(unidad({ codigo: 'P', estado: 'averiada' }), null).encendida], ['averiada', null, 'averiada', null, 'averiada']);
 
   // ── Conteos, orden y textos ──
   const FLOTA = [

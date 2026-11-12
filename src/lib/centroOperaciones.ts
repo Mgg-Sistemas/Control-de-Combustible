@@ -59,7 +59,15 @@ export type UnidadIngresada = 'm3' | 't' | 'kg' | 'u';
 /** La MARCA que el sitio le pone a una máquina. Vive SOLO en el módulo: no toca Control ni el
  *  catálogo. En una unidad vinculada al catálogo, «sin marca» (null) = manda inspección (mesa
  *  de maquinaria, P1); una unidad del sitio (sin vínculo) nunca queda sin marca (lo exige la base). */
-export type EstadoUnidad = 'disponible' | 'averiada';
+/**
+ * La marca del estado de una unidad en el sitio. 11-nov-2026 (a pedido: «que no solo pueda
+ * marcar activa o averiada, sino cualquiera de los estados que ya están»): los 6 del Catálogo.
+ * 'disponible' es la «Operativa» del Catálogo (se sigue guardando así: lo viejo se lee igual).
+ * La marca vive SOLO en el Centro: no cambia el Catálogo, ni Control, ni inspección, ni pagos.
+ */
+export type EstadoUnidad = 'disponible' | 'averiada' | 'parada' | 'espera' | 'retirada' | 'transferida';
+/** Las 6 marcas, en el orden del Catálogo. */
+export const ESTADOS_UNIDAD_TODOS: readonly EstadoUnidad[] = ['disponible', 'averiada', 'parada', 'espera', 'retirada', 'transferida'];
 
 /** Un renglón de `cop_movimientos`: una anotación (una pesada o el total del día). */
 export type Movimiento = {
