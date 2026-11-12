@@ -93,6 +93,7 @@ import { cargarAjustes, cargarDatosReporteCompleto, cargarEstadoInspeccion, carg
 import { leerInspeccionAlEmitir } from '../../lib/centroOperacionesReporteCompleto';
 import type { LecturaInspeccion } from '../../lib/centroOperacionesReporteCompleto';
 import { EditorResumen } from './EditorResumen';
+import { ReporteFlotaCop } from './ReporteFlotaCop';
 
 type Props = { sitio: Sitio; nivel: PermLevel };
 
@@ -888,6 +889,9 @@ export function ReportesTab({ sitio, nivel }: Props) {
       {avisoInspPdf ? (
         <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700', marginTop: spacing.xs }}>⚠️ {avisoInspPdf}</Text>
       ) : null}
+
+      {/* 📋 REPORTE DE LA FLOTA (11-nov-2026): aparte de los papeles de movimientos; solo lee. */}
+      <ReporteFlotaCop sitio={sitio} logosDelSitio={fijos.logos} />
     </View>
   );
 }

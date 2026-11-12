@@ -1009,6 +1009,25 @@ const LOTE_NOVEDADES = 50;
  * pura (`estadoDelSitio`, `ultimoHecho`). TODO O NADA: si algo falla, lanza «No se pudo leer el
  * estado de inspección…» (con el error original en `cause`).
  */
+/**
+ * 📋 Reporte de la flota (11-nov-2026): la CATEGORÍA (clasificación) y la EMPRESA de las unidades
+ * vinculadas, del Catálogo. SOLO LECTURA, filtrado por esas máquinas (de a 100). Sin ids, no
+ * consulta nada.
+ */
+export async function cargarCatalogoDeFlota(ids: string[]): Promise<Record<string, { clasificacion: string | null; empresa: string | null }>> {
+  const out: Record<string, { clasificacion: string | null; empresa: string | null }> = {};
+  const unicos = [...new Set((ids ?? []).map((x) => String(x ?? '').trim()).filter(Boolean))];
+  for (let i = 0; i < unicos.length; i += LOTE_INSPECCION) {
+    const lote = unicos.slice(i, i + LOTE_INSPECCION);
+    const { data, error } = await supabase.from('machinery').select('id, clasificacion, company:company_id(name)').in('id', lote);
+    if (error) throw errorDeLectura(error, 'el catálogo de la flota');
+    for (const r of (data as any[]) ?? []) {
+      out[String(r.id)] = { clasificacion: r.clasificacion ?? null, empresa: (Array.isArray(r.company) ? r.company[0]?.name : r.company?.name) ?? null };
+    }
+  }
+  return out;
+}
+
 export async function cargarEstadoInspeccion(
   vinculadas: { machineryId: string; estadoAt: string | null; conMarca: boolean }[],
 ): Promise<EstadoInspeccion> {
