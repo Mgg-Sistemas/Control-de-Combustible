@@ -40,11 +40,11 @@ import {
   ESTADO_CONTEO_INFO, estadoConteoDe, fetchAveriaCat, fetchInspByShift, fetchJornadaCat, makeLiveStatusOf, type AveriaEntry,
 } from '../lib/machineLiveStatus';
 import {
-  CSS_REPORTE_PERSONALIZADO, ESTADOS_PERSONALIZADO, FilaPersonalizada, OpcionesPersonalizado,
-  OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO, RegistroHistorialPersonalizado,
+  AgruparPorPersonalizado, CSS_REPORTE_PERSONALIZADO, ESTADOS_PERSONALIZADO, FilaPersonalizada, OpcionesPersonalizado,
+  OPCIONES_PERSONALIZADO_INICIAL, PASTILLAS_PERSONALIZADO, RegistroHistorialPersonalizado, SIN_ENCARGADO_PERSONALIZADO,
   alternarPersonalizado, cuerpoReportePersonalizado, diasDelRangoPersonalizado, dmyPersonalizado, emitidaTexto, filaVacia, promedioDeTotal,
   ocultosPersonalizadoEnPalabras, sufijoArchivoPersonalizado,
-  empresasCatalogoPersonalizado, categoriasCatalogoPersonalizado, estadosCatalogoPersonalizado, filtrarCatalogoPersonalizado,
+  empresasCatalogoPersonalizado, encargadosCatalogoPersonalizado, categoriasCatalogoPersonalizado, estadosCatalogoPersonalizado, filtrarCatalogoPersonalizado,
   aplicarDatosDelRango, cardinalTexto, litrosTexto, rangoOrdenado, totalLitrosPersonalizado, usaRangoPersonalizado,
   crearRegistroHistorialPersonalizado, etiquetaEquipoHistorial, filtrarHistorialPersonalizado,
 } from '../lib/reporteMaquinariaPersonalizado';
@@ -111,14 +111,17 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const [desde, setDesde] = useState(caracasToday());
   const [hasta, setHasta] = useState(caracasToday());
   const [opciones, setOpciones] = useState<OpcionesPersonalizado>(OPCIONES_PERSONALIZADO_INICIAL);
+  const [agruparPor, setAgruparPor] = useState<AgruparPorPersonalizado>('ninguno');
   const [logos, setLogos] = useState<Logos>(LOGOS_POR_DEFECTO);
   const [marcaTexto, setMarcaTexto] = useState(true);
   const [busca, setBusca] = useState('');
   const [fuente, setFuente] = useState<'todos' | 'maq' | 'veh'>('maq');
   const [empresasSel, setEmpresasSel] = useState<string[]>([]);
+  const [encargadosSel, setEncargadosSel] = useState<string[]>([]);
   const [categoriasSel, setCategoriasSel] = useState<string[]>([]);
   const [estadosSel, setEstadosSel] = useState<string[]>([]);
   const [empresaBusca, setEmpresaBusca] = useState('');
+  const [encargadoBusca, setEncargadoBusca] = useState('');
   const [categoriaBusca, setCategoriaBusca] = useState('');
   const [mostrarTodasPastillas, setMostrarTodasPastillas] = useState(false);
   const [manuales, setManuales] = useState(0);
@@ -324,9 +327,19 @@ export function ReporteMaquinariaPersonalizadoCard() {
     return empresasDisponibles.filter((e) => norm(e.nombre).includes(qEmp));
   }, [empresasDisponibles, empresaBusca]);
 
-  const categoriasDisponibles = useMemo(
-    () => categoriasCatalogoPersonalizado(catalogo, fuente, empresasSel),
+  const encargadosDisponibles = useMemo(
+    () => encargadosCatalogoPersonalizado(catalogo, fuente, empresasSel),
     [catalogo, fuente, empresasSel],
+  );
+  const encargadosVisibles = useMemo(() => {
+    const qEnc = norm(encargadoBusca);
+    if (!qEnc) return encargadosDisponibles;
+    return encargadosDisponibles.filter((e) => norm(e.nombre).includes(qEnc));
+  }, [encargadosDisponibles, encargadoBusca]);
+
+  const categoriasDisponibles = useMemo(
+    () => categoriasCatalogoPersonalizado(catalogo, fuente, empresasSel, encargadosSel),
+    [catalogo, fuente, empresasSel, encargadosSel],
   );
   const categoriasVisibles = useMemo(() => {
     const qCat = norm(categoriaBusca);
@@ -335,17 +348,20 @@ export function ReporteMaquinariaPersonalizadoCard() {
   }, [categoriasDisponibles, categoriaBusca]);
 
   const estadosDisponibles = useMemo(
-    () => estadosCatalogoPersonalizado(catalogo, fuente, empresasSel, categoriasSel),
-    [catalogo, fuente, empresasSel, categoriasSel],
+    () => estadosCatalogoPersonalizado(catalogo, fuente, empresasSel, categoriasSel, encargadosSel),
+    [catalogo, fuente, empresasSel, categoriasSel, encargadosSel],
   );
 
   const coincidentes = useMemo(
-    () => filtrarCatalogoPersonalizado({ catalogo, fuente, empresasSel, categoriasSel, estadosSel, busca }),
-    [catalogo, fuente, empresasSel, categoriasSel, estadosSel, busca],
+    () => filtrarCatalogoPersonalizado({ catalogo, fuente, empresasSel, categoriasSel, estadosSel, encargadosSel, busca }),
+    [catalogo, fuente, empresasSel, categoriasSel, estadosSel, encargadosSel, busca],
   );
 
   const toggleEmpresaFiltro = (nombre: string) =>
     setEmpresasSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
+
+  const toggleEncargadoFiltro = (nombre: string) =>
+    setEncargadosSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
 
   const toggleCategoriaFiltro = (nombre: string) =>
     setCategoriasSel((prev) => (prev.includes(nombre) ? prev.filter((x) => x !== nombre) : [...prev, nombre]));
@@ -384,7 +400,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
     return copia;
   });
   const editar = (id: string, campo: keyof FilaPersonalizada, valor: string) => {
-    if (campo === 'litros' || campo === 'cardinal') editados.current.add(`${id}|${campo}`);
+    if (campo === 'litros' || campo === 'cardinal' || campo === 'encargado') editados.current.add(`${id}|${campo}`);
     setFilas((prev) => prev.map((f) => (f.id === id ? { ...f, [campo]: valor } : f)));
   };
   const agregarManual = () => { setManuales((n) => n + 1); setFilas((prev) => [...prev, filaVacia(`manual-${manuales + 1}`)]); };
@@ -394,9 +410,26 @@ export function ReporteMaquinariaPersonalizadoCard() {
   };
 
   const subtituloPapel = useMemo(() => {
-    const partes = [rangoEnPapel ? `Del ${dmyPersonalizado(rango.desde)} al ${dmyPersonalizado(rango.hasta)}` : '', limpio(subtitulo)].filter(Boolean);
+    const subLimpio = limpio(subtitulo);
+    const subLower = subLimpio.toLowerCase();
+    const etiquetaEnc = encargadosSel.length === 1
+      ? `Encargado: ${encargadosSel[0]}`
+      : encargadosSel.length > 1
+        ? `${encargadosSel.length} encargados`
+        : '';
+    const etiquetaAgrupar = agruparPor === 'empresa'
+      ? 'Por empresa'
+      : agruparPor === 'encargado'
+        ? 'Por encargado'
+        : '';
+    const partes = [
+      rangoEnPapel ? `Del ${dmyPersonalizado(rango.desde)} al ${dmyPersonalizado(rango.hasta)}` : '',
+      subLimpio,
+      etiquetaEnc && !subLower.includes((encargadosSel[0] || '').toLowerCase()) ? etiquetaEnc : '',
+      etiquetaAgrupar && !subLower.includes(etiquetaAgrupar.toLowerCase()) ? etiquetaAgrupar : '',
+    ].filter(Boolean);
     return partes.join(' · ');
-  }, [rangoEnPapel, rango.desde, rango.hasta, subtitulo]);
+  }, [rangoEnPapel, rango.desde, rango.hasta, subtitulo, encargadosSel, agruparPor]);
 
   useEffect(() => {
     cargarHistorialReportePersonalizado(usuarioActual)
@@ -414,7 +447,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
 
   const guardarActualEnHistorico = async (origen: 'impresion' | 'manual', nombreArchivoForzado?: string) => {
     if (filas.length === 0) return;
-    const nombreArch = nombreArchivoForzado || `Reporte personalizado ${sufijoArchivoPersonalizado(fechaEmision, opciones)}`.replace(/\//g, '-');
+    const nombreArch = nombreArchivoForzado || `Reporte personalizado ${sufijoArchivoPersonalizado(fechaEmision, opciones, agruparPor)}`.replace(/\//g, '-');
     const reg = crearRegistroHistorialPersonalizado({
       creadoPorNombre: usuarioActual,
       origen,
@@ -430,6 +463,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
       desde: rango.desde,
       hasta: rango.hasta,
       opciones,
+      agruparPor,
       logos,
       marcaTexto,
       filas,
@@ -438,6 +472,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         empresasSel,
         categoriasSel,
         estadosSel,
+        encargadosSel,
         busca,
       },
       editadosManual: Array.from(editados.current),
@@ -453,7 +488,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const descargarPdf = async () => {
     setDescargando(true);
     try {
-      const nombreArchivo = `Reporte personalizado ${sufijoArchivoPersonalizado(fechaEmision, opciones)}`.replace(/\//g, '-');
+      const nombreArchivo = `Reporte personalizado ${sufijoArchivoPersonalizado(fechaEmision, opciones, agruparPor)}`.replace(/\//g, '-');
       const html = pdfDocument({
         title: limpio(titulo) || 'Reporte de maquinaria',
         subtitle: subtituloPapel,
@@ -462,7 +497,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         marcaTexto,
         // 📅 La fecha de emisión que eligió el usuario; si no sirve, la real.
         emitida: emitidaTexto(fechaEmision) || undefined,
-        body: cuerpoReportePersonalizado({ filas, opciones, nota, dias: diasDelRangoPersonalizado(desde, hasta) }),
+        body: cuerpoReportePersonalizado({ filas, opciones, nota, dias: diasDelRangoPersonalizado(desde, hasta), agruparPor }),
       });
       await guardarActualEnHistorico('impresion', nombreArchivo);
       await exportPdf(html, nombreArchivo);
@@ -482,9 +517,9 @@ export function ReporteMaquinariaPersonalizadoCard() {
         logos: item.logos,
         marcaTexto: item.marcaTexto,
         emitida: item.emitida || emitidaTexto(item.fechaEmision) || undefined,
-        body: cuerpoReportePersonalizado({ filas: item.filas, opciones: item.opciones, nota: item.nota, dias: diasDelRangoPersonalizado(item.desde, item.hasta) }),
+        body: cuerpoReportePersonalizado({ filas: item.filas, opciones: item.opciones, nota: item.nota, dias: diasDelRangoPersonalizado(item.desde, item.hasta), agruparPor: item.agruparPor }),
       });
-      const nombreArch = (item.nombreArchivo || `Reporte personalizado ${sufijoArchivoPersonalizado(item.fechaEmision, item.opciones)}`).replace(/\//g, '-');
+      const nombreArch = (item.nombreArchivo || `Reporte personalizado ${sufijoArchivoPersonalizado(item.fechaEmision, item.opciones, item.agruparPor)}`).replace(/\//g, '-');
       await exportPdf(html, nombreArch);
       const lista = await registrarReimpresionHistorialPersonalizado(item.id);
       setHistorial(lista);
@@ -514,6 +549,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
     setDesde(item.desde || caracasToday());
     setHasta(item.hasta || caracasToday());
     setOpciones({ ...OPCIONES_PERSONALIZADO_INICIAL, ...(item.opciones || {}) });
+    setAgruparPor(item.agruparPor || 'ninguno');
     setLogos({ ...LOGOS_POR_DEFECTO, ...(item.logos || {}) });
     setMarcaTexto(item.marcaTexto !== false);
     setManuales(item.manuales || 0);
@@ -521,6 +557,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
     if (item.filtros) {
       setFuente(item.filtros.fuente || 'todos');
       setEmpresasSel([...(item.filtros.empresasSel || [])]);
+      setEncargadosSel([...(item.filtros.encargadosSel || [])]);
       setCategoriasSel([...(item.filtros.categoriasSel || [])]);
       setEstadosSel([...(item.filtros.estadosSel || [])]);
       setBusca(item.filtros.busca || '');
@@ -545,7 +582,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
             estado: vivo.estado,
             empresa: vivo.empresa || f.empresa,
             zona: vivo.zona || f.zona,
-            encargado: vivo.encargado || f.encargado,
+            encargado: editados.current.has(`${f.id}|encargado`) ? f.encargado : (vivo.encargado || f.encargado),
             horometro: vivo.horometro || f.horometro,
             plate: vivo.plate || f.plate,
             serial: vivo.serial || f.serial,
@@ -748,7 +785,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
                   <TextInput
                     value={buscaHistorico}
                     onChangeText={setBuscaHistorico}
-                    placeholder="🔎 Buscar en el histórico por nombre, fecha, empresa, categoría, código o placa…"
+                    placeholder="🔎 Buscar en el histórico por nombre, fecha, empresa, encargado, categoría, código o placa…"
                     placeholderTextColor={colors.muted}
                     style={{
                       flex: 1,
@@ -916,6 +953,20 @@ export function ReporteMaquinariaPersonalizadoCard() {
                             </Text>
                           </View>
                         ) : null}
+                        {item.resumen.encargadosTexto && item.resumen.encargadosTexto !== 'Todos los encargados' ? (
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                              🧑‍🔧 {item.resumen.encargadosTexto}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {item.agruparPor && item.agruparPor !== 'ninguno' ? (
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                              🗂️ {item.resumen.agruparPorTexto || (item.agruparPor === 'empresa' ? 'Por empresa' : 'Por encargado')}
+                            </Text>
+                          </View>
+                        ) : null}
                         {item.resumen.categoriasTexto && item.resumen.categoriasTexto !== 'Todas las categorías' ? (
                           <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                             <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
@@ -941,6 +992,13 @@ export function ReporteMaquinariaPersonalizadoCard() {
                           <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                             <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
                               📊 Cuadro por empresa
+                            </Text>
+                          </View>
+                        ) : null}
+                        {!item.opciones.sinPorEncargado ? (
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                              📊 Cuadro por encargado
                             </Text>
                           </View>
                         ) : null}
@@ -973,6 +1031,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
                                 {fIdx + 1}. {etiquetaEquipoHistorial(f)}
                                 {f.clasificacion ? ` · ${f.clasificacion}` : ''}
                                 {f.empresa ? ` · ${f.empresa}` : ''}
+                                {f.encargado ? ` · 👤 ${f.encargado}` : ''}
                                 {f.estado ? ` [${f.estado}]` : ''}
                                 {!item.opciones.sinConsumo && f.litros ? ` · ⛽ ${f.litros} L` : ''}
                                 {!item.opciones.sinCardinal && f.cardinal ? ` · 🧭 ${f.cardinal}` : ''}
@@ -1247,6 +1306,96 @@ export function ReporteMaquinariaPersonalizadoCard() {
         </View>
       ) : null}
 
+      {/* 🧑‍🔧 Filtro por uno o varios Encargados */}
+      {encargadosDisponibles.length > 0 ? (
+        <View style={{ borderWidth: 1, borderColor: encargadosSel.length > 0 ? colors.brand : colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+              🧑‍🔧 Filtrar por encargado ({encargadosSel.length === 0 ? `Todos · ${encargadosDisponibles.length}` : `${encargadosSel.length} seleccionado(s)`})
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {encargadosSel.length < encargadosDisponibles.length ? (
+                <TouchableOpacity onPress={() => setEncargadosSel(encargadosDisponibles.map((e) => e.nombre))}>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>☑ Marcar todos</Text>
+                </TouchableOpacity>
+              ) : null}
+              {encargadosSel.length > 0 ? (
+                <TouchableOpacity onPress={() => setEncargadosSel([])}>
+                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>✕ Limpiar encargados ({encargadosSel.length})</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+          {encargadosDisponibles.length > 4 || encargadoBusca.trim().length > 0 ? (
+            <TextInput
+              value={encargadoBusca}
+              onChangeText={setEncargadoBusca}
+              placeholder="🔎 Buscar encargado (ej. Carlos Núñez, Sin encargado…)"
+              placeholderTextColor={colors.muted}
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4, color: colors.text, fontSize: 12, backgroundColor: colors.surface, marginBottom: 6 }}
+            />
+          ) : null}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            {pastilla('enc-todos', `🧑‍🔧 Todos (${encargadosDisponibles.reduce((acc, e) => acc + e.count, 0)})`, encargadosSel.length === 0, () => setEncargadosSel([]))}
+            {encargadosVisibles.map((enc) => {
+              const activo = encargadosSel.includes(enc.nombre);
+              const icono = enc.nombre === SIN_ENCARGADO_PERSONALIZADO ? '— ' : '👤 ';
+              return pastilla(
+                `enc-${enc.nombre}`,
+                `${activo ? '✓ ' : ''}${icono}${enc.nombre} · ${enc.count}`,
+                activo,
+                () => toggleEncargadoFiltro(enc.nombre),
+              );
+            })}
+          </View>
+          {encargadosSel.length > 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 6, alignItems: 'center' }}>
+              <TouchableOpacity
+                onPress={() => {
+                  agregarVarias(coincidentes);
+                  setOpciones((o) => ({ ...o, sinEncargado: false }));
+                }}
+                style={{
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 6,
+                  borderRadius: radius.pill,
+                  backgroundColor: colors.brand,
+                }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11 }}>
+                  ➕ Seleccionar los {coincidentes.length} equipo(s) de {encargadosSel.length === 1 ? encargadosSel[0] : `estos ${encargadosSel.length} encargados`}
+                </Text>
+              </TouchableOpacity>
+              {encargadosSel.length > 1 ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    setAgruparPor('encargado');
+                    setOpciones((o) => ({ ...o, sinEncargado: false, sinPorEncargado: false }));
+                  }}
+                  style={{
+                    paddingHorizontal: spacing.sm,
+                    paddingVertical: 6,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: agruparPor === 'encargado' ? colors.brand : colors.border,
+                    backgroundColor: agruparPor === 'encargado' ? colors.brand : colors.surface,
+                  }}
+                >
+                  <Text style={{ color: agruparPor === 'encargado' ? colors.brandContrast : colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                    🗂️ Agrupar el PDF por Encargado
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+            {encargadosSel.length === 0
+              ? 'Toca uno o varios encargados para ver o cargar solo los equipos asignados a ese responsable.'
+              : `Mostrando equipos de: ${encargadosSel.join(' · ')}. Toca el botón de arriba para meterlos todos al papel de una vez.`}
+          </Text>
+        </View>
+      ) : null}
+
       {/* 🔶 Filtro por una o varias Categorías de la maquinaria */}
       {categoriasDisponibles.length > 0 ? (
         <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
@@ -1322,7 +1471,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         </View>
       </View>
 
-      <TextInput value={busca} onChangeText={setBusca} placeholder="🔎 Buscar por código, placa, serial, marca, categoría o empresa…" placeholderTextColor={colors.muted}
+      <TextInput value={busca} onChangeText={setBusca} placeholder="🔎 Buscar por código, placa, serial, marca, categoría, empresa o encargado…" placeholderTextColor={colors.muted}
         style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 6, color: colors.text, fontSize: 13, backgroundColor: colors.surface }} />
 
       {/* Botones rápidos para seleccionar o des-seleccionar en bloque las máquinas filtradas */}
@@ -1335,7 +1484,10 @@ export function ReporteMaquinariaPersonalizadoCard() {
               'todas',
               `➕ Seleccionar las ${coincidentes.length} filtradas${faltanPorSeleccionar > 0 && seleccionadasDeFiltro > 0 ? ` (+${faltanPorSeleccionar})` : ''}`,
               false,
-              () => agregarVarias(coincidentes),
+              () => {
+                agregarVarias(coincidentes);
+                if (encargadosSel.length > 0) setOpciones((o) => ({ ...o, sinEncargado: false }));
+              },
             )}
             {seleccionadasDeFiltro > 0
               ? pastilla(
@@ -1357,10 +1509,11 @@ export function ReporteMaquinariaPersonalizadoCard() {
           const placaTxt = m.plate && m.plate !== baseCode ? ` · Placa: ${m.plate}` : (!m.plate ? ' · S/P' : '');
           const catTxt = m.clasificacion ? ` · ${m.clasificacion}` : '';
           const empTxt = m.empresa ? ` · ${m.empresa}` : '';
+          const encTxt = m.encargado ? ` · 👤 ${m.encargado}` : '';
           const estTxt = m.estado && m.estado !== 'Operativa' ? ` [${m.estado}]` : '';
           return pastilla(
             m.id,
-            `${enPapel.has(m.id) ? '✓ ' : ''}${esVehiculo(m.id) ? '🚗 ' : ''}${baseCode}${placaTxt}${catTxt}${empTxt}${estTxt}`,
+            `${enPapel.has(m.id) ? '✓ ' : ''}${esVehiculo(m.id) ? '🚗 ' : ''}${baseCode}${placaTxt}${catTxt}${empTxt}${encTxt}${estTxt}`,
             enPapel.has(m.id),
             () => (enPapel.has(m.id) ? quitar(m.id) : agregar(m)),
           );
@@ -1384,9 +1537,9 @@ export function ReporteMaquinariaPersonalizadoCard() {
       {filas.length > 0 ? rotulo(`✏️ LAS ${filas.length} FILA(S) DEL PAPEL (toca cualquier celda y corrígela)`) : null}
       {filas.map((f, i) => (
         <View key={f.id} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs, backgroundColor: colors.surfaceAlt }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
-              {i + 1}. {esVehiculo(f.id) ? '🚗 ' : ''}{f.code || '(sin código)'} · Placa: {f.plate || 'S/P'}{f.empresa ? ` · ${f.empresa}` : ''}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13, flex: 1 }}>
+              {i + 1}. {esVehiculo(f.id) ? '🚗 ' : ''}{f.code || '(sin código)'} · Placa: {f.plate || 'S/P'}{f.empresa ? ` · ${f.empresa}` : ''}{f.encargado ? ` · 👤 ${f.encargado}` : ''}
             </Text>
             <View style={{ flexDirection: 'row', gap: spacing.xs }}>
               {pastilla(`up${f.id}`, '↑', false, () => mover(i, -1))}
@@ -1420,12 +1573,47 @@ export function ReporteMaquinariaPersonalizadoCard() {
         </View>
       ))}
 
+      {rotulo('🗂️ ¿CÓMO QUIERES AGRUPAR EL REPORTE EN EL PDF?')}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+        {pastilla(
+          'agrupar-ninguno',
+          '📋 Sin agrupar (tabla única)',
+          agruparPor === 'ninguno',
+          () => setAgruparPor('ninguno'),
+        )}
+        {pastilla(
+          'agrupar-empresa',
+          '🏢 Agrupar por Empresa',
+          agruparPor === 'empresa',
+          () => {
+            setAgruparPor('empresa');
+            setOpciones((o) => ({ ...o, sinPorEmpresa: false }));
+          },
+        )}
+        {pastilla(
+          'agrupar-encargado',
+          '🧑‍🔧 Agrupar por Encargado',
+          agruparPor === 'encargado',
+          () => {
+            setAgruparPor('encargado');
+            setOpciones((o) => ({ ...o, sinEncargado: false, sinPorEncargado: false }));
+          },
+        )}
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+        {agruparPor === 'empresa'
+          ? '🏢 El PDF separará la tabla principal en secciones por Empresa (con subtotal de equipos y litros por empresa) e incluirá el cuadro resumen «Equipos por empresa».'
+          : agruparPor === 'encargado'
+            ? '🧑‍🔧 El PDF separará la tabla principal en secciones por Encargado (con subtotal de equipos y litros por encargado) e incluirá el cuadro resumen «Equipos por encargado».'
+            : '📋 Todas las filas salen en una sola tabla corrida en el orden en que las tengas arriba.'}
+      </Text>
+
       {rotulo('🖨️ ¿QUÉ SE OCULTA EN EL PAPEL?')}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
         {PASTILLAS_PERSONALIZADO.map((p) => pastilla('p' + p.key, p.chip, opciones[p.key], () => setOpciones((o) => alternarPersonalizado(o, p.key))))}
       </View>
       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-        Encendida = NO sale (encargado, horómetro, peso, medidas, notas, consumo de combustible, Este / Oeste y el cuadro por empresa nacen ocultos: tócalos para INCLUIRLOS). {ocultosPersonalizadoEnPalabras(opciones)}
+        Encendida = NO sale (encargado, horómetro, peso, medidas, notas, consumo de combustible, Este / Oeste y los cuadros por empresa / encargado nacen ocultos: tócalos para INCLUIRLOS). {ocultosPersonalizadoEnPalabras(opciones)}
       </Text>
 
       {rotulo('🏷️ QUÉ LOGOS LLEVA EL MEMBRETE')}

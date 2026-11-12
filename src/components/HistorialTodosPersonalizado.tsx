@@ -77,7 +77,7 @@ export function HistorialTodosPersonalizado(props: {
     return (lista ?? [])
       .filter((r) => persona === TODOS || r.autorId === persona)
       .filter((r) => !q || norm([
-        r.autorNombre, r.etiqueta, r.titulo, r.resumen?.empresasTexto, r.resumen?.categoriasTexto,
+        r.autorNombre, r.etiqueta, r.titulo, r.resumen?.empresasTexto, r.resumen?.encargadosTexto, r.resumen?.agruparPorTexto, r.resumen?.categoriasTexto,
         r.resumen?.previewEquipos, r.resumen?.rangoTexto, dmyPersonalizado(r.desde), dmyPersonalizado(r.hasta),
       ].filter(Boolean).join(' ')).includes(q));
   }, [lista, persona, busca]);
@@ -176,8 +176,13 @@ export function HistorialTodosPersonalizado(props: {
                 <Text style={{ color: colors.muted, fontSize: 11 }}>
                   👤 {r.autorNombre} · 🕒 {cuandoCaracas(r.sacadoAt)}{eq ? ` · ${eq}` : ''}{r.vecesReimpreso > 0 ? ` · 🖨️ reimpreso ${r.vecesReimpreso} vez(ces)` : ''}
                 </Text>
-                {rango || r.resumen?.empresasTexto ? (
-                  <Text style={{ color: colors.muted, fontSize: 11 }}>{[rango, r.resumen?.empresasTexto ? `🏢 ${r.resumen.empresasTexto}` : ''].filter(Boolean).join(' · ')}</Text>
+                {rango || r.resumen?.empresasTexto || (r.resumen?.encargadosTexto && r.resumen.encargadosTexto !== 'Todos los encargados') ? (
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>{[
+                    rango,
+                    r.resumen?.empresasTexto ? `🏢 ${r.resumen.empresasTexto}` : '',
+                    r.resumen?.encargadosTexto && r.resumen.encargadosTexto !== 'Todos los encargados' ? `🧑‍🔧 ${r.resumen.encargadosTexto}` : '',
+                    r.resumen?.agruparPorTexto && r.resumen.agruparPorTexto !== 'Sin agrupar' ? `🗂️ ${r.resumen.agruparPorTexto}` : '',
+                  ].filter(Boolean).join(' · ')}</Text>
                 ) : null}
                 {r.resumen?.previewEquipos ? <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={2}>🚜 {r.resumen.previewEquipos}</Text> : null}
                 {r.quitadoAt ? (

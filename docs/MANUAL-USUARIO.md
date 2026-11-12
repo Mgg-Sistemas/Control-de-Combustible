@@ -4638,6 +4638,44 @@ u Oeste, y poder colocarlo o quitarlo del reporte».
 - Lo apagado **no deja rastro** en el papel; lo encendido va solo al **nombre del archivo**
   («con combustible», «con este-oeste»).
 
+##### 🧑‍🔧 🏢 Filtrar por encargado y agrupar el PDF por Empresa o por Encargado (12/11/2026)
+
+Pedido del cliente: «así como pusimos en los otros reportes poder agrupar por empresa o por
+encargado, o poder sacar la información por un encargado en específico».
+
+- **🧑‍🔧 Filtrar y sacar el reporte por uno o varios encargados:** debajo de **«🏢 Filtrar por
+  empresa»** está el bloque **«🧑‍🔧 Filtrar por encargado»**, con buscador (**«🔎 Buscar
+  encargado…»**), pastilla **«🧑‍🔧 Todos»**, botones **«☑ Marcar todos»** / **«✕ Limpiar
+  encargados»** y una pastilla por cada responsable del catálogo con cuántos equipos tiene
+  (**«👤 Nombre · N»** y **«— Sin encargado · N»** al final).
+  - Respeta el tipo elegido arriba (Todos / 🚜 Máquinas / 🚗 Vehículos) y las empresas marcadas, y
+    acota en cascada las categorías, los estados y la lista de equipos de abajo. El buscador general
+    también encuentra por nombre de encargado, y cada pastilla de equipo muestra siempre su
+    **Código + Placa** (`Placa: …` o `S/P`) junto con su encargado (`· 👤 Nombre`).
+  - Al marcar uno o varios encargados aparece ahí mismo el botón directo **«➕ Seleccionar los N
+    equipo(s) de [Encargado]»**, que mete todos sus equipos al papel de un solo toque y enciende la
+    columna **Encargado** para que salga en el PDF.
+- **🗂️ ¿Cómo quieres agrupar el reporte en el PDF?:** encima de **«🖨️ ¿Qué se oculta en el
+  papel?»** hay tres opciones:
+  - **📋 Sin agrupar (tabla única):** todas las filas salen en una sola tabla corrida en el orden en
+    que las tengas arriba (el modo de siempre).
+  - **🏢 Agrupar por Empresa:** parte la tabla principal del PDF en secciones separadas por cada
+    empresa (con su encabezado `🏢 EMPRESA · N equipo(s)`, numeración, subtotal de equipos y
+    subtotal de litros/promedio por empresa, cerrando con el **TOTAL GENERAL**) y enciende el cuadro
+    resumen **«Equipos por empresa»**.
+  - **🧑‍🔧 Agrupar por Encargado:** parte la tabla principal del PDF en secciones separadas por cada
+    encargado (con su encabezado `🧑‍🔧 ENCARGADO · N equipo(s)`, subtotal por encargado y **TOTAL
+    GENERAL** al final, dejando «Sin encargado» de último) y enciende la columna **Encargado** y el
+    cuadro resumen **«Equipos por encargado»**.
+- **📊 Cuadro por encargado:** en «🖨️ ¿Qué se oculta en el papel?» se sumó la pastilla **«🚫 Cuadro
+  por encargado»** (nace encendida = oculta, igual que «🚫 Cuadro por empresa»): tócala para incluir
+  al final del PDF la tabla resumen **«Equipos por encargado»** con la cantidad de equipos (y litros
+  / promedio diario si el combustible está encendido) de cada responsable.
+- **🕒 Histórico:** el filtro de encargados y el modo de agrupación quedan guardados en el
+  histórico al imprimir o guardar, se ven en las pastillas del registro y se restauran al tocar
+  **«🖨️ Reimprimir como estaba»** o **«✏️ Reusar y modificar»**. Los reportes guardados antes del
+  12/11/2026 se reimprimen exactamente como estaban (sin agrupar y sin el cuadro nuevo).
+
 #### 🧭 Punto cardinal (Este / Oeste) en la Lista completa (03/10/2026)
 
 En «🖨️ Qué sale en el reporte» hay un interruptor nuevo **«🧭 Punto cardinal (Este / Oeste)»**,

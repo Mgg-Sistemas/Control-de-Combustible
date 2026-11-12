@@ -61,6 +61,9 @@ export function filaVacia(id: string): FilaPersonalizada {
   };
 }
 
+/** Cómo agrupar la tabla principal del PDF ('ninguno' = lista única en el orden del taller). */
+export type AgruparPorPersonalizado = 'ninguno' | 'empresa' | 'encargado';
+
 /** Qué se puede esconder del papel. `true` = NO sale (regla de la casa). */
 export type OpcionesPersonalizado = {
   /** Cuadro de arriba con el total y el conteo por estado. */
@@ -69,6 +72,8 @@ export type OpcionesPersonalizado = {
   sinTabla: boolean;
   /** Cuadro extra agrupado por empresa (nace apagado). */
   sinPorEmpresa: boolean;
+  /** Cuadro extra agrupado por encargado (nace apagado). */
+  sinPorEncargado: boolean;
   // Columnas de la tabla, una a una (el código siempre sale):
   sinMarcaModelo: boolean;
   sinClasificacion: boolean;
@@ -98,7 +103,7 @@ export type OpcionesPersonalizado = {
 /** Cómo nace el papel: lo esencial encendido, los extras apagados
  *  («lo nuevo entra apagado»). */
 export const OPCIONES_PERSONALIZADO_INICIAL: OpcionesPersonalizado = {
-  sinResumen: false, sinTabla: false, sinPorEmpresa: true,
+  sinResumen: false, sinTabla: false, sinPorEmpresa: true, sinPorEncargado: true,
   sinMarcaModelo: false, sinClasificacion: false, sinSerial: false, sinPlaca: false,
   sinEmpresa: false, sinZona: false, sinEstado: false,
   sinEncargado: true, sinHorometro: true, sinPeso: true, sinMedidas: true, sinNotas: true,
@@ -110,12 +115,13 @@ export const OPCIONES_PERSONALIZADO_INICIAL: OpcionesPersonalizado = {
 
 /** ⛽📅 Las opciones que llegaron DESPUÉS: un reporte guardado antes no las tenía, y
  *  reimprimirlo «como estaba» no puede sumarle columnas. Sin la llave = oculto. */
-const OPCIONES_NUEVAS_OCULTAS: (keyof OpcionesPersonalizado)[] = ['sinPromedioDia', 'sinTotalPromedioDia'];
+const OPCIONES_NUEVAS_OCULTAS: (keyof OpcionesPersonalizado)[] = ['sinPromedioDia', 'sinTotalPromedioDia', 'sinPorEncargado'];
 
 export const PASTILLAS_PERSONALIZADO: { key: keyof OpcionesPersonalizado; chip: string; largo: string; archivo: string }[] = [
   { key: 'sinResumen', chip: '🚫 Resumen por estado', largo: 'resumen por estado', archivo: 'sin resumen' },
   { key: 'sinTabla', chip: '🚫 Tabla de máquinas', largo: 'tabla de máquinas', archivo: 'solo resumen' },
   { key: 'sinPorEmpresa', chip: '🚫 Cuadro por empresa', largo: 'cuadro por empresa', archivo: 'con empresas' },
+  { key: 'sinPorEncargado', chip: '🚫 Cuadro por encargado', largo: 'cuadro por encargado', archivo: 'con encargados' },
   { key: 'sinMarcaModelo', chip: '🚫 Marca y modelo', largo: 'marca y modelo', archivo: 'sin marca' },
   { key: 'sinClasificacion', chip: '🚫 Clasificación', largo: 'clasificación', archivo: 'sin clasificacion' },
   { key: 'sinSerial', chip: '🚫 Serial', largo: 'serial', archivo: 'sin serial' },
@@ -286,8 +292,14 @@ export function ocultosPersonalizadoEnPalabras(o: OpcionesPersonalizado): string
 }
 
 /** Sufijo del nombre del archivo: la fecha elegida y lo que se cambió. */
-export function sufijoArchivoPersonalizado(fechaISO: string, o: OpcionesPersonalizado): string {
+export function sufijoArchivoPersonalizado(
+  fechaISO: string,
+  o: OpcionesPersonalizado,
+  agruparPor?: AgruparPorPersonalizado,
+): string {
   const partes: string[] = [dmyPersonalizado(fechaISO) || 'sin fecha'];
+  if (agruparPor === 'encargado') partes.push('por encargado');
+  else if (agruparPor === 'empresa') partes.push('por empresa');
   PASTILLAS_PERSONALIZADO
     .filter((p) => o[p.key] !== OPCIONES_PERSONALIZADO_INICIAL[p.key])
     .forEach((p) => partes.push(p.archivo));
@@ -340,6 +352,28 @@ export function nombreEmpresaCatalogo(empresa?: string | null): string {
   return String(empresa ?? '').trim() || 'Sin empresa';
 }
 
+export const SIN_ENCARGADO_PERSONALIZADO = 'Sin encargado';
+
+/** Clave canónica de encargado para agrupar/filtrar: ignora mayúsculas, tildes y espacios dobles,
+ *  respetando la Ñ (PEÑA ≠ PENA), y usa el centinela '__sin_encargado__' cuando está vacío. */
+export function claveEncargadoCatalogo(encargado?: string | null): string {
+  const raw = String(encargado ?? '').replace(/\s+/g, ' ').trim();
+  if (!raw || /^sin\s+encargado$/i.test(raw)) return '__sin_encargado__';
+  return raw
+    .toLowerCase()
+    .replace(/ñ/g, '\u0001')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0001/g, 'ñ');
+}
+
+/** Nombre limpio de encargado (vacío → 'Sin encargado'). */
+export function nombreEncargadoCatalogo(encargado?: string | null): string {
+  const raw = String(encargado ?? '').replace(/\s+/g, ' ').trim();
+  if (!raw || /^sin\s+encargado$/i.test(raw)) return SIN_ENCARGADO_PERSONALIZADO;
+  return raw;
+}
+
 /** Clave normalizada de categoría / clasificación de maquinaria (vacía → 'Sin categoría'). */
 export function nombreCategoriaCatalogo(clasificacion?: string | null): string {
   return String(clasificacion ?? '').trim() || 'Sin categoría';
@@ -375,14 +409,78 @@ export function empresasCatalogoPersonalizado(
   });
 }
 
+/** Lista ordenada de encargados únicos del catálogo con su cantidad de equipos.
+ *  Unifica grafías equivalentes («juan perez», «Juan Pérez») bajo la grafía más frecuente
+ *  y deja «Sin encargado» siempre al final. */
+export function encargadosCatalogoPersonalizado(
+  catalogo: FilaPersonalizada[],
+  fuente: 'todos' | 'maq' | 'veh' = 'todos',
+  empresasSel?: ReadonlySet<string> | readonly string[],
+  categoriasSel?: ReadonlySet<string> | readonly string[],
+): { nombre: string; count: number }[] {
+  const empSet = empresasSel
+    ? new Set(Array.from(empresasSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
+    : null;
+  const catSet = categoriasSel
+    ? new Set(Array.from(categoriasSel).map((c) => String(c).trim().toLowerCase()).filter(Boolean))
+    : null;
+  const m = new Map<string, { count: number; variantes: Map<string, number> }>();
+  catalogo.forEach((f) => {
+    const esVeh = String(f.id ?? '').startsWith('veh-');
+    if (fuente !== 'todos' && (fuente === 'veh') !== esVeh) return;
+    if (empSet && empSet.size > 0) {
+      const empKey = nombreEmpresaCatalogo(f.empresa).toLowerCase();
+      if (!empSet.has(empKey)) return;
+    }
+    if (catSet && catSet.size > 0) {
+      const catKey = nombreCategoriaCatalogo(f.clasificacion).toLowerCase();
+      if (!catSet.has(catKey)) return;
+    }
+    const visible = nombreEncargadoCatalogo(f.encargado);
+    const k = claveEncargadoCatalogo(f.encargado);
+    let entry = m.get(k);
+    if (!entry) {
+      entry = { count: 0, variantes: new Map<string, number>() };
+      m.set(k, entry);
+    }
+    entry.count += 1;
+    entry.variantes.set(visible, (entry.variantes.get(visible) ?? 0) + 1);
+  });
+  const out: { nombre: string; count: number }[] = [];
+  m.forEach((entry, k) => {
+    if (k === '__sin_encargado__') {
+      out.push({ nombre: SIN_ENCARGADO_PERSONALIZADO, count: entry.count });
+      return;
+    }
+    let mejor = '';
+    let mejorN = -1;
+    entry.variantes.forEach((n, vis) => {
+      if (n > mejorN || (n === mejorN && vis.localeCompare(mejor, 'es') < 0)) {
+        mejor = vis;
+        mejorN = n;
+      }
+    });
+    out.push({ nombre: mejor || SIN_ENCARGADO_PERSONALIZADO, count: entry.count });
+  });
+  return out.sort((a, b) => {
+    if (a.nombre === SIN_ENCARGADO_PERSONALIZADO) return 1;
+    if (b.nombre === SIN_ENCARGADO_PERSONALIZADO) return -1;
+    return a.nombre.localeCompare(b.nombre, 'es');
+  });
+}
+
 /** Lista ordenada de categorías (clasificaciones) del catálogo con su cantidad de equipos. */
 export function categoriasCatalogoPersonalizado(
   catalogo: FilaPersonalizada[],
   fuente: 'todos' | 'maq' | 'veh' = 'todos',
   empresasSel?: ReadonlySet<string> | readonly string[],
+  encargadosSel?: ReadonlySet<string> | readonly string[],
 ): { nombre: string; count: number }[] {
   const empSet = empresasSel
     ? new Set(Array.from(empresasSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
+    : null;
+  const encSet = encargadosSel
+    ? new Set(Array.from(encargadosSel).map((e) => claveEncargadoCatalogo(e)).filter(Boolean))
     : null;
   const m = new Map<string, { nombre: string; count: number }>();
   catalogo.forEach((f) => {
@@ -391,6 +489,10 @@ export function categoriasCatalogoPersonalizado(
     if (empSet && empSet.size > 0) {
       const empKey = nombreEmpresaCatalogo(f.empresa).toLowerCase();
       if (!empSet.has(empKey)) return;
+    }
+    if (encSet && encSet.size > 0) {
+      const encKey = claveEncargadoCatalogo(f.encargado);
+      if (!encSet.has(encKey)) return;
     }
     const nombre = nombreCategoriaCatalogo(f.clasificacion);
     const k = nombre.toLowerCase();
@@ -411,12 +513,16 @@ export function estadosCatalogoPersonalizado(
   fuente: 'todos' | 'maq' | 'veh' = 'todos',
   empresasSel?: ReadonlySet<string> | readonly string[],
   categoriasSel?: ReadonlySet<string> | readonly string[],
+  encargadosSel?: ReadonlySet<string> | readonly string[],
 ): { nombre: string; count: number }[] {
   const empSet = empresasSel
     ? new Set(Array.from(empresasSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
     : null;
   const catSet = categoriasSel
     ? new Set(Array.from(categoriasSel).map((c) => String(c).trim().toLowerCase()).filter(Boolean))
+    : null;
+  const encSet = encargadosSel
+    ? new Set(Array.from(encargadosSel).map((e) => claveEncargadoCatalogo(e)).filter(Boolean))
     : null;
   const m = new Map<string, { nombre: string; count: number }>();
   // Pre-seed con los 6 estados del sistema para que siempre estén visibles aunque tengan 0
@@ -433,6 +539,10 @@ export function estadosCatalogoPersonalizado(
     if (catSet && catSet.size > 0) {
       const catKey = nombreCategoriaCatalogo(f.clasificacion).toLowerCase();
       if (!catSet.has(catKey)) return;
+    }
+    if (encSet && encSet.size > 0) {
+      const encKey = claveEncargadoCatalogo(f.encargado);
+      if (!encSet.has(encKey)) return;
     }
     const nombre = nombreEstadoCatalogo(f.estado);
     const k = nombre.toLowerCase();
@@ -451,11 +561,12 @@ export function estadosCatalogoPersonalizado(
     });
 }
 
-/** Filtra el catálogo por tipo (Todos/Máquinas/Vehículos), empresas, categorías, estados actuales y búsqueda. */
+/** Filtra el catálogo por tipo (Todos/Máquinas/Vehículos), empresas, encargados, categorías, estados actuales y búsqueda. */
 export function filtrarCatalogoPersonalizado(params: {
   catalogo: FilaPersonalizada[];
   fuente?: 'todos' | 'maq' | 'veh';
   empresasSel?: ReadonlySet<string> | readonly string[];
+  encargadosSel?: ReadonlySet<string> | readonly string[];
   categoriasSel?: ReadonlySet<string> | readonly string[];
   estadosSel?: ReadonlySet<string> | readonly string[];
   busca?: string;
@@ -464,6 +575,9 @@ export function filtrarCatalogoPersonalizado(params: {
   const empSet = params.empresasSel
     ? new Set(Array.from(params.empresasSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
     : null;
+  const encSet = params.encargadosSel
+    ? new Set(Array.from(params.encargadosSel).map((e) => claveEncargadoCatalogo(e)).filter(Boolean))
+    : null;
   const catSet = params.categoriasSel
     ? new Set(Array.from(params.categoriasSel).map((c) => String(c).trim().toLowerCase()).filter(Boolean))
     : null;
@@ -471,8 +585,10 @@ export function filtrarCatalogoPersonalizado(params: {
     ? new Set(Array.from(params.estadosSel).map((e) => String(e).trim().toLowerCase()).filter(Boolean))
     : null;
   const q = String(params.busca ?? '')
+    .replace(/ñ/gi, '\u0001')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0001/g, 'ñ')
     .toLowerCase()
     .trim();
 
@@ -483,6 +599,10 @@ export function filtrarCatalogoPersonalizado(params: {
       const empKey = nombreEmpresaCatalogo(m.empresa).toLowerCase();
       if (!empSet.has(empKey)) return false;
     }
+    if (encSet && encSet.size > 0) {
+      const encKey = claveEncargadoCatalogo(m.encargado);
+      if (!encSet.has(encKey)) return false;
+    }
     if (catSet && catSet.size > 0) {
       const catKey = nombreCategoriaCatalogo(m.clasificacion).toLowerCase();
       if (!catSet.has(catKey)) return false;
@@ -492,13 +612,62 @@ export function filtrarCatalogoPersonalizado(params: {
       if (!estSet.has(estKey)) return false;
     }
     if (q) {
-      const haystack = `${m.code} ${m.plate} ${m.serial} ${m.marca} ${m.modelo} ${m.clasificacion} ${m.empresa} ${m.estado}`
+      const haystack = `${m.code} ${m.plate} ${m.serial} ${m.marca} ${m.modelo} ${m.clasificacion} ${m.empresa} ${m.encargado} ${m.estado}`
+        .replace(/ñ/gi, '\u0001')
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\u0001/g, 'ñ')
         .toLowerCase();
       if (!haystack.includes(q)) return false;
     }
     return true;
+  });
+}
+
+/** Agrupa las filas del papel por Empresa o por Encargado (unificando grafías y dejando
+ *  «Sin empresa» / «Sin encargado» siempre al final). Conserva el orden relativo dentro de cada grupo. */
+export function agruparFilasPersonalizado(
+  filas: readonly FilaPersonalizada[],
+  eje: 'empresa' | 'encargado',
+): { key: string; label: string; filas: FilaPersonalizada[] }[] {
+  const grupos = new Map<string, { filas: FilaPersonalizada[]; variantes: Map<string, number> }>();
+  (filas || []).forEach((f) => {
+    const k = eje === 'encargado'
+      ? claveEncargadoCatalogo(f.encargado)
+      : nombreEmpresaCatalogo(f.empresa).toLowerCase();
+    const vis = eje === 'encargado'
+      ? nombreEncargadoCatalogo(f.encargado)
+      : nombreEmpresaCatalogo(f.empresa);
+    let g = grupos.get(k);
+    if (!g) {
+      g = { filas: [], variantes: new Map<string, number>() };
+      grupos.set(k, g);
+    }
+    g.filas.push(f);
+    g.variantes.set(vis, (g.variantes.get(vis) ?? 0) + 1);
+  });
+  const sinLabel = eje === 'encargado' ? SIN_ENCARGADO_PERSONALIZADO : 'Sin empresa';
+  const sinKey = eje === 'encargado' ? '__sin_encargado__' : 'sin empresa';
+  const out: { key: string; label: string; filas: FilaPersonalizada[] }[] = [];
+  grupos.forEach((g, k) => {
+    if (k === sinKey) {
+      out.push({ key: k, label: sinLabel, filas: g.filas });
+      return;
+    }
+    let mejor = '';
+    let mejorN = -1;
+    g.variantes.forEach((n, vis) => {
+      if (n > mejorN || (n === mejorN && vis.localeCompare(mejor, 'es') < 0)) {
+        mejor = vis;
+        mejorN = n;
+      }
+    });
+    out.push({ key: k, label: mejor || sinLabel, filas: g.filas });
+  });
+  return out.sort((a, b) => {
+    if (a.key === sinKey) return 1;
+    if (b.key === sinKey) return -1;
+    return a.label.localeCompare(b.label, 'es');
   });
 }
 
@@ -524,18 +693,24 @@ export type DatosPapelPersonalizado = {
   nota?: string | null;
   /** ⛽📅 Días del rango elegido (para el promedio por día). Sin él, el promedio no sale. */
   dias?: number;
+  /** 🗂️ Cómo agrupar las máquinas en el PDF ('ninguno' por defecto = lista única). */
+  agruparPor?: AgruparPorPersonalizado;
 };
 
 /** El cuerpo del PDF. Solo arma HTML: no lee ni escribe nada. */
 export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
   const o = d.opciones;
+  const agruparPor: AgruparPorPersonalizado =
+    d.agruparPor === 'empresa' || d.agruparPor === 'encargado' ? d.agruparPor : 'ninguno';
   const partes: string[] = [];
   // ⛽📅 El promedio por día: solo con la columna de combustible y con días. Una opción
   //    que no venga (reporte guardado antes) cuenta como oculta: se reimprime como estaba.
   const dias = Number(d.dias) > 0 ? Number(d.dias) : 0;
   const conPromedio = !o.sinConsumo && o.sinPromedioDia === false && dias > 0;
   const conTotalPromedio = !o.sinConsumo && o.sinTotalPromedioDia === false && dias > 0;
-  const totalPromedioTexto = () => `${litrosTexto(promedioDeTotal(totalLitrosPersonalizado(d.filas), dias)) || '0'} L/día`;
+  const promedioTextoDeFilas = (lista: readonly FilaPersonalizada[]) =>
+    `${litrosTexto(promedioDeTotal(totalLitrosPersonalizado(lista), dias)) || '0'} L/día`;
+  const totalPromedioTexto = () => promedioTextoDeFilas(d.filas);
 
   if (!o.sinResumen) {
     const r = resumenPersonalizado(d.filas);
@@ -543,6 +718,13 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
       `<div class="tile"><div class="t">${r.total}</div><div class="s">Equipos en el reporte</div></div>`,
       ...r.porEstado.map(([label, n]) => `<div class="tile"><div class="t">${n}</div><div class="s">${esc(label)}</div></div>`),
     ];
+    if (agruparPor === 'encargado') {
+      const nEnc = agruparFilasPersonalizado(d.filas, 'encargado').length;
+      tiles.push(`<div class="tile"><div class="t">${nEnc}</div><div class="s">Encargado(s)</div></div>`);
+    } else if (agruparPor === 'empresa') {
+      const nEmp = agruparFilasPersonalizado(d.filas, 'empresa').length;
+      tiles.push(`<div class="tile"><div class="t">${nEmp}</div><div class="s">Empresa(s)</div></div>`);
+    }
     if (!o.sinConsumo && !o.sinTotalConsumo) {
       tiles.push(`<div class="tile"><div class="t">${esc(litrosTexto(totalLitrosPersonalizado(d.filas)) || '0')}</div><div class="s">Litros de combustible</div></div>`);
     }
@@ -575,44 +757,65 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
     const colPromedio = conPromedio ? cab.length : -1;
     if (conPromedio) cab.push('<th>Promedio por día (L)</th>');
     if (!o.sinNotas) cab.push('<th>Notas</th>');
-    const filas = d.filas.map((f) => {
-      const c: string[] = [`<td class="b">${celda(f.code)}</td>`];
-      if (!o.sinMarcaModelo) c.push(`<td>${celda([f.marca, f.modelo].map((s) => String(s ?? '').trim()).filter(Boolean).join(' '))}</td>`);
-      if (!o.sinClasificacion) c.push(`<td>${celda(f.clasificacion)}</td>`);
-      if (!o.sinSerial) c.push(`<td>${celda(f.serial)}</td>`);
-      if (!o.sinPlaca) c.push(`<td>${celda(f.plate)}</td>`);
-      if (!o.sinEmpresa) c.push(`<td>${celda(f.empresa)}</td>`);
-      if (!o.sinZona) c.push(`<td>${celda(f.zona)}</td>`);
-      if (!o.sinCardinal) c.push(`<td>${celda(f.cardinal)}</td>`);
-      if (!o.sinEncargado) c.push(`<td>${celda(f.encargado)}</td>`);
-      if (!o.sinEstado) c.push(`<td>${celda(f.estado)}</td>`);
-      if (!o.sinHorometro) c.push(`<td class="c">${celda(f.horometro)}</td>`);
-      if (!o.sinPeso) c.push(`<td class="c">${celda(f.peso)}</td>`);
-      if (!o.sinMedidas) c.push(`<td>${celda(f.medidas)}</td>`);
-      if (!o.sinConsumo) c.push(`<td class="c">${celda(f.litros)}</td>`);
-      if (conPromedio) c.push(`<td class="c">${celda(litrosTexto(promedioLitrosDia(f.litros, dias)))}</td>`);
-      if (!o.sinNotas) c.push(`<td>${celda(f.nota)}</td>`);
-      return `<tr>${c.join('')}</tr>`;
-    });
-    const rotuloTotal = `TOTAL: ${d.filas.length} equipo(s)`;
-    let total = `<tr class="total"><td colspan="${cab.length}">${rotuloTotal}</td></tr>`;
-    const conTotalLitros = colLitros > 0 && !o.sinTotalConsumo;
-    if (conTotalLitros || (colLitros > 0 && conTotalPromedio)) {
-      // El total de litros cae debajo de su columna, y el promedio del total debajo de la
-      // suya (si la columna de promedio está oculta, va junto al total). El rótulo ocupa
-      // las de antes.
-      const enCeldaLitros = [
-        conTotalLitros ? `${esc(litrosTexto(totalLitrosPersonalizado(d.filas)) || '0')} L` : '',
-        conTotalPromedio && !conPromedio ? esc(totalPromedioTexto()) : '',
-      ].filter(Boolean).join(' · ');
-      const hasta = conPromedio ? colPromedio : colLitros;
-      const despues = cab.length - hasta - 1;
-      total = `<tr class="total"><td colspan="${colLitros}">${rotuloTotal}</td>`
-        + `<td class="c">${enCeldaLitros}</td>`
-        + (conPromedio ? `<td class="c">${conTotalPromedio ? esc(totalPromedioTexto()) : ''}</td>` : '')
-        + (despues > 0 ? `<td colspan="${despues}"></td>` : '') + '</tr>';
+
+    const armarFilasHtml = (lista: readonly FilaPersonalizada[]) =>
+      lista.map((f) => {
+        const c: string[] = [`<td class="b">${celda(f.code)}</td>`];
+        if (!o.sinMarcaModelo) c.push(`<td>${celda([f.marca, f.modelo].map((s) => String(s ?? '').trim()).filter(Boolean).join(' '))}</td>`);
+        if (!o.sinClasificacion) c.push(`<td>${celda(f.clasificacion)}</td>`);
+        if (!o.sinSerial) c.push(`<td>${celda(f.serial)}</td>`);
+        if (!o.sinPlaca) c.push(`<td>${celda(f.plate)}</td>`);
+        if (!o.sinEmpresa) c.push(`<td>${celda(f.empresa)}</td>`);
+        if (!o.sinZona) c.push(`<td>${celda(f.zona)}</td>`);
+        if (!o.sinCardinal) c.push(`<td>${celda(f.cardinal)}</td>`);
+        if (!o.sinEncargado) c.push(`<td>${celda(f.encargado)}</td>`);
+        if (!o.sinEstado) c.push(`<td>${celda(f.estado)}</td>`);
+        if (!o.sinHorometro) c.push(`<td class="c">${celda(f.horometro)}</td>`);
+        if (!o.sinPeso) c.push(`<td class="c">${celda(f.peso)}</td>`);
+        if (!o.sinMedidas) c.push(`<td>${celda(f.medidas)}</td>`);
+        if (!o.sinConsumo) c.push(`<td class="c">${celda(f.litros)}</td>`);
+        if (conPromedio) c.push(`<td class="c">${celda(litrosTexto(promedioLitrosDia(f.litros, dias)))}</td>`);
+        if (!o.sinNotas) c.push(`<td>${celda(f.nota)}</td>`);
+        return `<tr>${c.join('')}</tr>`;
+      });
+
+    const armarFilaPie = (lista: readonly FilaPersonalizada[], rotuloPie: string) => {
+      let total = `<tr class="total"><td colspan="${cab.length}">${rotuloPie}</td></tr>`;
+      const conTotalLitros = colLitros > 0 && !o.sinTotalConsumo;
+      if (conTotalLitros || (colLitros > 0 && conTotalPromedio)) {
+        // El total de litros cae debajo de su columna, y el promedio del total debajo de la
+        // suya (si la columna de promedio está oculta, va junto al total). El rótulo ocupa
+        // las de antes.
+        const enCeldaLitros = [
+          conTotalLitros ? `${esc(litrosTexto(totalLitrosPersonalizado(lista)) || '0')} L` : '',
+          conTotalPromedio && !conPromedio ? esc(promedioTextoDeFilas(lista)) : '',
+        ].filter(Boolean).join(' · ');
+        const hasta = conPromedio ? colPromedio : colLitros;
+        const despues = cab.length - hasta - 1;
+        total = `<tr class="total"><td colspan="${colLitros}">${rotuloPie}</td>`
+          + `<td class="c">${enCeldaLitros}</td>`
+          + (conPromedio ? `<td class="c">${conTotalPromedio ? esc(promedioTextoDeFilas(lista)) : ''}</td>` : '')
+          + (despues > 0 ? `<td colspan="${despues}"></td>` : '') + '</tr>';
+      }
+      return total;
+    };
+
+    if (agruparPor === 'empresa' || agruparPor === 'encargado') {
+      const grupos = agruparFilasPersonalizado(d.filas, agruparPor);
+      const ico = agruparPor === 'encargado' ? '🧑‍🔧' : '🏢';
+      grupos.forEach((g) => {
+        const filasG = armarFilasHtml(g.filas);
+        const pieG = armarFilaPie(g.filas, `Subtotal ${esc(g.label)}: ${g.filas.length} equipo(s)`);
+        partes.push(`<h3>${ico} ${esc(g.label)} (${g.filas.length} equipo${g.filas.length === 1 ? '' : 's'})</h3>`);
+        partes.push(`<table><thead><tr>${cab.join('')}</tr></thead><tbody>${filasG.join('')}</tbody><tfoot>${pieG}</tfoot></table>`);
+      });
+      const pieGeneral = armarFilaPie(d.filas, `TOTAL: ${d.filas.length} equipo(s)`);
+      partes.push(`<table><tfoot>${pieGeneral}</tfoot></table>`);
+    } else {
+      const filas = armarFilasHtml(d.filas);
+      const total = armarFilaPie(d.filas, `TOTAL: ${d.filas.length} equipo(s)`);
+      partes.push(`<table><thead><tr>${cab.join('')}</tr></thead><tbody>${filas.join('')}</tbody><tfoot>${total}</tfoot></table>`);
     }
-    partes.push(`<table><thead><tr>${cab.join('')}</tr></thead><tbody>${filas.join('')}</tbody><tfoot>${total}</tfoot></table>`);
   }
 
   if (!o.sinPorEmpresa) {
@@ -626,6 +829,18 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
     const filas = Array.from(m.values()).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, 'es'))
       .map((e) => `<tr><td>${esc(e.label)}</td><td class="c b">${e.n}</td></tr>`);
     partes.push(`<h3>Equipos por empresa</h3><table><thead><tr><th>Empresa</th><th>Equipos</th></tr></thead><tbody>${filas.join('')}</tbody></table>`);
+  }
+
+  if (o.sinPorEncargado === false) {
+    const gruposEnc = agruparFilasPersonalizado(d.filas, 'encargado');
+    const filasEnc = [...gruposEnc]
+      .sort((a, b) => {
+        if (a.key === '__sin_encargado__') return 1;
+        if (b.key === '__sin_encargado__') return -1;
+        return b.filas.length - a.filas.length || a.label.localeCompare(b.label, 'es');
+      })
+      .map((g) => `<tr><td>${esc(g.label)}</td><td class="c b">${g.filas.length}</td></tr>`);
+    partes.push(`<h3>Equipos por encargado</h3><table><thead><tr><th>Encargado</th><th>Equipos</th></tr></thead><tbody>${filasEnc.join('')}</tbody></table>`);
   }
 
   return partes.join('\n');
@@ -668,6 +883,7 @@ export const LOGOS_PERSONALIZADO_INICIAL: LogosPersonalizado = {
 export type FiltrosCatalogoPersonalizado = {
   fuente: 'todos' | 'maq' | 'veh';
   empresasSel: string[];
+  encargadosSel?: string[];
   categoriasSel: string[];
   estadosSel: string[];
   busca: string;
@@ -682,6 +898,8 @@ export type ResumenHistorialPersonalizado = {
   totalManuales: number;
   porEstadoTexto: string;
   empresasTexto: string;
+  encargadosTexto: string;
+  agruparPorTexto: string;
   categoriasTexto: string;
   rangoTexto: string;
   totalLitrosTexto: string;
@@ -712,6 +930,7 @@ export type RegistroHistorialPersonalizado = {
   desde: string;
   hasta: string;
   opciones: OpcionesPersonalizado;
+  agruparPor?: AgruparPorPersonalizado;
   logos: LogosPersonalizado;
   marcaTexto: boolean;
   filas: FilaPersonalizada[];
@@ -805,6 +1024,7 @@ export function huellaReportePersonalizado(params: {
   desde: string;
   hasta: string;
   opciones: OpcionesPersonalizado;
+  agruparPor?: AgruparPorPersonalizado;
   logos: LogosPersonalizado;
   marcaTexto: boolean;
   filas: FilaPersonalizada[];
@@ -818,6 +1038,7 @@ export function huellaReportePersonalizado(params: {
     d: cortarTextoSeguro(params.desde, 20),
     h: cortarTextoSeguro(params.hasta, 20),
     o: { ...OPCIONES_PERSONALIZADO_INICIAL, ...(params.opciones || {}) },
+    ...(params.agruparPor && params.agruparPor !== 'ninguno' ? { ag: params.agruparPor } : {}),
     l: { ...LOGOS_PERSONALIZADO_INICIAL, ...(params.logos || {}) },
     m: Boolean(params.marcaTexto),
     f: (params.filas || []).map((f) => [
@@ -838,6 +1059,7 @@ export function armarResumenHistorialPersonalizado(params: {
   desde: string;
   hasta: string;
   opciones: OpcionesPersonalizado;
+  agruparPor?: AgruparPorPersonalizado;
   filas: FilaPersonalizada[];
   filtros?: Partial<FiltrosCatalogoPersonalizado>;
 }): ResumenHistorialPersonalizado {
@@ -850,6 +1072,7 @@ export function armarResumenHistorialPersonalizado(params: {
   const porEstado = new Map<string, { label: string; n: number }>();
   const empresas = new Map<string, string>();
   const categorias = new Map<string, string>();
+  const encargados = new Map<string, string>();
 
   filas.forEach((f) => {
     const id = String(f.id ?? '');
@@ -868,6 +1091,12 @@ export function armarResumenHistorialPersonalizado(params: {
 
     const cat = String(f.clasificacion ?? '').trim();
     if (cat && !categorias.has(cat.toLowerCase())) categorias.set(cat.toLowerCase(), cat);
+
+    const enc = String(f.encargado ?? '').trim();
+    const encK = claveEncargadoCatalogo(enc);
+    if (enc && encK !== '__sin_encargado__' && !encargados.has(encK)) {
+      encargados.set(encK, enc);
+    }
   });
 
   const porEstadoTexto = Array.from(porEstado.values())
@@ -892,6 +1121,21 @@ export function armarResumenHistorialPersonalizado(params: {
     : listaCat.length <= 2
       ? listaCat.join(', ')
       : `${listaCat.slice(0, 2).join(', ')} (+${listaCat.length - 2})`;
+
+  const listaEnc = (params.filtros?.encargadosSel && params.filtros.encargadosSel.length > 0)
+    ? params.filtros.encargadosSel
+    : Array.from(encargados.values());
+  const encargadosTexto = listaEnc.length === 0
+    ? 'Todos los encargados'
+    : listaEnc.length <= 2
+      ? listaEnc.join(', ')
+      : `${listaEnc.slice(0, 2).join(', ')} (+${listaEnc.length - 2})`;
+
+  const agruparPorTexto = params.agruparPor === 'empresa'
+    ? 'Por empresa'
+    : params.agruparPor === 'encargado'
+      ? 'Por encargado'
+      : 'Sin agrupar';
 
   const usaRango = Boolean(params.conRango) || usaRangoPersonalizado(o);
   const r = rangoOrdenado(params.desde, params.hasta);
@@ -921,8 +1165,16 @@ export function armarResumenHistorialPersonalizado(params: {
   if (params.filtros?.empresasSel && params.filtros.empresasSel.length > 0) {
     partesEtiqueta.push(`🏢 ${empresasTexto}`);
   }
+  if (params.filtros?.encargadosSel && params.filtros.encargadosSel.length > 0) {
+    partesEtiqueta.push(`🧑‍🔧 ${encargadosTexto}`);
+  }
   if (params.filtros?.categoriasSel && params.filtros.categoriasSel.length > 0) {
     partesEtiqueta.push(`🔶 ${categoriasTexto}`);
+  }
+  if (params.agruparPor === 'empresa') {
+    partesEtiqueta.push('🗂️ Por empresa');
+  } else if (params.agruparPor === 'encargado') {
+    partesEtiqueta.push('🗂️ Por encargado');
   }
   if (!o.sinConsumo) {
     partesEtiqueta.push(`⛽ ${totalLitrosTexto}`);
@@ -942,6 +1194,8 @@ export function armarResumenHistorialPersonalizado(params: {
     porEstadoTexto,
     empresasTexto,
     categoriasTexto,
+    encargadosTexto,
+    agruparPorTexto,
     rangoTexto,
     totalLitrosTexto,
     previewEquipos,
@@ -966,6 +1220,7 @@ export function crearRegistroHistorialPersonalizado(params: {
   desde: string;
   hasta: string;
   opciones: OpcionesPersonalizado;
+  agruparPor?: AgruparPorPersonalizado;
   logos?: Partial<LogosPersonalizado>;
   marcaTexto?: boolean;
   filas: FilaPersonalizada[];
@@ -982,6 +1237,10 @@ export function crearRegistroHistorialPersonalizado(params: {
   for (const k of OPCIONES_NUEVAS_OCULTAS) {
     if (!params.opciones || !(k in (params.opciones as object))) (opciones as any)[k] = true;
   }
+  const agruparPor: AgruparPorPersonalizado =
+    params.agruparPor === 'empresa' || params.agruparPor === 'encargado'
+      ? params.agruparPor
+      : 'ninguno';
   const logos: LogosPersonalizado = {
     ...LOGOS_PERSONALIZADO_INICIAL,
     ...(params.logos || {}),
@@ -1009,7 +1268,7 @@ export function crearRegistroHistorialPersonalizado(params: {
   );
   const emitida = cortarTextoSeguro(params.emitida ?? (emitidaTexto(fechaEmision) || fechaHoraCaracasHistorial(ahora)), 80);
   const nombreArchivo = cortarTextoSeguro(
-    params.nombreArchivo ?? `${titulo} · ${sufijoArchivoPersonalizado(fechaEmision, opciones)}`,
+    params.nombreArchivo ?? `${titulo} · ${sufijoArchivoPersonalizado(fechaEmision, opciones, agruparPor)}`,
     200,
   );
 
@@ -1018,6 +1277,7 @@ export function crearRegistroHistorialPersonalizado(params: {
     empresasSel: Array.isArray(params.filtros?.empresasSel) ? params.filtros!.empresasSel.map((s) => cortarTextoSeguro(s, 140)).filter(Boolean) : [],
     categoriasSel: Array.isArray(params.filtros?.categoriasSel) ? params.filtros!.categoriasSel.map((s) => cortarTextoSeguro(s, 140)).filter(Boolean) : [],
     estadosSel: Array.isArray(params.filtros?.estadosSel) ? params.filtros!.estadosSel.map((s) => cortarTextoSeguro(s, 80)).filter(Boolean) : [],
+    encargadosSel: Array.isArray(params.filtros?.encargadosSel) ? params.filtros!.encargadosSel.map((s) => cortarTextoSeguro(s, 140)).filter(Boolean) : [],
     busca: cortarTextoSeguro(params.filtros?.busca, 120),
   };
 
@@ -1039,6 +1299,7 @@ export function crearRegistroHistorialPersonalizado(params: {
     desde,
     hasta,
     opciones,
+    agruparPor,
     filas,
     filtros,
   });
@@ -1052,6 +1313,7 @@ export function crearRegistroHistorialPersonalizado(params: {
     desde,
     hasta,
     opciones,
+    agruparPor,
     logos,
     marcaTexto,
     filas,
@@ -1078,6 +1340,7 @@ export function crearRegistroHistorialPersonalizado(params: {
     desde,
     hasta,
     opciones,
+    agruparPor,
     logos,
     marcaTexto,
     filas,
@@ -1109,6 +1372,7 @@ export function normalizarRegistroHistorialPersonalizado(raw: any): RegistroHist
     desde: raw.desde,
     hasta: raw.hasta,
     opciones: raw.opciones,
+    agruparPor: raw.agruparPor,
     logos: raw.logos,
     marcaTexto: raw.marcaTexto,
     filas: raw.filas,
@@ -1350,8 +1614,8 @@ export function mergeHistorialPersonalizado(
 
 /**
  * Filtra las entradas del histórico por texto libre (busca en etiqueta, título,
- * subtítulo, nota, fechas, autor, empresas, categorías, estados y en el código,
- * placa o serial de cualquiera de las máquinas que salieron en ese reporte).
+ * subtítulo, nota, fechas, autor, empresas, categorías, estados, encargados y en el código,
+ * placa, serial o encargado de cualquiera de las máquinas que salieron en ese reporte).
  */
 export function filtrarHistorialPersonalizado(
   items: RegistroHistorialPersonalizado[],
@@ -1377,16 +1641,19 @@ export function filtrarHistorialPersonalizado(
       item.creadoPorNombre,
       item.resumen?.empresasTexto,
       item.resumen?.categoriasTexto,
+      item.resumen?.encargadosTexto,
+      item.resumen?.agruparPorTexto,
       item.resumen?.porEstadoTexto,
       ...(item.filtros?.empresasSel || []),
       ...(item.filtros?.categoriasSel || []),
       ...(item.filtros?.estadosSel || []),
+      ...(item.filtros?.encargadosSel || []),
     ];
     if (camposCabecera.some((v) => String(v ?? '').toLowerCase().includes(q))) {
       return true;
     }
     return (item.filas || []).some((f) =>
-      [f.code, f.plate, f.serial, f.marca, f.modelo, f.empresa, f.clasificacion, f.estado, f.zona, f.nota]
+      [f.code, f.plate, f.serial, f.marca, f.modelo, f.empresa, f.clasificacion, f.estado, f.zona, f.encargado, f.nota]
         .some((v) => String(v ?? '').toLowerCase().includes(q))
     );
   });

@@ -296,6 +296,138 @@ const srcPantalla = fs.readFileSync(path.join(ROOT, 'src/screens/ReportsScreen.t
 ok('la pestaña «Personalizado» está montada en Reportes', /<ReporteMaquinariaPersonalizadoCard \/>/.test(srcPantalla) && srcPantalla.includes("{ v: 'personalizado', label: '🛠️ Personalizado' }"));
 ok('el botón genérico de generar no aplica en la pestaña nueva', srcPantalla.includes("mode !== 'frentes' && mode !== 'personalizado'"));
 
+// ——— 7. 🧑‍🔧 Agrupar por Empresa / Encargado y Filtrar por Encargado (12-nov-2026) ———
+{
+  const catEnc = [
+    { id: 'm1', code: 'EX-01', serial: 'S1', brand: 'CAT', model: '320', plate: 'A11BC2D', category: 'REMOCIÓN Y EXCAVACIÓN', empresa: 'Golden Touch', encargado: 'Pedro Peña', estadoActual: 'Operativa', fuente: 'maquina' },
+    { id: 'm2', code: 'EX-02', serial: 'S2', brand: 'CAT', model: '330', plate: 'A22BC3D', category: 'REMOCIÓN Y EXCAVACIÓN', empresa: 'Golden Touch', encargado: '  PEDRO   PEÑA ', estadoActual: 'Averiada', fuente: 'maquina' },
+    { id: 'm3', code: 'VD-01', serial: 'S3', brand: 'MACK', model: 'GRANITE', plate: 'B33CD4E', category: 'TRANSPORTE DE ESCOMBROS', empresa: 'Savanna', encargado: 'Pedro Pena', estadoActual: 'Operativa', fuente: 'maquina' },
+    { id: 'v1', code: 'HILUX', serial: 'S4', brand: 'TOYOTA', model: 'HILUX', plate: 'C44DE5F', category: 'Vehículo', empresa: 'Golden Touch', encargado: '', estadoActual: 'Operativa', fuente: 'vehiculo' },
+  ];
+
+  // Normalización que preserva ñ vs n pero unifica mayúsculas, espacios y tildes agudas:
+  eq('encargado: clave distingue Peña de Pena', L.claveEncargadoCatalogo('Pedro Peña') !== L.claveEncargadoCatalogo('Pedro Pena'), true);
+  eq('encargado: clave unifica espacios y mayúsculas con ñ', L.claveEncargadoCatalogo('Pedro Peña'), L.claveEncargadoCatalogo('  PEDRO   PEÑA '));
+  eq('encargado: vacío cae en Sin encargado', L.nombreEncargadoCatalogo('   '), 'Sin encargado');
+
+  const listaEnc = L.encargadosCatalogoPersonalizado(catEnc, 'todos', []);
+  eq('encargado: agrupa duplicados de Pedro Peña (2) + Pedro Pena (1) y deja Sin encargado al final',
+    listaEnc.map((x) => `${x.nombre}:${x.count}`),
+    ['Pedro Pena:1', 'Pedro Peña:2', 'Sin encargado:1']);
+
+  const listaEncEmpresa = L.encargadosCatalogoPersonalizado(catEnc, 'todos', ['Golden Touch']);
+  eq('encargado: cascada con empresa filtra solo los encargados de Golden Touch',
+    listaEncEmpresa.map((x) => `${x.nombre}:${x.count}`),
+    ['Pedro Peña:2', 'Sin encargado:1']);
+
+  // Filtrar catálogo por encargado específico y por "Sin encargado":
+  const filtPena = L.filtrarCatalogoPersonalizado({
+    catalogo: catEnc,
+    fuente: 'todos',
+    empresasSel: [],
+    encargadosSel: ['Pedro Peña'],
+    categoriasSel: [],
+    estadosSel: [],
+    busca: '',
+  });
+  eq('encargado: filtrar por Pedro Peña trae exactamente sus 2 máquinas', filtPena.map((x) => x.id), ['m1', 'm2']);
+
+  const filtSinEnc = L.filtrarCatalogoPersonalizado({
+    catalogo: catEnc,
+    fuente: 'todos',
+    empresasSel: [],
+    encargadosSel: ['Sin encargado'],
+    categoriasSel: [],
+    estadosSel: [],
+    busca: '',
+  });
+  eq('encargado: filtrar por Sin encargado trae los equipos sin encargado asignado', filtSinEnc.map((x) => x.id), ['v1']);
+
+  const filtBuscaEnc = L.filtrarCatalogoPersonalizado({
+    catalogo: catEnc,
+    fuente: 'todos',
+    empresasSel: [],
+    encargadosSel: [],
+    categoriasSel: [],
+    estadosSel: [],
+    busca: 'peña',
+  });
+  eq('encargado: el buscador de texto también encuentra por nombre de encargado (con ñ)', filtBuscaEnc.map((x) => x.id), ['m1', 'm2']);
+
+  // Agrupación de filas en el PDF (por encargado y por empresa):
+  const filasDemoEnc = catEnc.map((m) => ({
+    ...L.filaVacia(m.id),
+    code: m.code,
+    serial: m.serial,
+    brand: m.brand,
+    model: m.model,
+    plate: m.plate,
+    category: m.category,
+    empresa: m.empresa,
+    encargado: m.encargado,
+    estado: m.estadoActual,
+  }));
+  const gruposEnc = L.agruparFilasPersonalizado(filasDemoEnc, 'encargado');
+  eq('agrupar: por encargado separa cada encargado y pone Sin encargado al final',
+    gruposEnc.map((g) => `${g.label}:${g.filas.length}`),
+    ['Pedro Pena:1', 'Pedro Peña:2', 'Sin encargado:1']);
+
+  const gruposEmp = L.agruparFilasPersonalizado(filasDemoEnc, 'empresa');
+  eq('agrupar: por empresa separa Golden Touch y Savanna',
+    gruposEmp.map((g) => `${g.label}:${g.filas.length}`),
+    ['Golden Touch:3', 'Savanna:1']);
+
+  const htmlAgrupadoEnc = L.cuerpoReportePersonalizado({
+    filas: filasDemoEnc,
+    opciones: { ...L.OPCIONES_PERSONALIZADO_INICIAL, sinPorEncargado: false },
+    agruparPor: 'encargado',
+  });
+  ok('PDF agrupado por encargado: muestra encabezados 🧑‍🔧, Subtotal y TOTAL',
+    htmlAgrupadoEnc.includes('<h3>🧑‍🔧 Pedro Peña (2 equipos)</h3>') &&
+    htmlAgrupadoEnc.includes('Subtotal Pedro Peña: 2 equipo(s)') &&
+    htmlAgrupadoEnc.includes('TOTAL: 4 equipo(s)') &&
+    htmlAgrupadoEnc.includes('<h3>Equipos por encargado</h3>'));
+
+  const htmlAgrupadoEmp = L.cuerpoReportePersonalizado({
+    filas: filasDemoEnc,
+    opciones: L.OPCIONES_PERSONALIZADO_INICIAL,
+    agruparPor: 'empresa',
+  });
+  ok('PDF agrupado por empresa: muestra encabezados 🏢 Empresa',
+    htmlAgrupadoEmp.includes('<h3>🏢 Golden Touch (3 equipos)</h3>') &&
+    htmlAgrupadoEmp.includes('<h3>🏢 Savanna (1 equipo)</h3>'));
+
+  // Histórico: guarda y restaura agruparPor y encargadosSel, y reportes viejos mantienen sinPorEncargado=true:
+  const regEnc = L.crearRegistroHistorialPersonalizado({
+    id: 'hist-enc-1',
+    creadoEn: '2026-11-12T15:00:00.000Z',
+    titulo: 'REPORTE DE MAQUINARIA',
+    subtitulo: 'ENCARGADO: PEDRO PEÑA',
+    nota: '',
+    fechaEmision: '2026-11-12',
+    conRango: false,
+    desde: '2026-11-12',
+    hasta: '2026-11-12',
+    opciones: L.OPCIONES_PERSONALIZADO_INICIAL,
+    agruparPor: 'encargado',
+    filas: [filasDemoEnc[0], filasDemoEnc[1]],
+    filtros: { fuente: 'todos', empresasSel: ['Golden Touch'], encargadosSel: ['Pedro Peña'], categoriasSel: [], estadosSel: [], busca: '' },
+  });
+  eq('histórico encargado: guarda agruparPor y encargadosTexto en el resumen',
+    [regEnc.agruparPor, regEnc.resumen.agruparPorTexto, regEnc.resumen.encargadosTexto],
+    ['encargado', 'Por encargado', 'Pedro Peña']);
+  eq('histórico encargado: buscador del histórico encuentra por nombre del encargado',
+    L.filtrarHistorialPersonalizado([regEnc], 'pedro peña').map((x) => x.id),
+    ['hist-enc-1']);
+
+  // Candados en la tarjeta UI:
+  ok('🧑‍🔧 la tarjeta tiene el filtro por encargado y el selector de agrupación en el PDF',
+    srcCard.includes('Filtrar por encargado') &&
+    srcCard.includes('¿CÓMO QUIERES AGRUPAR EL REPORTE EN EL PDF?') &&
+    srcCard.includes('Agrupar por Empresa') &&
+    srcCard.includes('Agrupar por Encargado'));
+}
+
 // ——— Cierre ———
 console.log(`\n🛠️ Reporte personalizado: ${pass} OK · ${fail} FALLO(S)`);
 if (fail) {
