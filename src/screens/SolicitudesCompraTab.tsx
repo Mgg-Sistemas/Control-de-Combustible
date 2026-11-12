@@ -48,6 +48,15 @@ import { anexarEventoHistorial, calcularDiffItemsCompra, resumirCambiosCabeceraC
 import { construirNombreDescargaFoto, construirUrlDescargaDirecta } from '../lib/formatosAdjuntos';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { usePermisosAprobacion } from '../lib/permisosAprobacion';
+import {
+  ConfigLimitesCompras,
+  aplicarLimiteTarjetasVisibles,
+  evaluarCupoSolicitudes,
+  obtenerConfigLimitesCompras,
+} from '../lib/limitesCompras';
+import { suscribirConfigLimitesCompras } from '../lib/limitesComprasStorage';
+import { CupoLimiteBanner, UsuarioSimpleLimite } from '../components/CupoLimiteBanner';
 
 const usd = (n: number) =>
   `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, {
@@ -277,6 +286,32 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
   const [configAprobacion, setConfigAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
+  const uid = session?.user?.id ?? null;
+  const permisosAprob = usePermisosAprobacion(uid);
+  const puedeConfigurarLimites = role === 'admin' || permisosAprob.puedeConfigurar;
+  const [configLimites, setConfigLimites] = useState<ConfigLimitesCompras>(obtenerConfigLimitesCompras);
+  const [limiteTarjetas, setLimiteTarjetas] = useState<number>(
+    () => obtenerConfigLimitesCompras().maxTarjetasVisibles ?? 50,
+  );
+  const [usuariosLista, setUsuariosLista] = useState<UsuarioSimpleLimite[]>([]);
+
+  useEffect(() => {
+    return suscribirConfigLimitesCompras((cfg) => {
+      setConfigLimites(cfg);
+      setLimiteTarjetas(cfg.maxTarjetasVisibles ?? 50);
+    });
+  }, []);
+
+  const cupoSolicitudes = useMemo(
+    () =>
+      evaluarCupoSolicitudes({
+        reqs: allReqs,
+        cfg: configLimites,
+        userId: uid,
+        isAdmin: role === 'admin',
+      }),
+    [allReqs, configLimites, uid, role],
+  );
 
   // Sincronizar configuración de usuario designado para aprobar desde feature_toggles + profiles
   useEffect(() => {
@@ -285,9 +320,20 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       try {
         const [{ data: ft }, { data: profs }] = await Promise.all([
           supabase.from('feature_toggles').select('enabled, extra_user_ids').eq('key', 'compras_req_aprobacion').maybeSingle(),
-          supabase.from('profiles').select('id, full_name'),
+          supabase.from('profiles').select('id, full_name, username, role'),
         ]);
-        if (!active || !ft) return;
+        if (!active) return;
+        const listaU: UsuarioSimpleLimite[] = ((profs ?? []) as any[])
+          .filter((p) => String(p.full_name || p.username || '').trim())
+          .map((p) => ({
+            id: String(p.id),
+            full_name: String(p.full_name || p.username || '').trim(),
+            username: p.username ? String(p.username) : null,
+            role: p.role ? String(p.role) : null,
+          }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
+        setUsuariosLista(listaU);
+        if (!ft) return;
         const ids: string[] = Array.isArray((ft as any).extra_user_ids) ? (ft as any).extra_user_ids : [];
         const profMap = new Map<string, string>();
         ((profs ?? []) as any[]).forEach((p) => {
@@ -1428,6 +1474,19 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         </Text>
       </View>
 
+      <CupoLimiteBanner
+        cupo={cupoSolicitudes}
+        config={configLimites}
+        onChangeConfig={setConfigLimites}
+        puedeConfigurar={puedeConfigurarLimites}
+        userId={uid}
+        usuarios={usuariosLista}
+        totalFiltrados={solicitudes.length}
+        visiblesCount={aplicarLimiteTarjetasVisibles(solicitudes, limiteTarjetas).visibles.length}
+        limiteTarjetasActual={limiteTarjetas}
+        onChangeLimiteTarjetas={setLimiteTarjetas}
+      />
+
       {/* Filtro por Empresa (una o varias) */}
       <View
         style={{
@@ -1687,7 +1746,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           }
         />
       ) : (
-        solicitudes.map((r) => {
+        aplicarLimiteTarjetasVisibles(solicitudes, limiteTarjetas).visibles.map((r) => {
           const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
           const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
           const yaConvertida = estaSolicitudConvertidaEnRequerimiento(r);

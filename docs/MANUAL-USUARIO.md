@@ -10074,3 +10074,21 @@ En **Combustible** (**📱 Surtidor Móvil**, **⛽ Consumos** y **🆘 Máquina
 
 
 
+
+---
+
+### 📊 Límite Máximo Ajustable para Solicitudes de Compra y Requerimientos (12/11/2026)
+
+En **📦 Pedir Material / Repuestos**, **🛒 Compras → 📥 Solicitudes** y **🛒 Compras → 📝 Requerimientos**, el administrador puede fijar y manipular en cualquier momento los límites máximos para todos los usuarios (con sincronización en tiempo real en teléfono y computadora):
+
+1. **Barra de Cupo Visible en Teléfono y PC (`CupoLimiteBanner`):**
+   - Muestra en tiempo real cuántas solicitudes o requerimientos lleva el usuario frente a su máximo configurado (por ejemplo `2 / 5 activos` o `Sin límite ∞`), con indicador de color (**🟢 Disponible**, **🟡 Cerca del tope**, **🔴 Límite alcanzado**).
+   - **Botones rápidos de 1 toque para el Administrador:** directamente desde la barra superior (sin abrir menús) el administrador puede pulsar **`+1`**, **`+5`** o **`∞ Sin límite`** para ampliar el cupo general al instante, o tocar **`⚙️ Ajustar límites`** para abrir el panel completo.
+2. **Panel de Configuración Completa (`⚙️ Ajustar límites`):**
+   - **📥 Tope de Solicitudes de Compra por usuario:** ajustable con chips rápidos (`Sin límite ∞`, `1`, `2`, `3`, `5`, `10`, `15`, `20`, `30`, `50`) o escribiendo cualquier número, eligiendo si se cuenta sobre **«⏳ Activas (pendientes / en revisión)»** o **«📅 Por jornada (7am–7am Caracas)»**, más el máximo de renglones/ítems por solicitud.
+   - **📝 Tope de Requerimientos por usuario:** ajustable de la misma forma (`0 = Sin límite ∞` o cualquier tope entero), por **«⏳ Activos (en curso / por pagar)»** o **«📅 Por jornada (7am–7am Caracas)»**, más el máximo de renglones/ítems por requerimiento y un **tope opcional de monto en USD (`$`) por requerimiento**.
+   - **🗂️ Máximo de tarjetas mostradas en bandeja:** permite elegir cuántas tarjetas se pintan a la vez (`20`, `30`, `50`, `100`, `200` o `Todas ∞`), aplicado **siempre después** de los filtros de búsqueda, empresa, estado, prioridad y fechas, con botón **«➕ Ver más»** / **«Ver todas»** al pie de la lista.
+   - **👑 Alcance para Administradores y 👤 Excepciones por Usuario:** interruptor para decidir si el límite aplica también a administradores (por defecto exentos) y buscador de usuarios para asignar un cupo personalizado o ilimitado a personas específicas sin alterar la regla general.
+3. **Flujo Operativo Seguro (sin bloqueos accidentales):**
+   - El límite **solo restringe la creación de nuevas solicitudes o nuevos requerimientos** cuando el usuario ya alcanzó su cupo.
+   - **Nunca bloquea** editar una solicitud o requerimiento existente, responder aclaratorias técnicas, cancelar solicitudes propias, convertir una solicitud existente en requerimiento, aprobar, enviar a **Por Pagar** ni registrar la recepción en **Almacén**.

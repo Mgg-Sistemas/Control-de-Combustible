@@ -85,6 +85,16 @@ import { exportPdf, urlToDataUri } from '../lib/pdf';
 import { machineLabel } from '../lib/machineLabel';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { usePermisosAprobacion } from '../lib/permisosAprobacion';
+import {
+  ConfigLimitesCompras,
+  aplicarLimiteTarjetasVisibles,
+  evaluarCupoSolicitudes,
+  obtenerConfigLimitesCompras,
+  validarOperacionConLimite,
+} from '../lib/limitesCompras';
+import { suscribirConfigLimitesCompras } from '../lib/limitesComprasStorage';
+import { CupoLimiteBanner } from '../components/CupoLimiteBanner';
 
 export interface SolicitudCartItem {
   id: string;
@@ -165,6 +175,19 @@ export default function SolicitudMaterialScreen() {
 
   // Pestaña activa: 'nueva' (crear solicitud) | 'mis_solicitudes' (historial y seguimiento)
   const [tab, setTab] = useState<'nueva' | 'mis_solicitudes'>('nueva');
+  const permisosAprob = usePermisosAprobacion(uid);
+  const puedeConfigurarLimites = role === 'admin' || permisosAprob.puedeConfigurar;
+  const [configLimites, setConfigLimites] = useState<ConfigLimitesCompras>(obtenerConfigLimitesCompras);
+  const [limiteTarjetasMisSol, setLimiteTarjetasMisSol] = useState<number>(
+    () => obtenerConfigLimitesCompras().maxTarjetasVisibles ?? 50,
+  );
+
+  useEffect(() => {
+    return suscribirConfigLimitesCompras((cfg) => {
+      setConfigLimites(cfg);
+      setLimiteTarjetasMisSol(cfg.maxTarjetasVisibles ?? 50);
+    });
+  }, []);
 
   // Catálogos
   const { data: levels, loading: levelsLoading } = useTable<InventoryLevel>('inventory_levels', {
@@ -196,6 +219,17 @@ export default function SolicitudMaterialScreen() {
   });
 
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
+
+  const cupoSolicitudes = useMemo(
+    () =>
+      evaluarCupoSolicitudes({
+        reqs: requirements,
+        cfg: configLimites,
+        userId: uid,
+        isAdmin: role === 'admin',
+      }),
+    [requirements, configLimites, uid, role],
+  );
 
   // ── Expediente Completo (PDF - Falta 2) ──
   const descargarExpediente = async (r: InventoryRequirement) => {
@@ -328,6 +362,20 @@ export default function SolicitudMaterialScreen() {
   const [submittingCart, setSubmittingCart] = useState<boolean>(false);
 
   const agregarItemAlCarrito = (item: Omit<SolicitudCartItem, 'id'>) => {
+    if (item.tipo === 'compra') {
+      const compraEnCarrito = cartItems.filter((x) => x.tipo === 'compra').length;
+      if (
+        cupoSolicitudes.activo &&
+        !cupoSolicitudes.exentoPorRol &&
+        cupoSolicitudes.maxItems > 0 &&
+        compraEnCarrito + 1 > cupoSolicitudes.maxItems
+      ) {
+        toast.error(
+          `El límite máximo es de ${cupoSolicitudes.maxItems} productos de compra por solicitud.`,
+        );
+        return;
+      }
+    }
     const id = 'it-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
     setCartItems((prev) => {
       if (item.tipo === 'stock' && item.itemId) {
@@ -578,6 +626,18 @@ export default function SolicitudMaterialScreen() {
       );
     }
     const qty = Math.max(1, parseNum(compraQty));
+    const checkLimite = validarOperacionConLimite({
+      tipo: 'solicitud',
+      esEdicion: false,
+      cantidadItems: 1,
+      reqs: requirements,
+      cfg: configLimites,
+      userId: uid,
+      isAdmin: role === 'admin',
+    });
+    if (!checkLimite.ok) {
+      return toast.error(checkLimite.error || 'Se alcanzó el límite máximo de solicitudes.');
+    }
 
     setCompraBusy(true);
     try {
@@ -676,6 +736,22 @@ export default function SolicitudMaterialScreen() {
     }
     if (destinoTipo === 'area' && !areaTexto.trim()) {
       return toast.error('Indica el área o departamento de destino.');
+    }
+
+    const compraItemsPre = cartItems.filter((it) => it.tipo === 'compra');
+    if (compraItemsPre.length > 0) {
+      const checkLimite = validarOperacionConLimite({
+        tipo: 'solicitud',
+        esEdicion: false,
+        cantidadItems: compraItemsPre.length,
+        reqs: requirements,
+        cfg: configLimites,
+        userId: uid,
+        isAdmin: role === 'admin',
+      });
+      if (!checkLimite.ok) {
+        return toast.error(checkLimite.error || 'Se alcanzó el límite máximo de solicitudes.');
+      }
     }
 
     setSubmittingCart(true);
@@ -1257,6 +1333,23 @@ export default function SolicitudMaterialScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      <CupoLimiteBanner
+        cupo={cupoSolicitudes}
+        config={configLimites}
+        onChangeConfig={setConfigLimites}
+        puedeConfigurar={puedeConfigurarLimites}
+        userId={uid}
+        totalFiltrados={tab === 'mis_solicitudes' ? requirementsFiltradas.length : undefined}
+        visiblesCount={
+          tab === 'mis_solicitudes'
+            ? aplicarLimiteTarjetasVisibles(requirementsFiltradas, limiteTarjetasMisSol).visibles.length
+            : undefined
+        }
+        limiteTarjetasActual={limiteTarjetasMisSol}
+        onChangeLimiteTarjetas={setLimiteTarjetasMisSol}
+        onVerMisSolicitudes={tab === 'nueva' ? () => setTab('mis_solicitudes') : undefined}
+      />
 
       {/* ════════════════════════════════════════════════════════════════════════ */}
       {/* VISTA 1: PEDIR MATERIAL / REPUESTO                                     */}
@@ -2895,7 +2988,7 @@ export default function SolicitudMaterialScreen() {
               subtitle="No hay solicitudes de compra técnica registradas por tu usuario."
             />
           ) : (
-            requirementsFiltradas.slice(0, 30).map((r) => {
+            aplicarLimiteTarjetasVisibles(requirementsFiltradas, limiteTarjetasMisSol).visibles.map((r) => {
               const est = ESTADO_COMPRA_CONFIG[r.status] || ESTADO_COMPRA_CONFIG.pendiente;
               const estadoDinamico = calcularEstadoRequerimiento(r);
               const fac = extraerFactura(r);

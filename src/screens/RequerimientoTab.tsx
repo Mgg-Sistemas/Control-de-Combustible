@@ -125,6 +125,15 @@ import {
 import { TimelineExpedienteBox } from './HistoricoComprasTab';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import {
+  ConfigLimitesCompras,
+  aplicarLimiteTarjetasVisibles,
+  evaluarCupoRequerimientos,
+  obtenerConfigLimitesCompras,
+  validarOperacionConLimite,
+} from '../lib/limitesCompras';
+import { suscribirConfigLimitesCompras } from '../lib/limitesComprasStorage';
+import { CupoLimiteBanner } from '../components/CupoLimiteBanner';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const qtyFmt = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString();
@@ -539,6 +548,28 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   // ⚙️ Regla de Aprobación de Requerimientos (solo visible para los responsables de sistemas)
   const [configAprobacion, setConfigAprobacion] = useState<ReglaAprobacionMonto>(obtenerConfigAprobacionMonto);
+  const [configLimites, setConfigLimites] = useState<ConfigLimitesCompras>(obtenerConfigLimitesCompras);
+  const [limiteTarjetasReq, setLimiteTarjetasReq] = useState<number>(
+    () => obtenerConfigLimitesCompras().maxTarjetasVisibles ?? 50,
+  );
+
+  useEffect(() => {
+    return suscribirConfigLimitesCompras((cfg) => {
+      setConfigLimites(cfg);
+      setLimiteTarjetasReq(cfg.maxTarjetasVisibles ?? 50);
+    });
+  }, []);
+
+  const cupoRequerimientos = useMemo(
+    () =>
+      evaluarCupoRequerimientos({
+        reqs: allReqs,
+        cfg: configLimites,
+        userId: uid,
+        isAdmin,
+      }),
+    [allReqs, configLimites, uid, isAdmin],
+  );
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [cfgActivo, setCfgActivo] = useState(true);
   const [cfgExigirEnTodos, setCfgExigirEnTodos] = useState(true);
@@ -655,6 +686,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const permisosAprob = usePermisosAprobacion(uid);
   const puedeVerConfigAprobacion = permisosAprob.puedeConfigurar;
   const puedeAprobarRequerimientos = permisosAprob.puedeAprobar;
+  const puedeConfigurarLimites = isAdmin || puedeVerConfigAprobacion;
 
   // 👁️ Visor de Factura / Recibo Modal
   const [facturaViewerOpen, setFacturaViewerOpen] = useState(false);
@@ -2585,6 +2617,21 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       };
     });
     if (items.length === 0) { const m = 'Agrega al menos un producto (del inventario o nuevo) antes de guardar.'; setFormErr(m); return toast.error(m); }
+    const checkLim = validarOperacionConLimite({
+      tipo: 'requerimiento',
+      esEdicion: Boolean(editId),
+      cantidadItems: items.length,
+      montoTotalUsd: createTotalUsd,
+      reqs: allReqs,
+      cfg: configLimites,
+      userId: uid,
+      isAdmin,
+    });
+    if (!checkLim.ok) {
+      const m = checkLim.error || 'Se alcanzó el límite máximo de requerimientos.';
+      setFormErr(m);
+      return toast.error(m);
+    }
     setBusy(true);
 
     const primerFmt = formatos[0] || null;
@@ -3683,6 +3730,19 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         Pide productos del inventario o nuevos para que el usuario designado ({configAprobacion.aprobadoresNombres.join(' / ') || 'Gerente General'}) apruebe la compra. Si se compra, se recibe en el inventario con su precio. {rate ? `Tasa hoy: ${fmtBs(rate)}/US$.` : ''}
       </Text>
 
+      <CupoLimiteBanner
+        cupo={cupoRequerimientos}
+        config={configLimites}
+        onChangeConfig={setConfigLimites}
+        puedeConfigurar={puedeConfigurarLimites}
+        userId={uid}
+        usuarios={usuariosSistema}
+        totalFiltrados={reqsPorEmpresa.length}
+        visiblesCount={aplicarLimiteTarjetasVisibles(reqsPorEmpresa, limiteTarjetasReq).visibles.length}
+        limiteTarjetasActual={limiteTarjetasReq}
+        onChangeLimiteTarjetas={setLimiteTarjetasReq}
+      />
+
       {/* Filtro por Empresa (una o varias) */}
       <View
         style={{
@@ -4021,7 +4081,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 </TouchableOpacity>
               );
             })()}
-            {filteredReqs.map((r) => {
+            {aplicarLimiteTarjetasVisibles(filteredReqs, limiteTarjetasReq).visibles.map((r) => {
               const rSel = reqSelIds.has(r.id);
               return (
                 <View key={r.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs }}>
