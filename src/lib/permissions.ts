@@ -82,10 +82,10 @@ export const MODULES: { key: string; label: string }[] = [
   // 🏭 23-oct-2026: mini sistema AISLADO para operar un sitio (el primero es un
   //    CDT). Nace CERRADO (ver defaultLevel): lo abre el administrador por persona.
   { key: 'centro_operaciones', label: 'Centro de Operaciones' },
-  // 📡 10-nov-2026: GPS de los vehículos (enlaces de iTrackSafeX). Nace CERRADO (ver
+  // 📡 10-nov-2026: GPS de los vehículos (Detektor; 12-nov). Nace CERRADO (ver
   //    defaultLevel): muestra dónde está cada vehículo. lectura = ver y actualizar ubicaciones;
   //    escritura/full = además cargar, renovar, vincular o quitar enlaces.
-  { key: 'gps', label: 'GPS de los vehículos (iTrackSafeX)' },
+  { key: 'gps', label: 'GPS de los vehículos (Detektor)' },
 ];
 
 // ── FICHAS DE ROL (31-oct-2026) ─────────────────────────────────────────────

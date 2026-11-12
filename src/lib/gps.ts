@@ -1,212 +1,62 @@
-// 📡 GPS DE LOS VEHÍCULOS (iTrackSafeX) — 10-nov-2026, a pedido: «conectar la ubicación GPS
-// que envía iTrackSafeX… saber su ubicación cuando la necesite, sin que impacte la base de datos
-// ni ponga lento el sistema»; «habrá como 30 camiones… si le doy a actualizar, que solo en ese
-// momento me traiga la ubicación de uno, de varios o de los que necesite en el mapa».
+// 📡 GPS DE LAS MÁQUINAS — DETEKTOR (12-nov-2026; reemplaza lo de iTrackSafeX).
 //
-// CÓMO FUNCIONA (sin la clave de la cuenta):
-//   · iTrackSafeX es la plataforma GPS51 con otra marca. Su app comparte la ubicación de un
-//     equipo con un ENLACE («Compartir», de 1 hora a 1 año). El enlace lleva un `authcode`.
-//   · La misma página del enlace le pregunta la última posición a `web.itracksafe.com`
-//     (action=sharetracklastposition) con ese authcode. Su servidor acepta que lo pregunte
-//     otro sitio (CORS abierto), así que el TELÉFONO o la PC le preguntan DIRECTO:
-//     Supabase no recibe ni guarda ni una posición (cero escrituras, cero tráfico por consulta).
-//   · En la base solo vive la lista de enlaces (public.gps_enlaces, una fila por vehículo),
-//     visible únicamente con el permiso «GPS».
-//   · Solo se consulta cuando alguien toca «Actualizar»: nada en segundo plano ni en bucle.
-//     Varios a la vez se piden DE 5 EN 5 para no saturar a iTrackSafeX.
+// Pedido: conectar los trackers con el sistema usando los servicios web de Detektor (su manual
+// «Web Services Datos Estadísticos»). Dirección comprobada el 12-nov: la ruta de Venezuela es
+//   https://ve.detektorgps.com/gps_ve/framework/servicios/<servicio>/datos.php
+// (con «gt.» y «gps_ve» da 404). POST con formulario (x-www-form-urlencoded); sin usuario responde
+// {"status":"fail","info":"Se requiere Autenticacion para continuar"}.
 //
-// Si un día iTrackSafeX cambia esa dirección, la consulta falla con un mensaje claro y el
-// enlace se puede seguir abriendo en su página (que siempre funciona).
-// La prueba de esta librería: scripts/test-gps.mjs.
+// ⭐ EL USUARIO Y LA CLAVE DE DETEKTOR NUNCA LLEGAN AL TELÉFONO NI A LA PC: viven escondidos en el
+//    puente de Supabase (Edge Function `gps-detektor`), que revisa el permiso «GPS» de quien pide y
+//    solo consulta las placas VINCULADAS en el sistema (tabla gps_vehiculos).
+//
+// Detektor no tiene «posición en vivo»: tiene DETENCIONES (dónde y cuánto se detuvo, con lat/lng),
+// el RESUMEN DE ACTIVIDAD DIARIA (primer encendido, último apagado, tiempo efectivo, km…) y
+// ESTADÍSTICAS por motivo (horómetro, distancia, ralentí…). La ubicación que se muestra es la de su
+// ÚLTIMA DETENCIÓN: si sigue ahí, «detenida aquí desde…»; si ya salió, «en movimiento: su última
+// parada fue…».
+//
+// Esta librería es PURA (sin pantalla ni base): la prueba es scripts/test-gps.mjs.
 
-/** El servidor de iTrackSafeX (custom/config.js de itracksafe.com: hostDomain). */
-export const GPS_HOST = 'https://web.itracksafe.com';
-export const GPS_ACCION = 'webapi?action=sharetracklastposition';
-/** Cuántas consultas a la vez cuando se actualizan varios. */
-export const GPS_TANDA = 5;
-/** Más viejo que esto, el punto sale en GRIS: «fuera de línea, esta es la última que reportó». */
-export const GPS_VIEJO_MIN = 60;
-/** Para «En línea»: reportó hace menos de esto. */
-export const GPS_EN_LINEA_MIN = 30;
-/** Se avisa cuando al enlace le quedan menos de estos días. */
-export const GPS_AVISO_DIAS = 15;
+/** La base de los servicios (también la usa el puente; allá se puede cambiar con DETEKTOR_URL). */
+export const DETEKTOR_BASE = 'https://ve.detektorgps.com/gps_ve/framework/servicios';
+export const SERVICIOS_DETEKTOR = {
+  estadistico: 'wsEstadisticoREST',
+  resumen: 'wsResumenActividadDiaria',
+  detenciones: 'wsDetenciones',
+} as const;
 
-export type EnlaceLeido = {
-  /** El nombre que viene en el texto que copia la app («Click to view Fordterritory track…»). */
-  nombre: string | null;
-  authcode: string;
-  serverid: string;
-  /** El enlace tal cual, para abrirlo en la página de iTrackSafeX. */
-  url: string;
-};
+/** Si la última detención terminó hace menos de esto, «sigue detenida ahí». */
+export const GPS_SIGUE_AHI_MIN = 15;
+/** Más vieja que esto, el punto sale en GRIS (sin noticias recientes del equipo). */
+export const GPS_VIEJO_MIN = 6 * 60;
 
-const RX_AUTH = /authcode=([0-9a-fA-F]{16,64})/;
+// ── Fechas: Detektor habla en hora local de Venezuela (UTC−4) ────────────────────
 
-/**
- * Lee UNO O VARIOS enlaces pegados juntos, tal como los copia la app:
- *   «Click to view Fordterritory track,share duration 1D： http://itracksafe.com/#/tracking?authcode=…»
- * Repetidos (mismo authcode) salen una sola vez. Lo que no tenga authcode se ignora.
- */
-export function leerEnlaces(texto: string): EnlaceLeido[] {
-  const out: EnlaceLeido[] = [];
-  const vistos = new Set<string>();
-  const src = String(texto ?? '');
-  const rxUrl = /(https?:\/\/[^\s"'<>]+)/g;
-  let m: RegExpExecArray | null;
-  let desde = 0;
-  while ((m = rxUrl.exec(src))) {
-    const url = m[1].replace(/[),.;]+$/, '');
-    const a = RX_AUTH.exec(url);
-    const antes = src.slice(desde, m.index);
-    desde = m.index + m[0].length;
-    if (!a || !urlSegura(url)) continue; // solo enlaces de itracksafe.com
-    const authcode = a[1].toLowerCase();
-    if (vistos.has(authcode)) continue;
-    vistos.add(authcode);
-    const sv = /serverid=(\d{1,4})(?!\d)/.exec(url);
-    const serverid = sv ? sv[1] : '0';
-    // El nombre: lo que hay entre «view» y «track» en el texto de ANTES del enlace.
-    const n = /view\s+(.+?)\s+track/i.exec(antes) ?? /ver\s+(?:el\s+)?(?:recorrido\s+de\s+)?(.+?)\s*[,:：]/i.exec(antes);
-    // 🔒 Lo pegado NO se guarda tal cual: el enlace se REARMA con el código y el servidor.
-    out.push({ nombre: n ? n[1].trim().slice(0, 80) : null, authcode, serverid, url: urlDeEnlace(authcode, serverid) });
-  }
-  return out;
+/** «2026-11-12 07:30:05» (hora de Caracas) → ms. NaN si no se entiende. */
+export function msDeFechaDetektor(s: unknown): number {
+  const m = String(s ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!m) return NaN;
+  return Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4] ?? '00'}:${m[5] ?? '00'}:${m[6] ?? '00'}-04:00`);
 }
 
-/** La dirección para abrir el enlace en la página de iTrackSafeX (si no se guardó el original). */
-export const urlDeEnlace = (authcode: string, serverid = '0') =>
-  `http://itracksafe.com/#/tracking?authcode=${encodeURIComponent(authcode)}&language=es&serverid=${encodeURIComponent(serverid)}`;
-
-/**
- * 🔒 Solo direcciones http(s) de itracksafe.com. Todo enlace que se pinta o se abre pasa por
- * aquí: un «javascript:» o una página ajena guardados en la base no llegan a la pantalla.
- */
-export function urlSegura(u: string | null | undefined): string | null {
-  try {
-    const x = new URL(String(u ?? ''));
-    return (x.protocol === 'https:' || x.protocol === 'http:') && /(^|\.)itracksafe\.com$/i.test(x.hostname) ? x.href : null;
-  } catch { return null; }
+/** ms → «2026-11-12 07:30:05» en hora de Caracas (lo que pide Detektor). */
+export function fechaDetektor(ms: number): string {
+  const d = new Date(ms - 4 * 3600 * 1000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
 }
 
-/** Lo que se abre al tocar «Abrir en iTrackSafeX»: el guardado si es seguro; si no, se rearma. */
-export const urlParaAbrir = (e: { url?: string | null; authcode: string; serverid?: string | null }) =>
-  urlSegura(e.url) ?? urlDeEnlace(e.authcode, e.serverid ?? '0');
-
-export type PosicionGps = {
-  ok: true;
-  deviceId: string | null;
-  nombre: string | null;
-  lat: number;
-  lng: number;
-  /** km/h */
-  velocidad: number;
-  rumbo: number | null;
-  enMarcha: boolean;
-  /** Cuándo reportó el equipo (ms). */
-  reporte: number | null;
-  /** Cuándo tuvo su última posición VÁLIDA de GPS (ms). */
-  posicionValida: number | null;
-  /** «Motor apagado hace 1d 1h 35m · Batería 12,97 V» (traducido de lo que manda la plataforma). */
-  estadoTexto: string | null;
-  /** Hasta cuándo vale el enlace (ms), según iTrackSafeX. */
-  vence: number | null;
-};
-export type FalloGps = { ok: false; motivo: 'vencido' | 'sin_posicion' | 'red' | 'respuesta'; mensaje: string; vence?: number | null; nombre?: string | null; deviceId?: string | null };
-export type ResultadoGps = PosicionGps | FalloGps;
-
-const num = (v: unknown): number | null => { const n = Number(v); return Number.isFinite(n) ? n : null; };
-
-/** «ACC Off 1D1H35M/Voltage 12.97V» → «Motor apagado hace 1d 1h 35m · Batería 12,97 V». */
-export function traducirEstado(s: unknown): string | null {
-  const t = String(s ?? '').trim();
-  if (!t) return null;
-  return t
-    .split('/')
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => p
-      .replace(/^ACC\s*On\s*/i, 'Motor encendido hace ')
-      .replace(/^ACC\s*Off\s*/i, 'Motor apagado hace ')
-      .replace(/^Voltage\s*([\d.]+)\s*V/i, (_x, v) => `Batería ${String(v).replace('.', ',')} V`)
-      .replace(/(\d+)D/g, '$1d ').replace(/(\d+)H/g, '$1h ').replace(/(\d+)M(?![a-z])/g, '$1m ').replace(/(\d+)S/g, '$1s ')
-      .replace(/hace\s*$/, '')
-      .replace(/\s+/g, ' ')
-      .trim())
-    .join(' · ');
+/** «11:22:08» o «0:00» → horas (11.369). null si no se entiende. */
+export function horasDeDuracion(v: unknown): number | null {
+  const m = String(v ?? '').trim().match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);
+  if (!m) return null;
+  return Number(m[1]) + Number(m[2]) / 60 + Number(m[3] ?? 0) / 3600;
 }
 
-/** Lo que responde iTrackSafeX → lo que el sistema muestra. Nunca lanza. */
-export function leerRespuesta(d: any): ResultadoGps {
-  if (!d || typeof d !== 'object') return { ok: false, motivo: 'respuesta', mensaje: 'iTrackSafeX respondió algo que no se entiende.' };
-  const vence = num(d.expire) || null;
-  const nombre = d.devicename ? String(d.devicename) : null;
-  const deviceId = d.deviceid ? String(d.deviceid) : null;
-  if (Number(d.status) !== 0) return { ok: false, motivo: 'respuesta', mensaje: `iTrackSafeX: ${d.cause || 'error'}`, vence, nombre, deviceId };
-  if (Number(d.isvalid) !== 1) return { ok: false, motivo: 'vencido', mensaje: 'El enlace está vencido o fue cancelado en la app. Comparte uno nuevo y pégalo aquí.', vence, nombre, deviceId };
-  const r = Array.isArray(d.records) ? d.records[0] : null;
-  const lat = num(r?.callat);
-  const lng = num(r?.callon);
-  if (!r || lat == null || lng == null || (lat === 0 && lng === 0)) return { ok: false, motivo: 'sin_posicion', mensaje: 'El equipo todavía no tiene una posición para mostrar.', vence, nombre, deviceId };
-  return {
-    ok: true,
-    deviceId: deviceId ?? (r.deviceid ? String(r.deviceid) : null),
-    nombre,
-    lat, lng,
-    velocidad: Math.max(0, num(r.speed) ?? 0),
-    rumbo: num(r.course),
-    enMarcha: Number(r.moving) === 1 || (num(r.speed) ?? 0) > 3,
-    reporte: num(r.devicetime) || num(r.arrivedtime) || null,
-    posicionValida: num(r.validpoistiontime) || null,
-    estadoTexto: traducirEstado(r.strstatusen),
-    vence,
-  };
-}
-
-/**
- * Pregunta la última posición de UN enlace. `fetcher` se puede cambiar en la prueba.
- * Directo del teléfono/PC a iTrackSafeX: no pasa por Supabase.
- */
-export async function consultarPosicion(authcode: string, fetcher: typeof fetch = fetch, timeoutMs = 12000): Promise<ResultadoGps> {
-  let timer: any = null;
-  try {
-    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    if (ctrl) timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetcher(`${GPS_HOST}/${GPS_ACCION}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ authcode, lastquerypositiontime: 0 }),
-      signal: ctrl?.signal,
-    } as any);
-    if (!res.ok) return { ok: false, motivo: 'red', mensaje: `iTrackSafeX no respondió bien (${res.status}).` };
-    return leerRespuesta(await res.json());
-  } catch (e: any) {
-    const aborto = e?.name === 'AbortError';
-    return { ok: false, motivo: 'red', mensaje: aborto ? 'iTrackSafeX tardó demasiado en responder.' : 'No se pudo conectar con iTrackSafeX (¿sin internet?).' };
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-/** Corre `fn` sobre todos, pero de `tanda` en `tanda` (para no pedir 30 de golpe). */
-export async function enTandas<T, R>(items: T[], tanda: number, fn: (x: T) => Promise<R>, alAvanzar?: (hechos: number) => void): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let i = 0;
-  let hechos = 0;
-  const n = Math.max(1, Math.min(tanda, items.length || 1));
-  await Promise.all(Array.from({ length: n }, async () => {
-    while (i < items.length) {
-      const k = i++;
-      out[k] = await fn(items[k]);
-      hechos++;
-      alAvanzar?.(hechos);
-    }
-  }));
-  return out;
-}
-
-/** «hace 3 min», «hace 2 h 10 min», «hace 1 d 4 h». */
+/** «hace 3 min», «hace 2 h 10 min», «hace 1 d 3 h». */
 export function haceCuanto(ms: number | null | undefined, ahora: number): string {
-  if (!ms) return 'sin dato';
+  if (!ms || !Number.isFinite(ms)) return 'sin dato';
   const min = Math.max(0, Math.round((ahora - ms) / 60000));
   if (min < 1) return 'hace menos de 1 min';
   if (min < 60) return `hace ${min} min`;
@@ -216,52 +66,189 @@ export function haceCuanto(ms: number | null | undefined, ahora: number): string
   return `hace ${d} d${h % 24 ? ` ${h % 24} h` : ''}`;
 }
 
-export type Frescura = 'en_linea' | 'reciente' | 'viejo';
-/** En línea (< 30 min), reciente (< 1 h) o viejo (gris: es la última que reportó). */
-export function frescura(ms: number | null | undefined, ahora: number): Frescura {
-  if (!ms) return 'viejo';
-  const min = (ahora - ms) / 60000;
-  return min < GPS_EN_LINEA_MIN ? 'en_linea' : min < GPS_VIEJO_MIN ? 'reciente' : 'viejo';
+/** «2 h 15 min» de segundos. */
+export function textoDuracion(seg: number | null | undefined): string {
+  const s = Math.max(0, Math.round(Number(seg) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
 }
 
-/** Días que le quedan al enlace (negativo = vencido). null si no se sabe. */
-export function diasParaVencer(vence: number | string | null | undefined, ahora: number): number | null {
-  const ms = typeof vence === 'string' ? Date.parse(vence) : vence ?? NaN;
-  if (!Number.isFinite(ms)) return null;
-  return Math.floor(((ms as number) - ahora) / 86400000);
+// ── Placas ─────────────────────────────────────────────────────────────────────
+
+/** Mayúsculas y solo letras y números: «ab12-cd 3e» → «AB12CD3E». */
+export const normalizarPlaca = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** «1234 - [alias-1234]» (como viene en detenciones) → { placa, alias }. */
+export function placaYAlias(campo: unknown): { placa: string; alias: string } {
+  const t = String(campo ?? '').trim();
+  const m = t.match(/^(.*?)\s*-\s*\[(.*)\]\s*$/);
+  return m ? { placa: m[1].trim(), alias: m[2].trim() } : { placa: t, alias: '' };
 }
+
+/** ¿Esta fila de Detektor es de ese vehículo (por placa o por alias, sin importar guiones ni espacios)? */
+export function esDelVehiculo(fila: { placa?: string; alias?: string }, placaAlias: string): boolean {
+  const q = normalizarPlaca(placaAlias);
+  return !!q && (normalizarPlaca(fila.placa) === q || normalizarPlaca(fila.alias) === q);
+}
+
+// ── Respuestas ─────────────────────────────────────────────────────────────────
+
+/** Una respuesta de Detektor: la lista, o el error que mandó («Se requiere Autenticacion…»). */
+export function leerRespuestaDetektor(d: unknown): { filas: any[]; error: string | null } {
+  if (Array.isArray(d)) return { filas: d, error: null };
+  if (d && typeof d === 'object') {
+    const o = d as any;
+    if (o.status === 'fail' || o.error) return { filas: [], error: `Detektor: ${o.info || o.error || 'error'}` };
+    if (Array.isArray(o.data)) return { filas: o.data, error: null };
+  }
+  return { filas: [], error: 'Detektor respondió algo que no se entiende.' };
+}
+
+export type Detencion = {
+  placa: string;
+  alias: string;
+  inicioMs: number;
+  finMs: number;
+  lat: number;
+  lng: number;
+  /** «A 1036 M (ESCUINTLA, ESCUINTLA)» (sin el código del final). */
+  lugar: string;
+  segundos: number;
+  motorEncendido: boolean;
+};
+
+/** Las detenciones de wsDetenciones, limpias (las que no traen coordenadas válidas no sirven). */
+export function leerDetenciones(filas: any[]): Detencion[] {
+  const out: Detencion[] = [];
+  for (const r of filas ?? []) {
+    const { placa, alias } = placaYAlias(r?.placa);
+    const lat = Number(r?.latitud);
+    const lng = Number(r?.longitud);
+    const inicioMs = msDeFechaDetektor(r?.fechainicio);
+    const finMs = msDeFechaDetektor(r?.fechafinal);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0) || !Number.isFinite(finMs)) continue;
+    out.push({
+      placa, alias, inicioMs: Number.isFinite(inicioMs) ? inicioMs : finMs, finMs, lat, lng,
+      lugar: String(r?.georeferencia ?? '').replace(/\s*-\s*\[[^\]]*\]\s*$/, '').trim(),
+      segundos: Number(r?.tiempo) || 0,
+      motorEncendido: String(r?.ignicion ?? '') === '1',
+    });
+  }
+  return out.sort((a, b) => a.finMs - b.finMs);
+}
+
+export type UbicacionGps = {
+  placaAlias: string;
+  lat: number;
+  lng: number;
+  lugar: string;
+  /** ¿Sigue detenida ahí? (su última detención termina hace menos de 15 min). */
+  detenida: boolean;
+  /** Desde cuándo está detenida ahí (o cuándo llegó a su última parada). */
+  desdeMs: number;
+  /** Cuándo terminó su última parada (si ya salió). */
+  hastaMs: number;
+  motorEncendido: boolean;
+};
+
+/** ⭐ La ÚLTIMA posición conocida de un vehículo: su detención más reciente. null si no hay. */
+export function ultimaUbicacion(dets: Detencion[], placaAlias: string, ahoraMs: number): UbicacionGps | null {
+  const suyas = (dets ?? []).filter((d) => esDelVehiculo(d, placaAlias));
+  if (!suyas.length) return null;
+  const u = suyas.reduce((a, b) => (b.finMs >= a.finMs ? b : a));
+  return {
+    placaAlias, lat: u.lat, lng: u.lng, lugar: u.lugar, desdeMs: u.inicioMs, hastaMs: u.finMs, motorEncendido: u.motorEncendido,
+    detenida: ahoraMs - u.finMs < GPS_SIGUE_AHI_MIN * 60000,
+  };
+}
+
+/** Las líneas de la ventanita del punto en el mapa. */
+export function lineasUbicacion(u: UbicacionGps, ahoraMs: number): string[] {
+  const hora = (ms: number) => { const d = new Date(ms - 4 * 3600 * 1000); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
+  return u.detenida
+    ? [`⏸️ Detenida aquí desde las ${hora(u.desdeMs)} (${textoDuracion((ahoraMs - u.desdeMs) / 1000)})`, u.motorEncendido ? '🟢 Motor encendido' : '⚫ Motor apagado', ...(u.lugar ? [`📍 ${u.lugar}`] : [])]
+    : [`🚚 En movimiento: su última parada fue aquí, de ${hora(u.desdeMs)} a ${hora(u.hastaMs)} (${haceCuanto(u.hastaMs, ahoraMs)})`, ...(u.lugar ? [`📍 ${u.lugar}`] : [])];
+}
+
+/** Gris = sin noticias en las últimas 6 h. */
+export const ubicacionVieja = (u: UbicacionGps, ahoraMs: number) => ahoraMs - u.hastaMs > GPS_VIEJO_MIN * 60000;
+
+// ── Resumen de actividad diaria ────────────────────────────────────────────────
+
+export type ActividadDia = {
+  fecha: string;
+  placa: string;
+  alias: string;
+  primerEncendido: string | null;
+  ultimoApagado: string | null;
+  /** Horas entre el primer encendido y el último apagado. */
+  horasEncendidoApagado: number | null;
+  /** Horas detenida con el motor apagado / encendido (ralentí). */
+  horasDetenidoApagado: number | null;
+  horasDetenidoEncendido: number | null;
+  /** Horas de trabajo efectivo (en movimiento). */
+  horasEfectivas: number | null;
+  km: number | null;
+};
+
+/** Las filas de wsResumenActividadDiaria (una por motivo y día) → una fila por vehículo y día. */
+export function leerResumenDiario(filas: any[]): ActividadDia[] {
+  const mapa = new Map<string, ActividadDia>();
+  for (const r of filas ?? []) {
+    const fecha = String(r?.fecha ?? '').slice(0, 10);
+    const placa = String(r?.placa ?? '').trim();
+    if (!fecha || !placa) continue;
+    const k = `${normalizarPlaca(placa)}|${fecha}`;
+    if (!mapa.has(k)) mapa.set(k, { fecha, placa, alias: String(r?.alias ?? '').trim(), primerEncendido: null, ultimoApagado: null, horasEncendidoApagado: null, horasDetenidoApagado: null, horasDetenidoEncendido: null, horasEfectivas: null, km: null });
+    const a = mapa.get(k)!;
+    const motivo = String(r?.motivo ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const valor = String(r?.valor ?? '').trim();
+    // «Tiempo entre Primer Encendido y Ult. Apagado» va PRIMERO: también dice «primer encendido».
+    if (/tiempo entre/.test(motivo)) a.horasEncendidoApagado = horasDeDuracion(valor);
+    else if (/primer encendido/.test(motivo)) a.primerEncendido = valor || null;
+    else if (/ultimo apagado/.test(motivo)) a.ultimoApagado = valor || null;
+    else if (/motor apagado/.test(motivo)) a.horasDetenidoApagado = horasDeDuracion(valor);
+    else if (/motor encendido/.test(motivo)) a.horasDetenidoEncendido = horasDeDuracion(valor);
+    else if (/efectivo/.test(motivo)) a.horasEfectivas = horasDeDuracion(valor);
+    else if (/kilometraje/.test(motivo)) { const n = Number(valor.replace(',', '.')); a.km = Number.isFinite(n) ? n : null; }
+  }
+  return [...mapa.values()].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.placa.localeCompare(b.placa));
+}
+
+/** Los vehículos de la cuenta (placa y alias), de cualquier respuesta de Detektor. */
+export function vehiculosDeLaCuenta(filas: any[]): { placa: string; alias: string }[] {
+  const vistos = new Map<string, { placa: string; alias: string }>();
+  for (const r of filas ?? []) {
+    const pa = String(r?.placa ?? '').includes('[') ? placaYAlias(r.placa) : { placa: String(r?.placa ?? '').trim(), alias: String(r?.alias ?? '').trim() };
+    const k = normalizarPlaca(pa.placa) || normalizarPlaca(pa.alias);
+    if (k && !vistos.has(k)) vistos.set(k, pa);
+  }
+  return [...vistos.values()].sort((a, b) => a.placa.localeCompare(b.placa, 'es', { numeric: true }));
+}
+
+// ── Vincular con el Catálogo ───────────────────────────────────────────────────
 
 export type EquipoCatalogo = { id: string; code?: string | null; plate?: string | null; marca?: string | null; modelo?: string | null; clasificacion?: string | null; empresa?: string | null };
-const norm = (s: unknown) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
-const compacto = (s: unknown) => norm(s).replace(/\s+/g, '');
 
 /**
- * El vehículo del catálogo que más se parece al nombre del GPS («Gandola Trakker Iveco»,
- * «EP-1000 Encava Blanca»). Solo PROPONE: la persona confirma o corrige.
- * Puntos: placa o código escritos tal cual valen mucho; cada palabra de 3+ letras suma 1.
+ * La máquina del Catálogo que corresponde a una placa/alias de Detektor: por PLACA (o un pedazo de
+ * «CHUTO/LOWBOY») o por CÓDIGO, escritos igual. Solo PROPONE: la persona confirma o corrige.
  */
-export function sugerirEquipo(nombreGps: string | null | undefined, catalogo: EquipoCatalogo[]): EquipoCatalogo | null {
-  const n = norm(nombreGps);
-  if (!n) return null;
-  const nc = compacto(nombreGps);
-  const palabras = [...new Set(n.split(' ').filter((p) => p.length >= 3))];
-  let mejor: EquipoCatalogo | null = null;
-  let puntos = 0;
+export function sugerirEquipo(v: { placa: string; alias: string }, catalogo: EquipoCatalogo[]): EquipoCatalogo | null {
+  const claves = [normalizarPlaca(v.placa), normalizarPlaca(v.alias)].filter((x) => x.length >= 3);
+  if (!claves.length) return null;
   for (const e of catalogo ?? []) {
-    let p = 0;
-    const placa = compacto(e.plate);
-    const codigo = compacto(e.code);
-    if (placa.length >= 5 && nc.includes(placa)) p += 10;
-    if (codigo.length >= 3 && nc.includes(codigo)) p += 6;
-    const texto = ` ${norm([e.code, e.plate, e.marca, e.modelo, e.clasificacion].filter(Boolean).join(' '))} `;
-    for (const w of palabras) if (texto.includes(` ${w} `) || texto.includes(` ${w}`)) p += 1;
-    if (p > puntos) { puntos = p; mejor = e; }
+    const pedazos = String(e.plate ?? '').split(/[\/,;]/).map(normalizarPlaca).filter((x) => x.length >= 3);
+    if (pedazos.some((p) => claves.includes(p))) return e;
   }
-  return puntos >= 2 ? mejor : null;
+  for (const e of catalogo ?? []) {
+    const c = normalizarPlaca(e.code);
+    if (c.length >= 3 && claves.includes(c)) return e;
+  }
+  return null;
 }
 
-/** Cómo se llama el vehículo en pantalla: el del catálogo si está vinculado; si no, el del GPS. */
-export const nombreVehiculo = (enlace: { nombre?: string | null; equipo?: { code?: string | null; plate?: string | null } | null }) =>
-  enlace.equipo?.code
-    ? `${enlace.equipo.code}${enlace.equipo.plate ? ` · ${enlace.equipo.plate}` : ''}`
-    : (enlace.nombre || 'Vehículo');
+/** Cómo se llama el vehículo en pantalla: el código del Catálogo (con su placa); si no, la placa del GPS. */
+export const nombreVehiculo = (v: { placaAlias?: string | null; equipo?: { code?: string | null; plate?: string | null } | null }) =>
+  v.equipo?.code ? `${v.equipo.code}${v.equipo.plate ? ` · ${v.equipo.plate}` : ''}` : (v.placaAlias || 'Vehículo');

@@ -67,7 +67,7 @@ export default function MapScreen({ navigation, route }: any) {
   if (!rtId.current) rtId.current = nextRtInstanceId();
   const { role, moduleLevel } = useAuth();
   const isAdmin = role === 'admin';
-  // 📡 GPS (10-nov-2026): la capa de iTrackSafeX en ESTE mapa, solo con el permiso «GPS».
+  // 📡 GPS (10-nov-2026): la capa de Detektor en ESTE mapa, solo con el permiso «GPS».
   const verGps = moduleLevel('gps') !== 'none';
   const [gpsPins, setGpsPins] = useState<GpsPinMapa[]>([]);
   const [gpsFoco, setGpsFoco] = useState<{ id: string; n: number } | null>(null);
@@ -719,7 +719,7 @@ export default function MapScreen({ navigation, route }: any) {
 
           <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} zoneOffsets={zoneOffsets} zoneEdit={isAdmin && zoneEdit} showRoutes={showRoutes} gps={gpsPins} gpsFoco={gpsFoco} />
 
-          {/* 📡 GPS de las máquinas (iTrackSafeX): solo con el permiso «GPS». */}
+          {/* 📡 GPS de las máquinas (Detektor): solo con el permiso «GPS». */}
           {verGps ? <GpsPanelMapa onPuntos={setGpsPins} onFoco={irAGps} /> : null}
 
           {/* Tipo de maquinaria (capas) — DEBAJO del mapa. */}

@@ -1,16 +1,15 @@
-// 📡 GPS DE LOS VEHÍCULOS (iTrackSafeX, 10-nov-2026). Fija:
-//   · cómo se leen los enlaces que copia la app (uno o varios pegados juntos),
-//   · cómo se entiende la respuesta de iTrackSafeX (vigente, vencido, sin posición),
-//   · que varios se piden de 5 en 5 y NUNCA pasan por Supabase,
-//   · que el permiso nace cerrado y la tabla no tiene auditoría ni tiempo real.
-// Con GPS_AUTHCODE=<código> además consulta UN enlace real (no se guarda en el repo: es público).
+// 📡 GPS DE LAS MÁQUINAS — DETEKTOR (12-nov-2026). Fija:
+//   · cómo se leen las respuestas de Detektor (detenciones, resumen diario, errores),
+//   · la ÚLTIMA ubicación (detenida aquí / en movimiento) y las fechas en hora de Caracas,
+//   · ⭐ que el usuario y la clave de Detektor NO están en la app (solo en el puente de Supabase),
+//   · que el puente revisa el permiso, solo consulta placas vinculadas, limita fechas y no filtra la clave,
+//   · que la ubicación sale en el MISMO mapa de la maquinaria (capa 📡) con UNA consulta por toque.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.join(HERE, '..');
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(path.join(ROOT, 'package.json'));
 const ts = require('typescript');
 const Module = require('module');
@@ -25,155 +24,112 @@ const leer = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
 const G = loadTs(path.join(ROOT, 'src/lib/gps.ts'));
 
-// ── 1) Leer los enlaces tal como los copia la app ──
-const A1 = 'feedc0de0000111122223333deadbeef'; // inventado (el repositorio es público)
-const A2 = '0123456789abcdef0123456789abcdef';
-const pegado = `Click to view Fordterritory track,share duration 1D： http://itracksafe.com/#/tracking?authcode=${A1}&language=es&serverid=0
-Click to view Gandola Trakker Iveco track,share duration 1Y： http://itracksafe.com/#/tracking?authcode=${A2.toUpperCase()}&language=es&serverid=0
-otra vez el primero: http://itracksafe.com/#/tracking?authcode=${A1}&language=es&serverid=0
-y algo que no es enlace de GPS: https://www.google.com/maps?q=1,2`;
-const L = G.leerEnlaces(pegado);
-eq(L.map((x) => x.authcode), [A1, A2], '⭐ lee VARIOS enlaces pegados juntos (repetidos una vez, lo que no es GPS se ignora, código en minúscula)');
-eq(L.map((x) => x.nombre), ['Fordterritory', 'Gandola Trakker Iveco'], '⭐ saca el nombre del vehículo del texto de la app');
-eq(L[0].serverid, '0', 'guarda el serverid');
-check(L[0].url.startsWith('http://itracksafe.com/#/tracking?authcode='), 'guarda el enlace para abrirlo en iTrackSafeX');
-eq(G.leerEnlaces('hola, nada por aquí'), [], 'sin enlaces: lista vacía');
-// 🔒 Seguridad: lo pegado no se guarda tal cual, y solo se abren enlaces de itracksafe.com
-eq(G.leerEnlaces(`https://evil.example/x?authcode=${A1}`), [], '🔒 un enlace de OTRA página con authcode se ignora');
-eq(G.leerEnlaces(`http://itracksafe.com.evil.example/#/tracking?authcode=${A1}`), [], '🔒 tampoco uno que solo se PARECE (itracksafe.com.otro)');
-eq(G.leerEnlaces(`http://itracksafe.com/#/tracking?authcode=${A1}&serverid=0"><script>x</script>`)[0].url, `http://itracksafe.com/#/tracking?authcode=${A1}&language=es&serverid=0`, '🔒 el enlace se REARMA con código y servidor (lo pegado no se guarda)');
-eq([G.urlSegura('javascript:alert(1)'), G.urlSegura('https://evil.example/'), G.urlSegura('https://web.itracksafe.com/x')], [null, null, 'https://web.itracksafe.com/x'], '🔒 urlSegura: solo http(s) de itracksafe.com');
-eq(G.urlParaAbrir({ url: 'javascript:alert(1)', authcode: A1, serverid: '0' }), `http://itracksafe.com/#/tracking?authcode=${A1}&language=es&serverid=0`, '🔒 si lo guardado no es seguro, se abre el rearmado');
-eq(G.leerEnlaces(`http://itracksafe.com/#/tracking?authcode=${A1}`)[0].nombre, null, 'un enlace solo (sin texto) también sirve');
+// ── 1) La dirección y las fechas ──
+eq(G.DETEKTOR_BASE, 'https://ve.detektorgps.com/gps_ve/framework/servicios', '⭐ la ruta de Venezuela (gps_ve en ve.detektorgps.com; con «gt.» da 404, comprobado el 12-nov)');
+eq(G.msDeFechaDetektor('2026-11-12 07:30:05'), Date.parse('2026-11-12T11:30:05Z'), 'las fechas de Detektor son hora de Caracas (UTC−4)');
+eq(G.fechaDetektor(Date.parse('2026-11-12T11:30:05Z')), '2026-11-12 07:30:05', 'y se le mandan en hora de Caracas');
+eq([G.horasDeDuracion('11:22:08').toFixed(3), G.horasDeDuracion('0:00'), G.horasDeDuracion('x')], ['11.369', 0, null], 'duraciones «hh:mm:ss» → horas');
+eq(G.placaYAlias('1234 - [alias-1234]'), { placa: '1234', alias: 'alias-1234' }, 'la placa de las detenciones trae el alias entre corchetes');
+check(G.esDelVehiculo({ placa: 'A22-CY0J', alias: 'x' }, 'a22cy0j') && G.esDelVehiculo({ placa: '9', alias: 'Gandola 1' }, 'GANDOLA-1'), 'se reconoce por placa o alias sin importar guiones ni mayúsculas');
 
-// ── 2) Entender la respuesta ──
-const AHORA = Date.UTC(2026, 10, 10, 22, 30);
-const resp = (extra = {}, rec = {}) => ({
-  status: 0, cause: 'OK', deviceid: '6000000001', isvalid: 1, expire: AHORA + 86400000, devicename: 'Fordterritory',
-  records: [{ deviceid: '6000000001', callat: 10.5, callon: -66.9, speed: 0, course: 113, moving: 0,
-    devicetime: AHORA - 4 * 60000, arrivedtime: AHORA - 4 * 60000, validpoistiontime: AHORA - 4 * 60000,
-    strstatusen: 'ACC Off 1D1H35M/Voltage 12.97V', ...rec }],
-  ...extra,
-});
-const r1 = G.leerRespuesta(resp());
-check(r1.ok && r1.lat === 10.5 && r1.lng === -66.9 && r1.deviceId === '6000000001' && r1.nombre === 'Fordterritory', '⭐ lee la posición, el equipo y el nombre');
-eq(r1.estadoTexto, 'Motor apagado hace 1d 1h 35m · Batería 12,97 V', '⭐ traduce el estado («ACC Off…/Voltage…»)');
-eq(G.traducirEstado('ACC On 25M/Voltage 26.13V'), 'Motor encendido hace 25m · Batería 26,13 V', 'motor encendido');
-check(r1.ok && !r1.enMarcha && r1.vence === AHORA + 86400000, 'detenido, y trae hasta cuándo vale el enlace');
-const r2 = G.leerRespuesta(resp({}, { moving: 1, speed: 47.6 }));
-check(r2.ok && r2.enMarcha && r2.velocidad === 47.6, 'en marcha con su velocidad');
-const vencido = G.leerRespuesta(resp({ isvalid: 0, records: null }));
-check(!vencido.ok && vencido.motivo === 'vencido', '⭐ enlace vencido o cancelado: lo dice (no muestra un punto viejo como si fuera de ahora)');
-const sinPos = G.leerRespuesta(resp({}, { callat: 0, callon: 0 }));
-check(!sinPos.ok && sinPos.motivo === 'sin_posicion' && sinPos.deviceId === '6000000001', 'sin posición todavía: lo dice, y el equipo se puede guardar igual');
-check(!G.leerRespuesta(null).ok && !G.leerRespuesta({ status: 1, cause: 'x' }).ok, 'respuestas raras: nunca revienta');
+// ── 2) Respuestas ──
+eq(G.leerRespuestaDetektor({ status: 'fail', info: 'Se requiere Autenticacion para continuar' }), { filas: [], error: 'Detektor: Se requiere Autenticacion para continuar' }, '⭐ el error de Detektor se dice en palabras (la respuesta real sin usuario)');
+eq(G.leerRespuestaDetektor([{ a: 1 }]).filas.length, 1, 'una lista es la respuesta buena');
 
-// ── 3) Frescura, «hace cuánto» y vencimiento ──
-eq([G.frescura(AHORA - 5 * 60000, AHORA), G.frescura(AHORA - 45 * 60000, AHORA), G.frescura(AHORA - 3 * 3600000, AHORA), G.frescura(null, AHORA)], ['en_linea', 'reciente', 'viejo', 'viejo'], '⭐ en línea < 30 min, gris > 1 h');
-eq([G.haceCuanto(AHORA - 20000, AHORA), G.haceCuanto(AHORA - 7 * 60000, AHORA), G.haceCuanto(AHORA - 130 * 60000, AHORA), G.haceCuanto(AHORA - 27 * 3600000, AHORA)], ['hace menos de 1 min', 'hace 7 min', 'hace 2 h 10 min', 'hace 1 d 3 h'], '«hace cuánto»');
-eq([G.diasParaVencer(AHORA + 10.5 * 86400000, AHORA), G.diasParaVencer(new Date(AHORA - 86400000).toISOString(), AHORA), G.diasParaVencer(null, AHORA)], [10, -1, null], 'días para vencer (negativo = vencido)');
+const DET = [
+  { fechainicio: '2026-11-12 06:00:00', fechafinal: '2026-11-12 07:00:00', placa: 'A22CY0J - [GANDOLA 1]', latitud: '10.6', longitud: '-66.9', georeferencia: 'A 100 M (LA GUAIRA, LA GUAIRA) - [0336763626]', tiempo: '3600', ignicion: '0' },
+  { fechainicio: '2026-11-12 08:00:00', fechafinal: '2026-11-12 09:55:00', placa: 'A22CY0J - [GANDOLA 1]', latitud: '10.61', longitud: '-66.91', georeferencia: 'A 5 M DE KM. 3 (CATIA LA MAR, LA GUAIRA) - [1]', tiempo: '6900', ignicion: '1' },
+  { fechainicio: '2026-11-12 05:00:00', fechafinal: '2026-11-12 05:30:00', placa: 'A43AT7M - [VOLQUETA]', latitud: '10.5', longitud: '-66.8', georeferencia: 'X', tiempo: '1800', ignicion: '0' },
+  { fechainicio: '2026-11-12 05:00:00', fechafinal: '2026-11-12 05:30:00', placa: 'MALA - [x]', latitud: '0', longitud: '0' },
+];
+const D = G.leerDetenciones(DET);
+eq(D.length, 3, 'las detenciones sin coordenadas no sirven');
+eq([D[2].lugar, D[2].motorEncendido, D[2].segundos], ['A 5 M DE KM. 3 (CATIA LA MAR, LA GUAIRA)', true, 6900], 'lugar sin el código del final, motor y duración');
+const AHORA = G.msDeFechaDetektor('2026-11-12 10:00:00');
+const u1 = G.ultimaUbicacion(D, 'A22CY0J', AHORA);
+eq([u1.lat, u1.lng, u1.detenida, u1.motorEncendido], [10.61, -66.91, true, true], '⭐ la última detención es la ubicación; terminó hace 5 min → «sigue detenida ahí»');
+check(/Detenida aquí desde las 08:00/.test(G.lineasUbicacion(u1, AHORA)[0]) && G.lineasUbicacion(u1, AHORA).includes('🟢 Motor encendido'), 'la ventanita dice desde cuándo y el motor');
+const u2 = G.ultimaUbicacion(D, 'VOLQUETA', AHORA);
+eq([u2.detenida, G.ubicacionVieja(u2, AHORA)], [false, false], '⭐ salió de su última parada hace 4 h 30 min → «en movimiento», todavía no gris');
+check(/En movimiento: su última parada fue aquí, de 05:00 a 05:30/.test(G.lineasUbicacion(u2, AHORA)[0]), 'dice cuál fue su última parada');
+check(G.ubicacionVieja(u2, AHORA + 3 * 3600000), 'más de 6 h sin noticias → gris');
+eq(G.ultimaUbicacion(D, 'NOEXISTE', AHORA), null, 'sin detenciones de esa placa: null (no se inventa un punto)');
 
-// ── 4) De 5 en 5 ──
+// ── 3) Resumen diario ──
+const RES = [
+  { fecha: '2026-11-11', placa: 'A22CY0J', alias: 'GANDOLA 1', motivo: 'Primer encendido del dia', valor: '06:15:32' },
+  { fecha: '2026-11-11', placa: 'A22CY0J', alias: 'GANDOLA 1', motivo: 'Ultimo apagado del dia', valor: '18:37:40' },
+  { fecha: '2026-11-11', placa: 'A22CY0J', alias: 'GANDOLA 1', motivo: 'Tiempo entre Primer Encendido y Ult. Apagado', valor: '12:22:08' },
+  { fecha: '2026-11-11', placa: 'A22CY0J', alias: 'GANDOLA 1', motivo: 'Tiempo Det. motor apagado', valor: '03:00:00' },
+  { fecha: '2026-11-11', placa: 'A22CY0J', alias: 'GANDOLA 1', motivo: 'Tiempo Det. motor encendido', valor: '01:30:00' },
+  { fecha: '2026-11-11', placa: 'A22CY0J', alias: 'GANDOLA 1', motivo: 'Tiempo Efectivo', valor: '07:52:08' },
+  { fecha: '2026-11-11', placa: 'A22CY0J', alias: 'GANDOLA 1', motivo: 'Kilometraje del día', valor: '162.1' },
+  { fecha: '2026-11-11', placa: 'A43AT7M', alias: 'VOLQUETA', motivo: 'Kilometraje del día', valor: '40' },
+];
+const R = G.leerResumenDiario(RES);
+eq(R.length, 2, 'una fila por vehículo y día');
+const g = R.find((x) => x.placa === 'A22CY0J');
+eq([g.primerEncendido, g.ultimoApagado, g.horasEfectivas.toFixed(2), g.horasDetenidoEncendido, g.horasDetenidoApagado, g.km], ['06:15:32', '18:37:40', '7.87', 1.5, 3, 162.1], '⭐ primer encendido, último apagado, efectivas, ralentí, motor apagado y km');
+eq(G.vehiculosDeLaCuenta(RES), [{ placa: 'A22CY0J', alias: 'GANDOLA 1' }, { placa: 'A43AT7M', alias: 'VOLQUETA' }], 'los vehículos de la cuenta, sin repetir');
+eq(G.vehiculosDeLaCuenta(DET).map((v) => v.placa), ['A22CY0J', 'A43AT7M', 'MALA'], 'también de las detenciones («placa - [alias]»)');
+
+// ── 4) Vincular con el Catálogo ──
+const CAT = [{ id: 'm1', code: 'CHUTO CON LOWBOY', plate: 'A22CY0J/LOW123' }, { id: 'm2', code: 'VOLTEO-7', plate: 'XYZ999' }];
+eq([G.sugerirEquipo({ placa: 'A22CY0J', alias: '' }, CAT)?.id, G.sugerirEquipo({ placa: '1', alias: 'volteo-7' }, CAT)?.id, G.sugerirEquipo({ placa: 'NADA', alias: '' }, CAT)], ['m1', 'm2', null], '⭐ propone la máquina por placa (o un pedazo de CHUTO/LOWBOY) o por código; si no, nada');
+
+// ── 5) ⭐⭐ Seguridad: la clave de Detektor NO está en la app ──
 {
-  let enVuelo = 0; let maximo = 0;
-  const res = await G.enTandas(Array.from({ length: 30 }, (_, i) => i), 5, async (x) => {
-    enVuelo++; maximo = Math.max(maximo, enVuelo);
-    await new Promise((r) => setTimeout(r, 5));
-    enVuelo--; return x * 2;
-  });
-  check(maximo === 5, '⭐ 30 vehículos: nunca más de 5 consultas a la vez', { maximo });
-  eq(res.slice(0, 4).concat(res.slice(-1)), [0, 2, 4, 6, 58], 'y cada resultado en su lugar');
+  const todos = [];
+  (function walk(d) { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, f.name); if (f.isDirectory()) walk(p); else if (/\.(ts|tsx)$/.test(f.name)) todos.push(p); } })(path.join(ROOT, 'src'));
+  const conDetektorDirecto = todos.filter((p) => /detektorgps\.com/.test(fs.readFileSync(p, 'utf8')) && !p.endsWith(path.join('lib', 'gps.ts')));
+  eq(conDetektorDirecto.map((p) => path.relative(ROOT, p)), [], '⭐⭐ ninguna pantalla le habla directo a Detektor (todo por el puente)');
+  check(!todos.some((p) => /DETEKTOR_(USUARIO|CLAVE)|usuario:\s*['"][^'"]+['"],\s*pass:/.test(fs.readFileSync(p, 'utf8'))), '⭐⭐ ni usuario ni clave de Detektor en el código de la app');
+  check(/supabase\.functions\.invoke\('gps-detektor', \{ body: pedido \}\)/.test(leer('src/lib/gpsDb.ts')), 'la única puerta: el puente gps-detektor');
 }
+const fn = leer('supabase/functions/gps-detektor/index.ts');
+check(/Deno\.env\.get\('DETEKTOR_USUARIO'\)/.test(fn) && /Deno\.env\.get\('DETEKTOR_CLAVE'\)/.test(fn), '⭐ el puente toma usuario y clave de los SECRETOS de Supabase');
+check(/caller\.auth\.getUser\(\)/.test(fn) && /caller\.rpc\(necesita\)/.test(fn) && /'gps_puede_editar' : 'gps_puede_ver'/.test(fn), '⭐ el puente pide sesión y el permiso GPS (descubrir vehículos pide escritura)');
+check(/soloVinculadas/.test(fn) && /from\('gps_vehiculos'\)\.select\('placa_alias'\)/.test(fn), '⭐ solo consulta placas VINCULADAS (leídas con la sesión de quien pide)');
+check(/'Content-Type': 'application\/x-www-form-urlencoded'/.test(fn) && /new URLSearchParams\(\{ usuario, pass, \.\.\.params \}\)/.test(fn), 'manda formulario como dice el manual (multipart da 403)');
+check(/https:\/\/ve\.detektorgps\.com\/gps_ve\/framework\/servicios/.test(fn), 'la misma dirección de Venezuela');
+check(/diasEntre\(desde, hasta\) > 31/.test(fn) && /diasEntre\(desde, hasta\) > 7/.test(fn) && /\.slice\(0, 60\)/.test(fn), 'limita fechas (31 / 7 días) y cantidad de placas');
+check(/const CACHE_MS = 60_000/.test(fn), 'guarda 1 minuto: varias personas = 1 consulta a Detektor');
+check(!/console\.(log|error)\([^)]*(pass|usuario)/.test(fn) && /Nunca se devuelve ni se registra el usuario o la clave/.test(fn), 'nunca registra ni devuelve la clave');
 
-// ── 5) La consulta: a iTrackSafeX directo, con el authcode, y los fallos con mensaje ──
+// ── 6) En el mapa de la maquinaria ──
+const panel = leer('src/components/GpsPanelMapa.tsx');
+check(/consultarDetektor\(\{ accion: 'ubicacion', placas: pedidos\.map\(\(v\) => v\.placaAlias\) \}\)/.test(panel), '⭐ «Actualizar»: UNA consulta para todas las marcadas');
+check(/ultimaUbicacion\(dets, v\.placaAlias, cuando\)/.test(panel) && /\}\), \[vehiculos, consultas\]\);/.test(panel), 'la capa sale de la última detención y no cambia sola cada minuto');
+check(/if \(!abierto \|\| vehiculos\) return;/.test(panel), 'la lista de vehículos se lee una vez y solo si abres el panel');
+const ms = leer('src/screens/MapScreen.tsx');
+check(/const verGps = moduleLevel\('gps'\) !== 'none'/.test(ms) && /\{verGps \? <GpsPanelMapa/.test(ms) && (ms.match(/gps=\{gpsPins\}/g) || []).length === 2, 'el panel sale en el Mapa con el permiso, y la capa también en pantalla completa');
+const vm = leer('src/components/VenezuelaMap.tsx');
+check(/var gpsLayer = L\.layerGroup\(\)/.test(vm) && /d\.type === 'map-gps'/.test(vm), 'la capa 📡 del mapa de la maquinaria');
 {
-  let pedido = null;
-  const fake = async (url, init) => { pedido = { url, init }; return { ok: true, status: 200, json: async () => resp() }; };
-  const r = await G.consultarPosicion(A1, fake);
-  check(r.ok && pedido.url === 'https://web.itracksafe.com/webapi?action=sharetracklastposition' && pedido.init.method === 'POST', '⭐ pregunta DIRECTO a iTrackSafeX (https), no a Supabase');
-  eq(JSON.parse(pedido.init.body), { authcode: A1, lastquerypositiontime: 0 }, 'manda solo el código del enlace');
-  const caida = await G.consultarPosicion(A1, async () => { throw new TypeError('Failed to fetch'); });
-  check(!caida.ok && caida.motivo === 'red' && /conectar/.test(caida.mensaje), 'sin internet: mensaje claro');
-  const mal = await G.consultarPosicion(A1, async () => ({ ok: false, status: 502, json: async () => ({}) }));
-  check(!mal.ok && /502/.test(mal.mensaje), 'servidor caído: lo dice');
+  // El script DENTRO del mapa sigue siendo JavaScript válido (si se rompe, se cae el mapa entero).
+  const Module2 = require('module'); const orig = Module2._load;
+  require.extensions['.ts'] = function (mod, fnm) { mod._compile(ts.transpileModule(fs.readFileSync(fnm, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019, esModuleInterop: true } }).outputText, fnm); };
+  const falso = new Proxy(function () {}, { get: () => new Proxy(function () {}, { get: () => ({}) }) });
+  Module2._load = function (r) { if (r === 'react' || r === 'react-native' || r === './ui' || /theme/.test(r)) return falso; return orig.apply(this, arguments); };
+  try {
+    const abs = path.join(ROOT, 'src/components/VenezuelaMap.tsx');
+    const out = ts.transpileModule(vm + '\nmodule.exports.__buildHtml = buildHtml;', { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019, jsx: ts.JsxEmit.React, esModuleInterop: true } }).outputText;
+    const m = new Module2(abs); m.filename = abs; m.paths = Module2._nodeModulePaths(path.dirname(abs)); m._compile(out, abs);
+    const html = m.exports.__buildHtml([{ id: 'a', name: 'X', lat: 10, lng: -66, active: '1h', operational: true, company: 'C', route: [] }], false, true);
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((x) => x[1]);
+    let compila = scripts.length > 0;
+    for (const sc of scripts) { try { new Function(sc); } catch { compila = false; } }
+    check(compila && scripts.some((sc) => sc.includes('drawGps')), '⭐ el script DENTRO del mapa compila (con la capa GPS)');
+  } finally { Module2._load = orig; }
 }
 
-// ── 6) Sugerir el vehículo del catálogo ──
-{
-  const CAT = [
-    { id: 'm1', code: 'ET8', plate: 'A12BC3D', marca: 'ENCAVA', modelo: 'ET-8' },
-    { id: 'm2', code: 'GANDOLA-01', plate: 'P99XX1', marca: 'IVECO', modelo: 'TRAKKER' },
-    { id: 'm3', code: 'EP1000', plate: 'B77AA0', marca: 'ENCAVA', modelo: 'EP-1000' },
-    { id: 'm4', code: 'FT01', plate: 'AB123CD', marca: 'FORD', modelo: 'TERRITORY' },
-  ];
-  eq(G.sugerirEquipo('Gandola Trakker Iveco', CAT)?.id, 'm2', '⭐ «Gandola Trakker Iveco» → la gandola IVECO TRAKKER');
-  eq(G.sugerirEquipo('EP-1000 Encava Blanca', CAT)?.id, 'm3', '«EP-1000 Encava Blanca» → la EP1000');
-  eq(G.sugerirEquipo('Camion AB123CD', CAT)?.id, 'm4', 'la placa escrita en el nombre manda');
-  eq(G.sugerirEquipo('Corolla', CAT), null, 'si no se parece a nada, no inventa');
-  eq(G.nombreVehiculo({ nombre: 'Fordterritory', equipo: { code: 'FT01', plate: 'AB123CD' } }), 'FT01 · AB123CD', 'vinculado: sale con el código del catálogo');
-  eq(G.nombreVehiculo({ nombre: 'Fordterritory', equipo: null }), 'Fordterritory', 'sin vincular: con el nombre del GPS');
-}
-
-// ── 7) Cableado: permiso cerrado, una fila por equipo, nada en segundo plano ──
-{
-  const perm = leer('src/lib/permissions.ts');
-  check(/\{ key: 'gps', label:/.test(perm) && /moduleKey === 'gps'\) return 'none'/.test(perm), '⭐ el permiso «GPS» existe y nace CERRADO');
-  const db = leer('src/lib/gpsDb.ts');
-  check(/upsert\(rows, \{ onConflict: 'device_id' \}\)/.test(db), '⭐ una fila por equipo GPS: renovar reemplaza el código, no duplica ni borra');
-  check(/\.length !== rows\.length/.test(db) && /no dejó/.test(db), 'si la base no dejó guardar, lo dice (la RLS rechaza sin error)');
-  const scr = leer('src/screens/GpsScreen.tsx');
-  check(!/supabase\./.test(scr) && !/from\('gps_enlaces'\)/.test(scr), 'la pantalla no habla con Supabase directo (todo por gpsDb)');
-  check(/consultarPosicion\(e\.authcode\)/.test(scr) && /enTandas\(lista, GPS_TANDA/.test(scr), '⭐ «Actualizar»: directo a iTrackSafeX, de 5 en 5');
-  const intervalos = scr.match(/setInterval\([^;]+;/g) || [];
-  check(intervalos.length === 1 && /setAhora\(Date\.now\(\)\)/.test(intervalos[0]) && !/consultar/.test(intervalos[0]), '⭐ NADA se actualiza solo: el único temporizador reescribe «hace X min»');
-  check(!/useRealtime|channel\(/.test(scr + db), 'sin tiempo real');
-  check(/moduleLevel\('gps'\)/.test(scr) && /levelMeets\(nivel, 'escritura'\)/.test(scr), 'ver con el permiso; cargar/quitar con escritura');
-  const nav = leer('src/navigation/index.tsx');
-  const more = leer('src/screens/MoreScreen.tsx');
-  check(/name="Gps" component=\{GpsScreen\}/.test(nav) && /Gps: 'gps'/.test(nav) && /route: 'Gps'.*module: 'gps'/.test(more), 'en «Más» → «GPS de los vehículos»');
-  // ⭐ EN EL MISMO MAPA DE LA MAQUINARIA (a pedido): capa 📡 aparte, por mensaje, sin recargar.
-  check(!fs.existsSync(path.join(ROOT, 'src/components/GpsMap.tsx')), 'ya no hay un mapa aparte para el GPS');
-  const vm = leer('src/components/VenezuelaMap.tsx');
-  check(/var gpsLayer = L\.layerGroup\(\)/.test(vm) && /d\.type === 'map-gps'/.test(vm) && /gpsLayer\.clearLayers\(\)/.test(vm), '⭐ el mapa de la maquinaria tiene la capa 📡 GPS (se repinta por mensaje, sin recargar)');
-  check(/escH\(p\.nombre\)/.test(vm) && /itracksafe\[\.\]com\[\/\]\/i\.test\(p\.url\)/.test(vm), '🔒 dentro del mapa: textos escapados y solo enlaces de itracksafe.com');
-  check(/post\(\{ type: 'map-gps', puntos: gps \?\? \[\], foco: null \}\); \}, \[gps\]\)/.test(vm), 'repintar la capa NO mueve el mapa (solo ir a un punto cuando se pide)');
-  const ms = leer('src/screens/MapScreen.tsx');
-  check(/const verGps = moduleLevel\('gps'\) !== 'none'/.test(ms) && /\{verGps \? <GpsPanelMapa/.test(ms) && (ms.match(/gps=\{gpsPins\}/g) || []).length === 2, '⭐ el panel 📡 sale en el Mapa solo con el permiso, y la capa va también en pantalla completa');
-  const panel = leer('src/components/GpsPanelMapa.tsx');
-  check(/consultarPosicion\(e\.authcode\)/.test(panel) && /enTandas\(lista, GPS_TANDA/.test(panel) && !/supabase\./.test(panel), '⭐ en el Mapa: directo a iTrackSafeX, de 5 en 5, sin escribir en Supabase');
-  check(/frescura\(c\.reporte, c\.cuando\)/.test(panel) && /\}\), \[enlaces, consultas\]\);/.test(panel), 'la capa no cambia sola cada minuto (usa la hora de la consulta)');
-  check(/if \(!abierto \|\| enlaces\) return;/.test(panel), 'la lista de enlaces se lee UNA vez y solo si abres el panel');
-  check(/Elige la máquina del Catálogo de cada enlace antes de guardar/.test(scr) && !/Sin vincular \(se ve/.test(scr), '⭐ cada GPS es de una máquina del Catálogo (obligatorio)');
-  check(/ya tiene otro GPS/.test(scr), 'una máquina, un solo GPS');
-  // El script que corre DENTRO del mapa sigue siendo JavaScript válido (si se rompe, se cae el mapa entero).
-  {
-    const Module2 = require('module'); const orig = Module2._load;
-    require.extensions['.ts'] = function (mod, fn) { mod._compile(ts.transpileModule(fs.readFileSync(fn, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019, esModuleInterop: true } }).outputText, fn); };
-    const falso = new Proxy(function () {}, { get: () => new Proxy(function () {}, { get: () => ({}) }) });
-    Module2._load = function (r) { if (r === 'react' || r === 'react-native' || r === './ui' || /theme/.test(r)) return falso; return orig.apply(this, arguments); };
-    try {
-      const abs = path.join(ROOT, 'src/components/VenezuelaMap.tsx');
-      const out = ts.transpileModule(vm + '\nmodule.exports.__buildHtml = buildHtml;', { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019, jsx: ts.JsxEmit.React, esModuleInterop: true } }).outputText;
-      const m = new Module2(abs); m.filename = abs; m.paths = Module2._nodeModulePaths(path.dirname(abs)); m._compile(out, abs);
-      const html = m.exports.__buildHtml([{ id: 'a', name: 'X', lat: 10, lng: -66, active: '1h', operational: true, company: 'C', route: [] }], false, true);
-      const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((x) => x[1]);
-      let compila = scripts.length > 0;
-      for (const sc of scripts) { try { new Function(sc); } catch { compila = false; } }
-      check(compila && scripts.some((sc) => sc.includes('drawGps')), '⭐ el script DENTRO del mapa compila (con la capa GPS)');
-    } finally { Module2._load = orig; }
-  }
-  check(/Linking\.openURL\(urlParaAbrir\(e\)\)/.test(scr) && !/e\.url \|\|/.test(scr), '🔒 «Abrir en iTrackSafeX» solo abre enlaces seguros');
-  const man = leer('src/screens/ManualScreen.tsx');
-  check(/GPS DE LAS MÁQUINAS/.test(man) && /panel «📡 GPS de las máquinas»/.test(man), 'el manual lo explica (en el Mapa)');
-}
-
-// ── 8) (Opcional) un enlace REAL ──
-if (process.env.GPS_AUTHCODE) {
-  const r = await G.consultarPosicion(process.env.GPS_AUTHCODE.trim().toLowerCase());
-  check(r.ok || r.motivo === 'vencido', '🌐 enlace real: iTrackSafeX respondió', r.ok ? undefined : r);
-  if (r.ok) console.log(`   🌐 ${r.nombre} · equipo ${r.deviceId} · ${G.haceCuanto(r.reporte, Date.now())} · ${r.enMarcha ? 'en marcha' : 'detenido'} · ${r.estadoTexto ?? ''} · vence ${new Date(r.vence).toLocaleString('es-VE')}`);
-  else console.log(`   🌐 ${r.mensaje}`);
-}
+// ── 7) Permiso y pantalla ──
+check(/\{ key: 'gps', label:/.test(leer('src/lib/permissions.ts')) && /moduleKey === 'gps'\) return 'none'/.test(leer('src/lib/permissions.ts')), '⭐ el permiso «GPS» existe y nace CERRADO');
+const scr = leer('src/screens/GpsScreen.tsx');
+check(/consultarDetektor\(\{ accion: 'vehiculos' \}\)/.test(scr) && /sugerirEquipo\(c, catalogo\)/.test(scr) && /vincularVehiculoGps\(placaAlias, machineryId, uid\)/.test(scr), 'buscar los vehículos de la cuenta y vincularlos con su máquina');
+check(/consultarDetektor\(\{ accion: 'resumen'/.test(scr) && /leerResumenDiario\(r\.filas\)/.test(scr) && /📄 PDF/.test(scr), 'la actividad diaria, con PDF');
+check(/onConflict: 'placa_alias'/.test(leer('src/lib/gpsDb.ts')) && /La base no dejó guardar/.test(leer('src/lib/gpsDb.ts')), 'una fila por placa; si la base no deja, lo dice');
+check(/GPS DE LAS MÁQUINAS/.test(leer('src/screens/ManualScreen.tsx')) && /Detektor/.test(leer('src/screens/ManualScreen.tsx')), 'el manual lo explica (Detektor)');
 
 if (fallas.length) { console.error(fallas.join('\n')); console.error(`\n❌ test-gps: ${fallas.length} falla(s), ${ok} ok`); process.exit(1); }
 console.log(`✅ test-gps: ${ok} ok, 0 fallas`);

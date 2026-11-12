@@ -300,7 +300,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     });
   }
 
-  // ── 📡 CAPA GPS (10-nov-2026): la posición de iTrackSafeX de las máquinas con GPS. Llega por
+  // ── 📡 CAPA GPS (10-nov-2026): la posición de Detektor (12-nov) de las máquinas con GPS. Llega por
   //    mensaje SOLO cuando alguien toca «Actualizar» en la app; se dibuja aparte de los pines
   //    de siempre (que son la ubicación marcada en el sistema) y no recarga el mapa.
   var gpsLayer = L.layerGroup().addTo(map);
@@ -314,10 +314,8 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
       var col = p.viejo ? '#6B7280' : (p.enMarcha ? '#16A34A' : '#7C3AED');
       var icon = L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
         html: '<div style="width:26px;height:26px;border-radius:50%;background:' + col + ';border:3px solid #fff;box-shadow:0 0 0 2px ' + col + ',0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;font-size:13px">📡</div>' });
-      var url = (typeof p.url === 'string' && /^https?:[/][/]([a-z0-9-]+[.])*itracksafe[.]com[/]/i.test(p.url)) ? p.url : null;
       var html = '<b>📡 ' + escH(p.nombre) + '</b><br/>' + (p.lineas || []).map(escH).join('<br/>')
-        + '<br/><a href="https://www.google.com/maps?q=' + lat + ',' + lng + '" target="_blank" rel="noopener">Google Maps</a>'
-        + (url ? ' · <a href="' + escH(url) + '" target="_blank" rel="noopener">Ver recorrido en iTrackSafeX</a>' : '');
+        + '<br/><a href="https://www.google.com/maps?q=' + lat + ',' + lng + '" target="_blank" rel="noopener">Google Maps</a>';
       var m = L.marker([lat, lng], { icon: icon, zIndexOffset: 1000 }).addTo(gpsLayer);
       m.bindPopup(html);
       m.bindTooltip('📡 ' + escH(p.nombre), { direction: 'top', offset: [0, -14] });
@@ -369,7 +367,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
 </script></body></html>`;
 }
 
-/** 📡 Un punto de GPS para la capa del mapa (lo arma la pantalla con lo que respondió iTrackSafeX). */
+/** 📡 Un punto de GPS para la capa del mapa (lo arma la pantalla con lo que respondió Detektor). */
 export type GpsPinMapa = { id: string; nombre: string; lat: number; lng: number; viejo: boolean; enMarcha: boolean; lineas: string[]; url: string | null };
 
 export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets, canEdit = true, locateMode = false, zoneOffsets, zoneEdit = false, showRoutes = false, gps, gpsFoco }: {
