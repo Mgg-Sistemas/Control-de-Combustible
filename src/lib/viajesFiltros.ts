@@ -38,9 +38,9 @@
  * camión—. Un filtro de turno por fuera se contradiría con los otros tres en
  * cuanto se marcaran juntos.
  */
-export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion' | 'formato';
+export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion' | 'formato' | 'frente';
 export const EJES_FILTRO: readonly ('listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion')[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion'] as const;
-export const TODOS_LOS_EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion', 'formato'] as const;
+export const TODOS_LOS_EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion', 'formato', 'frente'] as const;
 
 /** Lo marcado en un eje: id → etiqueta. Vacío = «todos». */
 export type MarcadosEje = ReadonlyMap<string, string>;
@@ -106,6 +106,39 @@ export function opcionesDeEje<R>(
   return Array.from(m.values())
     .filter((o) => o.count > 0 || sel[eje].has(o.id))
     .sort((a, b) => cmp(a.label, b.label));
+}
+
+/**
+ * Completa las opciones de un eje con las que ya existen en el catálogo del
+ * módulo (frentes de trabajo, formatos de ticket, listeros) para que en la
+ * Lista completa de viajes siempre se puedan ver y elegir uno o varios aunque
+ * en el corte o filtro actual tengan 0 viajes.
+ */
+export function conCatalogoOpciones(
+  opciones: readonly OpcionFiltro[],
+  catalogo: readonly { id: string; label: string }[],
+  cmp: (a: string, b: string) => number,
+): OpcionFiltro[] {
+  const m = new Map<string, OpcionFiltro>();
+  const porNombre = new Set<string>();
+  opciones.forEach((o) => {
+    m.set(o.id, { ...o });
+    porNombre.add(o.label.trim().toLowerCase());
+  });
+  catalogo.forEach((c) => {
+    const id = String(c?.id ?? '').trim();
+    const label = String(c?.label ?? '').trim();
+    if (!id || !label) return;
+    if (m.has(id) || porNombre.has(label.toLowerCase())) return;
+    m.set(id, { id, label, count: 0 });
+    porNombre.add(label.toLowerCase());
+  });
+  return Array.from(m.values()).sort((a, b) => {
+    const aSin = a.id.startsWith('__sin_');
+    const bSin = b.id.startsWith('__sin_');
+    if (aSin !== bSin) return aSin ? 1 : -1;
+    return cmp(a.label, b.label);
+  });
 }
 
 /**

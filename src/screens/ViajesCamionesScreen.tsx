@@ -53,7 +53,7 @@ import {
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
 } from '../lib/ubicacionesObra';
 import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique, SIN_DATO as SIN_DATO_TIQUE } from '../lib/tique';
-import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
+import { pasaFiltros, opcionesDeEje, conCatalogoOpciones, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
 import { FrentesTrabajo, type CamionParaFrente, type DatosDelDiaFrente } from '../components/FrentesTrabajo';
@@ -2574,6 +2574,8 @@ export default function ViajesCamionesScreen() {
   const [filterUbicacionSel, setFilterUbicacionSel] = useState<Map<string, string>>(new Map());
   // 🎟️ FORMATO DE TICKET (23-oct-2026, a pedido: filtrar por formato asignado o sellado).
   const [filterFormatoSel, setFilterFormatoSel] = useState<Map<string, string>>(new Map());
+  // ⛏️ FRENTE DE TRABAJO (13-nov-2026, a pedido: filtrar por uno o varios frentes en la Lista completa de viajes).
+  const [filterFrenteSel, setFilterFrenteSel] = useState<Map<string, string>>(new Map());
 
   /** El formato del papel. Vive en la base (una sola fila para todo el sistema)
    *  y se lee acá aparte de la tarjeta de configuración: el listero imprime sin
@@ -2656,6 +2658,7 @@ export default function ViajesCamionesScreen() {
   const toggleFilterTurno = toggleEn(setFilterTurnoSel);
   const toggleFilterUbicacion = toggleEn(setFilterUbicacionSel);
   const toggleFilterFormato = toggleEn(setFilterFormatoSel);
+  const toggleFilterFrente = toggleEn(setFilterFrenteSel);
   /**
    * ⭐ La pastilla «Todos / Todas» de cada fila de filtros (19-sep-2026).
    *
@@ -2875,10 +2878,10 @@ export default function ViajesCamionesScreen() {
    * cuando un listero se apellida igual que una empresa. El turno no lleva
    * ícono acá porque su etiqueta ya trae el suyo (☀️/🌙).
    */
-  const ICONO_EJE: Record<EjeFiltro, string> = { listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '', ubicacion: '🏗️ ', formato: '🎟️ ' };
+  const ICONO_EJE: Record<EjeFiltro, string> = { listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '', ubicacion: '🏗️ ', formato: '🎟️ ', frente: '⛏️ ' };
 
   const clavesDe = (r: CamionViajeRow): ClavesViaje => ({
-    listero: r.listeroId,
+    listero: r.listeroId || SIN_LISTERO,
     empresa: companyOfRow(r).key,
     camion: claveCamion(r),
     turno: turnoDeViaje(r.registeredAt),
@@ -2888,15 +2891,20 @@ export default function ViajesCamionesScreen() {
     //    papel no cuadrarían.
     ubicacion: claveUbicacionViaje({ ubicacionId: r.ubicacionId, ubicacionName: r.ubicacionNombre }),
     formato: formatoDeViaje(r).id,
+    frente: claveFrenteViaje(r),
   });
   const seleccion: SeleccionFiltros = useMemo(
-    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel, ubicacion: filterUbicacionSel, formato: filterFormatoSel }),
-    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel, filterUbicacionSel, filterFormatoSel]
+    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel, ubicacion: filterUbicacionSel, formato: filterFormatoSel, frente: filterFrenteSel }),
+    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel, filterUbicacionSel, filterFormatoSel, filterFrenteSel]
   );
   const listeroOptions = useMemo(
-    () => opcionesDeEje(dateScopedRows, 'listero', clavesDe, (r) => ({ id: r.listeroId, label: r.listeroName }), seleccion, cmpText),
+    () => conCatalogoOpciones(
+      opcionesDeEje(dateScopedRows, 'listero', clavesDe, (r) => ({ id: r.listeroId || SIN_LISTERO, label: r.listeroName || 'Sin listero' }), seleccion, cmpText),
+      listerosParaTicket.map((l) => ({ id: l.id, label: l.full_name })),
+      cmpText,
+    ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dateScopedRows, seleccion, truckById]
+    [dateScopedRows, seleccion, truckById, listerosParaTicket]
   );
   const companyOptions = useMemo(
     () => opcionesDeEje(dateScopedRows, 'empresa', clavesDe, (r) => ({ id: companyOfRow(r).key, label: companyOfRow(r).name }), seleccion, cmpText),
@@ -2967,11 +2975,15 @@ export default function ViajesCamionesScreen() {
 
   // 🎟️ FORMATO DE TICKET (23-oct-2026, a pedido: filtrar por formato asignado o sellado)
   const formatoOptions = useMemo(
-    () => opcionesDeEje(dateScopedRows, 'formato', clavesDe,
-      (r) => {
-        const fmt = formatoDeViaje(r);
-        return { id: fmt.id, label: fmt.nombre };
-      }, seleccion, cmpText),
+    () => conCatalogoOpciones(
+      opcionesDeEje(dateScopedRows, 'formato', clavesDe,
+        (r) => {
+          const fmt = formatoDeViaje(r);
+          return { id: fmt.id, label: fmt.nombre };
+        }, seleccion, cmpText),
+      formatosTique.map((f) => ({ id: f.id, label: f.nombre })),
+      cmpText,
+    ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dateScopedRows, seleccion, truckById, formatosTique, asignacionesFormatos, foliosFormatos]
   );
@@ -2980,13 +2992,33 @@ export default function ViajesCamionesScreen() {
     [formatoOptions, busqFiltros, filterFormatoSel]
   );
 
+  // ⛏️ FRENTE DE TRABAJO (13-nov-2026, a pedido: filtrar por uno o varios frentes en Lista completa de viajes)
+  const frenteOptions = useMemo(
+    () => conCatalogoOpciones(
+      opcionesDeEje(dateScopedRows, 'frente', clavesDe,
+        (r) => ({
+          id: claveFrenteViaje(r),
+          label: r.frenteNombre || 'Sin frente',
+        }), seleccion, cmpText),
+      frentesActivos.map((f) => ({ id: f.id, label: f.nombre })),
+      cmpText,
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById, frentesActivos]
+  );
+  const frenteOptionsVisibles = useMemo(
+    () => filtrarOpciones(frenteOptions, busqFiltros, filterFrenteSel, norm),
+    [frenteOptions, busqFiltros, filterFrenteSel]
+  );
+
   /** Cuántas opciones dejó fuera la búsqueda — para no dejar la fila vacía y muda. */
   const ocultasPorBusqueda =
     (listeroOptions.length - listeroOptionsVisibles.length) +
     (companyOptions.length - companyOptionsVisibles.length) +
     (truckOptions.length - truckOptionsVisibles.length) +
     (ubicacionOptions.length - ubicacionOptionsVisibles.length) +
-    (formatoOptions.length - formatoOptionsVisibles.length);
+    (formatoOptions.length - formatoOptionsVisibles.length) +
+    (frenteOptions.length - frenteOptionsVisibles.length);
 
   // ⭐ BUSCAR POR NÚMERO DE TICKET (17-sep-2026). Lo escrito en el buscador recorta
   //    la lista SOLO si parece un ticket (dígitos o CDT-…); ver `tiqueBuscado`. Si no,
@@ -3507,6 +3539,7 @@ export default function ViajesCamionesScreen() {
         filterListeroSel.size ? `Listeros: ${esc(Array.from(filterListeroSel.values()).join(', '))}` : null,
         filterTurnoSel.size ? `Turno: ${esc(Array.from(filterTurnoSel.values()).join(', '))}` : null,
         filterUbicacionSel.size ? `Obras: ${esc(Array.from(filterUbicacionSel.values()).join(', '))}` : null,
+        filterFrenteSel.size ? `Frentes: ${esc(Array.from(filterFrenteSel.values()).join(', '))}` : null,
         filterFormatoSel.size ? `Formatos: ${esc(Array.from(filterFormatoSel.values()).join(', '))}` : null,
       ].filter(Boolean).join(' · ');
 
@@ -6025,7 +6058,7 @@ export default function ViajesCamionesScreen() {
               <TextInput
                 value={busqFiltros}
                 onChangeText={setBusqFiltros}
-                placeholder="🔎 Buscar por N.º de ticket (191 o CDT-000191), placa, listero o empresa…"
+                placeholder="🔎 Buscar por N.º de ticket (191 o CDT-000191), placa, frente, formato, listero o empresa…"
                 placeholderTextColor={colors.muted}
                 style={[styles.input]}
                 autoCorrect={false}
@@ -6093,7 +6126,7 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {listeroOptionsVisibles.length > 0 && (listeroOptions.length > 1 || filterListeroSel.size > 0) ? (
+            {listeroOptionsVisibles.length > 0 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   LISTERO{filterListeroSel.size > 0 ? ` (${filterListeroSel.size})` : ' (todos)'}
@@ -6117,7 +6150,7 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {companyOptionsVisibles.length > 0 && (companyOptions.length > 1 || filterCompanySel.size > 0) ? (
+            {companyOptionsVisibles.length > 0 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   EMPRESA{filterCompanySel.size > 0 ? ` (${filterCompanySel.size})` : ' (todas)'}
@@ -6141,7 +6174,7 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {truckOptionsVisibles.length > 0 && (truckOptions.length > 1 || filterTruckSel.size > 0) ? (
+            {truckOptionsVisibles.length > 0 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   CAMIÓN{filterTruckSel.size > 0 ? ` (${filterTruckSel.size})` : ' (todos)'}
@@ -6165,11 +6198,7 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {/* OBRA / UBICACIÓN. Solo aparece si hay más de una en el rango o si
-                ya hay alguna marcada: con una sola obra el filtro no filtra nada
-                y solo ocuparía pantalla en el teléfono. Mismo criterio que el de
-                empresa. */}
-            {ubicacionOptionsVisibles.length > 0 && (ubicacionOptions.length > 1 || filterUbicacionSel.size > 0) ? (
+            {ubicacionOptionsVisibles.length > 0 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   OBRA{filterUbicacionSel.size > 0 ? ` (${filterUbicacionSel.size})` : ' (todas)'}
@@ -6193,8 +6222,33 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {/* FORMATO DE TICKET. Aparece si hay más de un formato o si alguno está filtrado. */}
-            {formatoOptionsVisibles.length > 0 && (formatoOptions.length > 1 || filterFormatoSel.size > 0) ? (
+            {/* ⛏️ FRENTE DE TRABAJO. Permite sacar la lista y el PDF por uno o varios frentes. */}
+            {frenteOptionsVisibles.length > 0 ? (
+              <View style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                  FRENTE{filterFrenteSel.size > 0 ? ` (${filterFrenteSel.size})` : ' (todos)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todos', filterFrenteSel, setFilterFrenteSel)}
+                  {frenteOptionsVisibles.map((o) => {
+                    const on = filterFrenteSel.has(o.id);
+                    return (
+                      <TouchableOpacity
+                        key={o.id}
+                        onPress={() => toggleFilterFrente(o.id, o.label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>⛏️ {o.label}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {/* FORMATO DE TICKET. Permite sacar la lista y el PDF por uno o varios formatos. */}
+            {formatoOptionsVisibles.length > 0 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   FORMATO DE TICKET{filterFormatoSel.size > 0 ? ` (${filterFormatoSel.size})` : ' (todos)'}
@@ -6218,11 +6272,11 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || filterFormatoSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || filterFormatoSel.size > 0 || filterFrenteSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
               /* «Limpiar filtros» limpia TAMBIÉN la franja de horas: es un filtro
                  más, y dejarlo puesto tras «limpiar» sería la trampa del filtro
                  invisible otra vez (28-sep-2026). */
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterFormatoSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterFormatoSel(new Map()); setFilterFrenteSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
@@ -6326,7 +6380,7 @@ export default function ViajesCamionesScreen() {
                         // La franja horaria también puede ser la que vacía la lista —
                         // y como es un campo y no una pastilla, se olvida fácil.
                         ? `Sin viajes ${textoRangoHoras(horaDesde, horaHasta)} en este rango. Amplía la ⏱️ franja de horas o tócale «✕ Quitar».`
-                        : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size + seleccion.turno.size > 0
+                        : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size + seleccion.turno.size + seleccion.ubicacion.size + seleccion.formato.size + seleccion.frente.size > 0
                           ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
                           : 'Sin viajes en el rango seleccionado.'}
                 </Text>

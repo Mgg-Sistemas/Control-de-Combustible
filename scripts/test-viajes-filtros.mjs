@@ -28,7 +28,7 @@ const m = new Module(srcPath);
 m.filename = srcPath;
 m.paths = Module._nodeModulePaths(path.dirname(srcPath));
 m._compile(out, m.filename);
-const { pasaFiltros, opcionesDeEje, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras } = m.exports;
+const { pasaFiltros, opcionesDeEje, conCatalogoOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras, TODOS_LOS_EJES_FILTRO } = m.exports;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -321,6 +321,81 @@ const md = fs.readFileSync(path.join(ROOT, 'docs/MANUAL-USUARIO.md'), 'utf8');
 eq('el manual .md lo explica', /Buscar un viaje por su n.mero de ticket \(17\/09\/2026/.test(md), true);
 eq('el manual en pantalla también',
   /BUSCAR UN VIAJE POR SU N.MERO DE TICKET \(17\/09\/2026/.test(fs.readFileSync(path.join(ROOT, 'src/screens/ManualScreen.tsx'), 'utf8')), true);
+
+// ── ⛏️🎟️👤 FILTRAR POR UNO O VARIOS FRENTES, FORMATOS Y LISTEROS (13-nov-2026) ──
+eq('TODOS_LOS_EJES_FILTRO incluye frente, formato y listero',
+  ['listero', 'formato', 'frente'].every((e) => TODOS_LOS_EJES_FILTRO.includes(e)), true);
+
+const filasExt = [
+  { listero: 'l1', listeroN: 'Junior', empresa: 'e1', camion: 'c1', turno: 'day', ubicacion: 'u1', formato: 'fmt1', formatoN: 'Formato Principal', frente: 'f1', frenteN: 'Frente Norte' },
+  { listero: 'l1', listeroN: 'Junior', empresa: 'e1', camion: 'c2', turno: 'day', ubicacion: 'u1', formato: 'fmt2', formatoN: 'CDT Sur', frente: 'f2', frenteN: 'Frente Sur' },
+  { listero: 'l2', listeroN: 'Ely', empresa: 'e2', camion: 'c3', turno: 'night', ubicacion: 'u2', formato: 'fmt2', formatoN: 'CDT Sur', frente: 'f1', frenteN: 'Frente Norte' },
+  { listero: 'l3', listeroN: 'María', empresa: 'e2', camion: 'c3', turno: 'day', ubicacion: 'u2', formato: 'fmt3', formatoN: 'CDT Este', frente: '__sin_frente__', frenteN: 'Sin frente' },
+];
+const clavesExt = (r) => ({
+  listero: r.listero, empresa: r.empresa, camion: r.camion, turno: r.turno,
+  ubicacion: r.ubicacion, formato: r.formato, frente: r.frente,
+});
+const selExt = ({ listero = [], empresa = [], camion = [], turno = [], ubicacion = [], formato = [], frente = [] } = {}) => ({
+  listero: new Map(listero), empresa: new Map(empresa), camion: new Map(camion),
+  turno: new Map(turno), ubicacion: new Map(ubicacion), formato: new Map(formato), frente: new Map(frente),
+});
+
+// Filtrar por 1 frente y por varios frentes (OR dentro de frente).
+eq('filtrar por 1 frente trae solo los de ese frente',
+  filasExt.filter((r) => pasaFiltros(clavesExt(r), selExt({ frente: [['f1', 'Frente Norte']] }))).length, 2);
+eq('filtrar por 2 frentes trae la unión de ambos',
+  filasExt.filter((r) => pasaFiltros(clavesExt(r), selExt({ frente: [['f1', 'Frente Norte'], ['f2', 'Frente Sur']] }))).length, 3);
+
+// Filtrar por 1 formato y por varios formatos (OR dentro de formato).
+eq('filtrar por 1 formato trae solo los de ese formato',
+  filasExt.filter((r) => pasaFiltros(clavesExt(r), selExt({ formato: [['fmt2', 'CDT Sur']] }))).length, 2);
+eq('filtrar por 2 formatos trae la unión de ambos',
+  filasExt.filter((r) => pasaFiltros(clavesExt(r), selExt({ formato: [['fmt1', 'Formato Principal'], ['fmt3', 'CDT Este']] }))).length, 2);
+
+// Combinar varios listeros + varios frentes + varios formatos (AND entre ejes, OR dentro de cada eje).
+eq('combinar 2 listeros + 1 frente + 1 formato cruza con AND entre ejes',
+  filasExt.filter((r) => pasaFiltros(clavesExt(r), selExt({
+    listero: [['l1', 'Junior'], ['l2', 'Ely']],
+    frente: [['f1', 'Frente Norte']],
+    formato: [['fmt2', 'CDT Sur']],
+  }))).length, 1);
+
+// conCatalogoOpciones incorpora ítems del catálogo con count: 0 y deja __sin_frente__ al final.
+const optsFrenteRango = opcionesDeEje(filasExt, 'frente', clavesExt, (r) => ({ id: r.frente, label: r.frenteN }), selExt(), cmp);
+const optsFrenteConCat = conCatalogoOpciones(optsFrenteRango, [
+  { id: 'f1', label: 'Frente Norte' },
+  { id: 'f2', label: 'Frente Sur' },
+  { id: 'f3', label: 'Frente Oeste' },
+], cmp);
+eq('conCatalogoOpciones suma el frente del catálogo sin viajes en (0) y deja Sin frente al final',
+  optsFrenteConCat,
+  [
+    { id: 'f1', label: 'Frente Norte', count: 2 },
+    { id: 'f3', label: 'Frente Oeste', count: 0 },
+    { id: 'f2', label: 'Frente Sur', count: 1 },
+    { id: '__sin_frente__', label: 'Sin frente', count: 1 },
+  ]);
+
+// Guardas en ViajesCamionesScreen.tsx para frentes, formatos y listeros en Lista completa de viajes.
+eq('la pantalla declara filterFrenteSel y frenteOptionsVisibles',
+  /filterFrenteSel/.test(scr) && /frenteOptionsVisibles\.map\(/.test(scr), true);
+eq('la fila de frente tiene su pastilla «Todos»',
+  scr.includes("{chipTodos('Todos', filterFrenteSel, setFilterFrenteSel)}"), true);
+eq('la fila de formato tiene su pastilla «Todos»',
+  scr.includes("{chipTodos('Todos', filterFormatoSel, setFilterFormatoSel)}"), true);
+eq('las filas de listero, frente y formato se alimentan también del catálogo del módulo',
+  /conCatalogoOpciones\(\s*opcionesDeEje\(dateScopedRows, 'listero'/.test(scr)
+  && /conCatalogoOpciones\(\s*opcionesDeEje\(dateScopedRows, 'frente'/.test(scr)
+  && /conCatalogoOpciones\(\s*opcionesDeEje\(dateScopedRows, 'formato'/.test(scr), true);
+eq('el encabezado del PDF deja constancia de los frentes filtrados',
+  /filterFrenteSel\.size \? `Frentes: \$\{esc\(Array\.from\(filterFrenteSel\.values\(\)\)\.join\(', '\)\)\}` : null/.test(scr), true);
+eq('«Limpiar filtros» limpia también filterFrenteSel',
+  /setFilterFrenteSel\(new Map\(\)\);/.test(scr), true);
+eq('el manual .md explica el filtro por uno o varios frentes, formatos y listeros',
+  /Filtrar por uno o varios frentes, formatos y listeros en la Lista completa de viajes \(13\/11\/2026\)/.test(md), true);
+eq('el manual en pantalla también lo explica',
+  /FILTRAR POR UNO O VARIOS FRENTES, FORMATOS Y LISTEROS EN LA LISTA COMPLETA \(13\/11\/2026\)/.test(fs.readFileSync(path.join(ROOT, 'src/screens/ManualScreen.tsx'), 'utf8')), true);
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-filtros · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

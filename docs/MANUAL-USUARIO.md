@@ -8441,6 +8441,9 @@ resuelve dos cosas:
 > trabajó ese día, su chip **sigue ahí, en (0)**. Antes desaparecía de la fila: la lista salía
 > vacía y no había manera de saber qué la estaba tapando ni dónde desmarcarla.
 
+> **⛏️🎟️👤 Filtrar por uno o varios frentes, formatos y listeros en la Lista completa de viajes (13/11/2026).**
+> En **«🚛 Lista completa de viajes»**, igual que puedes sacar el reporte por una o varias empresas o por uno o varios camiones (con su placa), tienes siempre visibles las filas **FRENTE** (`⛏️`), **FORMATO DE TICKET** (`🎟️`) y **LISTERO** (`👤`) alimentadas con los frentes, formatos y listeros ya configurados en el módulo. Puedes marcar **uno o varios** en cada fila (o tocar **«✓ Todos»** para volver a incluirlos todos) y el PDF deja constancia en su encabezado de los frentes, formatos y listeros seleccionados.
+
 **La lista vacía ahora dice por qué.** Ya no todo es *"Sin viajes en el rango seleccionado"*.
 Distingue cinco causas, y cada una nombra lo que hay que hacer:
 
