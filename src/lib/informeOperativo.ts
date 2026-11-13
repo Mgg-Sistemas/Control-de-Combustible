@@ -40,6 +40,13 @@ export type ViajeOperativo = {
   ubicacion_nombre?: string | null;
   placa_snap?: string | null;
   fuera_catalogo?: boolean | null;
+  listero_id?: string | null;
+  listero_name?: string | null;
+  folio?: string | null;
+  frente_id?: string | null;
+  frente_nombre?: string | null;
+  formato_id?: string | null;
+  formato_nombre?: string | null;
 };
 
 const num = (v: unknown): number => {
@@ -90,6 +97,17 @@ export const camionDeViaje = (v: ViajeOperativo): string =>
 export const SIN_OBRA_OP = 'Sin obra';
 export const SIN_ZONA_OP = 'Sin zona';
 export const SIN_EMPRESA_OP = '(sin empresa)';
+export const SIN_LISTERO_OP = 'Sin listero';
+export const SIN_FRENTE_OP = 'Sin frente';
+export const FORMATO_DEFECTO_OP = 'Formato Principal';
+
+/** Turno operativo (☀️ 7am–7pm · 🌙 7pm–7am) deducido de la hora de Caracas (UTC−4). */
+export function turnoDeViajeOperativo(registeredAtISO: string | null | undefined): 'day' | 'night' {
+  const t = Date.parse(String(registeredAtISO ?? ''));
+  if (!Number.isFinite(t)) return 'day';
+  const h = new Date(t - 4 * 3600 * 1000).getUTCHours();
+  return h >= 7 && h < 19 ? 'day' : 'night';
+}
 
 export const obraDeViaje = (v: ViajeOperativo): string => String(v.ubicacion_nombre ?? '').trim() || SIN_OBRA_OP;
 export const zonaDeViaje = (v: ViajeOperativo): string => {
@@ -97,34 +115,68 @@ export const zonaDeViaje = (v: ViajeOperativo): string => {
   return z === 'este' ? 'Este' : z === 'oeste' ? 'Oeste' : SIN_ZONA_OP;
 };
 export const empresaDeViaje = (v: ViajeOperativo): string => String(v.company_id ?? '').trim() || SIN_EMPRESA_OP;
+export const listeroDeViaje = (v: ViajeOperativo): string => String(v.listero_name ?? '').trim() || String(v.listero_id ?? '').trim() || SIN_LISTERO_OP;
+export const frenteDeViaje = (v: ViajeOperativo): string => String(v.frente_nombre ?? '').trim() || SIN_FRENTE_OP;
+export const formatoDeViajeOp = (v: ViajeOperativo): string => String(v.formato_nombre ?? v.formato_id ?? '').trim() || FORMATO_DEFECTO_OP;
+export const turnoDeViaje = (v: ViajeOperativo): 'day' | 'night' => turnoDeViajeOperativo(v.registered_at);
 
 // ── FILTROS (vacío = todas, igual que en los papeles de pago) ───────────────
 
-export type FiltroOperativo = { empresas: string[]; obras: string[]; zonas: string[]; camiones: string[] };
-export const FILTRO_OPERATIVO_TODO: FiltroOperativo = { empresas: [], obras: [], zonas: [], camiones: [] };
+export type FiltroOperativo = {
+  empresas: string[];
+  obras: string[];
+  zonas: string[];
+  camiones: string[];
+  listeros?: string[];
+  frentes?: string[];
+  turnos?: string[]; // 'day' | 'night'
+  formatos?: string[];
+};
+export const FILTRO_OPERATIVO_TODO: FiltroOperativo = {
+  empresas: [], obras: [], zonas: [], camiones: [],
+  listeros: [], frentes: [], turnos: [], formatos: [],
+};
 
 const pasa = (lista: string[] | null | undefined, clave: string) => !lista || lista.length === 0 || lista.includes(clave);
 
 export function filtrarViajesOperativo(viajes: ViajeOperativo[] | null | undefined, f: FiltroOperativo): ViajeOperativo[] {
   return (viajes ?? []).filter((v) =>
-    pasa(f.empresas, empresaDeViaje(v)) && pasa(f.obras, obraDeViaje(v))
-    && pasa(f.zonas, zonaDeViaje(v)) && pasa(f.camiones, camionDeViaje(v)));
+    pasa(f.empresas, empresaDeViaje(v))
+    && pasa(f.obras, obraDeViaje(v))
+    && pasa(f.zonas, zonaDeViaje(v))
+    && pasa(f.camiones, camionDeViaje(v))
+    && pasa(f.listeros, listeroDeViaje(v))
+    && pasa(f.frentes, frenteDeViaje(v))
+    && pasa(f.turnos, turnoDeViaje(v))
+    && pasa(f.formatos, formatoDeViajeOp(v)));
 }
 
 /** El filtro, acotado a lo que de verdad hay en el rango: una empresa marcada
  *  que ya no está seguiría filtrando sin verse y sin poder desmarcarse. */
 export function acotarFiltroOperativo(
   f: FiltroOperativo,
-  hay: { empresas: string[]; obras: string[]; zonas: string[]; camiones: string[] },
+  hay: {
+    empresas: string[]; obras: string[]; zonas: string[]; camiones: string[];
+    listeros?: string[]; frentes?: string[]; turnos?: string[]; formatos?: string[];
+  },
 ): FiltroOperativo {
   const e = new Set(hay.empresas); const o = new Set(hay.obras);
   const z = new Set(hay.zonas); const c = new Set(hay.camiones);
-  return {
+  const l = hay.listeros ? new Set(hay.listeros) : null;
+  const fr = hay.frentes ? new Set(hay.frentes) : null;
+  const tu = hay.turnos ? new Set(hay.turnos) : null;
+  const fo = hay.formatos ? new Set(hay.formatos) : null;
+  const res: FiltroOperativo = {
     empresas: f.empresas.filter((k) => e.has(k)),
     obras: f.obras.filter((k) => o.has(k)),
     zonas: f.zonas.filter((k) => z.has(k)),
     camiones: f.camiones.filter((k) => c.has(k)),
   };
+  if (f.listeros) res.listeros = f.listeros.filter((k) => !l || l.has(k));
+  if (f.frentes) res.frentes = f.frentes.filter((k) => !fr || fr.has(k));
+  if (f.turnos) res.turnos = f.turnos.filter((k) => !tu || tu.has(k));
+  if (f.formatos) res.formatos = f.formatos.filter((k) => !fo || fo.has(k));
+  return res;
 }
 
 export type OpcionDisponible = { id: string; name: string; viajes: number };
@@ -139,6 +191,20 @@ function disponibles(viajes: ViajeOperativo[] | null | undefined, claveDe: (v: V
 export const obrasOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, obraDeViaje, SIN_OBRA_OP);
 export const zonasOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, zonaDeViaje, SIN_ZONA_OP);
 export const empresasOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, empresaDeViaje, SIN_EMPRESA_OP);
+export const listerosOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, listeroDeViaje, SIN_LISTERO_OP);
+export const frentesOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, frenteDeViaje, SIN_FRENTE_OP);
+export const formatosOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, formatoDeViajeOp, FORMATO_DEFECTO_OP);
+
+export function turnosOperativo(viajes: ViajeOperativo[] | null | undefined): { id: string; name: string; viajes: number }[] {
+  let diaCount = 0; let nocheCount = 0;
+  (viajes ?? []).forEach((v) => {
+    if (turnoDeViaje(v) === 'day') diaCount++; else nocheCount++;
+  });
+  return [
+    { id: 'day', name: '☀️ Día', viajes: diaCount },
+    { id: 'night', name: '🌙 Noche', viajes: nocheCount },
+  ];
+}
 
 /** Camiones del rango, con su código y placa congelada, para el buscador. */
 export function camionesOperativo(viajes: ViajeOperativo[] | null | undefined): { id: string; code: string; placa: string | null; viajes: number }[] {
@@ -312,13 +378,21 @@ export type OpcionesInformeOperativo = {
   // Columnas de la tabla diaria, una a una:
   sinDiaSemana: boolean;
   sinFlota: boolean;
+  sinViajes: boolean;
+  sinTurnosViajes: boolean;
   sinSinPeso: boolean;
   sinToneladas: boolean;
   sinTPorViaje: boolean;
   /** Cuadro extra: totales por empresa (nace apagado). */
   sinPorEmpresa: boolean;
+  /** Columnas del cuadro por empresa: */
+  sinFlotaEmpresa: boolean;
+  sinSinPesoEmpresa: boolean;
   /** Cuadro extra: totales por camión (nace apagado). */
   sinPorCamion: boolean;
+  /** Columnas del cuadro por camión: */
+  sinFlotaCamion: boolean;
+  sinSinPesoCamion: boolean;
   /** Sin el NOMBRE de las empresas: «Empresa 1», «Empresa 2»… */
   sinEmpresas: boolean;
   /** Sin el cuadro de alcance del final. Acá la pastilla manda SIEMPRE, hasta
@@ -344,8 +418,10 @@ export type OpcionesInformeOperativo = {
  *  con los cuadros extra apagados — lo nuevo entra apagado. */
 export const OPCIONES_OPERATIVO_INICIAL: OpcionesInformeOperativo = {
   sinKpis: false, sinGrafico: false, sinTabla: false,
-  sinDiaSemana: false, sinFlota: false, sinSinPeso: false, sinToneladas: false, sinTPorViaje: false,
-  sinPorEmpresa: true, sinPorCamion: true, sinEmpresas: false, sinAlcance: true, sinPlacaCamion: false,
+  sinDiaSemana: false, sinFlota: false, sinViajes: false, sinTurnosViajes: true, sinSinPeso: false, sinToneladas: false, sinTPorViaje: false,
+  sinPorEmpresa: true, sinFlotaEmpresa: false, sinSinPesoEmpresa: false,
+  sinPorCamion: true, sinFlotaCamion: false, sinSinPesoCamion: false,
+  sinEmpresas: false, sinAlcance: true, sinPlacaCamion: false,
   sinMaquinasDia: true,
 };
 
@@ -354,13 +430,19 @@ export const PASTILLAS_OPERATIVO: { key: keyof OpcionesInformeOperativo; chip: s
   { key: 'sinGrafico', chip: '🚫 Gráfico', largo: 'gráfico', archivo: 'sin grafico' },
   { key: 'sinTabla', chip: '🚫 Tabla diaria', largo: 'tabla diaria', archivo: 'solo resumen' },
   { key: 'sinDiaSemana', chip: '🚫 Día de la semana', largo: 'día de la semana', archivo: 'sin dia' },
-  { key: 'sinFlota', chip: '🚫 Flota', largo: 'columna de flota', archivo: 'sin flota' },
+  { key: 'sinFlota', chip: '🚫 Flota diaria', largo: 'columna de flota', archivo: 'sin flota' },
+  { key: 'sinViajes', chip: '🚫 Total viajes', largo: 'columna de viajes', archivo: 'sin viajes' },
+  { key: 'sinTurnosViajes', chip: '☀️🌙 Desglose Día / Noche', largo: 'desglose turnos día y noche', archivo: 'con turnos' },
   { key: 'sinSinPeso', chip: '🚫 Viajes sin peso', largo: 'columna de viajes sin peso', archivo: 'sin col sin peso' },
   { key: 'sinToneladas', chip: '🚫 Toneladas', largo: 'columna de toneladas', archivo: 'sin toneladas' },
   { key: 'sinTPorViaje', chip: '🚫 T/Viaje', largo: 'columna T/viaje', archivo: 'sin t-viaje' },
   { key: 'sinMaquinasDia', chip: '🚫 Desglose: máquinas por día', largo: 'desglose de máquinas por día', archivo: 'con maquinas dia' },
   { key: 'sinPorEmpresa', chip: '🚫 Cuadro por empresa', largo: 'cuadro por empresa', archivo: 'con empresas' },
+  { key: 'sinFlotaEmpresa', chip: '🚫 Flota en empresas', largo: 'flota en empresas', archivo: 'sin flota emp' },
+  { key: 'sinSinPesoEmpresa', chip: '🚫 Sin peso en empresas', largo: 'sin peso en empresas', archivo: 'sin sin-peso emp' },
   { key: 'sinPorCamion', chip: '🚫 Cuadro por camión', largo: 'cuadro por camión', archivo: 'con camiones' },
+  { key: 'sinFlotaCamion', chip: '🚫 Flota en camiones', largo: 'flota en camiones', archivo: 'sin flota cam' },
+  { key: 'sinSinPesoCamion', chip: '🚫 Sin peso en camiones', largo: 'sin peso en camiones', archivo: 'sin sin-peso cam' },
   { key: 'sinPlacaCamion', chip: '🚫 Serial / Placa (camiones)', largo: 'serial/placa de los camiones', archivo: 'sin placa' },
   { key: 'sinEmpresas', chip: '🚫 Nombre de empresas', largo: 'nombres de empresas', archivo: 'sin nombres' },
   { key: 'sinAlcance', chip: '🚫 Alcance del informe', largo: 'cuadro de alcance', archivo: 'con alcance' },
@@ -528,18 +610,37 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
   }
 
   if (!o.sinTabla) {
+    const turnosPorDia = new Map<string, { dia: number; noche: number }>();
+    if (!o.sinTurnosViajes) {
+      (d.viajes ?? []).forEach((v) => {
+        const j = jornadaOperativa(v.registered_at);
+        if (!j) return;
+        const cur = turnosPorDia.get(j) ?? { dia: 0, noche: 0 };
+        if (turnoDeViaje(v) === 'day') cur.dia += 1; else cur.noche += 1;
+        turnosPorDia.set(j, cur);
+      });
+    }
     const cols: { k: string; th: string; num: boolean; celda: (x: DiaOperativo) => string }[] = [
       { k: 'fecha', th: 'Fecha', num: false, celda: (x) => dmy(x.jornada) },
       ...(!o.sinDiaSemana ? [{ k: 'dia', th: 'Día', num: false, celda: (x: DiaOperativo) => esc(x.diaSemana) }] : []),
       ...(!o.sinFlota ? [{ k: 'flota', th: 'Flota', num: true, celda: (x: DiaOperativo) => nro(x.flota, 0) }] : []),
-      { k: 'viajes', th: 'Viajes', num: true, celda: (x) => nro(x.viajes, 0) },
+      ...(!o.sinViajes ? [{ k: 'viajes', th: 'Viajes', num: true, celda: (x: DiaOperativo) => nro(x.viajes, 0) }] : []),
+      ...(!o.sinTurnosViajes ? [
+        { k: 'vdia', th: '☀️ Día', num: true, celda: (x: DiaOperativo) => nro(turnosPorDia.get(x.jornada)?.dia ?? 0, 0) },
+        { k: 'vnoche', th: '🌙 Noche', num: true, celda: (x: DiaOperativo) => nro(turnosPorDia.get(x.jornada)?.noche ?? 0, 0) },
+      ] : []),
       ...(!o.sinSinPeso ? [{ k: 'sinpeso', th: 'Sin peso', num: true, celda: (x: DiaOperativo) => (x.sinPeso > 0 ? nro(x.sinPeso, 0) : '—') }] : []),
       ...(!o.sinToneladas ? [{ k: 'ton', th: 'Toneladas (t)', num: true, celda: (x: DiaOperativo) => nro(x.toneladas) }] : []),
       ...(!o.sinTPorViaje ? [{ k: 'tv', th: 'T/Viaje', num: true, celda: (x: DiaOperativo) => (x.tPorViaje == null ? '—' : nro(x.tPorViaje)) }] : []),
     ];
+    let totDia = 0; let totNoche = 0;
+    if (!o.sinTurnosViajes) {
+      turnosPorDia.forEach((val) => { totDia += val.dia; totNoche += val.noche; });
+    }
     const totalCelda = (k: string): string =>
       k === 'fecha' ? 'TOTAL / PROM.' : k === 'dia' ? '—'
         : k === 'flota' ? `${nro(r.flotaMax, 0)} (máx)` : k === 'viajes' ? nro(r.viajes, 0)
+          : k === 'vdia' ? nro(totDia, 0) : k === 'vnoche' ? nro(totNoche, 0)
           : k === 'sinpeso' ? (r.sinPeso > 0 ? nro(r.sinPeso, 0) : '—') : k === 'ton' ? nro(r.toneladas)
             : r.tPorViajeProm == null ? '—' : nro(r.tPorViajeProm);
     partes.push(`<h3>Tabla operativa diaria</h3>
@@ -576,11 +677,25 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
     else if (r.dias.length > MAX_DIAS_GRAFICO) partes.push(`<p class="n">El gráfico no sale con más de ${MAX_DIAS_GRAFICO} días (serían barras ilegibles). Acorta el rango para verlo.</p>`);
   }
 
-  const cuadro = (titulo: string, col: string, filas: ConteoOperativo[], nombre?: (k: string) => string) =>
-    `<h3>${titulo}</h3><table><thead><tr><th>${col}</th><th class="r">Flota</th><th class="r">Viajes</th><th class="r">Sin peso</th><th class="r">Toneladas (t)</th></tr></thead>
-    <tbody>${filas.map((c) => `<tr><td>${esc(nombre ? nombre(c.clave) : c.clave)}</td><td class="r">${nro(c.flota, 0)}</td><td class="r">${nro(c.viajes, 0)}</td><td class="r">${c.sinPeso > 0 ? nro(c.sinPeso, 0) : '—'}</td><td class="r b">${nro(c.toneladas)}</td></tr>`).join('')}</tbody></table>`;
+  const cuadro = (
+    titulo: string,
+    col: string,
+    filas: ConteoOperativo[],
+    nombre?: (k: string) => string,
+    opc?: { sinFlota?: boolean; sinSinPeso?: boolean },
+  ) => {
+    const cDefs: { th: string; num: boolean; celda: (c: ConteoOperativo) => string }[] = [
+      { th: col, num: false, celda: (c) => esc(nombre ? nombre(c.clave) : c.clave) },
+      ...(!opc?.sinFlota ? [{ th: 'Flota', num: true, celda: (c: ConteoOperativo) => nro(c.flota, 0) }] : []),
+      { th: 'Viajes', num: true, celda: (c: ConteoOperativo) => nro(c.viajes, 0) },
+      ...(!opc?.sinSinPeso ? [{ th: 'Sin peso', num: true, celda: (c: ConteoOperativo) => (c.sinPeso > 0 ? nro(c.sinPeso, 0) : '—') }] : []),
+      { th: 'Toneladas (t)', num: true, celda: (c: ConteoOperativo) => nro(c.toneladas) },
+    ];
+    return `<h3>${titulo}</h3><table><thead><tr>${cDefs.map((c) => `<th${c.num ? ' class="r"' : ''}>${c.th}</th>`).join('')}</tr></thead>
+    <tbody>${filas.map((c) => `<tr>${cDefs.map((colDef, idx) => `<td${colDef.num ? ' class="r"' : ''}${idx === cDefs.length - 1 ? ' class="r b"' : ''}>${colDef.celda(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  };
 
-  if (!o.sinPorEmpresa) partes.push(cuadro('Totales por empresa', 'Empresa', conteoOperativoPor(d.viajes, empresaDeViaje), nombreEmpresa));
+  if (!o.sinPorEmpresa) partes.push(cuadro('Totales por empresa', 'Empresa', conteoOperativoPor(d.viajes, empresaDeViaje), nombreEmpresa, { sinFlota: o.sinFlotaEmpresa, sinSinPeso: o.sinSinPesoEmpresa }));
   if (!o.sinPorCamion) {
     const porCamion = conteoOperativoPor(d.viajes, camionDeViaje);
     const fichas = new Map(camionesOperativo(d.viajes).map((c) => [c.id, c]));
@@ -591,10 +706,14 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
       // La placa del VIAJE manda; el catálogo respalda los viajes viejos sin seña.
       const placa = f.placa || d.placasCatalogo?.get(k) || '';
       return `${f.code}${placa ? ` · ${placa}` : ''}`;
-    }));
+    }, { sinFlota: o.sinFlotaCamion, sinSinPeso: o.sinSinPesoCamion }));
   }
 
-  const filtrado = d.filtro.empresas.length > 0 || d.filtro.obras.length > 0 || d.filtro.zonas.length > 0 || d.filtro.camiones.length > 0;
+  const filtrado = d.filtro.empresas.length > 0 || d.filtro.obras.length > 0 || d.filtro.zonas.length > 0 || d.filtro.camiones.length > 0
+    || ((d.filtro.listeros?.length ?? 0) > 0)
+    || ((d.filtro.frentes?.length ?? 0) > 0)
+    || ((d.filtro.turnos?.length ?? 0) > 0)
+    || ((d.filtro.formatos?.length ?? 0) > 0);
   // ⚠️ A diferencia de los papeles de PAGO (donde un filtro mueve plata y el
   //    alcance sale a la fuerza), acá la pastilla MANDA SIEMPRE (09-oct-2026, a
   //    pedido: «quiero quitar el alcance y aún lo deja»). La honestidad no se
@@ -608,6 +727,10 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
       if (f.obras.length) l.push(`Solo obra(s): ${f.obras.map(esc).join(', ')}.`);
       if (f.empresas.length) l.push(`Solo ${f.empresas.length} empresa(s) elegida(s).`);
       if (f.camiones.length) l.push(`Solo ${f.camiones.length} camión(es) elegido(s).`);
+      if (f.listeros?.length) l.push(`Solo ${f.listeros.length} listero(s) elegido(s).`);
+      if (f.frentes?.length) l.push(`Solo frente(s): ${f.frentes.map(esc).join(', ')}.`);
+      if (f.turnos?.length) l.push(`Solo turno: ${f.turnos.map((t) => t === 'day' ? 'Día (☀️)' : 'Noche (🌙)').join(', ')}.`);
+      if (f.formatos?.length) l.push(`Solo formato(s): ${f.formatos.map(esc).join(', ')}.`);
       l.unshift('FILTRADO: este papel NO es toda la operación.');
     }
     partes.push(`<h3>Alcance del informe</h3><p class="n">${l.join(' ')}</p>`);

@@ -23,16 +23,19 @@ import { spacing, radius } from '../theme';
 import { selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { norm } from '../lib/text';
+import { leerConfigTique } from '../lib/tiqueConfigDatos';
+import { resolverFormatoDeViaje } from '../lib/tiqueConfig';
 import {
   CSS_INFORME_OPERATIVO, FiltroOperativo, OpcionesInformeOperativo, OPCIONES_OPERATIVO_INICIAL,
   PASTILLAS_OPERATIVO, ViajeOperativo,
   acotarFiltroOperativo, alternarOperativo, camionesOperativo, cuerpoInformeOperativo,
   empresasOperativo, filtrarViajesOperativo, jornadaOperativa, nro, obrasOperativo,
   ocultosOperativoEnPalabras, resumenOperativo, sufijoArchivoOperativo, textoPicoFlota, zonasOperativo,
+  listerosOperativo, frentesOperativo, formatosOperativo, turnosOperativo,
 } from '../lib/informeOperativo';
 
 type Props = {
-  /** Solo se monta con nivel full (lo decide la pantalla), pero se recibe por claridad. */
+  /** Permiso de lectura o completo para ver el informe operativo. */
   canVer: boolean;
 };
 
@@ -48,8 +51,8 @@ const sumarDias = (iso: string, n: number) => {
 const lunesDe = (iso: string) => sumarDias(iso, -((new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7));
 const primeroDelMes = (iso: string) => `${iso.slice(0, 7)}-01`;
 
-// Lo que se le pide a la base por cada viaje: lo mínimo para contar y filtrar.
-const COLS_OPERATIVO = 'id, machinery_id, machine_code, company_id, zona_pago, registered_at, peso_neto_kg, ubicacion_nombre, placa_snap, fuera_catalogo';
+// Lo que se le pide a la base por cada viaje: incluye campos congelados de listero, frente, folio y máquina.
+const COLS_OPERATIVO = 'id, machinery_id, machine_code, company_id, zona_pago, registered_at, peso_neto_kg, ubicacion_nombre, placa_snap, fuera_catalogo, listero_id, listero_name, folio, frente_id, frente_nombre';
 
 type Logos = { bcv: boolean; sos: boolean; golden: boolean; renace: boolean; jhenzaen: boolean };
 // 🏷️ Regla de la casa en Viajes de camiones: el papel nace SIN logos y sin la
@@ -79,11 +82,17 @@ export function InformeOperativoCard({ canVer }: Props) {
   const [nombresEmpresa, setNombresEmpresa] = useState<Map<string, string>>(new Map());
 
   // Filtros del papel (vacío = todas) y opciones.
+  const [turnosSel, setTurnosSel] = useState<Set<string>>(new Set());
+  const [listerosSel, setListerosSel] = useState<Set<string>>(new Set());
   const [empresasSel, setEmpresasSel] = useState<Set<string>>(new Set());
-  const [obrasSel, setObrasSel] = useState<Set<string>>(new Set());
-  const [zonasSel, setZonasSel] = useState<Set<string>>(new Set());
   const [camionesSel, setCamionesSel] = useState<Set<string>>(new Set());
-  const [buscaCam, setBuscaCam] = useState('');
+  const [obrasSel, setObrasSel] = useState<Set<string>>(new Set());
+  const [frentesSel, setFrentesSel] = useState<Set<string>>(new Set());
+  const [formatosSel, setFormatosSel] = useState<Set<string>>(new Set());
+  const [zonasSel, setZonasSel] = useState<Set<string>>(new Set());
+
+  // Buscador de filtros para encontrar fácilmente por placa, código, listero, frente o empresa
+  const [busqFiltros, setBusqFiltros] = useState('');
   const [opciones, setOpciones] = useState<OpcionesInformeOperativo>(OPCIONES_OPERATIVO_INICIAL);
   const [logos, setLogos] = useState<Logos>(LOGOS_POR_DEFECTO);
   const [descargando, setDescargando] = useState(false);
@@ -97,18 +106,35 @@ export function InformeOperativoCard({ canVer }: Props) {
     try {
       // La jornada va de 7am a 7am: el rango en instantes es [desde 7am, hasta+1 7am).
       const finExclusivo = sumarDias(hasta, 1);
-      const [filas, empresas, maqs] = await Promise.all([
+      const [filas, empresas, maqs, tiqueCfg] = await Promise.all([
         selectAllRows('camion_viajes', COLS_OPERATIVO, (q: any) =>
           q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`)),
         selectAllRows('companies', 'id, name'),
         // 🚛 Placa/serial del catálogo: respalda los viajes viejos sin placa
         //    congelada en el cuadro por camión. Si falla, el papel sale igual.
         selectAllRows('machinery', 'id, plate, serial').catch(() => [] as any[]),
+        leerConfigTique().catch(() => ({ formatos: [], asignaciones: {}, foliosFormatos: {}, sinTabla: false, config: null as any })),
       ]);
       setPlacasCat(new Map((maqs as any[])
         .map((m) => [String(m.id), String(m.plate ?? '').trim() || String(m.serial ?? '').trim()])
         .filter(([, v]) => !!v) as [string, string][]));
-      setViajes(filas as ViajeOperativo[]);
+
+      // Asignar formato de ticket resuelto a cada viaje para el filtro de formatos
+      const filasResueltas = (filas as any[]).map((r) => {
+        const fmt = resolverFormatoDeViaje(
+          { folio: r.folio, listeroId: r.listero_id },
+          tiqueCfg.formatos ?? [],
+          tiqueCfg.asignaciones ?? {},
+          tiqueCfg.foliosFormatos ?? {},
+        );
+        return {
+          ...r,
+          formato_id: fmt.id,
+          formato_nombre: fmt.nombre,
+        } as ViajeOperativo;
+      });
+
+      setViajes(filasResueltas);
       setNombresEmpresa(new Map((empresas as any[]).map((c) => [c.id as string, String(c.name ?? '')])));
     } catch (e: any) {
       // Con datos a medias el informe diría números equivocados: mejor decirlo.
@@ -122,23 +148,101 @@ export function InformeOperativoCard({ canVer }: Props) {
   useEffect(() => { if (yaPedido) cargar(); }, [yaPedido, cargar]);
 
   // Catálogos del rango (para las pastillas de filtro) y el filtro acotado.
+  const turnosHay = useMemo(() => turnosOperativo(viajes), [viajes]);
+  const listerosHay = useMemo(() => listerosOperativo(viajes), [viajes]);
   const empresasHay = useMemo(() => empresasOperativo(viajes), [viajes]);
-  const obrasHay = useMemo(() => obrasOperativo(viajes), [viajes]);
-  const zonasHay = useMemo(() => zonasOperativo(viajes), [viajes]);
   const camionesHay = useMemo(() => camionesOperativo(viajes), [viajes]);
+  const obrasHay = useMemo(() => obrasOperativo(viajes), [viajes]);
+  const frentesHay = useMemo(() => frentesOperativo(viajes), [viajes]);
+  const formatosHay = useMemo(() => formatosOperativo(viajes), [viajes]);
+  const zonasHay = useMemo(() => zonasOperativo(viajes), [viajes]);
+
+  // Buscador de filtros unificado: filtra opciones visibles sin esconder nunca los elementos ya marcados
+  const qFiltro = norm(busqFiltros.trim());
+  const listerosVistos = useMemo(() => {
+    if (!qFiltro) return listerosHay;
+    return listerosHay.filter((l) => listerosSel.has(l.id) || norm(l.name).includes(qFiltro));
+  }, [listerosHay, listerosSel, qFiltro]);
+
+  const empresasVistos = useMemo(() => {
+    if (!qFiltro) return empresasHay;
+    return empresasHay.filter((e) => {
+      const nom = nombresEmpresa.get(e.id) ?? e.name;
+      return empresasSel.has(e.id) || norm(nom).includes(qFiltro);
+    });
+  }, [empresasHay, empresasSel, nombresEmpresa, qFiltro]);
+
   const camionesVistos = useMemo(() => {
-    const q = norm(buscaCam.trim());
-    if (!q) return camionesHay;
-    return camionesHay.filter((c) => [c.code, c.placa ?? ''].some((v) => norm(v).includes(q)));
-  }, [camionesHay, buscaCam]);
+    if (!qFiltro) return camionesHay;
+    return camionesHay.filter((c) => camionesSel.has(c.id) || [c.code, c.placa ?? ''].some((v) => norm(v).includes(qFiltro)));
+  }, [camionesHay, camionesSel, qFiltro]);
+
+  const obrasVistos = useMemo(() => {
+    if (!qFiltro) return obrasHay;
+    return obrasHay.filter((o) => obrasSel.has(o.id) || norm(o.name).includes(qFiltro));
+  }, [obrasHay, obrasSel, qFiltro]);
+
+  const frentesVistos = useMemo(() => {
+    if (!qFiltro) return frentesHay;
+    return frentesHay.filter((f) => frentesSel.has(f.id) || norm(f.name).includes(qFiltro));
+  }, [frentesHay, frentesSel, qFiltro]);
+
+  const formatosVistos = useMemo(() => {
+    if (!qFiltro) return formatosHay;
+    return formatosHay.filter((f) => formatosSel.has(f.id) || norm(f.name).includes(qFiltro));
+  }, [formatosHay, formatosSel, qFiltro]);
 
   const filtro: FiltroOperativo = useMemo(() => acotarFiltroOperativo(
-    { empresas: Array.from(empresasSel), obras: Array.from(obrasSel), zonas: Array.from(zonasSel), camiones: Array.from(camionesSel) },
-    { empresas: empresasHay.map((x) => x.id), obras: obrasHay.map((x) => x.id), zonas: zonasHay.map((x) => x.id), camiones: camionesHay.map((x) => x.id) },
-  ), [empresasSel, obrasSel, zonasSel, camionesSel, empresasHay, obrasHay, zonasHay, camionesHay]);
+    {
+      empresas: Array.from(empresasSel),
+      obras: Array.from(obrasSel),
+      zonas: Array.from(zonasSel),
+      camiones: Array.from(camionesSel),
+      listeros: Array.from(listerosSel),
+      frentes: Array.from(frentesSel),
+      turnos: Array.from(turnosSel),
+      formatos: Array.from(formatosSel),
+    },
+    {
+      empresas: empresasHay.map((x) => x.id),
+      obras: obrasHay.map((x) => x.id),
+      zonas: zonasHay.map((x) => x.id),
+      camiones: camionesHay.map((x) => x.id),
+      listeros: listerosHay.map((x) => x.id),
+      frentes: frentesHay.map((x) => x.id),
+      turnos: turnosHay.map((x) => x.id),
+      formatos: formatosHay.map((x) => x.id),
+    },
+  ), [empresasSel, obrasSel, zonasSel, camionesSel, listerosSel, frentesSel, turnosSel, formatosSel, empresasHay, obrasHay, zonasHay, camionesHay, listerosHay, frentesHay, turnosHay, formatosHay]);
 
   const filtrados = useMemo(() => filtrarViajesOperativo(viajes, filtro), [viajes, filtro]);
-  const filtrado = filtro.empresas.length > 0 || filtro.obras.length > 0 || filtro.zonas.length > 0 || filtro.camiones.length > 0;
+  const filtrado = filtro.empresas.length > 0 || filtro.obras.length > 0 || filtro.zonas.length > 0 || filtro.camiones.length > 0
+    || ((filtro.listeros?.length ?? 0) > 0)
+    || ((filtro.frentes?.length ?? 0) > 0)
+    || ((filtro.turnos?.length ?? 0) > 0)
+    || ((filtro.formatos?.length ?? 0) > 0);
+
+  const cantFiltrosActivos = (filtro.empresas.length > 0 ? 1 : 0)
+    + (filtro.obras.length > 0 ? 1 : 0)
+    + (filtro.zonas.length > 0 ? 1 : 0)
+    + (filtro.camiones.length > 0 ? 1 : 0)
+    + ((filtro.listeros?.length ?? 0) > 0 ? 1 : 0)
+    + ((filtro.frentes?.length ?? 0) > 0 ? 1 : 0)
+    + ((filtro.turnos?.length ?? 0) > 0 ? 1 : 0)
+    + ((filtro.formatos?.length ?? 0) > 0 ? 1 : 0);
+
+  const limpiarFiltros = () => {
+    setTurnosSel(new Set());
+    setListerosSel(new Set());
+    setEmpresasSel(new Set());
+    setCamionesSel(new Set());
+    setObrasSel(new Set());
+    setFrentesSel(new Set());
+    setFormatosSel(new Set());
+    setZonasSel(new Set());
+    setBusqFiltros('');
+  };
+
   const resumen = useMemo(() => resumenOperativo(filtrados, desde, hasta), [filtrados, desde, hasta]);
 
   const descargarPdf = async () => {
@@ -167,7 +271,7 @@ export function InformeOperativoCard({ canVer }: Props) {
 
   const pastilla = (key: string, label: string, on: boolean, onPress: () => void) => (
     <TouchableOpacity key={key} onPress={onPress}
-      style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+      style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
       <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
     </TouchableOpacity>
   );
@@ -261,56 +365,102 @@ export function InformeOperativoCard({ canVer }: Props) {
 
       <Plegable
         titulo="⚙️ Opciones del informe"
-        resumen={`${filtrado ? 'filtrado · ' : ''}${ocultosOperativoEnPalabras(opciones)}`}
+        resumen={`${filtrado ? `filtrado (${cantFiltrosActivos}) · ` : ''}${ocultosOperativoEnPalabras(opciones)}`}
         alerta={filtrado}
       >
         <Text style={{ color: colors.muted, fontSize: 12 }}>
-          Esto cambia SOLO el papel. Sin marcar nada, sale como el informe de muestra. Ocultar no cambia
-          ningún número; FILTRAR sí, y entonces el papel sale marcado «FILTRADO».
+          Esto cambia el cálculo y el papel. Selecciona las opciones para filtrar los viajes analizados o
+          personalizar las columnas visibles en el documento PDF.
         </Text>
 
-        {rotulo(`🧭 ZONAS (vacío = todas · ${zonasHay.length})`)}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-          {pastilla('z-todas', '✅ Todas', filtro.zonas.length === 0, () => setZonasSel(new Set()))}
-          {zonasHay.map((x) => pastilla('z' + x.id, `${x.name} (${x.viajes})`, filtro.zonas.includes(x.id), () => alternarSel(zonasSel, setZonasSel, x.id)))}
+        {/* 🔎 Buscador universal de filtros */}
+        <View style={{ marginTop: spacing.sm }}>
+          <TextInput
+            value={busqFiltros}
+            onChangeText={setBusqFiltros}
+            placeholder="🔎 Buscar por placa, camión, listero, frente o empresa…"
+            placeholderTextColor={colors.muted}
+            style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+          />
         </View>
 
-        {rotulo(`📍 OBRAS (vacío = todas · ${obrasHay.length})`)}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-          {pastilla('o-todas', '✅ Todas', filtro.obras.length === 0, () => setObrasSel(new Set()))}
-          {obrasHay.map((x) => pastilla('o' + x.id, `${x.name} (${x.viajes})`, filtro.obras.includes(x.id), () => alternarSel(obrasSel, setObrasSel, x.id)))}
-        </View>
-
-        {rotulo(`🏢 EMPRESAS (vacío = todas · ${empresasHay.length})`)}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-          {pastilla('e-todas', '✅ Todas', filtro.empresas.length === 0, () => setEmpresasSel(new Set()))}
-          {empresasHay.map((x) => pastilla('e' + x.id, `${nombresEmpresa.get(x.id) ?? (x.id === '(sin empresa)' ? 'Sin empresa' : 'Empresa')} (${x.viajes})`, filtro.empresas.includes(x.id), () => alternarSel(empresasSel, setEmpresasSel, x.id)))}
-        </View>
-
-        {rotulo(`🚜 CAMIONES (vacío = todos · ${camionesHay.length})`)}
-        <TextInput
-          value={buscaCam}
-          onChangeText={setBuscaCam}
-          placeholder="🔎 Buscar por código o placa…"
-          placeholderTextColor={colors.muted}
-          style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.xs }}
-        />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-          {pastilla('c-todas', '✅ Todos', filtro.camiones.length === 0, () => setCamionesSel(new Set()))}
-          {camionesVistos.map((c) => pastilla('c' + c.id, `${c.code}${c.placa ? ` · ${c.placa}` : ''} (${c.viajes})`, filtro.camiones.includes(c.id), () => alternarSel(camionesSel, setCamionesSel, c.id)))}
-        </View>
-        {filtro.camiones.length > 0 && camionesVistos.length < camionesHay.length ? (
-          <Text style={{ color: colors.warning, fontSize: 11, marginTop: 4 }}>La búsqueda esconde camiones, pero los marcados siguen filtrando.</Text>
+        {/* ✕ Botón Limpiar filtros cuando haya alguno activo */}
+        {cantFiltrosActivos > 0 ? (
+          <TouchableOpacity onPress={limpiarFiltros} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros ({cantFiltrosActivos})</Text>
+          </TouchableOpacity>
         ) : null}
 
-        {rotulo('🖨️ ¿QUÉ SE OCULTA EN EL PAPEL?')}
+        {/* ☀️ TURNO */}
+        {rotulo(`☀️ TURNO${filtro.turnos && filtro.turnos.length > 0 ? ` (${filtro.turnos.length})` : ' (los dos)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('t-todos', '✓ LOS DOS', (filtro.turnos?.length ?? 0) === 0, () => setTurnosSel(new Set()))}
+          {pastilla('t-dia', `☀️ DÍA (${turnosHay.find((x) => x.id === 'day')?.viajes ?? 0})`, filtro.turnos?.includes('day') ?? false, () => alternarSel(turnosSel, setTurnosSel, 'day'))}
+          {pastilla('t-noche', `🌙 NOCHE (${turnosHay.find((x) => x.id === 'night')?.viajes ?? 0})`, filtro.turnos?.includes('night') ?? false, () => alternarSel(turnosSel, setTurnosSel, 'night'))}
+        </View>
+        <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+          ☀️ Día 7am–7pm · 🌙 Noche 7pm–7am. El turno sale de la hora del viaje, misma regla con la que se corta el día.
+        </Text>
+
+        {/* 👤 LISTERO */}
+        {rotulo(`👤 LISTERO${filtro.listeros && filtro.listeros.length > 0 ? ` (${filtro.listeros.length})` : ' (todos)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('l-todos', '✓ TODOS', (filtro.listeros?.length ?? 0) === 0, () => setListerosSel(new Set()))}
+          {listerosVistos.map((x) => pastilla('l' + x.id, `👤 ${x.name} (${x.viajes})`, filtro.listeros?.includes(x.id) ?? false, () => alternarSel(listerosSel, setListerosSel, x.id)))}
+        </View>
+
+        {/* 🏢 EMPRESA */}
+        {rotulo(`🏢 EMPRESA${filtro.empresas.length > 0 ? ` (${filtro.empresas.length})` : ' (todas)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('e-todas', '✓ TODAS', filtro.empresas.length === 0, () => setEmpresasSel(new Set()))}
+          {empresasVistos.map((x) => pastilla('e' + x.id, `🏢 ${nombresEmpresa.get(x.id) ?? (x.id === '(sin empresa)' ? 'Sin empresa' : 'Empresa')} (${x.viajes})`, filtro.empresas.includes(x.id), () => alternarSel(empresasSel, setEmpresasSel, x.id)))}
+        </View>
+
+        {/* 🚜 CAMIÓN */}
+        {rotulo(`🚜 CAMIÓN${filtro.camiones.length > 0 ? ` (${filtro.camiones.length})` : ' (todos)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('c-todas', '✓ TODOS', filtro.camiones.length === 0, () => setCamionesSel(new Set()))}
+          {camionesVistos.map((c) => pastilla('c' + c.id, `🚜 ${c.code}${c.placa ? ` · ${c.placa}` : ''} (${c.viajes})`, filtro.camiones.includes(c.id), () => alternarSel(camionesSel, setCamionesSel, c.id)))}
+        </View>
+
+        {/* 🏗️ OBRA */}
+        {rotulo(`🏗️ OBRA${filtro.obras.length > 0 ? ` (${filtro.obras.length})` : ' (todas)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('o-todas', '✓ TODAS', filtro.obras.length === 0, () => setObrasSel(new Set()))}
+          {obrasVistos.map((x) => pastilla('o' + x.id, `🏗️ ${x.name} (${x.viajes})`, filtro.obras.includes(x.id), () => alternarSel(obrasSel, setObrasSel, x.id)))}
+        </View>
+
+        {/* ⛏️ FRENTE DE TRABAJO */}
+        {rotulo(`⛏️ FRENTE${filtro.frentes && filtro.frentes.length > 0 ? ` (${filtro.frentes.length})` : ' (todos)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('f-todos', '✓ TODOS', (filtro.frentes?.length ?? 0) === 0, () => setFrentesSel(new Set()))}
+          {frentesVistos.map((x) => pastilla('f' + x.id, `⛏️ ${x.name} (${x.viajes})`, filtro.frentes?.includes(x.id) ?? false, () => alternarSel(frentesSel, setFrentesSel, x.id)))}
+        </View>
+
+        {/* 🎟️ FORMATO DE TICKET */}
+        {rotulo(`🎟️ FORMATO DE TICKET${filtro.formatos && filtro.formatos.length > 0 ? ` (${filtro.formatos.length})` : ' (todos)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('fmt-todos', '✓ TODOS', (filtro.formatos?.length ?? 0) === 0, () => setFormatosSel(new Set()))}
+          {formatosVistos.map((x) => pastilla('fmt' + x.id, `🎟️ ${x.name} (${x.viajes})`, filtro.formatos?.includes(x.id) ?? false, () => alternarSel(formatosSel, setFormatosSel, x.id)))}
+        </View>
+
+        {/* 🧭 ZONA DE PAGO */}
+        {rotulo(`🧭 ZONA DE PAGO${filtro.zonas.length > 0 ? ` (${filtro.zonas.length})` : ' (todas)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('z-todas', '✓ TODAS', filtro.zonas.length === 0, () => setZonasSel(new Set()))}
+          {zonasHay.map((x) => pastilla('z' + x.id, `🧭 ${x.name} (${x.viajes})`, filtro.zonas.includes(x.id), () => alternarSel(zonasSel, setZonasSel, x.id)))}
+        </View>
+
+        {/* 🖨️ PERSONALIZACIÓN DE COLUMNAS Y SECCIONES DEL PAPEL */}
+        {rotulo('🖨️ ¿QUÉ SE OCULTA O MUESTRA EN EL PAPEL?')}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
           {PASTILLAS_OPERATIVO.map((p) => pastilla('p' + p.key, p.chip, opciones[p.key], () => setOpciones((o) => alternarOperativo(o, p.key))))}
         </View>
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-          Encendida = NO sale (los dos cuadros extra nacen ocultos: tócalos para INCLUIRLOS). {ocultosOperativoEnPalabras(opciones)}
+          Encendida = NO sale (o sale desglosado). Los cuadros secundarios nacen ocultos: tócalos para incluirlos. {ocultosOperativoEnPalabras(opciones)}
         </Text>
 
+        {/* 🏷️ QUÉ LOGOS LLEVA EL MEMBRETE */}
         {rotulo('🏷️ QUÉ LOGOS LLEVA EL MEMBRETE')}
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>
           Este papel nace SIN logos y sin el pie «Banco Central de Venezuela / SOS La Guaira». Enciende el que necesites.

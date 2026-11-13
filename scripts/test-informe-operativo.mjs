@@ -76,6 +76,9 @@ const v = (id, cam, hora, kg, extra = {}) => ({
   id, machinery_id: cam, machine_code: `VOLTEO ${cam}`, company_id: extra.emp ?? 'E1',
   zona_pago: extra.zona ?? 'este', registered_at: hora, peso_neto_kg: kg,
   ubicacion_nombre: extra.obra ?? 'Obra A', placa_snap: extra.placa ?? `PL-${cam}`,
+  listero_id: extra.listeroId ?? 'L1', listero_name: extra.listeroName ?? 'Listero Uno',
+  frente_id: extra.frenteId ?? 'F1', frente_nombre: extra.frenteNombre ?? 'Frente Alfa',
+  formato_id: extra.formatoId ?? 'defecto', formato_nombre: extra.formatoNombre ?? 'Formato Principal',
 });
 const VIAJES = [
   // 06-oct: 2 camiones, 3 viajes, uno SIN peso.
@@ -129,7 +132,11 @@ eq('el resumen del fixture: 2 días transcurridos y 2 con operación', [R.diasRa
 eq('vacío = todos', L.filtrarViajesOperativo(VIAJES, L.FILTRO_OPERATIVO_TODO).length, 7);
 eq('solo Oeste', L.filtrarViajesOperativo(VIAJES, { empresas: [], obras: [], zonas: ['Oeste'], camiones: [] }).map((x) => x.id), ['a3', 'b2']);
 eq('zona Y empresa se cruzan', L.filtrarViajesOperativo(VIAJES, { empresas: ['E2'], obras: [], zonas: ['Oeste'], camiones: [] }).map((x) => x.id), ['a3']);
-eq('por camión', L.filtrarViajesOperativo(VIAJES, { empresas: [], obras: [], zonas: [], camiones: ['C3'] }).map((x) => x.id), ['b3']);
+eq('por camión', L.filtrarViajesOperativo(VIAJES, { ...L.FILTRO_OPERATIVO_TODO, camiones: ['C3'] }).map((x) => x.id), ['b3']);
+eq('por listero', L.filtrarViajesOperativo(VIAJES, { ...L.FILTRO_OPERATIVO_TODO, listeros: ['Listero Uno'] }).length, 7);
+eq('por frente', L.filtrarViajesOperativo(VIAJES, { ...L.FILTRO_OPERATIVO_TODO, frentes: ['Frente Alfa'] }).length, 7);
+eq('por turno de noche (2am)', L.filtrarViajesOperativo(VIAJES, { ...L.FILTRO_OPERATIVO_TODO, turnos: ['night'] }).map((x) => x.id), ['b3']);
+eq('por formato de ticket', L.filtrarViajesOperativo(VIAJES, { ...L.FILTRO_OPERATIVO_TODO, formatos: ['Formato Principal'] }).length, 7);
 eq('lo que ya no está deja de filtrar', L.acotarFiltroOperativo(
   { empresas: ['E1', 'FANTASMA'], obras: [], zonas: ['Este'], camiones: ['C9'] },
   { empresas: ['E1', 'E2'], obras: [], zonas: ['Este', 'Oeste'], camiones: ['C1'] },
@@ -162,6 +169,18 @@ ok('sinGrafico quita el gráfico', !/<svg /.test(htmlSin));
 ok('sinFlota quita SU columna (y las demás quedan)', !/<th class="r">Flota<\/th>/.test(htmlSin) && /<th class="r">Viajes<\/th>/.test(htmlSin));
 ok('sinDiaSemana quita el Día', !/<th>Día<\/th>/.test(htmlSin));
 ok('sinSinPeso quita la columna Y la nota', !/Sin peso/.test(htmlSin) && !/no tienen peso de romana/.test(htmlSin));
+
+const htmlSinViajes = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinViajes: true } });
+ok('sinViajes quita la columna de viajes de la tabla diaria', !/<th class="r">Viajes<\/th>/.test(htmlSinViajes));
+
+const htmlConTurnos = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinTurnosViajes: false } });
+ok('sinTurnosViajes: false enciende las columnas de Día y Noche', /☀️ Día<\/th>/.test(htmlConTurnos) && /🌙 Noche<\/th>/.test(htmlConTurnos));
+
+const htmlSinFlotaEmp = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinPorEmpresa: false, sinFlotaEmpresa: true } });
+ok('sinFlotaEmpresa quita la columna flota en empresas', /Totales por empresa/.test(htmlSinFlotaEmp) && !/<th>Empresa<\/th><th class="r">Flota<\/th>/.test(htmlSinFlotaEmp));
+
+const htmlSinFlotaCam = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinPorCamion: false, sinFlotaCamion: true } });
+ok('sinFlotaCamion quita la columna flota en camiones', /Totales por camión/.test(htmlSinFlotaCam) && !/<th>Camión<\/th><th class="r">Flota<\/th>/.test(htmlSinFlotaCam));
 
 const htmlExtras = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinPorEmpresa: false, sinPorCamion: false } });
 ok('los cuadros extra se encienden', /Totales por empresa/.test(htmlExtras) && /Totales por camión/.test(htmlExtras) && /EMPRESA UNO/.test(htmlExtras) && /VOLTEO C1 · PL-C1/.test(htmlExtras));
@@ -197,8 +216,10 @@ eq('cada opción tiene su pastilla (ni una más, ni una menos)',
   Object.keys(L.OPCIONES_OPERATIVO_INICIAL).sort());
 eq('cómo nace el papel: igual a la muestra, extras apagados', L.OPCIONES_OPERATIVO_INICIAL, {
   sinKpis: false, sinGrafico: false, sinTabla: false,
-  sinDiaSemana: false, sinFlota: false, sinSinPeso: false, sinToneladas: false, sinTPorViaje: false,
-  sinPorEmpresa: true, sinPorCamion: true, sinEmpresas: false, sinAlcance: true, sinPlacaCamion: false,
+  sinDiaSemana: false, sinFlota: false, sinViajes: false, sinTurnosViajes: true, sinSinPeso: false, sinToneladas: false, sinTPorViaje: false,
+  sinPorEmpresa: true, sinFlotaEmpresa: false, sinSinPesoEmpresa: false,
+  sinPorCamion: true, sinFlotaCamion: false, sinSinPesoCamion: false,
+  sinEmpresas: false, sinAlcance: true, sinPlacaCamion: false,
   sinMaquinasDia: true,
 });
 
@@ -267,7 +288,7 @@ ok('no escribe NADA en la base (puro papel de lectura)',
   && /import \{ selectAllRows \} from '\.\.\/lib\/supabase';/.test(srcCard));
 
 const srcPantalla = fs.readFileSync(path.join(ROOT, 'src/screens/ViajesCamionesScreen.tsx'), 'utf8');
-ok('la tarjeta está montada en Viajes de camiones, solo con nivel full', /<InformeOperativoCard canVer=\{canFull\} \/>/.test(srcPantalla));
+ok('la tarjeta está montada en Viajes de camiones, solo con nivel full o lectura', /<InformeOperativoCard canVer=\{can(Full|VerPanel)\} \/>/.test(srcPantalla));
 
 console.log(`\n${pass} OK · ${fail} FALLO(S)`);
 if (failures.length) {

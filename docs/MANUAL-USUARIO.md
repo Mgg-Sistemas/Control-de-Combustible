@@ -8034,6 +8034,27 @@ hora, neto, tarifa o motivo, monto).
 > camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
 > todo sale «sin tarifa».
 
+#### 🎛️ Filtros avanzados y columnas personalizables en el Informe Operativo (13/11/2026)
+
+Se agregaron a la tarjeta **«📊 Informe operativo (carga y flota)»** (en Viajes de camiones → Panel de reportes) los mismos filtros avanzados que existen en el resto del módulo de viajes, más opciones para ocultar columnas en el PDF:
+
+1. **Nuevos Filtros:**
+   - **Turno:** `Los dos`, `☀️ Día (07:00-19:00)` o `🌙 Noche (19:00-07:00)`, según la hora real del viaje (jornada Caracas UTC-4).
+   - **Listeros:** Selector múltiple con contador de viajes y buscador (`🔎`).
+   - **Frentes de trabajo:** Selector múltiple con contador de viajes y buscador (`🔎`).
+   - **Formatos de ticket:** Selector múltiple con contador de viajes (`Formato Principal`, tickets de frentes o formatos personalizados asignados).
+   - **Filtros existentes preservados:** Zonas (Este/Oeste), Obras (CDT), Empresas y Camiones (con código, placa obligatoria y buscador).
+   - **Botón `✕ Limpiar filtros (N)`:** Aparece automáticamente cuando hay al menos 1 filtro activo para resetear todos los filtros de una sola vez.
+
+2. **Columnas personalizables en el PDF:**
+   - En la sección **¿Qué se oculta?**, nuevas pastillas para controlar el contenido del reporte:
+     - `🚫 Viajes (tabla diaria)`: oculta la columna de cantidad de viajes.
+     - `🚫 Turnos día/noche (tabla diaria)`: oculta el desglose de viajes en día y noche.
+     - `🚫 Flota (tabla empresas)`: oculta la cantidad de camiones distintos en el cuadro por empresa.
+     - `🚫 Sin peso (tabla empresas)`: oculta los viajes sin peso en el cuadro por empresa.
+     - `🚫 Flota (tabla camiones)`: oculta la empresa asignada en el cuadro por camión.
+     - `🚫 Sin peso (tabla camiones)`: oculta la columna de viajes sin peso en el cuadro por camión.
+
 #### 📋 Desglose por día: qué camiones viajaron (13/10/2026)
 
 En las opciones del informe operativo hay una pastilla nueva **«🚫 Desglose: máquinas por día»**.
