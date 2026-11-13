@@ -18,11 +18,12 @@ import { spacing, radius } from '../theme';
 import { levelMeets } from '../lib/permissions';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { caracasBusinessToday } from '../lib/caracasDay';
-import { vehiculosDeLaCuenta, sugerirEquipo, nombreVehiculo, normalizarPlaca, leerResumenDiario, type EquipoCatalogo, type ActividadDia } from '../lib/gps';
+import { vehiculosDeLaCuenta, sugerirEquipo, nombreVehiculo, normalizarPlaca, leerResumenDiario, lecturaDelDia, fechaDetektor, type EquipoCatalogo, type ActividadDia } from '../lib/gps';
 import { listarVehiculosGps, catalogoParaGps, vincularVehiculoGps, quitarVehiculoGps, consultarDetektor, type VehiculoGps } from '../lib/gpsDb';
 
 // Se redondea el TOTAL de minutos primero: 2 h 59 min 50 s = 3:00, no «2:60».
 const fmtH = (h: number | null) => { if (h == null) return '—'; const min = Math.round(h * 60); return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`; };
+const ANCHOS = [92, 190, 300, 110, 130, 70];
 const fmtKm = (k: number | null) => (k == null ? '—' : k.toLocaleString('es-VE', { maximumFractionDigits: 1 }));
 const dmy = (iso: string) => { const [a, m, d] = iso.split('-'); return d && m && a ? `${d}/${m}/${a}` : iso; };
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
@@ -49,6 +50,8 @@ export default function GpsScreen() {
   const [eligiendo, setEligiendo] = useState<string | null>(null);
   const [buscaEquipo, setBuscaEquipo] = useState('');
   const hoy = caracasBusinessToday();
+  // El día de CALENDARIO en Caracas (el de Detektor), no la jornada de 7 am.
+  const hoyGps = fechaDetektor(Date.now()).slice(0, 10);
   const [desde, setDesde] = useState(menosDias(hoy, 6));
   const [hasta, setHasta] = useState(hoy);
   const [actividad, setActividad] = useState<ActividadDia[] | null>(null);
@@ -118,8 +121,8 @@ export default function GpsScreen() {
 
   const pdfActividad = async () => {
     if (!actividad?.length) return;
-    const filas = actividad.map((a) => `<tr><td>${esc(dmy(a.fecha))}</td><td>${esc(nombreDePlaca(a.placa, a.alias))}</td><td>${esc(a.primerEncendido ?? '—')}</td><td>${esc(a.ultimoApagado ?? '—')}</td><td>${fmtH(a.horasEfectivas)}</td><td>${fmtH(a.horasDetenidoEncendido)}</td><td>${fmtH(a.horasEncendidoApagado)}</td><td>${fmtKm(a.km)}</td></tr>`).join('');
-    const body = `<table class="gpst"><thead><tr><th>Fecha</th><th>Máquina</th><th>Primer encendido</th><th>Último apagado</th><th>Horas efectivas</th><th>Detenida encendida</th><th>Encendido → apagado</th><th>Km</th></tr></thead><tbody>${filas}</tbody></table>`;
+    const filas = actividad.map((a) => `<tr><td>${esc(dmy(a.fecha))}</td><td>${esc(nombreDePlaca(a.placa, a.alias))}</td><td>${esc(lecturaDelDia(a, hoyGps).texto)}</td><td>${lecturaDelDia(a, hoyGps).horasMovimiento == null ? 'en curso' : fmtH(lecturaDelDia(a, hoyGps).horasMovimiento)}</td><td>${fmtH(a.horasDetenidoEncendido)}</td><td>${fmtKm(a.km)}</td></tr>`).join('');
+    const body = `<table class="gpst"><thead><tr><th>Fecha</th><th>Máquina</th><th>Qué pasó ese día</th><th>En movimiento (h:min)</th><th>Parada con el motor encendido (h:min)</th><th>Km</th></tr></thead><tbody>${filas}</tbody></table><p style="font-size:8.5pt;color:#475569">En movimiento = tiempo rodando. Parada con el motor encendido = prendida sin moverse. «En curso» = todavía no ha apagado; el tiempo en movimiento se sabe al apagar.</p>`;
     const html = pdfDocument({ title: 'Actividad diaria por GPS', subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · fuente: Detektor`, body, extraCss: '.gpst{width:100%;border-collapse:collapse;font-size:9.5pt}.gpst th{background:#1E3A5F;color:#fff;padding:6px;text-align:left}.gpst td{border-bottom:1px solid #E2E8F0;padding:5px}', marcaTexto: false });
     try { await exportPdf(html, `Actividad GPS ${desde} a ${hasta}`); } catch (e: any) { toast.error(e?.message || 'No se pudo generar el PDF.'); }
   };
@@ -197,7 +200,7 @@ export default function GpsScreen() {
 
       <Card>
         <Text style={{ color: colors.text, fontWeight: '900' }}>📊 Actividad diaria (Detektor)</Text>
-        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Por día y máquina: primer encendido, último apagado, horas efectivas (en movimiento), horas detenida con el motor encendido y km. Hasta 31 días.</Text>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Qué hizo cada máquina cada día, hasta 31 días. «En movimiento» = tiempo rodando. «Parada con motor encendido» = prendida sin moverse (gasta combustible sin trabajar). ⚪ no encendió · ✅ día terminado · 🟢 encendida ahora, sin apagar todavía.</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
           <View style={{ flexGrow: 1, flexBasis: 150 }}><Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>DESDE</Text><DateField value={desde} onChange={setDesde} maxISO={hoy} /></View>
           <View style={{ flexGrow: 1, flexBasis: 150 }}><Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>HASTA</Text><DateField value={hasta} onChange={setHasta} maxISO={hoy} /></View>
@@ -212,15 +215,18 @@ export default function GpsScreen() {
           <ScrollView horizontal style={{ marginTop: spacing.sm }}>
             <View>
               <View style={{ flexDirection: 'row', backgroundColor: '#1E3A5F' }}>
-                {['Fecha', 'Máquina', 'Encendió', 'Apagó', 'Efectivas', 'Det. encendida', 'Km'].map((h, i) => <Text key={h} style={{ color: '#fff', fontWeight: '800', fontSize: 12, padding: 6, width: i === 1 ? 190 : 92 }}>{h}</Text>)}
+                {['Fecha', 'Máquina', 'Qué pasó ese día', 'En movimiento', 'Parada con motor encendido', 'Km'].map((h, i) => <Text key={h} style={{ color: '#fff', fontWeight: '800', fontSize: 12, padding: 6, width: ANCHOS[i] }}>{h}</Text>)}
               </View>
-              {actividad.map((a) => (
-                <View key={`${a.placa}-${a.fecha}`} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  {[dmy(a.fecha), nombreDePlaca(a.placa, a.alias), a.primerEncendido ?? '—', a.ultimoApagado ?? '—', fmtH(a.horasEfectivas), fmtH(a.horasDetenidoEncendido), fmtKm(a.km)].map((t, i) => (
-                    <Text key={i} style={{ color: colors.text, fontSize: 12, padding: 6, width: i === 1 ? 190 : 92 }}>{t}</Text>
-                  ))}
-                </View>
-              ))}
+              {actividad.map((a) => {
+                const l = lecturaDelDia(a, hoyGps);
+                return (
+                  <View key={`${a.placa}-${a.fecha}`} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border, opacity: l.estado === 'sin_actividad' ? 0.55 : 1 }}>
+                    {[dmy(a.fecha), nombreDePlaca(a.placa, a.alias), `${l.icono} ${l.texto}`, l.horasMovimiento == null ? 'en curso' : fmtH(l.horasMovimiento), fmtH(a.horasDetenidoEncendido), fmtKm(a.km)].map((t, i) => (
+                      <Text key={i} style={{ color: colors.text, fontSize: 12, padding: 6, width: ANCHOS[i] }}>{t}</Text>
+                    ))}
+                  </View>
+                );
+              })}
             </View>
           </ScrollView>
         ) : <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Detektor no devolvió actividad en esas fechas.</Text>) : null}

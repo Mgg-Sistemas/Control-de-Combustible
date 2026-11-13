@@ -5,12 +5,17 @@ repositorio es público.
 
 ## Cómo funciona
 
-- **Detektor** expone tres servicios web (según su manual «Web Services Datos Estadísticos»):
-  `wsDetenciones`, `wsResumenActividadDiaria` y `wsEstadisticoREST`. Se llaman con POST de
-  formulario (`application/x-www-form-urlencoded`) a
-  `https://ve.detektorgps.com/gps_ve/framework/servicios/<servicio>/datos.php`.
-  Esa dirección se comprobó el 12-nov-2026. La de `gt.detektorgps.com/gps_ve` da 404, y mandar
-  los datos como multipart da 403.
+- **Detektor** expone en Venezuela (`ve.detektorgps.com/gps_ve`):
+  1. **Tres servicios REST** (según su manual «Web Services Datos Estadísticos»):
+     `wsDetenciones`, `wsResumenActividadDiaria` y `wsEstadisticoREST`. Se llaman con POST de
+     formulario (`application/x-www-form-urlencoded`) a
+     `https://ve.detektorgps.com/gps_ve/framework/servicios/<servicio>/datos.php`.
+     (Si se configura por error `gt.detektorgps.com` o `gps_gt`, el puente lo normaliza automáticamente
+     a `ve.detektorgps.com` y `gps_ve`).
+  2. **Servicio SOAP de Último Punto (`ultimo_punto` en `VehiculosCercanosWSDL`)**:
+     `https://ve.detektorgps.com/gps_ve/ws/servicio_v3.php` (versión activa en PHP 8 en Venezuela) y
+     `https://ve.detektorgps.com/gps_ve/ws/servicio_v2.php?wsdl`. Recibe `usuario`, `clave`, `campos: '*'`
+     y `placa`, devolviendo `<xml_dat>` con la última posición transmitida por el GPS.
 - **El usuario y la clave de Detektor** viven solo en el puente de Supabase (la Edge Function
   `supabase/functions/gps-detektor`), como secretos. La app nunca los ve.
 - **El puente:**

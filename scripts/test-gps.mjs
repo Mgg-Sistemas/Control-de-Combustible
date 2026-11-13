@@ -133,3 +133,45 @@ check(/GPS DE LAS MÁQUINAS/.test(leer('src/screens/ManualScreen.tsx')) && /Dete
 
 if (fallas.length) { console.error(fallas.join('\n')); console.error(`\n❌ test-gps: ${fallas.length} falla(s), ${ok} ok`); process.exit(1); }
 console.log(`✅ test-gps: ${ok} ok, 0 fallas`);
+
+// ── Lectura del día en palabras (12-nov) y SOAP ultimo_punto (13-nov) ──
+{
+  const { lecturaDelDia, horaValida, leerResumenDiario, normalizarUrlDetektor, leerUltimoPuntoXml, leerDetenciones, ultimaUbicacion, lineasUbicacion, nombreVehiculo } = G;
+  let ok2 = 0; const t = (c, m) => { if (!c) { console.error('FALLA:', m); process.exitCode = 1; } else ok2++; };
+  const base = { placa: 'A01', alias: '', horasEncendidoApagado: null, horasDetenidoApagado: 0, horasDetenidoEncendido: 4.63, km: 42 };
+  t(horaValida('06:58:06') && !horaValida('--:--:--') && !horaValida(null), 'horaValida');
+  const sin = lecturaDelDia({ ...base, fecha: '2026-11-10', primerEncendido: '--:--:--', ultimoApagado: '--:--:--', horasEfectivas: 0 }, '2026-11-12');
+  t(sin.estado === 'sin_actividad' && sin.horasMovimiento === 0, 'sin actividad');
+  const cer = lecturaDelDia({ ...base, fecha: '2026-11-11', primerEncendido: '10:31:39', ultimoApagado: '17:59:46', horasEfectivas: 3 }, '2026-11-12');
+  t(cer.estado === 'cerrado' && cer.texto === 'Trabajó de 10:31 a 17:59' && cer.horasMovimiento === 3, 'cerrado');
+  const cur = lecturaDelDia({ ...base, fecha: '2026-11-12', primerEncendido: '06:58:06', ultimoApagado: '--:--:--', horasEfectivas: 19.37 }, '2026-11-12');
+  t(cur.estado === 'en_curso' && cur.horasMovimiento === null && /06:58/.test(cur.texto), 'en curso: no se cree el 19:22 de Detektor');
+  const vie = lecturaDelDia({ ...base, fecha: '2026-11-09', primerEncendido: '06:58:06', ultimoApagado: '--:--:--', horasEfectivas: 19.37 }, '2026-11-12');
+  t(vie.estado === 'sin_apagado' && vie.horasMovimiento === null, 'día pasado sin apagado');
+  // con las filas reales del 12-nov
+  const real = leerResumenDiario([['Primer encendido del dia','06:58:06'],['Ultimo apagado del dia','--:--:--'],['Tiempo entre Primer Encendido y Ult. Apagado','00:00:0-6'],['Tiempo Det. motor encendido','04:38:00'],['Tiempo Efectivo','19:22:00'],['Kilometraje del día','42']].map(([motivo, valor]) => ({ fecha: '2026-11-12', placa: 'A01FE8M', alias: '', motivo, valor })));
+  t(real.length === 1 && real[0].km === 42 && real[0].horasEncendidoApagado === null && lecturaDelDia(real[0], '2026-11-12').estado === 'en_curso', 'filas reales de Detektor');
+
+  // Normalización de URL gt -> ve
+  t(normalizarUrlDetektor('https://gt.detektorgps.com/gps_gt/framework/servicios/') === 'https://ve.detektorgps.com/gps_ve/framework/servicios', 'normalizarUrlDetektor gt -> ve');
+  t(normalizarUrlDetektor('https://gt.detektorgps.com/gps_gt/ws/servicio_v2.php?wsdl') === 'https://ve.detektorgps.com/gps_ve/ws/servicio_v2.php?wsdl', 'normalizarUrlDetektor wsdl gt -> ve');
+
+  // Parseo SOAP ultimo_punto con punto válido
+  const soapOk = `<SOAP-ENV:Envelope><SOAP-ENV:Body><ultimo_puntoResponse xmlns="urn:VehiculosCercanosWSDL"><xml_dat>&lt;?xml version=&apos;1.0&apos;?&gt;&lt;ultimo_punto&gt;&lt;movil placa=&apos;A01FE8M&apos;&gt;&lt;fecha_hora&gt;2026-11-13 13:45:00&lt;/fecha_hora&gt;&lt;latitud&gt;10.6012&lt;/latitud&gt;&lt;longitud&gt;-66.9321&lt;/longitud&gt;&lt;velocidad&gt;35&lt;/velocidad&gt;&lt;ignicion&gt;1&lt;/ignicion&gt;&lt;georeferencia&gt;AV Soublette La Guaira - [123]&lt;/georeferencia&gt;&lt;/movil&gt;&lt;/ultimo_punto&gt;</xml_dat></ultimo_puntoResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+  const rSoap = leerUltimoPuntoXml(soapOk);
+  t(rSoap.error === null && rSoap.filas.length === 1 && rSoap.filas[0].fuente === 'ultimo_punto', 'SOAP ultimo_punto válido');
+  const detsSoap = leerDetenciones(rSoap.filas);
+  const uSoap = ultimaUbicacion(detsSoap, 'A01FE8M', G.msDeFechaDetektor('2026-11-13 13:50:00'));
+  t(uSoap && uSoap.lat === 10.6012 && uSoap.lng === -66.9321 && uSoap.detenida === false && uSoap.velocidad === 35, 'ultimaUbicacion desde SOAP en movimiento');
+  t(/35 km\/h/.test(lineasUbicacion(uSoap, G.msDeFechaDetektor('2026-11-13 13:50:00'))[0]), 'lineasUbicacion muestra km/h en SOAP');
+
+  // Parseo SOAP ultimo_punto con error de permisos
+  const soapErr = `<SOAP-ENV:Envelope><SOAP-ENV:Body><ultimo_puntoResponse><xml_dat>&lt;ultimo_punto&gt;&lt;movil placa=&apos;A01FE8M&apos;&gt;&lt;estado&gt;ERROR Sin Permisos, por favor cambie su password en la plataforma&lt;/estado&gt;&lt;/movil&gt;&lt;/ultimo_punto&gt;</xml_dat></ultimo_puntoResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+  const rErr = leerUltimoPuntoXml(soapErr);
+  t(rErr.filas.length === 0 && /Sin Permisos/.test(rErr.error || ''), 'SOAP ultimo_punto detecta estado ERROR');
+
+  // nombreVehiculo siempre incluye placa (incluso cuando equipo.plate es null)
+  t(nombreVehiculo({ placaAlias: 'A01FE8M', equipo: { code: 'CAMION VOLTEO TORONTO', plate: null } }) === 'CAMION VOLTEO TORONTO · A01FE8M', 'nombreVehiculo usa placaAlias si equipo.plate es null');
+
+  console.log(`lectura del día y SOAP: ${ok2} ok`);
+}

@@ -82,7 +82,7 @@ export type AccionDetektor =
   | { accion: 'estadistico'; placas: string[]; motivo: string; desde: string; hasta: string };
 
 /** ⭐ La ÚNICA puerta a Detektor: el puente de Supabase. Devuelve las filas o el error en palabras. */
-export async function consultarDetektor(pedido: AccionDetektor): Promise<{ filas: any[]; error: string | null }> {
+export async function consultarDetektor(pedido: AccionDetektor): Promise<{ filas: any[]; resumen?: any[]; aviso?: string | null; error: string | null }> {
   try {
     const { data, error } = await supabase.functions.invoke('gps-detektor', { body: pedido });
     if (error) {
@@ -93,7 +93,12 @@ export async function consultarDetektor(pedido: AccionDetektor): Promise<{ filas
       return { filas: [], error: msg };
     }
     if ((data as any)?.error) return { filas: [], error: String((data as any).error) };
-    return { filas: Array.isArray((data as any)?.filas) ? (data as any).filas : [], error: null };
+    return {
+      filas: Array.isArray((data as any)?.filas) ? (data as any).filas : [],
+      resumen: Array.isArray((data as any)?.resumen) ? (data as any).resumen : undefined,
+      aviso: (data as any)?.aviso ? String((data as any).aviso) : null,
+      error: null,
+    };
   } catch (e: any) {
     return { filas: [], error: e?.message || 'No se pudo consultar el GPS (¿sin internet?).' };
   }
