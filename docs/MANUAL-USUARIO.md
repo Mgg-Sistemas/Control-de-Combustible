@@ -8034,6 +8034,26 @@ hora, neto, tarifa o motivo, monto).
 > camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
 > todo sale «sin tarifa».
 
+#### 📊 Reporte Ejecutivo de Compras - Estilo Golden Touch (13/11/2026)
+
+Se incorporó al módulo de **Compras** el nuevo reporte institucional bimonetario ($ / Bs) con el formato oficial de Golden Touch 1127 C.A. (el mismo formato del sistema de pedidos de mina / El Callao).
+
+**Dónde vive:**
+- En la barra superior de **Compras** (botón dorado **«📊 Reporte Golden Touch»** visible desde cualquier pestaña).
+- En la pestaña **📊 Resumen** de compras (botón directo junto al título).
+
+**Qué incluye el reporte en PDF:**
+1. **Membrete Oficial:** RIF J-50129993-5, logo institucional (o selector entre Golden Touch, SOS La Guaira, BCV, Venezuela Renace o Jhenzaen), cintillo de color anaranjado y metadatos de emisión.
+2. **Alcance y Tasa BCV:** Muestra el ámbito filtrado, agrupación y la tasa oficial del Banco Central de Venezuela utilizada (en vivo o editable manualmente).
+3. **4 Tarjetas de Resumen (KPIs):** Total de compras, compras finalizadas, compras pendientes y total pagado / abonado (con indicación del departamento líder en gasto).
+4. **Distribución Top Gasto:** Barras horizontales y porcentajes de participación por cada área solicitante.
+5. **Ranking de Departamentos:** Tabla estructurada con cotizaciones movidas, total en USD, total en Bolívares y porcentaje de gasto.
+6. **Top Categorías e Ítems:** Tablas con los rubros e insumos de mayor inversión del período.
+7. **Compras Pendientes:** Listado de órdenes y compras por liquidar o en proceso con código, fecha, departamento, proveedor, analista, estado y montos.
+8. **Trazabilidad Consolidada:** Auditoría completa de compras con desglose pormenorizado de ítems (cantidades, unidades y subtotales), observaciones y notas.
+9. **Identificación de Maquinaria:** Todo equipo vinculado refleja obligatoriamente su **código y su PLACA** (ej. `VOLVO-240 [Placa: A01FE8M]`).
+10. **Opciones «¿Qué se oculta?»:** Pastillas para apagar independientemente los KPIs, el ranking, las categorías, las compras pendientes o la trazabilidad según la necesidad de la gerencia.
+
 #### 🎛️ Filtros avanzados y columnas personalizables en el Informe Operativo (13/11/2026)
 
 Se agregaron a la tarjeta **«📊 Informe operativo (carga y flota)»** (en Viajes de camiones → Panel de reportes) los mismos filtros avanzados que existen en el resto del módulo de viajes, más opciones para ocultar columnas en el PDF:

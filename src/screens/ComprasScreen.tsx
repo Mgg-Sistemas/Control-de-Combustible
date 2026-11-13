@@ -15,6 +15,7 @@ import { SolicitudesCompraTab } from './SolicitudesCompraTab';
 import { ServiciosTab } from './ServiciosTab';
 import { AiresAcondicionadosTab } from './AiresAcondicionadosTab';
 import { HistoricoComprasTab } from './HistoricoComprasTab';
+import { ReporteComprasModal } from '../components/ReporteComprasModal';
 import { usePermisosAprobacion } from '../lib/permisosAprobacion';
 import {
   CONDICIONES_PAGO_CHIPS,
@@ -1826,7 +1827,7 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
 }
 
 // ── Resumen / Reportes de gasto ──────────────────────────────────────────────
-function ResumenTab() {
+function ResumenTab({ onOpenReporte }: { onOpenReporte?: () => void }) {
   const { colors } = useTheme();
   const { data: orders, loading, refetch } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
@@ -1884,8 +1885,27 @@ function ResumenTab() {
   return (
     <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
-      <SectionTitle>Resumen de gastos</SectionTitle>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Incluye órdenes aprobadas y recibidas (gasto comprometido).</Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+        <View style={{ flex: 1, minWidth: 200 }}>
+          <SectionTitle>Resumen de gastos</SectionTitle>
+          <Text style={{ color: colors.muted, fontSize: 12 }}>Incluye órdenes aprobadas y recibidas (gasto comprometido).</Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => onOpenReporte?.()}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            backgroundColor: colors.accent,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.sm,
+            borderRadius: radius.md,
+          }}
+        >
+          <Text style={{ fontSize: 15 }}>📊</Text>
+          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>Reporte Golden Touch</Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
         <Quick label="HOY" value={spend.hoy} color={colors.brandText} />
@@ -2282,6 +2302,7 @@ export default function ComprasScreen() {
     { key: 'historico', label: 'Histórico', icon: '📜' },
   ];
   const [active, setActive] = useState('solicitudes');
+  const [modalReporte, setModalReporte] = useState(false);
   const { width: viewportW } = useWindowDimensions();
   const isPhone = viewportW < 768;
 
@@ -2324,6 +2345,23 @@ export default function ComprasScreen() {
               </TouchableOpacity>
             );
           })}
+          <TouchableOpacity
+            onPress={() => setModalReporte(true)}
+            activeOpacity={0.7}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: isPhone ? 3 : 6,
+              paddingHorizontal: isPhone ? 8 : spacing.md,
+              paddingVertical: isPhone ? 3 : spacing.sm,
+              borderRadius: radius.pill,
+              backgroundColor: colors.accent,
+              maxWidth: '100%',
+            }}
+          >
+            <Text style={{ fontSize: isPhone ? 11.5 : 15 }}>📊</Text>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: isPhone ? 10.5 : 13 }}>Reporte Golden Touch</Text>
+          </TouchableOpacity>
         </View>
       </View>
       <View style={{ flex: 1 }}>
@@ -2346,13 +2384,14 @@ export default function ComprasScreen() {
         ) : active === 'ordenes' ? (
           <OrdenesTab canWrite={canWrite} />
         ) : active === 'resumen' ? (
-          <ResumenTab />
+          <ResumenTab onOpenReporte={() => setModalReporte(true)} />
         ) : active === 'mangueras' ? (
           <ManguerasAprobarTab canWrite={canWrite} />
         ) : (
           <ProveedoresTab canWrite={canWrite} />
         )}
       </View>
+      <ReporteComprasModal visible={modalReporte} onClose={() => setModalReporte(false)} />
     </View>
   );
 }
