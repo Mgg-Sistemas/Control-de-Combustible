@@ -21,6 +21,9 @@ import { actaCompromisoHtml, totalValorReposicionUsd, esActaRecepcion } from '..
 import { ActaCompromisoModal } from '../components/ActaCompromisoModal';
 import { leerSalarioSemanalEmpleado, formatearSalarioSemanalReporte } from '../lib/empleadosReporte';
 import { MEMBRETE_POR_DEFECTO } from '../lib/constancia';
+import { CartaBancoTerceroModal } from '../components/CartaBancoTerceroModal';
+import { estadoCartaBancoTercero, MapaCartasBancoTercero } from '../lib/cartaBancoTercero';
+import { leerMapaCartasBancoTercero } from '../lib/cartaBancoTerceroStorage';
 
 const LOGO = require('../../assets/logo.png');
 const FICHA_BG = require('../../assets/ficha-bg.jpg');
@@ -63,6 +66,8 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   const [actaModalOpen, setActaModalOpen] = useState(false);
   const [actaTipoInicial, setActaTipoInicial] = useState<'entrega' | 'recepcion'>('entrega');
   const [actaOrigenInicial, setActaOrigenInicial] = useState<EmployeeCommitmentAct | null>(null);
+  const [cartaBancoOpen, setCartaBancoOpen] = useState(false);
+  const [mapaCartasTercero, setMapaCartasTercero] = useState<MapaCartasBancoTercero>({});
   const [isAnonSession, setIsAnonSession] = useState(true);
 
   // isRefresh=true (pull-to-refresh) no vuelve a registrar el escaneo en la
@@ -80,12 +85,20 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
       : await supabase.from('employees').select('*, company:company_id(name)').eq('id', employeeId).maybeSingle();
     const companyName = anon ? (data as any)?.company_name : (data as any)?.company?.name;
     let mapaHabs = {};
+    let mapaCartas: MapaCartasBancoTercero = {};
     try { mapaHabs = await leerMapaHabilidades(); } catch {}
+    if (!anon) {
+      try {
+        mapaCartas = await leerMapaCartasBancoTercero();
+        setMapaCartasTercero(mapaCartas);
+      } catch {}
+    }
     const e = data
       ? ({
           ...(data as any),
           companyName: companyName ?? 'Sin empresa',
           habilidades: leerHabilidadesEmpleado(data as any, mapaHabs),
+          carta_banco_tercero: !anon && (data as any)?.id ? (mapaCartas[(data as any).id] ?? (data as any).carta_banco_tercero ?? null) : null,
         })
       : null;
     setEmp(e);
@@ -330,13 +343,42 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         <Row k="Fecha de ingreso" v={emp.hire_date} />
       </Section>
 
-      {!isAnonSession && (leerSalarioSemanalEmpleado(emp) !== null || emp.bank_name || emp.bank_account || emp.bank_holder || emp.bank_cedula) ? (
+      {!isAnonSession ? (
         <Section title="🏦 Datos bancarios">
           <Row k="Salario Semanal" v={leerSalarioSemanalEmpleado(emp) !== null ? formatearSalarioSemanalReporte(emp) : null} />
           <Row k="Banco" v={emp.bank_name} />
           <Row k="N° de cuenta" v={emp.bank_account} />
           <Row k="Titular" v={emp.bank_holder} />
           <Row k="Cédula del titular" v={emp.bank_cedula} />
+          {(() => {
+            const estBco = estadoCartaBancoTercero(emp, mapaCartasTercero);
+            return (
+              <>
+                {estBco.esTercero ? (
+                  <>
+                    <Row k="Titularidad de cuenta" v={estBco.etiqueta} />
+                    <Row k="Parentesco / Vínculo" v={estBco.parentesco || null} />
+                    <Row k="Pago Móvil autorizado" v={estBco.pagoMovilTelefono || null} />
+                  </>
+                ) : null}
+                <TouchableOpacity
+                  onPress={() => setCartaBancoOpen(true)}
+                  style={{
+                    marginTop: 8,
+                    backgroundColor: '#7C3AED',
+                    paddingVertical: 9,
+                    paddingHorizontal: 12,
+                    borderRadius: radius.md,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12.5 }}>
+                    🤝 {estBco.esTercero ? 'Ver / Imprimir Carta de Autorización (Banco de Tercero)' : 'Configurar Carta de Autorización de Banco de Tercero'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            );
+          })()}
         </Section>
       ) : null}
 
@@ -487,6 +529,16 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         }}
         onSaved={() => load(true)}
       />
+
+      {!isAnonSession ? (
+        <CartaBancoTerceroModal
+          visible={cartaBancoOpen}
+          emp={emp}
+          cartaActual={emp?.id ? mapaCartasTercero[emp.id] ?? null : null}
+          onClose={() => setCartaBancoOpen(false)}
+          onSaved={() => load(true)}
+        />
+      ) : null}
 
       {emp.habilidades && emp.habilidades.length > 0 ? (
         <Section title="🛠️ Habilidades">

@@ -6,6 +6,7 @@ import { Employee, Aliado } from '../types/database';
 import { leerContactos, tituloContacto } from './contactosEmergencia';
 import { leerHabilidadesEmpleado } from './empleadosHabilidades';
 import { formatearSalarioSemanalReporte, leerSalarioSemanalEmpleado } from './empleadosReporte';
+import { estadoCartaBancoTercero } from './cartaBancoTercero';
 
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const nombre = (e: { first_name?: string | null; last_name?: string | null }) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Sin nombre';
@@ -78,10 +79,23 @@ export function fichaEmpleadoHtml(e: Employee & { companyName?: string }, opts?:
     + leerContactos(e).map((c, i, todos) => section('🚑 ' + tituloContacto(i, todos.length), [
         ['Nombre', c.nombre], ['Teléfono', c.telefono], ['Parentesco', c.parentesco],
       ])).join('')
-    + section('🏦 Datos bancarios', [
+    + (() => {
+      const estBco = estadoCartaBancoTercero(e);
+      return section('🏦 Datos bancarios', [
         ['Salario Semanal', leerSalarioSemanalEmpleado(e) !== null ? formatearSalarioSemanalReporte(e) : null],
-        ['Banco', e.bank_name], ['N° de cuenta', e.bank_account], ['Titular', e.bank_holder], ['Cédula del titular', e.bank_cedula],
-      ])
+        ['Banco', e.bank_name || estBco.bancoNombre || null],
+        ['N° de cuenta', e.bank_account || estBco.numeroCuenta || null],
+        ['Titular', e.bank_holder || estBco.titularNombre || null],
+        ['Cédula del titular', e.bank_cedula || estBco.titularCedula || null],
+        ...(estBco.esTercero
+          ? ([
+              ['Titularidad de cuenta', estBco.etiqueta],
+              ['Parentesco / Vínculo del titular', estBco.parentesco || null],
+              ['Pago Móvil autorizado', estBco.pagoMovilTelefono || null],
+            ] as [string, any][])
+          : []),
+      ]);
+    })()
     + section('👕 Uniformes (tallas)', [
         ['Camisa', e.talla_camisa], ['Pantalón', e.talla_pantalon], ['Zapatos', e.talla_zapatos],
         ['Braga', e.talla_braga], ['Chaqueta', e.talla_chaqueta],

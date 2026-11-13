@@ -27,11 +27,18 @@ import {
   fmtMontoVes,
   fmtTasaCambio,
 } from '../lib/nominaBimonetario';
-import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
+import { Company, Employee, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
 import { useTable } from '../hooks/useTable';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { TabuladorCargos } from '../components/TabuladorCargos';
 import { PagoPorPersona } from '../components/PagoPorPersona';
+import { CartaBancoTerceroModal } from '../components/CartaBancoTerceroModal';
+import {
+  MapaCartasBancoTercero,
+  extraerMapaCartasDeEmpresas,
+  estadoCartaBancoTercero,
+} from '../lib/cartaBancoTercero';
+import { leerMapaCartasBancoTercero } from '../lib/cartaBancoTerceroStorage';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { PAGO_STATUS_META } from '../lib/statusMeta';
@@ -214,11 +221,20 @@ export default function PagoPersonalScreen() {
   // del período (mismo patrón que PagoPorPersona). Default 'todos': un período ya cerrado tiene
   // sentido verlo completo, incluidos los desincorporados después de cargarlo.
   const [personaQuery, setPersonaQuery] = useState('');
-  const [estadoSel, setEstadoSel] = useState<EstadoFiltro>('activos');
-  const [gruposConfig, setGruposConfig] = useState<GrupoApartadoConfig[]>(DEFAULT_GRUPOS_APARTADOS);
+  const [ estadoSel, setEstadoSel ] = useState<EstadoFiltro>('activos');
+  const [ gruposConfig, setGruposConfig ] = useState<GrupoApartadoConfig[]>(DEFAULT_GRUPOS_APARTADOS);
+  const [ mapaCartasLocal, setMapaCartasLocal ] = useState<MapaCartasBancoTercero>({});
+  const [ cartaBancoFor, setCartaBancoFor ] = useState<Employee | null>(null);
+  const [ itemEmployeeRecord, setItemEmployeeRecord ] = useState<Map<string, Employee>>(new Map());
+
+  const mapaCartasTercero = useMemo(
+    () => ({ ...mapaCartasLocal, ...extraerMapaCartasDeEmpresas(payrollCompanies) }),
+    [mapaCartasLocal, payrollCompanies]
+  );
 
   useEffect(() => {
     leerGruposApartados().then(setGruposConfig);
+    leerMapaCartasBancoTercero().then(setMapaCartasLocal);
   }, []);
 
   // Crear período
@@ -345,9 +361,10 @@ export default function PagoPersonalScreen() {
     // resolver el GRUPO APARTADO y el DEPARTAMENTO de cada quien en la misma
     // consulta, sin un viaje extra.
     const { data: empStatus } = empIds.length
-      ? await supabase.from('employees').select('id, status, cargo, department, payroll_company_id, grupo, first_name, last_name, cedula, precio_hora, precio_dia, precio_noche, precio_semana, payroll_company:payroll_company_id(name)').in('id', empIds)
+      ? await supabase.from('employees').select('id, status, cargo, department, payroll_company_id, grupo, first_name, last_name, cedula, phone, hire_date, ficha_number, bank_name, bank_account, bank_holder, bank_cedula, precio_hora, precio_dia, precio_noche, precio_semana, payroll_company:payroll_company_id(name)').in('id', empIds)
       : { data: [] as any[] };
     const empMap = new Map<string, any>((empStatus ?? []).map((e: any) => [e.id, e]));
+    setItemEmployeeRecord(new Map<string, Employee>((empStatus ?? []).map((e: any) => [e.id, e as Employee])));
     const paidItemSet = new Set(paysList.map((x) => x.item_id));
     const sopsItemSet = new Set(sopsList.map((x) => x.itemId));
 
@@ -1993,6 +2010,30 @@ export default function PagoPersonalScreen() {
                                 <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '800' }}>🏢 {empNominaName}</Text>
                               </View>
                             ) : null}
+                            {(() => {
+                              const empRec = it.employee_id ? itemEmployeeRecord.get(it.employee_id) : null;
+                              if (!empRec) return null;
+                              const estBco = estadoCartaBancoTercero(empRec, mapaCartasTercero);
+                              if (!estBco.esTercero) return null;
+                              const okBco = estBco.tieneSoporteFirmado;
+                              return (
+                                <TouchableOpacity
+                                  onPress={() => setCartaBancoFor(empRec)}
+                                  style={{
+                                    backgroundColor: okBco ? 'rgba(22,163,74,0.14)' : 'rgba(217,119,6,0.14)',
+                                    borderWidth: 1,
+                                    borderColor: okBco ? '#16A34A' : '#D97706',
+                                    borderRadius: radius.pill,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 2,
+                                  }}
+                                >
+                                  <Text style={{ color: okBco ? '#15803D' : '#B45309', fontSize: 10.5, fontWeight: '800' }}>
+                                    {estBco.etiquetaCorta}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })()}
                           </View>
                           <Text style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}>
                             {devDesc(it, sel.mode)} = {usd(devengadoOf(it, sel.mode))}
@@ -2046,6 +2087,14 @@ export default function PagoPersonalScreen() {
                         <TouchableOpacity onPress={() => reciboPdf(it)} style={{ flex: 1, minWidth: 80, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 Recibo</Text>
                         </TouchableOpacity>
+                        {it.employee_id && itemEmployeeRecord.get(it.employee_id) ? (
+                          <TouchableOpacity
+                            onPress={() => setCartaBancoFor(itemEmployeeRecord.get(it.employee_id!) ?? null)}
+                            style={{ flex: 1, minWidth: 88, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#7C3AED' }}
+                          >
+                            <Text style={{ color: '#7C3AED', fontWeight: '800', fontSize: 12 }}>🤝 Banco 3°</Text>
+                          </TouchableOpacity>
+                        ) : null}
                         {/* 📎 Soportes (19-oct-2026, a pedido): factura o comprobante
                             de ESTA persona en ESTE período. Se abre y cierra acá;
                             el número dice cuántos tiene sin abrirla. */}
@@ -2299,6 +2348,33 @@ export default function PagoPersonalScreen() {
           </View>
         </View>
       </Modal>
+
+      <CartaBancoTerceroModal
+        visible={!!cartaBancoFor}
+        emp={cartaBancoFor}
+        cartaActual={cartaBancoFor ? mapaCartasTercero[cartaBancoFor.id] ?? null : null}
+        currentUserName={fullName || null}
+        onClose={() => setCartaBancoFor(null)}
+        onSaved={({ carta, mapa }) => {
+          setMapaCartasLocal(mapa);
+          if (cartaBancoFor) {
+            setItemEmployeeRecord((prev) => {
+              const next = new Map(prev);
+              const cur = next.get(cartaBancoFor.id);
+              if (cur) {
+                next.set(cartaBancoFor.id, {
+                  ...cur,
+                  bank_name: carta.bancoNombre || cur.bank_name,
+                  bank_account: carta.numeroCuenta || cur.bank_account,
+                  bank_holder: carta.titularNombre || cur.bank_holder,
+                  bank_cedula: carta.titularCedula || cur.bank_cedula,
+                });
+              }
+              return next;
+            });
+          }
+        }}
+      />
     </Screen>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Card, EmptyState, Loading } from './ui';
 import { DateField } from './DateField';
@@ -17,6 +17,9 @@ import { Employee, StaffPersonPayment } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
+import { CartaBancoTerceroModal } from './CartaBancoTerceroModal';
+import { MapaCartasBancoTercero, estadoCartaBancoTercero, escHtmlCarta } from '../lib/cartaBancoTercero';
+import { leerMapaCartasBancoTercero } from '../lib/cartaBancoTerceroStorage';
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -83,16 +86,22 @@ function detalle(p: StaffPersonPayment): string {
 
 export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   const { colors } = useTheme();
-  const { session } = useAuth();
+  const { session, fullName: authFullName } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const { data: employees, loading: empLoading, refetch: refetchEmployees } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: pays, loading: payLoading, refetch: refetchPays } = useTable<StaffPersonPayment>('staff_payments', { orderBy: 'fecha', ascending: false });
+  const [mapaCartasTercero, setMapaCartasTercero] = useState<MapaCartasBancoTercero>({});
+  const [cartaBancoFor, setCartaBancoFor] = useState<Employee | null>(null);
+  useEffect(() => {
+    leerMapaCartasBancoTercero().then(setMapaCartasTercero);
+  }, []);
   useRealtimeRefresh(['employees', 'payroll_companies', 'staff_payments'], () => {
     refetchEmployees();
     refetchPays();
+    leerMapaCartasBancoTercero().then(setMapaCartasTercero);
   });
   const { rate: bcvRate } = useBcvRate();
   // Bs equivalente de un monto en US$ (o '' si no hay tasa del día).
@@ -317,11 +326,15 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
       <tr><td class="k">Ficha</td><td>${e.ficha_number || '—'}</td><td class="k">Cargo</td><td>${e.cargo ? canonicalCargo(e.cargo) : '—'}</td></tr>
       <tr><td class="k">Teléfono</td><td>${e.phone || '—'}</td><td class="k">Estado</td><td>${e.status || '—'}</td></tr>
     </tbody></table>`;
-  const datosBanco = (e: Employee) => `
+  const datosBanco = (e: Employee) => {
+    const estBco = estadoCartaBancoTercero(e, mapaCartasTercero);
+    return `
     <table class="kv"><tbody>
-      <tr><td class="k">Banco</td><td>${e.bank_name || '—'}</td><td class="k">Cuenta</td><td>${e.bank_account || '—'}</td></tr>
-      <tr><td class="k">Titular</td><td>${e.bank_holder || fullName(e) || '—'}</td><td class="k">C.I. titular</td><td>${e.bank_cedula || e.cedula || '—'}</td></tr>
+      <tr><td class="k">Banco</td><td>${e.bank_name || estBco.bancoNombre || '—'}</td><td class="k">Cuenta</td><td>${e.bank_account || estBco.numeroCuenta || '—'}</td></tr>
+      <tr><td class="k">Titular</td><td>${e.bank_holder || estBco.titularNombre || fullName(e) || '—'}</td><td class="k">C.I. titular</td><td>${e.bank_cedula || estBco.titularCedula || e.cedula || '—'}</td></tr>
+      ${estBco.esTercero ? `<tr><td class="k">Titularidad</td><td colspan="3"><b>${escHtmlCarta(estBco.etiqueta)}</b>${estBco.pagoMovilTelefono ? ` · Pago Móvil: ${escHtmlCarta(estBco.pagoMovilTelefono)}` : ''}</td></tr>` : ''}
     </tbody></table>`;
+  };
 
   const recibo = (e: Employee, p: StaffPersonPayment) => {
     const body = `
@@ -471,10 +484,41 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
               <Text style={{ color: colors.text, fontSize: 13 }}>Teléfono: {sel.phone || '—'}   ·   Estado: {sel.status || '—'}</Text>
             </Card>
             <Card>
-              <Text style={{ color: colors.primary, fontWeight: '800', marginBottom: 4 }}>🏦 Datos bancarios</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+                <Text style={{ color: colors.primary, fontWeight: '800' }}>🏦 Datos bancarios</Text>
+                <TouchableOpacity
+                  onPress={() => setCartaBancoFor(sel)}
+                  style={{
+                    backgroundColor: '#7C3AED',
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: radius.pill,
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11.5 }}>
+                    🤝 Carta Banco Tercero
+                  </Text>
+                </TouchableOpacity>
+              </View>
               <Text style={{ color: colors.text, fontSize: 13 }}>Banco: {sel.bank_name || '—'}</Text>
               <Text style={{ color: colors.text, fontSize: 13 }}>Cuenta: {sel.bank_account || '—'}</Text>
               <Text style={{ color: colors.text, fontSize: 13 }}>Titular: {sel.bank_holder || fullName(sel)}   ·   C.I.: {sel.bank_cedula || sel.cedula || '—'}</Text>
+              {(() => {
+                const estBco = estadoCartaBancoTercero(sel, mapaCartasTercero);
+                if (!estBco.esTercero) return null;
+                return (
+                  <View style={{ marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: estBco.tieneSoporteFirmado ? 'rgba(22,163,74,0.1)' : 'rgba(217,119,6,0.1)', borderWidth: 1, borderColor: estBco.tieneSoporteFirmado ? '#16A34A' : '#D97706' }}>
+                    <Text style={{ color: estBco.tieneSoporteFirmado ? '#15803D' : '#B45309', fontWeight: '800', fontSize: 12 }}>
+                      {estBco.etiqueta}
+                    </Text>
+                    {estBco.pagoMovilTelefono ? (
+                      <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }}>
+                        📲 Pago Móvil autorizado: {estBco.pagoMovilTelefono}
+                      </Text>
+                    ) : null}
+                  </View>
+                );
+              })()}
             </Card>
             <Card>
               <Text style={{ color: colors.primary, fontWeight: '800', marginBottom: 4 }}>💲 Tarifas</Text>
@@ -661,6 +705,27 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
           </View>
         </Modal>
       </Modal>
+
+      <CartaBancoTerceroModal
+        visible={!!cartaBancoFor}
+        emp={cartaBancoFor}
+        cartaActual={cartaBancoFor ? mapaCartasTercero[cartaBancoFor.id] ?? null : null}
+        currentUserName={authFullName || null}
+        onClose={() => setCartaBancoFor(null)}
+        onSaved={({ carta, mapa }) => {
+          setMapaCartasTercero(mapa);
+          refetchEmployees();
+          if (sel && cartaBancoFor && sel.id === cartaBancoFor.id) {
+            setSel({
+              ...sel,
+              bank_name: carta.bancoNombre || sel.bank_name,
+              bank_account: carta.numeroCuenta || sel.bank_account,
+              bank_holder: carta.titularNombre || sel.bank_holder,
+              bank_cedula: carta.titularCedula || sel.bank_cedula,
+            });
+          }
+        }}
+      />
     </View>
   );
 }

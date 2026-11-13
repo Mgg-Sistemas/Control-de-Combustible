@@ -38,6 +38,13 @@ import { constanciaCarnetHtml, constanciaTrabajoHtml, MEMBRETES_CONSTANCIA, MEMB
 import { amonestacionHtml, GRADO_LABEL, GradoAmonestacion } from '../lib/amonestacion';
 import { ActaCompromisoModal } from '../components/ActaCompromisoModal';
 import { contarActasPorEmpleado } from '../lib/actasCompromisoDb';
+import { CartaBancoTerceroModal } from '../components/CartaBancoTerceroModal';
+import {
+  MapaCartasBancoTercero,
+  extraerMapaCartasDeEmpresas,
+  estadoCartaBancoTercero,
+} from '../lib/cartaBancoTercero';
+import { leerMapaCartasBancoTercero } from '../lib/cartaBancoTerceroStorage';
 import { useAuth } from '../context/AuthContext';
 import { montoQuincenal, montoQuincenalTexto } from '../lib/montoQuincenal';
 import { exportPdf, pdfDocument } from '../lib/pdf';
@@ -105,8 +112,8 @@ const FIELDS: Field[] = [
   { key: 'precio_noche', label: '🌙 Turno Nocturno (Por Noche $)', type: 'number' },
   { key: 'bank_name', label: 'Banco', type: 'select', options: BANCOS_VE, dropdown: true, placeholder: 'Elegir banco…' },
   { key: 'bank_account', label: 'N° de cuenta', type: 'text' },
-  { key: 'bank_holder', label: 'Titular (nombre y apellido)', type: 'text' },
-  { key: 'bank_cedula', label: 'Cédula del titular', type: 'text' },
+  { key: 'bank_holder', label: 'Titular (nombre del trabajador o del tercero autorizado)', type: 'text' },
+  { key: 'bank_cedula', label: 'Cédula del titular (C.I. del trabajador o del tercero)', type: 'text' },
   { key: 'notes', label: 'Notas', type: 'text' },
 ];
 
@@ -121,6 +128,8 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const [actaFor, setActaFor] = useState<Employee | null>(null);
   const [actaTipoInicial, setActaTipoInicial] = useState<'entrega' | 'recepcion'>('entrega');
   const [actasCounts, setActasCounts] = useState<Record<string, number>>({});
+  const [cartaBancoFor, setCartaBancoFor] = useState<Employee | null>(null);
+  const [mapaCartasLocal, setMapaCartasLocal] = useState<MapaCartasBancoTercero>({});
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   // Lista PROPIA de Nómina. Si todavía no se corrió supabase/nomina_empresa_filtro.sql
@@ -168,6 +177,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   useEffect(() => {
     leerGruposApartados().then(setGruposConfig);
     leerMapaHabilidades().then(setMapaHabsLocal);
+    leerMapaCartasBancoTercero().then(setMapaCartasLocal);
     contarActasPorEmpleado().then(setActasCounts);
     AsyncStorage.getItem(CLAVE_REPORTE_EMPLEADOS)
       .then((raw) => {
@@ -209,6 +219,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   useRealtimeRefresh(['payroll_companies', 'employee_commitment_acts'], () => {
     leerGruposApartados().then(setGruposConfig);
     leerMapaHabilidades().then(setMapaHabsLocal);
+    leerMapaCartasBancoTercero().then(setMapaCartasLocal);
     contarActasPorEmpleado().then(setActasCounts);
     refetchPayroll();
   });
@@ -218,6 +229,11 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     [mapaHabsLocal, payrollCompanies]
   );
   const habilidadesDe = (e: Employee) => leerHabilidadesEmpleado(e, mapaHabilidades);
+
+  const mapaCartasTercero = useMemo(
+    () => ({ ...mapaCartasLocal, ...extraerMapaCartasDeEmpresas(payrollCompanies) }),
+    [mapaCartasLocal, payrollCompanies]
+  );
 
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set()); // vacío = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
@@ -653,6 +669,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
         empresaNomina: nominaName((e as any).payroll_company_id),
         empresaContratista: companyName(e.company_id),
         habilidades: habilidadesDe(e),
+        carta_banco_tercero: mapaCartasTercero[e.id] ?? (e as any).carta_banco_tercero ?? null,
       })),
       estadoTxt,
       empresaTxt,
@@ -1745,6 +1762,30 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }} numberOfLines={1}>
                           🏢 {nominaName((e as any).payroll_company_id)}{grupoDe(e) ? ` · 📌 ${grupoLabelDe(grupoDe(e))}` : ''}
                         </Text>
+                        {(() => {
+                          const estBco = estadoCartaBancoTercero(e, mapaCartasTercero);
+                          if (!estBco.esTercero) return null;
+                          const esOk = estBco.tieneSoporteFirmado;
+                          return (
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
+                              <TouchableOpacity
+                                onPress={() => setCartaBancoFor(e)}
+                                style={{
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 2,
+                                  borderRadius: radius.pill,
+                                  backgroundColor: esOk ? 'rgba(22, 163, 74, 0.14)' : 'rgba(217, 119, 6, 0.14)',
+                                  borderWidth: 1,
+                                  borderColor: esOk ? '#16A34A' : '#D97706',
+                                }}
+                              >
+                                <Text style={{ color: esOk ? '#15803D' : '#B45309', fontSize: 10.5, fontWeight: '800' }}>
+                                  {estBco.etiquetaCorta}
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })()}
                         {habsEmp.length > 0 ? (
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                             {habsEmp.slice(0, 3).map((hab, idx) => (
@@ -1800,10 +1841,29 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                           </Text>
                         );
                       })()}
-                      {e.bank_name || e.bank_account ? (
-                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                          🏦 {[e.bank_name, e.bank_account ? `Cta. ${e.bank_account}` : '', e.bank_holder || '', e.bank_cedula ? `C.I ${e.bank_cedula}` : ''].filter(Boolean).join(' · ')}
-                        </Text>
+                      {e.bank_name || e.bank_account || estadoCartaBancoTercero(e, mapaCartasTercero).esTercero ? (
+                        <View style={{ marginTop: 2 }}>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>
+                            🏦 {[e.bank_name, e.bank_account ? `Cta. ${e.bank_account}` : '', e.bank_holder || '', e.bank_cedula ? `C.I ${e.bank_cedula}` : ''].filter(Boolean).join(' · ')}
+                          </Text>
+                          {(() => {
+                            const estBco = estadoCartaBancoTercero(e, mapaCartasTercero);
+                            if (!estBco.esTercero) return null;
+                            return (
+                              <Text
+                                style={{
+                                  color: estBco.tieneSoporteFirmado ? '#15803D' : '#B45309',
+                                  fontSize: 11.5,
+                                  fontWeight: '800',
+                                  marginTop: 1,
+                                }}
+                              >
+                                {estBco.etiqueta}
+                                {estBco.pagoMovilTelefono ? ` · 📲 Pago Móvil: ${estBco.pagoMovilTelefono}` : ''}
+                              </Text>
+                            );
+                          })()}
+                        </View>
                       ) : null}
                       {habsEmp.length > 0 ? (
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
@@ -1843,6 +1903,16 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                           />
                         )}
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
+                        <Btn
+                          label={(() => {
+                            const est = estadoCartaBancoTercero(e, mapaCartasTercero);
+                            if (est.esTercero && est.tieneSoporteFirmado) return '🤝 Banco Tercero (✅)';
+                            if (est.esTercero) return '🤝 Banco Tercero (⚠️)';
+                            return '🤝 Carta Banco Tercero';
+                          })()}
+                          color="#7C3AED"
+                          onPress={() => setCartaBancoFor(e)}
+                        />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
                         <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); }} />
                         <Btn label="⚠️ Amonestación" color="#B45309" onPress={() => abrirAmonestacion(e)} />
@@ -1890,6 +1960,19 @@ export default function EmpleadosScreen({ navigation, route }: any) {
         }}
       />
 
+      <CartaBancoTerceroModal
+        visible={!!cartaBancoFor}
+        emp={cartaBancoFor}
+        cartaActual={cartaBancoFor ? mapaCartasTercero[cartaBancoFor.id] ?? null : null}
+        currentUserName={authFullName || null}
+        onClose={() => setCartaBancoFor(null)}
+        onSaved={({ mapa }) => {
+          setMapaCartasLocal(mapa);
+          refetch();
+          refetchPayroll();
+        }}
+      />
+
       <RecordForm
         visible={formOpen}
         title={editing ? `Editar: ${fullName(editing)}` : 'Nuevo empleado'}
@@ -1907,7 +1990,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
         // "Empresa" en vez del nombre que la persona acababa de escribir — y solo
         // se arreglaba recargando la app entera. (Reporte del cliente 21-ago-2026:
         // «ni me muestra el nombre de la empresa que creé».)
-        onSaved={() => { refetch(); refetchPayroll(); leerMapaHabilidades().then(setMapaHabsLocal); }}
+        onSaved={() => { refetch(); refetchPayroll(); leerMapaHabilidades().then(setMapaHabsLocal); leerMapaCartasBancoTercero().then(setMapaCartasLocal); }}
       />
 
       {/* CONSTANCIA DE TRABAJO — ¿lleva el sueldo o no?

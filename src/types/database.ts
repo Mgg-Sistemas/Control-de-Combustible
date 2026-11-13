@@ -327,6 +327,8 @@ export interface Employee {
   bank_account: string | null;   // número de cuenta
   bank_holder: string | null;    // nombre y apellido del titular
   bank_cedula: string | null;    // cédula del titular
+  /** 🤝 Carta de autorización de cuenta bancaria de tercero (parentesco, motivo, firmas y soportes). */
+  carta_banco_tercero?: any | null;
   talla_camisa: string | null;   // talla de camisa (uniforme)
   talla_pantalon: string | null; // talla de pantalón (uniforme)
   talla_zapatos: string | null;  // talla de zapatos (uniforme)

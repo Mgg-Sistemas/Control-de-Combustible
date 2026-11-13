@@ -2,6 +2,7 @@
 // Arma el cuerpo HTML, estilos y resumen del reporte PDF permitiendo elegir
 // qué columnas y bloques salen (incluyendo 🛠️ Habilidades).
 import { limpiarHabilidades } from './empleadosHabilidades';
+import { estadoCartaBancoTercero } from './cartaBancoTercero';
 
 export type OpcionesReporteEmpleados = {
   /** 1️⃣ Columna «#» (numeración consecutiva). */
@@ -114,6 +115,7 @@ export type EmpleadoParaReporte = {
   bank_account?: string | null;
   bank_holder?: string | null;
   bank_cedula?: string | null;
+  carta_banco_tercero?: unknown;
   empresaNomina?: string | null;
   empresaContratista?: string | null;
   habilidades?: readonly string[] | string | null;
@@ -764,11 +766,13 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
         const salSemTxt = formatearMontoSalarioReporte(sals.semanal);
         const salQuinTxt = formatearMontoSalarioReporte(sals.quincenal);
         const salMesTxt = formatearMontoSalarioReporte(sals.mensual);
+        const estBco = estadoCartaBancoTercero(e);
         const bancoPartes = [
           e.bank_name,
           e.bank_account ? `CTA. ${e.bank_account}` : null,
           e.bank_holder,
           e.bank_cedula ? `C.I ${e.bank_cedula}` : null,
+          estBco.esTercero ? `TERCERO${estBco.parentesco ? ` (${estBco.parentesco})` : ''}` : null,
         ].filter(Boolean);
         const bancoTxt = bancoPartes.length > 0 ? bancoPartes.join(' · ') : '—';
 
