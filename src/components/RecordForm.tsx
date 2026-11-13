@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -146,6 +146,49 @@ export function RecordForm({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [askDelete, setAskDelete] = useState(false);
+  const pendingDropdownQueries = useRef<Record<string, string>>({});
+
+  const createOrReuseLookupOption = async (
+    f: Extract<Field, { type: 'lookup' }>,
+    text: string
+  ): Promise<Option | null> => {
+    if (!f.createColumn) return null;
+    const val = text.trim().toUpperCase();
+    if (!val) return null;
+    const col = f.createColumn as string;
+
+    // Si ya existe en la tabla (incluso desactivada con active: false), reutilizarla/reactivarla
+    // para que nunca falle por duplicado ni se pierda el cambio.
+    try {
+      const { data: existingRows } = await supabase
+        .from(f.table)
+        .select(`id, ${col}`)
+        .ilike(col, val)
+        .limit(1);
+      if (existingRows && existingRows.length > 0) {
+        const row: any = existingRows[0];
+        if (f.filter && 'active' in f.filter) {
+          await supabase.from(f.table).update({ active: true } as any).eq('id', row.id);
+        }
+        const opt: Option = { label: String(row[col] || val).toUpperCase(), value: row.id };
+        setLookups((prev) => {
+          const cur = prev[f.key] ?? [];
+          return { ...prev, [f.key]: cur.some((o) => o.value === opt.value) ? cur : [...cur, opt] };
+        });
+        return opt;
+      }
+    } catch {}
+
+    const { data, error: insErr } = await supabase
+      .from(f.table)
+      .insert({ [col]: val } as any)
+      .select()
+      .single();
+    if (insErr || !data) return null;
+    const opt: Option = { label: val, value: (data as any).id };
+    setLookups((prev) => ({ ...prev, [f.key]: [...(prev[f.key] ?? []), opt] }));
+    return opt;
+  };
 
   const fieldDefaults = useMemo(() => {
     const o: Record<string, string> = {};
@@ -187,6 +230,7 @@ export function RecordForm({
     } else {
       setValues({ ...fieldDefaults });
     }
+    pendingDropdownQueries.current = {};
     setError(null);
     setAskDelete(false);
   }, [visible, record]);
@@ -219,6 +263,7 @@ export function RecordForm({
         setLookups((prev) => ({
           ...prev,
           [f.key]: (data ?? [])
+            .filter((r: any) => !String(r[f.labelCol] ?? '').startsWith('__'))
             .map((r: any) => {
               const subItems = subCols
                 .map((c) => {
@@ -270,38 +315,65 @@ export function RecordForm({
 
   const submit = async () => {
     setError(null);
+    // Si el usuario escribió un texto (ej. "CDT QUINCENAL") en el buscador de un DropdownSelect
+    // y tocó directamente "Guardar" sin pulsar "➕ Agregar", lo resolvemos automáticamente aquí
+    // para que nunca se pierda lo que escribió.
+    const effectiveValues: Record<string, string> = { ...values };
+    for (const f of visibleFields) {
+      const pendingText = (pendingDropdownQueries.current[f.key] ?? '').trim();
+      if (!pendingText) continue;
+      if (f.type === 'lookup' && f.dropdown && f.createColumn) {
+        const opts = lookups[f.key] ?? [];
+        const qNorm = norm(pendingText);
+        const exact = opts.find((o) => norm(o.label) === qNorm);
+        if (exact) {
+          effectiveValues[f.key] = exact.value;
+        } else {
+          const created = await createOrReuseLookupOption(f, pendingText);
+          if (created) {
+            effectiveValues[f.key] = created.value;
+          }
+        }
+        pendingDropdownQueries.current[f.key] = '';
+      } else if (f.type === 'suggest' && f.dropdown) {
+        effectiveValues[f.key] = pendingText.toUpperCase();
+        pendingDropdownQueries.current[f.key] = '';
+      }
+    }
+    setValues(effectiveValues);
+
     // Validación de requeridos (solo campos visibles)
     for (const f of visibleFields) {
       if (f.type === 'section') continue;
       if (f.type === 'contactos') {
         // Para una LISTA, "obligatorio" es que haya al menos uno con datos. El valor
         // por defecto es '[]', que como texto es truthy y pasaria la prueba de abajo.
-        if (f.required && !contactosParaGuardar(JSON.parse(values[f.key] || '[]')).emergency_contacts.length) {
+        if (f.required && !contactosParaGuardar(JSON.parse(effectiveValues[f.key] || '[]')).emergency_contacts.length) {
           setError('Agrega al menos un contacto de emergencia.');
           return;
         }
         continue;
       }
       if (f.type === 'habilidades') {
-        if (f.required && !limpiarHabilidades(values[f.key] || '[]').length) {
+        if (f.required && !limpiarHabilidades(effectiveValues[f.key] || '[]').length) {
           setError('Agrega al menos una habilidad.');
           return;
         }
         continue;
       }
-      if (f.required && !values[f.key]) {
+      if (f.required && !effectiveValues[f.key]) {
         setError(`El campo "${f.label}" es obligatorio.`);
         return;
       }
     }
     // Validación EXTRA de grupo (p. ej. "placa O serial", "marca O modelo").
     if (validate) {
-      const msg = validate(values);
+      const msg = validate(effectiveValues);
       if (msg) { setError(msg); return; }
     }
     const payload: Record<string, any> = {};
     visibleFields.forEach((f) => {
-      const raw = values[f.key];
+      const raw = effectiveValues[f.key];
       if (raw === undefined) return;
       if (f.type === 'contactos') {
         let lista: any = [];
@@ -494,7 +566,17 @@ export function RecordForm({
                 ) : f.type === 'select' ? (
                   <ChipSelect options={f.options} value={values[f.key]} onChange={(v) => set(f.key, v)} />
                 ) : f.type === 'suggest' && f.dropdown ? (
-                  <DropdownSelect options={lookups[f.key] ?? []} value={values[f.key]} onChange={(v) => set(f.key, v)} placeholder={f.placeholder ?? 'Seleccionar…'} clearLabel="— Sin seleccionar" allowCustom />
+                  <DropdownSelect
+                    options={lookups[f.key] ?? []}
+                    value={values[f.key]}
+                    onChange={(v) => set(f.key, v)}
+                    placeholder={f.placeholder ?? 'Seleccionar…'}
+                    clearLabel="— Sin seleccionar"
+                    allowCustom
+                    onPendingQueryChange={(qTxt) => {
+                      pendingDropdownQueries.current[f.key] = qTxt;
+                    }}
+                  />
                 ) : f.type === 'suggest' ? (
                   <SuggestSelect options={lookups[f.key] ?? []} value={values[f.key] ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
                 ) : f.type === 'date' ? (
@@ -510,18 +592,10 @@ export function RecordForm({
                     // Con `createColumn` el desplegable es BUSCABLE y permite AGREGAR uno
                     // nuevo (crea la fila en la tabla y usa su id) si no existe todavía.
                     allowCustom={!!f.createColumn}
-                    onCreate={f.createColumn ? async (text: string) => {
-                      const val = text.trim().toUpperCase(); // los nombres nuevos van en MAYÚSCULA
-                      const { data, error } = await supabase
-                        .from(f.table)
-                        .insert({ [f.createColumn as string]: val } as any)
-                        .select()
-                        .single();
-                      if (error || !data) return null;
-                      const opt = { label: val, value: (data as any).id };
-                      setLookups((prev) => ({ ...prev, [f.key]: [...(prev[f.key] ?? []), opt] }));
-                      return opt;
-                    } : undefined}
+                    onPendingQueryChange={(qTxt) => {
+                      pendingDropdownQueries.current[f.key] = qTxt;
+                    }}
+                    onCreate={f.createColumn ? (text: string) => createOrReuseLookupOption(f, text) : undefined}
                   />
                 ) : f.type === 'lookup' ? (
                   <SearchSelect
@@ -848,6 +922,7 @@ function DropdownSelect({
   clearLabel,
   allowCustom = false,
   onCreate,
+  onPendingQueryChange,
 }: {
   options: Option[];
   value?: string;
@@ -859,6 +934,8 @@ function DropdownSelect({
   /** Si se define, "➕ Agregar" CREA la fila (p. ej. un proveedor nuevo) y devuelve su
    *  opción {label,value:id}; el valor elegido es ese id (no el texto). Para lookups. */
   onCreate?: (text: string) => Promise<Option | null>;
+  /** Notifica al formulario si el usuario dejó texto escrito sin confirmar en el buscador. */
+  onPendingQueryChange?: (q: string) => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -873,10 +950,41 @@ function DropdownSelect({
   // Valor nuevo SIEMPRE en MAYÚSCULA (unifica may/min). Solo se puede AGREGAR si no
   // existe ya uno igual (sin importar mayúsculas/acentos) → evita duplicados.
   const customValue = query.trim().toUpperCase();
-  const exists = options.some((o) => norm(o.label) === q);
+  const exactOption = q ? options.find((o) => norm(o.label) === q) : undefined;
+  const exists = !!exactOption;
   const canAddCustom = allowCustom && query.trim().length > 0 && !exists;
 
-  const close = () => { setOpen(false); setQuery(''); };
+  const updateQuery = (nextQ: string) => {
+    setQuery(nextQ);
+    onPendingQueryChange?.(nextQ);
+  };
+
+  const close = () => {
+    setOpen(false);
+    setQuery('');
+    onPendingQueryChange?.('');
+  };
+
+  const handleCreateOrSelectCustom = async () => {
+    if (!customValue) return;
+    if (exactOption) {
+      onChange(exactOption.value);
+      close();
+      return;
+    }
+    if (onCreate) {
+      setCreating(true);
+      const opt = await onCreate(customValue);
+      setCreating(false);
+      if (opt) {
+        onChange(opt.value);
+        close();
+      }
+      return;
+    }
+    onChange(customValue);
+    close();
+  };
 
   return (
     <View>
@@ -896,8 +1004,19 @@ function DropdownSelect({
           {showSearch ? (
             <TextInput
               value={query}
-              onChangeText={setQuery}
-              placeholder="🔎 Buscar…"
+              onChangeText={updateQuery}
+              onSubmitEditing={() => {
+                if (exactOption) {
+                  onChange(exactOption.value);
+                  close();
+                } else if (canAddCustom) {
+                  handleCreateOrSelectCustom();
+                } else if (filtered.length === 1) {
+                  onChange(filtered[0].value);
+                  close();
+                }
+              }}
+              placeholder="🔎 Buscar o escribir nombre nuevo…"
               placeholderTextColor={colors.muted}
               autoFocus
               style={{ padding: spacing.sm, color: colors.text, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface }}
@@ -912,27 +1031,24 @@ function DropdownSelect({
             {canAddCustom ? (
               <TouchableOpacity
                 disabled={creating}
-                onPress={async () => {
-                  // Con onCreate (lookup): CREA la fila (proveedor) y usa su id. Sin él
-                  // (suggest de texto): usa el texto tal cual.
-                  if (onCreate) {
-                    setCreating(true);
-                    const opt = await onCreate(customValue);
-                    setCreating(false);
-                    if (opt) { onChange(opt.value); close(); }
-                    return;
-                  }
-                  onChange(customValue); close();
+                onPress={handleCreateOrSelectCustom}
+                style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt }}
+              >
+                <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>{creating ? 'Agregando…' : `➕ Agregar y asignar «${customValue}»`}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {allowCustom && query.trim().length > 0 && exactOption ? (
+              <TouchableOpacity
+                onPress={() => {
+                  onChange(exactOption.value);
+                  close();
                 }}
                 style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt }}
               >
-                <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>{creating ? 'Agregando…' : `➕ Agregar «${customValue}»`}</Text>
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>
+                  ✓ Seleccionar «{exactOption.label}»
+                </Text>
               </TouchableOpacity>
-            ) : null}
-            {allowCustom && query.trim().length > 0 && exists ? (
-              <View style={{ paddingVertical: 8, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-                <Text style={{ color: colors.muted, fontSize: 12, fontStyle: 'italic' }}>Ese valor ya existe: elígelo de la lista (no se crea duplicado).</Text>
-              </View>
             ) : null}
             {filtered.map((o) => {
               const active = o.value === value;

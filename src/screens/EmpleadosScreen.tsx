@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { coincideEmpleado } from '../lib/empleadosBuscar';
 import { canonicalCargo } from '../lib/cargos';
-import { grupoApartado, pasaFiltroEstado, toggleFiltroEstado, etiquetaFiltrosEstado, esInactivoEstado, GrupoApartadoConfig, DEFAULT_GRUPOS_APARTADOS } from '../lib/nominaGrupos';
+import { coincideGrupo, grupoApartado, pasaFiltroEstado, toggleFiltroEstado, etiquetaFiltrosEstado, esInactivoEstado, GrupoApartadoConfig, DEFAULT_GRUPOS_APARTADOS } from '../lib/nominaGrupos';
 import { leerGruposApartados, guardarGruposApartados } from '../lib/nominaGruposStorage';
 import { leerHabilidadesEmpleado, extraerMapaHabilidadesDeEmpresas, MapaHabilidades } from '../lib/empleadosHabilidades';
 import { leerMapaHabilidades } from '../lib/empleadosHabilidadesStorage';
@@ -159,6 +159,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   }, [route?.params?.initialFilter]);
   const [gruposConfig, setGruposConfig] = useState<GrupoApartadoConfig[]>(DEFAULT_GRUPOS_APARTADOS);
   const [modalGruposOpen, setModalGruposOpen] = useState(false);
+  const [editingGrupoId, setEditingGrupoId] = useState<string | null>(null);
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoTipo, setNuevoTipo] = useState<'empresa' | 'cargo' | 'departamento'>('empresa');
   const [nuevoValor, setNuevoValor] = useState('');
@@ -711,6 +712,56 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     return [];
   }, [nuevoTipo, nominaCompanies, employees]);
 
+  const iniciarEdicionGrupo = (g: GrupoApartadoConfig) => {
+    setEditingGrupoId(g.id);
+    setNuevoNombre(g.label);
+    setNuevoTipo(g.tipo);
+    setNuevoValor(g.valor);
+    setNuevoColor(g.color || '#D97706');
+  };
+
+  const cancelarEdicionGrupo = () => {
+    setEditingGrupoId(null);
+    setNuevoNombre('');
+    setNuevoValor('');
+    setNuevoTipo('empresa');
+    setNuevoColor('#D97706');
+  };
+
+  const asegurarEmpresaNominaEnCatalogo = async (valorTexto: string) => {
+    const valUp = valorTexto.trim().toUpperCase();
+    if (!valUp || valUp.startsWith('__')) return;
+    try {
+      const yaActiva = nominaCompanies.some((c) => norm(c.name) === norm(valUp) && c.active !== false);
+      if (yaActiva) return;
+      const existente = nominaCompanies.find((c) => norm(c.name) === norm(valUp));
+      if (existente) {
+        await supabase.from('payroll_companies').update({ active: true }).eq('id', existente.id);
+      } else {
+        await supabase.from('payroll_companies').insert({ name: valUp, active: true });
+      }
+      await refetchPayroll();
+    } catch {}
+  };
+
+  const conteoPreviaGrupo = useMemo(() => {
+    const val = nuevoValor.trim();
+    if (!val) return 0;
+    const tempGrupo: GrupoApartadoConfig = {
+      id: editingGrupoId || '__preview__',
+      label: nuevoNombre.trim() || val,
+      color: nuevoColor || '#D97706',
+      tipo: nuevoTipo,
+      valor: val,
+      builtin: false,
+    };
+    return employees.filter(
+      (e) =>
+        !esInactivo(e) &&
+        coincideGrupo(tempGrupo, nominaName((e as any).payroll_company_id), e.cargo, (e as any).department)
+    ).length;
+  }, [nuevoValor, nuevoNombre, nuevoColor, nuevoTipo, editingGrupoId, employees, payrollCompanies]);
+
   const agregarGrupoApartado = async () => {
     const nombre = nuevoNombre.trim();
     const valor = nuevoValor.trim();
@@ -722,6 +773,29 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       toast.error('Indica el valor a coincidir.');
       return;
     }
+
+    if (editingGrupoId) {
+      const nuevaLista = gruposConfig.map((g) =>
+        g.id === editingGrupoId
+          ? {
+              ...g,
+              label: nombre,
+              color: nuevoColor || '#D97706',
+              tipo: nuevoTipo,
+              valor,
+            }
+          : g
+      );
+      setGruposConfig(nuevaLista);
+      await guardarGruposApartados(nuevaLista);
+      if (nuevoTipo === 'empresa') {
+        await asegurarEmpresaNominaEnCatalogo(valor);
+      }
+      toast.success(`✓ Pestaña "${nombre}" actualizada.`);
+      cancelarEdicionGrupo();
+      return;
+    }
+
     const slug = norm(nombre).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `grupo_${Date.now()}`;
     if (gruposConfig.some((g) => g.id === slug)) {
       toast.error('Ya existe un grupo con ese identificador o nombre.');
@@ -738,6 +812,9 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     const nuevaLista = [...gruposConfig, nuevo];
     setGruposConfig(nuevaLista);
     await guardarGruposApartados(nuevaLista);
+    if (nuevoTipo === 'empresa') {
+      await asegurarEmpresaNominaEnCatalogo(valor);
+    }
     toast.success(`✓ Pestaña "${nombre}" creada.`);
     setNuevoNombre('');
     setNuevoValor('');
@@ -2201,9 +2278,9 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                       }}
                     >
                       <View style={{ flex: 1, marginRight: spacing.sm }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{g.label}</Text>
-                          <Badge label={`${n} pers.`} tone="muted" />
+                          <Badge label={`${n} pers.`} tone={n > 0 ? 'success' : 'muted'} />
                           {g.builtin ? (
                             <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>[Sistema]</Text>
                           ) : null}
@@ -2211,26 +2288,46 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
                           {g.tipo === 'empresa' ? '🏢 Empresa de nómina' : g.tipo === 'cargo' ? '🏷️ Cargo' : '🗂️ Departamento'}: «{g.valor}»
                         </Text>
+                        {n === 0 && !g.builtin ? (
+                          <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2, fontStyle: 'italic' }}>
+                            💡 Para pasar empleados aquí, ponles «{g.valor}» en su ficha (🏢 Empresa filtro nómina{g.tipo !== 'empresa' ? ` o ${g.tipo === 'cargo' ? '🏷️ Cargo' : '🗂️ Departamento'}` : ''}).
+                          </Text>
+                        ) : null}
                       </View>
 
                       {!g.builtin ? (
-                        <TouchableOpacity
-                          onPress={() => eliminarGrupoApartado(g.id, g.label)}
-                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: 'rgba(220, 38, 38, 0.1)' }}
-                        >
-                          <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑️ Eliminar</Text>
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <TouchableOpacity
+                            onPress={() => iniciarEdicionGrupo(g)}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}
+                          >
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>✏️ Editar</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => eliminarGrupoApartado(g.id, g.label)}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: 'rgba(220, 38, 38, 0.1)' }}
+                          >
+                            <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🗑️ Eliminar</Text>
+                          </TouchableOpacity>
+                        </View>
                       ) : null}
                     </View>
                   );
                 })}
               </View>
 
-              {/* Formulario nuevo grupo */}
+              {/* Formulario nuevo grupo / editar grupo */}
               <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
-                  ➕ Crear nueva pestaña apartada
-                </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                    {editingGrupoId ? `✏️ Editando pestaña` : `➕ Crear nueva pestaña apartada`}
+                  </Text>
+                  {editingGrupoId ? (
+                    <TouchableOpacity onPress={cancelarEdicionGrupo} style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>✕ Cancelar edición</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
 
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
                   Nombre que saldrá en la pestaña
@@ -2335,6 +2432,14 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                   })}
                 </View>
 
+                {nuevoValor.trim() ? (
+                  <View style={{ padding: spacing.xs, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                      🔎 Coinciden ahora mismo: {conteoPreviaGrupo} empleado(s) activo(s)
+                    </Text>
+                  </View>
+                ) : null}
+
                 <TouchableOpacity
                   onPress={agregarGrupoApartado}
                   style={{
@@ -2345,7 +2450,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                   }}
                 >
                   <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
-                    💾 Guardar y Crear Pestaña
+                    {editingGrupoId ? '💾 Guardar cambios en pestaña' : '💾 Guardar y Crear Pestaña'}
                   </Text>
                 </TouchableOpacity>
               </View>

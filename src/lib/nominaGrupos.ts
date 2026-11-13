@@ -51,8 +51,44 @@ export function esSeguridad(cargo?: string | null): boolean {
   return canonicalCargo(cargo) === 'SEGURIDAD';
 }
 
+const PRIORIDAD_TIPO_GRUPO: Record<GrupoApartadoConfig['tipo'], number> = {
+  empresa: 3,
+  departamento: 2,
+  cargo: 1,
+};
+
+function coincideEnCampoDirecto(
+  g: GrupoApartadoConfig,
+  empresaNomina?: string | null,
+  cargo?: string | null,
+  departamento?: string | null
+): boolean {
+  const val = norm(g.valor).trim();
+  if (!val) return false;
+  if (g.tipo === 'empresa') {
+    const emp = norm(empresaNomina).trim();
+    if (!emp || emp === 'sin empresa de filtro') return false;
+    return emp.includes(val);
+  }
+  if (g.tipo === 'cargo') {
+    const crg = norm(cargo).trim();
+    if (!crg) return false;
+    return canonicalCargo(cargo) === canonicalCargo(g.valor) || crg.includes(val);
+  }
+  if (g.tipo === 'departamento') {
+    const dep = norm(departamento).trim();
+    if (!dep) return false;
+    return dep.includes(val);
+  }
+  return false;
+}
+
 /**
  * Evalúa si un empleado cumple la condición de un grupo apartado.
+ * Para grupos personalizados (`!g.builtin`) de tipo `departamento` o `empresa`,
+ * también reconoce cuando el usuario asignó el valor del grupo en `Empresa filtro nómina`
+ * (o exactamente en `Departamento`), evitando que una pestaña quede en 0 si se creó bajo
+ * Departamento pero se asignó en Empresa filtro nómina.
  */
 export function coincideGrupo(
   g: GrupoApartadoConfig,
@@ -60,21 +96,76 @@ export function coincideGrupo(
   cargo?: string | null,
   departamento?: string | null
 ): boolean {
-  if (g.tipo === 'empresa') {
-    return norm(empresaNomina).includes(norm(g.valor));
+  if (coincideEnCampoDirecto(g, empresaNomina, cargo, departamento)) {
+    return true;
   }
-  if (g.tipo === 'cargo') {
-    return canonicalCargo(cargo) === canonicalCargo(g.valor) || norm(cargo).includes(norm(g.valor));
-  }
+  const val = norm(g.valor).trim();
+  if (!val || g.builtin) return false;
+
   if (g.tipo === 'departamento') {
-    return norm(departamento).includes(norm(g.valor));
+    const emp = norm(empresaNomina).trim();
+    if (emp && emp !== 'sin empresa de filtro' && emp.includes(val)) return true;
+  } else if (g.tipo === 'empresa') {
+    const dep = norm(departamento).trim();
+    if (dep && dep === val) return true;
   }
   return false;
 }
 
+function puntajeGrupo(
+  g: GrupoApartadoConfig,
+  empresaNomina?: string | null,
+  cargo?: string | null,
+  departamento?: string | null
+): [number, number, number, number] {
+  const directo = coincideEnCampoDirecto(g, empresaNomina, cargo, departamento) ? 1 : 0;
+  const val = norm(g.valor).trim();
+  const emp = norm(empresaNomina).trim();
+  const dep = norm(departamento).trim();
+  const crg = norm(cargo).trim();
+
+  // Si coincidió por empresaNomina (directo o cruzado), tiene jerarquía de empresa (3).
+  const coincidioPorEmpresa =
+    (g.tipo === 'empresa' && directo === 1) ||
+    (g.tipo === 'departamento' && directo === 0 && Boolean(emp && emp !== 'sin empresa de filtro' && emp.includes(val)));
+  const tipoPrio = coincidioPorEmpresa ? 3 : (PRIORIDAD_TIPO_GRUPO[g.tipo] ?? 0);
+
+  const campo = coincidioPorEmpresa
+    ? emp
+    : g.tipo === 'departamento'
+      ? dep
+      : g.tipo === 'cargo'
+        ? crg
+        : emp;
+
+  let exactitud = 0;
+  if (
+    campo === val ||
+    (g.tipo === 'cargo' && canonicalCargo(cargo) === canonicalCargo(g.valor) && campo.length <= val.length)
+  ) {
+    exactitud = 2;
+  } else if (campo) {
+    const escaped = val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`(?:^|\\s|[^a-z0-9ñ])${escaped}(?:$|\\s|[^a-z0-9ñ])`).test(campo)) {
+      exactitud = 1;
+    }
+  }
+
+  return [directo, tipoPrio, exactitud, val.length];
+}
+
 /**
  * Grupo apartado de un empleado, o `null` si va en las pestañas normales.
- * Se evalúan los grupos en orden de prioridad (por defecto Carbozulia y Seguridad).
+ *
+ * Reglas de prioridad para evitar colisiones (ej. `CDT` vs `CDT QUINCENAL`):
+ * 1. **Refinamiento / Subgrupo más específico**: Si el empleado coincide con dos grupos
+ *    donde el valor de uno contiene al otro (ej. `"CDT QUINCENAL"` contiene a `"CDT"`),
+ *    gana siempre el subgrupo más específico (`"CDT QUINCENAL"`), sin importar cuál se creó primero.
+ * 2. **Jerarquía de negocio**: La empresa de nómina (`empresa`) pesa más que `departamento` y `cargo`
+ *    (p. ej. un empleado de `CARBOZULIA` con cargo `SEGURIDAD` va a `carbozulia`; un operador con
+ *    empresa `CDT QUINCENAL` va a `CDT QUINCENAL`).
+ * 3. **Exactitud y longitud**: Dentro del mismo nivel, gana la coincidencia exacta (`===`) y el
+ *    valor más largo/específico, conservando el orden de `gruposConfig` en caso de empate.
  */
 export function grupoApartado(
   empresaNomina?: string | null,
@@ -82,12 +173,39 @@ export function grupoApartado(
   departamento?: string | null,
   gruposConfig: GrupoApartadoConfig[] = DEFAULT_GRUPOS_APARTADOS
 ): GrupoApartado | null {
-  for (const g of gruposConfig) {
-    if (coincideGrupo(g, empresaNomina, cargo, departamento)) {
-      return g.id;
+  const coincidentes = gruposConfig.filter((g) => coincideGrupo(g, empresaNomina, cargo, departamento));
+  if (coincidentes.length === 0) return null;
+  if (coincidentes.length === 1) return coincidentes[0].id;
+
+  // 1) Descartar grupos genéricos cuando el empleado también cumple un subgrupo más específico
+  //    cuyo `valor` contiene propiamente al del grupo genérico (ej. "cdt quincenal" contiene "cdt").
+  const candidatos = coincidentes.filter((g1) => {
+    const v1 = norm(g1.valor).trim();
+    return !coincidentes.some((g2) => {
+      if (g2.id === g1.id) return false;
+      const v2 = norm(g2.valor).trim();
+      return v2.length > v1.length && v2.includes(v1);
+    });
+  });
+
+  const listaEval = candidatos.length > 0 ? candidatos : coincidentes;
+  let mejorId: GrupoApartado | null = null;
+  let mejorScore: [number, number, number, number] | null = null;
+
+  for (const g of listaEval) {
+    const score = puntajeGrupo(g, empresaNomina, cargo, departamento);
+    if (
+      !mejorScore ||
+      score[0] > mejorScore[0] ||
+      (score[0] === mejorScore[0] && score[1] > mejorScore[1]) ||
+      (score[0] === mejorScore[0] && score[1] === mejorScore[1] && score[2] > mejorScore[2]) ||
+      (score[0] === mejorScore[0] && score[1] === mejorScore[1] && score[2] === mejorScore[2] && score[3] > mejorScore[3])
+    ) {
+      mejorScore = score;
+      mejorId = g.id;
     }
   }
-  return null;
+  return mejorId;
 }
 
 /** Pestañas del filtro de ESTADO, en el orden en que se muestran. */

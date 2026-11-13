@@ -288,6 +288,45 @@ const repConFirmas = cuerpoReporteEmpleados({
 eq('al activar firmas incluye el bloque .firmas-wrap al final', repConFirmas.body.includes('class="firmas-wrap"'), true);
 eq('renderiza todos los firmantes indicados (nombre, cargo y cédula)', repConFirmas.body.includes('DORIANNE PEREZ') && repConFirmas.body.includes('JEFE DE ADMINISTRACION') && repConFirmas.body.includes('C.I. 16105037') && repConFirmas.body.includes('COORDINADORA DE RRHH'), true);
 
+// 10. Subgrupos específicos y prioridad (CDT vs CDT QUINCENAL)
+const gOperadores = { id: 'operadores_de_maquinaria', label: 'Operadores de maquinaria', color: '#059669', tipo: 'cargo', valor: 'OPERADOR DE MAQUINARIA' };
+const gCdtEmp = { id: 'cdt', label: 'CDT', color: '#2563EB', tipo: 'empresa', valor: 'CDT' };
+const gCdtQuinEmp = { id: 'cdt_quincenal', label: 'CDT Quincenal', color: '#D97706', tipo: 'empresa', valor: 'CDT QUINCENAL' };
+const gruposCdt = [...DEFAULT_GRUPOS_APARTADOS, gOperadores, gCdtEmp, gCdtQuinEmp];
+
+eq(
+  'CDT QUINCENAL gana sobre CDT aunque CDT esté antes en la lista (ambos tipo empresa)',
+  grupoApartado('CDT QUINCENAL', 'OBRERO', 'OBRAS', gruposCdt),
+  'cdt_quincenal'
+);
+eq(
+  'Empleado con CDT normal sigue en CDT',
+  grupoApartado('CDT', 'OBRERO', 'OBRAS', gruposCdt),
+  'cdt'
+);
+eq(
+  'Empleado con empresa CDT QUINCENAL y cargo OPERADOR DE MAQUINARIA va a CDT QUINCENAL (empresa > cargo)',
+  grupoApartado('CDT QUINCENAL', 'OPERADOR DE MAQUINARIA', 'OPERACIONES', gruposCdt),
+  'cdt_quincenal'
+);
+
+// Caso mixto: CDT creado por departamento y CDT QUINCENAL por empresa (o viceversa)
+const gCdtDepto = { id: 'cdt', label: 'CDT', color: '#2563EB', tipo: 'departamento', valor: 'CDT' };
+const gCdtQuinDepto = { id: 'cdt_quincenal', label: 'CDT Quincenal', color: '#D97706', tipo: 'departamento', valor: 'CDT QUINCENAL' };
+const gruposMixtos1 = [...DEFAULT_GRUPOS_APARTADOS, gCdtDepto, gCdtQuinEmp];
+const gruposMixtos2 = [...DEFAULT_GRUPOS_APARTADOS, gCdtEmp, gCdtQuinDepto];
+
+eq(
+  'Empleado con department=CDT y empresaNomina=CDT QUINCENAL va a CDT QUINCENAL (gruposMixtos1)',
+  grupoApartado('CDT QUINCENAL', 'OBRERO', 'CDT', gruposMixtos1),
+  'cdt_quincenal'
+);
+eq(
+  'Empleado con department=CDT y empresaNomina=CDT QUINCENAL va a CDT QUINCENAL aunque la pestaña se haya creado como departamento (gruposMixtos2)',
+  grupoApartado('CDT QUINCENAL', 'OBRERO', 'CDT', gruposMixtos2),
+  'cdt_quincenal'
+);
+
 console.log('\n🏢  Grupos apartados dinámicos (Configurables por Empresa, Cargo y Departamento)');
 console.log(`   ${pass} OK · ${fail} fallo(s)`);
 if (fail) {
