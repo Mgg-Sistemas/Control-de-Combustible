@@ -419,8 +419,11 @@ export default function ViajesCamionesScreen() {
     espera: { label: 'Esperando instrucciones', icon: '⏳', color: colors.warning },
   };
 
+  const canRead = levelMeets(level, 'lectura');
   const canWrite = levelMeets(level, 'escritura');
   const canFull = levelMeets(level, 'full');
+  const esSoloLectura = canRead && !canWrite;
+  const canVerPanel = canFull || esSoloLectura;
   // ¿El usuario ES un listero (rol cuyo único módulo es viajes)? Los listeros
   // tienen escritura, pero a su teléfono no se le cargan listas de administración.
   const soyListero = esRolListero(appRole?.modules);
@@ -2409,7 +2412,7 @@ export default function ViajesCamionesScreen() {
   const [resumenError, setResumenError] = useState<string | null>(null);
   const [alertaError, setAlertaError] = useState<string | null>(null);
   const loadResumen = async () => {
-    if (!canFull) return;
+    if (!canVerPanel) return;
     const { rows, error } = await listTodosLosViajes(jornadaWindowISO(caracasBusinessToday()));
     setResumenError(error ?? null);
     // Si falló, se conserva lo último bueno: un resumen en ceros hacía concluir
@@ -2750,7 +2753,7 @@ export default function ViajesCamionesScreen() {
     // Un rango al revés no se le pregunta a la base: no hay respuesta correcta
     // que dar. Sin días marcados, tampoco: el rango caería a HOY por defecto y
     // se consultaría algo que el usuario no pidió.
-    if (!canFull || rangoInvalido || sinDiasMarcados) return;
+    if (!canVerPanel || rangoInvalido || sinDiasMarcados) return;
     const key = rangeKey;
     const nro = ++pedidoRef.current;
     setRangeLoading((prev) => prev || rangeRows.length === 0 || rangeRowsKey !== key);
@@ -2765,9 +2768,9 @@ export default function ViajesCamionesScreen() {
   };
 
   useEffect(() => {
-    if (canFull) loadRangeRows();
+    if (canVerPanel) loadRangeRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canFull, desdeISO, hastaExclusivoISO, rangoInvalido, sinDiasMarcados]);
+  }, [canVerPanel, desdeISO, hastaExclusivoISO, rangoInvalido, sinDiasMarcados]);
 
   const dateScopedRowsConSinFrente = useMemo(() => {
     // Sin ningún día marcado no hay nada que mostrar. Devolver el rango entero
@@ -3861,56 +3864,6 @@ export default function ViajesCamionesScreen() {
     return () => { vivo = false; };
   }, []);
 
-  // ── Carga inicial + tiempo real ─────────────────────────────────────────
-  useEffect(() => {
-    loadTrucks();
-    if (canWrite) loadMisViajes();
-    if (canFull) { loadAlertaCfg(); loadResumen(); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canWrite, canFull, uid]);
-  useEffect(() => {
-    if (canFull) loadAlerta();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canFull, alertaHoras]);
-  useRealtimeRefresh(['camion_viajes', 'machine_operators', 'machinery'], () => {
-    loadTrucks();
-    if (canWrite) loadMisViajes();
-    if (canFull) { loadResumen(); loadAlerta(); loadRangeRows(); }
-  });
-
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await loadTrucks();
-      if (canWrite) await loadMisViajes();
-      if (canFull) { await loadResumen(); await loadAlerta(); await loadRangeRows(); }
-    } finally {
-      // Sin el `finally`, una sola consulta colgada (el wifi del patio otra vez)
-      // dejaba el "deslizar para refrescar" girando hasta cerrar la app.
-      setRefreshing(false);
-    }
-  };
-
-  // ── Sin acceso ───────────────────────────────────────────────────────────
-  if (level === 'none') {
-    return (
-      <Screen>
-        <SectionTitle>🚛 Viajes de camiones</SectionTitle>
-        <EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo. Pídeselo a un administrador." />
-      </Screen>
-    );
-  }
-  if (!canWrite) {
-    return (
-      <Screen>
-        <SectionTitle>🚛 Viajes de camiones</SectionTitle>
-        <EmptyState title="Solo lectura" subtitle="Tu nivel de acceso a este módulo es de solo lectura. Pídele a un administrador el nivel Escritura para poder registrar viajes." />
-      </Screen>
-    );
-  }
-
-  // ── Fila de viaje (reutilizada por "Mis viajes de hoy" y "Lista completa"). ─
   // ══ TICKETERA: IMPRIMIR Y ENTREGAR ═══════════════════════════════════════
   //
   // Pedido del cliente: «cuando marcan el viaje, deben dar el ticket, y debe
@@ -3994,6 +3947,49 @@ export default function ViajesCamionesScreen() {
     () => filteredRangeRows.filter((r) => tieneTique(r)),
     [filteredRangeRows],
   );
+
+  // ── Carga inicial + tiempo real ─────────────────────────────────────────
+  useEffect(() => {
+    loadTrucks();
+    if (canWrite) loadMisViajes();
+    if (canVerPanel) { loadAlertaCfg(); loadResumen(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canWrite, canVerPanel, uid]);
+  useEffect(() => {
+    if (canVerPanel) loadAlerta();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canVerPanel, alertaHoras]);
+  useRealtimeRefresh(['camion_viajes', 'machine_operators', 'machinery'], () => {
+    loadTrucks();
+    if (canWrite) loadMisViajes();
+    if (canVerPanel) { loadResumen(); loadAlerta(); loadRangeRows(); }
+  });
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadTrucks();
+      if (canWrite) await loadMisViajes();
+      if (canVerPanel) { await loadResumen(); await loadAlerta(); await loadRangeRows(); }
+    } finally {
+      // Sin el `finally`, una sola consulta colgada (el wifi del patio otra vez)
+      // dejaba el "deslizar para refrescar" girando hasta cerrar la app.
+      setRefreshing(false);
+    }
+  };
+
+  // ── Sin acceso ───────────────────────────────────────────────────────────
+  if (!canRead) {
+    return (
+      <Screen>
+        <SectionTitle>🚛 Viajes de camiones</SectionTitle>
+        <EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo. Pídeselo a un administrador." />
+      </Screen>
+    );
+  }
+
+  // ── Fila de viaje (reutilizada por "Mis viajes de hoy" y "Lista completa"). ─
 
   /** ¿Cuántas veces salió este ticket? `null` = no se preguntó (lista muy grande). */
   const vecesImpreso = (row: DisplayViaje): number | null => {
@@ -4578,7 +4574,18 @@ export default function ViajesCamionesScreen() {
       <ConfigBanner />
       <SectionTitle>🚛 Viajes de camiones</SectionTitle>
 
+      {esSoloLectura ? (
+        <View style={{ backgroundColor: '#EFF8FF', borderRadius: radius.md, borderWidth: 1, borderColor: '#B2DDFF', padding: spacing.sm, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={{ fontSize: 16 }}>ℹ️</Text>
+          <Text style={{ color: '#175CD3', fontSize: 13, fontWeight: '700', flex: 1 }}>
+            Modo solo lectura: Puedes consultar la bitácora, resúmenes, cubicaje y reportes. El registro y la modificación de viajes están deshabilitados.
+          </Text>
+        </View>
+      ) : null}
+
       {/* ── Vista LISTERO ─────────────────────────────────────────────── */}
+      {canWrite ? (
+        <>
       {falloGuardado ? (
         <View style={{ backgroundColor: '#FEF3F2', borderRadius: radius.md, borderWidth: 1, borderColor: '#F97066', padding: spacing.sm, marginBottom: spacing.sm }}>
           <Text style={{ color: '#B42318', fontSize: 12.5, fontWeight: '800' }}>
@@ -5384,9 +5391,11 @@ export default function ViajesCamionesScreen() {
           </View>
         </View>
       </Modal>
+        </>
+      ) : null}
 
-      {/* ── Panel de INFORMACIÓN (nivel full) ───────────────────────────── */}
-      {canFull ? (
+      {/* ── Panel de INFORMACIÓN ────────────────────────────────────────── */}
+      {canVerPanel ? (
         <>
           <SectionTitle>📊 Panel de información</SectionTitle>
 
@@ -5468,11 +5477,12 @@ export default function ViajesCamionesScreen() {
               Lo que faltaba para poder cuadrar un día pasado: el botón del
               listero sella la hora del toque, así que nunca sirvió para agregar
               un viaje de anteayer. Borrar ya se podía; agregar, no. */}
-          <Plegable titulo="✍️ Cargar viajes a mano" resumen="Para completar un día que quedó incompleto">
-            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-              Para completar un día que quedó incompleto. Los viajes quedan marcados
-              como «cargado a mano» para que se distingan de los que se anotaron en el patio.
-            </Text>
+          {canFull ? (
+            <Plegable titulo="✍️ Cargar viajes a mano" resumen="Para completar un día que quedó incompleto">
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+                Para completar un día que quedó incompleto. Los viajes quedan marcados
+                como «cargado a mano» para que se distingan de los que se anotaron en el patio.
+              </Text>
 
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>CAMIÓN</Text>
             {cargaTruck ? (
@@ -5832,6 +5842,7 @@ export default function ViajesCamionesScreen() {
               </Text>
             </TouchableOpacity>
           </Plegable>
+          ) : null}
 
           {/* OCULTO, no eliminado: ver MOSTRAR_SIN_VIAJE_RECIENTE arriba. */}
           {MOSTRAR_SIN_VIAJE_RECIENTE ? (
@@ -5899,7 +5910,7 @@ export default function ViajesCamionesScreen() {
           {/* Qué sale en el ticket. Va acá, pegado a las obras, porque las dos
               cosas se configuran una vez y se dejan quietas: la obra de cada
               listero y el formato del papel. */}
-          <TiqueConfigCard uid={uid} onGuardado={(c) => { setConfigTique(c); setVersionTique((v) => v + 1); }} />
+          {canFull ? <TiqueConfigCard uid={uid} onGuardado={(c) => { setConfigTique(c); setVersionTique((v) => v + 1); }} /> : null}
 
           {/* Lo que hay que pagarle a cada empresa por los viajes de sus camiones
               (15-sep-2026). Vive acá y solo acá: no toca jornadas ni Control de Pagos. */}
@@ -5913,7 +5924,7 @@ export default function ViajesCamionesScreen() {
           {/* 📊 INFORME OPERATIVO (09-oct-2026, a pedido, con un consolidado de
               otra empresa de muestra): flota, viajes y toneladas por día, con
               gráfico — SIN montos. No toca pagos: es papel de lectura. */}
-          <InformeOperativoCard canVer={canFull} />
+          <InformeOperativoCard canVer={canVerPanel} />
 
           <Plegable
             titulo="🚛 Lista completa de viajes"
@@ -6497,10 +6508,10 @@ export default function ViajesCamionesScreen() {
                             </Text>
                             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{g.filas.length} viaje(s)</Text>
                           </View>
-                          {g.filas.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
+                          {g.filas.map((row) => renderRow(row, { canEdit: canFull, canDelete: canFull, showListero: true }))}
                         </View>
                       ))
-                      : filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
+                      : filteredRangeRows.map((row) => renderRow(row, { canEdit: canFull, canDelete: canFull, showListero: true }))}
                   </ScrollView>
                 </View>
               )}
@@ -6551,6 +6562,7 @@ export default function ViajesCamionesScreen() {
             </Plegable>
           ) : null}
 
+          {canFull ? (
           <Plegable titulo="⚙️ Configuración" resumen={MOSTRAR_SIN_VIAJE_RECIENTE ? `Avisar a las ${alertaHoras}h sin viaje` : 'Meta de viajes diarios por camión'}>
             {/* El umbral solo sirve para el apartado oculto: se esconde con él. */}
             {MOSTRAR_SIN_VIAJE_RECIENTE ? (
@@ -6824,10 +6836,12 @@ export default function ViajesCamionesScreen() {
               </>
             )}
           </Plegable>
+          ) : null}
 
           {/* 🧾 TIPOS DE VIAJE (26-sep-2026): el catálogo abierto de tarifas con
               nombre — «Oeste → Este» y las que inventen después. Crear un tipo
               nuevo es este formulario, sin tocar código. */}
+          {canFull ? (
           <Plegable
             titulo="🧾 Tipos de viaje (tarifas con nombre)"
             resumen={tiposMissing ? 'Falta correr el SQL en la base' : `${tiposActivos.length} activo(s)${tipos.some((t) => t.activo && t.tarifaUsd == null) ? ' · hay tipos SIN tarifa' : ''}`}
@@ -6927,6 +6941,7 @@ export default function ViajesCamionesScreen() {
               </>
             )}
           </Plegable>
+          ) : null}
 
           </>
           )}

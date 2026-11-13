@@ -6484,6 +6484,7 @@ entra por **"Más → 🚛 Viajes de camiones"**. El acceso es **por usuario** (
 `viajes_camiones`; un administrador lo habilita en Usuarios, sin necesidad de crear ningún rol
 nuevo — ver 4.13). El **nivel** decide qué se ve:
 
+- **Lectura** (13-nov-2026) → vista de **consulta y reportes**: permite ver la bitácora, resúmenes del día, cubicaje y volumen, reportes en PDF y la Lista completa de viajes con sus filtros por frente, formato y listero. El registro y la modificación de viajes quedan completamente deshabilitados.
 - **Escritura** → vista del **listero**: buscar el camión, registrar viajes y ver/corregir los suyos.
 - **Full** → además, el **panel de la jefa/administración**: todos los listeros combinados, por
   listero individual, resumen, metas, alerta y reporte.
