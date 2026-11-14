@@ -697,51 +697,110 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
                 ) : null}
               </View>
 
-              {/* Pastillas adaptadas con flexWrap (visibles y clickeables con mouse en PC) */}
-              <View style={{
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                gap: spacing.xs,
-                maxHeight: mostrarTodasEmpresas || busquedaEmpresa.trim() ? 180 : undefined,
-              }}>
-                <TouchableOpacity
-                  onPress={() => setEmpresaSelId('todas')}
+              {/* Pastillas adaptadas con flexWrap y ScrollView contenido (cero desbordamiento / aglomeración) */}
+              {mostrarTodasEmpresas || busquedaEmpresa.trim() ? (
+                <ScrollView
                   style={{
-                    paddingHorizontal: spacing.sm,
-                    paddingVertical: 6,
-                    borderRadius: radius.pill,
-                    backgroundColor: empresaSelId === 'todas' ? '#0A2540' : colors.surfaceAlt,
+                    maxHeight: 180,
                     borderWidth: 1,
-                    borderColor: empresaSelId === 'todas' ? '#0A2540' : colors.border,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    padding: spacing.xs,
+                    backgroundColor: colors.surface,
                   }}
+                  contentContainerStyle={{
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    gap: spacing.xs,
+                    paddingBottom: 4,
+                  }}
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={true}
+                  keyboardShouldPersistTaps="handled"
                 >
-                  <Text style={{ color: empresaSelId === 'todas' ? '#ffffff' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
-                    {empresaSelId === 'todas' ? '✓ 🏢 Todas las empresas' : '🏢 Todas las empresas'}
-                  </Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setEmpresaSelId('todas')}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 6,
+                      borderRadius: radius.pill,
+                      backgroundColor: empresaSelId === 'todas' ? '#0A2540' : colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: empresaSelId === 'todas' ? '#0A2540' : colors.border,
+                    }}
+                  >
+                    <Text style={{ color: empresaSelId === 'todas' ? '#ffffff' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                      {empresaSelId === 'todas' ? '✓ 🏢 Todas las empresas' : '🏢 Todas las empresas'}
+                    </Text>
+                  </TouchableOpacity>
 
-                {empresasAMostrar.map((emp) => {
-                  const on = empresaSelId === emp.id;
-                  return (
-                    <TouchableOpacity
-                      key={emp.id}
-                      onPress={() => setEmpresaSelId(emp.id)}
-                      style={{
-                        paddingHorizontal: spacing.sm,
-                        paddingVertical: 6,
-                        borderRadius: radius.pill,
-                        backgroundColor: on ? '#0A2540' : colors.surfaceAlt,
-                        borderWidth: 1,
-                        borderColor: on ? '#0A2540' : colors.border,
-                      }}
-                    >
-                      <Text style={{ color: on ? '#ffffff' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
-                        {on ? `✓ ${emp.name}` : emp.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+                  {empresasAMostrar.map((emp) => {
+                    const on = empresaSelId === emp.id;
+                    return (
+                      <TouchableOpacity
+                        key={emp.id}
+                        onPress={() => setEmpresaSelId(emp.id)}
+                        style={{
+                          paddingHorizontal: spacing.sm,
+                          paddingVertical: 6,
+                          borderRadius: radius.pill,
+                          backgroundColor: on ? '#0A2540' : colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: on ? '#0A2540' : colors.border,
+                        }}
+                      >
+                        <Text style={{ color: on ? '#ffffff' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                          {on ? `✓ ${emp.name}` : emp.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              ) : (
+                <View style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  gap: spacing.xs,
+                }}>
+                  <TouchableOpacity
+                    onPress={() => setEmpresaSelId('todas')}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 6,
+                      borderRadius: radius.pill,
+                      backgroundColor: empresaSelId === 'todas' ? '#0A2540' : colors.surfaceAlt,
+                      borderWidth: 1,
+                      borderColor: empresaSelId === 'todas' ? '#0A2540' : colors.border,
+                    }}
+                  >
+                    <Text style={{ color: empresaSelId === 'todas' ? '#ffffff' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                      {empresaSelId === 'todas' ? '✓ 🏢 Todas las empresas' : '🏢 Todas las empresas'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {empresasAMostrar.map((emp) => {
+                    const on = empresaSelId === emp.id;
+                    return (
+                      <TouchableOpacity
+                        key={emp.id}
+                        onPress={() => setEmpresaSelId(emp.id)}
+                        style={{
+                          paddingHorizontal: spacing.sm,
+                          paddingVertical: 6,
+                          borderRadius: radius.pill,
+                          backgroundColor: on ? '#0A2540' : colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: on ? '#0A2540' : colors.border,
+                        }}
+                      >
+                        <Text style={{ color: on ? '#ffffff' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                          {on ? `✓ ${emp.name}` : emp.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
             </View>
 
             {/* 3. Filtro por Estado (Lo que se compró / pagó) */}
