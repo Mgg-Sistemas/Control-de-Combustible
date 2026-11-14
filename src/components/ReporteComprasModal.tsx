@@ -31,6 +31,7 @@ import {
 } from '../lib/reporteComprasSOS';
 import { resolverEmpresaDeCuenta } from '../lib/cuentasEmpresa';
 import { montosBsCuenta, tasaDeNotaCuenta } from '../lib/cuentasBs';
+import { esEntregaDirecta, tieneReciboPagoReq } from '../lib/requerimientoFlujo';
 import type { Company, Supplier, Machinery, PurchaseOrder } from '../types/database';
 
 interface Props {
@@ -280,7 +281,7 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
               solicitanteNombre: reqVinc?.solicitante_nombre || reqVinc?.requested_by_name || '—',
               prioridad: reqVinc?.prioridad || 'media',
               status: estaPagada ? 'pagada' : 'pendiente',
-              statusLabel: estaPagada ? 'Pagada' : 'Pendiente por pagar',
+              statusLabel: estaPagada ? (reqVinc && esEntregaDirecta(reqVinc) ? 'Pagada · Entrega Directa' : 'Pagada') : 'Pendiente por pagar',
               items,
               totalUsd: montoNominal,
               totalBs: totalBsHistorico,
@@ -322,6 +323,7 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
             const destino = matchMaq ? matchMaq[1].trim() : (r.area || 'General');
             const destinoConPlaca = enriquecerMaquinariaConPlaca(destino, machinery);
 
+            const esDirectaOPagada = esEntregaDirecta(r) || r.status === 'pagado' || tieneReciboPagoReq(r);
             const esAprobadoORecibido = r.status === 'recibido' || r.status === 'aprobado';
 
             resultado.push({
@@ -338,12 +340,20 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
               analistaNombre: r.decided_by_name || r.requested_by_name || '—',
               solicitanteNombre: r.solicitante_nombre || r.requested_by_name || '—',
               prioridad: r.prioridad || 'media',
-              status: esAprobadoORecibido ? 'pendiente' : (r.status || 'pendiente'),
-              statusLabel: r.status === 'recibido' ? 'Recibida en almacén' : r.status === 'aprobado' ? 'Confirmada pagar' : 'Pendiente por aprobar',
+              status: esDirectaOPagada ? 'pagada' : (esAprobadoORecibido ? 'pendiente' : (r.status || 'pendiente')),
+              statusLabel: esEntregaDirecta(r)
+                ? 'Entrega Directa (Consumido)'
+                : esDirectaOPagada
+                  ? 'Pagada / Ejecutada'
+                  : r.status === 'recibido'
+                    ? 'Recibida en almacén'
+                    : r.status === 'aprobado'
+                      ? 'Confirmada pagar'
+                      : 'Pendiente por aprobar',
               items,
               totalUsd,
-              montoPagadoUsd: 0,
-              saldoPendienteUsd: totalUsd,
+              montoPagadoUsd: esDirectaOPagada ? totalUsd : 0,
+              saldoPendienteUsd: esDirectaOPagada ? 0 : totalUsd,
               observacion: r.note || r.title || null,
             });
           }

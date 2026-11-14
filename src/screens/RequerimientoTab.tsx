@@ -89,6 +89,9 @@ import {
   calcularConteoEmpresasReq,
   esRequerimientoVisibleEnBandejaRequerimientos,
   esRequerimientoDespachado,
+  esEntregaDirecta,
+  extraerEntregaDirecta,
+  inyectarEntregaDirectaEnObservaciones,
   preservarMarcadoresSolicitudEnObservaciones,
   limpiarMarcadoresSolicitudDeTexto,
   calcularTotalesReqBs,
@@ -462,7 +465,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     [allReqs]
   );
   // Filtro por estatus del requerimiento (enfocado en la gestión de la analista de Compras + seguimiento de Por Pagar / Almacén).
-  const [filterStatus, setFilterStatus] = useState<'todos' | 'sin_proveedor' | 'sin_precio' | 'aclaratoria_solicitada' | 'listo_por_pagar' | 'pendiente' | 'esperando_aprobacion_gg' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'despachado'>('todos');
+  const [filterStatus, setFilterStatus] = useState<'todos' | 'sin_proveedor' | 'sin_precio' | 'aclaratoria_solicitada' | 'listo_por_pagar' | 'pendiente' | 'esperando_aprobacion_gg' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'despachado' | 'entrega_directa'>('todos');
   // Filtro por nivel de prioridad (alta, media, baja)
   const [filterPrioridad, setFilterPrioridad] = useState<'todas' | PrioridadCompra>('todas');
   const faltaPrecioDe = (r: InventoryRequirement) => r.items.some((it) => !(Number(it.est_price) > 0));
@@ -863,6 +866,15 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const recvFacturaTipo = recvFacturaArchivos[0]?.tipo ?? null;
   const recvFacturaNombre = recvFacturaArchivos[0]?.nombre ?? null;
   const [recvSubiendoFactura, setRecvSubiendoFactura] = useState(false);
+
+  // 🚀 Entrega Directa / Consumo en Campo (sin ingresar stock al almacén)
+  const [entregaDirectaFor, setEntregaDirectaFor] = useState<InventoryRequirement | null>(null);
+  const [edReceptor, setEdReceptor] = useState('');
+  const [edMaquinaria, setEdMaquinaria] = useState('');
+  const [edNota, setEdNota] = useState('');
+  const [edSoporteArchivos, setEdSoporteArchivos] = useState<ArchivoSoporte[]>([]);
+  const [edSubiendoSoporte, setEdSubiendoSoporte] = useState(false);
+  const [edBusy, setEdBusy] = useState(false);
   // ✏️ Editor de factura / comprobante ya subidos (desde la tarjeta del requerimiento)
   // 📋 02-nov-2026: plan de pago definido por la analista (Por Pagar lo usa si la cuenta no tiene uno propio).
   const [planReq, setPlanReq] = useState<{ req: InventoryRequirement; totalUsd: number; alic: number } | null>(null);
@@ -1008,6 +1020,118 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       toast.error(e?.message ?? 'No se pudo subir la factura.');
     } finally {
       setRecvSubiendoFactura(false);
+    }
+  };
+
+  const subirSoporteEntregaDirecta = async (origen: 'camara' | 'archivo') => {
+    setEdSubiendoSoporte(true);
+    try {
+      if (origen === 'camara') {
+        const r = await captureAndUploadPhoto('requerimientos');
+        if (r.ok && r.url) {
+          setEdSoporteArchivos((prev) => [...prev, { url: r.url!, tipo: 'image', nombre: `Foto Entrega #${prev.length + 1}.jpg` }]);
+          toast.success('Foto de entrega agregada.');
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      } else {
+        const r = await pickAndUploadRequirementFiles('requerimientos');
+        if (r.ok && r.files?.length) {
+          setEdSoporteArchivos((prev) => [
+            ...prev,
+            ...r.files!.map((f) => ({ url: f.url, tipo: f.kind === 'pdf' ? ('pdf' as const) : ('image' as const), nombre: f.name || 'Soporte' })),
+          ]);
+          toast.success(`${r.files.length} archivo(s) agregado(s).`);
+        } else if (r.error) {
+          toast.error(r.error);
+        }
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo subir el soporte.');
+    } finally {
+      setEdSubiendoSoporte(false);
+    }
+  };
+
+  const abrirEntregaDirecta = (r: InventoryRequirement) => {
+    const matchMaq = String(r.observaciones || '').match(/\[DESTINO_MAQUINA:\s*([^\]]+)\]/i);
+    const maqDefault = matchMaq ? matchMaq[1].trim() : (r.area || '');
+    setEntregaDirectaFor(r);
+    setEdReceptor(r.solicitante_nombre || r.requested_by_name || '');
+    setEdMaquinaria(maqDefault);
+    setEdNota('');
+    setEdSoporteArchivos([]);
+  };
+
+  const confirmarEntregaDirecta = async () => {
+    if (!entregaDirectaFor) return;
+    const receptorTrim = edReceptor.trim();
+    if (!receptorTrim) {
+      toast.error('Indica quién recibió el material o servicio en campo.');
+      return;
+    }
+    setEdBusy(true);
+    try {
+      const ahora = nowISO();
+      const autor = (await perfilNombre()) || session?.user?.email || 'Usuario';
+      const maqTrim = edMaquinaria.trim();
+      const notaTrim = edNota.trim();
+      const soporteUrl = edSoporteArchivos[0]?.url || null;
+
+      const obsConTag = inyectarEntregaDirectaEnObservaciones(entregaDirectaFor.observaciones, {
+        receptor: receptorTrim,
+        maquinaria: maqTrim || null,
+        entregadoPor: autor,
+        fecha: ahora,
+        nota: notaTrim || null,
+        soporteUrl,
+      });
+
+      const obsFinal = anexarEventoHistorial(obsConTag, {
+        at: ahora,
+        by: autor,
+        byId: uid,
+        modulo: 'Requerimientos',
+        tipo: 'recepcion_almacen',
+        titulo: `Entrega Directa / Consumo en Campo por ${autor}`,
+        detalle: `Entregado directamente sin ingresar a stock de almacén. Recibió: ${receptorTrim}${maqTrim ? ` · Maquinaria/Destino: ${maqTrim}` : ''}${notaTrim ? ` · Nota: ${notaTrim}` : ''}.`,
+        reqId: entregaDirectaFor.id,
+        reqCode: entregaDirectaFor.code,
+      });
+
+      const itemsMarcados = (entregaDirectaFor.items || []).map((it) => ({ ...it, received: true }));
+
+      const { data: updatedRows, error: uErr } = await supabase
+        .from('inventory_requirements')
+        .update({
+          status: 'recibido',
+          received_at: ahora,
+          items: itemsMarcados,
+          observaciones: obsFinal,
+        })
+        .eq('id', entregaDirectaFor.id)
+        .select('id');
+
+      if (uErr) throw uErr;
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error('No tienes permisos suficientes para cerrar este requerimiento.');
+      }
+
+      // Sincronizar la orden de compra vinculada como 'recibida' (sin crear movimientos de inventario)
+      try {
+        await supabase
+          .from('purchase_orders')
+          .update({ status: 'recibida', received_at: ahora })
+          .eq('inventory_requirement_id', entregaDirectaFor.id);
+      } catch { }
+
+      setEntregaDirectaFor(null);
+      refetch();
+      toast.success('Entrega directa registrada. No se sumó stock al almacén.');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo registrar la entrega directa.');
+    } finally {
+      setEdBusy(false);
     }
   };
 
@@ -3964,6 +4088,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           { k: 'aprobado', label: '💸 En Por Pagar', color: '#7C3AED' },
           { k: 'esperando_recepcion', label: '💳 Pagados / Esperando Recepción', color: '#0D9488' },
           { k: 'recibido', label: '📦 Recibidos', color: '#16A34A' },
+          { k: 'entrega_directa', label: '🚀 Entrega Directa', color: '#4F46E5' },
           { k: 'rechazado', label: '❌ Rechazados', color: '#DC2626' },
           { k: 'despachado', label: '📤 Despachados', color: '#0284C7' },
         ] as const).map((f) => {
@@ -4000,10 +4125,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                           return calcularEstadoRequerimiento(r, rate, provG, configAprobacion, cuentasPagadasSet.has(r.id)).codigo === 'esperando_recepcion';
                         }).length
                         : f.k === 'recibido'
-                          ? reqsPorEmpresa.filter((r) => r.status === 'recibido' && !esRequerimientoDespachado(r)).length
-                          : f.k === 'despachado'
-                            ? reqsPorEmpresa.filter((r) => esRequerimientoDespachado(r)).length
-                            : reqsPorEmpresa.filter((r) => r.status === f.k).length;
+                          ? reqsPorEmpresa.filter((r) => r.status === 'recibido' && !esRequerimientoDespachado(r) && !esEntregaDirecta(r)).length
+                          : f.k === 'entrega_directa'
+                            ? reqsPorEmpresa.filter((r) => r.status === 'recibido' && esEntregaDirecta(r)).length
+                            : f.k === 'despachado'
+                              ? reqsPorEmpresa.filter((r) => esRequerimientoDespachado(r)).length
+                              : reqsPorEmpresa.filter((r) => r.status === f.k).length;
           return (
             <TouchableOpacity key={f.k} onPress={() => setFilterStatus(f.k)} style={{ borderWidth: 1.5, borderColor: f.color, backgroundColor: on ? f.color : 'transparent', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
               <Text style={{ color: on ? '#fff' : f.color, fontWeight: '800', fontSize: 12 }}>{f.label} ({n})</Text>
@@ -4096,7 +4223,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             }
             if (filterStatus === 'esperando_recepcion') return est.codigo === 'esperando_recepcion';
             if (filterStatus === 'aprobado') return est.codigo === 'aprobado' || est.codigo === 'esperando_aprobacion_gg';
-            if (filterStatus === 'recibido') return r.status === 'recibido' && !esRequerimientoDespachado(r);
+            if (filterStatus === 'recibido') return r.status === 'recibido' && !esRequerimientoDespachado(r) && !esEntregaDirecta(r);
+            if (filterStatus === 'entrega_directa') return r.status === 'recibido' && esEntregaDirecta(r);
             if (filterStatus === 'despachado') return esRequerimientoDespachado(r);
             return r.status === filterStatus;
           })
@@ -4894,8 +5022,81 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                 );
                               })()}
 
-                              {/* 📦 Sección Dedicada: Control Físico de Almacén (Disponible vs Retirado) */}
+                              {/* 📦 Sección Dedicada: Entrega Directa o Control Físico de Almacén */}
                               {r.status === 'recibido' && (() => {
+                                if (esEntregaDirecta(r)) {
+                                  const ed = extraerEntregaDirecta(r);
+                                  return (
+                                    <View
+                                      style={{
+                                        marginTop: spacing.sm,
+                                        backgroundColor: '#EEF2FF',
+                                        borderRadius: radius.md,
+                                        borderWidth: 1.5,
+                                        borderColor: '#4F46E5',
+                                        padding: spacing.sm,
+                                        gap: 6,
+                                      }}
+                                    >
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                          <Text style={{ fontSize: 14 }}>🚀</Text>
+                                          <Text style={{ fontSize: 12.5, fontWeight: '800', color: '#312E81' }}>
+                                            Entrega Directa / Consumo en Campo
+                                          </Text>
+                                        </View>
+                                        <View
+                                          style={{
+                                            backgroundColor: '#E0E7FF',
+                                            borderColor: '#4F46E5',
+                                            borderWidth: 1,
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 2,
+                                            borderRadius: radius.pill,
+                                          }}
+                                        >
+                                          <Text style={{ color: '#3730A3', fontSize: 10.5, fontWeight: '800' }}>
+                                            SIN INGRESO A ALMACÉN
+                                          </Text>
+                                        </View>
+                                      </View>
+                                      <Text style={{ fontSize: 12, color: '#1E293B' }}>
+                                        👤 <Text style={{ fontWeight: '700' }}>Recibido en campo por:</Text>{' '}
+                                        <Text style={{ fontWeight: '800', color: '#4338CA' }}>{ed?.receptor || 'Campo'}</Text>
+                                      </Text>
+                                      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                                        {ed?.fecha ? (
+                                          <Text style={{ fontSize: 11.5, color: '#475569' }}>
+                                            🕒 Fecha: {dmyOf(ed.fecha)}
+                                          </Text>
+                                        ) : null}
+                                        {ed?.entregadoPor ? (
+                                          <Text style={{ fontSize: 11.5, color: '#475569' }}>
+                                            📦 Registró: {ed.entregadoPor}
+                                          </Text>
+                                        ) : null}
+                                      </View>
+                                      {ed?.maquinaria ? (
+                                        <Text style={{ fontSize: 11.5, color: '#1E3A5F', fontWeight: '700' }}>
+                                          🚜 Destino / Maquinaria: {ed.maquinaria}
+                                        </Text>
+                                      ) : null}
+                                      {ed?.nota ? (
+                                        <Text style={{ fontSize: 11.5, color: '#1E293B', fontStyle: 'italic', backgroundColor: '#fff', padding: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: '#C7D2FE' }}>
+                                          "{ed.nota}"
+                                        </Text>
+                                      ) : null}
+                                      {ed?.soporteUrl ? (
+                                        <TouchableOpacity
+                                          onPress={() => Linking.openURL(ed.soporteUrl!)}
+                                          style={{ alignSelf: 'flex-start', backgroundColor: '#fff', borderWidth: 1, borderColor: '#4F46E5', borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 5 }}
+                                        >
+                                          <Text style={{ color: '#4F46E5', fontWeight: '800', fontSize: 11.5 }}>📎 Ver Soporte / Foto de Entrega</Text>
+                                        </TouchableOpacity>
+                                      ) : null}
+                                    </View>
+                                  );
+                                }
                                 const desp = extraerDespacho(r);
                                 const esRetirado = desp.estado === 'retirado';
                                 return (
@@ -5116,6 +5317,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                 {canReceive && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
                                   <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                                     <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {(canReceive || canWrite || isAdmin) && (r.status === 'aprobado' || estDinamico.codigo === 'esperando_recepcion' || (r.status as string) === 'esperando_recepcion') ? (
+                                  <TouchableOpacity onPress={() => abrirEntregaDirecta(r)} style={{ backgroundColor: '#4F46E5', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🚀 Entrega Directa</Text>
                                   </TouchableOpacity>
                                 ) : null}
                                 {/* Anular un requerimiento YA APROBADO: el mismo gerente lo rechaza y la
@@ -6651,6 +6857,121 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
               <TouchableOpacity onPress={() => setRecvFor(null)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={recibir} disabled={recvBusy} style={{ flex: 2, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: recvBusy ? 0.6 : 1 }}><Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{recvBusy ? 'Recibiendo…' : '📥 Confirmar entrada'}</Text></TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── 🚀 Modal: Entrega Directa / Consumo en Campo (sin almacén) ── */}
+      <Modal visible={Boolean(entregaDirectaFor)} animationType="slide" onRequestClose={() => setEntregaDirectaFor(null)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: spacing.xl }}>
+            <SectionTitle>🚀 Entrega Directa / Consumo en Campo</SectionTitle>
+            {entregaDirectaFor ? (
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>
+                {entregaDirectaFor.code || 'REQ'}{entregaDirectaFor.title ? ` — ${entregaDirectaFor.title}` : ''}
+              </Text>
+            ) : null}
+
+            <Card style={{ backgroundColor: '#EEF2FF', borderColor: '#6366F1', borderWidth: 1.5, marginBottom: spacing.md }}>
+              <Text style={{ color: '#312E81', fontWeight: '800', fontSize: 13, marginBottom: 4 }}>
+                ℹ️ ¿Qué hace esta opción?
+              </Text>
+              <Text style={{ color: '#3730A3', fontSize: 12, lineHeight: 18 }}>
+                Cierra el requerimiento como entregado/consumido directamente en obra o maquinaria.{' '}
+                <Text style={{ fontWeight: '800' }}>NO suma existencias al stock físico del almacén</Text> y queda registrado en el historial y reportes.
+              </Text>
+            </Card>
+
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+              👤 ¿Quién recibió el material o servicio en campo? *
+            </Text>
+            <TextInput
+              value={edReceptor}
+              onChangeText={setEdReceptor}
+              placeholder="Ej: Carlos Pérez (Mecánico) / Chofer / Frente de obra"
+              placeholderTextColor={colors.muted}
+              style={[inp, { marginBottom: spacing.md }]}
+            />
+
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+              🚜 Maquinaria (con placa) o Frente de destino
+            </Text>
+            <TextInput
+              value={edMaquinaria}
+              onChangeText={setEdMaquinaria}
+              placeholder="Ej: Retroexcavadora 2269 · Placa / Taller / Playa Escondida"
+              placeholderTextColor={colors.muted}
+              style={[inp, { marginBottom: spacing.md }]}
+            />
+
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+              📝 Nota / Observación de entrega (opcional)
+            </Text>
+            <TextInput
+              value={edNota}
+              onChangeText={setEdNota}
+              placeholder="Ej: Se compró y se instaló de inmediato en el equipo, sin pasar por almacén."
+              placeholderTextColor={colors.muted}
+              multiline
+              style={[inp, { minHeight: 70, textAlignVertical: 'top', marginBottom: spacing.md }]}
+            />
+
+            <Card style={{ backgroundColor: colors.surfaceAlt, borderColor: colors.border, marginBottom: spacing.md }}>
+              <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: spacing.xs }}>
+                📷 Foto o Soporte de Entrega (opcional)
+              </Text>
+              {edSoporteArchivos.map((a, i) => (
+                <View key={`${a.url}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, padding: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs }}>
+                  {a.tipo === 'pdf' ? (
+                    <Text style={{ fontSize: 20 }}>📄</Text>
+                  ) : (
+                    <Image source={{ uri: a.url }} style={{ width: 42, height: 42, borderRadius: 4 }} resizeMode="cover" />
+                  )}
+                  <Text style={{ flex: 1, fontSize: 12, color: colors.text }} numberOfLines={1}>{a.nombre || 'Soporte adjunto'}</Text>
+                  <TouchableOpacity onPress={() => setEdSoporteArchivos((prev) => prev.filter((_, j) => j !== i))}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => subirSoporteEntregaDirecta('camara')}
+                  disabled={edSubiendoSoporte}
+                  style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#4F46E5', paddingVertical: 10, borderRadius: radius.md, alignItems: 'center', opacity: edSubiendoSoporte ? 0.6 : 1 }}
+                >
+                  <Text style={{ color: '#4F46E5', fontWeight: '800', fontSize: 12 }}>
+                    {edSubiendoSoporte ? '⏳ Subiendo…' : '📷 Tomar Foto'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => subirSoporteEntregaDirecta('archivo')}
+                  disabled={edSubiendoSoporte}
+                  style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#4F46E5', paddingVertical: 10, borderRadius: radius.md, alignItems: 'center', opacity: edSubiendoSoporte ? 0.6 : 1 }}
+                >
+                  <Text style={{ color: '#4F46E5', fontWeight: '800', fontSize: 12 }}>
+                    {edSubiendoSoporte ? '⏳ Subiendo…' : '🖼️ Galería / PDF'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </Card>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+              <TouchableOpacity
+                onPress={() => setEntregaDirectaFor(null)}
+                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={confirmarEntregaDirecta}
+                disabled={edBusy}
+                style={{ flex: 2, backgroundColor: '#4F46E5', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: edBusy ? 0.6 : 1 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>
+                  {edBusy ? 'Guardando…' : '🚀 Confirmar Entrega Directa'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
         </Screen>

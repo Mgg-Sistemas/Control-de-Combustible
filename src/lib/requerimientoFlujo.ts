@@ -7,7 +7,7 @@
 //    - "esperando aprobación del gerente general" si supera los $1,000 USD (filtro de seguridad).
 import type { InventoryRequirement, RequirementLine, Supplier } from '../types/database';
 
-function tieneReciboPagoReq(r?: Partial<InventoryRequirement> | null): boolean {
+export function tieneReciboPagoReq(r?: Partial<InventoryRequirement> | null): boolean {
   if (!r) return false;
   const obs = r.observaciones || '';
   return /\[RECIBO PAGO:\s*Url:\s*[^|\]]+/i.test(obs) || /\[RECIBO PAGO:[^\]]*Ref:\s*[^|\]]+/i.test(obs);
@@ -425,8 +425,79 @@ export type CodigoEstadoDinamico =
   | 'esperando_recepcion'
   | 'recibido'
   | 'despachado'
+  | 'entrega_directa'
   | 'rechazado'
   | 'aclaratoria_solicitada';
+
+export interface EntregaDirectaData {
+  receptor: string;
+  maquinaria?: string | null;
+  entregadoPor?: string | null;
+  fecha?: string | null;
+  nota?: string | null;
+  soporteUrl?: string | null;
+}
+
+/**
+ * Indica si un requerimiento fue entregado/consumido directamente en campo u obra sin ingresar al stock del almacén.
+ */
+export function esEntregaDirecta(r?: Partial<InventoryRequirement> | null): boolean {
+  if (!r) return false;
+  return /\[ENTREGA_DIRECTA:/i.test(String(r.observaciones || ''));
+}
+
+/**
+ * Extrae los metadatos de entrega directa desde el campo observaciones.
+ */
+export function extraerEntregaDirecta(r?: Partial<InventoryRequirement> | null): EntregaDirectaData | null {
+  const obs = String(r?.observaciones || '');
+  const m = obs.match(/\[ENTREGA_DIRECTA:\s*([^\]]+)\]/i);
+  if (!m) return null;
+  const cuerpo = m[1];
+  const getCampo = (clave: string): string | null => {
+    const rx = new RegExp(`(?:^|\\|)\\s*${clave}\\s*:\\s*([^|]+)`, 'i');
+    const match = cuerpo.match(rx);
+    return match ? match[1].trim() || null : null;
+  };
+  return {
+    receptor: getCampo('Receptor') || 'Campo / Solicitante',
+    maquinaria: getCampo('Maquinaria'),
+    entregadoPor: getCampo('EntregadoPor'),
+    fecha: getCampo('Fecha'),
+    nota: getCampo('Nota'),
+    soporteUrl: getCampo('SoporteUrl'),
+  };
+}
+
+/**
+ * Inyecta o actualiza el marcador [ENTREGA_DIRECTA: ...] en observaciones preservando las demás marcas.
+ */
+export function inyectarEntregaDirectaEnObservaciones(
+  observaciones: string | null | undefined,
+  data: EntregaDirectaData
+): string {
+  const limpiar = (v?: string | null) =>
+    String(v || '')
+      .replace(/[\[\]|]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const partes = [
+    `Receptor: ${limpiar(data.receptor) || 'Campo'}`,
+    data.maquinaria ? `Maquinaria: ${limpiar(data.maquinaria)}` : '',
+    data.entregadoPor ? `EntregadoPor: ${limpiar(data.entregadoPor)}` : '',
+    data.fecha ? `Fecha: ${limpiar(data.fecha)}` : '',
+    data.nota ? `Nota: ${limpiar(data.nota)}` : '',
+    data.soporteUrl ? `SoporteUrl: ${limpiar(data.soporteUrl)}` : '',
+  ].filter(Boolean);
+
+  const tag = `[ENTREGA_DIRECTA: ${partes.join(' | ')}]`;
+  const sinTagPrevio = String(observaciones || '')
+    .replace(/\[ENTREGA_DIRECTA:[^\]]*\]/gi, '')
+    .trim();
+
+  return sinTagPrevio ? `${sinTagPrevio}\n${tag}` : tag;
+}
 
 /**
  * Indica si un requerimiento ya fue marcado como retirado / despachado físicamente del almacén.
@@ -591,6 +662,22 @@ export function calcularEstadoRequerimiento(
 
   // 1. Estados finales o de ciclo técnico que prevalecen
   if (r.status === 'recibido') {
+    if (esEntregaDirecta(r)) {
+      return {
+        codigo: 'entrega_directa',
+        label: '🚀 Entrega Directa (Consumido)',
+        short: 'Entrega Directa',
+        color: '#4F46E5',
+        bg: '#EEF2FF',
+        icon: '🚀',
+        requiereAprobacionGG: false,
+        totalUSD,
+        tieneProveedorCompleto: true,
+        tieneCotizacionCompleta: true,
+        proveedoresNombres: [],
+        esMultiProveedor: false,
+      };
+    }
     if (esRequerimientoDespachado(r)) {
       return {
         codigo: 'despachado',
