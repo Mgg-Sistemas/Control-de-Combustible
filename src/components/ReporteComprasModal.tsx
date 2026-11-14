@@ -77,6 +77,10 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
   const [empresasCatalogo, setEmpresasCatalogo] = useState<Company[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Estados para filtro de empresas accesible (Mouse PC + Teléfono)
+  const [busquedaEmpresa, setBusquedaEmpresa] = useState<string>('');
+  const [mostrarTodasEmpresas, setMostrarTodasEmpresas] = useState<boolean>(false);
+
   // Manejo de atajos de fecha
   useEffect(() => {
     if (!visible) return;
@@ -371,6 +375,24 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
     return () => { cancelado = true; };
   }, [visible, ambito]);
 
+  // Lista adaptativa de empresas para PC (mouse) y móvil
+  const empresasAMostrar = useMemo(() => {
+    let lista = empresasCatalogo;
+    if (busquedaEmpresa.trim()) {
+      const q = busquedaEmpresa.toLowerCase();
+      lista = lista.filter((e) => (e.name || '').toLowerCase().includes(q));
+    }
+    if (mostrarTodasEmpresas || busquedaEmpresa.trim()) {
+      return lista;
+    }
+    const primeros = lista.slice(0, 8);
+    if (empresaSelId !== 'todas' && !primeros.some((e) => e.id === empresaSelId)) {
+      const seleccionada = lista.find((e) => e.id === empresaSelId);
+      if (seleccionada) return [seleccionada, ...primeros];
+    }
+    return primeros;
+  }, [empresasCatalogo, busquedaEmpresa, mostrarTodasEmpresas, empresaSelId]);
+
   // Filtrado reactivo en memoria: Fecha, Empresa y Estado
   const comprasFiltradas = useMemo(() => {
     return comprasCargadas.filter((c) => {
@@ -602,10 +624,66 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
 
             {/* 2. Filtro por Empresa */}
             <View>
-              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800', marginBottom: 6 }}>
-                2. FILTRAR POR EMPRESA
-              </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingBottom: 2 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800' }}>
+                  2. FILTRAR POR EMPRESA
+                </Text>
+                {empresasCatalogo.length > 8 && !busquedaEmpresa.trim() ? (
+                  <TouchableOpacity
+                    onPress={() => setMostrarTodasEmpresas(!mostrarTodasEmpresas)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: radius.pill,
+                      backgroundColor: 'rgba(2, 132, 199, 0.12)',
+                    }}
+                  >
+                    <Text style={{ color: '#0284C7', fontSize: 11, fontWeight: '800' }}>
+                      {mostrarTodasEmpresas ? '⬆️ Ver menos' : `⬇️ Ver todas (${empresasCatalogo.length})`}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              {/* Buscador rápido de empresa para PC y móvil */}
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: colors.surfaceAlt,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingHorizontal: spacing.sm,
+                marginBottom: spacing.xs,
+              }}>
+                <Text style={{ fontSize: 12, marginRight: 6 }}>🔎</Text>
+                <TextInput
+                  value={busquedaEmpresa}
+                  onChangeText={setBusquedaEmpresa}
+                  placeholder="Buscar empresa por nombre..."
+                  placeholderTextColor={colors.muted}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 6,
+                    fontSize: 12,
+                    color: colors.text,
+                  }}
+                />
+                {busquedaEmpresa ? (
+                  <TouchableOpacity onPress={() => setBusquedaEmpresa('')} style={{ padding: 4 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: 'bold' }}>✕</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              {/* Pastillas adaptadas con flexWrap (visibles y clickeables con mouse en PC) */}
+              <View style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: spacing.xs,
+                maxHeight: mostrarTodasEmpresas || busquedaEmpresa.trim() ? 180 : undefined,
+              }}>
                 <TouchableOpacity
                   onPress={() => setEmpresaSelId('todas')}
                   style={{
@@ -617,11 +695,12 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
                     borderColor: empresaSelId === 'todas' ? '#0A2540' : colors.border,
                   }}
                 >
-                  <Text style={{ color: empresaSelId === 'todas' ? '#ffffff' : colors.text, fontSize: 12, fontWeight: '700' }}>
-                    🏢 Todas las empresas
+                  <Text style={{ color: empresaSelId === 'todas' ? '#ffffff' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                    {empresaSelId === 'todas' ? '✓ 🏢 Todas las empresas' : '🏢 Todas las empresas'}
                   </Text>
                 </TouchableOpacity>
-                {empresasCatalogo.map((emp) => {
+
+                {empresasAMostrar.map((emp) => {
                   const on = empresaSelId === emp.id;
                   return (
                     <TouchableOpacity
@@ -636,13 +715,13 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
                         borderColor: on ? '#0A2540' : colors.border,
                       }}
                     >
-                      <Text style={{ color: on ? '#ffffff' : colors.text, fontSize: 12, fontWeight: '700' }}>
-                        {emp.name}
+                      <Text style={{ color: on ? '#ffffff' : colors.text, fontSize: 11.5, fontWeight: '700' }}>
+                        {on ? `✓ ${emp.name}` : emp.name}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </View>
             </View>
 
             {/* 3. Filtro por Estado (Lo que se compró / pagó) */}
