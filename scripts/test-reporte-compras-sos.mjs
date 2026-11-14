@@ -274,6 +274,47 @@ ok('en solo pagadas no renderiza sección 3 de compras pendientes', !htmlSoloPag
 ok('en solo pagadas incluye la compra CXP-HIST-01', htmlSoloPagadas.includes('CXP-HIST-01'));
 ok('en solo pagadas no incluye la compra pendiente CXP-HIST-02 en la tabla', !htmlSoloPagadas.includes('CXP-HIST-02'));
 
+// ── 9) EXCLUSIÓN DE REQUERIMIENTOS Y CUENTAS ANULADAS / RECHAZADAS (REQ-0159) ─
+const comprasConRechazados = [
+  {
+    id: 'req-valido',
+    tipo: 'requerimiento',
+    codigo: 'REQ-0160',
+    fecha: '2026-11-10',
+    empresaNombre: 'S.O.S LA GUAIRA',
+    departamento: 'OPERACIONES',
+    status: 'pendiente',
+    statusLabel: 'Pendiente',
+    items: [],
+    totalUsd: 1200,
+    montoPagadoUsd: 0,
+    saldoPendienteUsd: 1200,
+  },
+  {
+    id: 'req-rechazado-0159',
+    tipo: 'requerimiento',
+    codigo: 'REQ-0159',
+    fecha: '2026-11-11',
+    empresaNombre: 'S.O.S LA GUAIRA',
+    departamento: 'ANTHONY PRUEBA',
+    status: 'rechazado',
+    statusLabel: 'Rechazado',
+    items: [],
+    totalUsd: 29500,
+    montoPagadoUsd: 0,
+    saldoPendienteUsd: 29500,
+  },
+];
+
+// Filtro estricto que aplica ReporteComprasModal
+const comprasDepuradas = comprasConRechazados.filter((c) => c.status !== 'rechazado' && c.status !== 'anulado');
+eq('filtro excluye requerimiento rechazado REQ-0159', comprasDepuradas.length, 1);
+eq('la única compra es REQ-0160', comprasDepuradas[0].codigo, 'REQ-0160');
+
+const transfDepurada = R.transformarDatosReporteCompras(comprasDepuradas, 900.0);
+eq('total de compras no incluye los 29500 de ANTHONY PRUEBA', transfDepurada.kpis.totalComprasUsd, 1200);
+ok('ranking de departamentos no contiene ANTHONY PRUEBA', !transfDepurada.rankingDepartamentos.some((d) => d.nombre.includes('ANTHONY')));
+
 // ── REPORTE FINAL DE TESTS ──────────────────────────────────────────────────
 console.log(`\nResultados: ${pass} pasados, ${fail} fallados`);
 if (fail > 0) {

@@ -147,11 +147,11 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
             .from('cuenta_abonos')
             .select('id, cuenta_id, monto, fecha'),
 
-          // 3. Requerimientos de compras
+          // 3. Requerimientos de compras (solo vigentes: excluye anulados, rechazados y cancelados)
           supabase
             .from('inventory_requirements')
             .select('id, code, title, note, status, items, company_id, supplier_id, requested_by_name, solicitante_nombre, decided_by_name, area, observaciones, created_at, iva_alicuota, prioridad')
-            .neq('status', 'anulado'),
+            .not('status', 'in', '("anulado","rechazado","cancelado")'),
 
           // 4. Compras directas (caja chica / contado)
           supabase
@@ -199,6 +199,10 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
         if (ambito !== 'directas' && ambito !== 'requerimientos') {
           for (const c of cuentas) {
             const reqVinc = c.inventory_requirement_id ? reqMap.get(c.inventory_requirement_id) : null;
+            // Si el requerimiento vinculado está rechazado o anulado, descartar esta cuenta del reporte
+            if (reqVinc && (reqVinc.status === 'rechazado' || reqVinc.status === 'anulado' || reqVinc.status === 'cancelado')) {
+              continue;
+            }
             if (reqVinc) reqIdsProcesados.add(reqVinc.id);
 
             const sup = c.supplier_id ? supMap.get(c.supplier_id) : (reqVinc?.supplier_id ? supMap.get(reqVinc.supplier_id) : null);
@@ -291,6 +295,10 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
         if (ambito !== 'directas' && ambito !== 'cuentas') {
           for (const r of requerimientos) {
             if (reqIdsProcesados.has(r.id)) continue; // Evitar duplicar con la cuenta
+            // Excluir estrictamente requerimientos no activos (rechazados, anulados, cancelados o borradores)
+            if (r.status === 'rechazado' || r.status === 'anulado' || r.status === 'cancelado' || r.status === 'borrador') {
+              continue;
+            }
 
             const sup = r.supplier_id ? supMap.get(r.supplier_id) : null;
             const empresaMatched = companies.find((co) => co.id === r.company_id);

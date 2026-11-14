@@ -3102,6 +3102,23 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       danger: true,
     });
     if (!ok) return;
+
+    // 🔗 Sincronización segura con Por Pagar: si el requerimiento tenía cuenta generada,
+    //    anularla para que no quede huérfana sumando como deuda en Por Pagar ni en Reportes.
+    try {
+      await supabase
+        .from('cuentas')
+        .update({
+          estado: 'anulada',
+          nota: `Cuenta anulada automáticamente al eliminar el requerimiento ${r.code || ''}.`,
+          updated_at: nowISO(),
+        })
+        .eq('inventory_requirement_id', r.id)
+        .neq('estado', 'pagada');
+    } catch (eCta) {
+      console.warn('Error al anular cuenta de requerimiento eliminado:', eCta);
+    }
+
     const { error } = await supabase.from('inventory_requirements').delete().eq('id', r.id);
     if (error) return toast.error(error.message);
     refetch();
