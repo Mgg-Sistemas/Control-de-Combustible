@@ -30,6 +30,7 @@ import {
   fmtUsd,
 } from '../lib/reporteComprasSOS';
 import { resolverEmpresaDeCuenta } from '../lib/cuentasEmpresa';
+import { montosBsCuenta, tasaDeNotaCuenta } from '../lib/cuentasBs';
 import type { Company, Supplier, Machinery, PurchaseOrder } from '../types/database';
 
 interface Props {
@@ -137,7 +138,7 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
           // 1. Cuentas por pagar (Fuente primaria de lo comprado y pagado en SOS)
           supabase
             .from('cuentas')
-            .select('id, tipo, estado, descripcion, concepto, monto, company_id, supplier_id, order_id, inventory_requirement_id, fecha, fecha_pago, created_at, nota, alicuota_iva')
+            .select('id, tipo, estado, concepto, documento, monto, moneda, company_id, supplier_id, order_id, inventory_requirement_id, fecha_emision, fecha_vencimiento, settled_at, settled_by, created_at, nota, alicuota_iva')
             .eq('tipo', 'por_pagar')
             .neq('estado', 'anulada'),
 
@@ -206,10 +207,30 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
             const totalAbonado = abonosMap.get(c.id) || 0;
             const montoNominal = Number(c.monto) || 0;
             const saldoPendiente = Math.max(0, Math.round((montoNominal - totalAbonado) * 100) / 100);
-            const estaPagada = c.estado === 'pagada' || (saldoPendiente <= 0.01 && montoNominal > 0);
 
-            // Fecha efectiva de la compra
-            const fechaStr = (c.fecha_pago || c.fecha || c.created_at || '').slice(0, 10);
+            // Estado de pago real
+            const estadoNorm = String(c.estado || '').toLowerCase().trim();
+            const estaPagada = estadoNorm === 'pagada' || Boolean(c.settled_at) || (saldoPendiente <= 0.01 && montoNominal > 0);
+
+            // Fecha efectiva de la compra / liquidación
+            const fechaStr = (c.settled_at || c.fecha_emision || c.created_at || '').slice(0, 10);
+
+            // Cálculo financiero fiel de Bolívares a la tasa de la fecha de la compra/pago
+            const tasaRef = bcv.rate || Number(tasaManual) || 0;
+            const montosBs = montosBsCuenta(
+              { monto: montoNominal, saldo: saldoPendiente, nota: c.nota, alicuota_iva: c.alicuota_iva },
+              reqVinc,
+              tasaRef,
+              { actualizarATasaDelDia: false }
+            );
+
+            const montoBsEseDia = montosBs.montoBsEseDia ?? 0;
+            const tasaEseDia = montosBs.tasaEseDia ?? 0;
+            const totalBsHistorico = montosBs.tieneTasaEseDia && montoBsEseDia > 0
+              ? montoBsEseDia
+              : (tasaEseDia > 0
+                  ? Math.round(montoNominal * tasaEseDia * 100) / 100
+                  : (tasaRef > 0 ? Math.round(montoNominal * tasaRef * 100) / 100 : 0));
 
             // Ítems: si viene de requerimiento, tomar sus ítems; si no, concepto general
             let items: CompraItemLinea[] = [];
@@ -225,7 +246,7 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
               }));
             } else {
               items = [{
-                name: c.concepto || c.descripcion || 'Compra de insumos / repuestos',
+                name: c.concepto || 'Compra de insumos / repuestos',
                 category: 'Insumos y Repuestos',
                 quantity: 1,
                 unit: 'u.',
@@ -243,7 +264,7 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
             resultado.push({
               id: c.id,
               tipo: 'cuenta',
-              codigo: reqVinc?.code || (c.order_id ? `OC-${c.order_id.slice(0, 8)}` : `CXP-${c.id.slice(0, 6)}`),
+              codigo: reqVinc?.code || (c.order_id ? `OC-${c.order_id.slice(0, 8)}` : (c.documento ? `DOC-${c.documento}` : `CXP-${c.id.slice(0, 6)}`)),
               fecha: fechaStr || '—',
               empresaNombre: empresaInfo.name || 'S.O.S LA GUAIRA',
               empresaId: empresaInfo.id,
@@ -258,9 +279,10 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
               statusLabel: estaPagada ? 'Pagada' : 'Pendiente por pagar',
               items,
               totalUsd: montoNominal,
+              totalBs: totalBsHistorico,
               montoPagadoUsd: estaPagada ? montoNominal : totalAbonado,
               saldoPendienteUsd: estaPagada ? 0 : saldoPendiente,
-              observacion: c.descripcion || c.concepto || reqVinc?.note || null,
+              observacion: c.concepto || reqVinc?.note || null,
             });
           }
         }
@@ -410,11 +432,9 @@ export function ReporteComprasModal({ visible, onClose, fechaInicioDefecto, fech
 
       // 3. Filtro por Estado (Pagadas vs Pendientes)
       if (estadoSel === 'pagadas') {
-        const esPagada = c.status === 'pagada' || (c.saldoPendienteUsd != null && c.saldoPendienteUsd <= 0.01);
-        if (!esPagada) return false;
+        if (c.status !== 'pagada') return false;
       } else if (estadoSel === 'pendientes') {
-        const esPagada = c.status === 'pagada' || (c.saldoPendienteUsd != null && c.saldoPendienteUsd <= 0.01);
-        if (esPagada) return false;
+        if (c.status === 'pagada') return false;
       }
 
       return true;

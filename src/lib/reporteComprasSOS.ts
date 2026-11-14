@@ -208,46 +208,62 @@ export function transformarDatosReporteCompras(
   const tasa = Number.isFinite(tasaBcv) && tasaBcv > 0 ? tasaBcv : 0;
 
   let totalComprasUsd = 0;
+  let totalComprasBs = 0;
   let comprasFinalizadasCount = 0;
   let comprasFinalizadasUsd = 0;
+  let comprasFinalizadasBs = 0;
   let comprasPendientesCount = 0;
   let comprasPendientesUsd = 0;
+  let comprasPendientesBs = 0;
   let totalPagadoUsd = 0;
+  let totalPagadoBs = 0;
 
-  const deptsMap = new Map<string, { count: number; usd: number }>();
-  const empresasMap = new Map<string, { count: number; usd: number }>();
+  const deptsMap = new Map<string, { count: number; usd: number; bs: number }>();
+  const empresasMap = new Map<string, { count: number; usd: number; bs: number }>();
   const catMap = new Map<string, number>();
   const itemsMap = new Map<string, { cantidad: number; unit: string; usd: number }>();
   const pendientesList: CompraParaReporte[] = [];
 
   for (const c of compras) {
     const usd = Number(c.totalUsd) || 0;
-    const pagado = Number(c.montoPagadoUsd) || 0;
-    totalComprasUsd += usd;
-    totalPagadoUsd += pagado;
+    // Si la compra trae su total en Bs histórico (calculado al día de pago), se respeta con fidelidad
+    const bs = c.totalBs != null && c.totalBs > 0 ? Number(c.totalBs) : (tasa > 0 ? Math.round(usd * tasa * 100) / 100 : 0);
+    const pagadoUsd = Number(c.montoPagadoUsd) || 0;
+    const pagadoBs = c.status === 'pagada' ? bs : (usd > 0 ? Math.round(bs * (pagadoUsd / usd) * 100) / 100 : 0);
 
-    const esPagada = c.status === 'pagada' || (c.saldoPendienteUsd != null && c.saldoPendienteUsd <= 0.01);
+    totalComprasUsd += usd;
+    totalComprasBs += bs;
+    totalPagadoUsd += pagadoUsd;
+    totalPagadoBs += pagadoBs;
+
+    const esPagada = c.status === 'pagada' || (c.saldoPendienteUsd != null && c.saldoPendienteUsd <= 0.01 && usd > 0);
     if (esPagada) {
       comprasFinalizadasCount++;
       comprasFinalizadasUsd += usd;
+      comprasFinalizadasBs += bs;
     } else {
+      const saldoUsd = (c.saldoPendienteUsd != null ? Number(c.saldoPendienteUsd) : usd);
+      const saldoBs = usd > 0 ? Math.round(bs * (saldoUsd / usd) * 100) / 100 : bs;
       comprasPendientesCount++;
-      comprasPendientesUsd += (c.saldoPendienteUsd != null ? Number(c.saldoPendienteUsd) : usd);
+      comprasPendientesUsd += saldoUsd;
+      comprasPendientesBs += saldoBs;
       pendientesList.push(c);
     }
 
     // Agrupación por Departamento / Área
     const dpto = (c.departamento || 'OPERACIONES').trim().toUpperCase();
-    const currD = deptsMap.get(dpto) || { count: 0, usd: 0 };
+    const currD = deptsMap.get(dpto) || { count: 0, usd: 0, bs: 0 };
     currD.count++;
     currD.usd += usd;
+    currD.bs += bs;
     deptsMap.set(dpto, currD);
 
     // Agrupación por Empresa
     const emp = (c.empresaNombre || 'S.O.S LA GUAIRA').trim().toUpperCase();
-    const currE = empresasMap.get(emp) || { count: 0, usd: 0 };
+    const currE = empresasMap.get(emp) || { count: 0, usd: 0, bs: 0 };
     currE.count++;
     currE.usd += usd;
+    currE.bs += bs;
     empresasMap.set(emp, currE);
 
     // Agrupación por Categorías e Ítems
@@ -281,7 +297,7 @@ export function transformarDatosReporteCompras(
       nombre,
       cotizacionesCount: d.count,
       totalUsd: d.usd,
-      totalBs: tasa > 0 ? d.usd * tasa : 0,
+      totalBs: d.bs,
       porcentaje: totalComprasUsd > 0 ? (d.usd / totalComprasUsd) * 100 : 0,
     }))
     .sort((a, b) => b.totalUsd - a.totalUsd);
@@ -292,7 +308,7 @@ export function transformarDatosReporteCompras(
       nombre,
       comprasCount: e.count,
       totalUsd: e.usd,
-      totalBs: tasa > 0 ? e.usd * tasa : 0,
+      totalBs: e.bs,
       porcentaje: totalComprasUsd > 0 ? (e.usd / totalComprasUsd) * 100 : 0,
     }))
     .sort((a, b) => b.totalUsd - a.totalUsd);
@@ -328,15 +344,15 @@ export function transformarDatosReporteCompras(
     kpis: {
       totalComprasCount: compras.length,
       totalComprasUsd,
-      totalComprasBs: tasa > 0 ? totalComprasUsd * tasa : 0,
+      totalComprasBs,
       comprasFinalizadasCount,
       comprasFinalizadasUsd,
-      comprasFinalizadasBs: tasa > 0 ? comprasFinalizadasUsd * tasa : 0,
+      comprasFinalizadasBs,
       comprasPendientesCount,
       comprasPendientesUsd,
-      comprasPendientesBs: tasa > 0 ? comprasPendientesUsd * tasa : 0,
+      comprasPendientesBs,
       totalPagadoUsd,
-      totalPagadoBs: tasa > 0 ? totalPagadoUsd * tasa : 0,
+      totalPagadoBs,
       mayorDepartamento: {
         name: mayorDepartamento.nombre,
         usd: mayorDepartamento.totalUsd,
@@ -566,8 +582,9 @@ export function generarReporteComprasHtml(
     </table>
   `;
 
-  // 6. Compras Pendientes
-  const pendientesHtml = config.sinPendientes || comprasPendientes.length === 0 ? '' : `
+  // 6. Compras Pendientes (se oculta si el usuario eligió "Solo Pagadas" o si lo activó en conmutadores)
+  const ocultarPendientes = config.sinPendientes || config.estadoFiltro === 'pagadas' || comprasPendientes.length === 0;
+  const pendientesHtml = ocultarPendientes ? '' : `
     <div class="section-title-box" style="margin-top: 14px;">
       <b>3. Compras y Cuentas Pendientes por Pagar / Aprobar</b>
       <span class="section-subtitle-note">Compromisos vigentes pendientes de liquidación</span>
@@ -604,11 +621,29 @@ export function generarReporteComprasHtml(
     </table>
   `;
 
-  // 7. Listado Detallado de Compras (General / Consolidado)
+  // 7. Listado Detallado de Compras (filtrado estrictamente por estado)
+  const comprasMostradasTabla = config.estadoFiltro === 'pagadas'
+    ? todasCompras.filter((c) => c.status === 'pagada')
+    : config.estadoFiltro === 'pendientes'
+      ? todasCompras.filter((c) => c.status !== 'pagada')
+      : todasCompras;
+
+  const totalUsdTabla = comprasMostradasTabla.reduce((acc, c) => acc + (Number(c.totalUsd) || 0), 0);
+  const totalBsTabla = comprasMostradasTabla.reduce((acc, c) => {
+    const bsItem = c.totalBs != null && c.totalBs > 0 ? Number(c.totalBs) : (tasa > 0 ? (Number(c.totalUsd) || 0) * tasa : 0);
+    return acc + bsItem;
+  }, 0);
+
+  const tituloSeccionTabla = config.estadoFiltro === 'pagadas'
+    ? 'Listado Consolidado de Compras Pagadas (Lo efectivamente comprado)'
+    : config.estadoFiltro === 'pendientes'
+      ? 'Listado de Compras y Compromisos Pendientes por Pagar'
+      : 'Listado Detallado de Compras del Período';
+
   const todasComprasHtml = `
     <div class="section-title-box" style="margin-top: 14px;">
-      <b>${config.sinPendientes ? 'Listado Consolidado de Compras Pagadas' : 'Listado Detallado de Compras del Período'}</b>
-      <span class="section-subtitle-note">Registro cronológico completo de adquisiciones</span>
+      <b>${tituloSeccionTabla}</b>
+      <span class="section-subtitle-note">${comprasMostradasTabla.length} registro(s) listado(s)</span>
     </div>
     <table class="report-table">
       <thead>
@@ -625,8 +660,8 @@ export function generarReporteComprasHtml(
         </tr>
       </thead>
       <tbody>
-        ${(config.sinPendientes ? todasCompras.filter((c) => c.status === 'pagada' || (c.saldoPendienteUsd != null && c.saldoPendienteUsd <= 0.01)) : todasCompras).map((c) => {
-          const esPagada = c.status === 'pagada' || (c.saldoPendienteUsd != null && c.saldoPendienteUsd <= 0.01);
+        ${comprasMostradasTabla.map((c) => {
+          const esPagada = c.status === 'pagada';
           const totalBsFmt = c.totalBs ? fmtBs(c.totalBs) : (tasa > 0 ? fmtBs(c.totalUsd * tasa) : '—');
           return `
             <tr>
@@ -645,9 +680,9 @@ export function generarReporteComprasHtml(
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="${2 + (columnas.fecha ? 1 : 0) + (columnas.empresa ? 1 : 0) + (columnas.proveedor ? 1 : 0) + (columnas.maquinaria ? 1 : 0)}" class="font-bold">TOTAL CONSOLIDADO</td>
-          <td class="text-right font-mono font-bold">${fmtUsd(config.sinPendientes ? kpis.comprasFinalizadasUsd : kpis.totalComprasUsd)}</td>
-          ${columnas.montoBs ? `<td class="text-right font-mono font-bold">${fmtBs(config.sinPendientes ? kpis.comprasFinalizadasBs : kpis.totalComprasBs)}</td>` : ''}
+          <td colspan="${2 + (columnas.fecha ? 1 : 0) + (columnas.empresa ? 1 : 0) + (columnas.proveedor ? 1 : 0) + (columnas.maquinaria ? 1 : 0)}" class="font-bold">TOTAL MOSTRADO (${comprasMostradasTabla.length})</td>
+          <td class="text-right font-mono font-bold">${fmtUsd(totalUsdTabla)}</td>
+          ${columnas.montoBs ? `<td class="text-right font-mono font-bold">${fmtBs(totalBsTabla)}</td>` : ''}
           ${columnas.estado ? '<td></td>' : ''}
         </tr>
       </tfoot>

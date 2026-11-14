@@ -215,6 +215,65 @@ const htmlSinKpis = R.generarReporteComprasHtml(transformado, {
 ok('si sinKpis es true, no renderiza el bloque div kpi-grid', !htmlSinKpis.includes('<div class="kpi-grid">'));
 ok('si columna empresa es false y sinResumenEmpresas es true, no renderiza header Empresa', !htmlSinKpis.includes('<th>Empresa</th>'));
 
+// ── 7) RESPETO DE TASA HISTÓRICA A LA FECHA DE PAGO (NO TASA DE HOY) ─────────
+const comprasConTasaHistorica = [
+  {
+    id: 'p1',
+    tipo: 'cuenta',
+    codigo: 'CXP-HIST-01',
+    fecha: '2026-08-15',
+    empresaNombre: 'S.O.S LA GUAIRA',
+    departamento: 'TALLER',
+    destinoMaquinaria: 'VOLVO-240 [Placa: A01FE8M]',
+    proveedorNombre: 'REPUESTOS LA GUAIRA',
+    analistaNombre: 'CARLOS',
+    status: 'pagada',
+    statusLabel: 'Pagada',
+    items: [],
+    totalUsd: 100, // a tasa 40 Bs/$ histórica = 4.000 Bs (no 5.000 Bs con tasa 50)
+    totalBs: 4000,
+    montoPagadoUsd: 100,
+    saldoPendienteUsd: 0,
+  },
+  {
+    id: 'p2',
+    tipo: 'cuenta',
+    codigo: 'CXP-HIST-02',
+    fecha: '2026-11-12',
+    empresaNombre: 'S.O.S LA GUAIRA',
+    departamento: 'OPERACIONES',
+    destinoMaquinaria: 'CAT-966H [Placa: M-84920]',
+    proveedorNombre: 'FERRETERÍA CENTRAL',
+    analistaNombre: 'CARLOS',
+    status: 'pendiente',
+    statusLabel: 'Pendiente por pagar',
+    items: [],
+    totalUsd: 50,
+    totalBs: 2500, // tasa 50
+    montoPagadoUsd: 0,
+    saldoPendienteUsd: 50,
+  },
+];
+
+const transfHist = R.transformarDatosReporteCompras(comprasConTasaHistorica, 900.0); // tasa actual 900
+eq('suma total en Bs respeta los 4000 + 2500 históricos y no multiplica 150 por 900', transfHist.kpis.totalComprasBs, 6500);
+eq('total pagado en Bs respeta los 4000 históricos', transfHist.kpis.totalPagadoBs, 4000);
+
+// ── 8) FILTRO ESTRICTO DE ESTADO: SOLO PAGADAS ────────────────────────────────
+const comprasSoloPagadas = comprasConTasaHistorica.filter((c) => c.status === 'pagada');
+const transfSoloPagadas = R.transformarDatosReporteCompras(comprasSoloPagadas, 900.0);
+const htmlSoloPagadas = R.generarReporteComprasHtml(transfSoloPagadas, {
+  periodoLabel: 'Histórico',
+  estadoFiltro: 'pagadas',
+  tasaBcv: 900.0,
+  logo: 'sos',
+});
+
+ok('en solo pagadas el título indica lo efectivamente comprado', htmlSoloPagadas.includes('Listado Consolidado de Compras Pagadas (Lo efectivamente comprado)'));
+ok('en solo pagadas no renderiza sección 3 de compras pendientes', !htmlSoloPagadas.includes('3. Compras y Cuentas Pendientes por Pagar'));
+ok('en solo pagadas incluye la compra CXP-HIST-01', htmlSoloPagadas.includes('CXP-HIST-01'));
+ok('en solo pagadas no incluye la compra pendiente CXP-HIST-02 en la tabla', !htmlSoloPagadas.includes('CXP-HIST-02'));
+
 // ── REPORTE FINAL DE TESTS ──────────────────────────────────────────────────
 console.log(`\nResultados: ${pass} pasados, ${fail} fallados`);
 if (fail > 0) {
