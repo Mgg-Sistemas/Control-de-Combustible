@@ -2404,6 +2404,17 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > va el abono y la cuenta muestra ✅ en las partes pagadas. El mensaje y el PDF de pago muestran **«💳 Forma de pago»**
 > con cada parte y solo los datos bancarios de los métodos que se usan. Una cuenta ya pagada no cambia de plan.
 
+> **📊 Reporte de Compras · S.O.S La Guaira** *(13/11/2026)*. En **Compras**, el botón superior derecho **«📊 Reporte de Compras»**
+> genera el documento oficial ejecutivo con los colores institucionales de **S.O.S La Guaira** (`#0A2540` y `#0284C7`).
+> **1) Fuente real de compras:** consolida todas las compras pagadas y por pagar de **Cuentas por Pagar** (lo que efectivamente se compró en SOS),
+> requerimientos aprobados/recibidos y compras directas de caja. **2) Filtro de fechas:** incluye la opción **«♾️ Todas (Histórico)»**
+> para emitir el consolidado general de todas las compras sin importar la fecha, además de atajos rápidos (Hoy, Semana, Mes, Rango libre).
+> **3) Filtro por Empresa:** permite filtrar compras de «Todas las empresas» o de una contratista específica (Gobernación, Golden Touch, CVN, etc.).
+> **4) Estado de compra:** permite sacar el reporte de «Todas las compras», «✅ Solo Pagadas (lo efectivamente comprado)» o «🕓 Solo Pendientes».
+> **5) ¿Qué se oculta?:** pastillas para ocultar secciones (KPIs, distribución depto, resumen por empresa, ranking, top categorías, compras pendientes y notas).
+> **6) Columnas opcionales:** conmutadores para prender o apagar en la tabla principal las columnas de Empresa, Proveedor, Maquinaria + Placa (regla estricta del proyecto), Monto en Bs (BCV) y Fecha.
+> **7) Logos:** selector de membrete con SOS La Guaira por defecto, Gobernación, Golden Touch o Sin logo.
+
 > **📲 Por Pagar: mensaje y PDF de pago** *(02/11/2026)*. Cada cuenta por pagar tiene **«📲 Mensaje / PDF de pago»**,
 > y si marcas varias sale **«📲 Mensaje / PDF de marcadas»**. Arma solo el texto para quien paga: orden, prioridad,
 > proveedor, detalle, nota del requerimiento, quién solicita, la analista de compras, quién autorizó, condiciones,

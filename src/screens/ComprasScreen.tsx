@@ -1903,7 +1903,7 @@ function ResumenTab({ onOpenReporte }: { onOpenReporte?: () => void }) {
           }}
         >
           <Text style={{ fontSize: 15 }}>📊</Text>
-          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>Reporte Golden Touch</Text>
+          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>Reporte de Compras</Text>
         </TouchableOpacity>
       </View>
 
@@ -2360,7 +2360,7 @@ export default function ComprasScreen() {
             }}
           >
             <Text style={{ fontSize: isPhone ? 11.5 : 15 }}>📊</Text>
-            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: isPhone ? 10.5 : 13 }}>Reporte Golden Touch</Text>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: isPhone ? 10.5 : 13 }}>Reporte de Compras</Text>
           </TouchableOpacity>
         </View>
       </View>
