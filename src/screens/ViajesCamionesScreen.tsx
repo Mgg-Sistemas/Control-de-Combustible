@@ -51,7 +51,9 @@ import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LI
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
+  PROYECTOS_OPERACION, proyectoOperacionValido, etiquetaProyectoOperacion, type ProyectoOperacion,
 } from '../lib/ubicacionesObra';
+import { ViajesMaterialesBox } from '../components/ViajesMaterialesBox';
 import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique, SIN_DATO as SIN_DATO_TIQUE } from '../lib/tique';
 import { pasaFiltros, opcionesDeEje, conCatalogoOpciones, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
@@ -108,6 +110,12 @@ import {
   listAsignacionesFrente,
   asignarFrente,
   quitarAsignacionFrente,
+  listMaterialesViaje,
+  cambiarMiCdtListero,
+  sentidoViajeValido,
+  etiquetaSentidoViaje,
+  type SentidoViaje,
+  type MaterialViaje,
   type ListeroConRol,
   type TaraCamion,
   type TipoViaje,
@@ -760,6 +768,25 @@ export default function ViajesCamionesScreen() {
   const tipoPorTonelada = tipoSelFicha?.unidad === 'ton';
   const tipoSelTarifa = tipoSelFicha?.tarifaUsd ?? null;
 
+  // ── 🪨 MATERIALES DE VIAJE, SENTIDO (Entrada/Salida) y OPERACIÓN (Miyamoto/TFI) ──
+  const [materiales, setMateriales] = useState<MaterialViaje[]>([]);
+  const [materialesMissing, setMaterialesMissing] = useState(false);
+  const [materialesRecarga, setMaterialesRecarga] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    listMaterialesViaje().then((r) => {
+      if (!vivo) return;
+      setMateriales(r.materiales);
+      setMaterialesMissing(r.faltaSql);
+      if (r.error && !r.faltaSql) console.warn('[viajes] no se pudo leer materiales:', r.error);
+    });
+    return () => { vivo = false; };
+  }, [materialesRecarga]);
+  const materialesActivos = useMemo(() => materiales.filter((m) => m.active), [materiales]);
+  const [sentidoSel, setSentidoSel] = useState<SentidoViaje | null>(null);
+  const [materialSel, setMaterialSel] = useState<string | null>(null);
+  const [operacionSel, setOperacionSel] = useState<ProyectoOperacion | null>(null);
+
   // ── FRENTES DE TRABAJO (28-sep-2026): de dónde recoge cada camión. La
   // oficina los asigna por jornada; el teléfono los lee para CONGELAR el
   // frente del camión en cada viaje que registra. Los lee todo el mundo
@@ -1155,6 +1182,10 @@ export default function ViajesCamionesScreen() {
       // registrar, no al sincronizar.
       frenteId: q.payload.frenteId ?? null,
       frenteNombre: q.payload.frenteNombre ?? null,
+      sentido: sentidoViajeValido(q.payload.sentido),
+      materialId: q.payload.materialId ?? null,
+      materialNombre: q.payload.materialNombre ?? null,
+      proyectoOperacion: proyectoOperacionValido(q.payload.proyectoOperacion),
       queued: true,
     }));
     // Los APARTADOS también se listan: si no aparecieran, el viaje simplemente
@@ -1198,6 +1229,10 @@ export default function ViajesCamionesScreen() {
       tipoViajeUnidad: unidadTarifa(q.payload.tipoViajeUnidad),
       frenteId: q.payload.frenteId ?? null,
       frenteNombre: q.payload.frenteNombre ?? null,
+      sentido: sentidoViajeValido(q.payload.sentido),
+      materialId: q.payload.materialId ?? null,
+      materialNombre: q.payload.materialNombre ?? null,
+      proyectoOperacion: proyectoOperacionValido(q.payload.proyectoOperacion),
       queued: true,
       stuck: true,
       stuckError: q.error,
@@ -1414,6 +1449,10 @@ export default function ViajesCamionesScreen() {
         //    Reasignarlo mañana no toca este viaje; un camión sin asignación
         //    registra sin frente (se le puede poner después en ✏️ Editar).
         ...frenteParaGrabar(esFuera ? null : selectedTruck.id),
+        sentido: sentidoSel,
+        materialId: materialSel ? (materialesActivos.find((m) => m.id === materialSel)?.id ?? null) : null,
+        materialNombre: materialSel ? (materialesActivos.find((m) => m.id === materialSel)?.nombre ?? null) : null,
+        proyectoOperacion: operacionSel ?? proyectoOperacionValido((miObraId ? obras.find((o) => o.id === miObraId)?.proyecto_operacion : null)) ?? null,
       };
 
       // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
@@ -1492,7 +1531,7 @@ export default function ViajesCamionesScreen() {
     // tara»): solo los toca la jefa, y solo en viajes que YA traen peso (a uno
     // viejo no se le inventa). `tipoId` es el TIPO DE VIAJE ('' = normal) y
     // `frenteIdEdit` el FRENTE DE TRABAJO ('' = sin frente, 28-sep-2026).
-    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string; tara: string; tipoId: string; frenteIdEdit: string } | null
+    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string; tara: string; tipoId: string; frenteIdEdit: string; sentido: SentidoViaje | null; materialId: string; proyectoOperacion: ProyectoOperacion | null } | null
   >(null);
   // Filas del rango filtrado de la jefa (declarado acá arriba para que `findRow`
   // pueda buscar en ambas listas — la carga/estado completo del panel de la
@@ -1673,6 +1712,8 @@ export default function ViajesCamionesScreen() {
    * obra y el reporte por obra no serviría para nada.
    */
   const [miObraId, setMiObraId] = useState<string | null>(null);
+  const [miCdtAbierto, setMiCdtAbierto] = useState(false);
+  const [cambiandoCdt, setCambiandoCdt] = useState(false);
   useEffect(() => {
     if (!uid) { setMiObraId(null); return; }
     let vivo = true;
@@ -1686,6 +1727,22 @@ export default function ViajesCamionesScreen() {
       });
     return () => { vivo = false; };
   }, [uid, listerosRecarga, obrasRaw]);
+
+  const seleccionarMiCdt = async (obraId: string) => {
+    setMiObraId(obraId);
+    setMiCdtAbierto(false);
+    const obra = obras.find((o) => o.id === obraId);
+    if (obra?.proyecto_operacion) {
+      setOperacionSel(proyectoOperacionValido(obra.proyecto_operacion));
+    }
+    if (uid) {
+      setCambiandoCdt(true);
+      const res = await cambiarMiCdtListero(uid, obraId);
+      setCambiandoCdt(false);
+      if (res.error) toast.error(res.error);
+      else toast.success(`📍 CDT cambiado a ${obra?.nombre || 'sin ubicación'} para los próximos viajes.`);
+    }
+  };
 
   const isEditableByListero = (row: CamionViajeRow): boolean => {
     // ⭐ FULL PRIMERO (27-sep-2026): el «¿es tuyo?» iba ANTES que el «¿tiene
@@ -1731,6 +1788,9 @@ export default function ViajesCamionesScreen() {
       tara: row.pesoTaraKg != null ? String(row.pesoTaraKg) : '',
       tipoId: row.tipoViajeId ?? '',
       frenteIdEdit: row.frenteId ?? '',
+      sentido: row.sentido ?? null,
+      materialId: row.materialId ?? '',
+      proyectoOperacion: row.proyectoOperacion ?? null,
     });
   };
   const cancelEdit = () => setEditing(null);
@@ -1893,6 +1953,19 @@ export default function ViajesCamionesScreen() {
             : { id: null, nombre: null };
           queCambio.push(`frente: ${row.frenteNombre || 'sin frente'} → ${frenteNuevo?.nombre || 'sin frente'}`);
         }
+        if (editing.sentido !== (row.sentido ?? null)) {
+          cambios.sentido = editing.sentido;
+          queCambio.push(`sentido: ${etiquetaSentidoViaje(row.sentido)} → ${etiquetaSentidoViaje(editing.sentido)}`);
+        }
+        if (editing.materialId !== (row.materialId ?? '')) {
+          const matNuevo = editing.materialId ? (materiales.find((m) => m.id === editing.materialId) ?? null) : null;
+          cambios.material = matNuevo ? { id: matNuevo.id, nombre: matNuevo.nombre } : { id: null, nombre: null };
+          queCambio.push(`material: ${row.materialNombre || 'sin material'} → ${matNuevo?.nombre || 'sin material'}`);
+        }
+        if (editing.proyectoOperacion !== (row.proyectoOperacion ?? null)) {
+          cambios.proyectoOperacion = editing.proyectoOperacion;
+          queCambio.push(`operación: ${etiquetaProyectoOperacion(row.proyectoOperacion)} → ${etiquetaProyectoOperacion(editing.proyectoOperacion)}`);
+        }
       }
       if (Object.keys(cambios).length === 0) { setEditing(null); return; }
 
@@ -2044,6 +2117,9 @@ export default function ViajesCamionesScreen() {
    * generales». Con un tipo elegido, el viaje congela ESA tarifa.
    */
   const [cargaTipoId, setCargaTipoId] = useState<string | null>(null);
+  const [cargaSentido, setCargaSentido] = useState<SentidoViaje | null>(null);
+  const [cargaMaterialId, setCargaMaterialId] = useState<string | null>(null);
+  const [cargaOperacion, setCargaOperacion] = useState<ProyectoOperacion | null>(null);
   /**
    * 💵 «SOLO POR VIAJE» (07-oct-2026, a pedido: «hay camiones que solo cobran
    * por viaje, necesito la opción de colocarle si es solo por viaje»).
@@ -2276,6 +2352,10 @@ export default function ViajesCamionesScreen() {
           tipoViajeNombre: cargaTipo?.nombre ?? null,
           tipoViajeTarifa: cargaTipo?.tarifaUsd ?? null,
           tipoViajeUnidad: cargaTipo?.unidad ?? null,
+          sentido: cargaSentido,
+          materialId: cargaMaterialId ? (materialesActivos.find((m) => m.id === cargaMaterialId)?.id ?? null) : null,
+          materialNombre: cargaMaterialId ? (materialesActivos.find((m) => m.id === cargaMaterialId)?.nombre ?? null) : null,
+          proyectoOperacion: cargaOperacion ?? proyectoOperacionValido((obraCarga.ubicacionId ? obras.find((o) => o.id === obraCarga.ubicacionId)?.proyecto_operacion : null)) ?? null,
           registeredAt: iso,
           // La obra del LISTERO ELEGIDO, no la de quien está cargando: el viaje
           // va a quedar a nombre de él, y contarlo en la obra de la jefa diría
@@ -2579,6 +2659,12 @@ export default function ViajesCamionesScreen() {
   const [filterFormatoSel, setFilterFormatoSel] = useState<Map<string, string>>(new Map());
   // ⛏️ FRENTE DE TRABAJO (13-nov-2026, a pedido: filtrar por uno o varios frentes en la Lista completa de viajes).
   const [filterFrenteSel, setFilterFrenteSel] = useState<Map<string, string>>(new Map());
+  const [filterSentidoSel, setFilterSentidoSel] = useState<Map<string, string>>(new Map());
+  const [filterMaterialSel, setFilterMaterialSel] = useState<Map<string, string>>(new Map());
+  const [filterOperacionSel, setFilterOperacionSel] = useState<Map<string, string>>(new Map());
+  const [ocultarSentido, setOcultarSentido] = useState(false);
+  const [ocultarMaterial, setOcultarMaterial] = useState(false);
+  const [ocultarOperacion, setOcultarOperacion] = useState(false);
 
   /** El formato del papel. Vive en la base (una sola fila para todo el sistema)
    *  y se lee acá aparte de la tarjeta de configuración: el listero imprime sin
@@ -2662,6 +2748,9 @@ export default function ViajesCamionesScreen() {
   const toggleFilterUbicacion = toggleEn(setFilterUbicacionSel);
   const toggleFilterFormato = toggleEn(setFilterFormatoSel);
   const toggleFilterFrente = toggleEn(setFilterFrenteSel);
+  const toggleFilterSentido = toggleEn(setFilterSentidoSel);
+  const toggleFilterMaterial = toggleEn(setFilterMaterialSel);
+  const toggleFilterOperacion = toggleEn(setFilterOperacionSel);
   /**
    * ⭐ La pastilla «Todos / Todas» de cada fila de filtros (19-sep-2026).
    *
@@ -2881,24 +2970,30 @@ export default function ViajesCamionesScreen() {
    * cuando un listero se apellida igual que una empresa. El turno no lleva
    * ícono acá porque su etiqueta ya trae el suyo (☀️/🌙).
    */
-  const ICONO_EJE: Record<EjeFiltro, string> = { listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '', ubicacion: '🏗️ ', formato: '🎟️ ', frente: '⛏️ ' };
+  const ICONO_EJE: Record<EjeFiltro, string> = {
+    listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '', ubicacion: '🏗️ ', formato: '🎟️ ', frente: '⛏️ ',
+    sentido: '↕️ ', material: '🪨 ', operacion: '🏢 ',
+  };
 
   const clavesDe = (r: CamionViajeRow): ClavesViaje => ({
     listero: r.listeroId || SIN_LISTERO,
     empresa: companyOfRow(r).key,
     camion: claveCamion(r),
     turno: turnoDeViaje(r.registeredAt),
-    // ⚠️ La MISMA función que usa el resumen para agrupar. Si el filtro calculara
-    //    la clave por su cuenta, marcar una obra en los chips podría dejar fuera
-    //    viajes que el resumen sí cuenta en esa obra, y los dos números del mismo
-    //    papel no cuadrarían.
     ubicacion: claveUbicacionViaje({ ubicacionId: r.ubicacionId, ubicacionName: r.ubicacionNombre }),
     formato: formatoDeViaje(r).id,
     frente: claveFrenteViaje(r),
+    sentido: r.sentido || '__sin_sentido__',
+    material: r.materialNombre || '__sin_material__',
+    operacion: r.proyectoOperacion || '__sin_operacion__',
   });
   const seleccion: SeleccionFiltros = useMemo(
-    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel, ubicacion: filterUbicacionSel, formato: filterFormatoSel, frente: filterFrenteSel }),
-    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel, filterUbicacionSel, filterFormatoSel, filterFrenteSel]
+    () => ({
+      listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel,
+      ubicacion: filterUbicacionSel, formato: filterFormatoSel, frente: filterFrenteSel,
+      sentido: filterSentidoSel, material: filterMaterialSel, operacion: filterOperacionSel,
+    }),
+    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel, filterUbicacionSel, filterFormatoSel, filterFrenteSel, filterSentidoSel, filterMaterialSel, filterOperacionSel]
   );
   const listeroOptions = useMemo(
     () => conCatalogoOpciones(
@@ -3012,6 +3107,38 @@ export default function ViajesCamionesScreen() {
   const frenteOptionsVisibles = useMemo(
     () => filtrarOpciones(frenteOptions, busqFiltros, filterFrenteSel, norm),
     [frenteOptions, busqFiltros, filterFrenteSel]
+  );
+
+  const sentidoOptions = useMemo(
+    () => opcionesDeEje(dateScopedRows, 'sentido', clavesDe,
+      (r) => ({ id: r.sentido || '__sin_sentido__', label: r.sentido === 'entrada' ? '⬇️ Entrada' : r.sentido === 'salida' ? '⬆️ Salida' : 'Sin sentido' }),
+      seleccion, cmpText),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById]
+  );
+
+  const materialOptions = useMemo(
+    () => conCatalogoOpciones(
+      opcionesDeEje(dateScopedRows, 'material', clavesDe,
+        (r) => ({ id: r.materialNombre || '__sin_material__', label: r.materialNombre || 'Sin material' }),
+        seleccion, cmpText),
+      materialesActivos.map((m) => ({ id: m.nombre, label: m.nombre })),
+      cmpText,
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById, materialesActivos]
+  );
+  const materialOptionsVisibles = useMemo(
+    () => filtrarOpciones(materialOptions, busqFiltros, filterMaterialSel, norm),
+    [materialOptions, busqFiltros, filterMaterialSel]
+  );
+
+  const operacionOptions = useMemo(
+    () => opcionesDeEje(dateScopedRows, 'operacion', clavesDe,
+      (r) => ({ id: r.proyectoOperacion || '__sin_operacion__', label: etiquetaProyectoOperacion(r.proyectoOperacion) }),
+      seleccion, cmpText),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById]
   );
 
   /** Cuántas opciones dejó fuera la búsqueda — para no dejar la fila vacía y muda. */
@@ -3723,6 +3850,9 @@ export default function ViajesCamionesScreen() {
         // 🧭 La zona congelada en el viaje (03-oct-2026): la misma del pago.
         //    Sin zona = raya, no se adivina (el CDT no la tenía ese día).
         zona: r.zonaPago === 'este' ? 'Este' : r.zonaPago === 'oeste' ? 'Oeste' : '—',
+        sentido: r.sentido ? etiquetaSentidoViaje(r.sentido) : '—',
+        material: r.materialNombre || '—',
+        operacion: r.proyectoOperacion ? etiquetaProyectoOperacion(r.proyectoOperacion) : '—',
         placa: placaDe(r),
         marcaModelo: marcaModeloDe(r.machineryId),
         dims: dimsDe(r.machineryId),
@@ -4036,6 +4166,9 @@ export default function ViajesCamionesScreen() {
       // papel (Kg de fábrica, como el papel de muestra; o Ton). Un viaje sin
       // peso los deja en null y salen con raya.
       ...pesosParaTique(row, configTique.pesosUnidad),
+      sentido: row.sentido ? etiquetaSentidoViaje(row.sentido) : null,
+      material: row.materialNombre ?? null,
+      operacion: row.proyectoOperacion ? etiquetaProyectoOperacion(row.proyectoOperacion) : null,
       estado: row.estadoMaquina,
       nota: row.note,
     };
@@ -4297,6 +4430,9 @@ export default function ViajesCamionesScreen() {
           {row.choferName ? ` · 👤 ${row.choferName}` : ''}
           {row.estadoMaquina ? ` · ${row.estadoMaquina}` : ''}
           {row.ubicacionNombre ? ` · 🏗️ ${row.ubicacionNombre}` : ''}
+          {row.sentido ? ` · ${row.sentido === 'entrada' ? '⬇️ Entrada' : '⬆️ Salida'}` : ''}
+          {row.materialNombre ? ` · 🪨 ${row.materialNombre}` : ''}
+          {row.proyectoOperacion ? ` · ${etiquetaProyectoOperacion(row.proyectoOperacion)}` : ''}
           {row.tipoViajeNombre ? ` · 🧾 ${row.tipoViajeNombre}` : ''}
           {row.frenteNombre ? ` · ⛏️ ${row.frenteNombre}` : ''}
         </Text>
@@ -4462,6 +4598,59 @@ export default function ViajesCamionesScreen() {
                     </Text>
                   </View>
                 ) : null}
+                <View>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>↕️ ENTRADA / SALIDA</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {([{ k: 'entrada' as const, label: '⬇️ Entrada' }, { k: 'salida' as const, label: '⬆️ Salida' }]).map((s) => {
+                      const on = editing.sentido === s.k;
+                      return (
+                        <TouchableOpacity
+                          key={s.k}
+                          onPress={() => setEditing((e) => (e ? { ...e, sentido: e.sentido === s.k ? null : s.k } : e))}
+                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+                        >
+                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{s.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+                {materialesActivos.length > 0 || editing.materialId ? (
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>🪨 MATERIAL</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {[{ id: '', nombre: 'Sin material' }, ...materialesActivos].map((m) => {
+                        const on = editing.materialId === m.id;
+                        return (
+                          <TouchableOpacity
+                            key={m.id || '__sin_mat__'}
+                            onPress={() => setEditing((e) => (e ? { ...e, materialId: m.id } : e))}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+                          >
+                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{m.id ? `🪨 ${m.nombre}` : m.nombre}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+                <View>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>🏗️ OPERACIÓN</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {PROYECTOS_OPERACION.map((p) => {
+                      const on = editing.proyectoOperacion === p.key;
+                      return (
+                        <TouchableOpacity
+                          key={p.key}
+                          onPress={() => setEditing((e) => (e ? { ...e, proyectoOperacion: e.proyectoOperacion === p.key ? null : p.key } : e))}
+                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? '#0284C7' : colors.border, backgroundColor: on ? '#0284C7' : colors.surface }}
+                        >
+                          <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 11.5 }}>🏗️ {p.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
                 {listeros.length > 0 ? (
                   <View>
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>LO REGISTRÓ</Text>
@@ -4650,7 +4839,57 @@ export default function ViajesCamionesScreen() {
       ) : null}
 
       <Card>
-        <SectionTitle>Registrar viaje</SectionTitle>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+          <SectionTitle>Registrar viaje</SectionTitle>
+          {obras.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => setMiCdtAbierto((v) => !v)}
+              disabled={cambiandoCdt}
+              style={{
+                borderWidth: 1,
+                borderColor: miCdtAbierto ? colors.primary : colors.border,
+                backgroundColor: miCdtAbierto ? colors.primary : colors.surfaceAlt,
+                borderRadius: radius.pill,
+                paddingHorizontal: spacing.sm,
+                paddingVertical: 5,
+              }}
+            >
+              <Text style={{ color: miCdtAbierto ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                📍 {miObraId ? (obras.find((o) => o.id === miObraId)?.nombre || 'Sin CDT') : 'Sin CDT'} · 🔄 Cambiar CDT
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {miCdtAbierto && obras.length > 0 ? (
+          <View style={{ marginBottom: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, gap: 6 }}>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+              ELIGE TU CDT ACTUAL (solo aplica a los próximos viajes):
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {cdtsParaElegir(obras, miObraId).map((o) => {
+                const activo = miObraId === o.id;
+                return (
+                  <TouchableOpacity
+                    key={o.id}
+                    onPress={() => seleccionarMiCdt(o.id)}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 6,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: activo ? colors.primary : colors.border,
+                      backgroundColor: activo ? colors.primary : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                      🏗️ {o.nombre}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <TouchableOpacity onPress={openPicker} style={[styles.pickButton, { flex: 1 }]}>
             <Text style={{ color: selectedTruck ? colors.text : colors.muted, fontWeight: '700' }}>
@@ -4748,6 +4987,84 @@ export default function ViajesCamionesScreen() {
                 Se vuelve a intentar al registrar. Si tampoco se logra, el viaje se guarda igual y queda marcado «chofer sin confirmar» para completarlo después.
               </Text>
             ) : null}
+
+            {/* ── ↕️ SENTIDO, 🪨 MATERIAL Y 🏗️ OPERACIÓN (Miyamoto / TFI) ── */}
+            <View style={{ gap: 6 }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>↕️ ENTRADA / SALIDA</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {([{ k: 'entrada', label: '⬇️ Entrada' }, { k: 'salida', label: '⬆️ Salida' }] as const).map((s) => {
+                  const on = sentidoSel === s.k;
+                  return (
+                    <TouchableOpacity
+                      key={s.k}
+                      onPress={() => setSentidoSel((prev) => (prev === s.k ? null : s.k))}
+                      style={{
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 8,
+                        borderRadius: radius.pill,
+                        borderWidth: 1.5,
+                        borderColor: on ? colors.primary : colors.border,
+                        backgroundColor: on ? colors.primary : colors.surface,
+                      }}
+                    >
+                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12.5 }}>{s.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {materialesActivos.length > 0 ? (
+              <View style={{ gap: 6 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>🪨 MATERIAL</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {materialesActivos.map((m) => {
+                    const on = materialSel === m.id;
+                    return (
+                      <TouchableOpacity
+                        key={m.id}
+                        onPress={() => setMaterialSel((prev) => (prev === m.id ? null : m.id))}
+                        style={{
+                          paddingHorizontal: spacing.md,
+                          paddingVertical: 8,
+                          borderRadius: radius.pill,
+                          borderWidth: 1.5,
+                          borderColor: on ? colors.primary : colors.border,
+                          backgroundColor: on ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12.5 }}>🪨 {m.nombre}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            <View style={{ gap: 6 }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>🏗️ OPERACIÓN</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {PROYECTOS_OPERACION.map((p) => {
+                  const on = (operacionSel ?? proyectoOperacionValido(miObraId ? obras.find((o) => o.id === miObraId)?.proyecto_operacion : null)) === p.key;
+                  return (
+                    <TouchableOpacity
+                      key={p.key}
+                      onPress={() => setOperacionSel((prev) => (prev === p.key ? null : p.key))}
+                      style={{
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 8,
+                        borderRadius: radius.pill,
+                        borderWidth: 1.5,
+                        borderColor: on ? '#0284C7' : colors.border,
+                        backgroundColor: on ? '#0284C7' : colors.surface,
+                      }}
+                    >
+                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>🏗️ {p.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
 
             {/* ── 🧾 TIPO DE VIAJE (26-sep-2026) — solo si hay tipos creados. El
                 normal viene marcado: el toque extra es SOLO para el cruzado. */}
@@ -5759,6 +6076,76 @@ export default function ViajesCamionesScreen() {
               </>
             ) : null}
 
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+              ↕️ ENTRADA / SALIDA
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {([{ k: 'entrada' as const, label: '⬇️ Entrada' }, { k: 'salida' as const, label: '⬆️ Salida' }]).map((s) => {
+                const activo = cargaSentido === s.k;
+                return (
+                  <TouchableOpacity
+                    key={s.k}
+                    onPress={() => setCargaSentido((prev) => (prev === s.k ? null : s.k))}
+                    style={{
+                      paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                      borderWidth: 1, borderColor: activo ? colors.primary : colors.border,
+                      backgroundColor: activo ? colors.primary : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{s.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {materialesActivos.length > 0 ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                  🪨 MATERIAL
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  {materialesActivos.map((m) => {
+                    const activo = cargaMaterialId === m.id;
+                    return (
+                      <TouchableOpacity
+                        key={m.id}
+                        onPress={() => setCargaMaterialId((prev) => (prev === m.id ? null : m.id))}
+                        style={{
+                          paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                          borderWidth: 1, borderColor: activo ? colors.primary : colors.border,
+                          backgroundColor: activo ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🪨 {m.nombre}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            ) : null}
+
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+              🏗️ OPERACIÓN
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {PROYECTOS_OPERACION.map((p) => {
+                const activo = (cargaOperacion ?? proyectoOperacionValido(cargaUbicacionId ? obras.find((o) => o.id === cargaUbicacionId)?.proyecto_operacion : null)) === p.key;
+                return (
+                  <TouchableOpacity
+                    key={p.key}
+                    onPress={() => setCargaOperacion((prev) => (prev === p.key ? null : p.key))}
+                    style={{
+                      paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                      borderWidth: 1, borderColor: activo ? '#0284C7' : colors.border,
+                      backgroundColor: activo ? '#0284C7' : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: activo ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>🏗️ {p.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             {/* 🧾 LA TARIFA DEL VIAJE (07-oct-2026, a pedido: «poder seleccionar
                 las tarifas (…) ya sea las tarifas por nombre o tarifas
                 generales»). El registro del patio ya lo tenía; la carga manual
@@ -5911,6 +6298,14 @@ export default function ViajesCamionesScreen() {
               cosas se configuran una vez y se dejan quietas: la obra de cada
               listero y el formato del papel. */}
           {canFull ? <TiqueConfigCard uid={uid} onGuardado={(c) => { setConfigTique(c); setVersionTique((v) => v + 1); }} /> : null}
+          {canFull ? (
+            <ViajesMaterialesBox
+              materiales={materiales}
+              faltaSql={materialesMissing}
+              canFull={canFull}
+              onCambio={() => setMaterialesRecarga((v) => v + 1)}
+            />
+          ) : null}
 
           {/* Lo que hay que pagarle a cada empresa por los viajes de sus camiones
               (15-sep-2026). Vive acá y solo acá: no toca jornadas ni Control de Pagos. */}
@@ -6283,11 +6678,80 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || filterFormatoSel.size > 0 || filterFrenteSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
-              /* «Limpiar filtros» limpia TAMBIÉN la franja de horas: es un filtro
-                 más, y dejarlo puesto tras «limpiar» sería la trampa del filtro
-                 invisible otra vez (28-sep-2026). */
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterFormatoSel(new Map()); setFilterFrenteSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+            {sentidoOptions.length > 0 ? (
+              <View style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                  SENTIDO{filterSentidoSel.size > 0 ? ` (${filterSentidoSel.size})` : ' (todos)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todos', filterSentidoSel, setFilterSentidoSel)}
+                  {sentidoOptions.map((o) => {
+                    const on = filterSentidoSel.has(o.id);
+                    return (
+                      <TouchableOpacity
+                        key={o.id}
+                        onPress={() => toggleFilterSentido(o.id, o.label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.label}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {materialOptionsVisibles.length > 0 ? (
+              <View style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                  MATERIAL{filterMaterialSel.size > 0 ? ` (${filterMaterialSel.size})` : ' (todos)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todos', filterMaterialSel, setFilterMaterialSel)}
+                  {materialOptionsVisibles.map((o) => {
+                    const on = filterMaterialSel.has(o.id);
+                    return (
+                      <TouchableOpacity
+                        key={o.id}
+                        onPress={() => toggleFilterMaterial(o.id, o.label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🪨 {o.label}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {operacionOptions.length > 0 ? (
+              <View style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                  OPERACIÓN (MIYAMOTO / TFI){filterOperacionSel.size > 0 ? ` (${filterOperacionSel.size})` : ' (todas)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todas', filterOperacionSel, setFilterOperacionSel)}
+                  {operacionOptions.map((o) => {
+                    const on = filterOperacionSel.has(o.id);
+                    return (
+                      <TouchableOpacity
+                        key={o.id}
+                        onPress={() => toggleFilterOperacion(o.id, o.label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? '#0284C7' : colors.border, backgroundColor: on ? '#0284C7' : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>🏗️ {o.label}</Text>
+                        <Text style={{ color: on ? '#fff' : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || filterFormatoSel.size > 0 || filterFrenteSel.size > 0 || filterSentidoSel.size > 0 || filterMaterialSel.size > 0 || filterOperacionSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterFormatoSel(new Map()); setFilterFrenteSel(new Map()); setFilterSentidoSel(new Map()); setFilterMaterialSel(new Map()); setFilterOperacionSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}

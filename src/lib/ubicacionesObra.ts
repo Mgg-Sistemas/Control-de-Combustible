@@ -35,7 +35,28 @@ export type UbicacionObra = {
   nota?: string | null;
   /** Zona de pago del CDT (14-sep-2026). null = todavía sin zona. */
   zona_pago?: ZonaPago | null;
+  /** Proyecto / operación por defecto del CDT ('miyamoto' | 'tfi'). */
+  proyecto_operacion?: ProyectoOperacion | null;
 };
+
+export type ProyectoOperacion = 'miyamoto' | 'tfi';
+
+export const PROYECTOS_OPERACION: { key: ProyectoOperacion; label: string }[] = [
+  { key: 'miyamoto', label: 'Miyamoto' },
+  { key: 'tfi', label: 'TFI' },
+];
+
+export function proyectoOperacionValido(v: unknown): ProyectoOperacion | null {
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === 'miyamoto' || s === 'tfi' ? s : null;
+}
+
+export function etiquetaProyectoOperacion(v: unknown): string {
+  const p = proyectoOperacionValido(v);
+  if (p === 'miyamoto') return 'Miyamoto';
+  if (p === 'tfi') return 'TFI';
+  return 'Sin definir';
+}
 
 /**
  * ZONA DE PAGO de una obra/CDT (14-sep-2026).

@@ -47,6 +47,9 @@ export type ViajeOperativo = {
   frente_nombre?: string | null;
   formato_id?: string | null;
   formato_nombre?: string | null;
+  sentido?: string | null;
+  material_nombre?: string | null;
+  proyecto_operacion?: string | null;
 };
 
 const num = (v: unknown): number => {
@@ -100,6 +103,9 @@ export const SIN_EMPRESA_OP = '(sin empresa)';
 export const SIN_LISTERO_OP = 'Sin listero';
 export const SIN_FRENTE_OP = 'Sin frente';
 export const FORMATO_DEFECTO_OP = 'Formato Principal';
+export const SIN_SENTIDO_OP = 'Sin sentido';
+export const SIN_MATERIAL_OP = 'Sin material';
+export const SIN_OPERACION_OP = 'Sin operación';
 
 /** Turno operativo (☀️ 7am–7pm · 🌙 7pm–7am) deducido de la hora de Caracas (UTC−4). */
 export function turnoDeViajeOperativo(registeredAtISO: string | null | undefined): 'day' | 'night' {
@@ -119,6 +125,15 @@ export const listeroDeViaje = (v: ViajeOperativo): string => String(v.listero_na
 export const frenteDeViaje = (v: ViajeOperativo): string => String(v.frente_nombre ?? '').trim() || SIN_FRENTE_OP;
 export const formatoDeViajeOp = (v: ViajeOperativo): string => String(v.formato_nombre ?? v.formato_id ?? '').trim() || FORMATO_DEFECTO_OP;
 export const turnoDeViaje = (v: ViajeOperativo): 'day' | 'night' => turnoDeViajeOperativo(v.registered_at);
+export const sentidoDeViajeOp = (v: ViajeOperativo): string => {
+  const s = String(v.sentido ?? '').trim().toLowerCase();
+  return s === 'entrada' ? 'Entrada' : s === 'salida' ? 'Salida' : SIN_SENTIDO_OP;
+};
+export const materialDeViajeOp = (v: ViajeOperativo): string => String(v.material_nombre ?? '').trim() || SIN_MATERIAL_OP;
+export const operacionDeViajeOp = (v: ViajeOperativo): string => {
+  const o = String(v.proyecto_operacion ?? '').trim().toLowerCase();
+  return o === 'miyamoto' ? 'Miyamoto' : o === 'tfi' ? 'TFI' : SIN_OPERACION_OP;
+};
 
 // ── FILTROS (vacío = todas, igual que en los papeles de pago) ───────────────
 
@@ -131,10 +146,14 @@ export type FiltroOperativo = {
   frentes?: string[];
   turnos?: string[]; // 'day' | 'night'
   formatos?: string[];
+  sentidos?: string[];
+  materiales?: string[];
+  operaciones?: string[];
 };
 export const FILTRO_OPERATIVO_TODO: FiltroOperativo = {
   empresas: [], obras: [], zonas: [], camiones: [],
   listeros: [], frentes: [], turnos: [], formatos: [],
+  sentidos: [], materiales: [], operaciones: [],
 };
 
 const pasa = (lista: string[] | null | undefined, clave: string) => !lista || lista.length === 0 || lista.includes(clave);
@@ -148,7 +167,10 @@ export function filtrarViajesOperativo(viajes: ViajeOperativo[] | null | undefin
     && pasa(f.listeros, listeroDeViaje(v))
     && pasa(f.frentes, frenteDeViaje(v))
     && pasa(f.turnos, turnoDeViaje(v))
-    && pasa(f.formatos, formatoDeViajeOp(v)));
+    && pasa(f.formatos, formatoDeViajeOp(v))
+    && pasa(f.sentidos, sentidoDeViajeOp(v))
+    && pasa(f.materiales, materialDeViajeOp(v))
+    && pasa(f.operaciones, operacionDeViajeOp(v)));
 }
 
 /** El filtro, acotado a lo que de verdad hay en el rango: una empresa marcada
@@ -158,6 +180,7 @@ export function acotarFiltroOperativo(
   hay: {
     empresas: string[]; obras: string[]; zonas: string[]; camiones: string[];
     listeros?: string[]; frentes?: string[]; turnos?: string[]; formatos?: string[];
+    sentidos?: string[]; materiales?: string[]; operaciones?: string[];
   },
 ): FiltroOperativo {
   const e = new Set(hay.empresas); const o = new Set(hay.obras);
@@ -166,6 +189,9 @@ export function acotarFiltroOperativo(
   const fr = hay.frentes ? new Set(hay.frentes) : null;
   const tu = hay.turnos ? new Set(hay.turnos) : null;
   const fo = hay.formatos ? new Set(hay.formatos) : null;
+  const se = hay.sentidos ? new Set(hay.sentidos) : null;
+  const ma = hay.materiales ? new Set(hay.materiales) : null;
+  const op = hay.operaciones ? new Set(hay.operaciones) : null;
   const res: FiltroOperativo = {
     empresas: f.empresas.filter((k) => e.has(k)),
     obras: f.obras.filter((k) => o.has(k)),
@@ -176,6 +202,9 @@ export function acotarFiltroOperativo(
   if (f.frentes) res.frentes = f.frentes.filter((k) => !fr || fr.has(k));
   if (f.turnos) res.turnos = f.turnos.filter((k) => !tu || tu.has(k));
   if (f.formatos) res.formatos = f.formatos.filter((k) => !fo || fo.has(k));
+  if (f.sentidos) res.sentidos = f.sentidos.filter((k) => !se || se.has(k));
+  if (f.materiales) res.materiales = f.materiales.filter((k) => !ma || ma.has(k));
+  if (f.operaciones) res.operaciones = f.operaciones.filter((k) => !op || op.has(k));
   return res;
 }
 
@@ -194,6 +223,9 @@ export const empresasOperativo = (v: ViajeOperativo[] | null | undefined) => dis
 export const listerosOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, listeroDeViaje, SIN_LISTERO_OP);
 export const frentesOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, frenteDeViaje, SIN_FRENTE_OP);
 export const formatosOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, formatoDeViajeOp, FORMATO_DEFECTO_OP);
+export const sentidosOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, sentidoDeViajeOp, SIN_SENTIDO_OP);
+export const materialesOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, materialDeViajeOp, SIN_MATERIAL_OP);
+export const operacionesOperativo = (v: ViajeOperativo[] | null | undefined) => disponibles(v, operacionDeViajeOp, SIN_OPERACION_OP);
 
 export function turnosOperativo(viajes: ViajeOperativo[] | null | undefined): { id: string; name: string; viajes: number }[] {
   let diaCount = 0; let nocheCount = 0;

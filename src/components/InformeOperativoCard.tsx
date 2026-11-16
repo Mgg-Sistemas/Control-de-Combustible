@@ -32,6 +32,7 @@ import {
   empresasOperativo, filtrarViajesOperativo, jornadaOperativa, nro, obrasOperativo,
   ocultosOperativoEnPalabras, resumenOperativo, sufijoArchivoOperativo, textoPicoFlota, zonasOperativo,
   listerosOperativo, frentesOperativo, formatosOperativo, turnosOperativo,
+  sentidosOperativo, materialesOperativo, operacionesOperativo,
 } from '../lib/informeOperativo';
 
 type Props = {
@@ -52,7 +53,8 @@ const lunesDe = (iso: string) => sumarDias(iso, -((new Date(`${iso}T12:00:00Z`).
 const primeroDelMes = (iso: string) => `${iso.slice(0, 7)}-01`;
 
 // Lo que se le pide a la base por cada viaje: incluye campos congelados de listero, frente, folio y máquina.
-const COLS_OPERATIVO = 'id, machinery_id, machine_code, company_id, zona_pago, registered_at, peso_neto_kg, ubicacion_nombre, placa_snap, fuera_catalogo, listero_id, listero_name, folio, frente_id, frente_nombre';
+const COLS_OPERATIVO_BASE = 'id, machinery_id, machine_code, company_id, zona_pago, registered_at, peso_neto_kg, ubicacion_nombre, placa_snap, fuera_catalogo, listero_id, listero_name, folio, frente_id, frente_nombre';
+const COLS_OPERATIVO = `${COLS_OPERATIVO_BASE}, sentido, material_nombre, proyecto_operacion`;
 
 type Logos = { bcv: boolean; sos: boolean; golden: boolean; renace: boolean; jhenzaen: boolean };
 // 🏷️ Regla de la casa en Viajes de camiones: el papel nace SIN logos y sin la
@@ -90,6 +92,9 @@ export function InformeOperativoCard({ canVer }: Props) {
   const [frentesSel, setFrentesSel] = useState<Set<string>>(new Set());
   const [formatosSel, setFormatosSel] = useState<Set<string>>(new Set());
   const [zonasSel, setZonasSel] = useState<Set<string>>(new Set());
+  const [sentidosSel, setSentidosSel] = useState<Set<string>>(new Set());
+  const [materialesSel, setMaterialesSel] = useState<Set<string>>(new Set());
+  const [operacionesSel, setOperacionesSel] = useState<Set<string>>(new Set());
 
   // Buscador de filtros para encontrar fácilmente por placa, código, listero, frente o empresa
   const [busqFiltros, setBusqFiltros] = useState('');
@@ -108,7 +113,9 @@ export function InformeOperativoCard({ canVer }: Props) {
       const finExclusivo = sumarDias(hasta, 1);
       const [filas, empresas, maqs, tiqueCfg] = await Promise.all([
         selectAllRows('camion_viajes', COLS_OPERATIVO, (q: any) =>
-          q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`)),
+          q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`))
+          .catch(() => selectAllRows('camion_viajes', COLS_OPERATIVO_BASE, (q: any) =>
+            q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`))),
         selectAllRows('companies', 'id, name'),
         // 🚛 Placa/serial del catálogo: respalda los viajes viejos sin placa
         //    congelada en el cuadro por camión. Si falla, el papel sale igual.
@@ -156,6 +163,9 @@ export function InformeOperativoCard({ canVer }: Props) {
   const frentesHay = useMemo(() => frentesOperativo(viajes), [viajes]);
   const formatosHay = useMemo(() => formatosOperativo(viajes), [viajes]);
   const zonasHay = useMemo(() => zonasOperativo(viajes), [viajes]);
+  const sentidosHay = useMemo(() => sentidosOperativo(viajes), [viajes]);
+  const materialesHay = useMemo(() => materialesOperativo(viajes), [viajes]);
+  const operacionesHay = useMemo(() => operacionesOperativo(viajes), [viajes]);
 
   // Buscador de filtros unificado: filtra opciones visibles sin esconder nunca los elementos ya marcados
   const qFiltro = norm(busqFiltros.trim());
@@ -202,6 +212,9 @@ export function InformeOperativoCard({ canVer }: Props) {
       frentes: Array.from(frentesSel),
       turnos: Array.from(turnosSel),
       formatos: Array.from(formatosSel),
+      sentidos: Array.from(sentidosSel),
+      materiales: Array.from(materialesSel),
+      operaciones: Array.from(operacionesSel),
     },
     {
       empresas: empresasHay.map((x) => x.id),
@@ -212,15 +225,21 @@ export function InformeOperativoCard({ canVer }: Props) {
       frentes: frentesHay.map((x) => x.id),
       turnos: turnosHay.map((x) => x.id),
       formatos: formatosHay.map((x) => x.id),
+      sentidos: sentidosHay.map((x) => x.id),
+      materiales: materialesHay.map((x) => x.id),
+      operaciones: operacionesHay.map((x) => x.id),
     },
-  ), [empresasSel, obrasSel, zonasSel, camionesSel, listerosSel, frentesSel, turnosSel, formatosSel, empresasHay, obrasHay, zonasHay, camionesHay, listerosHay, frentesHay, turnosHay, formatosHay]);
+  ), [empresasSel, obrasSel, zonasSel, camionesSel, listerosSel, frentesSel, turnosSel, formatosSel, sentidosSel, materialesSel, operacionesSel, empresasHay, obrasHay, zonasHay, camionesHay, listerosHay, frentesHay, turnosHay, formatosHay, sentidosHay, materialesHay, operacionesHay]);
 
   const filtrados = useMemo(() => filtrarViajesOperativo(viajes, filtro), [viajes, filtro]);
   const filtrado = filtro.empresas.length > 0 || filtro.obras.length > 0 || filtro.zonas.length > 0 || filtro.camiones.length > 0
     || ((filtro.listeros?.length ?? 0) > 0)
     || ((filtro.frentes?.length ?? 0) > 0)
     || ((filtro.turnos?.length ?? 0) > 0)
-    || ((filtro.formatos?.length ?? 0) > 0);
+    || ((filtro.formatos?.length ?? 0) > 0)
+    || ((filtro.sentidos?.length ?? 0) > 0)
+    || ((filtro.materiales?.length ?? 0) > 0)
+    || ((filtro.operaciones?.length ?? 0) > 0);
 
   const cantFiltrosActivos = (filtro.empresas.length > 0 ? 1 : 0)
     + (filtro.obras.length > 0 ? 1 : 0)
@@ -229,7 +248,10 @@ export function InformeOperativoCard({ canVer }: Props) {
     + ((filtro.listeros?.length ?? 0) > 0 ? 1 : 0)
     + ((filtro.frentes?.length ?? 0) > 0 ? 1 : 0)
     + ((filtro.turnos?.length ?? 0) > 0 ? 1 : 0)
-    + ((filtro.formatos?.length ?? 0) > 0 ? 1 : 0);
+    + ((filtro.formatos?.length ?? 0) > 0 ? 1 : 0)
+    + ((filtro.sentidos?.length ?? 0) > 0 ? 1 : 0)
+    + ((filtro.materiales?.length ?? 0) > 0 ? 1 : 0)
+    + ((filtro.operaciones?.length ?? 0) > 0 ? 1 : 0);
 
   const limpiarFiltros = () => {
     setTurnosSel(new Set());
@@ -240,6 +262,9 @@ export function InformeOperativoCard({ canVer }: Props) {
     setFrentesSel(new Set());
     setFormatosSel(new Set());
     setZonasSel(new Set());
+    setSentidosSel(new Set());
+    setMaterialesSel(new Set());
+    setOperacionesSel(new Set());
     setBusqFiltros('');
   };
 
@@ -449,6 +474,27 @@ export function InformeOperativoCard({ canVer }: Props) {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
           {pastilla('z-todas', '✓ TODAS', filtro.zonas.length === 0, () => setZonasSel(new Set()))}
           {zonasHay.map((x) => pastilla('z' + x.id, `🧭 ${x.name} (${x.viajes})`, filtro.zonas.includes(x.id), () => alternarSel(zonasSel, setZonasSel, x.id)))}
+        </View>
+
+        {/* ↕️ SENTIDO */}
+        {rotulo(`↕️ SENTIDO${filtro.sentidos && filtro.sentidos.length > 0 ? ` (${filtro.sentidos.length})` : ' (todos)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('se-todos', '✓ TODOS', (filtro.sentidos?.length ?? 0) === 0, () => setSentidosSel(new Set()))}
+          {sentidosHay.map((x) => pastilla('se' + x.id, `${x.id === 'Entrada' ? '⬇️' : x.id === 'Salida' ? '⬆️' : '↕️'} ${x.name} (${x.viajes})`, filtro.sentidos?.includes(x.id) ?? false, () => alternarSel(sentidosSel, setSentidosSel, x.id)))}
+        </View>
+
+        {/* 🪨 MATERIAL */}
+        {rotulo(`🪨 MATERIAL${filtro.materiales && filtro.materiales.length > 0 ? ` (${filtro.materiales.length})` : ' (todos)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('ma-todos', '✓ TODOS', (filtro.materiales?.length ?? 0) === 0, () => setMaterialesSel(new Set()))}
+          {materialesHay.map((x) => pastilla('ma' + x.id, `🪨 ${x.name} (${x.viajes})`, filtro.materiales?.includes(x.id) ?? false, () => alternarSel(materialesSel, setMaterialesSel, x.id)))}
+        </View>
+
+        {/* 🏗️ OPERACIÓN (MIYAMOTO / TFI) */}
+        {rotulo(`🏗️ OPERACIÓN${filtro.operaciones && filtro.operaciones.length > 0 ? ` (${filtro.operaciones.length})` : ' (todas)'}`)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {pastilla('op-todas', '✓ TODAS', (filtro.operaciones?.length ?? 0) === 0, () => setOperacionesSel(new Set()))}
+          {operacionesHay.map((x) => pastilla('op' + x.id, `🏗️ ${x.name} (${x.viajes})`, filtro.operaciones?.includes(x.id) ?? false, () => alternarSel(operacionesSel, setOperacionesSel, x.id)))}
         </View>
 
         {/* 🖨️ PERSONALIZACIÓN DE COLUMNAS Y SECCIONES DEL PAPEL */}

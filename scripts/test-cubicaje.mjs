@@ -210,8 +210,8 @@ const todo = Object.fromEntries(todasLasClaves.map((k) => [k, true]));
 const nada = Object.fromEntries(todasLasClaves.map((k) => [k, false]));
 // 28-sep-2026: el peso se partió en TRES interruptores (bruto/tara/neto), a
 // pedido — de 13 pasamos a 15.
-eq('hay 18 interruptores (entró el punto cardinal, 03-oct)', todasLasClaves.length, 18);
-eq('con todo encendido, el detallado lleva 19 columnas (con los 3 del peso, el frente y la zona)', columnasDetalle(todo).length, 19);
+eq('hay 21 interruptores (entró el punto cardinal + sentido, material y operación)', todasLasClaves.length, 21);
+eq('con todo encendido, el detallado lleva 22 columnas (con los 3 del peso, frente, zona, sentido, material y operación)', columnasDetalle(todo).length, 22);
 eq('y el resumido 12 (peso a pagar + promedio por viaje)', columnasResumen(todo, 'listero').length, 12);
 // Fecha, hora y camión no se pueden quitar: sin ellas la línea no identifica
 // nada. Ningún interruptor debe poder dejar la tabla sin identidad. La EMPRESA

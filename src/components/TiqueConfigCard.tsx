@@ -66,6 +66,9 @@ const EJEMPLO: Record<ClaveCampo, string> = {
   pesoBruto:   '32.540,00 Kg',
   pesoTara:    '11.340,00 Kg',
   pesoNeto:    '21.200,00 Kg',
+  sentido:     'Entrada',
+  material:    'Material triturado',
+  operacion:   'Miyamoto',
   estado:      'Operativa',
   nota:        'Sin nota',
 };

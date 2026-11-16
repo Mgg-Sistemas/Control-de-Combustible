@@ -38,9 +38,9 @@
  * camión—. Un filtro de turno por fuera se contradiría con los otros tres en
  * cuanto se marcaran juntos.
  */
-export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion' | 'formato' | 'frente';
+export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion' | 'formato' | 'frente' | 'sentido' | 'material' | 'operacion';
 export const EJES_FILTRO: readonly ('listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion')[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion'] as const;
-export const TODOS_LOS_EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion', 'formato', 'frente'] as const;
+export const TODOS_LOS_EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion', 'formato', 'frente', 'sentido', 'material', 'operacion'] as const;
 
 /** Lo marcado en un eje: id → etiqueta. Vacío = «todos». */
 export type MarcadosEje = ReadonlyMap<string, string>;

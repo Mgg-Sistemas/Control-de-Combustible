@@ -5,6 +5,7 @@ import { unidadTarifa, type UnidadTarifaViaje } from './tarifaViajeUnidad';
 import {
   CAMPOS_VIAJE_ROW, completarFrentes, mapaAsignaciones, rangoJornadas, type AsignacionDia,
 } from './frentesAuto';
+import { proyectoOperacionValido, type ProyectoOperacion } from './ubicacionesObra';
 
 /**
  * VIAJES DE CAMIONES: bitácora de viajes (regreso/entrada = un viaje) registrada
@@ -41,6 +42,27 @@ function isMissingTable(msg: string, code?: string): boolean {
   // 42P01 tabla inexistente · 42703 columna inexistente · PGRST205 fuera del schema cache
   if (code === '42P01' || code === '42703' || code === 'PGRST205') return true;
   return /does not exist|schema cache|could not find the (table|column)/i.test(String(msg || ''));
+}
+
+export type SentidoViaje = 'entrada' | 'salida';
+
+export type MaterialViaje = {
+  id: string;
+  nombre: string;
+  orden: number;
+  active: boolean;
+};
+
+export function sentidoViajeValido(v: unknown): SentidoViaje | null {
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === 'entrada' || s === 'salida' ? s : null;
+}
+
+export function etiquetaSentidoViaje(v: unknown): string {
+  const s = sentidoViajeValido(v);
+  if (s === 'entrada') return 'Entrada';
+  if (s === 'salida') return 'Salida';
+  return 'Sin definir';
 }
 
 export type CamionViajeRow = {
@@ -149,6 +171,13 @@ export type CamionViajeRow = {
   /** 'este' / 'oeste' / null: la zona CONGELADA en el viaje (la del CDT ese
    *  día). Es la misma que usa el pago; acá solo se muestra (03-oct-2026). */
   zonaPago: string | null;
+  /** 'entrada' / 'salida' / null: sentido del viaje elegido al registrar. */
+  sentido: SentidoViaje | null;
+  /** Material transportado (congelado al registrar desde viajes_materiales). */
+  materialId: string | null;
+  materialNombre: string | null;
+  /** Operación / proyecto ('miyamoto' | 'tfi' | null), congelado al registrar. */
+  proyectoOperacion: ProyectoOperacion | null;
 };
 
 function mapRow(r: any): CamionViajeRow {
@@ -192,6 +221,10 @@ function mapRow(r: any): CamionViajeRow {
     frenteId: (r.frente_id ?? null) as string | null,
     frenteNombre: (r.frente_nombre ?? null) as string | null,
     zonaPago: (r.zona_pago === 'este' || r.zona_pago === 'oeste' ? r.zona_pago : null) as string | null,
+    sentido: sentidoViajeValido(r.sentido),
+    materialId: (r.material_id ?? null) as string | null,
+    materialNombre: (r.material_nombre ?? null) as string | null,
+    proyectoOperacion: proyectoOperacionValido(r.proyecto_operacion),
   };
 }
 
@@ -237,6 +270,7 @@ let hayColumnasDeTipo: boolean | null = null;
 /** Y el quinto, para el FRENTE DE TRABAJO (28-sep-2026). Mismo motivo que los
  *  otros cuatro: un respaldo de esta mañana tiene tipo y no tiene frente. */
 let hayColumnasDeFrente: boolean | null = null;
+let hayColumnasDeClasificacion: boolean | null = null;
 
 const COLS_OBRA = 'ubicacion_id, ubicacion_nombre, zona_pago';
 const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
@@ -246,6 +280,7 @@ const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
 const COLS_PESO = 'peso_bruto_kg, peso_tara_kg, peso_neto_kg, tara_manual, tara_manual_nombre, peso_foto_url, origen';
 const COLS_TIPO = 'tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa, tipo_viaje_unidad';
 const COLS_FRENTE = 'frente_id, frente_nombre';
+const COLS_CLASIFICACION = 'sentido, material_id, material_nombre, proyecto_operacion';
 
 /** Las columnas que se piden, según lo que se sepa que existe. */
 const colsViaje = () =>
@@ -255,6 +290,7 @@ const colsViaje = () =>
    hayColumnasDePeso === false ? null : COLS_PESO,
    hayColumnasDeTipo === false ? null : COLS_TIPO,
    hayColumnasDeFrente === false ? null : COLS_FRENTE,
+   hayColumnasDeClasificacion === false ? null : COLS_CLASIFICACION,
   ].filter(Boolean).join(', ');
 
 /** ¿El error es «esa columna no existe»? Solo eso: una tabla que falta es otra cosa. */
@@ -278,9 +314,26 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
     if (hayColumnasDePeso === null) hayColumnasDePeso = true;
     if (hayColumnasDeTipo === null) hayColumnasDeTipo = true;
     if (hayColumnasDeFrente === null) hayColumnasDeFrente = true;
+    if (hayColumnasDeClasificacion === null) hayColumnasDeClasificacion = true;
     return data as any[];
   } catch (e: any) {
     if (!esColumnaQueFalta(e)) throw e;
+
+    // ESCALÓN -3: sin sentido / material / proyecto_operacion.
+    if (hayColumnasDeClasificacion !== false) {
+      try {
+        const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}, ${COLS_TIQUE}, ${COLS_PESO}, ${COLS_TIPO}, ${COLS_FRENTE}`, filtro);
+        hayColumnasDeClasificacion = false;
+        hayColumnasDeFrente = true;
+        hayColumnasDeTipo = true;
+        hayColumnasDePeso = true;
+        hayColumnasDeTique = true;
+        hayColumnasDeObra = true;
+        return data as any[];
+      } catch (eC: any) {
+        if (!esColumnaQueFalta(eC)) throw eC;
+      }
+    }
 
     // ESCALÓN -2: sin el frente de trabajo, que es lo más nuevo de todo.
     if (hayColumnasDeFrente !== false) {
@@ -469,6 +522,10 @@ export async function registrarViaje(params: {
    *  frente; se puede completar después en ✏️ Editar. */
   frenteId?: string | null;
   frenteNombre?: string | null;
+  sentido?: SentidoViaje | null;
+  materialId?: string | null;
+  materialNombre?: string | null;
+  proyectoOperacion?: ProyectoOperacion | null;
 }): Promise<{ error?: string; missing?: boolean }> {
   // La foto primero: un viaje con peso no puede entrar sin su evidencia. El
   // insert de abajo solo corre cuando ya hay URL (o cuando el viaje es viejo
@@ -534,47 +591,39 @@ export async function registrarViaje(params: {
     frente_id: params.frenteId ?? null,
     frente_nombre: params.frenteNombre ?? null,
   };
+  const camposClasificacion = {
+    sentido: sentidoViajeValido(params.sentido),
+    material_id: params.materialId ?? null,
+    material_nombre: params.materialNombre ?? null,
+    proyecto_operacion: proyectoOperacionValido(params.proyectoOperacion),
+  };
 
-  // Mismo respaldo que en la lectura, y por la misma razón: si un `.sql` todavía
-  // no se corrió, el insert con esas columnas rebota con 42703 y EL LISTERO NO
-  // PODRÍA REGISTRAR NI UN VIAJE. Se baja un escalón y se reintenta; el viaje
-  // entra igual y lo único que pierde es lo que esa base todavía no sabe
-  // guardar, que se puede rellenar después.
-  //
-  // ⚠️ El `client_action_id` es EL MISMO en todos los intentos, así que si uno
-  //    llegó a entrar, el siguiente rebota con 23505 y quien llama ya lee eso
-  //    como «ese viaje ya estaba». No se puede duplicar por reintentar.
-  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean; peso: boolean; tipo: boolean; frente: boolean }[] = [];
+  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean; peso: boolean; tipo: boolean; frente: boolean; clasificacion: boolean }[] = [];
+  if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false && hayColumnasDeFrente !== false && hayColumnasDeClasificacion !== false) {
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo, ...camposFrente, ...camposClasificacion }, obra: true, ticket: true, peso: true, tipo: true, frente: true, clasificacion: true });
+  }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false && hayColumnasDeFrente !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo, ...camposFrente }, obra: true, ticket: true, peso: true, tipo: true, frente: true });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo, ...camposFrente }, obra: true, ticket: true, peso: true, tipo: true, frente: true, clasificacion: false });
   }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo }, obra: true, ticket: true, peso: true, tipo: true, frente: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo }, obra: true, ticket: true, peso: true, tipo: true, frente: false, clasificacion: false });
   }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso }, obra: true, ticket: true, peso: true, tipo: false, frente: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso }, obra: true, ticket: true, peso: true, tipo: false, frente: false, clasificacion: false });
   }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false) {
-    // ⚠️ Sin las columnas de peso el viaje ENTRA IGUAL y el peso se pierde en
-    //    ESA base (misma filosofía de siempre: mejor un viaje sin peso que un
-    //    listero que no puede registrar). La pantalla avisa con
-    //    `faltaCorrerSqlDePeso()` para que el admin corra el `.sql`.
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, ticket: true, peso: false, tipo: false, frente: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, ticket: true, peso: false, tipo: false, frente: false, clasificacion: false });
   }
   if (hayColumnasDeObra !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, ticket: false, peso: false, tipo: false, frente: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, ticket: false, peso: false, tipo: false, frente: false, clasificacion: false });
   }
-  escalones.push({ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false, frente: false });
+  escalones.push({ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false, frente: false, clasificacion: false });
 
   let error: any = null;
   for (const paso of escalones) {
     const r = await supabase.from('camion_viajes').insert(paso.cuerpo);
     error = r.error;
     if (!error) {
-      // Solo se AFIRMA lo que este intento acaba de demostrar. Un escalón que
-      // funciona prueba que sus columnas están; no dice nada de las de arriba
-      // — salvo que para LLEGAR a este escalón, el de arriba tuvo que fallar
-      // por columna que falta, y eso sí se anota.
       if (paso.obra) hayColumnasDeObra = true;
       if (paso.ticket) hayColumnasDeTique = true;
       if (paso.peso) hayColumnasDePeso = true;
@@ -582,9 +631,11 @@ export async function registrarViaje(params: {
       else if (paso.peso) hayColumnasDeTipo = false;
       if (paso.frente) hayColumnasDeFrente = true;
       else if (paso.tipo) hayColumnasDeFrente = false;
-      if (!paso.peso && paso.ticket) { hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; }
-      if (!paso.ticket && paso.obra) { hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; }
-      if (!paso.obra) { hayColumnasDeObra = false; hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; }
+      if (paso.clasificacion) hayColumnasDeClasificacion = true;
+      else if (paso.frente) hayColumnasDeClasificacion = false;
+      if (!paso.peso && paso.ticket) { hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; hayColumnasDeClasificacion = false; }
+      if (!paso.ticket && paso.obra) { hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; hayColumnasDeClasificacion = false; }
+      if (!paso.obra) { hayColumnasDeObra = false; hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; hayColumnasDeClasificacion = false; }
       return {};
     }
     if (!esColumnaQueFalta(error)) break;
@@ -711,6 +762,9 @@ export type CambiosViaje = {
    *  (28-sep-2026, pedido: «el histórico debería poder agregarle frentes a los
    *  que ya se hicieron»). Snapshot completo, o los dos en null para quitarlo. */
   frente?: { id: string | null; nombre: string | null };
+  sentido?: SentidoViaje | null;
+  material?: { id: string | null; nombre: string | null };
+  proyectoOperacion?: ProyectoOperacion | null;
 };
 
 /**
@@ -743,6 +797,16 @@ export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ 
   if (cambios.frente !== undefined) {
     patch.frente_id = cambios.frente.id;
     patch.frente_nombre = cambios.frente.nombre;
+  }
+  if (cambios.sentido !== undefined) {
+    patch.sentido = sentidoViajeValido(cambios.sentido);
+  }
+  if (cambios.material !== undefined) {
+    patch.material_id = cambios.material.id;
+    patch.material_nombre = cambios.material.nombre;
+  }
+  if (cambios.proyectoOperacion !== undefined) {
+    patch.proyecto_operacion = proyectoOperacionValido(cambios.proyectoOperacion);
   }
   // Un update vacío en PostgREST devuelve la fila sin cambiar nada: parecería
   // que se guardó algo. Mejor decirlo.
@@ -1534,4 +1598,87 @@ export async function resolveChoferActual(machineryId: string, shift: 'day' | 'n
     if (nm) return nm;
   }
   return operatorName ?? null;
+}
+
+/** Lista los materiales de viaje configurados en `viajes_materiales` ordenados por `orden` y `nombre`. */
+export async function listMaterialesViaje(): Promise<{ materiales: MaterialViaje[]; faltaSql: boolean; error?: string }> {
+  const { data, error } = await supabase
+    .from('viajes_materiales')
+    .select('id, nombre, orden, active')
+    .order('orden', { ascending: true })
+    .order('nombre', { ascending: true });
+  if (error) {
+    if (isMissingTable(error.message, (error as any).code)) {
+      return { materiales: [], faltaSql: true };
+    }
+    return { materiales: [], faltaSql: false, error: error.message };
+  }
+  const materiales: MaterialViaje[] = (data ?? []).map((r: any) => ({
+    id: r.id as string,
+    nombre: String(r.nombre ?? '').trim(),
+    orden: Number(r.orden ?? 0),
+    active: r.active !== false,
+  }));
+  return { materiales, faltaSql: false };
+}
+
+export async function crearMaterialViaje(nombre: string, orden: number): Promise<{ error?: string }> {
+  const clean = nombre.trim();
+  if (!clean) return { error: 'Escribe el nombre del material.' };
+  const { data, error } = await supabase
+    .from('viajes_materiales')
+    .insert({ nombre: clean, orden, active: true })
+    .select('id');
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: 'No se guardó: solo quien tiene permiso completo de viajes puede editar materiales.' };
+  return {};
+}
+
+export async function actualizarMaterialViaje(
+  id: string,
+  patch: { nombre?: string; orden?: number; active?: boolean }
+): Promise<{ error?: string }> {
+  const body: Record<string, any> = {};
+  if (patch.nombre !== undefined) {
+    const clean = patch.nombre.trim();
+    if (!clean) return { error: 'El nombre no puede quedar vacío.' };
+    body.nombre = clean;
+  }
+  if (patch.orden !== undefined) body.orden = patch.orden;
+  if (patch.active !== undefined) body.active = patch.active;
+  if (!Object.keys(body).length) return {};
+  const { data, error } = await supabase
+    .from('viajes_materiales')
+    .update(body)
+    .eq('id', id)
+    .select('id');
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: 'No se guardó: solo quien tiene permiso completo de viajes puede editar materiales.' };
+  return {};
+}
+
+export async function reordenarMaterialesViaje(orderedIds: string[]): Promise<{ error?: string }> {
+  for (let i = 0; i < orderedIds.length; i++) {
+    const res = await actualizarMaterialViaje(orderedIds[i], { orden: i + 1 });
+    if (res.error) return res;
+  }
+  return {};
+}
+
+/** Permite al propio listero actualizar su CDT/Ubicación activa en `profiles` sin tocar viajes pasados. */
+export async function cambiarMiCdtListero(uid: string, ubicacionId: string): Promise<{ error?: string }> {
+  if (!uid) return { error: 'Sin sesión activa.' };
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ ubicacion_id: ubicacionId || null })
+    .eq('id', uid)
+    .select('id');
+  if (error) {
+    if (esColumnaQueFalta(error)) return { error: 'Falta activar ubicaciones en la base.' };
+    return { error: error.message };
+  }
+  if (!data?.length) {
+    return { error: 'No se pudo actualizar tu CDT en el perfil; el cambio aplica en esta sesión.' };
+  }
+  return {};
 }

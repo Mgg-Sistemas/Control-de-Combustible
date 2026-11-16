@@ -21,6 +21,7 @@ export type ClaveCampo =
   | 'jornada' | 'turno' | 'codigo' | 'marcaModelo' | 'serial'
   | 'chofer' | 'listero' | 'm3'
   | 'pesoBruto' | 'pesoTara' | 'pesoNeto'
+  | 'sentido' | 'material' | 'operacion'
   | 'estado' | 'nota';
 
 export type ClaveLogo = 'sos' | 'goldenTouch' | 'renace' | 'bcv';
@@ -101,6 +102,9 @@ export const CAMPOS_TIQUE: { k: ClaveCampo; label: string; corto: string; ayuda?
   { k: 'pesoBruto',   label: '⚖️ Peso entrada (bruto)', corto: 'Peso entrada (bruto)', ayuda: 'El peso que tecleó el listero en la romana del CDT.' },
   { k: 'pesoTara',    label: '⚖️ Peso salida (tara)',   corto: 'Peso salida (tara)',   ayuda: 'La tara del camión, congelada al registrar ese viaje.' },
   { k: 'pesoNeto',    label: '⚖️ Peso a pagar (neto)',  corto: 'Peso a pagar (neto)',  ayuda: 'Bruto menos tara. Lo calcula la base de datos, nunca el teléfono. Los viajes anteriores al peso salen con raya.' },
+  { k: 'sentido',     label: '↕️ Entrada / Salida',     corto: 'Sentido' },
+  { k: 'material',    label: '🪨 Material',             corto: 'Material' },
+  { k: 'operacion',   label: '🏗️ Miyamoto / TFI',       corto: 'Operación' },
   { k: 'estado',      label: '⚙️ Estado del camión', corto: 'Estado' },
   { k: 'nota',        label: '🗒️ Nota',             corto: 'Nota' },
 ];
@@ -130,6 +134,7 @@ export const CONFIG_POR_DEFECTO: TiqueConfig = {
     // Apagados de fábrica como TODO lo nuevo (regla de la casa). El pedido del
     // 26-sep es que salgan: se encienden los tres checks en la configuración.
     pesoBruto: false, pesoTara: false, pesoNeto: false,
+    sentido: true, material: true, operacion: false,
     estado: false, nota: false,
   },
   logos: { sos: true, goldenTouch: true, renace: false, bcv: false },

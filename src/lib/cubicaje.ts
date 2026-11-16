@@ -286,6 +286,9 @@ export type OpcionesReporte = {
   pesoBruto: boolean;
   pesoTara: boolean;
   pesoNeto: boolean;
+  sentido: boolean;
+  material: boolean;
+  operacion: boolean;
   /**
    * PROMEDIO DE PESO POR VIAJE DE CADA CAMIÓN (29-sep-2026, a pedido, con un
    * papel de muestra): peso a pagar del camión ÷ sus viajes.
@@ -336,6 +339,9 @@ export const OPCIONES_POR_DEFECTO: OpcionesReporte = {
   pesoBruto: false,
   pesoTara: false,
   pesoNeto: false,
+  sentido: false,
+  material: false,
+  operacion: false,
   pesoPromedio: false,
 };
 
@@ -366,6 +372,9 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
   if (op.frente && eje !== 'frente') c.push({ key: 'frente', head: 'Frente' });
   // 🧭 Pegada a la obra: la zona ES de la obra del viaje (Este u Oeste).
   if (op.zona) c.push({ key: 'zona', head: 'Zona' });
+  if (op.sentido) c.push({ key: 'sentido', head: 'Sentido' });
+  if (op.material) c.push({ key: 'material', head: 'Material' });
+  if (op.operacion) c.push({ key: 'operacion', head: 'Operación' });
   if (op.placa) c.push({ key: 'placa', head: 'Placa / Serial' });
   if (op.marcaModelo) c.push({ key: 'marcaModelo', head: 'Marca / Modelo' });
   if (op.dimensiones) c.push({ key: 'dims', head: 'Alto × Largo × Ancho (m)' });

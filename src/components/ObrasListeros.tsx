@@ -25,7 +25,20 @@ import { useToast } from './ToastProvider';
 import { useConfirm } from './ConfirmProvider';
 import { supabase } from '../lib/supabase';
 import { asignarObraAListero } from '../lib/camionViajes';
-import { etiquetaZonaPago, nombreLimpio, obrasActivasSinZona, validarNombre, ZONAS_PAGO, zonaPagoValida, type UbicacionObra, type ZonaPago } from '../lib/ubicacionesObra';
+import {
+  etiquetaProyectoOperacion,
+  etiquetaZonaPago,
+  nombreLimpio,
+  obrasActivasSinZona,
+  PROYECTOS_OPERACION,
+  proyectoOperacionValido,
+  validarNombre,
+  ZONAS_PAGO,
+  zonaPagoValida,
+  type ProyectoOperacion,
+  type UbicacionObra,
+  type ZonaPago,
+} from '../lib/ubicacionesObra';
 
 type Listero = { id: string; full_name: string; ubicacion_id: string | null };
 
@@ -121,6 +134,15 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, canMover, on
     toast.success(nueva
       ? `${o.nombre}: ${etiquetaZonaPago(nueva)}. Los viajes de esta obra que no tenían zona la tomaron; los que ya tenían conservan la suya.`
       : `${o.nombre}: sin zona. Los viajes ya registrados conservan su zona.`);
+    onCambioObras();
+  };
+
+  const cambiarProyecto = async (o: UbicacionObra, proy: ProyectoOperacion) => {
+    const nuevo = proyectoOperacionValido(o.proyecto_operacion) === proy ? null : proy;
+    const { data, error } = await supabase.from('ubicaciones_obra').update({ proyecto_operacion: nuevo }).eq('id', o.id).select('id');
+    if (error) { toast.error(`No se pudo asignar operación: ${error.message}`); return; }
+    if (!data?.length) { toast.error(SIN_PERMISO_OBRA); return; }
+    toast.success(nuevo ? `${o.nombre}: ${etiquetaProyectoOperacion(nuevo)}.` : `${o.nombre}: sin operación fija.`);
     onCambioObras();
   };
 
@@ -238,8 +260,8 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, canMover, on
                               <Text style={{ color: o.active ? colors.text : colors.muted, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>
                                 {o.nombre}{o.active ? '' : '  ·  DESACTIVADA'}
                               </Text>
-                              <Text style={{ color: colors.muted, fontSize: 11 }}>{cuantos} listero(s) · Zona: {etiquetaZonaPago(o.zona_pago)}</Text>
-                              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>{cuantos} listero(s) · Zona: {etiquetaZonaPago(o.zona_pago)} · Op.: {etiquetaProyectoOperacion(o.proyecto_operacion)}</Text>
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
                                 {ZONAS_PAGO.map((z) => {
                                   const marcada = zonaPagoValida(o.zona_pago) === z.key;
                                   return (
@@ -249,6 +271,18 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, canMover, on
                                       style={{ borderWidth: 1, borderColor: marcada ? colors.brand : colors.border, backgroundColor: marcada ? colors.brand : 'transparent', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 }}
                                     >
                                       <Text style={{ color: marcada ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{z.label}</Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                                {PROYECTOS_OPERACION.map((p) => {
+                                  const marcada = proyectoOperacionValido(o.proyecto_operacion) === p.key;
+                                  return (
+                                    <TouchableOpacity
+                                      key={p.key}
+                                      onPress={() => cambiarProyecto(o, p.key)}
+                                      style={{ borderWidth: 1, borderColor: marcada ? '#0284C7' : colors.border, backgroundColor: marcada ? '#0284C7' : 'transparent', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 }}
+                                    >
+                                      <Text style={{ color: marcada ? '#fff' : colors.text, fontSize: 11, fontWeight: '700' }}>{p.label}</Text>
                                     </TouchableOpacity>
                                   );
                                 })}
