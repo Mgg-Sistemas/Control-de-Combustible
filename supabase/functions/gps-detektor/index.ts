@@ -125,7 +125,7 @@ function parsearUltimoPuntoSoap(xmlTexto: string): { filas: any[]; error: string
     const lat = Number(latitud.replace(',', '.'));
     const lng = Number(longitud.replace(',', '.'));
     if (!latitud || !longitud || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) continue;
-    const fecha = tag(cuerpo, ['fecha_hora', 'fechahora', 'fecha', 'fechafinal', 'fechapunto', 'ultimopunto']);
+    const fecha = tag(cuerpo, ['fecha_gps', 'fecha_hora', 'fechahora', 'fecha', 'fechafinal', 'fechapunto', 'ultimopunto']);
     const hora = tag(cuerpo, ['hora']);
     const fechaCompleta = fecha && hora && !/ \d{2}:/.test(fecha) ? `${fecha} ${hora}` : fecha;
     const georeferencia = tag(cuerpo, ['georeferencia', 'ubicacion', 'direccion', 'lugar']);
@@ -147,7 +147,8 @@ function parsearUltimoPuntoSoap(xmlTexto: string): { filas: any[]; error: string
     });
   }
   const fechasValidas = filas.filter((r) => /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(String(r.fechafinal ?? ''))).length;
-  console.log(`[gps-detektor] SOAP puntos con coordenadas ${filas.length} · fechas reconocibles ${fechasValidas}`);
+  const formaFecha = String(filas[0]?.fechafinal ?? '').replace(/\d/g, '#').replace(/[A-Za-z]/g, 'A').slice(0, 40) || 'vacía';
+  console.log(`[gps-detektor] SOAP puntos con coordenadas ${filas.length} · fechas reconocibles ${fechasValidas} · forma ${formaFecha}`);
   return { filas, error: !filas.length ? (errores[0] || 'Respuesta SOAP sin coordenadas.') : null };
 }
 

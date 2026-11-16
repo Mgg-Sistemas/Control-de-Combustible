@@ -101,6 +101,11 @@ if (parserStart >= 0 && parserEnd > parserStart) {
   const sinCoordenadas = '<xml_dat>&lt;movil placa="A01FE8M"&gt;&lt;fecha_hora&gt;2026-11-13 13:45:00&lt;/fecha_hora&gt;&lt;/movil&gt;</xml_dat>';
   const punto = parserModule.exports.parsearUltimoPuntoSoap(sinCoordenadas);
   check(punto.filas.length === 0 && /sin coordenadas/i.test(punto.error || ''), 'SOAP sin latitud y longitud permite continuar al respaldo REST');
+  const fechaGps = '<xml_dat>&lt;movil placa="ABC123"&gt;&lt;fecha_gps&gt;2026-11-16 14:50:00&lt;/fecha_gps&gt;&lt;latitud&gt;10.6012&lt;/latitud&gt;&lt;longitud&gt;-66.9321&lt;/longitud&gt;&lt;velocidad&gt;35&lt;/velocidad&gt;&lt;/movil&gt;</xml_dat>';
+  const puntoFechaGps = parserModule.exports.parsearUltimoPuntoSoap(fechaGps);
+  check(puntoFechaGps.filas[0]?.fechafinal === '2026-11-16 14:50:00' && G.ultimaUbicacion(G.leerDetenciones(puntoFechaGps.filas), 'ABC123', G.msDeFechaDetektor('2026-11-16 14:51:00'))?.lat === 10.6012,
+    'SOAP fecha_gps conserva la última posición en movimiento y la app la dibuja');
+  check(G.leerUltimoPuntoXml(fechaGps).filas[0]?.fechafinal === '2026-11-16 14:50:00', 'el lector SOAP de la app también reconoce fecha_gps');
   const inicioConsulta = fn.indexOf('async function consultarSoapUltimoPunto(');
   const finConsulta = fn.indexOf('type Pedido =', inicioConsulta);
   check(inicioConsulta >= 0 && finConsulta > inicioConsulta, 'consulta SOAP disponible para probar actualizaciones seguidas');

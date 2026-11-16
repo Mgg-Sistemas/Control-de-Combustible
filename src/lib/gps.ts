@@ -170,7 +170,7 @@ export function leerUltimoPuntoXml(xmlCrudo: unknown): { filas: any[]; error: st
     const alias = attr(attrs, 'alias') || tag(cuerpo, ['alias', 'nombre']);
     const latitud = tag(cuerpo, ['latitud', 'lat', 'latitude']) || attr(attrs, 'latitud') || attr(attrs, 'lat');
     const longitud = tag(cuerpo, ['longitud', 'lon', 'lng', 'longitude']) || attr(attrs, 'longitud') || attr(attrs, 'lon');
-    const fecha = tag(cuerpo, ['fecha_hora', 'fechahora', 'fecha', 'fechafinal', 'fechapunto', 'ultimopunto']);
+    const fecha = tag(cuerpo, ['fecha_gps', 'fecha_hora', 'fechahora', 'fecha', 'fechafinal', 'fechapunto', 'ultimopunto']);
     const hora = tag(cuerpo, ['hora']);
     const fechaCompleta = fecha && hora && !/ \d{2}:/.test(fecha) ? `${fecha} ${hora}` : fecha;
     const georeferencia = tag(cuerpo, ['georeferencia', 'ubicacion', 'direccion', 'lugar']);
