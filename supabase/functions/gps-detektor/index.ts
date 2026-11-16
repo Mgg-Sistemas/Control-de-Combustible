@@ -128,6 +128,8 @@ function parsearUltimoPuntoSoap(xmlTexto: string): { filas: any[]; error: string
     const fecha = tag(cuerpo, ['fecha_gps', 'fecha_hora', 'fechahora', 'fecha', 'fechafinal', 'fechapunto', 'ultimopunto']);
     const hora = tag(cuerpo, ['hora']);
     const fechaCompleta = fecha && hora && !/ \d{2}:/.test(fecha) ? `${fecha} ${hora}` : fecha;
+    // Detektor Venezuela agrega -04 a fecha_gps; el cliente web espera la hora local sin sufijo.
+    const fechaCliente = fechaCompleta.replace(/-04(?::?00)?$/, '');
     const georeferencia = tag(cuerpo, ['georeferencia', 'ubicacion', 'direccion', 'lugar']);
     const ignRaw = tag(cuerpo, ['ignicion', 'motor', 'encendido', 'estado_motor']);
     const velRaw = tag(cuerpo, ['velocidad', 'vel', 'speed']);
@@ -135,8 +137,8 @@ function parsearUltimoPuntoSoap(xmlTexto: string): { filas: any[]; error: string
     filas.push({
       placa: alias && !placa.includes('[') ? `${placa} - [${alias}]` : placa,
       alias,
-      fechainicio: fechaCompleta,
-      fechafinal: fechaCompleta,
+      fechainicio: fechaCliente,
+      fechafinal: fechaCliente,
       latitud,
       longitud,
       georeferencia,
@@ -402,14 +404,11 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (filasAcumuladas.length > 0) {
-        return json({ ok: true, filas: filasAcumuladas });
-      }
-
-      // 3) Si `wsDetenciones` dio HTTP 500 en Detektor y SOAP no devolvió coordenadas,
-      //    consultamos `wsResumenActividadDiaria` de ayer y hoy para entregar el estado real del equipo sin romper con 502:
+      // 3) La actividad diaria acompaña al punto y sigue visible aunque SOAP sí entregue coordenadas.
       const hoy = fechaVe(ahora).slice(0, 10);
       const ayer = fechaVe(ahora - 86_400_000).slice(0, 10);
+      let mias: unknown[] = [];
+      let errResumen: string | null = null;
       try {
         const filasRes = await detektor('wsResumenActividadDiaria', {
           fechainicio: ayer,
@@ -418,7 +417,14 @@ Deno.serve(async (req) => {
           tiempodetencion: '5',
         });
         const ok = new Set(placas.map(norm));
-        const mias = filasRes.filter((r: any) => ok.has(norm(r?.placa)) || ok.has(norm(r?.alias)));
+        mias = filasRes.filter((r: any) => ok.has(norm(r?.placa)) || ok.has(norm(r?.alias)));
+      } catch (e) {
+        errResumen = (e as Error)?.message || 'Detektor no devolvió la actividad diaria.';
+      }
+      if (filasAcumuladas.length > 0) {
+        return json({ ok: true, filas: filasAcumuladas, resumen: mias });
+      }
+      if (!errResumen) {
         const detalleFallos = [
           errDetenciones ? `wsDetenciones: ${errDetenciones}` : null,
           errSoap ? `SOAP ultimo_punto: ${errSoap}` : null,
@@ -429,10 +435,8 @@ Deno.serve(async (req) => {
           resumen: mias,
           aviso: `El servidor de Detektor reporta la actividad diaria del equipo, pero su servicio de coordenadas respondió error (${detalleFallos || 'sin coordenadas'}).`,
         });
-      } catch {
-        // Si incluso el resumen diario falló (ej. credenciales inválidas o caída total de Detektor):
-        throw new Error(errDetenciones || errSoap || 'Detektor no respondió.');
       }
+      throw new Error(errDetenciones || errSoap || errResumen);
     }
 
     const desde = String(body?.desde ?? '');

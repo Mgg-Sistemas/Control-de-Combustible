@@ -27,6 +27,7 @@ const G = loadTs(path.join(ROOT, 'src/lib/gps.ts'));
 // ── 1) La dirección y las fechas ──
 eq(G.DETEKTOR_BASE, 'https://ve.detektorgps.com/gps_ve/framework/servicios', '⭐ la ruta de Venezuela (gps_ve en ve.detektorgps.com; con «gt.» da 404, comprobado el 12-nov)');
 eq(G.msDeFechaDetektor('2026-11-12 07:30:05'), Date.parse('2026-11-12T11:30:05Z'), 'las fechas de Detektor son hora de Caracas (UTC−4)');
+eq(G.msDeFechaDetektor('2026-11-16 17:37:32-04'), Date.parse('2026-11-16T21:37:32Z'), 'el último punto acepta la zona horaria -04 que envía Detektor');
 eq(G.fechaDetektor(Date.parse('2026-11-12T11:30:05Z')), '2026-11-12 07:30:05', 'y se le mandan en hora de Caracas');
 eq([G.horasDeDuracion('11:22:08').toFixed(3), G.horasDeDuracion('0:00'), G.horasDeDuracion('x')], ['11.369', 0, null], 'duraciones «hh:mm:ss» → horas');
 eq(G.placaYAlias('1234 - [alias-1234]'), { placa: '1234', alias: 'alias-1234' }, 'la placa de las detenciones trae el alias entre corchetes');
@@ -105,6 +106,11 @@ if (parserStart >= 0 && parserEnd > parserStart) {
   const puntoFechaGps = parserModule.exports.parsearUltimoPuntoSoap(fechaGps);
   check(puntoFechaGps.filas[0]?.fechafinal === '2026-11-16 14:50:00' && G.ultimaUbicacion(G.leerDetenciones(puntoFechaGps.filas), 'ABC123', G.msDeFechaDetektor('2026-11-16 14:51:00'))?.lat === 10.6012,
     'SOAP fecha_gps conserva la última posición en movimiento y la app la dibuja');
+  const fechaConZona = fechaGps.replace('2026-11-16 14:50:00', '2026-11-16 14:50:00-04');
+  const puntoConZona = parserModule.exports.parsearUltimoPuntoSoap(fechaConZona);
+  check(puntoConZona.filas[0]?.fechafinal === '2026-11-16 14:50:00', 'el puente entrega la fecha en formato compatible con la web ya publicada');
+  check(G.ultimaUbicacion(G.leerDetenciones(puntoConZona.filas), 'ABC123', Date.parse('2026-11-16T18:51:00Z'))?.lat === 10.6012,
+    'el punto real con fecha_gps terminada en -04 llega al mapa');
   check(G.leerUltimoPuntoXml(fechaGps).filas[0]?.fechafinal === '2026-11-16 14:50:00', 'el lector SOAP de la app también reconoce fecha_gps');
   const inicioConsulta = fn.indexOf('async function consultarSoapUltimoPunto(');
   const finConsulta = fn.indexOf('type Pedido =', inicioConsulta);
@@ -154,6 +160,10 @@ check(!/console\.(log|error)\([^)]*(pass|usuario)/.test(fn) && /Nunca se devuelv
 // ── 6) En el mapa de la maquinaria ──
 const panel = leer('src/components/GpsPanelMapa.tsx');
 check(/consultarDetektor\(\{ accion: 'ubicacion', placas: pedidos\.map\(\(v\) => v\.placaAlias\) \}\)/.test(panel), '⭐ «Actualizar»: UNA consulta para todas las marcadas');
+const bloqueUbicacion = fn.slice(fn.indexOf("if (accion === 'ubicacion')"), fn.indexOf("if (accion === 'resumen')"));
+check(bloqueUbicacion.indexOf("await detektor('wsResumenActividadDiaria'") < bloqueUbicacion.indexOf('if (filasAcumuladas.length > 0)') && /filas: filasAcumuladas, resumen: mias/.test(bloqueUbicacion),
+  'al recibir coordenadas también se entrega la actividad diaria que ya funcionaba');
+check(/c\.u\s*\?\s*<View>[\s\S]*?c\.actividadTexto/.test(panel), 'con punto en el mapa también se muestran las horas de actividad');
 check(/ultimaUbicacion\(dets, v\.placaAlias, cuando\)/.test(panel) && /\}\), \[vehiculos, consultas\]\);/.test(panel), 'la capa sale de la última detención y no cambia sola cada minuto');
 check(/if \(!abierto \|\| vehiculos\) return;/.test(panel), 'la lista de vehículos se lee una vez y solo si abres el panel');
 const ms = leer('src/screens/MapScreen.tsx');

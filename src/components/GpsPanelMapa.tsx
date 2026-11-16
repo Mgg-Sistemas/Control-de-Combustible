@@ -133,11 +133,14 @@ export function GpsPanelMapa({ onPuntos, onFoco }: { onPuntos: (p: GpsPinMapa[])
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{on ? '☑️' : '⬜'} {nombreVehiculo(v)}</Text>
                   <Text style={{ color: colors.muted, fontSize: 11 }}>{[v.equipo?.empresa, v.equipo?.clasificacion, `GPS ${v.placaAlias}`].filter(Boolean).join(' · ')}</Text>
                   {c ? (c.u
-                    ? <Text style={{ color: ubicacionVieja(c.u, ahora) ? colors.muted : colors.text, fontSize: 11 }}>
-                        {c.u.detenida ? `⏸️ detenida ${haceCuanto(c.u.desdeMs, ahora).replace('hace ', 'desde hace ')}` : `🚚 en movimiento${c.u.velocidad && c.u.velocidad > 1 ? ` (${Math.round(c.u.velocidad)} km/h)` : ''} · última señal ${haceCuanto(c.u.hastaMs, ahora)}`}
-                        {c.u.motorEncendido ? ' · 🟢 motor encendido' : ' · ⚫ motor apagado'}
-                        {c.u.lugar ? ` · ${c.u.lugar}` : ''}
-                      </Text>
+                    ? <View>
+                        <Text style={{ color: ubicacionVieja(c.u, ahora) ? colors.muted : colors.text, fontSize: 11 }}>
+                          {c.u.detenida ? `⏸️ detenida ${haceCuanto(c.u.desdeMs, ahora).replace('hace ', 'desde hace ')}` : `🚚 en movimiento${c.u.velocidad && c.u.velocidad > 1 ? ` (${Math.round(c.u.velocidad)} km/h)` : ''} · última señal ${haceCuanto(c.u.hastaMs, ahora)}`}
+                          {c.u.motorEncendido ? ' · 🟢 motor encendido' : ' · ⚫ motor apagado'}
+                          {c.u.lugar ? ` · ${c.u.lugar}` : ''}
+                        </Text>
+                        {c.actividadTexto ? <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📊 {c.actividadTexto}</Text> : null}
+                      </View>
                     : (
                       <View style={{ marginTop: 2 }}>
                         {c.actividadTexto ? <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📊 {c.actividadTexto}</Text> : null}

@@ -47,9 +47,10 @@ export const GPS_VIEJO_MIN = 6 * 60;
 
 /** «2026-11-12 07:30:05» (hora de Caracas) → ms. NaN si no se entiende. */
 export function msDeFechaDetektor(s: unknown): number {
-  const m = String(s ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  const m = String(s ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?(?:([+-])(\d{2})(?::?(\d{2}))?)?$/);
   if (!m) return NaN;
-  return Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4] ?? '00'}:${m[5] ?? '00'}:${m[6] ?? '00'}-04:00`);
+  const zona = m[7] ? `${m[7]}${m[8]}:${m[9] ?? '00'}` : '-04:00';
+  return Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4] ?? '00'}:${m[5] ?? '00'}:${m[6] ?? '00'}${zona}`);
 }
 
 /** ms → «2026-11-12 07:30:05» en hora de Caracas (lo que pide Detektor). */
