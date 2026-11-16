@@ -52,7 +52,17 @@ import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { isOnline, isNetworkErrorMsg, enqueueAveria, enqueueParada, enqueueVolverOperativa, subscribeQueue, flushQueue, onConnectivityChange } from '../lib/offlineQueue';
 import { generateMyShiftReceipt } from '../lib/inspectorReport';
-import { cargarFilasControlHorometros, generarControlHorometrosPdf, diaSemanaCaracas, type FilaControlHorometros } from '../lib/controlHorometrosInspectorPdf';
+import {
+  cargarFilasControlHorometros,
+  generarControlHorometrosPdf,
+  diaSemanaCaracas,
+  CHO_OPCIONES_DEFECTO,
+  type FilaControlHorometros,
+  type ChoOpcionesPdf,
+  type ChoColumnasConfig,
+  type ChoLogosConfig,
+  type ChoAgrupacion,
+} from '../lib/controlHorometrosInspectorPdf';
 import { isPhoneDevice } from '../lib/device';
 import InspectorHeaderBar from '../components/redesign/InspectorHeaderBar';
 import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
@@ -1670,6 +1680,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [choDescargando, setChoDescargando] = useState(false);
   const [choFilas, setChoFilas] = useState<FilaControlHorometros[] | null>(null);
   const [choObs, setChoObs] = useState<Record<string, string>>({});
+  const [choOptsOpen, setChoOptsOpen] = useState(false);
+  const [choOpciones, setChoOpciones] = useState<ChoOpcionesPdf>(CHO_OPCIONES_DEFECTO);
   // Inspectores elegidos (solo coordinador/admin): null = yo; array = uno o varios inspectores.
   // La lista sale del mismo cálculo de las filas (mismo turno/día), así nunca ofrece a alguien que no saldría.
   const [choInspectoresSel, setChoInspectoresSel] = useState<string[] | null>(null);
@@ -1715,6 +1727,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         inspectorNames: choInspectoresEff,
         filas: choFilas,
         observaciones: choObs,
+        opciones: puedeCoordinar ? choOpciones : CHO_OPCIONES_DEFECTO,
       });
     } catch {
       setNotice('❌ No se pudo generar el PDF del control de horómetros.');
@@ -4727,6 +4740,105 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 </View>
               );
             })() : null}
+
+            {/* ⚙️ Opciones del PDF (agrupar, columnas y logos): solo coordinador/admin */}
+            {puedeCoordinar ? (
+              <View style={{ marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }}>
+                <TouchableOpacity
+                  onPress={() => setChoOptsOpen((v) => !v)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.sm, paddingVertical: 6 }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
+                    ⚙️ Opciones del PDF (agrupar, columnas y logos)
+                  </Text>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 11.5 }}>{choOptsOpen ? '▲ Ocultar' : '▼ Configurar'}</Text>
+                </TouchableOpacity>
+                {choOptsOpen ? (
+                  <ScrollView style={{ maxHeight: 210, paddingHorizontal: spacing.sm, paddingBottom: spacing.xs }} nestedScrollEnabled>
+                    <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '800', marginBottom: 4 }}>🗂️ AGRUPAR POR</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.xs }}>
+                      {([
+                        { k: 'empresa', label: '🏢 Por Empresa' },
+                        { k: 'inspector', label: '👷 Por Inspector' },
+                        { k: 'ninguno', label: '📄 Sin agrupar' },
+                      ] as { k: ChoAgrupacion; label: string }[]).map((g) => {
+                        const on = choOpciones.agruparPor === g.k;
+                        return (
+                          <TouchableOpacity
+                            key={g.k}
+                            onPress={() => setChoOpciones((prev) => ({ ...prev, agruparPor: g.k }))}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+                          >
+                            <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 11 }}>{g.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '800', marginBottom: 4 }}>🖨️ COLUMNAS DEL PDF (TOCA PARA OCULTAR O MOSTRAR)</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.xs }}>
+                      {([
+                        { k: 'num', label: '№' },
+                        { k: 'empresa', label: 'Empresa' },
+                        { k: 'placaSerial', label: 'Placa / Serial' },
+                        { k: 'nombreMaquina', label: 'Nombre máquina' },
+                        { k: 'horoInicio', label: 'Horóm. Inicio' },
+                        { k: 'horaInicio', label: 'Hora Inicio' },
+                        { k: 'horoFinal', label: 'Horóm. Final' },
+                        { k: 'horaFinal', label: 'Hora Final' },
+                        { k: 'frente', label: 'Frente' },
+                        { k: 'observacion', label: 'Observación' },
+                      ] as { k: keyof ChoColumnasConfig; label: string }[]).map((col) => {
+                        const on = choOpciones.columnas[col.k];
+                        return (
+                          <TouchableOpacity
+                            key={col.k}
+                            onPress={() => setChoOpciones((prev) => ({
+                              ...prev,
+                              columnas: { ...prev.columnas, [col.k]: !prev.columnas[col.k] },
+                            }))}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? '#0284C7' : colors.border, backgroundColor: on ? '#0284C7' : colors.surface }}
+                          >
+                            <Text style={{ color: on ? '#fff' : colors.muted, fontWeight: '700', fontSize: 11 }}>{on ? '✓ ' : '✕ '}{col.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                      <TouchableOpacity
+                        onPress={() => setChoOpciones((prev) => ({ ...prev, mostrarFirma: !prev.mostrarFirma }))}
+                        style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: choOpciones.mostrarFirma ? '#0284C7' : colors.border, backgroundColor: choOpciones.mostrarFirma ? '#0284C7' : colors.surface }}
+                      >
+                        <Text style={{ color: choOpciones.mostrarFirma ? '#fff' : colors.muted, fontWeight: '700', fontSize: 11 }}>{choOpciones.mostrarFirma ? '✓ ' : '✕ '}Firma al pie</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '800', marginBottom: 4 }}>🏷️ LOGOS DEL MEMBRETE</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {([
+                        { k: 'bcv', label: '🏦 BCV' },
+                        { k: 'sos', label: '🛟 SOS La Guaira' },
+                        { k: 'golden', label: '✨ Golden Touch' },
+                        { k: 'renace', label: '🇻🇪 Renace' },
+                        { k: 'jhenzaen', label: '🏗️ Jhenzaen' },
+                      ] as { k: keyof ChoLogosConfig; label: string }[]).map((lg) => {
+                        const on = choOpciones.logos[lg.k];
+                        return (
+                          <TouchableOpacity
+                            key={lg.k}
+                            onPress={() => setChoOpciones((prev) => ({
+                              ...prev,
+                              logos: { ...prev.logos, [lg.k]: !prev.logos[lg.k] },
+                            }))}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? '#16A34A' : colors.border, backgroundColor: on ? '#16A34A' : colors.surface }}
+                          >
+                            <Text style={{ color: on ? '#fff' : colors.muted, fontWeight: '700', fontSize: 11 }}>{on ? '✓ ' : '✕ '}{lg.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                ) : null}
+              </View>
+            ) : null}
 
             <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
               Empresa, placa, horómetros, horas y frente salen de lo ya registrado y NO se tocan.

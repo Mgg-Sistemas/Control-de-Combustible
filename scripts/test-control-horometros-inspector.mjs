@@ -83,6 +83,18 @@ ok('📝 la sugerencia no pisa lo escrito por el inspector',
   scr.includes('if (f.obsSugerida && !(f.machineryId in next)) next[f.machineryId] = f.obsSugerida;'));
 ok('📄 el PDF recibe las observaciones por máquina',
   lib.includes('observaciones[f.machineryId]'));
+ok('📄 PLACA / SERIAL centrada en encabezado y celda',
+  lib.includes('<th class="c">PLACA / SERIAL</th>')
+  && lib.includes('td class="c placa-col"')
+  && lib.includes('.cho th.c{text-align:center}'));
+ok('🏢 agrupa por empresa por defecto y soporta inspector / sin agrupar',
+  lib.includes("agruparPor: 'empresa'")
+  && lib.includes('🏢 EMPRESA:')
+  && lib.includes('👷 INSPECTOR:'));
+ok('⚙️ coordinador/admin puede ocultar/mostrar columnas, logos y agrupar',
+  scr.includes('Opciones del PDF (agrupar, columnas y logos)')
+  && scr.includes('puedeCoordinar ? choOpciones : CHO_OPCIONES_DEFECTO')
+  && lib.includes('logos: op.logos'));
 
 console.log(`\n🕐 Control de horómetros (inspector): ${pass} OK · ${fail} FALLO(S)`);
 if (fail) { failures.forEach((f) => console.log(`  ✗ ${f}`)); process.exit(1); }

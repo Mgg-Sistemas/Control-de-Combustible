@@ -176,39 +176,153 @@ export async function cargarFilasControlHorometros(opts: {
   return { filas, inspectores };
 }
 
+export type ChoColumnasConfig = {
+  num: boolean;
+  empresa: boolean;
+  placaSerial: boolean;
+  nombreMaquina: boolean;
+  horoInicio: boolean;
+  horaInicio: boolean;
+  horoFinal: boolean;
+  horaFinal: boolean;
+  frente: boolean;
+  observacion: boolean;
+};
+
+export type ChoLogosConfig = {
+  bcv: boolean;
+  sos: boolean;
+  golden: boolean;
+  renace: boolean;
+  jhenzaen: boolean;
+};
+
+export type ChoAgrupacion = 'empresa' | 'inspector' | 'ninguno';
+
+export type ChoOpcionesPdf = {
+  columnas: ChoColumnasConfig;
+  logos: ChoLogosConfig;
+  agruparPor: ChoAgrupacion;
+  mostrarFirma: boolean;
+};
+
+export const CHO_OPCIONES_DEFECTO: ChoOpcionesPdf = {
+  columnas: {
+    num: true,
+    empresa: true,
+    placaSerial: true,
+    nombreMaquina: true,
+    horoInicio: true,
+    horaInicio: true,
+    horoFinal: true,
+    horaFinal: true,
+    frente: true,
+    observacion: true,
+  },
+  logos: { bcv: true, sos: true, golden: false, renace: false, jhenzaen: false },
+  agruparPor: 'empresa',
+  mostrarFirma: true,
+};
+
 /**
  * Genera y descarga el PDF de la planilla en formato Carta Vertical (letter portrait),
- * bien organizado para que las 9 columnas quepan completas sin cortarse. Las filas van
+ * bien organizado para que las columnas quepan completas sin cortarse. Las filas van
  * NUMERADAS por posición (1, 2, 3…) y la observación es la que escribió el
- * inspector en pantalla (clave: machineryId). Soporta uno o varios inspectores.
+ * inspector en pantalla (clave: machineryId). Soporta uno o varios inspectores,
+ * agrupación por empresa/inspector y personalización de columnas/logos.
  */
 export async function generarControlHorometrosPdf(opts: {
   date: string; shift: 'day' | 'night'; inspectorName: string; inspectorNames?: string[];
   filas: FilaControlHorometros[]; observaciones: Record<string, string>;
+  opciones?: ChoOpcionesPdf;
 }): Promise<void> {
   const { date, shift, inspectorName, inspectorNames, filas, observaciones } = opts;
+  const op: ChoOpcionesPdf = {
+    columnas: { ...CHO_OPCIONES_DEFECTO.columnas, ...(opts.opciones?.columnas ?? {}) },
+    logos: { ...CHO_OPCIONES_DEFECTO.logos, ...(opts.opciones?.logos ?? {}) },
+    agruparPor: opts.opciones?.agruparPor ?? CHO_OPCIONES_DEFECTO.agruparPor,
+    mostrarFirma: opts.opciones?.mostrarFirma ?? CHO_OPCIONES_DEFECTO.mostrarFirma,
+  };
+  const cols = op.columnas;
+
   const nombres = (inspectorNames && inspectorNames.length > 0 ? inspectorNames : [inspectorName]).filter(Boolean);
   const esMulti = nombres.length > 1;
   const inspectorCabecera = nombres.join(', ') || inspectorName;
   const turnoTxt = shift === 'day' ? '☀️ Turno Día (7:00am–7:00pm)' : '🌙 Turno Noche (7:00pm–7:00am)';
 
+  // Ordenar filas según agrupación
+  const filasOrdenadas = [...filas];
+  if (op.agruparPor === 'empresa') {
+    filasOrdenadas.sort((a, b) => {
+      const ea = a.empresa || 'Sin empresa';
+      const eb = b.empresa || 'Sin empresa';
+      if (!a.empresa && b.empresa) return 1;
+      if (a.empresa && !b.empresa) return -1;
+      const cEmp = cmpText(ea, eb);
+      if (cEmp !== 0) return cEmp;
+      return cmpText(a.codigo || a.placaSerial, b.codigo || b.placaSerial);
+    });
+  } else if (op.agruparPor === 'inspector') {
+    filasOrdenadas.sort((a, b) => {
+      const cInsp = cmpText(a.inspector || '', b.inspector || '');
+      if (cInsp !== 0) return cInsp;
+      const cEmp = cmpText(a.empresa || 'Sin empresa', b.empresa || 'Sin empresa');
+      if (cEmp !== 0) return cEmp;
+      return cmpText(a.codigo || a.placaSerial, b.codigo || b.placaSerial);
+    });
+  }
+
+  // Definición de columnas visibles (lo apagado no deja rastro en el papel)
+  type ColDef = {
+    k: keyof ChoColumnasConfig;
+    w: number;
+    th: string;
+    td: (f: FilaControlHorometros, i: number) => string;
+  };
+  const todasCols: ColDef[] = [
+    { k: 'num', w: 4, th: '<th class="c">№</th>', td: (_f, i) => `<td class="c num">${i + 1}</td>` },
+    { k: 'empresa', w: 14, th: '<th>EMPRESA</th>', td: (f) => `<td>${esc(f.empresa)}</td>` },
+    { k: 'placaSerial', w: 15, th: '<th class="c">PLACA / SERIAL</th>', td: (f) => `<td class="c placa-col"><b>${esc(f.placaSerial || '—')}</b>${cols.nombreMaquina && f.codigo ? `<div class="mini">${esc(f.codigo)}</div>` : ''}</td>` },
+    { k: 'horoInicio', w: 10, th: '<th class="c">HORÓMETRO<br/>INICIO</th>', td: (f) => `<td class="c">${esc(f.horoInicio)}</td>` },
+    { k: 'horaInicio', w: 8.5, th: '<th class="c">HORA<br/>INICIO</th>', td: (f) => `<td class="c">${esc(f.horaInicio)}</td>` },
+    { k: 'horoFinal', w: 10, th: '<th class="c">HORÓMETRO<br/>FINAL</th>', td: (f) => `<td class="c">${esc(f.horoFinal)}</td>` },
+    { k: 'horaFinal', w: 8.5, th: '<th class="c">HORA<br/>FINAL</th>', td: (f) => `<td class="c">${esc(f.horaFinal)}</td>` },
+    { k: 'frente', w: 13, th: '<th>FRENTE</th>', td: (f) => `<td>${esc(f.frente)}</td>` },
+    { k: 'observacion', w: 17, th: '<th>OBSERVACIÓN</th>', td: (f) => `<td class="obs">${esc(String(observaciones[f.machineryId] ?? '').trim())}</td>` },
+  ];
+  const colsActivas = todasCols.filter((c) => cols[c.k]);
+  const colsFinal = colsActivas.length > 0 ? colsActivas : [todasCols[2]];
+  const totalPeso = colsFinal.reduce((s, c) => s + c.w, 0) || 100;
+
+  // Contar por grupo para mostrar (N máquinas) en el separador
+  const conteoGrupo = new Map<string, number>();
+  if (op.agruparPor !== 'ninguno') {
+    filasOrdenadas.forEach((f) => {
+      const key = op.agruparPor === 'empresa' ? (f.empresa || 'Sin empresa') : (f.inspector || inspectorCabecera);
+      conteoGrupo.set(key, (conteoGrupo.get(key) ?? 0) + 1);
+    });
+  }
+
   let ultimoGrupo = '';
-  const cuerpo = filas.map((f, i) => {
-    const grupo = esMulti && f.inspector && f.inspector !== ultimoGrupo
-      ? `<tr class="grp"><td colspan="9">👷 INSPECTOR: ${esc(f.inspector)}</td></tr>`
-      : '';
-    if (f.inspector) ultimoGrupo = f.inspector;
-    return `${grupo}
+  const colCount = colsFinal.length;
+  const cuerpo = filasOrdenadas.map((f, i) => {
+    let grupoHtml = '';
+    if (op.agruparPor === 'empresa') {
+      const emp = f.empresa || 'Sin empresa';
+      if (emp !== ultimoGrupo) {
+        ultimoGrupo = emp;
+        grupoHtml = `<tr class="grp"><td colspan="${colCount}">🏢 EMPRESA: ${esc(emp)} (${conteoGrupo.get(emp) ?? 1})</td></tr>`;
+      }
+    } else if (op.agruparPor === 'inspector') {
+      const insp = f.inspector || inspectorCabecera;
+      if (insp !== ultimoGrupo) {
+        ultimoGrupo = insp;
+        grupoHtml = `<tr class="grp"><td colspan="${colCount}">👷 INSPECTOR: ${esc(insp)} (${conteoGrupo.get(insp) ?? 1})</td></tr>`;
+      }
+    }
+    return `${grupoHtml}
     <tr>
-      <td class="c num">${i + 1}</td>
-      <td>${esc(f.empresa)}</td>
-      <td><b>${esc(f.placaSerial || '—')}</b>${f.codigo ? `<div class="mini">${esc(f.codigo)}</div>` : ''}</td>
-      <td class="c">${esc(f.horoInicio)}</td>
-      <td class="c">${esc(f.horaInicio)}</td>
-      <td class="c">${esc(f.horoFinal)}</td>
-      <td class="c">${esc(f.horaFinal)}</td>
-      <td>${esc(f.frente)}</td>
-      <td class="obs">${esc(String(observaciones[f.machineryId] ?? '').trim())}</td>
+      ${colsFinal.map((c) => c.td(f, i)).join('\n      ')}
     </tr>`;
   }).join('');
 
@@ -221,30 +335,14 @@ export async function generarControlHorometrosPdf(opts: {
     </div>
     <table class="cho">
       <colgroup>
-        <col style="width:4%"/>
-        <col style="width:14%"/>
-        <col style="width:15%"/>
-        <col style="width:10%"/>
-        <col style="width:8.5%"/>
-        <col style="width:10%"/>
-        <col style="width:8.5%"/>
-        <col style="width:13%"/>
-        <col style="width:17%"/>
+        ${colsFinal.map((c) => `<col style="width:${(Math.round((c.w / totalPeso) * 1000) / 10)}%"/>`).join('\n        ')}
       </colgroup>
       <thead><tr>
-        <th class="c">№</th>
-        <th>EMPRESA</th>
-        <th>PLACA / SERIAL</th>
-        <th class="c">HORÓMETRO<br/>INICIO</th>
-        <th class="c">HORA<br/>INICIO</th>
-        <th class="c">HORÓMETRO<br/>FINAL</th>
-        <th class="c">HORA<br/>FINAL</th>
-        <th>FRENTE</th>
-        <th>OBSERVACIÓN</th>
+        ${colsFinal.map((c) => c.th).join('\n        ')}
       </tr></thead>
-      <tbody>${cuerpo || '<tr><td colspan="9" class="none">Sin máquinas asignadas este turno.</td></tr>'}</tbody>
+      <tbody>${cuerpo || `<tr><td colspan="${colCount}" class="none">Sin máquinas asignadas este turno.</td></tr>`}</tbody>
     </table>
-    <div class="firma"><div class="linea"></div><div class="rotulo">${esc(esMulti ? `Coordinación · ${nombres.length} inspectores` : `${inspectorCabecera} · Inspector`)}</div></div>`;
+    ${op.mostrarFirma ? `<div class="firma"><div class="linea"></div><div class="rotulo">${esc(esMulti ? `Coordinación · ${nombres.length} inspectores` : `${inspectorCabecera} · Inspector`)}</div></div>` : ''}`;
 
   const extraCss = `
     @page{size:letter portrait;margin:10mm 9mm}
@@ -266,11 +364,13 @@ export async function generarControlHorometrosPdf(opts: {
     .cho tfoot{display:table-row-group}
     .cho tr{page-break-inside:avoid;break-inside:avoid}
     .cho th{background:#EEF2F7;color:#1E3A5F;border:1px solid #94A3B8;padding:4px 3px;font-size:8px;font-weight:800;letter-spacing:0;line-height:1.15;text-align:left;overflow-wrap:break-word;word-wrap:break-word}
+    .cho th.c{text-align:center}
     .cho td{border:1px solid #94A3B8;padding:4.5px 3.5px;vertical-align:middle;min-height:22px;line-height:1.2;overflow-wrap:break-word;word-wrap:break-word;word-break:break-word}
     .cho .c{text-align:center}
     .cho td.c{white-space:nowrap}
+    .cho td.c.placa-col{white-space:normal}
     .cho .num{font-weight:800;font-size:9px}
-    .cho .mini{color:#4B5563;font-size:8px;margin-top:1px;line-height:1.1;white-space:normal}
+    .cho .mini{color:#4B5563;font-size:8px;margin-top:1px;line-height:1.1;white-space:normal;text-align:center}
     .cho .obs{min-width:0;width:auto}
     .cho .none{color:#6B7280;text-align:center;padding:14px 0}
     .cho tr.grp td{background:#E2E8F0;color:#1E3A5F;font-weight:800;font-size:9px;padding:4px 6px;letter-spacing:.3px}
@@ -280,11 +380,19 @@ export async function generarControlHorometrosPdf(opts: {
   `;
 
   const nombreArchivoInsp = nombres.length > 2 ? `${nombres.length} inspectores` : inspectorCabecera;
+  const sufijosArchivo: string[] = [];
+  if (op.agruparPor === 'empresa') sufijosArchivo.push('por empresa');
+  else if (op.agruparPor === 'inspector') sufijosArchivo.push('por inspector');
+  const ocultasCount = Object.values(cols).filter((v) => !v).length + (!op.mostrarFirma ? 1 : 0);
+  if (ocultasCount > 0) sufijosArchivo.push('personalizado');
+  const sufijoTxt = sufijosArchivo.length ? ` - ${sufijosArchivo.join(' - ')}` : '';
+
   const html = pdfDocument({
     title: 'CONTROL DE HORÓMETROS',
     subtitle: `👷 ${esc(esMulti && nombres.length > 3 ? `${nombres.length} inspectores` : inspectorCabecera)} · ${dmy(date)} · ${turnoTxt}`,
     body,
     extraCss,
+    logos: op.logos,
   });
-  await exportPdf(html, `Control de horometros - ${nombreArchivoInsp} - ${dmy(date)} ${shift === 'day' ? 'dia' : 'noche'}`);
+  await exportPdf(html, `Control de horometros - ${nombreArchivoInsp} - ${dmy(date)} ${shift === 'day' ? 'dia' : 'noche'}${sufijoTxt}`);
 }
