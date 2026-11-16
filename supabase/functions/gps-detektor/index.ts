@@ -119,6 +119,9 @@ function parsearUltimoPuntoSoap(xmlTexto: string): { filas: any[]; error: string
     const alias = attr(attrs, 'alias') || tag(cuerpo, ['alias', 'nombre']);
     const latitud = tag(cuerpo, ['latitud', 'lat', 'latitude']) || attr(attrs, 'latitud') || attr(attrs, 'lat');
     const longitud = tag(cuerpo, ['longitud', 'lon', 'lng', 'longitude']) || attr(attrs, 'longitud') || attr(attrs, 'lon');
+    const lat = Number(latitud.replace(',', '.'));
+    const lng = Number(longitud.replace(',', '.'));
+    if (!latitud || !longitud || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) continue;
     const fecha = tag(cuerpo, ['fecha_hora', 'fechahora', 'fecha', 'fechafinal', 'fechapunto', 'ultimopunto']);
     const hora = tag(cuerpo, ['hora']);
     const fechaCompleta = fecha && hora && !/ \d{2}:/.test(fecha) ? `${fecha} ${hora}` : fecha;
@@ -140,7 +143,7 @@ function parsearUltimoPuntoSoap(xmlTexto: string): { filas: any[]; error: string
       fuente: 'ultimo_punto',
     });
   }
-  return { filas, error: !filas.length && errores.length ? errores[0] : null };
+  return { filas, error: !filas.length ? (errores[0] || 'Respuesta SOAP sin coordenadas.') : null };
 }
 
 /** Consulta el Web Service SOAP `ultimo_punto` en `ws/servicio_v3.php` (y respaldo `ws/servicio_v2.php`). */

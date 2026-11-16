@@ -87,6 +87,18 @@ eq([G.sugerirEquipo({ placa: 'A22CY0J', alias: '' }, CAT)?.id, G.sugerirEquipo({
   check(/supabase\.functions\.invoke\('gps-detektor', \{ body: pedido \}\)/.test(leer('src/lib/gpsDb.ts')), 'la única puerta: el puente gps-detektor');
 }
 const fn = leer('supabase/functions/gps-detektor/index.ts');
+const parserStart = fn.indexOf('function desescaparXml(');
+const parserEnd = fn.indexOf('/** Consulta el Web Service SOAP', parserStart);
+check(parserStart >= 0 && parserEnd > parserStart, 'el parser SOAP del puente está disponible para la prueba');
+if (parserStart >= 0 && parserEnd > parserStart) {
+  const parserTs = fn.slice(parserStart, parserEnd) + '\nexport { parsearUltimoPuntoSoap };';
+  const parserJs = ts.transpileModule(parserTs, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 } }).outputText;
+  const parserModule = new Module('gps-detektor-parser');
+  parserModule._compile(parserJs, 'gps-detektor-parser.js');
+  const sinCoordenadas = '<xml_dat>&lt;movil placa="A01FE8M"&gt;&lt;fecha_hora&gt;2026-11-13 13:45:00&lt;/fecha_hora&gt;&lt;/movil&gt;</xml_dat>';
+  const punto = parserModule.exports.parsearUltimoPuntoSoap(sinCoordenadas);
+  check(punto.filas.length === 0 && /sin coordenadas/i.test(punto.error || ''), 'SOAP sin latitud y longitud permite continuar al respaldo REST');
+}
 check(/Deno\.env\.get\('DETEKTOR_USUARIO'\)/.test(fn) && /Deno\.env\.get\('DETEKTOR_CLAVE'\)/.test(fn), '⭐ el puente toma usuario y clave de los SECRETOS de Supabase');
 check(/caller\.auth\.getUser\(\)/.test(fn) && /caller\.rpc\(necesita\)/.test(fn) && /'gps_puede_editar' : 'gps_puede_ver'/.test(fn), '⭐ el puente pide sesión y el permiso GPS (descubrir vehículos pide escritura)');
 check(/soloVinculadas/.test(fn) && /from\('gps_vehiculos'\)\.select\('placa_alias'\)/.test(fn), '⭐ solo consulta placas VINCULADAS (leídas con la sesión de quien pide)');
