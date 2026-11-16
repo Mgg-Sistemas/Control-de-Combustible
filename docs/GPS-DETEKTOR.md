@@ -24,6 +24,9 @@ repositorio es público.
   - limita las fechas (31 días para el resumen y 7 para las detenciones);
   - guarda las respuestas de reportes REST durante 1 minuto; cada toque de ubicación consulta de nuevo el último punto.
 - **No se guardan posiciones.** Todo se consulta solo cuando alguien toca 📡 o «Consultar».
+- **Permiso del proveedor:** si `ultimo_punto` responde `ERROR Sin Permisos`, la cuenta de Detektor
+  necesita acceso al Web Service de coordenadas. La actividad diaria puede funcionar aunque ese
+  permiso falte. El error HTTP 500 de `wsDetenciones` también debe revisarlo Detektor.
 - **Ubicación:** cada toque de 📡 consulta el último punto disponible en Detektor, también si la
   máquina está en movimiento. El punto muestra la hora de la última señal; si el servicio de último
   punto no entrega coordenadas, se consultan las detenciones como respaldo. No es transmisión continua.
