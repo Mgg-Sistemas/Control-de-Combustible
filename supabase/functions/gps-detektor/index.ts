@@ -20,7 +20,7 @@
 //   · resumen     { placas[], desde, hasta } (AAAA-MM-DD, hasta 31 días) → resumen de actividad diaria.
 //   · detenciones { placa, desde, hasta } (AAAA-MM-DD, hasta 7 días)     → detenciones con lat/lng.
 //   · estadistico { placas[], motivo, desde, hasta } (hasta 31 días)    → datos por motivo y día.
-// Las respuestas se guardan 60 s en memoria: varias personas mirando lo mismo = 1 consulta a Detektor.
+// Los reportes REST se guardan 60 s en memoria; el último punto se consulta en cada toque.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const cors = {
@@ -153,10 +153,6 @@ function parsearUltimoPuntoSoap(xmlTexto: string): { filas: any[]; error: string
 
 /** Consulta el Web Service SOAP `ultimo_punto` en `ws/servicio_v3.php` (y respaldo `ws/servicio_v2.php`). */
 async function consultarSoapUltimoPunto(placaParam: string, uSec: string, pSec: string): Promise<{ filas: any[]; error: string | null }> {
-  const claveCache = `soap_ultimo_punto|${placaParam}`;
-  const c = cache.get(claveCache);
-  if (c && Date.now() - c.t < CACHE_MS) return { filas: c.filas as any[], error: null };
-
   const uXml = escaparXml(uSec);
   const pXml = escaparXml(pSec);
   const plXml = escaparXml(placaParam);
@@ -192,7 +188,6 @@ async function consultarSoapUltimoPunto(placaParam: string, uSec: string, pSec: 
       }
       const parsed = parsearUltimoPuntoSoap(texto);
       if (parsed.filas.length) {
-        cache.set(claveCache, { t: Date.now(), filas: parsed.filas });
         return { filas: parsed.filas, error: null };
       }
       ultimoErr = parsed.error ? recorte(parsed.error, uSec, pSec) : 'Sin puntos en SOAP';

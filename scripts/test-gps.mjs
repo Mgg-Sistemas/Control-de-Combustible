@@ -101,6 +101,26 @@ if (parserStart >= 0 && parserEnd > parserStart) {
   const sinCoordenadas = '<xml_dat>&lt;movil placa="A01FE8M"&gt;&lt;fecha_hora&gt;2026-11-13 13:45:00&lt;/fecha_hora&gt;&lt;/movil&gt;</xml_dat>';
   const punto = parserModule.exports.parsearUltimoPuntoSoap(sinCoordenadas);
   check(punto.filas.length === 0 && /sin coordenadas/i.test(punto.error || ''), 'SOAP sin latitud y longitud permite continuar al respaldo REST');
+  const inicioConsulta = fn.indexOf('async function consultarSoapUltimoPunto(');
+  const finConsulta = fn.indexOf('type Pedido =', inicioConsulta);
+  check(inicioConsulta >= 0 && finConsulta > inicioConsulta, 'consulta SOAP disponible para probar actualizaciones seguidas');
+  if (inicioConsulta >= 0 && finConsulta > inicioConsulta) {
+    const codigo = `const SOAP_V3_URL = 'https://prueba/v3'; const SOAP_V2_URL = 'https://prueba/v2'; const CACHE_MS = 60000; const cache = new Map(); const escaparXml = (s) => s; const recorte = (s) => s;\n${parserTs}\n${fn.slice(inicioConsulta, finConsulta)}\nexport { consultarSoapUltimoPunto };`;
+    const mod = new Module('gps-detektor-actualizar');
+    mod._compile(ts.transpileModule(codigo, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 } }).outputText, 'gps-detektor-actualizar.js');
+    const fetchAnterior = globalThis.fetch;
+    let llamadas = 0;
+    globalThis.fetch = async () => {
+      llamadas++;
+      const xml = `<xml_dat>&lt;movil placa="ABC123"&gt;&lt;fecha_hora&gt;2026-11-16 12:00:00&lt;/fecha_hora&gt;&lt;latitud&gt;10.${llamadas}01&lt;/latitud&gt;&lt;longitud&gt;-66.9&lt;/longitud&gt;&lt;/movil&gt;</xml_dat>`;
+      return { ok: true, status: 200, text: async () => xml };
+    };
+    try {
+      const uno = await mod.exports.consultarSoapUltimoPunto('ABC123', 'usuario-prueba', 'clave-prueba');
+      const dos = await mod.exports.consultarSoapUltimoPunto('ABC123', 'usuario-prueba', 'clave-prueba');
+      check(uno.filas[0]?.latitud !== dos.filas[0]?.latitud && llamadas === 2, 'cada toque de Actualizar pide el último punto otra vez');
+    } finally { globalThis.fetch = fetchAnterior; }
+  }
 }
 check(/Deno\.env\.get\('DETEKTOR_USUARIO'\)/.test(fn) && /Deno\.env\.get\('DETEKTOR_CLAVE'\)/.test(fn), '⭐ el puente toma usuario y clave de los SECRETOS de Supabase');
 check(/caller\.auth\.getUser\(\)/.test(fn) && /caller\.rpc\(necesita\)/.test(fn) && /'gps_puede_editar' : 'gps_puede_ver'/.test(fn), '⭐ el puente pide sesión y el permiso GPS (descubrir vehículos pide escritura)');

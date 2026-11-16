@@ -22,10 +22,11 @@ repositorio es público.
   - revisa la sesión y el permiso «GPS» de quien pide (`gps_puede_ver` / `gps_puede_editar`);
   - solo consulta las placas vinculadas en `gps_vehiculos`;
   - limita las fechas (31 días para el resumen y 7 para las detenciones);
-  - guarda cada respuesta 1 minuto.
+  - guarda las respuestas de reportes REST durante 1 minuto; cada toque de ubicación consulta de nuevo el último punto.
 - **No se guardan posiciones.** Todo se consulta solo cuando alguien toca 📡 o «Consultar».
-- **Ubicación:** Detektor no da la posición en vivo; da detenciones. El punto 📡 del Mapa es la
-  **última detención**: «detenida aquí desde…» o «en movimiento: su última parada fue…».
+- **Ubicación:** cada toque de 📡 consulta el último punto disponible en Detektor, también si la
+  máquina está en movimiento. El punto muestra la hora de la última señal; si el servicio de último
+  punto no entrega coordenadas, se consultan las detenciones como respaldo. No es transmisión continua.
 
 ## Para encenderlo
 
