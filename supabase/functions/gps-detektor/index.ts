@@ -162,12 +162,12 @@ async function consultarSoapUltimoPunto(placaParam: string, uSec: string, pSec: 
     {
       url: SOAP_V3_URL,
       action: 'https://ve.skytrack.detektorgps.com:443/gps_ve/ws/servicio_v3.php#ultimo_punto',
-      body: `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="urn:VehiculosCercanosWSDL"><soap:Body><tns:ultimo_punto><tns:usuario>${uXml}</tns:usuario><tns:clave>${pXml}</tns:clave><tns:campos>*</tns:campos><tns:placa>${plXml}</tns:placa></tns:ultimo_punto></soap:Body></soap:Envelope>`,
+      body: `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="urn:VehiculosCercanosWSDL"><soap:Body><tns:ultimo_punto><tns:usuario>${uXml}</tns:usuario><tns:clave>${pXml}</tns:clave><tns:campos></tns:campos><tns:placa>${plXml}</tns:placa></tns:ultimo_punto></soap:Body></soap:Envelope>`,
     },
     {
       url: SOAP_V2_URL,
       action: 'https://ve.skytrack.detektorgps.com:443/gps_ve/ws/servicio_v2.php#ultimo_punto',
-      body: `<?xml version="1.0" encoding="ISO-8859-1"?><SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="urn:UltimoPuntoVehiculoWSDL" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><SOAP-ENV:Body><ns1:ultimo_punto><usuario xsi:type="xsd:string">${uXml}</usuario><clave xsi:type="xsd:string">${pXml}</clave><campos xsi:type="xsd:string">*</campos><placa xsi:type="xsd:string">${plXml}</placa></ns1:ultimo_punto></SOAP-ENV:Body></SOAP-ENV:Envelope>`,
+      body: `<?xml version="1.0" encoding="ISO-8859-1"?><SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="urn:UltimoPuntoVehiculoWSDL" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><SOAP-ENV:Body><ns1:ultimo_punto><usuario xsi:type="xsd:string">${uXml}</usuario><clave xsi:type="xsd:string">${pXml}</clave><campos xsi:type="xsd:string"></campos><placa xsi:type="xsd:string">${plXml}</placa></ns1:ultimo_punto></SOAP-ENV:Body></SOAP-ENV:Envelope>`,
     },
   ];
 

@@ -115,8 +115,10 @@ if (parserStart >= 0 && parserEnd > parserStart) {
     mod._compile(ts.transpileModule(codigo, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 } }).outputText, 'gps-detektor-actualizar.js');
     const fetchAnterior = globalThis.fetch;
     let llamadas = 0;
-    globalThis.fetch = async () => {
+    const cuerposSoap = [];
+    globalThis.fetch = async (_url, opciones) => {
       llamadas++;
+      cuerposSoap.push(opciones.body);
       const xml = `<xml_dat>&lt;movil placa="ABC123"&gt;&lt;fecha_hora&gt;2026-11-16 12:00:00&lt;/fecha_hora&gt;&lt;latitud&gt;10.${llamadas}01&lt;/latitud&gt;&lt;longitud&gt;-66.9&lt;/longitud&gt;&lt;/movil&gt;</xml_dat>`;
       return { ok: true, status: 200, text: async () => xml };
     };
@@ -124,6 +126,7 @@ if (parserStart >= 0 && parserEnd > parserStart) {
       const uno = await mod.exports.consultarSoapUltimoPunto('ABC123', 'usuario-prueba', 'clave-prueba');
       const dos = await mod.exports.consultarSoapUltimoPunto('ABC123', 'usuario-prueba', 'clave-prueba');
       check(uno.filas[0]?.latitud !== dos.filas[0]?.latitud && llamadas === 2, 'cada toque de Actualizar pide el último punto otra vez');
+      check(cuerposSoap.every((body) => /<tns:campos><\/tns:campos>/.test(body)), 'último punto pide solo los campos base documentados, sin el comodín *');
     } finally { globalThis.fetch = fetchAnterior; }
   }
 }
