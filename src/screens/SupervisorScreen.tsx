@@ -1670,16 +1670,24 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [choDescargando, setChoDescargando] = useState(false);
   const [choFilas, setChoFilas] = useState<FilaControlHorometros[] | null>(null);
   const [choObs, setChoObs] = useState<Record<string, string>>({});
-  // Inspector elegido (solo coordinador/admin): null = yo. La lista sale del mismo
-  // cálculo de las filas (mismo turno/día), así nunca ofrece a alguien que no saldría.
-  const [choInspector, setChoInspector] = useState<string | null>(null);
+  // Inspectores elegidos (solo coordinador/admin): null = yo; array = uno o varios inspectores.
+  // La lista sale del mismo cálculo de las filas (mismo turno/día), así nunca ofrece a alguien que no saldría.
+  const [choInspectoresSel, setChoInspectoresSel] = useState<string[] | null>(null);
   const [choInspectores, setChoInspectores] = useState<string[]>([]);
-  const choInspectorEff = choInspector ?? (fullName || 'Inspector');
+  const choInspectoresEff = choInspectoresSel && choInspectoresSel.length > 0
+    ? choInspectoresSel
+    : [fullName || 'Inspector'];
+  const choInspectoresKey = choInspectoresEff.join('||');
   useEffect(() => {
     if (!choOpen) return;
     let vivo = true;
     setChoBusy(true); setChoFilas(null);
-    cargarFilasControlHorometros({ date: receiptDayEff, shift: receiptShiftEff, inspectorName: choInspectorEff })
+    cargarFilasControlHorometros({
+      date: receiptDayEff,
+      shift: receiptShiftEff,
+      inspectorName: choInspectoresEff[0],
+      inspectorNames: choInspectoresEff,
+    })
       .then(({ filas, inspectores }) => {
         if (!vivo) return;
         setChoFilas(filas);
@@ -1695,12 +1703,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       .catch(() => { if (vivo) setChoFilas([]); })
       .finally(() => { if (vivo) setChoBusy(false); });
     return () => { vivo = false; };
-  }, [choOpen, receiptDayEff, receiptShiftEff, choInspectorEff]);
+  }, [choOpen, receiptDayEff, receiptShiftEff, choInspectoresKey]);
   const descargarControlHorometros = async () => {
     if (choDescargando || !choFilas) return;
     setChoDescargando(true);
     try {
-      await generarControlHorometrosPdf({ date: receiptDayEff, shift: receiptShiftEff, inspectorName: choInspectorEff, filas: choFilas, observaciones: choObs });
+      await generarControlHorometrosPdf({
+        date: receiptDayEff,
+        shift: receiptShiftEff,
+        inspectorName: choInspectoresEff[0],
+        inspectorNames: choInspectoresEff,
+        filas: choFilas,
+        observaciones: choObs,
+      });
     } catch {
       setNotice('❌ No se pudo generar el PDF del control de horómetros.');
     } finally {
@@ -4670,21 +4685,48 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               })}
             </View>
 
-            {/* 👤 Solo coordinador/admin: la planilla puede ser la MÍA o la de cualquier
-                inspector del turno. Cambiar de inspector limpia las observaciones (son
-                de SU planilla, no de la del anterior). */}
-            {puedeCoordinar ? (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.xs }}>
-                {[null, ...choInspectores.filter((n) => n !== (fullName || 'Inspector'))].map((n) => {
-                  const on = choInspector === n;
-                  return (
-                    <TouchableOpacity key={n ?? '__yo__'} onPress={() => { setChoInspector(n); setChoObs({}); }} style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
-                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 11.5 }}>{n === null ? '👤 Yo' : `👷 ${n}`}</Text>
+            {/* 👤 Solo coordinador/admin: la planilla puede ser la MÍA o la de uno o varios
+                inspectores del turno. Cambiar a "Yo" limpia las observaciones. */}
+            {puedeCoordinar ? (() => {
+              const otrosInsp = choInspectores.filter((n) => n !== (fullName || 'Inspector'));
+              const todosMarcados = otrosInsp.length > 0 && otrosInsp.every((n) => choInspectoresSel?.includes(n));
+              return (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.xs }}>
+                  <TouchableOpacity
+                    onPress={() => { setChoInspectoresSel(null); setChoObs({}); }}
+                    style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: choInspectoresSel === null ? colors.primary : colors.border, backgroundColor: choInspectoresSel === null ? colors.primary : colors.surfaceAlt }}
+                  >
+                    <Text style={{ color: choInspectoresSel === null ? '#fff' : colors.text, fontWeight: '700', fontSize: 11.5 }}>👤 Yo</Text>
+                  </TouchableOpacity>
+                  {otrosInsp.length > 1 ? (
+                    <TouchableOpacity
+                      onPress={() => setChoInspectoresSel(todosMarcados ? null : [...otrosInsp])}
+                      style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: todosMarcados ? '#0F766E' : colors.border, backgroundColor: todosMarcados ? '#0F766E' : colors.surfaceAlt }}
+                    >
+                      <Text style={{ color: todosMarcados ? '#fff' : colors.text, fontWeight: '700', fontSize: 11.5 }}>{todosMarcados ? '☑ ' : ''}👥 Todos ({otrosInsp.length})</Text>
                     </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ) : null}
+                  ) : null}
+                  {otrosInsp.map((n) => {
+                    const on = Boolean(choInspectoresSel?.includes(n));
+                    return (
+                      <TouchableOpacity
+                        key={n}
+                        onPress={() => {
+                          setChoInspectoresSel((prev) => {
+                            if (prev === null) return [n];
+                            const next = prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n];
+                            return next.length > 0 ? next : null;
+                          });
+                        }}
+                        style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+                      >
+                        <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 11.5 }}>{on ? '☑ ' : '☐ '}👷 {n}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              );
+            })() : null}
 
             <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
               Empresa, placa, horómetros, horas y frente salen de lo ya registrado y NO se tocan.
@@ -4699,7 +4741,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', paddingVertical: spacing.md }}>Sin máquinas asignadas este turno.</Text>
                 ) : choFilas.map((f, i) => (
                   <View key={f.machineryId} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>{i + 1}. {f.etiqueta}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>{i + 1}. {f.etiqueta}</Text>
+                      {choInspectoresEff.length > 1 && f.inspector ? (
+                        <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 10.5 }}>👷 {f.inspector}</Text>
+                      ) : null}
+                    </View>
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
                       {[f.empresa || null, f.frente ? `⛏️ ${f.frente}` : null, f.horoInicio ? `H.inicio ${f.horoInicio}` : null, f.horoFinal ? `H.final ${f.horoFinal}` : null, f.horaInicio ? `⏱ ${f.horaInicio}${f.horaFinal ? `–${f.horaFinal}` : ''}` : null].filter(Boolean).join(' · ') || 'Sin registros este turno (saldrá en blanco, como el papel).'}
                     </Text>

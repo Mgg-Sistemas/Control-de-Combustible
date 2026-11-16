@@ -68,6 +68,7 @@ const horoTxt = (n: number | null | undefined): string =>
  *  aquí salvo la observación, que viaja aparte (la escribe el inspector). */
 export type FilaControlHorometros = {
   machineryId: string;
+  inspector?: string;        // inspector al que pertenece en el turno (útil cuando se eligen varios)
   etiqueta: string;          // nombre + discriminante (para la pantalla)
   empresa: string;
   placaSerial: string;       // placa, o serial si no hay placa
@@ -88,8 +89,13 @@ export type FilaControlHorometros = {
  * esas columnas salen en blanco y el resto del papel sigue — igual criterio que
  * el teléfono.
  */
-export async function cargarFilasControlHorometros(opts: { date: string; shift: 'day' | 'night'; inspectorName: string }): Promise<{ filas: FilaControlHorometros[]; inspectores: string[] }> {
-  const { date, shift, inspectorName } = opts;
+export async function cargarFilasControlHorometros(opts: {
+  date: string;
+  shift: 'day' | 'night';
+  inspectorName: string;
+  inspectorNames?: string[];
+}): Promise<{ filas: FilaControlHorometros[]; inspectores: string[] }> {
+  const { date, shift, inspectorName, inspectorNames } = opts;
   const [{ data }, lecturas, { asignaciones }, segsRes, roundsRes] = await Promise.all([
     computeInspectorData(date, null),
     cargarLecturasHorometro(date, date),
@@ -100,8 +106,19 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
     supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift').eq('round_date', date).not('jornada_start_at', 'is', null),
   ]);
 
-  const machMap = data.get(shift)?.get(inspectorName);
-  const maquinas = machMap ? [...machMap.values()].sort((a, b) => cmpText(a.code, b.code)) : [];
+  const nombresPedidos = (inspectorNames && inspectorNames.length > 0 ? inspectorNames : [inspectorName]).filter(Boolean);
+  const machVistas = new Set<string>();
+  const maquinasConInsp: Array<{ m: any; inspector: string }> = [];
+  for (const nombre of nombresPedidos) {
+    const machMap = data.get(shift)?.get(nombre);
+    if (!machMap) continue;
+    const lista = [...machMap.values()].sort((a, b) => cmpText(a.code, b.code));
+    for (const m of lista) {
+      if (machVistas.has(m.id)) continue; // Evitar duplicar una máquina si fue reasignada entre dos seleccionados
+      machVistas.add(m.id);
+      maquinasConInsp.push({ m, inspector: nombre });
+    }
+  }
   const inspectores = [...(data.get(shift)?.keys() ?? [])].sort(cmpText);
 
   // Lectura del turno por máquina (0 o 1: la tabla es única por máquina/día/turno).
@@ -136,12 +153,13 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
     frentesDeMaquina.set(a.machineryId, l);
   });
 
-  const filas = maquinas.map((m) => {
+  const filas = maquinasConInsp.map(({ m, inspector }) => {
     const lec = lecturaDe.get(m.id);
     const tramo = tramosDe.get(m.id);
     const iniAbierto = inicioAbiertoDe.get(m.id);
     return {
       machineryId: m.id,
+      inspector,
       etiqueta: etiquetaMaquina(m),
       empresa: String(m.company ?? '').trim(),
       placaSerial: String(m.plate ?? '').trim() || String(m.serial ?? '').trim(),
@@ -162,16 +180,25 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
  * Genera y descarga el PDF de la planilla en formato Carta Vertical (letter portrait),
  * bien organizado para que las 9 columnas quepan completas sin cortarse. Las filas van
  * NUMERADAS por posición (1, 2, 3…) y la observación es la que escribió el
- * inspector en pantalla (clave: machineryId).
+ * inspector en pantalla (clave: machineryId). Soporta uno o varios inspectores.
  */
 export async function generarControlHorometrosPdf(opts: {
-  date: string; shift: 'day' | 'night'; inspectorName: string;
+  date: string; shift: 'day' | 'night'; inspectorName: string; inspectorNames?: string[];
   filas: FilaControlHorometros[]; observaciones: Record<string, string>;
 }): Promise<void> {
-  const { date, shift, inspectorName, filas, observaciones } = opts;
+  const { date, shift, inspectorName, inspectorNames, filas, observaciones } = opts;
+  const nombres = (inspectorNames && inspectorNames.length > 0 ? inspectorNames : [inspectorName]).filter(Boolean);
+  const esMulti = nombres.length > 1;
+  const inspectorCabecera = nombres.join(', ') || inspectorName;
   const turnoTxt = shift === 'day' ? '☀️ Turno Día (7:00am–7:00pm)' : '🌙 Turno Noche (7:00pm–7:00am)';
 
-  const cuerpo = filas.map((f, i) => `
+  let ultimoGrupo = '';
+  const cuerpo = filas.map((f, i) => {
+    const grupo = esMulti && f.inspector && f.inspector !== ultimoGrupo
+      ? `<tr class="grp"><td colspan="9">👷 INSPECTOR: ${esc(f.inspector)}</td></tr>`
+      : '';
+    if (f.inspector) ultimoGrupo = f.inspector;
+    return `${grupo}
     <tr>
       <td class="c num">${i + 1}</td>
       <td>${esc(f.empresa)}</td>
@@ -182,11 +209,12 @@ export async function generarControlHorometrosPdf(opts: {
       <td class="c">${esc(f.horaFinal)}</td>
       <td>${esc(f.frente)}</td>
       <td class="obs">${esc(String(observaciones[f.machineryId] ?? '').trim())}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   const body = `
     <div class="meta">
-      <span><b>INSPECTOR:</b> ${esc(inspectorName)}</span>
+      <span>${esMulti ? '<b>INSPECTORES:</b>' : '<b>INSPECTOR:</b>'} ${esc(inspectorCabecera)}</span>
       <span><b>FECHA:</b> ${esc(dmy(date))}</span>
       <span><b>DÍA:</b> ${esc(diaSemanaCaracas(date))}</span>
       <span><b>TURNO:</b> ${esc(turnoTxt)}</span>
@@ -216,7 +244,7 @@ export async function generarControlHorometrosPdf(opts: {
       </tr></thead>
       <tbody>${cuerpo || '<tr><td colspan="9" class="none">Sin máquinas asignadas este turno.</td></tr>'}</tbody>
     </table>
-    <div class="firma"><div class="linea"></div><div class="rotulo">${esc(inspectorName)} · Inspector</div></div>`;
+    <div class="firma"><div class="linea"></div><div class="rotulo">${esc(esMulti ? `Coordinación · ${nombres.length} inspectores` : `${inspectorCabecera} · Inspector`)}</div></div>`;
 
   const extraCss = `
     @page{size:letter portrait;margin:10mm 9mm}
@@ -245,16 +273,18 @@ export async function generarControlHorometrosPdf(opts: {
     .cho .mini{color:#4B5563;font-size:8px;margin-top:1px;line-height:1.1;white-space:normal}
     .cho .obs{min-width:0;width:auto}
     .cho .none{color:#6B7280;text-align:center;padding:14px 0}
+    .cho tr.grp td{background:#E2E8F0;color:#1E3A5F;font-weight:800;font-size:9px;padding:4px 6px;letter-spacing:.3px}
     .firma{margin-top:32px;width:220px;page-break-inside:avoid;break-inside:avoid}
     .firma .linea{border-top:1px solid #111}
     .firma .rotulo{font-size:10px;color:#374151;text-align:center;margin-top:4px}
   `;
 
+  const nombreArchivoInsp = nombres.length > 2 ? `${nombres.length} inspectores` : inspectorCabecera;
   const html = pdfDocument({
     title: 'CONTROL DE HORÓMETROS',
-    subtitle: `👷 ${esc(inspectorName)} · ${dmy(date)} · ${turnoTxt}`,
+    subtitle: `👷 ${esc(esMulti && nombres.length > 3 ? `${nombres.length} inspectores` : inspectorCabecera)} · ${dmy(date)} · ${turnoTxt}`,
     body,
     extraCss,
   });
-  await exportPdf(html, `Control de horometros - ${inspectorName} - ${dmy(date)} ${shift === 'day' ? 'dia' : 'noche'}`);
+  await exportPdf(html, `Control de horometros - ${nombreArchivoInsp} - ${dmy(date)} ${shift === 'day' ? 'dia' : 'noche'}`);
 }

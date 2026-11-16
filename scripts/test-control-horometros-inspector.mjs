@@ -60,15 +60,20 @@ ok('⬜ sin lectura queda EN BLANCO, no en 0',
 ok('🖥 botón en la vista del inspector', scr.includes('Control de horómetros (PDF)'));
 ok('🖥 visible para TODO inspector, aun sin turno fijo, y para coordinador/admin',
   scr.includes("const puedeControlHorometros = !!fixedShift || role === 'supervisor' || puedeCoordinar;"));
-// ── El coordinador/admin saca la planilla suya o la de cualquiera ───────────
+// ── El coordinador/admin saca la planilla suya o la de uno o varios inspectores ─
 ok('👥 el selector de inspectores SOLO lo ve el coordinador/admin',
-  /\{puedeCoordinar \? \(\s*<View style=\{\{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing\.xs \}\}>\s*\{\[null, \.\.\.choInspectores/.test(scr));
+  /\{puedeCoordinar \? \(\(\) => \{[\s\S]*?choInspectoresSel/.test(scr));
 ok('👥 la lista de inspectores sale del MISMO cálculo de las filas',
   scr.includes('setChoInspectores(inspectores);') && leer('src/lib/controlHorometrosInspectorPdf.ts').includes('return { filas, inspectores };'));
-ok('👥 cambiar de inspector limpia las observaciones (son de SU planilla)',
-  scr.includes('onPress={() => { setChoInspector(n); setChoObs({}); }}'));
-ok('👥 el PDF sale a nombre del inspector ELEGIDO',
-  scr.includes('inspectorName: choInspectorEff'));
+ok('👥 permite seleccionar uno o varios inspectores y botón Todos',
+  scr.includes('setChoInspectoresSel') && scr.includes('👥 Todos'));
+ok('👥 volver a Yo limpia las observaciones',
+  scr.includes('onPress={() => { setChoInspectoresSel(null); setChoObs({}); }}'));
+ok('👥 el PDF recibe todos los inspectores elegidos y agrupa cuando son varios',
+  scr.includes('inspectorNames: choInspectoresEff')
+  && lib.includes('inspectorNames?: string[]')
+  && lib.includes('tr class="grp"')
+  && lib.includes('machVistas'));
 const modal = scr.split('🕐 CONTROL DE HORÓMETROS (al FINAL del render')[1] ?? '';
 ok('🖥 el modal existe y queda al FINAL del render (gana el apilado en web)',
   modal.includes('</Screen>') && !modal.includes('<Modal visible={asisScan}'));
