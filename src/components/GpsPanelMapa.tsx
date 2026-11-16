@@ -12,8 +12,10 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useToast } from './ToastProvider';
 import type { GpsPinMapa } from './VenezuelaMap';
-import { leerDetenciones, ultimaUbicacion, lineasUbicacion, ubicacionVieja, haceCuanto, nombreVehiculo, leerResumenDiario, lecturaDelDia, fechaDetektor, esDelVehiculo, type UbicacionGps } from '../lib/gps';
+import { leerDetenciones, ultimaUbicacion, lineasUbicacion, lineasFichaGps, ubicacionVieja, haceCuanto, nombreVehiculo, leerResumenDiario, lecturaDelDia, fechaDetektor, esDelVehiculo, type UbicacionGps } from '../lib/gps';
 import { listarVehiculosGps, consultarDetektor, type VehiculoGps } from '../lib/gpsDb';
+import { edificioLabel } from '../lib/edificios';
+import { formatUTM } from '../lib/utm';
 
 type Consulta = { u: UbicacionGps | null; cuando: number; error: string | null; actividadTexto?: string | null };
 
@@ -45,7 +47,7 @@ export function GpsPanelMapa({ onPuntos, onFoco }: { onPuntos: (p: GpsPinMapa[])
     if (!c?.u) return [];
     return [{
       id: v.id, nombre: nombreVehiculo(v), lat: c.u.lat, lng: c.u.lng, viejo: ubicacionVieja(c.u, c.cuando), enMarcha: !c.u.detenida, url: null,
-      lineas: [...(v.equipo?.empresa ? [`🏢 ${v.equipo.empresa}`] : []), ...lineasUbicacion(c.u, c.cuando), `GPS: ${v.placaAlias}`],
+      lineas: [...(v.equipo?.empresa ? [`🏢 ${v.equipo.empresa}`] : []), ...lineasFichaGps(v.equipo ? { ...v.equipo, edificio: edificioLabel(v.equipo.referencia) } : null), ...lineasUbicacion(c.u, c.cuando), `📍 UTM ${formatUTM(c.u.lat, c.u.lng)}`, `GPS: ${v.placaAlias}`],
     }];
   }), [vehiculos, consultas]);
   useEffect(() => { onPuntos(puntos); }, [puntos, onPuntos]);

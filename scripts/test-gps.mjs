@@ -54,6 +54,9 @@ eq([u2.detenida, G.ubicacionVieja(u2, AHORA)], [false, false], '⭐ salió de su
 check(/En movimiento: su última parada fue aquí, de 05:00 a 05:30/.test(G.lineasUbicacion(u2, AHORA)[0]), 'dice cuál fue su última parada');
 check(G.ubicacionVieja(u2, AHORA + 3 * 3600000), 'más de 6 h sin noticias → gris');
 eq(G.ultimaUbicacion(D, 'NOEXISTE', AHORA), null, 'sin detenciones de esa placa: null (no se inventa un punto)');
+eq(G.lineasFichaGps({ tipo: 'CAT 320', clasificacion: 'Excavadora', plate: 'ABC123', serial: 'SER-9', identifier: 'ID-7', encargado: 'Ana', edificio: 'Patio Norte', active: true, operational: true, en_espera: false }),
+  ['🏷️ Marca - Modelo: CAT 320', '🗃️ Clasificación: Excavadora', '🔖 Placa: ABC123', '🔖 Serial: SER-9', '🔖 ID: ID-7', '👤 Encargado: Ana', '🏢 Edificio: Patio Norte', 'Estado: Operativa'],
+  'el punto GPS muestra la ficha del catálogo como los demás puntos');
 
 // ── 3) Resumen diario ──
 const RES = [

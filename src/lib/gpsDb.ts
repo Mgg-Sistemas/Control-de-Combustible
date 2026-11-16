@@ -11,7 +11,7 @@ export type VehiculoGps = {
   id: string;
   placaAlias: string;
   machineryId: string;
-  equipo: { code: string | null; plate: string | null; clasificacion: string | null; empresa: string | null } | null;
+  equipo: { code: string | null; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; identifier: string | null; encargado: string | null; referencia: string | null; active: boolean | null; operational: boolean | null; en_espera: boolean | null; empresa: string | null } | null;
 };
 
 /** «Esa tabla no existe todavía»: falta correr el SQL del GPS. */
@@ -25,7 +25,7 @@ export function esFaltaTablaGps(e: any): boolean {
 export async function listarVehiculosGps(): Promise<{ vehiculos: VehiculoGps[]; faltaSql: boolean; error: string | null }> {
   const { data, error } = await supabase
     .from('gps_vehiculos')
-    .select('id, placa_alias, machinery_id, machinery:machinery_id(code, plate, clasificacion, company:company_id(name))')
+    .select('id, placa_alias, machinery_id, machinery:machinery_id(code, tipo, clasificacion, plate, serial, identifier, encargado, referencia, active, operational, en_espera, company:company_id(name))')
     .order('placa_alias', { ascending: true });
   if (error) return { vehiculos: [], faltaSql: esFaltaTablaGps(error), error: esFaltaTablaGps(error) ? null : error.message };
   return {
@@ -34,7 +34,7 @@ export async function listarVehiculosGps(): Promise<{ vehiculos: VehiculoGps[]; 
       const emp = m ? (Array.isArray(m.company) ? m.company[0] : m.company) : null;
       return {
         id: String(r.id), placaAlias: String(r.placa_alias), machineryId: String(r.machinery_id),
-        equipo: m ? { code: m.code ?? null, plate: m.plate ?? null, clasificacion: m.clasificacion ?? null, empresa: emp?.name ?? null } : null,
+        equipo: m ? { code: m.code ?? null, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, identifier: m.identifier ?? null, encargado: m.encargado ?? null, referencia: m.referencia ?? null, active: m.active ?? null, operational: m.operational ?? null, en_espera: m.en_espera ?? null, empresa: emp?.name ?? null } : null,
       };
     }),
     faltaSql: false,

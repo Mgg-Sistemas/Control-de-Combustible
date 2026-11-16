@@ -288,6 +288,26 @@ export function lineasUbicacion(u: UbicacionGps, ahoraMs: number): string[] {
     : [`🚚 En movimiento: su última parada fue aquí, de ${hora(u.desdeMs)} a ${hora(u.hastaMs)} (${haceCuanto(u.hastaMs, ahoraMs)})`, ...(u.lugar ? [`📍 ${u.lugar}`] : [])];
 }
 
+/** Datos del Catálogo que acompañan al punto GPS, igual que en los puntos habituales del mapa. */
+export function lineasFichaGps(equipo: {
+  tipo?: string | null; clasificacion?: string | null; plate?: string | null;
+  serial?: string | null; identifier?: string | null; encargado?: string | null;
+  edificio?: string | null; active?: boolean | null; operational?: boolean | null;
+  en_espera?: boolean | null;
+} | null): string[] {
+  if (!equipo) return [];
+  const lineas: string[] = [];
+  if (equipo.tipo) lineas.push(`🏷️ Marca - Modelo: ${equipo.tipo}`);
+  if (equipo.clasificacion) lineas.push(`🗃️ Clasificación: ${equipo.clasificacion}`);
+  if (equipo.plate) lineas.push(`🔖 Placa: ${equipo.plate}`);
+  if (equipo.serial) lineas.push(`🔖 Serial: ${equipo.serial}`);
+  if (equipo.identifier) lineas.push(`🔖 ID: ${equipo.identifier}`);
+  if (equipo.encargado) lineas.push(`👤 Encargado: ${equipo.encargado}`);
+  if (equipo.edificio && equipo.edificio !== '—') lineas.push(`🏢 Edificio: ${equipo.edificio}`);
+  lineas.push(`Estado: ${equipo.active === false ? 'Dada de baja (inactiva)' : equipo.en_espera ? 'Esperando instrucciones' : equipo.operational === false ? 'No operativa' : 'Operativa'}`);
+  return lineas;
+}
+
 /** Gris = sin noticias en las últimas 6 h. */
 export const ubicacionVieja = (u: UbicacionGps, ahoraMs: number) => ahoraMs - u.hastaMs > GPS_VIEJO_MIN * 60000;
 
