@@ -94,6 +94,9 @@ function parsearUltimoPuntoSoap(xmlTexto: string): { filas: any[]; error: string
     const fault = interno.match(/<faultstring[^>]*>([\s\S]*?)<\/faultstring>/i);
     return { filas: [], error: fault ? fault[1].trim() : 'Respuesta SOAP sin <movil>.' };
   }
+  // Diagnóstico seguro: solo nombres de campos y cantidades; nunca valores de GPS ni credenciales.
+  const camposSoap = [...new Set([...moviles[0][2].matchAll(/<([A-Za-z_][\w.-]*)\b/g)].map((m) => m[1]))].slice(0, 30);
+  console.log(`[gps-detektor] SOAP campos: ${camposSoap.join(',')} · móviles ${moviles.length}`);
   const tag = (bloque: string, nombres: string[]): string => {
     for (const n of nombres) {
       const m = bloque.match(new RegExp(`<${n}\\b[^>]*>([\\s\\S]*?)<\\/${n}>`, 'i'));
@@ -143,6 +146,8 @@ function parsearUltimoPuntoSoap(xmlTexto: string): { filas: any[]; error: string
       fuente: 'ultimo_punto',
     });
   }
+  const fechasValidas = filas.filter((r) => /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(String(r.fechafinal ?? ''))).length;
+  console.log(`[gps-detektor] SOAP puntos con coordenadas ${filas.length} · fechas reconocibles ${fechasValidas}`);
   return { filas, error: !filas.length ? (errores[0] || 'Respuesta SOAP sin coordenadas.') : null };
 }
 
