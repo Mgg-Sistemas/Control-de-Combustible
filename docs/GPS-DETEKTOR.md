@@ -17,6 +17,7 @@ repositorio es público.
      `https://ve.detektorgps.com/gps_ve/ws/servicio_v2.php?wsdl`. Recibe `usuario`, `clave`, `campos` vacío
      y `placa`, devolviendo `<xml_dat>` con la última posición transmitida por el GPS.
      El manual FR-DCT-018 indica que `campos` solo solicita datos adicionales; fecha y coordenadas vienen por defecto.
+     `ultimo_punto` se consulta por cada placa vinculada: el manual pide una placa concreta y no documenta `*`.
 - **El usuario y la clave de Detektor** viven solo en el puente de Supabase (la Edge Function
   `supabase/functions/gps-detektor`), como secretos. La app nunca los ve.
 - **El puente:**

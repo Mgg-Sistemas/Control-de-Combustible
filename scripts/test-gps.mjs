@@ -133,6 +133,18 @@ if (parserStart >= 0 && parserEnd > parserStart) {
 check(/Deno\.env\.get\('DETEKTOR_USUARIO'\)/.test(fn) && /Deno\.env\.get\('DETEKTOR_CLAVE'\)/.test(fn), '⭐ el puente toma usuario y clave de los SECRETOS de Supabase');
 check(/caller\.auth\.getUser\(\)/.test(fn) && /caller\.rpc\(necesita\)/.test(fn) && /'gps_puede_editar' : 'gps_puede_ver'/.test(fn), '⭐ el puente pide sesión y el permiso GPS (descubrir vehículos pide escritura)');
 check(/soloVinculadas/.test(fn) && /from\('gps_vehiculos'\)\.select\('placa_alias'\)/.test(fn), '⭐ solo consulta placas VINCULADAS (leídas con la sesión de quien pide)');
+const inicioPorPlacas = fn.indexOf('async function consultarSoapPorPlacas(');
+const finPorPlacas = fn.indexOf('type Pedido =', inicioPorPlacas);
+check(inicioPorPlacas >= 0 && finPorPlacas > inicioPorPlacas, 'SOAP consulta cada placa vinculada por separado');
+if (inicioPorPlacas >= 0 && finPorPlacas > inicioPorPlacas) {
+  const moduloPorPlacas = new Module('gps-detektor-placas');
+  const codigoPorPlacas = `const llamadasPorPlaca = []; const consultarSoapUltimoPunto = async (placa) => { llamadasPorPlaca.push(placa); return { filas: [{ placa }], error: null }; };\n${fn.slice(inicioPorPlacas, finPorPlacas)}\nexport { consultarSoapPorPlacas, llamadasPorPlaca };`;
+  moduloPorPlacas._compile(ts.transpileModule(codigoPorPlacas, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 } }).outputText, 'gps-detektor-placas.js');
+  const resultadosPorPlaca = await moduloPorPlacas.exports.consultarSoapPorPlacas(['ABC123', 'DEF456'], 'usuario-prueba', 'clave-prueba');
+  const { llamadasPorPlaca } = moduloPorPlacas.exports;
+  check(JSON.stringify(llamadasPorPlaca) === JSON.stringify(['ABC123', 'DEF456']) && resultadosPorPlaca.length === 2 && !llamadasPorPlaca.includes('*'),
+    'Actualizar dos máquinas pide dos últimos puntos individuales, nunca placa *');
+}
 check(/'Content-Type': 'application\/x-www-form-urlencoded'/.test(fn) && /new URLSearchParams\(\{ usuario, pass, \.\.\.params \}\)/.test(fn), 'manda formulario como dice el manual (multipart da 403)');
 check(/https:\/\/ve\.detektorgps\.com\/gps_ve\/framework\/servicios/.test(fn), 'la misma dirección de Venezuela');
 check(/diasEntre\(desde, hasta\) > 31/.test(fn) && /diasEntre\(desde, hasta\) > 7/.test(fn) && /\.slice\(0, 60\)/.test(fn), 'limita fechas (31 / 7 días) y cantidad de placas');

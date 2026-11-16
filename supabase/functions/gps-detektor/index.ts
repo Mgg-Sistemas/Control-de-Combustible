@@ -203,6 +203,16 @@ async function consultarSoapUltimoPunto(placaParam: string, uSec: string, pSec: 
   return { filas: [], error: ultimoErr };
 }
 
+/** El método ultimo_punto recibe una placa concreta; limita a cuatro consultas simultáneas. */
+async function consultarSoapPorPlacas(placas: string[], uSec: string, pSec: string): Promise<Array<{ placa: string; filas: any[]; error: string | null }>> {
+  const resultados: Array<{ placa: string; filas: any[]; error: string | null }> = [];
+  for (let i = 0; i < placas.length; i += 4) {
+    const lote = await Promise.all(placas.slice(i, i + 4).map(async (placa) => ({ placa, ...await consultarSoapUltimoPunto(placa, uSec, pSec) })));
+    resultados.push(...lote);
+  }
+  return resultados;
+}
+
 type Pedido = { params: Record<string, string>; nombre: string };
 
 /** Las formas de pedir lo mismo, por si Detektor se cae (500) con la del manual:
@@ -373,11 +383,11 @@ Deno.serve(async (req) => {
       const filasAcumuladas: unknown[] = [];
       let errSoap: string | null = null;
       if (uSec && pSec) {
-        const resSoap = await consultarSoapUltimoPunto(placas.length === 1 ? placas[0] : '*', uSec, pSec);
-        if (resSoap.filas.length) {
-          filasAcumuladas.push(...soloDe(resSoap.filas, placas));
-        } else {
-          errSoap = resSoap.error;
+        const resultadosSoap = await consultarSoapPorPlacas(placas, uSec, pSec);
+        for (const resSoap of resultadosSoap) {
+          const mias = soloDe(resSoap.filas, [resSoap.placa]);
+          filasAcumuladas.push(...mias);
+          if (!mias.length) errSoap ??= resSoap.error || 'SOAP no devolvió una posición de la placa solicitada.';
         }
       }
 
