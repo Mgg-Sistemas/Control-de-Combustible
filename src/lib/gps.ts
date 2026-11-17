@@ -208,7 +208,7 @@ export type Detencion = {
   /** «A 1036 M (ESCUINTLA, ESCUINTLA)» (sin el código del final). */
   lugar: string;
   segundos: number;
-  motorEncendido: boolean;
+  motorEncendido: boolean | null;
   velocidad?: number | null;
   fuente?: 'ultimo_punto' | 'detenciones';
 };
@@ -230,7 +230,8 @@ export function leerDetenciones(filas: any[]): Detencion[] {
     const velNum = r?.velocidad != null && r?.velocidad !== '' ? Number(String(r.velocidad).replace(',', '.')) : null;
     const velocidad = velNum != null && Number.isFinite(velNum) ? velNum : null;
     const ignStr = String(r?.ignicion ?? r?.motor ?? '').trim();
-    const motorEncendido = ignStr === '1' || /^(on|true|si|sí|encendido)$/i.test(ignStr) || (velocidad != null && velocidad > 1);
+    const motorEncendido = /^(1|on|true|si|sí|encendido)$/i.test(ignStr) ? true
+      : /^(0|off|false|no|apagado)$/i.test(ignStr) ? false : null;
     out.push({
       placa, alias, inicioMs: Number.isFinite(inicioMs) ? inicioMs : finMs, finMs, lat, lng,
       lugar: String(r?.georeferencia ?? r?.ubicacion ?? r?.direccion ?? '').replace(/\s*-\s*\[[^\]]*\]\s*$/, '').trim(),
@@ -254,7 +255,7 @@ export type UbicacionGps = {
   desdeMs: number;
   /** Cuándo terminó su última parada (si ya salió) o cuándo reportó el último punto. */
   hastaMs: number;
-  motorEncendido: boolean;
+  motorEncendido: boolean | null;
   velocidad?: number | null;
   fuente?: 'ultimo_punto' | 'detenciones';
 };
@@ -276,16 +277,19 @@ export function ultimaUbicacion(dets: Detencion[], placaAlias: string, ahoraMs: 
 }
 
 /** Las líneas de la ventanita del punto en el mapa. */
+export const etiquetaMotorGps = (estado: boolean | null): string => estado === true
+  ? '🟢 Motor encendido' : estado === false ? '⚫ Motor apagado' : '⚪ Estado del motor sin dato';
+
 export function lineasUbicacion(u: UbicacionGps, ahoraMs: number): string[] {
   const hora = (ms: number) => { const d = new Date(ms - 4 * 3600 * 1000); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
   if (u.fuente === 'ultimo_punto') {
     const velTxt = u.velocidad != null && u.velocidad > 1 ? ` · ${Math.round(u.velocidad)} km/h` : '';
     return u.detenida
-      ? [`⏸️ Detenida aquí · último reporte ${hora(u.hastaMs)} (${haceCuanto(u.hastaMs, ahoraMs)})`, u.motorEncendido ? '🟢 Motor encendido' : '⚫ Motor apagado', ...(u.lugar ? [`📍 ${u.lugar}`] : [])]
-      : [`🚚 En movimiento${velTxt} · último reporte ${hora(u.hastaMs)} (${haceCuanto(u.hastaMs, ahoraMs)})`, u.motorEncendido ? '🟢 Motor encendido' : '⚫ Motor apagado', ...(u.lugar ? [`📍 ${u.lugar}`] : [])];
+      ? [`⏸️ Detenida aquí · último reporte ${hora(u.hastaMs)} (${haceCuanto(u.hastaMs, ahoraMs)})`, etiquetaMotorGps(u.motorEncendido), ...(u.lugar ? [`📍 ${u.lugar}`] : [])]
+      : [`🚚 En movimiento${velTxt} · último reporte ${hora(u.hastaMs)} (${haceCuanto(u.hastaMs, ahoraMs)})`, etiquetaMotorGps(u.motorEncendido), ...(u.lugar ? [`📍 ${u.lugar}`] : [])];
   }
   return u.detenida
-    ? [`⏸️ Detenida aquí desde las ${hora(u.desdeMs)} (${textoDuracion((ahoraMs - u.desdeMs) / 1000)})`, u.motorEncendido ? '🟢 Motor encendido' : '⚫ Motor apagado', ...(u.lugar ? [`📍 ${u.lugar}`] : [])]
+    ? [`⏸️ Detenida aquí desde las ${hora(u.desdeMs)} (${textoDuracion((ahoraMs - u.desdeMs) / 1000)})`, etiquetaMotorGps(u.motorEncendido), ...(u.lugar ? [`📍 ${u.lugar}`] : [])]
     : [`🚚 En movimiento: su última parada fue aquí, de ${hora(u.desdeMs)} a ${hora(u.hastaMs)} (${haceCuanto(u.hastaMs, ahoraMs)})`, ...(u.lugar ? [`📍 ${u.lugar}`] : [])];
 }
 

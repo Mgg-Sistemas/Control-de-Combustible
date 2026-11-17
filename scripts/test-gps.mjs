@@ -45,6 +45,10 @@ const DET = [
 ];
 const D = G.leerDetenciones(DET);
 eq(D.length, 3, 'las detenciones sin coordenadas no sirven');
+eq(G.leerDetenciones([{ placa: 'ABC123', latitud: '10.6', longitud: '-66.9', fechafinal: '2026-11-17 10:00:00', fuente: 'ultimo_punto' }])[0]?.motorEncendido,
+  null, 'si Detektor omite ignición no se afirma que el motor esté apagado');
+eq(G.etiquetaMotorGps(null), '⚪ Estado del motor sin dato', 'el panel y el punto explican que falta la señal del motor');
+eq([G.etiquetaMotorGps(true), G.etiquetaMotorGps(false)], ['🟢 Motor encendido', '⚫ Motor apagado'], 'el indicador distingue las dos señales reales de ignición');
 eq([D[2].lugar, D[2].motorEncendido, D[2].segundos], ['A 5 M DE KM. 3 (CATIA LA MAR, LA GUAIRA)', true, 6900], 'lugar sin el código del final, motor y duración');
 const AHORA = G.msDeFechaDetektor('2026-11-12 10:00:00');
 const u1 = G.ultimaUbicacion(D, 'A22CY0J', AHORA);
@@ -106,6 +110,9 @@ if (parserStart >= 0 && parserEnd > parserStart) {
   const puntoFechaGps = parserModule.exports.parsearUltimoPuntoSoap(fechaGps);
   check(puntoFechaGps.filas[0]?.fechafinal === '2026-11-16 14:50:00' && G.ultimaUbicacion(G.leerDetenciones(puntoFechaGps.filas), 'ABC123', G.msDeFechaDetektor('2026-11-16 14:51:00'))?.lat === 10.6012,
     'SOAP fecha_gps conserva la última posición en movimiento y la app la dibuja');
+  const conIgnicion = fechaGps.replace('&lt;/movil&gt;', '&lt;ignicion&gt;1&lt;/ignicion&gt;&lt;/movil&gt;');
+  check(G.leerDetenciones(parserModule.exports.parsearUltimoPuntoSoap(conIgnicion).filas)[0]?.motorEncendido === true,
+    'la ignición del último punto enciende el indicador del motor');
   const fechaConZona = fechaGps.replace('2026-11-16 14:50:00', '2026-11-16 14:50:00-04');
   const puntoConZona = parserModule.exports.parsearUltimoPuntoSoap(fechaConZona);
   check(puntoConZona.filas[0]?.fechafinal === '2026-11-16 14:50:00', 'el puente entrega la fecha en formato compatible con la web ya publicada');
@@ -132,7 +139,18 @@ if (parserStart >= 0 && parserEnd > parserStart) {
       const uno = await mod.exports.consultarSoapUltimoPunto('ABC123', 'usuario-prueba', 'clave-prueba');
       const dos = await mod.exports.consultarSoapUltimoPunto('ABC123', 'usuario-prueba', 'clave-prueba');
       check(uno.filas[0]?.latitud !== dos.filas[0]?.latitud && llamadas === 2, 'cada toque de Actualizar pide el último punto otra vez');
-      check(cuerposSoap.every((body) => /<tns:campos><\/tns:campos>/.test(body)), 'último punto pide solo los campos base documentados, sin el comodín *');
+      check(cuerposSoap.every((body) => /<tns:campos>ignicion,velocidad<\/tns:campos>/.test(body)), 'último punto pide ignición y velocidad como campos adicionales del manual');
+      const cuerposRespaldo = [];
+      globalThis.fetch = async (_url, opciones) => {
+        cuerposRespaldo.push(opciones.body);
+        const xml = opciones.body.includes('ignicion,velocidad')
+          ? '<xml_dat>&lt;movil placa="ABC123"&gt;&lt;estado&gt;ERROR Sin Permisos&lt;/estado&gt;&lt;/movil&gt;</xml_dat>'
+          : '<xml_dat>&lt;movil placa="ABC123"&gt;&lt;fecha_gps&gt;2026-11-17 10:00:00-04&lt;/fecha_gps&gt;&lt;latitud&gt;10.6&lt;/latitud&gt;&lt;longitud&gt;-66.9&lt;/longitud&gt;&lt;/movil&gt;</xml_dat>';
+        return { ok: true, status: 200, text: async () => xml };
+      };
+      const respaldo = await mod.exports.consultarSoapUltimoPunto('ABC123', 'usuario-prueba', 'clave-prueba');
+      check(respaldo.filas.length === 1 && cuerposRespaldo.length === 2 && /<tns:campos><\/tns:campos>/.test(cuerposRespaldo[1]),
+        'si Detektor niega ignición, conserva las coordenadas con la consulta básica');
     } finally { globalThis.fetch = fetchAnterior; }
   }
 }

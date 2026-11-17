@@ -159,17 +159,23 @@ async function consultarSoapUltimoPunto(placaParam: string, uSec: string, pSec: 
   const uXml = escaparXml(uSec);
   const pXml = escaparXml(pSec);
   const plXml = escaparXml(placaParam);
+  const cuerpoV3 = (campos: string) => `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="urn:VehiculosCercanosWSDL"><soap:Body><tns:ultimo_punto><tns:usuario>${uXml}</tns:usuario><tns:clave>${pXml}</tns:clave><tns:campos>${campos}</tns:campos><tns:placa>${plXml}</tns:placa></tns:ultimo_punto></soap:Body></soap:Envelope>`;
 
   const intentosSoap = [
     {
       url: SOAP_V3_URL,
       action: 'https://ve.skytrack.detektorgps.com:443/gps_ve/ws/servicio_v3.php#ultimo_punto',
-      body: `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="urn:VehiculosCercanosWSDL"><soap:Body><tns:ultimo_punto><tns:usuario>${uXml}</tns:usuario><tns:clave>${pXml}</tns:clave><tns:campos></tns:campos><tns:placa>${plXml}</tns:placa></tns:ultimo_punto></soap:Body></soap:Envelope>`,
+      body: cuerpoV3('ignicion,velocidad'), extra: true,
+    },
+    {
+      url: SOAP_V3_URL,
+      action: 'https://ve.skytrack.detektorgps.com:443/gps_ve/ws/servicio_v3.php#ultimo_punto',
+      body: cuerpoV3(''), extra: false,
     },
     {
       url: SOAP_V2_URL,
       action: 'https://ve.skytrack.detektorgps.com:443/gps_ve/ws/servicio_v2.php#ultimo_punto',
-      body: `<?xml version="1.0" encoding="ISO-8859-1"?><SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="urn:UltimoPuntoVehiculoWSDL" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><SOAP-ENV:Body><ns1:ultimo_punto><usuario xsi:type="xsd:string">${uXml}</usuario><clave xsi:type="xsd:string">${pXml}</clave><campos xsi:type="xsd:string"></campos><placa xsi:type="xsd:string">${plXml}</placa></ns1:ultimo_punto></SOAP-ENV:Body></SOAP-ENV:Envelope>`,
+      body: `<?xml version="1.0" encoding="ISO-8859-1"?><SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="urn:UltimoPuntoVehiculoWSDL" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><SOAP-ENV:Body><ns1:ultimo_punto><usuario xsi:type="xsd:string">${uXml}</usuario><clave xsi:type="xsd:string">${pXml}</clave><campos xsi:type="xsd:string"></campos><placa xsi:type="xsd:string">${plXml}</placa></ns1:ultimo_punto></SOAP-ENV:Body></SOAP-ENV:Envelope>`, extra: false,
     },
   ];
 
@@ -195,7 +201,7 @@ async function consultarSoapUltimoPunto(placaParam: string, uSec: string, pSec: 
       }
       ultimoErr = parsed.error ? recorte(parsed.error, uSec, pSec) : 'Sin puntos en SOAP';
       // Si el servidor SOAP ya contestó con error de permisos de negocio, no hace falta probar v2 vacío.
-      if (parsed.error && /sin permisos/i.test(parsed.error)) break;
+      if (parsed.error && /sin permisos/i.test(parsed.error) && !it.extra) break;
     } catch (e) {
       ultimoErr = (e as Error)?.message || 'Error SOAP';
     } finally {

@@ -12,7 +12,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useToast } from './ToastProvider';
 import type { GpsPinMapa } from './VenezuelaMap';
-import { leerDetenciones, ultimaUbicacion, lineasUbicacion, lineasFichaGps, ubicacionVieja, haceCuanto, nombreVehiculo, leerResumenDiario, lecturaDelDia, fechaDetektor, esDelVehiculo, type UbicacionGps } from '../lib/gps';
+import { leerDetenciones, ultimaUbicacion, lineasUbicacion, lineasFichaGps, etiquetaMotorGps, ubicacionVieja, haceCuanto, nombreVehiculo, leerResumenDiario, lecturaDelDia, fechaDetektor, esDelVehiculo, type UbicacionGps } from '../lib/gps';
 import { listarVehiculosGps, consultarDetektor, type VehiculoGps } from '../lib/gpsDb';
 import { edificioLabel } from '../lib/edificios';
 import { formatUTM } from '../lib/utm';
@@ -136,7 +136,7 @@ export function GpsPanelMapa({ onPuntos, onFoco }: { onPuntos: (p: GpsPinMapa[])
                     ? <View>
                         <Text style={{ color: ubicacionVieja(c.u, ahora) ? colors.muted : colors.text, fontSize: 11 }}>
                           {c.u.detenida ? `⏸️ detenida ${haceCuanto(c.u.desdeMs, ahora).replace('hace ', 'desde hace ')}` : `🚚 en movimiento${c.u.velocidad && c.u.velocidad > 1 ? ` (${Math.round(c.u.velocidad)} km/h)` : ''} · última señal ${haceCuanto(c.u.hastaMs, ahora)}`}
-                          {c.u.motorEncendido ? ' · 🟢 motor encendido' : ' · ⚫ motor apagado'}
+                          {' · ' + etiquetaMotorGps(c.u.motorEncendido)}
                           {c.u.lugar ? ` · ${c.u.lugar}` : ''}
                         </Text>
                         {c.actividadTexto ? <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📊 {c.actividadTexto}</Text> : null}
