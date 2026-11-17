@@ -17,7 +17,6 @@ const viajesResumenSrc = leer('src/lib/viajesResumen.ts');
 assert(camionViajesSrc.includes('export async function congelarFrentePrevioEnViajes'), 'Falta congelarFrentePrevioEnViajes en camionViajes.ts');
 assert(camionViajesSrc.includes('jornadaWindowISO(params.jornada)'), 'congelarFrentePrevioEnViajes debe usar jornadaWindowISO (7am-7am)');
 assert(camionViajesSrc.includes(".is('frente_id', null)"), 'Solo debe congelar viajes con frente_id nulo');
-assert(camionViajesSrc.includes(".is('frente_nombre', null)"), 'Solo debe congelar viajes con frente_nombre nulo');
 assert(camionViajesSrc.includes(".select('id')"), 'Debe usar .select("id") para verificar RLS');
 
 // 2. FrentesTrabajo.tsx: congela antes de mover o quitar en camiones

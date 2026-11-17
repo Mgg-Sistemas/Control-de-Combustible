@@ -365,10 +365,28 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     const ids = Array.from(marcados);
     let agregados = 0, yaEstaban = 0;
     const fallos: string[] = [];
-    for (const fId of frenteSel) {
-      const r = await asignarFrente(fecha, ids, fId, uid, userName, fuente);
-      if (r.error) fallos.push(`«${activos.find((f) => f.id === fId)?.nombre ?? fId}»: ${r.error}`);
-      else { agregados += r.agregados ?? 0; yaEstaban += r.yaEstaban ?? 0; }
+    if (!esMaq) {
+      for (const id of ids) {
+        const asigsCamion = asignaciones.filter((a) => a.machineryId === id);
+        if (asigsCamion.length === 1 && !frenteSel.has(asigsCamion[0].frenteId) && asigsCamion[0].frenteNombre) {
+          const { error: errCongelar } = await congelarFrentePrevioEnViajes({
+            jornada: fecha,
+            machineryId: id,
+            frenteId: asigsCamion[0].frenteId,
+            frenteNombre: asigsCamion[0].frenteNombre,
+          });
+          if (errCongelar) {
+            fallos.push(`${codigoDe(id)} (resguardar ${asigsCamion[0].frenteNombre}): ${errCongelar}`);
+          }
+        }
+      }
+    }
+    if (!fallos.length) {
+      for (const fId of frenteSel) {
+        const r = await asignarFrente(fecha, ids, fId, uid, userName, fuente);
+        if (r.error) fallos.push(`«${activos.find((f) => f.id === fId)?.nombre ?? fId}»: ${r.error}`);
+        else { agregados += r.agregados ?? 0; yaEstaban += r.yaEstaban ?? 0; }
+      }
     }
     setGuardando(false);
     setRecarga((n) => n + 1);

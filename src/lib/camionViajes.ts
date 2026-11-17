@@ -1464,7 +1464,6 @@ export async function congelarFrentePrevioEnViajes(params: {
     .gte('registered_at', desdeISO)
     .lt('registered_at', hastaExclusivoISO)
     .is('frente_id', null)
-    .is('frente_nombre', null)
     .select('id');
   if (error) {
     if (error.message?.includes('frente_id') || error.message?.includes('frente_nombre')) {
