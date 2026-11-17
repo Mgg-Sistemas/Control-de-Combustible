@@ -6,6 +6,8 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
+import { horometroAlertaDe, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK } from '../lib/horometroAlertas';
+import { etiquetaMaquinaConPlaca, filtrarNotificacionesPorPermisos } from '../lib/mantenimientoPreventivo';
 import type { AppNotification } from '../types/database';
 
 // Ícono por tipo de evento (para reconocerlo de un vistazo en el panel).
@@ -16,6 +18,7 @@ const ICON: Record<string, string> = {
   aclaratoria_tecnica: '⚠️',
   cierre_control: '🛠️',
   jornada_tarde: '⏰',
+  mantenimiento_preventivo: '🔧',
 };
 
 // Nombre del MÓDULO al que pertenece cada aviso (se muestra en el detalle).
@@ -26,6 +29,7 @@ const MODULE_LABEL: Record<string, string> = {
   aclaratoria_tecnica: 'Compras · Aclaratoria Técnica',
   cierre_control: 'Control de maquinaria · Cierre',
   jornada_tarde: 'Inspecciones · Jornada declarada tarde',
+  mantenimiento_preventivo: 'Mantenimiento · Horómetro 250H',
 };
 
 // A dónde lleva "Ir al módulo" (mejor esfuerzo; si no aplica, no hace nada).
@@ -36,6 +40,7 @@ const DEST: Record<string, { tab?: string; screen: string }> = {
   aclaratoria_tecnica: { tab: 'More', screen: 'SolicitudMaterial' },
   cierre_control: { screen: 'ControlMaquinaria' },
   jornada_tarde: { screen: 'Supervision' },
+  mantenimiento_preventivo: { tab: 'More', screen: 'MantenimientoMaquinaria' },
 };
 
 /**
@@ -91,13 +96,29 @@ function whenLabel(iso: string): string {
  * Al tocar un aviso se abre su DETALLE (módulo + detalle) con "Marcar como leída"
  * e "Ir al módulo". El estado "leído" es POR USUARIO (tabla notification_reads).
  */
+type HoroNotif = {
+  id: string;
+  code: string;
+  plate: string | null;
+  horas: number;
+  restante: number;
+  nivel: 'BAJA' | 'MEDIA' | 'ALTA';
+  color: string;
+  label: string;
+};
+
 export default function NotificationBell() {
-  const { session, role } = useAuth();
+  const { session, role, canSee } = useAuth();
   const { colors } = useTheme();
   const navigation = useNavigation<any>();
   const uid = session?.user?.id ?? null;
+  const canMantenimiento = canSee('mantenimiento');
+  const canServicio = canSee('servicio');
+  const canCompras = canSee('compras');
+  const canInventario = canSee('inventario');
 
   const [items, setItems] = React.useState<AppNotification[]>([]);
+  const [horoAlertas, setHoroAlertas] = React.useState<HoroNotif[]>([]);
   const [readIds, setReadIds] = React.useState<Set<string>>(new Set());
   const [open, setOpen] = React.useState(false);
   const [detail, setDetail] = React.useState<AppNotification | null>(null);
@@ -106,11 +127,6 @@ export default function NotificationBell() {
 
   const load = React.useCallback(async () => {
     if (!isSupabaseConfigured || !uid) return;
-    // 🔔 QUIÉN VE QUÉ (17-oct-2026): el ADMIN sigue viendo todo, como siempre. Los
-    // DEMÁS ven SOLO los avisos dirigidos a ellos (recipient_id = yo) — nació para
-    // el almacenista responsable de un requerimiento. Si no tienen ninguno, la
-    // campana ni se muestra (ver el return de abajo), así que para el resto de los
-    // usuarios nada cambia.
     let q = supabase
       .from('notifications')
       .select('*')
@@ -118,7 +134,15 @@ export default function NotificationBell() {
       .limit(50);
     if (role !== 'admin') q = q.eq('recipient_id', uid);
     const { data: notifs } = await q;
-    const list = (notifs as AppNotification[]) ?? [];
+    const rawList = (notifs as AppNotification[]) ?? [];
+    const list = filtrarNotificacionesPorPermisos(rawList, {
+      uid,
+      role,
+      canMantenimiento,
+      canServicio,
+      canCompras,
+      canInventario,
+    });
     setItems(list);
     // Sonido sutil al llegar una notificación NUEVA (no en la carga inicial).
     const ids = new Set(list.map((n) => n.id));
@@ -134,13 +158,54 @@ export default function NotificationBell() {
     } else {
       setReadIds(new Set());
     }
-  }, [uid, role]);
+
+    // Alertas de mantenimiento preventivo (horómetro ≥ 200h o vencida) solo si tiene permiso
+    if (role === 'admin' || canMantenimiento || canServicio) {
+      const { data: macs } = await supabase
+        .from('machinery')
+        .select('id, code, plate, last_horometro, horometro_base, horometro_maint_pending')
+        .eq('active', true);
+      const alertas: HoroNotif[] = [];
+      (macs ?? []).forEach((m: any) => {
+        const last = m.last_horometro != null ? Number(m.last_horometro) : null;
+        const base = m.horometro_base != null ? Number(m.horometro_base) : null;
+        const al = horometroAlertaDe(last, base);
+        if (al) {
+          alertas.push({
+            id: m.id,
+            code: m.code,
+            plate: m.plate ?? null,
+            horas: al.horas,
+            restante: Math.round((HOROMETRO_UMBRAL_ALTA - al.horas) * 100) / 100,
+            nivel: al.nivel,
+            color: al.color,
+            label: al.label,
+          });
+        } else if (m.horometro_maint_pending === true) {
+          alertas.push({
+            id: m.id,
+            code: m.code,
+            plate: m.plate ?? null,
+            horas: HOROMETRO_UMBRAL_ALTA,
+            restante: 0,
+            nivel: 'ALTA',
+            color: '#B91C1C',
+            label: '🔴 Mantenimiento pendiente',
+          });
+        }
+      });
+      alertas.sort((a, b) => NIVEL_RANK[a.nivel] - NIVEL_RANK[b.nivel] || b.horas - a.horas);
+      setHoroAlertas(alertas);
+    } else {
+      setHoroAlertas([]);
+    }
+  }, [uid, role, canMantenimiento, canServicio, canCompras, canInventario]);
 
   React.useEffect(() => { load(); }, [load]);
-  useRealtimeRefresh(['notifications', 'notification_reads'], load);
+  useRealtimeRefresh(['notifications', 'notification_reads', 'machinery'], load);
 
   const unread = items.filter((n) => !readIds.has(n.id));
-  const badge = unread.length;
+  const badge = unread.length + horoAlertas.length;
 
   const markRead = React.useCallback(async (ids: string[]) => {
     if (!uid || !ids.length) return;
@@ -163,9 +228,8 @@ export default function NotificationBell() {
 
   const closePanel = () => { setOpen(false); setDetail(null); };
 
-  // Solo el admin recibe estos avisos: para el resto, ni se muestra la campana.
-  // No-admin: la campana solo existe si tiene avisos PROPIOS (recipient_id = él).
-  if (role !== 'admin' && items.length === 0) return null;
+  // Visibilidad universal de la campana para todo usuario autenticado.
+  if (!uid) return null;
 
   const detailUnread = detail ? !readIds.has(detail.id) : false;
 
@@ -260,7 +324,7 @@ export default function NotificationBell() {
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>
                     Notificaciones{badge ? ` · ${badge}` : ''}
                   </Text>
-                  {badge > 0 ? (
+                  {unread.length > 0 ? (
                     <TouchableOpacity onPress={() => markRead(unread.map((n) => n.id))}>
                       <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Marcar todo leído</Text>
                     </TouchableOpacity>
@@ -268,13 +332,43 @@ export default function NotificationBell() {
                 </View>
 
                 <ScrollView style={{ maxHeight: 420 }}>
-                  {items.length === 0 ? (
+                  {items.length === 0 && horoAlertas.length === 0 ? (
                     <View style={{ padding: 24, alignItems: 'center' }}>
                       <Text style={{ fontSize: 26 }}>🔕</Text>
-                      <Text style={{ color: colors.muted, marginTop: 6 }}>Sin notificaciones</Text>
+                      <Text style={{ color: colors.muted, marginTop: 6 }}>Sin notificaciones pendientes</Text>
                     </View>
                   ) : (
-                    items.map((n) => {
+                    <>
+                      {horoAlertas.map((a) => (
+                        <TouchableOpacity
+                          key={`horo-${a.id}`}
+                          onPress={() => {
+                            closePanel();
+                            try { navigation.navigate('More', { screen: 'MantenimientoMaquinaria' }); }
+                            catch { try { navigation.navigate('MantenimientoMaquinaria'); } catch {} }
+                          }}
+                          style={{
+                            flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 11,
+                            borderBottomWidth: 1, borderBottomColor: colors.border,
+                            backgroundColor: colors.background,
+                          }}
+                        >
+                          <Text style={{ fontSize: 18 }}>🔧</Text>
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: a.color }} />
+                              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }}>
+                                {etiquetaMaquinaConPlaca(a.code, a.plate)}
+                              </Text>
+                            </View>
+                            <Text style={{ color: a.color, fontWeight: '700', fontSize: 12, marginTop: 2 }}>
+                              {a.label} · {a.horas} h acumuladas ({a.restante > 0 ? `faltan ${a.restante} h` : 'Vencido'})
+                            </Text>
+                          </View>
+                          <Text style={{ color: colors.muted, fontSize: 16 }}>›</Text>
+                        </TouchableOpacity>
+                      ))}
+                      {items.map((n) => {
                       const isUnread = !readIds.has(n.id);
                       return (
                         <TouchableOpacity
@@ -298,7 +392,8 @@ export default function NotificationBell() {
                           <Text style={{ color: colors.muted, fontSize: 16 }}>›</Text>
                         </TouchableOpacity>
                       );
-                    })
+                    })}
+                    </>
                   )}
                 </ScrollView>
               </View>

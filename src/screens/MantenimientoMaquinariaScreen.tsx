@@ -11,6 +11,9 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { horometroAlertaDe, horasAcumuladas, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
+import { etiquetaMaquinaConPlaca } from '../lib/mantenimientoPreventivo';
+import { RegistrarMantenimientoModal, type MaquinaMantenimientoTarget } from '../components/RegistrarMantenimientoModal';
+import { HistorialServiciosModal } from '../components/HistorialServiciosModal';
 import { listInspectorAssignments } from '../lib/machineInspectors';
 import { serviciosPorAveria, esReporteViejo, DIAS_REPORTE_VIEJO } from '../lib/machineService';
 import { caracasParts } from '../lib/jornada';
@@ -166,7 +169,7 @@ function agruparAveriasPorEmpresa(rows: Req[], prefijo: string): AveriaGroup[] {
 export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   const esServicio = seccion === 'servicio';
   const { colors } = useTheme();
-  const { canSee, moduleLevel, session } = useAuth();
+  const { canSee, moduleLevel, session, fullName } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const uid = session?.user?.id ?? null;
@@ -509,32 +512,17 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   // horómetro actual (NO toca el horómetro físico/last_horometro). Las horas
   // acumuladas vuelven a 0 y la alerta deja de generarse.
   const [confirmingHoro, setConfirmingHoro] = useState<string | null>(null);
-  const confirmarMantenimientoHorometro = async (m: Mach) => {
-    if (m.last_horometro == null) return;
-    const ok = await confirm({
-      title: 'Confirmar mantenimiento',
-      message: `¿Confirmas que a "${m.code}" ya se le hizo el mantenimiento? Se reinicia el conteo de horas acumuladas (horómetro actual: ${m.last_horometro}).`,
-      confirmText: 'Sí, confirmar y reiniciar', cancelText: 'Cancelar',
+  const [regModalMach, setRegModalMach] = useState<MaquinaMantenimientoTarget | null>(null);
+  const [histModalMach, setHistModalMach] = useState<MaquinaMantenimientoTarget | null>(null);
+  const confirmarMantenimientoHorometro = (m: Mach) => {
+    setRegModalMach({
+      id: m.id,
+      code: m.code,
+      plate: m.plate,
+      company: m.company,
+      last_horometro: m.last_horometro,
+      horometro_base: m.horometro_base,
     });
-    if (!ok) return;
-    setConfirmingHoro(m.id);
-    // Reparada: reinicia la base (acumulado → 0) Y limpia el arrastre "requiere
-    // mantenimiento" (horometro_maint_pending). Es la ÚNICA forma de sacar una
-    // máquina vencida de la lista.
-    //
-    // ⚠️ EXCEPCIÓN DELIBERADA A LA FRONTERA — no borrar creyendo que se escapó.
-    // Este módulo dejó de escribir en `machinery` (se le quitaron `operational` y
-    // `en_espera` el 18-ago-2026), MENOS acá: el cliente lo pidió expreso — «lo de
-    // los horómetros que sí funcione». Es la lógica del ciclo de mantenimiento.
-    // Ojo con el alcance: `horometro_base` lo leen también `machineHoursReport.ts`
-    // (horas acumuladas = last_horometro − horometro_base) y el panel de Supervisión,
-    // así que confirmar un mantenimiento reinicia ese contador en los dos.
-    // Ver docs/superpowers/specs/2026-08-18-servicio-maquinaria-design.md
-    const { error } = await supabase.from('machinery').update({ horometro_base: m.last_horometro, horometro_maint_pending: false }).eq('id', m.id);
-    setConfirmingHoro(null);
-    if (error) return toast.error(error.message);
-    setMachines((prev) => prev.map((x) => (x.id === m.id ? { ...x, horometro_base: m.last_horometro, horometro_maint_pending: false } : x)));
-    setNotice(`✅ Mantenimiento confirmado en ${m.code} · horómetro reiniciado.`);
   };
 
   // Paradas cuyo marcador "MÁQUINA PARADA" lleva más de PARADA_STALE_HOURS sin
@@ -1776,6 +1764,39 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                 </TouchableOpacity>
               ) : null}
 
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+                <TouchableOpacity
+                  onPress={() => toggle('proximas')}
+                  style={{
+                    borderRadius: radius.pill,
+                    borderWidth: 1.5,
+                    borderColor: horoFilter === 'proximas' ? '#D97706' : colors.border,
+                    backgroundColor: horoFilter === 'proximas' ? '#D97706' : colors.surface,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: 7,
+                  }}
+                >
+                  <Text style={{ color: horoFilter === 'proximas' ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>
+                    ⚠️ Próximos a vencer y vencidos ({conAlerta})
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => toggle('vencidas')}
+                  style={{
+                    borderRadius: radius.pill,
+                    borderWidth: 1.5,
+                    borderColor: horoFilter === 'vencidas' ? colors.danger : colors.border,
+                    backgroundColor: horoFilter === 'vencidas' ? colors.danger : colors.surface,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: 7,
+                  }}
+                >
+                  <Text style={{ color: horoFilter === 'vencidas' ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>
+                    🔴 Solo vencidas ({vencidas})
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               {horoLoading ? <View style={{ paddingVertical: spacing.md }}><Loading /></View> : null}
               {shown.length === 0 ? <EmptyState title="Sin resultados" subtitle={horoFilter === 'all' ? 'No hay máquinas para esta búsqueda.' : 'Ninguna máquina en este filtro.'} /> : null}
 
@@ -1796,7 +1817,10 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                   : '—';
                 return (
                   <Card key={m.id}>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🚜 {m.code}{m.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {m.tipo}</Text> : null}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>
+                      {etiquetaMaquinaConPlaca(m.code, m.plate)}
+                      {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {m.tipo}</Text> : null}
+                    </Text>
                     <View style={{ marginTop: 3, gap: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 Empresa: <Text style={{ color: colors.text, fontWeight: '600' }}>{m.company}</Text></Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: <Text style={{ color: colors.text, fontWeight: '600' }}>{m.encargado || '—'}</Text></Text>
@@ -1843,9 +1867,21 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                       </View>
                     </View>
 
-                    <TouchableOpacity onPress={() => confirmarMantenimientoHorometro(m)} disabled={confirmingHoro === m.id || m.last_horometro == null} style={{ marginTop: spacing.sm, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: (confirmingHoro === m.id || m.last_horometro == null) ? 0.5 : 1 }}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{confirmingHoro === m.id ? 'Guardando…' : '✓ Confirmar mantenimiento · reiniciar horómetro'}</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                      <TouchableOpacity
+                        onPress={() => confirmarMantenimientoHorometro(m)}
+                        disabled={confirmingHoro === m.id || m.last_horometro == null}
+                        style={{ flex: 2, minWidth: 180, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center', opacity: (confirmingHoro === m.id || m.last_horometro == null) ? 0.5 : 1 }}
+                      >
+                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>✓ Confirmar mantenimiento · reiniciar horómetro</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setHistModalMach({ id: m.id, code: m.code, plate: m.plate, company: m.company, last_horometro: m.last_horometro, horometro_base: m.horometro_base })}
+                        style={{ flex: 1, minWidth: 130, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📋 Historial servicios</Text>
+                      </TouchableOpacity>
+                    </View>
                   </Card>
                 );
               })}
@@ -2525,6 +2561,32 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           </View>
         </View>
       </Modal>
+
+      <RegistrarMantenimientoModal
+        visible={Boolean(regModalMach)}
+        maquina={regModalMach}
+        uid={uid}
+        nombreUsuario={fullName || session?.user?.email || null}
+        onClose={() => setRegModalMach(null)}
+        onGuardado={({ machineryId, horometroBase, maintPending }) => {
+          setMachines((prev) => prev.map((x) => (x.id === machineryId ? { ...x, horometro_base: horometroBase, horometro_maint_pending: maintPending } : x)));
+          setNotice(`✅ Mantenimiento confirmado · horómetro base actualizado a ${horometroBase} h.`);
+        }}
+      />
+
+      <HistorialServiciosModal
+        visible={Boolean(histModalMach)}
+        maquina={histModalMach}
+        canWrite={canWrite}
+        uid={uid}
+        nombreUsuario={fullName || session?.user?.email || null}
+        onClose={() => setHistModalMach(null)}
+        onAnulado={({ machineryId, nuevaBase, maintPending }) => {
+          setMachines((prev) => prev.map((x) => (x.id === machineryId ? { ...x, horometro_base: nuevaBase, horometro_maint_pending: maintPending } : x)));
+          setHistModalMach((prev) => (prev && prev.id === machineryId ? { ...prev, horometro_base: nuevaBase } : prev));
+          setNotice(maintPending ? '🚫 Servicio anulado · máquina volvió a estado vencido.' : '🚫 Servicio anulado · horómetro base recalculado.');
+        }}
+      />
     </Screen>
   );
 }
