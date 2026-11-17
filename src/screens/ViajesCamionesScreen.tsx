@@ -830,8 +830,14 @@ export default function ViajesCamionesScreen() {
    */
   const frenteParaGrabar = (machineryId: string | null) => {
     const l = machineryId ? asignacionesHoy.get(machineryId) ?? [] : [];
-    if (l.length !== 1) return { frenteId: null, frenteNombre: null };
-    return { frenteId: l[0].frenteId, frenteNombre: l[0].frenteNombre };
+    if (l.length === 0) return { frenteId: null, frenteNombre: null };
+    if (l.length === 1) return { frenteId: l[0].frenteId, frenteNombre: l[0].frenteNombre };
+    const conHora = l.filter((a) => !!a.creadoAt && Number.isFinite(Date.parse(a.creadoAt)));
+    if (conHora.length === l.length) {
+      const masReciente = [...conHora].sort((a, b) => Date.parse(b.creadoAt!) - Date.parse(a.creadoAt!))[0];
+      return { frenteId: masReciente.frenteId, frenteNombre: masReciente.frenteNombre };
+    }
+    return { frenteId: null, frenteNombre: null };
   };
 
   const [pesoTexto, setPesoTexto] = useState('');

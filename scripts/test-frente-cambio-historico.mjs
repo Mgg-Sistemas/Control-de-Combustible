@@ -30,4 +30,9 @@ assert(viajesScreenSrc.includes('setFrentesRecarga'), 'ViajesCamionesScreen debe
 assert(viajesResumenSrc.includes("case 'frente':"), 'resumirViajes debe agrupar por frente');
 assert(viajesResumenSrc.includes('claveFrenteViaje(r)'), 'resumirViajes debe usar claveFrenteViaje por viaje');
 
-console.log('✅ test-frente-cambio-historico: todas las verificaciones pasaron (10/10).');
+// 5. frentesAuto.ts y ViajesCamionesScreen.tsx: con 2+ frentes y creadoAt resuelven por línea de tiempo (no quedan en Sin frente)
+const frentesAutoSrc = leer('src/lib/frentesAuto.ts');
+assert(frentesAutoSrc.includes('todasConHora'), 'completarFrentes debe resolver por hora creadoAt cuando hay 2+ frentes');
+assert(viajesScreenSrc.includes('masReciente'), 'frenteParaGrabar debe tomar el frente más reciente por creadoAt cuando hay 2+');
+
+console.log('✅ test-frente-cambio-historico: todas las verificaciones pasaron (12/12).');
