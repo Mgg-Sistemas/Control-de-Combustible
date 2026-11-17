@@ -110,8 +110,6 @@ import {
   listAsignacionesFrente,
   asignarFrente,
   quitarAsignacionFrente,
-  congelarFrentePrevioEnViajes,
-  sincronizarFrenteDesdeListero,
   listMaterialesViaje,
   cambiarMiCdtListero,
   sentidoViajeValido,
@@ -864,7 +862,15 @@ export default function ViajesCamionesScreen() {
   const [fotoPeso, setFotoPeso] = useState<string | null>(null);
   const [fotoTomando, setFotoTomando] = useState(false);
   // El tipo también es DE ESTE viaje: se limpia junto con el peso.
-  const limpiarPeso = () => { setPesoTexto(''); setTaraManualTexto(''); setFotoPeso(null); setTipoSel(null); };
+  // Y el frente vuelve al planificado del camión (si el listero lo cambió, fue solo para ese viaje).
+  const limpiarPeso = () => {
+    setPesoTexto('');
+    setTaraManualTexto('');
+    setFotoPeso(null);
+    setTipoSel(null);
+    if (!selectedTruck || selectedTruck.id === FUERA_CATALOGO_ID) setFrenteSel(null);
+    else setFrenteSel(frenteParaGrabar(selectedTruck.id).frenteId);
+  };
 
   // Cámara o galería (27-sep-2026, a pedido: «si deja tomar foto, también debe
   // dejar subir de la galería»). Las dos entregan el MISMO data-url local, así
@@ -1511,30 +1517,6 @@ export default function ViajesCamionesScreen() {
 
       const { error } = await registrarViaje({ ...payload, clientActionId, origen: 'campo' });
       if (!error) {
-        // Si el listero eligió un frente para un camión del catálogo, sincroniza
-        // la planificación diaria de frentes (resguardando antes viajes previos sin frente).
-        if (!esFuera && payload.frenteId && payload.frenteNombre) {
-          const asigs = asignacionesHoy.get(selectedTruck.id) ?? [];
-          if (asigs.length !== 1 || asigs[0].frenteId !== payload.frenteId) {
-            if (asigs.length === 1 && asigs[0].frenteId !== payload.frenteId && asigs[0].frenteNombre) {
-              await congelarFrentePrevioEnViajes({
-                jornada: caracasBusinessToday(),
-                machineryId: selectedTruck.id,
-                frenteId: asigs[0].frenteId,
-                frenteNombre: asigs[0].frenteNombre,
-              });
-            }
-            const syncRes = await sincronizarFrenteDesdeListero({
-              jornada: caracasBusinessToday(),
-              machineryId: selectedTruck.id,
-              frenteId: payload.frenteId,
-              userId: uid,
-              userName: listeroName,
-            });
-            if (syncRes.ok) setFrentesRecarga((n) => n + 1);
-            else if (syncRes.error) console.warn('[viajes] sincronizar frente:', syncRes.error);
-          }
-        }
         toast.success(exentoDeRomana
           ? `Viaje de ${selectedTruck.code} registrado (no pasa por romana).`
           : `Viaje de ${selectedTruck.code} registrado · neto ${kgTexto(brutoKg - taraKg)}.`);
@@ -5118,7 +5100,7 @@ export default function ViajesCamionesScreen() {
 
             {frentesActivos.length > 0 ? (
               <View style={{ gap: 6 }}>
-                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ FRENTE DE TRABAJO (se sincroniza con planificación)</Text>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ FRENTE DE TRABAJO (solo para este viaje)</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                   <TouchableOpacity
                     onPress={() => setFrenteSel(null)}
