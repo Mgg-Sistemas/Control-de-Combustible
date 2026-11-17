@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Image, ScrollView, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Image, ScrollView, Modal, Alert, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -36,6 +36,15 @@ import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { constanciaCarnetHtml, constanciaTrabajoHtml, MEMBRETES_CONSTANCIA, MEMBRETE_POR_DEFECTO } from '../lib/constancia';
 import { amonestacionHtml, GRADO_LABEL, GradoAmonestacion } from '../lib/amonestacion';
+import {
+  listarAmonestacionesEmpleado,
+  contarAmonestacionesPorEmpleado,
+  guardarAmonestacion,
+  anularAmonestacion,
+  generarCodigoAmonestacion,
+  esAmonestacionConDatos,
+  type EmployeeAmonestacionRow,
+} from '../lib/amonestacionesDb';
 import { ActaCompromisoModal } from '../components/ActaCompromisoModal';
 import { contarActasPorEmpleado } from '../lib/actasCompromisoDb';
 import { CartaBancoTerceroModal } from '../components/CartaBancoTerceroModal';
@@ -128,6 +137,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const [actaFor, setActaFor] = useState<Employee | null>(null);
   const [actaTipoInicial, setActaTipoInicial] = useState<'entrega' | 'recepcion'>('entrega');
   const [actasCounts, setActasCounts] = useState<Record<string, number>>({});
+  const [amonestCounts, setAmonestCounts] = useState<Record<string, number>>({});
   const [cartaBancoFor, setCartaBancoFor] = useState<Employee | null>(null);
   const [mapaCartasLocal, setMapaCartasLocal] = useState<MapaCartasBancoTercero>({});
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
@@ -180,6 +190,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     leerMapaHabilidades().then(setMapaHabsLocal);
     leerMapaCartasBancoTercero().then(setMapaCartasLocal);
     contarActasPorEmpleado().then(setActasCounts);
+    contarAmonestacionesPorEmpleado().then(setAmonestCounts);
     AsyncStorage.getItem(CLAVE_REPORTE_EMPLEADOS)
       .then((raw) => {
         if (!raw) return;
@@ -217,11 +228,12 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     guardarConfigReporte(nextOp, logosReporte, nextFirmantes);
   };
 
-  useRealtimeRefresh(['payroll_companies', 'employee_commitment_acts'], () => {
+  useRealtimeRefresh(['payroll_companies', 'employee_commitment_acts', 'employee_amonestaciones'], () => {
     leerGruposApartados().then(setGruposConfig);
     leerMapaHabilidades().then(setMapaHabsLocal);
     leerMapaCartasBancoTercero().then(setMapaCartasLocal);
     contarActasPorEmpleado().then(setActasCounts);
+    contarAmonestacionesPorEmpleado().then(setAmonestCounts);
     refetchPayroll();
   });
 
@@ -574,6 +586,11 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const [amDesc, setAmDesc] = useState('');
   const [amGrado, setAmGrado] = useState<GradoAmonestacion | null>(null);
   const [amTestigo, setAmTestigo] = useState('');
+  const [amHist, setAmHist] = useState<EmployeeAmonestacionRow[]>([]);
+  const [amHistLoading, setAmHistLoading] = useState(false);
+  const [amFaltaSql, setAmFaltaSql] = useState(false);
+  const [amAnulandoId, setAmAnulandoId] = useState<string | null>(null);
+  const [amMotivoAnulacion, setAmMotivoAnulacion] = useState('');
 
   // Estilos del cuadro de la amonestación. Van acá y no en un StyleSheet porque
   // dependen del tema (claro/oscuro) y este archivo no usa StyleSheet en ningún lado.
@@ -612,15 +629,65 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     toast.success(`"${name}" ya no aparece en el filtro`);
   };
 
+  const cargarHistorialAmonestaciones = async (employeeId: string) => {
+    setAmHistLoading(true);
+    const res = await listarAmonestacionesEmpleado(employeeId);
+    setAmHist(res.amonestaciones);
+    setAmFaltaSql(res.faltaSql);
+    setAmHistLoading(false);
+  };
+
   const abrirAmonestacion = (e: Employee) => {
     // Se limpia SIEMPRE al abrir: si no, la falta del trabajador anterior queda
     // escrita en el cuadro del siguiente, y eso en un papel disciplinario es grave.
     setAmFalta(''); setAmFecha(''); setAmHora(''); setAmDesc(''); setAmGrado(null); setAmTestigo('');
+    setAmAnulandoId(null);
+    setAmMotivoAnulacion('');
+    setAmHist([]);
+    setAmFaltaSql(false);
     setAmonestFor(e);
+    void cargarHistorialAmonestaciones(e.id);
   };
 
   const imprimirAmonestacion = async (e: Employee) => {
     setBusy(e.id + '-amonest');
+    const previasVigentes = amHist.filter((a) => !a.anulado).length;
+    const tieneDatos = esAmonestacionConDatos({
+      grado: amGrado,
+      tipoFalta: amFalta,
+      fechaHecho: amFecha,
+      horaHecho: amHora,
+      descripcion: amDesc,
+      testigoNombre: amTestigo,
+    });
+
+    let previasParaPdf = previasVigentes;
+    if (tieneDatos) {
+      const codigo = generarCodigoAmonestacion(amHist.length + 1);
+      const saved = await guardarAmonestacion({
+        employee_id: e.id,
+        grado: amGrado,
+        tipo_falta: amFalta.trim() || null,
+        fecha_hecho: amFecha.trim() || null,
+        hora_hecho: amHora.trim() || null,
+        descripcion: amDesc.trim() || null,
+        testigo_nombre: amTestigo.trim() || null,
+        previas_count: previasVigentes,
+        codigo,
+        emitido_por: session?.user?.id ?? null,
+        emitido_por_nombre: session?.user?.email ?? null,
+      });
+      if (!saved.ok && !saved.faltaSql) {
+        Alert.alert('Aviso', `Se imprimirá el PDF, pero no se pudo guardar en el historial: ${saved.error ?? 'Error'}`);
+      } else {
+        if (saved.faltaSql) setAmFaltaSql(true);
+        const counts = await contarAmonestacionesPorEmpleado();
+        setAmonestCounts(counts);
+        await cargarHistorialAmonestaciones(e.id);
+      }
+      previasParaPdf = previasVigentes;
+    }
+
     const html = amonestacionHtml({
       fullName: fullName(e),
       cedula: e.cedula,
@@ -636,10 +703,63 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       descripcion: amDesc,
       grado: amGrado,
       testigoNombre: amTestigo,
+      previas: previasParaPdf,
     });
     await exportPdf(html, `Amonestacion - ${fullName(e)}`);
     setBusy(null);
-    setAmonestFor(null);
+    if (!tieneDatos) {
+      setAmonestFor(null);
+    } else {
+      setAmFalta(''); setAmFecha(''); setAmHora(''); setAmDesc(''); setAmGrado(null); setAmTestigo('');
+    }
+  };
+
+  const reimprimirAmonestacion = async (e: Employee, item: EmployeeAmonestacionRow) => {
+    setBusy(`reimp-am-${item.id}`);
+    const html = amonestacionHtml({
+      fullName: fullName(e),
+      cedula: e.cedula,
+      cargo: e.cargo ? canonicalCargo(e.cargo) : null,
+      department: e.department,
+      fichaNumber: e.ficha_number,
+      hireDate: e.hire_date,
+      city: e.city,
+      state: e.state,
+      tipoFalta: item.tipo_falta,
+      fechaHecho: item.fecha_hecho,
+      horaHecho: item.hora_hecho,
+      descripcion: item.descripcion,
+      grado: item.grado,
+      testigoNombre: item.testigo_nombre,
+      previas: item.previas_count,
+    });
+    await exportPdf(html, `Amonestacion - ${fullName(e)} - ${item.codigo}`);
+    setBusy(null);
+  };
+
+  const confirmarAnulacionAmonestacion = async (id: string) => {
+    const motivo = amMotivoAnulacion.trim();
+    if (!motivo) {
+      Alert.alert('Motivo requerido', 'Escribe el motivo de la anulación (ninguna amonestación se borra, solo se anula con registro).');
+      return;
+    }
+    setBusy(`anular-am-${id}`);
+    const res = await anularAmonestacion({
+      id,
+      motivo,
+      uid: session?.user?.id ?? null,
+      nombreUsuario: session?.user?.email ?? null,
+    });
+    setBusy(null);
+    if (!res.ok) {
+      Alert.alert('Error', res.error ?? 'No se pudo anular la amonestación.');
+      return;
+    }
+    setAmAnulandoId(null);
+    setAmMotivoAnulacion('');
+    if (amonestFor) await cargarHistorialAmonestaciones(amonestFor.id);
+    const counts = await contarAmonestacionesPorEmpleado();
+    setAmonestCounts(counts);
   };
 
   // Reporte PDF de LO SELECCIONADO: lista las personas del filtro actual (estado +
@@ -1992,7 +2112,11 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
                         <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); }} />
-                        <Btn label="⚠️ Amonestación" color="#B45309" onPress={() => abrirAmonestacion(e)} />
+                        <Btn
+                          label={amonestCounts[e.id] ? `⚠️ Amonestación (${amonestCounts[e.id]})` : '⚠️ Amonestación'}
+                          color="#B45309"
+                          onPress={() => abrirAmonestacion(e)}
+                        />
                         <Btn
                           label={actasCounts[e.id] ? `🤝 Acta de compromiso (${actasCounts[e.id]})` : '🤝 Acta de compromiso'}
                           color="#0369A1"
@@ -2034,6 +2158,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
         onClose={() => setActaFor(null)}
         onSaved={() => {
           contarActasPorEmpleado().then(setActasCounts);
+    contarAmonestacionesPorEmpleado().then(setAmonestCounts);
         }}
       />
 
@@ -2163,7 +2288,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
               Puedes dejar todo en blanco: sale la planilla con renglones para llenarla a mano.
             </Text>
 
-            <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled">
               <Text style={amLbl}>Tipo de falta</Text>
               <TextInput
                 value={amFalta} onChangeText={setAmFalta} placeholder="Inasistencia injustificada, retardo reiterado…"
@@ -2220,6 +2345,118 @@ export default function EmpleadosScreen({ navigation, route }: any) {
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
                 El testigo importa sobre todo si el trabajador se niega a firmar — el documento trae esa casilla.
               </Text>
+
+              <View style={{ marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                  📋 Historial de amonestaciones ({amHist.length})
+                </Text>
+                {amFaltaSql ? (
+                  <Text style={{ color: '#F59E0B', fontSize: 11, marginBottom: spacing.xs }}>
+                    ⚠️ Falta crear la tabla `employee_amonestaciones` en Supabase; mostrando respaldo local de este dispositivo.
+                  </Text>
+                ) : null}
+                {amHistLoading ? (
+                  <ActivityIndicator size="small" color={colors.accent} style={{ marginVertical: spacing.sm }} />
+                ) : amHist.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    Sin amonestaciones registradas aún para este trabajador.
+                  </Text>
+                ) : (
+                  amHist.map((item) => {
+                    const anulada = item.anulado;
+                    return (
+                      <View
+                        key={item.id}
+                        style={{
+                          marginTop: spacing.xs,
+                          padding: spacing.sm,
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: anulada ? '#7F1D1D' : colors.border,
+                          backgroundColor: colors.surface,
+                          opacity: anulada ? 0.78 : 1,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                            {item.codigo} · {item.grado ? item.grado.toUpperCase() : 'SIN GRADO'}
+                          </Text>
+                          <Text
+                            style={{
+                              fontSize: 10,
+                              fontWeight: '800',
+                              paddingHorizontal: 6,
+                              paddingVertical: 2,
+                              borderRadius: 4,
+                              overflow: 'hidden',
+                              backgroundColor: anulada ? '#7F1D1D' : '#14532D',
+                              color: '#FFFFFF',
+                            }}
+                          >
+                            {anulada ? 'ANULADO' : 'VIGENTE'}
+                          </Text>
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                          Fecha: {item.fecha_hecho || item.created_at.slice(0, 10)}{item.hora_hecho ? ` · ${item.hora_hecho}` : ''}
+                          {item.tipo_falta ? ` · ${item.tipo_falta}` : ''}
+                        </Text>
+                        {item.descripcion ? (
+                          <Text style={{ color: colors.text, fontSize: 12, marginTop: 4 }} numberOfLines={3}>
+                            {item.descripcion}
+                          </Text>
+                        ) : null}
+                        {anulada && item.motivo_anulacion ? (
+                          <Text style={{ color: '#FCA5A5', fontSize: 11, marginTop: 4 }}>
+                            Anulada: {item.motivo_anulacion}
+                          </Text>
+                        ) : null}
+
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.xs }}>
+                          <Btn
+                            label="🖨️ Reimprimir PDF"
+                            color="#1E40AF"
+                            onPress={() => amonestFor && reimprimirAmonestacion(amonestFor, item)}
+                          />
+                          {!anulada ? (
+                            <Btn
+                              label="🚫 Anular"
+                              color="#991B1B"
+                              onPress={() => {
+                                setAmAnulandoId(amAnulandoId === item.id ? null : item.id);
+                                setAmMotivoAnulacion('');
+                              }}
+                            />
+                          ) : null}
+                        </View>
+
+                        {amAnulandoId === item.id ? (
+                          <View style={{ marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
+                            <TextInput
+                              value={amMotivoAnulacion}
+                              onChangeText={setAmMotivoAnulacion}
+                              placeholder="Motivo obligatorio de anulación..."
+                              placeholderTextColor={colors.muted}
+                              style={[amInput, { marginBottom: spacing.xs }]}
+                            />
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                              <Btn
+                                label="Confirmar anulación"
+                                color="#DC2626"
+                                onPress={() => confirmarAnulacionAmonestacion(item.id)}
+                              />
+                              <Btn
+                                label="Cancelar"
+                                color={colors.border}
+                                onPress={() => { setAmAnulandoId(null); setAmMotivoAnulacion(''); }}
+                              />
+                            </View>
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })
+                )}
+              </View>
             </ScrollView>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>

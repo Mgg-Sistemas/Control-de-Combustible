@@ -1,6 +1,6 @@
 import { supabase, selectAllRows } from './supabase';
 import { esRolListero } from './rolListero';
-import { jornadaDeFecha } from './caracasDay';
+import { jornadaDeFecha, jornadaWindowISO } from './caracasDay';
 import { unidadTarifa, type UnidadTarifaViaje } from './tarifaViajeUnidad';
 import {
   CAMPOS_VIAJE_ROW, completarFrentes, mapaAsignaciones, rangoJornadas, type AsignacionDia,
@@ -1437,6 +1437,43 @@ export async function quitarAsignacionFrente(
   if (error) return { error: error.message };
   if (!data || data.length === 0) return { error: 'Esa asignación ya no existe.' };
   return {};
+}
+
+/**
+ * Antes de mover o quitar el frente de un camión en una jornada (p. ej. de
+ * VENLIV a PORTO FINO), congela en `camion_viajes` los viajes de esa jornada
+ * de ese camión que todavía no tenían `frente_id` ni `frente_nombre` guardados,
+ * asignándoles el frente anterior. Así el histórico acarreado en el frente
+ * anterior nunca se borra ni se reescribe al nuevo frente.
+ */
+export async function congelarFrentePrevioEnViajes(params: {
+  jornada: string;
+  machineryId: string;
+  frenteId: string;
+  frenteNombre: string;
+}): Promise<{ congelados: number; error?: string }> {
+  if (hayColumnasDeFrente === false) return { congelados: 0 };
+  const { desdeISO, hastaExclusivoISO } = jornadaWindowISO(params.jornada);
+  const { data, error } = await supabase
+    .from('camion_viajes')
+    .update({
+      frente_id: params.frenteId,
+      frente_nombre: params.frenteNombre,
+    })
+    .eq('machinery_id', params.machineryId)
+    .gte('registered_at', desdeISO)
+    .lt('registered_at', hastaExclusivoISO)
+    .is('frente_id', null)
+    .is('frente_nombre', null)
+    .select('id');
+  if (error) {
+    if (error.message?.includes('frente_id') || error.message?.includes('frente_nombre')) {
+      hayColumnasDeFrente = false;
+      return { congelados: 0 };
+    }
+    return { congelados: 0, error: error.message };
+  }
+  return { congelados: data?.length ?? 0 };
 }
 
 const DEFAULT_ALERTA_HORAS = 6;

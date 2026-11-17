@@ -4089,8 +4089,9 @@ export default function ViajesCamionesScreen() {
     if (canVerPanel) loadAlerta();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canVerPanel, alertaHoras]);
-  useRealtimeRefresh(['camion_viajes', 'machine_operators', 'machinery'], () => {
+  useRealtimeRefresh(['camion_viajes', 'machine_operators', 'machinery', 'viaje_frente_asignaciones', 'frentes_trabajo'], () => {
     loadTrucks();
+    setFrentesRecarga((n) => n + 1);
     if (canWrite) loadMisViajes();
     if (canVerPanel) { loadResumen(); loadAlerta(); loadRangeRows(); }
   });

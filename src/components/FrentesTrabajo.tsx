@@ -26,7 +26,7 @@ import { Toggle } from './CubicajeTab';
 import { FrentesTablero } from './FrentesTablero';
 import { planMover } from '../lib/frentesTablero';
 import {
-  listAsignacionesFrente, listAsignacionesFrenteRango, asignarFrente, quitarAsignacionFrente,
+  listAsignacionesFrente, listAsignacionesFrenteRango, asignarFrente, quitarAsignacionFrente, congelarFrentePrevioEnViajes,
   // ⛏️ El frente PEGAJOSO de maquinaria (19-oct-2026): vigentes a una fecha y
   //    quitar «desde ese día» con la marca sin frente.
   listAsignacionesHasta, quitarFrenteDesde,
@@ -551,6 +551,19 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       if (error) { toast.error(error); return; }
       toast.success(`${codigoDe(a.machineryId)} queda SIN frente desde el ${dmy(fecha)}. Los días anteriores no cambian.`);
     } else {
+      const asigsCamion = asignaciones.filter((x) => x.machineryId === a.machineryId);
+      if (asigsCamion.length === 1 && a.frenteId && a.frenteNombre) {
+        const { error: errCongelar } = await congelarFrentePrevioEnViajes({
+          jornada: fecha,
+          machineryId: a.machineryId,
+          frenteId: a.frenteId,
+          frenteNombre: a.frenteNombre,
+        });
+        if (errCongelar) {
+          toast.error(`No se pudo resguardar el historial de ${a.frenteNombre}: ${errCongelar}`);
+          return;
+        }
+      }
       const { error } = await quitarAsignacionFrente(fecha, a.machineryId, a.frenteId, fuente);
       if (error) { toast.error(error); return; }
     }
@@ -561,9 +574,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   /**
    * ⛏️ MOVER DESDE EL TABLERO (10-nov-2026). Con las MISMAS funciones de siempre:
    *  · máquinas (pegajoso): asignar = reasignar; quitar = «sin frente desde ese día»;
-   *  · camiones (del día): primero se ASIGNA el destino y después se quitan los otros
-   *    frentes de ese día (así, si algo falla, nadie queda sin frente a medias); con
-   *    «además» se agrega sin quitar.
+   *  · camiones (del día): primero se CONGELAN en `camion_viajes` los viajes previos
+   *    sin frente bajo el frente que tenían hoy, luego se ASIGNA el destino y después se
+   *    quitan los otros frentes de ese día; con «además» se agrega sin quitar.
    * Los fallos se cuentan aparte: nunca se dice «listo» si algo no se guardó.
    */
   const mover = async (ids: string[], destino: string | null, ademas: boolean) => {
@@ -572,7 +585,23 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     setGuardando(true);
     const fallos: string[] = [];
     try {
-      if (destino && plan.asignar.length) {
+      if (!esMaq) {
+        for (const id of ids) {
+          const asigsCamion = asignaciones.filter((a) => a.machineryId === id);
+          if (asigsCamion.length === 1 && asigsCamion[0].frenteId !== destino && asigsCamion[0].frenteNombre) {
+            const { error: errCongelar } = await congelarFrentePrevioEnViajes({
+              jornada: fecha,
+              machineryId: id,
+              frenteId: asigsCamion[0].frenteId,
+              frenteNombre: asigsCamion[0].frenteNombre,
+            });
+            if (errCongelar) {
+              fallos.push(`${codigoDe(id)} (resguardar ${asigsCamion[0].frenteNombre}): ${errCongelar}`);
+            }
+          }
+        }
+      }
+      if (!fallos.length && destino && plan.asignar.length) {
         const r = await asignarFrente(fecha, plan.asignar, destino, uid, userName, fuente);
         if (r.error) fallos.push(r.error);
       }

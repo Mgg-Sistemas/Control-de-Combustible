@@ -18,6 +18,8 @@ import { leerHabilidadesEmpleado } from '../lib/empleadosHabilidades';
 import { leerMapaHabilidades } from '../lib/empleadosHabilidadesStorage';
 import { listarActasCompromisoEmpleado } from '../lib/actasCompromisoDb';
 import { actaCompromisoHtml, totalValorReposicionUsd, esActaRecepcion } from '../lib/actaCompromiso';
+import { amonestacionHtml } from '../lib/amonestacion';
+import { listarAmonestacionesEmpleado, EmployeeAmonestacionRow } from '../lib/amonestacionesDb';
 import { ActaCompromisoModal } from '../components/ActaCompromisoModal';
 import { leerSalarioSemanalEmpleado, formatearSalarioSemanalReporte } from '../lib/empleadosReporte';
 import { MEMBRETE_POR_DEFECTO } from '../lib/constancia';
@@ -63,6 +65,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   // Historial de dotación/entregas (uniform_deliveries + inventory_movements de salida), más reciente primero.
   const [historial, setHistorial] = useState<{ id: string; date: string; tipo: string; detalle: string }[]>([]);
   const [actasCompromiso, setActasCompromiso] = useState<EmployeeCommitmentAct[]>([]);
+  const [amonestaciones, setAmonestaciones] = useState<EmployeeAmonestacionRow[]>([]);
   const [actaModalOpen, setActaModalOpen] = useState(false);
   const [actaTipoInicial, setActaTipoInicial] = useState<'entrega' | 'recepcion'>('entrega');
   const [actaOrigenInicial, setActaOrigenInicial] = useState<EmployeeCommitmentAct | null>(null);
@@ -195,13 +198,17 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
           const resActas = await listarActasCompromisoEmpleado(e.id);
           setActasCompromiso(Array.isArray(resActas?.actas) ? resActas.actas : []);
         } catch {}
+        try {
+          const resAmon = await listarAmonestacionesEmpleado(e.id);
+          setAmonestaciones(Array.isArray(resAmon?.amonestaciones) ? resAmon.amonestaciones : []);
+        } catch {}
       }
     }
     setLoading(false);
   };
   useEffect(() => { load(); }, [employeeId]);
   // isRefresh=true: no vuelve a registrar el escaneo en la bitácora al recargar por realtime.
-  useRealtimeRefresh(['employees', 'operator_assignments', 'uniform_deliveries', 'inventory_movements', 'inventory_items', 'employee_commitment_acts'], () => { load(true); });
+  useRealtimeRefresh(['employees', 'operator_assignments', 'uniform_deliveries', 'inventory_movements', 'inventory_items', 'employee_commitment_acts', 'employee_amonestaciones'], () => { load(true); });
 
   const onRefresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
 
@@ -514,6 +521,108 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
               </Text>
             </TouchableOpacity>
           </View>
+        </Section>
+      ) : null}
+
+      {!isAnonSession ? (
+        <Section title={`⚠️ Historial de Amonestaciones (${amonestaciones.length})`}>
+          {amonestaciones.length === 0 ? (
+            <Text style={{ color: FICHA.muted, fontSize: 12 }}>
+              Sin amonestaciones registradas aún para este trabajador.
+            </Text>
+          ) : (
+            amonestaciones.map((am) => {
+              const anulada = am.anulado;
+              return (
+                <View
+                  key={am.id}
+                  style={{
+                    paddingVertical: 10,
+                    paddingHorizontal: 10,
+                    marginBottom: 8,
+                    borderRadius: radius.sm,
+                    borderWidth: 1,
+                    borderColor: anulada ? '#FCA5A5' : FICHA.border,
+                    backgroundColor: anulada ? '#FEF2F2' : '#F8FAFC',
+                    opacity: anulada ? 0.85 : 1,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                    <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 13 }}>
+                      {am.codigo} · {am.grado ? am.grado.toUpperCase() : 'SIN GRADO'}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: '800',
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                        borderRadius: 4,
+                        overflow: 'hidden',
+                        backgroundColor: anulada ? '#DC2626' : '#16A34A',
+                        color: '#FFFFFF',
+                      }}
+                    >
+                      {anulada ? 'ANULADO' : 'VIGENTE'}
+                    </Text>
+                  </View>
+                  <Text style={{ color: FICHA.muted, fontSize: 11, marginTop: 2 }}>
+                    Fecha: {am.fecha_hecho || am.created_at.slice(0, 10)}{am.hora_hecho ? ` · ${am.hora_hecho}` : ''}
+                    {am.tipo_falta ? ` · ${am.tipo_falta}` : ''}
+                  </Text>
+                  {am.descripcion ? (
+                    <Text style={{ color: FICHA.text, fontSize: 12, marginTop: 4 }}>
+                      {am.descripcion}
+                    </Text>
+                  ) : null}
+                  {am.testigo_nombre ? (
+                    <Text style={{ color: FICHA.muted, fontSize: 11, marginTop: 2 }}>
+                      Testigo: {am.testigo_nombre}
+                    </Text>
+                  ) : null}
+                  {anulada && am.motivo_anulacion ? (
+                    <Text style={{ color: '#B91C1C', fontSize: 11, marginTop: 4 }}>
+                      Motivo de anulación: {am.motivo_anulacion}
+                    </Text>
+                  ) : null}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const html = amonestacionHtml({
+                          fullName: fullName(emp),
+                          cedula: emp.cedula,
+                          cargo: emp.cargo ?? null,
+                          department: emp.department ?? null,
+                          fichaNumber: emp.ficha_number ?? null,
+                          hireDate: emp.hire_date ?? null,
+                          city: emp.city ?? null,
+                          state: emp.state ?? null,
+                          tipoFalta: am.tipo_falta,
+                          fechaHecho: am.fecha_hecho,
+                          horaHecho: am.hora_hecho,
+                          descripcion: am.descripcion,
+                          grado: am.grado,
+                          testigoNombre: am.testigo_nombre,
+                          previas: am.previas_count,
+                        });
+                        await exportPdf(html, `Amonestacion - ${fullName(emp)} - ${am.codigo}`);
+                      }}
+                      style={{
+                        backgroundColor: '#B45309',
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: radius.sm,
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
+                        🖨️ Reimprimir PDF
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })
+          )}
         </Section>
       ) : null}
 
