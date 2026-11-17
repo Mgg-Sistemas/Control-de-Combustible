@@ -17,7 +17,7 @@
 export type PapelTique = 'rollo80' | 'rollo58' | 'carta1' | 'carta2' | 'carta4' | 'carta6';
 
 export type ClaveCampo =
-  | 'folio' | 'fecha' | 'hora' | 'placa' | 'empresa' | 'cdt'
+  | 'folio' | 'fecha' | 'hora' | 'placa' | 'empresa' | 'cdt' | 'frente'
   | 'jornada' | 'turno' | 'codigo' | 'marcaModelo' | 'serial'
   | 'chofer' | 'listero' | 'm3'
   | 'pesoBruto' | 'pesoTara' | 'pesoNeto'
@@ -85,6 +85,7 @@ export const CAMPOS_TIQUE: { k: ClaveCampo; label: string; corto: string; ayuda?
   { k: 'placa',       label: '🚗 Placa',            corto: 'Placa',   ayuda: 'Si el camión no tiene placa cargada, sale su serial.' },
   { k: 'empresa',     label: '🏢 Empresa',          corto: 'Empresa' },
   { k: 'cdt',         label: '🏗️ CDT / obra',       corto: 'CDT' },
+  { k: 'frente',      label: '⛏️ Frente de trabajo', corto: 'Frente' },
   { k: 'jornada',     label: '📆 Jornada',          corto: 'Jornada', ayuda: 'El día de trabajo, de 7am a 7am. Un viaje de las 2am cuenta para el día anterior.' },
   { k: 'turno',       label: '🌓 Turno',            corto: 'Turno',   ayuda: 'Día o noche. No es lo mismo que la jornada.' },
   { k: 'codigo',      label: '🚜 Equipo',           corto: 'Equipo' },
@@ -128,7 +129,7 @@ export const PAPELES: { k: PapelTique; label: string; ayuda: string }[] = [
 /** Los seis que el cliente pidió, encendidos. Todo lo demás apagado. */
 export const CONFIG_POR_DEFECTO: TiqueConfig = {
   campos: {
-    folio: true, fecha: true, hora: true, placa: true, empresa: true, cdt: true,
+    folio: true, fecha: true, hora: true, placa: true, empresa: true, cdt: true, frente: true,
     jornada: false, turno: false, codigo: false, marcaModelo: false, serial: false,
     chofer: false, listero: false, m3: false,
     // Apagados de fábrica como TODO lo nuevo (regla de la casa). El pedido del

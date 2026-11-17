@@ -53,6 +53,7 @@ const EJEMPLO: Record<ClaveCampo, string> = {
   placa:       'A31KM7B',
   empresa:     'GOLDEN TOUCH 1127 CA',
   cdt:         'CDT Parque del Agua',
+  frente:      'VENLIV',
   jornada:     '14/09/2026',
   turno:       'Día',
   codigo:      'CAMION VOLTEO TORONTO',

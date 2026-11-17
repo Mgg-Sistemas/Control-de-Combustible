@@ -110,6 +110,8 @@ import {
   listAsignacionesFrente,
   asignarFrente,
   quitarAsignacionFrente,
+  congelarFrentePrevioEnViajes,
+  sincronizarFrenteDesdeListero,
   listMaterialesViaje,
   cambiarMiCdtListero,
   sentidoViajeValido,
@@ -786,6 +788,7 @@ export default function ViajesCamionesScreen() {
   const [sentidoSel, setSentidoSel] = useState<SentidoViaje | null>(null);
   const [materialSel, setMaterialSel] = useState<string | null>(null);
   const [operacionSel, setOperacionSel] = useState<ProyectoOperacion | null>(null);
+  const [frenteSel, setFrenteSel] = useState<string | null>(null);
 
   // ── FRENTES DE TRABAJO (28-sep-2026): de dónde recoge cada camión. La
   // oficina los asigna por jornada; el teléfono los lee para CONGELAR el
@@ -820,6 +823,17 @@ export default function ViajesCamionesScreen() {
     return () => { vivo = false; };
   }, [frentesRecarga]);
   const frentesActivos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
+  // Al elegir camión en la pantalla del listero, pre-selecciona el frente
+  // asignado hoy (o el más reciente si tiene varios) para que quede listo.
+  useEffect(() => {
+    if (!selectedTruck || selectedTruck.id === FUERA_CATALOGO_ID) {
+      setFrenteSel(null);
+      return;
+    }
+    const g = frenteParaGrabar(selectedTruck.id);
+    setFrenteSel(g.frenteId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTruck?.id, asignacionesHoy]);
   /**
    * El frente congelado que le toca a un camión HOY (o nada).
    *
@@ -1451,10 +1465,14 @@ export default function ViajesCamionesScreen() {
         tipoViajeNombre: tipoElegido?.nombre ?? null,
         tipoViajeTarifa: tipoElegido?.tarifaUsd ?? null,
         tipoViajeUnidad: tipoElegido?.unidad ?? null,
-        // ⭐ EL FRENTE, CONGELADO: la asignación que este camión tiene HOY.
-        //    Reasignarlo mañana no toca este viaje; un camión sin asignación
-        //    registra sin frente (se le puede poner después en ✏️ Editar).
-        ...frenteParaGrabar(esFuera ? null : selectedTruck.id),
+        // ⭐ EL FRENTE, CONGELADO: lo que el listero eligió (precargado de la
+        //    asignación del camión HOY). Reasignarlo después no toca este viaje.
+        ...(frenteSel
+          ? (() => {
+              const f = frentesActivos.find((x) => x.id === frenteSel);
+              return f ? { frenteId: f.id, frenteNombre: f.nombre } : { frenteId: null, frenteNombre: null };
+            })()
+          : { frenteId: null, frenteNombre: null }),
         sentido: sentidoSel,
         materialId: materialSel ? (materialesActivos.find((m) => m.id === materialSel)?.id ?? null) : null,
         materialNombre: materialSel ? (materialesActivos.find((m) => m.id === materialSel)?.nombre ?? null) : null,
@@ -1493,6 +1511,30 @@ export default function ViajesCamionesScreen() {
 
       const { error } = await registrarViaje({ ...payload, clientActionId, origen: 'campo' });
       if (!error) {
+        // Si el listero eligió un frente para un camión del catálogo, sincroniza
+        // la planificación diaria de frentes (resguardando antes viajes previos sin frente).
+        if (!esFuera && payload.frenteId && payload.frenteNombre) {
+          const asigs = asignacionesHoy.get(selectedTruck.id) ?? [];
+          if (asigs.length !== 1 || asigs[0].frenteId !== payload.frenteId) {
+            if (asigs.length === 1 && asigs[0].frenteId !== payload.frenteId && asigs[0].frenteNombre) {
+              await congelarFrentePrevioEnViajes({
+                jornada: caracasBusinessToday(),
+                machineryId: selectedTruck.id,
+                frenteId: asigs[0].frenteId,
+                frenteNombre: asigs[0].frenteNombre,
+              });
+            }
+            const syncRes = await sincronizarFrenteDesdeListero({
+              jornada: caracasBusinessToday(),
+              machineryId: selectedTruck.id,
+              frenteId: payload.frenteId,
+              userId: uid,
+              userName: listeroName,
+            });
+            if (syncRes.ok) setFrentesRecarga((n) => n + 1);
+            else if (syncRes.error) console.warn('[viajes] sincronizar frente:', syncRes.error);
+          }
+        }
         toast.success(exentoDeRomana
           ? `Viaje de ${selectedTruck.code} registrado (no pasa por romana).`
           : `Viaje de ${selectedTruck.code} registrado · neto ${kgTexto(brutoKg - taraKg)}.`);
@@ -4161,6 +4203,7 @@ export default function ViajesCamionesScreen() {
       placa: row.fueraCatalogo ? (row.camionRef ?? null) : placaDeTique(row, truck),
       empresa: row.fueraCatalogo ? null : empresaDeTique(row, truck),
       cdt: row.ubicacionNombre ?? (row.ubicacionId ? obraPorId.get(row.ubicacionId)?.nombre ?? null : null),
+      frente: row.frenteNombre ?? null,
       jornada: dmy(jornadaDeFecha(new Date(row.registeredAt))),
       turno: turnoLabel(turnoDeViaje(row.registeredAt)),
       codigo: row.machineCode,
@@ -5072,6 +5115,46 @@ export default function ViajesCamionesScreen() {
                 })}
               </View>
             </View>
+
+            {frentesActivos.length > 0 ? (
+              <View style={{ gap: 6 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ FRENTE DE TRABAJO (se sincroniza con planificación)</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  <TouchableOpacity
+                    onPress={() => setFrenteSel(null)}
+                    style={{
+                      paddingHorizontal: spacing.md,
+                      paddingVertical: 8,
+                      borderRadius: radius.pill,
+                      borderWidth: 1.5,
+                      borderColor: frenteSel === null ? colors.primary : colors.border,
+                      backgroundColor: frenteSel === null ? colors.primary : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: frenteSel === null ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12.5 }}>Sin frente</Text>
+                  </TouchableOpacity>
+                  {frentesActivos.map((f) => {
+                    const on = frenteSel === f.id;
+                    return (
+                      <TouchableOpacity
+                        key={f.id}
+                        onPress={() => setFrenteSel((prev) => (prev === f.id ? null : f.id))}
+                        style={{
+                          paddingHorizontal: spacing.md,
+                          paddingVertical: 8,
+                          borderRadius: radius.pill,
+                          borderWidth: 1.5,
+                          borderColor: on ? '#B45309' : colors.border,
+                          backgroundColor: on ? '#B45309' : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>⛏️ {f.nombre}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
 
             {/* ── 🧾 TIPO DE VIAJE (26-sep-2026) — solo si hay tipos creados. El
                 normal viene marcado: el toque extra es SOLO para el cruzado. */}

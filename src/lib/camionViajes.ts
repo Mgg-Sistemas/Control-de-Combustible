@@ -1475,6 +1475,46 @@ export async function congelarFrentePrevioEnViajes(params: {
   return { congelados: data?.length ?? 0 };
 }
 
+/**
+ * Sincroniza la planificación diaria del frente (`viaje_frente_asignaciones`)
+ * cuando el listero elige el frente en su pantalla al registrar un viaje.
+ * Usa la RPC `sincronizar_frente_listero` (que permite a usuarios con escritura
+ * en viajes_camiones actualizar el frente del día sin abrir DELETE directo a RLS),
+ * con respaldo a asignarFrente/quitarAsignacionFrente si aún no se corre el SQL.
+ */
+export async function sincronizarFrenteDesdeListero(params: {
+  jornada: string;
+  machineryId: string;
+  frenteId: string;
+  userId: string | null;
+  userName: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const rpc = await supabase.rpc('sincronizar_frente_listero', {
+    p_jornada: params.jornada,
+    p_machinery_id: params.machineryId,
+    p_frente_id: params.frenteId,
+    p_user_name: params.userName ?? null,
+  });
+  if (!rpc.error) return { ok: true };
+  if (!/sincronizar_frente_listero|schema cache|does not exist|function/i.test(rpc.error.message)) {
+    return { ok: false, error: rpc.error.message };
+  }
+
+  // Respaldo si aún no se corrió la RPC: funciona para usuarios con permiso completo.
+  const prev = await listAsignacionesFrente(params.jornada, FRENTES_VIAJES);
+  const actuales = (prev.asignaciones ?? []).filter((a) => a.machineryId === params.machineryId);
+  if (actuales.length === 1 && actuales[0].frenteId === params.frenteId) return { ok: true };
+
+  const ins = await asignarFrente(params.jornada, [params.machineryId], params.frenteId, params.userId, params.userName, FRENTES_VIAJES);
+  if (ins.error) return { ok: false, error: ins.error };
+  for (const a of actuales) {
+    if (a.frenteId !== params.frenteId) {
+      await quitarAsignacionFrente(params.jornada, params.machineryId, a.frenteId, FRENTES_VIAJES);
+    }
+  }
+  return { ok: true };
+}
+
 const DEFAULT_ALERTA_HORAS = 6;
 
 /** Umbral configurable de "camión sin viajes hace X horas" (singleton
