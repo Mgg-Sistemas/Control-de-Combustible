@@ -35,12 +35,12 @@ const frentesAutoSrc = leer('src/lib/frentesAuto.ts');
 assert(frentesAutoSrc.includes('todasConHora'), 'completarFrentes debe resolver por hora creadoAt cuando hay 2+ frentes');
 assert(viajesScreenSrc.includes('masReciente'), 'frenteParaGrabar debe tomar el frente más reciente por creadoAt cuando hay 2+');
 
-// 6. Listero elige frente, se sincroniza con planificación y sale en tickets
+// 6. Listero elige frente solo para ese viaje (sin alterar planificación global) y sale en tickets
 const tiqueConfigSrc = leer('src/lib/tiqueConfig.ts');
 assert(tiqueConfigSrc.includes("k: 'frente'"), 'CAMPOS_TIQUE debe incluir frente');
 assert(tiqueConfigSrc.includes('frente: true'), 'frente debe venir encendido por defecto en tickets');
-assert(camionViajesSrc.includes('export async function sincronizarFrenteDesdeListero'), 'Falta sincronizarFrenteDesdeListero en camionViajes.ts');
-assert(viajesScreenSrc.includes('sincronizarFrenteDesdeListero'), 'ViajesCamionesScreen debe sincronizar frente desde listero');
+assert(viajesScreenSrc.includes('FRENTE DE TRABAJO (solo para este viaje)'), 'El selector de frente del listero debe aclarar que es solo para este viaje');
+assert(!viajesScreenSrc.includes('sincronizarFrenteDesdeListero('), 'Cambiar el frente en el listero no debe modificar la planificación global del camión');
 assert(viajesScreenSrc.includes('frente: row.frenteNombre ?? null'), 'datosTiqueDeViaje debe pasar frente al ticket');
 
 console.log('✅ test-frente-cambio-historico: todas las verificaciones pasaron (17/17).');
