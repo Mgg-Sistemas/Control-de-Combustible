@@ -26,7 +26,7 @@ import { Toggle } from './CubicajeTab';
 import { FrentesTablero } from './FrentesTablero';
 import { planMover } from '../lib/frentesTablero';
 import {
-  listAsignacionesFrente, listAsignacionesFrenteRango, asignarFrente, quitarAsignacionFrente, congelarFrentePrevioEnViajes,
+  listAsignacionesFrente, listAsignacionesFrenteRango, asignarFrente, quitarAsignacionFrente,
   // ⛏️ El frente PEGAJOSO de maquinaria (19-oct-2026): vigentes a una fecha y
   //    quitar «desde ese día» con la marca sin frente.
   listAsignacionesHasta, quitarFrenteDesde,
@@ -162,6 +162,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   //    los 3 camiones recogiendo en los 2 frentes, sin repetir la operación.
   const [frenteSel, setFrenteSel] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
+  const [frenteQuery, setFrenteQuery] = useState('');
   // ── ✏️ Editar y 🗑️ borrar un frente del catálogo (30-sep-2026) ──
   const [editando, setEditando] = useState<{ id: string; nombre: string } | null>(null);
   // La confirmación va EN LÍNEA, no en un `confirm()`: dentro de un Modal a
@@ -295,6 +296,12 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   useEffect(() => { setRepetir(null); }, [fecha]);
 
   const activos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
+  const activosFiltrados = useMemo(() => {
+    const q = frenteQuery.trim();
+    if (!q) return activos;
+    const nq = q.toLowerCase();
+    return activos.filter((f) => f.nombre.toLowerCase().includes(nq));
+  }, [activos, frenteQuery]);
   /** Los frentes de cada camión ese día: ahora son VARIOS, no uno. */
   const asignadoA = useMemo(() => {
     const m = new Map<string, AsignacionFrente[]>();
@@ -365,28 +372,10 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     const ids = Array.from(marcados);
     let agregados = 0, yaEstaban = 0;
     const fallos: string[] = [];
-    if (!esMaq) {
-      for (const id of ids) {
-        const asigsCamion = asignaciones.filter((a) => a.machineryId === id);
-        if (asigsCamion.length === 1 && !frenteSel.has(asigsCamion[0].frenteId) && asigsCamion[0].frenteNombre) {
-          const { error: errCongelar } = await congelarFrentePrevioEnViajes({
-            jornada: fecha,
-            machineryId: id,
-            frenteId: asigsCamion[0].frenteId,
-            frenteNombre: asigsCamion[0].frenteNombre,
-          });
-          if (errCongelar) {
-            fallos.push(`${codigoDe(id)} (resguardar ${asigsCamion[0].frenteNombre}): ${errCongelar}`);
-          }
-        }
-      }
-    }
-    if (!fallos.length) {
-      for (const fId of frenteSel) {
-        const r = await asignarFrente(fecha, ids, fId, uid, userName, fuente);
-        if (r.error) fallos.push(`«${activos.find((f) => f.id === fId)?.nombre ?? fId}»: ${r.error}`);
-        else { agregados += r.agregados ?? 0; yaEstaban += r.yaEstaban ?? 0; }
-      }
+    for (const fId of frenteSel) {
+      const r = await asignarFrente(fecha, ids, fId, uid, userName, fuente);
+      if (r.error) fallos.push(`«${activos.find((f) => f.id === fId)?.nombre ?? fId}»: ${r.error}`);
+      else { agregados += r.agregados ?? 0; yaEstaban += r.yaEstaban ?? 0; }
     }
     setGuardando(false);
     setRecarga((n) => n + 1);
@@ -569,19 +558,6 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       if (error) { toast.error(error); return; }
       toast.success(`${codigoDe(a.machineryId)} queda SIN frente desde el ${dmy(fecha)}. Los días anteriores no cambian.`);
     } else {
-      const asigsCamion = asignaciones.filter((x) => x.machineryId === a.machineryId);
-      if (asigsCamion.length === 1 && a.frenteId && a.frenteNombre) {
-        const { error: errCongelar } = await congelarFrentePrevioEnViajes({
-          jornada: fecha,
-          machineryId: a.machineryId,
-          frenteId: a.frenteId,
-          frenteNombre: a.frenteNombre,
-        });
-        if (errCongelar) {
-          toast.error(`No se pudo resguardar el historial de ${a.frenteNombre}: ${errCongelar}`);
-          return;
-        }
-      }
       const { error } = await quitarAsignacionFrente(fecha, a.machineryId, a.frenteId, fuente);
       if (error) { toast.error(error); return; }
     }
@@ -592,9 +568,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   /**
    * ⛏️ MOVER DESDE EL TABLERO (10-nov-2026). Con las MISMAS funciones de siempre:
    *  · máquinas (pegajoso): asignar = reasignar; quitar = «sin frente desde ese día»;
-   *  · camiones (del día): primero se CONGELAN en `camion_viajes` los viajes previos
-   *    sin frente bajo el frente que tenían hoy, luego se ASIGNA el destino y después se
-   *    quitan los otros frentes de ese día; con «además» se agrega sin quitar.
+   *  · camiones (del día): primero se ASIGNA el destino y después se quitan los otros
+   *    frentes de ese día (así, si algo falla, nadie queda sin frente a medias); con
+   *    «además» se agrega sin quitar.
    * Los fallos se cuentan aparte: nunca se dice «listo» si algo no se guardó.
    */
   const mover = async (ids: string[], destino: string | null, ademas: boolean) => {
@@ -603,23 +579,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     setGuardando(true);
     const fallos: string[] = [];
     try {
-      if (!esMaq) {
-        for (const id of ids) {
-          const asigsCamion = asignaciones.filter((a) => a.machineryId === id);
-          if (asigsCamion.length === 1 && asigsCamion[0].frenteId !== destino && asigsCamion[0].frenteNombre) {
-            const { error: errCongelar } = await congelarFrentePrevioEnViajes({
-              jornada: fecha,
-              machineryId: id,
-              frenteId: asigsCamion[0].frenteId,
-              frenteNombre: asigsCamion[0].frenteNombre,
-            });
-            if (errCongelar) {
-              fallos.push(`${codigoDe(id)} (resguardar ${asigsCamion[0].frenteNombre}): ${errCongelar}`);
-            }
-          }
-        }
-      }
-      if (!fallos.length && destino && plan.asignar.length) {
+      if (destino && plan.asignar.length) {
         const r = await asignarFrente(fecha, plan.asignar, destino, uid, userName, fuente);
         if (r.error) fallos.push(r.error);
       }
@@ -941,19 +901,36 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               <View style={{ marginTop: spacing.xs }}>
                 <DateField value={fecha} onChange={setFecha} />
               </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-                {activos.map((f) => {
-                  const on = frenteSel.has(f.id);
-                  // ⛏️ MAQUINARIA: selector de UN solo frente (19-oct-2026) — elegir
-                  // uno desmarca el anterior. En viajes se pueden marcar varios.
-                  return (
-                    <TouchableOpacity key={f.id} onPress={() => setFrenteSel((p) => { if (esMaq) return p.has(f.id) ? new Set<string>() : new Set([f.id]); const n = new Set(p); n.has(f.id) ? n.delete(f.id) : n.add(f.id); return n; })}
-                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
-                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>⛏️ {f.nombre}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              {/* ⛏️ FRENTES DISPONIBLES: buscador + plegable para no mostrar una lista enorme */}
+              <Plegable
+                titulo={`⛏️ Frentes (${activosFiltrados.length} de ${activos.length})`}
+                resumen="Selecciona uno o varios frentes para asignar a los camiones marcados abajo"
+                abiertaPorDefecto={activos.length <= 6}
+              >
+                <TextInput
+                  value={frenteQuery}
+                  onChangeText={setFrenteQuery}
+                  placeholder="🔎 Buscar frente por nombre…"
+                  placeholderTextColor={colors.muted}
+                  style={[input, { marginBottom: spacing.xs }]}
+                  autoCorrect={false}
+                />
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                  {activosFiltrados.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>Ningún frente coincide con la búsqueda.</Text>
+                  ) : (
+                    activosFiltrados.map((f) => {
+                      const on = frenteSel.has(f.id);
+                      return (
+                        <TouchableOpacity key={f.id} onPress={() => setFrenteSel((p) => { if (esMaq) return p.has(f.id) ? new Set<string>() : new Set([f.id]); const n = new Set(p); n.has(f.id) ? n.delete(f.id) : n.add(f.id); return n; })}
+                          style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>⛏️ {f.nombre}</Text>
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                </View>
+              </Plegable>
               <TextInput
                 value={query}
                 onChangeText={setQuery}
