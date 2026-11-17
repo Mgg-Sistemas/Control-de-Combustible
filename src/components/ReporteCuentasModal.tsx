@@ -194,7 +194,7 @@ export function ReporteCuentasModal({
     }
     setGenerando(true);
     try {
-      const r = armarReporteCuentas({ tipo, cuentas: elegidas, op, tasaBcv, hoyISO: hoy, filtrado, saldoBsDe });
+      const r = armarReporteCuentas({ tipo, cuentas: elegidas, op, tasaBcv, hoyISO: hoy, filtrado, saldoBsDe, desde, hasta, empresaTexto });
       const html = pdfDocument({
         title: r.titulo,
         subtitle: r.subtitulo,
@@ -223,6 +223,36 @@ export function ReporteCuentasModal({
       <Screen>
         <ScrollView>
           <SectionTitle>📄 Reporte · {tituloPorDefecto(tipo)}</SectionTitle>
+
+          {/* ── 0. FORMATO DEL REPORTE ── */}
+          <View style={caja}>
+            <Text style={tituloCaja}>FORMATO DEL PDF</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              <Pastilla
+                on={op.modo === 'resumen'}
+                label="📊 Solo Resumen (Estilo Tesorería SOS)"
+                onPress={() => {
+                  const n: OpcionesReporteCuentas = {
+                    ...op,
+                    modo: 'resumen',
+                    agrupar: op.agrupar === 'ninguno' ? 'contraparte' : op.agrupar,
+                  };
+                  setOpState(n);
+                  guardar(n, logos, wop);
+                }}
+              />
+              <Pastilla
+                on={op.modo !== 'resumen'}
+                label="📋 Tabla Detallada (Columnas)"
+                onPress={() => setOp('modo', 'detallado')}
+              />
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+              {op.modo === 'resumen'
+                ? 'Formato ejecutivo SOS: resumen por método de pago, total de órdenes, totales en $ USD y conversión a Bs, más tarjetas por grupo.'
+                : 'Tabla completa con filas individuales y columnas configurables.'}
+            </Text>
+          </View>
 
           {/* ── 1. QUÉ CUENTAS ── */}
           <View style={caja}>
@@ -259,27 +289,29 @@ export function ReporteCuentasModal({
             </Text>
           </View>
 
-          {/* ── 3. COLUMNAS ── */}
-          <View style={caja}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginBottom: spacing.xs }}>
-              <Text style={[tituloCaja, { marginBottom: 0 }]}>COLUMNAS ({nColsOn} de {cols.length})</Text>
-              <TouchableOpacity onPress={() => { const n = { ...op, columnas: { ...COLUMNAS_POR_DEFECTO } }; setOpState(n); guardar(n, logos); }} style={accion}>
-                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>✓ Todas</Text>
-              </TouchableOpacity>
+          {/* ── 3. COLUMNAS (solo en tabla detallada) ── */}
+          {op.modo !== 'resumen' ? (
+            <View style={caja}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginBottom: spacing.xs }}>
+                <Text style={[tituloCaja, { marginBottom: 0 }]}>COLUMNAS ({nColsOn} de {cols.length})</Text>
+                <TouchableOpacity onPress={() => { const n = { ...op, columnas: { ...COLUMNAS_POR_DEFECTO } }; setOpState(n); guardar(n, logos); }} style={accion}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>✓ Todas</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Lo que apagues no sale en ninguna parte del papel (ni en la tabla ni en el resumen).</Text>
+              {cols.map(([k, label]) => (
+                <Toggle
+                  key={`rcc-${k}`}
+                  on={op.columnas[k] !== false}
+                  label={k === 'bs' ? '💱 Equivalente en Bs (saldo)' : label}
+                  ayuda={k === 'bs'
+                    ? (tasaBcv ? `Con la tasa BCV de hoy: Bs ${tasaTexto(tasaBcv)} por $. El papel dice la tasa usada.` : 'Hoy no hay tasa BCV cargada: el reporte sale sin Bs.')
+                    : undefined}
+                  onPress={() => setCol(k, op.columnas[k] === false)}
+                />
+              ))}
             </View>
-            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Lo que apagues no sale en ninguna parte del papel (ni en la tabla ni en el resumen).</Text>
-            {cols.map(([k, label]) => (
-              <Toggle
-                key={`rcc-${k}`}
-                on={op.columnas[k] !== false}
-                label={k === 'bs' ? '💱 Equivalente en Bs (saldo)' : label}
-                ayuda={k === 'bs'
-                  ? (tasaBcv ? `Con la tasa BCV de hoy: Bs ${tasaTexto(tasaBcv)} por $. El papel dice la tasa usada.` : 'Hoy no hay tasa BCV cargada: el reporte sale sin Bs.')
-                  : undefined}
-                onPress={() => setCol(k, op.columnas[k] === false)}
-              />
-            ))}
-          </View>
+          ) : null}
 
           {/* ── 4. TÍTULO Y MEMBRETE ── */}
           <View style={caja}>

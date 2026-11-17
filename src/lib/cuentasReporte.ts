@@ -88,12 +88,14 @@ export type CuentaParaReporte = {
 
 export type AlcanceCuentas = 'marcadas' | 'todas';
 export type AgruparCuentas = 'ninguno' | 'contraparte' | 'empresa' | 'estado' | 'vencimiento' | 'mes';
+export type ModoReporteCuentas = 'detallado' | 'resumen';
 
 export type ColumnaCuenta =
   | 'contraparte' | 'empresa' | 'concepto' | 'documento' | 'condiciones' | 'nota' | 'emision' | 'vence'
   | 'estado' | 'monto' | 'abonado' | 'saldo' | 'bs';
 
 export type OpcionesReporteCuentas = {
+  modo?: ModoReporteCuentas;
   alcance: AlcanceCuentas;
   agrupar: AgruparCuentas;
   columnas: Record<ColumnaCuenta, boolean>;
@@ -111,6 +113,7 @@ export const COLUMNAS_POR_DEFECTO: Record<ColumnaCuenta, boolean> = {
 };
 
 export const OPCIONES_CUENTAS_POR_DEFECTO: OpcionesReporteCuentas = {
+  modo: 'detallado',
   alcance: 'todas',
   agrupar: 'ninguno',
   columnas: { ...COLUMNAS_POR_DEFECTO },
@@ -357,18 +360,26 @@ export function nombreArchivoCuentas(
 ): string {
   const [a, m, d] = limpio(hoyISO).split('-');
   const partes: string[] = [];
+  if (op.modo === 'resumen') partes.push('resumen');
   if (op.alcance === 'marcadas') partes.push('marcadas');
   else if (filtrado) partes.push('filtrado');
   const ag = AGRUPAR_ARCHIVO[op.agrupar]?.(tipo);
   if (ag) partes.push(ag);
-  for (const [k, label] of columnasCuentas(tipo)) {
-    if (k === 'bs') continue;
-    if (op.columnas[k] === false) partes.push(`sin ${label.replace(/ \(US\$\)$/, '').toLowerCase()}`);
+  if (op.modo !== 'resumen') {
+    for (const [k, label] of columnasCuentas(tipo)) {
+      if (k === 'bs') continue;
+      if (op.columnas[k] === false) partes.push(`sin ${label.replace(/ \(US\$\)$/, '').toLowerCase()}`);
+    }
+    if (op.columnas.bs !== false && !conBs(op, tasa)) partes.push('sin Bs (sin tasa)');
+    else if (op.columnas.bs === false) partes.push('sin Bs');
+  } else if (tasa == null || !(Number(tasa) > 0)) {
+    partes.push('sin Bs (sin tasa)');
   }
-  if (op.columnas.bs !== false && !conBs(op, tasa)) partes.push('sin Bs (sin tasa)');
-  else if (op.columnas.bs === false) partes.push('sin Bs');
   const fecha = a && m && d ? ` ${d}-${m}-${a}` : '';
-  return `${tituloReporteCuentas(tipo, op)}${fecha}${partes.length ? ` (${partes.join(', ')})` : ''}`;
+  const baseTitulo = op.modo === 'resumen' && !limpio(op.titulo)
+    ? (tipo === 'por_pagar' ? 'Pendientes por pagar' : 'Pendientes por cobrar')
+    : tituloReporteCuentas(tipo, op);
+  return `${baseTitulo}${fecha}${partes.length ? ` (${partes.join(', ')})` : ''}`;
 }
 
 // ── Cuerpo HTML ───────────────────────────────────────────────────────────────
@@ -391,6 +402,39 @@ export const CSS_REPORTE_CUENTAS = `
   table.cx td.venc{color:#B91C1C;font-weight:700}
   table.cx tfoot td{background:#EDF2F7;font-weight:800;color:#1E3A5F;border-top:2px solid #1E3A5F;font-size:10.5px}
   .cx-nota{margin-top:10px;font-size:9.5px;color:#6B7280;text-transform:none}
+  .sos-sec-tit{font-size:11px;font-weight:900;color:#16324F;letter-spacing:.4px;border-bottom:2px solid #0284C7;padding-bottom:4px;margin:4px 0 10px;text-transform:uppercase}
+  .sos-met-box{border:1px solid #D7E3F4;border-left:5px solid #0284C7;border-radius:6px;background:#F0F6FC;padding:10px 14px;margin-bottom:12px}
+  .sos-met-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+  .sos-met-title{font-size:12.5px;font-weight:900;color:#16324F}
+  .sos-met-sub{font-size:10px;color:#475569;margin-top:2px}
+  .sos-met-tot-usd{font-size:13.5px;font-weight:900;color:#047857;text-align:right}
+  .sos-met-tot-bs{font-size:10.5px;font-weight:700;color:#0284C7;text-align:right;margin-top:1px}
+  .sos-met-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-top:1px dashed #CBD5E1;font-size:10.5px;color:#1E293B}
+  .sos-met-row b{color:#16324F}
+  .sos-cons{display:flex;justify-content:space-between;align-items:center;border:1px solid #D7E3F4;border-left:5px solid #16324F;border-radius:6px;background:#FFFFFF;padding:12px 14px;margin-bottom:14px}
+  .sos-cons-lbl{font-size:9.5px;font-weight:800;color:#475569;letter-spacing:.3px;text-transform:uppercase}
+  .sos-cons-usd{font-size:22px;font-weight:900;color:#047857;line-height:1.15;margin-top:2px}
+  .sos-cons-bs{font-size:12px;font-weight:800;color:#0284C7;margin-top:2px}
+  .sos-cons-ord{font-size:10px;color:#64748B;margin-top:2px}
+  .sos-cons-pill{border:1px solid #D7E3F4;background:#F8FAFC;border-radius:6px;padding:8px 12px;text-align:center}
+  .sos-cons-pill .p1{font-size:10.5px;font-weight:800;color:#16324F}
+  .sos-cons-pill .p2{font-size:9.5px;color:#64748B;margin-top:2px}
+  .sos-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .sos-card{border:1px solid #D7E3F4;border-left:4px solid #0284C7;border-radius:6px;background:#FFFFFF;padding:10px 12px;break-inside:avoid}
+  .sos-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
+  .sos-card-eyebrow{font-size:8.5px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.3px}
+  .sos-card-name{font-size:11.5px;font-weight:900;color:#16324F;margin-top:1px}
+  .sos-card-cat{font-size:9.5px;color:#64748B;margin-top:1px}
+  .sos-pct{background:#16324F;color:#FFFFFF;font-size:9.5px;font-weight:800;padding:3px 9px;border-radius:999px;white-space:nowrap}
+  .sos-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding-bottom:8px;border-bottom:1px solid #E2E8F0}
+  .sos-m-lbl{font-size:8px;font-weight:800;color:#64748B;text-transform:uppercase}
+  .sos-m-usd{font-size:11.5px;font-weight:900;color:#047857;margin-top:1px}
+  .sos-m-bs{font-size:9px;font-weight:700;color:#0284C7;margin-top:1px}
+  .sos-m-val{font-size:11.5px;font-weight:900;color:#16324F;margin-top:1px}
+  .sos-m-sub{font-size:8.5px;color:#94A3B8}
+  .sos-card-foot{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding-top:7px}
+  .sos-f-lbl{font-size:8px;font-weight:800;color:#64748B;text-transform:uppercase}
+  .sos-f-val{font-size:9.5px;font-weight:800;color:#0284C7;margin-top:1px;word-break:break-word}
 `;
 
 export type ReporteCuentasArmado = {
@@ -417,11 +461,17 @@ export function armarReporteCuentas(args: {
   tasaBcv: number | null | undefined;
   hoyISO: string;
   filtrado: boolean;
+  desde?: string | null;
+  hasta?: string | null;
+  empresaTexto?: string | null;
   /** 02-nov-2026: saldo en Bs ya fijado (Bs escritos en el requerimiento); null = US$ × tasa. */
   saldoBsDe?: (c: CuentaParaReporte, saldoUsd: number) => number | null;
 }): ReporteCuentasArmado {
   const { tipo, cuentas, op, hoyISO, filtrado } = args;
-  const tasa = conBs(op, args.tasaBcv) ? Number(args.tasaBcv) : null;
+  const tasaActiva = args.tasaBcv != null && isFinite(Number(args.tasaBcv)) && Number(args.tasaBcv) > 0
+    ? Number(args.tasaBcv)
+    : null;
+  const tasa = op.modo === 'resumen' ? tasaActiva : (conBs(op, args.tasaBcv) ? Number(args.tasaBcv) : null);
   const ver = (k: ColumnaCuenta) => (k === 'bs' ? tasa != null : op.columnas[k] !== false);
 
   const cols = columnasCuentas(tipo).filter(([k]) => ver(k));
@@ -430,7 +480,8 @@ export function armarReporteCuentas(args: {
   const nCols = 1 + cols.length; // + N°
   const antesDelDinero = 1 + colsTexto.length;
 
-  const grupos = agruparCuentas(cuentas, op.agrupar, tipo);
+  const ejeEfectivo: AgruparCuentas = op.modo === 'resumen' && op.agrupar === 'ninguno' ? 'contraparte' : op.agrupar;
+  const grupos = agruparCuentas(cuentas, ejeEfectivo, tipo);
   const total = totalesDe(cuentas);
 
   // Saldo en Bs de una cuenta: el fijado del requerimiento si lo hay; si no, US$ × tasa de hoy.
@@ -440,6 +491,161 @@ export function armarReporteCuentas(args: {
   };
   const sumaBs = (lista: CuentaParaReporte[]) =>
     Math.round(lista.reduce((s, c) => s + (c.situacion === 'anulada' ? 0 : bsSaldo(c, aporteDe(c).saldo)), 0) * 100) / 100;
+
+  if (op.modo === 'resumen') {
+    const activas = cuentas.filter((c) => c.situacion !== 'anulada');
+    const totalUsd = total.saldo;
+    const totalBs = tasa != null ? sumaBs(activas) : null;
+    const nOrdenes = activas.length;
+
+    const metMap = new Map<string, { etiqueta: string; usd: number; bs: number; ops: number }>();
+    for (const c of activas) {
+      const m = clasificarMetodoCuenta(c);
+      const sUsd = aporteDe(c).saldo;
+      const sBs = tasa != null ? bsSaldo(c, sUsd) : 0;
+      const prev = metMap.get(m.clave) ?? { etiqueta: m.etiqueta, usd: 0, bs: 0, ops: 0 };
+      prev.usd += sUsd;
+      prev.bs += sBs;
+      prev.ops += 1;
+      metMap.set(m.clave, prev);
+    }
+    const metodosOrdenados = Array.from(metMap.values()).sort((a, b) => b.usd - a.usd);
+
+    const etiquetaEjeMap: Record<AgruparCuentas, string> = {
+      ninguno: tipo === 'por_pagar' ? 'Proveedor' : 'Cliente',
+      contraparte: tipo === 'por_pagar' ? 'Proveedor / Contraparte' : 'Cliente / Contraparte',
+      empresa: 'Empresa',
+      estado: 'Estado',
+      vencimiento: 'Vencimiento',
+      mes: 'Mes',
+    };
+    const eyebrowGrupo = (ejeEfectivo === 'contraparte' ? (tipo === 'por_pagar' ? 'PROVEEDOR' : 'CLIENTE') : ejeEfectivo.toUpperCase());
+
+    const tarjetasHtml = [...grupos]
+      .filter((g) => g.cuentas.some((c) => c.situacion !== 'anulada'))
+      .sort((a, b) => b.totales.saldo - a.totales.saldo)
+      .map((g) => {
+        const gActivas = g.cuentas.filter((c) => c.situacion !== 'anulada');
+        const gUsd = g.totales.saldo;
+        const gBs = tasa != null ? sumaBs(gActivas) : null;
+        const pct = totalUsd > 0 ? ((gUsd / totalUsd) * 100).toFixed(1) : '0.0';
+        const metodosGrupo = Array.from(new Set(gActivas.map((c) => clasificarMetodoCuenta(c).etiqueta)));
+        const empresasGrupo = Array.from(new Set(gActivas.map((c) => limpio(c.empresaNombre)).filter((x) => x && x !== '—')));
+        const reqs = Array.from(new Set(gActivas.map((c) => limpio(c.traza?.reqCode) || limpio(c.documento)).filter(Boolean)));
+        const subCat = reqs.length > 0
+          ? `Órdenes: ${reqs.slice(0, 3).join(', ')}${reqs.length > 3 ? ` (+${reqs.length - 3})` : ''}`
+          : (limpio(gActivas[0]?.concepto) || (tipo === 'por_pagar' ? 'Orden de compra' : 'Cuenta por cobrar'));
+
+        return `
+          <div class="sos-card">
+            <div class="sos-card-top">
+              <div style="min-width:0;flex:1">
+                <div class="sos-card-eyebrow">${esc(eyebrowGrupo)}</div>
+                <div class="sos-card-name">${esc(g.etiqueta)}</div>
+                <div class="sos-card-cat">${esc(subCat)}</div>
+              </div>
+              <div class="sos-pct">${esc(pct)}%</div>
+            </div>
+            <div class="sos-metrics">
+              <div>
+                <div class="sos-m-lbl">MONTO ($ USD)</div>
+                <div class="sos-m-usd">${esc(usdTexto(gUsd))}</div>
+                ${gBs != null ? `<div class="sos-m-bs">≈ ${esc(bsTexto(gBs))}</div>` : ''}
+              </div>
+              <div>
+                <div class="sos-m-lbl">ÓRDENES</div>
+                <div class="sos-m-val">${gActivas.length}</div>
+                <div class="sos-m-sub">${gActivas.length === 1 ? 'registro' : 'registros'}</div>
+              </div>
+              <div>
+                <div class="sos-m-lbl">% DEL TOTAL</div>
+                <div class="sos-m-val">${esc(pct)}%</div>
+                <div class="sos-m-sub">del período</div>
+              </div>
+            </div>
+            <div class="sos-card-foot">
+              <div>
+                <div class="sos-f-lbl">${esc(ejeEfectivo === 'empresa' ? 'PROVEEDOR(ES)' : 'EMPRESA / BENEFICIARIO')}</div>
+                <div class="sos-f-val">${esc(ejeEfectivo === 'empresa'
+                  ? (Array.from(new Set(gActivas.map((c) => limpio(c.contraparte)).filter(Boolean))).slice(0, 2).join(', ') || g.etiqueta)
+                  : (empresasGrupo.length ? empresasGrupo.join(', ') : g.etiqueta))}</div>
+              </div>
+              <div>
+                <div class="sos-f-lbl">MÉTODO / CATEGORÍA</div>
+                <div class="sos-f-val">${esc(metodosGrupo.join(' · ') || 'Orden de compra')}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    const tituloResumen = limpio(op.titulo)
+      ? limpio(op.titulo)
+      : (tipo === 'por_pagar' ? 'Pendientes por pagar' : 'Pendientes por cobrar');
+    const empHeader = resolverEmpresaHeaderWhatsapp(activas.length ? activas : cuentas, args.empresaTexto);
+    const periodoTxt = resolverPeriodoWhatsapp(activas.length ? activas : cuentas, hoyISO, args.desde, args.hasta);
+    const partesSub = [
+      empHeader,
+      `Período: ${periodoTxt}`,
+      `Agrupado por: ${etiquetaEjeMap[ejeEfectivo]}`,
+      tasa != null ? `Tasa BCV: ${tasaTexto(tasa)} Bs/$` : null,
+      `${nOrdenes} ${nOrdenes === 1 ? 'orden' : 'órdenes'}`,
+      filtrado ? 'FILTRADO' : null,
+    ].filter(Boolean);
+
+    const notaAnuladas = total.anuladas > 0
+      ? `<div class="cx-nota">${total.anuladas} cuenta(s) anulada(s) no se suman en este resumen.</div>`
+      : '';
+
+    const cuerpoResumen = `
+      <div class="sos-sec-tit">RESUMEN DE PAGOS — POR MÉTODO (EXPRESADO EN $ USD Y BS)</div>
+      <div class="sos-met-box">
+        <div class="sos-met-head">
+          <div>
+            <div class="sos-met-title">${esc(tipo === 'por_pagar' ? 'PENDIENTES POR PAGAR ($ USD · ref. BCV)' : 'CUENTAS POR COBRAR ($ USD · ref. BCV)')}</div>
+            <div class="sos-met-sub">${nOrdenes} ${nOrdenes === 1 ? 'orden' : 'órdenes'}</div>
+          </div>
+          <div>
+            <div class="sos-met-tot-usd">${esc(usdTexto(totalUsd))}</div>
+            ${totalBs != null ? `<div class="sos-met-tot-bs">≈ ${esc(bsTexto(totalBs))}</div>` : ''}
+          </div>
+        </div>
+        ${metodosOrdenados.map((m) => `
+          <div class="sos-met-row">
+            <span>• ${esc(m.etiqueta)}</span>
+            <span><b>${esc(usdTexto(m.usd))}</b>${tasa != null ? ` · ≈ ${esc(bsTexto(m.bs))}` : ''} · ${m.ops} ord.</span>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="sos-cons">
+        <div>
+          <div class="sos-cons-lbl">TOTAL CONSOLIDADO (DÓLARES - $ USD)</div>
+          <div class="sos-cons-usd">${esc(usdTexto(totalUsd))}</div>
+          ${totalBs != null ? `<div class="sos-cons-bs">≈ ${esc(bsTexto(totalBs))}</div>` : ''}
+          <div class="sos-cons-ord">${nOrdenes} ${nOrdenes === 1 ? 'orden' : 'órdenes'}</div>
+        </div>
+        <div class="sos-cons-pill">
+          <div class="p1">${nOrdenes} ${nOrdenes === 1 ? 'orden' : 'órdenes'} · ${grupos.length} ${grupos.length === 1 ? 'grupo' : 'grupos'}</div>
+          <div class="p2">${tasa != null ? `Tasa BCV ref: Bs ${esc(tasaTexto(tasa))}/$` : 'Sin tasa BCV cargada'}</div>
+        </div>
+      </div>
+
+      ${activas.length === 0 ? '<div class="cx-nota">No hay órdenes vigentes en este reporte.</div>' : `<div class="sos-grid">${tarjetasHtml}</div>`}
+      ${notaAnuladas}
+    `;
+
+    return {
+      titulo: esc(tituloResumen),
+      subtitulo: esc(partesSub.join(' · ')),
+      cuerpo: cuerpoResumen,
+      css: CSS_REPORTE_CUENTAS,
+      nombreArchivo: nombreArchivoCuentas(tipo, op, hoyISO, filtrado, args.tasaBcv),
+      totales: total,
+      grupos,
+    };
+  }
   const celdasDinero = (t: { monto: number; abonado: number; saldo: number }, lista: CuentaParaReporte[]) => colsDinero.map(([k]) => {
     if (k === 'bs') return `<td class="r">${esc(bsTexto(sumaBs(lista)))}</td>`;
     return `<td class="r">${esc(usdTexto(t[k as 'monto' | 'abonado' | 'saldo']))}</td>`;
