@@ -20,6 +20,7 @@ import { levelMeets } from '../../lib/permissions';
 import { CONSUMOS_NOTAS_ACTIVAS } from '../../lib/combustibleEdicion';
 import EditarFotosCombustibleModal from '../../components/combustible/EditarFotosCombustibleModal';
 import DetalleDespachoModal from '../../components/combustible/DetalleDespachoModal';
+import EliminarConsumoModal from '../../components/combustible/EliminarConsumoModal';
 import {
   MARCADOR_AJUSTE_TANQUE,
   agruparLitrosPorMaquinaTop,
@@ -103,13 +104,15 @@ function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
 export default function DispatchesPilot() {
   const { colors } = useTheme();
   const toast = useToast();
-  const { fullName, session, moduleLevel } = useAuth();
+  const { fullName, session, moduleLevel, role } = useAuth();
   const currentUserName = fullName || session?.user?.email || '';
   const [viewPhoto, setViewPhoto] = useState<string | null>(null);
   // 01-nov-2026: con 'full' en Consumos se cambia la foto (y la nota, cuando exista
   // la columna) de un consumo ya registrado. La RLS pide can_write_module('consumos').
   const puedeEditarFotos = levelMeets(moduleLevel('consumos'), 'full');
+  const puedeEliminar = puedeEditarFotos || role === 'admin' || role === 'supervisor';
   const [editFotos, setEditFotos] = useState<any | null>(null);
+  const [eliminarDespacho, setEliminarDespacho] = useState<Dispatch | null>(null);
   const [detalleDespacho, setDetalleDespacho] = useState<any | null>(null);
   const refetchRef = useRef<(() => void) | null>(null);
   // 02-nov-2026: reporte personalizable de consumos (día o rango, con gráficas y
@@ -287,6 +290,7 @@ export default function DispatchesPilot() {
     [selEquipos],
   );
   const alCargar = useCallback((rows: Dispatch[], refetch: () => void) => {
+    refetchRef.current = refetch;
     setFilasCargadas(rows);
     limpiarAjustesVisiblesLegados(rows, refetch);
   }, [limpiarAjustesVisiblesLegados]);
@@ -634,6 +638,21 @@ export default function DispatchesPilot() {
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🖼️ Editar foto{CONSUMOS_NOTAS_ACTIVAS ? ' / nota' : ''}</Text>
                   </Pressable>
                 ) : null}
+                {puedeEliminar ? (
+                  <Pressable
+                    onPress={() => setEliminarDespacho(d as any)}
+                    style={{
+                      paddingVertical: 5,
+                      paddingHorizontal: spacing.sm,
+                      borderRadius: radius.md,
+                      borderWidth: 1,
+                      borderColor: colors.danger,
+                      backgroundColor: colors.surfaceAlt,
+                    }}
+                  >
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                  </Pressable>
+                ) : null}
               </View>
             </>
           );
@@ -648,6 +667,19 @@ export default function DispatchesPilot() {
         tanksList={activeTanks}
         registradoPor={currentUserName}
         onClose={() => setDetalleDespacho(null)}
+        puedeEliminar={puedeEliminar}
+        onEliminarClick={(desp) => {
+          setDetalleDespacho(null);
+          setEliminarDespacho(desp);
+        }}
+      />
+
+      <EliminarConsumoModal
+        visible={eliminarDespacho != null}
+        despacho={eliminarDespacho}
+        nombreTanque={(eliminarDespacho as any)?.tank?.name}
+        onClose={() => setEliminarDespacho(null)}
+        onDeleted={() => refetchRef.current?.()}
       />
 
       <EditarFotosCombustibleModal

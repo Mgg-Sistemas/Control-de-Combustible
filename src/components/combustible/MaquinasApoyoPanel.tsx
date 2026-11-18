@@ -20,6 +20,7 @@ import { OPCIONES_REPORTE_APOYO, filtrarConsumosApoyo } from '../../lib/combusti
 import { exportarReporteApoyoPdf } from '../../lib/combustibleReportesPdf';
 import OpcionesReporteCombustibleModal from './OpcionesReporteCombustibleModal';
 import DetalleDespachoModal from './DetalleDespachoModal';
+import EliminarConsumoModal from './EliminarConsumoModal';
 import { useToast } from '../ToastProvider';
 
 const hoy = () => new Date().toISOString().slice(0, 10);
@@ -53,6 +54,7 @@ export default function MaquinasApoyoPanel() {
   const [ocupado, setOcupado] = useState(false);
   const [verReporte, setVerReporte] = useState(false);
   const [detalleDespacho, setDetalleDespacho] = useState<any | null>(null);
+  const [eliminarDespacho, setEliminarDespacho] = useState<any | null>(null);
   const opcionesMaquinasApoyo = useMemo(() => opcionesApoyo(filas), [filas]);
   const listaTanques = useMemo(
     () => Object.entries(tanques).map(([id, name]) => ({ id, name })),
@@ -300,6 +302,12 @@ export default function MaquinasApoyoPanel() {
                         <TouchableOpacity onPress={() => abrirEdicion(d, 'photos')} style={boton}>
                           <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>✏️ Fotos de lo surtido</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => setEliminarDespacho(d)}
+                          style={[boton, { borderColor: colors.danger }]}
+                        >
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.danger }}>🗑️ Eliminar consumo</Text>
+                        </TouchableOpacity>
                       </>
                     )}
                   </View>
@@ -315,6 +323,20 @@ export default function MaquinasApoyoPanel() {
         despacho={detalleDespacho}
         tanksList={listaTanques}
         onClose={() => setDetalleDespacho(null)}
+        puedeEliminar={esFull}
+        onEliminarClick={(desp) => {
+          setDetalleDespacho(null);
+          setEliminarDespacho(desp);
+        }}
+        onDeleted={() => cargar()}
+      />
+
+      <EliminarConsumoModal
+        visible={eliminarDespacho != null}
+        despacho={eliminarDespacho}
+        nombreTanque={eliminarDespacho?.tank_id ? tanques[eliminarDespacho.tank_id] : null}
+        onClose={() => setEliminarDespacho(null)}
+        onDeleted={() => cargar()}
       />
 
       {/* Modales al final (en web gana el último montado) */}

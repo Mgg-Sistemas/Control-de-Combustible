@@ -11,6 +11,8 @@
 // El trigger del tanque descuenta los litros como en cualquier surtido.
 
 /** Enciende el surtido a máquinas de apoyo (requiere las columnas apoyo_* en dispatches). */
+import { esRegistroAjusteTanque } from './fuelRules';
+
 export const APOYO_ACTIVO = true;
 
 export type DespachoConApoyo = {
@@ -27,7 +29,7 @@ const limpio = (v: any): string => String(v ?? '').trim();
 
 /** ¿El surtido fue a una máquina de apoyo (fuera del catálogo)? */
 export function esDeApoyo(d: DespachoConApoyo | null | undefined): boolean {
-  return !!d && !d.machinery_id && !d.vehicle_id && limpio(d.apoyo_nombre) !== '';
+  return !!d && !esRegistroAjusteTanque(d) && !d.machinery_id && !d.vehicle_id && limpio(d.apoyo_nombre) !== '';
 }
 
 /** Nombre normalizado: sin acentos, minúsculas y espacios simples. */

@@ -12,7 +12,10 @@ import {
 } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
+import { useAuth } from '../../context/AuthContext';
+import { levelMeets } from '../../lib/permissions';
 import { useToast } from '../ToastProvider';
+import EliminarConsumoModal from './EliminarConsumoModal';
 import {
   armarDatosMensajeDesdeDespacho,
   construirMensajeWhatsapp,
@@ -30,7 +33,10 @@ export interface DetalleDespachoModalProps {
   vehiclesList?: any[] | null;
   tanksList?: any[] | null;
   registradoPor?: string | null;
+  puedeEliminar?: boolean;
   onClose: () => void;
+  onEliminarClick?: (despacho: any) => void;
+  onDeleted?: (modo: any) => void;
 }
 
 const fmtNum = (n: number | null | undefined) =>
@@ -43,10 +49,18 @@ export default function DetalleDespachoModal({
   vehiclesList,
   tanksList,
   registradoPor,
+  puedeEliminar,
   onClose,
+  onEliminarClick,
+  onDeleted,
 }: DetalleDespachoModalProps) {
   const { colors } = useTheme();
   const toast = useToast();
+  const { moduleLevel, role } = useAuth();
+  const puedeEliminarEfectivo =
+    puedeEliminar ??
+    (levelMeets(moduleLevel('consumos'), 'full') || role === 'admin' || role === 'supervisor');
+  const [askEliminar, setAskEliminar] = useState(false);
 
   const [fotoActivaIdx, setFotoActivaIdx] = useState(0);
   const [fotoZoomUrl, setFotoZoomUrl] = useState<string | null>(null);
@@ -594,8 +608,52 @@ export default function DetalleDespachoModal({
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {/* 🗑️ Opción de eliminar consumo con decisión de revertir o mantener tanque */}
+            {puedeEliminarEfectivo ? (
+              <TouchableOpacity
+                onPress={() => {
+                  if (onEliminarClick) {
+                    onEliminarClick(despacho);
+                  } else {
+                    setAskEliminar(true);
+                  }
+                }}
+                style={{
+                  marginTop: spacing.xs,
+                  paddingVertical: 10,
+                  paddingHorizontal: spacing.md,
+                  borderRadius: radius.md,
+                  borderWidth: 1.5,
+                  borderColor: colors.danger,
+                  backgroundColor: colors.surfaceAlt,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'row',
+                  gap: 6,
+                }}
+              >
+                <Text style={{ fontSize: 14 }}>🗑️</Text>
+                <Text style={{ fontWeight: '800', color: colors.danger, fontSize: 12.5 }}>
+                  ELIMINAR ESTE CONSUMO DE COMBUSTIBLE
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
         </View>
+
+        {/* Modal de confirmación para eliminar con opción de revertir o no tanque */}
+        <EliminarConsumoModal
+          visible={askEliminar}
+          despacho={despacho}
+          nombreTanque={datosEfectivos?.tanqueNombre}
+          onClose={() => setAskEliminar(false)}
+          onDeleted={(modo) => {
+            setAskEliminar(false);
+            onClose();
+            onDeleted?.(modo);
+          }}
+        />
 
         {/* Visor de foto ampliada dentro del modal */}
         {fotoZoomUrl ? (
