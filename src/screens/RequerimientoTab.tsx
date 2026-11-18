@@ -3433,12 +3433,47 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }).in('id', ids);
     if (error) return toast.error(error.message);
 
-    // Sincronizar monto con IVA en cuentas y órdenes de los requerimientos aprobados
+    // Sincronizar monto con IVA, empresa, condiciones, plan de pago y trazabilidad en cuentas y órdenes
     try {
       for (const reqItem of reqsLote) {
-        const montoConIva = calcularTotalReqUsd(reqItem.items, rate, reqItem.iva_alicuota);
+        const alicItem = reqItem.iva_alicuota != null ? Number(reqItem.iva_alicuota) : null;
+        const montoConIva = calcularTotalReqUsd(reqItem.items, rate, alicItem);
+        const condItem = extraerCondicionesPago(reqItem.observaciones);
+        const empIdItem = reqItem.empresa_pagadora_id || reqItem.company_id || null;
+        const empNameItem = reqItem.empresa_pagadora_nombre || (empIdItem ? companies.find((c) => c.id === empIdItem)?.name || null : null);
+
+        const { data: ctas } = await supabase.from('cuentas').select('id, nota').eq('inventory_requirement_id', reqItem.id);
+        for (const cta of ctas ?? []) {
+          let notaCta = String((cta as any).nota || '');
+          if (empIdItem && empNameItem) notaCta = inyectarEmpresaEnNota(notaCta, empIdItem, empNameItem) ?? notaCta;
+          if (condItem) notaCta = inyectarCondicionesPagoEnNota(notaCta, condItem) ?? notaCta;
+          if (alicItem != null && alicItem > 0) notaCta = inyectarIvaEnCuentaNota(notaCta, alicItem) ?? notaCta;
+          notaCta = inyectarEnvioCxpEnTexto(notaCta, {
+            enviadoPor: decName,
+            enviadoPorId: uid,
+            fecha: ahoraIso,
+            origen: 'requerimiento',
+          }) ?? notaCta;
+          const apCxpExist = extraerAprobacionCxp(notaCta);
+          if (apCxpExist?.estado !== 'aprobado') {
+            notaCta = inyectarAprobacionCxpEnNota(notaCta, {
+              estado: 'pendiente',
+              aprobadoPor: null,
+              aprobadoPorId: null,
+              fecha: ahoraIso,
+            }) ?? notaCta;
+          }
+          const patch: Record<string, any> = {
+            nota: notaCta,
+            alicuota_iva: alicItem,
+            updated_at: ahoraIso,
+          };
+          if (montoConIva > 0) patch.monto = montoConIva;
+          if (reqItem.prioridad === 'alta' || reqItem.prioridad === 'media' || reqItem.prioridad === 'baja') patch.prioridad = reqItem.prioridad;
+          if ((reqItem as any).plan_pago) patch.plan_pago = (reqItem as any).plan_pago;
+          await supabase.from('cuentas').update(patch).eq('id', (cta as any).id);
+        }
         if (montoConIva > 0) {
-          await supabase.from('cuentas').update({ monto: montoConIva, updated_at: ahoraIso }).eq('inventory_requirement_id', reqItem.id);
           await supabase.from('purchase_orders').update({ total: montoConIva }).eq('inventory_requirement_id', reqItem.id);
         }
       }

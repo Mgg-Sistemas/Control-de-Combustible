@@ -38,4 +38,12 @@ assert(screenSrc.includes('planDeCuenta(c)?.plan ?? null') && screenSrc.includes
 assert(!/if \(p\) \{\s*const c = txt\(condiciones\);\s*return/.test(msgSrc), 'resumenBancoEnLinea no debe hacer return temprano ignorando datos bancarios');
 assert(msgSrc.includes("from './cuentaPagoResuelto'"), 'cuentaMensaje debe usar cuentaPagoResuelto');
 
-console.log('✅ test-cuentas-resumen-sos: todas las verificaciones pasaron (16/16).');
+// 6. Fase 3 y Fase 4: Almacén + notas visibles en Por Pagar + filtro moneda + aprobarLote completo
+const histSrc = leer('src/lib/comprasHistorico.ts');
+const reqTabSrc = leer('src/screens/RequerimientoTab.tsx');
+assert(histSrc.includes('almacenTexto') && histSrc.includes('notaReqLimpia'), 'comprasHistorico debe exponer almacenTexto y notaReqLimpia');
+assert(screenSrc.includes('monedaFiltroCxp') && screenSrc.includes('ESTADO FÍSICO EN ALMACÉN / ENTREGA'), 'CuentasScreen debe filtrar por moneda y mostrar estado físico de Almacén');
+assert(!screenSrc.includes("tipo !== 'por_pagar' && c.condicionesPago") && !screenSrc.includes("tipo !== 'por_pagar' && c.notaLimpia"), 'Condiciones y notas deben verse en Por Pagar');
+assert(reqTabSrc.includes('inyectarCondicionesPagoEnNota(notaCta, condItem)') && reqTabSrc.includes('plan_pago'), 'aprobarLote debe sincronizar condiciones, empresa, IVA y plan_pago');
+
+console.log('✅ test-cuentas-resumen-sos: todas las verificaciones pasaron (20/20).');

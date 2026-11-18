@@ -118,7 +118,7 @@ import {
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
 import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
-import { resolverPagoCuenta } from '../lib/cuentaPagoResuelto';
+import { resolverPagoCuenta, type MonedaRealPago } from '../lib/cuentaPagoResuelto';
 import { MensajeCuentaModal } from '../components/MensajeCuentaModal';
 import { PlanPagoModal } from '../components/PlanPagoModal';
 import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, estadoPartes, lineaParte, tituloParte, advertenciaPlanGuardado } from '../lib/planPago';
@@ -655,6 +655,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [campoFechaCxp, setCampoFechaCxp] = useState<'cualquiera' | 'envio' | 'solicitud'>('cualquiera');
   const [fechaDesdeCxp, setFechaDesdeCxp] = useState('');
   const [fechaHastaCxp, setFechaHastaCxp] = useState('');
+  const [monedaFiltroCxp, setMonedaFiltroCxp] = useState<'todas' | MonedaRealPago>('todas');
 
   // Tarjetas desplegadas (plegable / desplegable individual y en lote)
   const [tarjetasAbiertasIds, setTarjetasAbiertasIds] = useState<Set<string>>(new Set());
@@ -2184,9 +2185,22 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 actualizarATasaDelDia: !usarEseDiaCta,
               })
             : null;
-        return {
-          ...calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, desgloseIva, apEstado, apInfo),
+        const baseCalc = calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, desgloseIva, apEstado, apInfo);
+        const planCta = (c as any).plan_pago ?? (reqVincDesglose as any)?.plan_pago ?? null;
+        const notaEsp = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id))?.texto ?? null;
+        const pagoResuelto = resolverPagoCuenta({
+          ...baseCalc,
+          plan: planCta,
+          notaEspera: notaEsp,
+          alicuotaIva: alicuotaDe(baseCalc),
+          banco: infoPago.datosBancarios,
+          metodosActivos: infoPago.metodosActivos,
           desgloseProveedores,
+        }, tasaBcv, bsInfoCta.fijo ? bsInfoCta.saldoBs : null);
+        return {
+          ...baseCalc,
+          desgloseProveedores,
+          pagoResuelto,
         };
       });
 
@@ -2258,6 +2272,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const vis = porEmpresas
       .filter(pasaVerPagadas)
       .filter(pasaFiltroEstadoCxp)
+      .filter((c) => tipo !== 'por_pagar' || monedaFiltroCxp === 'todas' || c.pagoResuelto?.monedaReal === monedaFiltroCxp)
       .filter(pasaFiltroFechaCxp)
       .filter((c) =>
         matchNorm(
@@ -2268,6 +2283,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           c.nota,
           c.condicionesPago,
           c.notaLimpia,
+          c.traza.notaReqLimpia,
+          c.traza.almacenTexto,
           c.empresaNombre,
           c.traza.solicitadoPor,
           c.traza.registradoPor,
@@ -3035,6 +3052,39 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         </View>
       ) : null}
 
+      {/* 💱 Filtro rápido por moneda real de pago (Bs / USDT / Efectivo $ / Zelle / Mixto / Por definir) */}
+      {tipo === 'por_pagar' ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.xs, width: '100%' }}>
+          {([
+            ['todas', '💱 Todas monedas'],
+            ['BS', '🇻🇪 Bs'],
+            ['USDT', '🪙 USDT'],
+            ['USD_EFECTIVO', '💵 Efectivo $'],
+            ['ZELLE', '💸 Zelle'],
+            ['MIXTO', '🔀 Mixto'],
+            ['POR_DEFINIR', '📌 Por definir'],
+          ] as const).map(([k, lbl]) => {
+            const on = monedaFiltroCxp === k;
+            return (
+              <TouchableOpacity
+                key={`monf-${k}`}
+                onPress={() => setMonedaFiltroCxp(k)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: on ? '#0284C7' : colors.border,
+                  backgroundColor: on ? '#0284C7' : colors.surface,
+                }}
+              >
+                <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 11 }}>{lbl}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+
       {/* 📅 Filtro por Fecha Específica o Rango de Fechas (Solicitud / Marcado para Por Pagar) */}
       <View
         style={{
@@ -3398,6 +3448,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                   </TouchableOpacity>
                   <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1, minWidth: 130 }} numberOfLines={1}>{c.contraparte}</Text>
                   {c.prioridad ? <Pill label={PRIORIDAD_INFO[c.prioridad as Prioridad].label} {...toneSoft(colors, PRIORIDAD_INFO[c.prioridad as Prioridad].tone)} /> : null}
+                  {tipo === 'por_pagar' && c.pagoResuelto ? (
+                    <Pill label={`${c.pagoResuelto.monedaIcono} ${c.pagoResuelto.monedaLabel}`} {...toneSoft(colors, c.pagoResuelto.monedaReal === 'POR_DEFINIR' ? 'warning' : 'info')} />
+                  ) : null}
+                  {tipo === 'por_pagar' && c.traza?.almacenTexto ? (
+                    <Pill label={c.traza.almacenTexto} {...toneSoft(colors, c.traza.almacenEstado === 'pendiente_entrega' ? 'warning' : 'success')} />
+                  ) : null}
                   {tipo === 'por_pagar' && c.esMayorAMil ? (
                     <Pill label="💰 Pago > $1,000 USD" {...toneSoft(colors, 'danger')} />
                   ) : null}
@@ -4245,16 +4301,32 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Saldo: {usd(c.saldo)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Emitida: {fmtFecha(c.fecha_emision)}</Text>
                 {c.order_id ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🧾 Atada a una orden de compra</Text> : null}
-                {tipo !== 'por_pagar' && c.condicionesPago ? (
+                {c.traza?.almacenTexto ? (
+                  <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>📦 ESTADO FÍSICO EN ALMACÉN / ENTREGA</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 }}>{c.traza.almacenTexto}</Text>
+                    {c.traza.autorizadoPor || c.traza.responsableAlmacen ? (
+                      <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }}>
+                        {c.traza.autorizadoPor ? `Autorizó: ${c.traza.autorizadoPor}` : ''}
+                        {c.traza.autorizadoPor && c.traza.responsableAlmacen ? ' · ' : ''}
+                        {c.traza.responsableAlmacen ? `Almacén: ${c.traza.responsableAlmacen}` : ''}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+                {c.condicionesPago ? (
                   <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder }}>
                     <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>💳 CONDICIONES DE PAGO</Text>
                     <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 }}>{c.condicionesPago}</Text>
                   </View>
                 ) : null}
-                {tipo !== 'por_pagar' && c.notaLimpia ? (
+                {(c.notaLimpia || c.traza?.notaReqLimpia) ? (
                   <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder }}>
-                    <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '800' }}>📝 NOTA / DATOS E INSTRUCCIONES DE PAGO</Text>
-                    <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>{c.notaLimpia}</Text>
+                    <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '800' }}>📝 NOTA / OBSERVACIONES DEL REQUERIMIENTO</Text>
+                    {c.notaLimpia ? <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>{c.notaLimpia}</Text> : null}
+                    {c.traza?.notaReqLimpia && c.traza.notaReqLimpia !== c.notaLimpia ? (
+                      <Text style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}>Req.: {c.traza.notaReqLimpia}</Text>
+                    ) : null}
                   </View>
                 ) : null}
 

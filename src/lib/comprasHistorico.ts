@@ -837,6 +837,9 @@ export interface TrazabilidadPorPagar {
   aprobadoGerenciaPor: string | null;
   fechaHoraAprobadoGerenciaTexto: string | null;
   modificacionesItemsCount: number;
+  almacenEstado: 'entrega_directa' | 'retirado' | 'recibido' | 'pendiente_entrega' | null;
+  almacenTexto: string | null;
+  notaReqLimpia: string | null;
 }
 
 /**
@@ -1103,6 +1106,35 @@ export function resolverTrazabilidadPorPagar(
         ? (ord as any).items
         : [];
 
+  let almacenEstado: TrazabilidadPorPagar['almacenEstado'] = null;
+  let almacenTexto: string | null = null;
+  if (req) {
+    const obsReq = String(req.observaciones || '');
+    const mDirecta = obsReq.match(/\[ENTREGA_DIRECTA:\s*([^\]]+)\]/i);
+    const mDesp = obsReq.match(/\[DESPACHO\s+ALMACEN:\s*([^\]]+)\]/i);
+    if (mDirecta && mDirecta[1]) {
+      almacenEstado = 'entrega_directa';
+      const rec = mDirecta[1].match(/Receptor:\s*([^|]+)/i)?.[1]?.trim();
+      almacenTexto = rec ? `🚚 Entrega directa a ${rec}` : '🚚 Entrega directa en campo';
+    } else if (mDesp && mDesp[1] && /Estado:\s*retirado/i.test(mDesp[1])) {
+      almacenEstado = 'retirado';
+      const retPor = mDesp[1].match(/RetiradoPor:\s*([^|]+)/i)?.[1]?.trim();
+      almacenTexto = retPor ? `📦 Retirado de Almacén por ${retPor}` : '📦 Retirado de Almacén';
+    } else if (req.status === 'recibido') {
+      almacenEstado = 'recibido';
+      almacenTexto = '📦 Recibido en Almacén (disponible)';
+    } else {
+      almacenEstado = 'pendiente_entrega';
+      almacenTexto = '⏳ Pendiente de entrega en Almacén';
+    }
+  }
+
+  const notaReqPartes = [
+    req?.note?.trim() || '',
+    limpiarTextoCompraSinEtiquetas(req?.observaciones),
+  ].filter(Boolean);
+  const notaReqLimpia = notaReqPartes.length > 0 ? Array.from(new Set(notaReqPartes)).join(' · ') : null;
+
   return {
     req,
     reqVinculado: req,
@@ -1130,6 +1162,9 @@ export function resolverTrazabilidadPorPagar(
     aprobadoGerenciaPor,
     fechaHoraAprobadoGerenciaTexto,
     modificacionesItemsCount: modsIds.size,
+    almacenEstado,
+    almacenTexto,
+    notaReqLimpia,
   };
 }
 
