@@ -37,6 +37,10 @@ import {
   inyectarCondicionesPagoEnNota,
 } from '../lib/cuentasPago';
 import { inyectarEmpresaEnNota } from '../lib/cuentasEmpresa';
+import { ComprasViewToggle, useComprasVista } from '../components/compras/ComprasViewToggle';
+import { ComprasListaTable } from '../components/compras/ComprasListaTable';
+import { ComprasDetalleModal } from '../components/compras/ComprasDetalleModal';
+import { OrdenVistaItem, construirFilasLista } from '../lib/comprasVista';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // 19-sep-2026: la regla de lectura vive en src/lib/numeros.ts, una sola para todo Compras.
@@ -68,6 +72,9 @@ export function ServiciosTab({ canWrite, onGoToAires }: { canWrite: boolean; onG
   const toast = useToast();
   const confirm = useConfirm();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [modoVista, setModoVista] = useComprasVista('servicios', session?.user?.id, ['actual', 'lista']);
+  const [qSrv, setQSrv] = useState('');
+  const [detalleSrvId, setDetalleSrvId] = useState<string | null>(null);
   const { data: serviciosRaw, loading, refetch } = useTable<ServicioRecord>('servicios', { orderBy: 'created_at', ascending: false, realtimeFrom: 'servicios' });
   const servicios = useMemo(() => serviciosRaw.filter((s) => s.code !== 'AC-CATALOG-MASTER'), [serviciosRaw]);
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
@@ -373,16 +380,65 @@ export function ServiciosTab({ canWrite, onGoToAires }: { canWrite: boolean; onG
         </TouchableOpacity>
       ) : null}
 
-      {loading ? <Loading /> : servicios.length === 0 ? (
-        <EmptyState title="Sin servicios" subtitle="Registra un servicio: categoría, tipo, equipo y precio." />
-      ) : grupos.map((grp) => (
-        <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
-          {grp.items.map((s) => {
-            const condSrv = extraerCondicionesPago(s.note);
-            const notaSrv = limpiarCondicionesPagoDeNota(s.note);
-            return (
+      {/* Buscador y Selector de Vista (Tarjetas / Lista) */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: spacing.sm }}>
+        <TextInput
+          value={qSrv}
+          onChangeText={setQSrv}
+          placeholder="Buscar servicio por código, proveedor, máquina o categoría…"
+          placeholderTextColor={colors.muted}
+          style={{
+            flex: 1,
+            minWidth: 220,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: radius.md,
+            paddingHorizontal: spacing.sm + 2,
+            paddingVertical: 7,
+            color: colors.text,
+            fontSize: 13,
+          }}
+        />
+        <ComprasViewToggle
+          value={modoVista}
+          onChange={setModoVista}
+          permitidos={['actual', 'lista']}
+        />
+      </View>
+
+      {(() => {
+        const nq = norm(qSrv);
+        const srvFiltrados = nq
+          ? servicios.filter((s) => {
+              const hay = [
+                s.code,
+                companyName(s.company_id),
+                supplierName(s.supplier_id),
+                s.note,
+                ...(s.items || []).map((l) => `${l.categoria} ${l.tipo} ${l.machine_label || ''} ${l.item_name || ''}`),
+              ].filter(Boolean).join(' ');
+              return norm(hay).includes(nq);
+            })
+          : servicios;
+
+        if (loading) return <Loading />;
+        if (srvFiltrados.length === 0) {
+          return (
+            <EmptyState
+              title="Sin servicios"
+              subtitle={qSrv ? 'Ningún servicio coincide con tu búsqueda.' : 'Registra un servicio: categoría, tipo, equipo y precio.'}
+            />
+          );
+        }
+
+        const renderTarjetaServicio = (s: ServicioRecord, forzarExpandida = false) => {
+          const condSrv = extraerCondicionesPago(s.note);
+          const notaSrv = limpiarCondicionesPagoDeNota(s.note);
+          return (
             <ExpandableCard
               key={s.id}
+              defaultOpen={forzarExpandida}
               summary={
                 <View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
@@ -445,10 +501,77 @@ export function ServiciosTab({ canWrite, onGoToAires }: { canWrite: boolean; onG
                 </>
               }
             />
-            );
-          })}
-        </AccordionGroup>
-      ))}
+          );
+        };
+
+        const itemsVistaSrv: OrdenVistaItem<ServicioRecord>[] = srvFiltrados.map((s) => {
+          const primer = s.items?.[0];
+          const fechaIso = s.service_date || s.created_at || '';
+          const fechaCorta = fechaIso ? `${fechaIso.slice(8, 10)}/${fechaIso.slice(5, 7)}` : '—';
+          return {
+            id: s.id,
+            origen: 'servicios',
+            codigo: s.code || 'SRV',
+            titulo: primer ? `${primer.categoria}${primer.tipo ? ` · ${primer.tipo}` : ''}` : 'Servicio',
+            empresaNombre: companyName(s.company_id),
+            solicitanteNombre: '',
+            proveedorNombre: supplierName(s.supplier_id),
+            maquinariaTexto: primer?.machine_label || null,
+            itemsCount: s.items?.length || 0,
+            estadoCodigo: 'recibido',
+            estadoLabel: '🧰 Servicio',
+            estadoTono: 'info',
+            columnaId: 'completado',
+            montoUsd: Number(s.total) || 0,
+            saldoUsd: Number(s.total) || 0,
+            monedaBadge: s.factura_url ? '📎 Factura' : null,
+            montoBsTexto: null,
+            prioridad: null,
+            esUrgente: false,
+            motivoUrgencia: null,
+            fechaIso,
+            fechaCorta,
+            raw: s,
+          };
+        });
+
+        const detalleSrv = detalleSrvId ? srvFiltrados.find((x) => x.id === detalleSrvId) ?? null : null;
+        const gruposFiltrados = (() => {
+          const m = new Map<string, { key: string; name: string; items: ServicioRecord[] }>();
+          srvFiltrados.forEach((s) => {
+            const k = s.company_id ?? '__none__';
+            const g = m.get(k) ?? { key: k, name: companyName(s.company_id), items: [] };
+            g.items.push(s);
+            m.set(k, g);
+          });
+          return [...m.values()].sort((a, b) => cmpText(a.name, b.name));
+        })();
+
+        return (
+          <>
+            {modoVista === 'lista' ? (
+              <ComprasListaTable
+                filas={construirFilasLista(itemsVistaSrv).filas}
+                onSelectItem={(it) => setDetalleSrvId(it.id)}
+              />
+            ) : (
+              gruposFiltrados.map((grp) => (
+                <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
+                  {grp.items.map((s) => renderTarjetaServicio(s, false))}
+                </AccordionGroup>
+              ))
+            )}
+            <ComprasDetalleModal
+              visible={Boolean(detalleSrv)}
+              titulo={detalleSrv ? `🧰 ${detalleSrv.code} · Servicio` : ''}
+              subtitulo={detalleSrv ? `${companyName(detalleSrv.company_id)} · ${supplierName(detalleSrv.supplier_id)}` : null}
+              onClose={() => setDetalleSrvId(null)}
+            >
+              {detalleSrv ? renderTarjetaServicio(detalleSrv, true) : null}
+            </ComprasDetalleModal>
+          </>
+        );
+      })()}
 
       {/* ── Formulario ── */}
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>

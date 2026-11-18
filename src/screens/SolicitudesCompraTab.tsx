@@ -59,6 +59,18 @@ import {
 } from '../lib/limitesCompras';
 import { suscribirConfigLimitesCompras } from '../lib/limitesComprasStorage';
 import { ContadorLimiteItemsBar, CupoLimiteBanner, UsuarioSimpleLimite } from '../components/CupoLimiteBanner';
+import { ComprasViewToggle, useComprasVista } from '../components/compras/ComprasViewToggle';
+import { ComprasKanbanBoard } from '../components/compras/ComprasKanbanBoard';
+import { ComprasListaTable } from '../components/compras/ComprasListaTable';
+import { ComprasDetalleModal } from '../components/compras/ComprasDetalleModal';
+import {
+  OrdenVistaItem,
+  construirColumnasKanban,
+  construirFilasLista,
+  esOrdenUrgente,
+  resolverColumnaSolicitud,
+  tonoDeEstadoReq,
+} from '../lib/comprasVista';
 
 const usd = (n: number) =>
   `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, {
@@ -634,6 +646,77 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const plegarTodas = () => {
     setExpandedIds(new Set());
   };
+
+  const [modoVista, setModoVista] = useComprasVista('solicitudes', uid);
+  const [detalleModalId, setDetalleModalId] = useState<string | null>(null);
+
+  const solicitudesVisibles = useMemo(
+    () => aplicarLimiteTarjetasVisibles(solicitudes, limiteTarjetas).visibles,
+    [solicitudes, limiteTarjetas],
+  );
+
+  const itemsVistaSolicitudes = useMemo<OrdenVistaItem<InventoryRequirement>[]>(() => {
+    return solicitudesVisibles.map((r) => {
+      const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+      const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
+      const yaConvertida = estaSolicitudConvertidaEnRequerimiento(r);
+      const empInfo = resolverEmpresaRequerimiento(r, companies);
+      const maq = (r as any).machinery_id
+        ? machines.find((m) => m.id === (r as any).machinery_id)
+        : null;
+      const maqTexto = maq ? machineLabel(maq) : ((r as any).destino_maquina || null);
+      const urg = esOrdenUrgente({
+        prioridad: (r as any).prioridad,
+        urgency: (r as any).urgency,
+      });
+      const fechaIso = r.created_at || '';
+      const fechaCorta = fechaIso ? `${fechaIso.slice(8, 10)}/${fechaIso.slice(5, 7)}` : '—';
+      const totalUsd = Number(est.totalUSD) || 0;
+      return {
+        id: r.id,
+        origen: 'solicitudes',
+        codigo: r.code || 'SOL',
+        titulo: r.title || r.items?.[0]?.name || 'Solicitud de compra',
+        empresaNombre: empInfo.name,
+        solicitanteNombre: (r as any).solicitante_nombre || r.requested_by_name || '',
+        proveedorNombre: provGeneral?.name || est.proveedoresNombres.join(', ') || '',
+        maquinariaTexto: maqTexto,
+        itemsCount: r.items?.length || 0,
+        estadoCodigo: est.codigo,
+        estadoLabel: est.short || est.label,
+        estadoTono: tonoDeEstadoReq(est.codigo),
+        columnaId: resolverColumnaSolicitud({
+          estadoCodigo: est.codigo,
+          status: r.status,
+          yaConvertido: yaConvertida,
+          requiereAprobacionGG: est.requiereAprobacionGG,
+        }),
+        montoUsd: totalUsd,
+        saldoUsd: totalUsd,
+        monedaBadge: null,
+        montoBsTexto: null,
+        prioridad: (r as any).prioridad ?? null,
+        esUrgente: urg.esUrgente,
+        motivoUrgencia: urg.motivoUrgencia,
+        fechaIso,
+        fechaCorta,
+        raw: r,
+      };
+    });
+  }, [solicitudesVisibles, suppliers, rate, configAprobacion, companies, machines]);
+
+  const kanbanSolicitudes = useMemo(
+    () => construirColumnasKanban('solicitudes', itemsVistaSolicitudes),
+    [itemsVistaSolicitudes],
+  );
+  const listaSolicitudes = useMemo(
+    () => construirFilasLista(itemsVistaSolicitudes),
+    [itemsVistaSolicitudes],
+  );
+  const detalleSolicitud = useMemo(
+    () => (detalleModalId ? solicitudes.find((s) => s.id === detalleModalId) ?? null : null),
+    [detalleModalId, solicitudes],
+  );
 
   // Asignación de proveedor por renglón en conversión (compras consolidadas multi-proveedor)
   const [convertItemSuppliers, setConvertItemSuppliers] = useState<Record<number, string | null>>({});
@@ -1730,42 +1813,47 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
         })}
       </View>
 
-      {/* Barra de conteo y controles de acordeón masivo */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs, flexWrap: 'wrap', gap: 6 }}>
+      {/* Barra de conteo, selector de vista (Actual / Kanban / Lista) y controles de acordeón */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs, flexWrap: 'wrap', gap: 8 }}>
         <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>
           Mostrando {solicitudes.length} {solicitudes.length === 1 ? 'solicitud' : 'solicitudes'}
         </Text>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
-          <TouchableOpacity
-            onPress={expandirTodas}
-            style={{
-              backgroundColor: colors.surfaceAlt,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📂 Desplegar todas</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={plegarTodas}
-            style={{
-              backgroundColor: colors.surfaceAlt,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📁 Plegar todas</Text>
-          </TouchableOpacity>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <ComprasViewToggle value={modoVista} onChange={setModoVista} />
+          {modoVista === 'actual' ? (
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <TouchableOpacity
+                onPress={expandirTodas}
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📂 Desplegar todas</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={plegarTodas}
+                style={{
+                  backgroundColor: colors.surfaceAlt,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>📁 Plegar todas</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
       </View>
 
-      {/* Lista de Solicitudes */}
+      {/* Lista / Kanban / Tarjetas de Solicitudes */}
       {loading ? (
         <SkeletonList count={4} />
       ) : solicitudes.length === 0 ? (
@@ -1777,8 +1865,8 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               : 'El taller y el personal de campo aún no han enviado solicitudes de compra técnica.'
           }
         />
-      ) : (
-        aplicarLimiteTarjetasVisibles(solicitudes, limiteTarjetas).visibles.map((r) => {
+      ) : (() => {
+        const renderTarjetaSolicitud = (r: InventoryRequirement, forzarExpandida = false) => {
           const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
           const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
           const yaConvertida = estaSolicitudConvertidaEnRequerimiento(r);
@@ -1790,7 +1878,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
           const tieneFoto = r.items.length <= 1
             ? (r.attachment_url || primerItem?.image_url)
             : (r.attachment_url && !esFotoDeRenglon(r.attachment_url) ? r.attachment_url : null);
-          const isAbierto = expandedIds.has(r.id);
+          const isAbierto = forzarExpandida || expandedIds.has(r.id);
           const empresaPagadora = r.empresa_pagadora_nombre || companies.find((c) => c.id === r.empresa_pagadora_id)?.name;
 
           return (
@@ -2622,8 +2710,39 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               </View>
             </Card>
           );
-        })
-      )}
+        };
+        return (
+          <>
+            {modoVista === 'kanban' ? (
+              <ComprasKanbanBoard
+                columnas={kanbanSolicitudes.columnas}
+                onSelectItem={(it) => setDetalleModalId(it.id)}
+              />
+            ) : modoVista === 'lista' ? (
+              <ComprasListaTable
+                filas={listaSolicitudes.filas}
+                onSelectItem={(it) => setDetalleModalId(it.id)}
+              />
+            ) : (
+              solicitudesVisibles.map((r) => renderTarjetaSolicitud(r, false))
+            )}
+            <ComprasDetalleModal
+              visible={Boolean(detalleSolicitud)}
+              titulo={
+                detalleSolicitud
+                  ? `${detalleSolicitud.code} · ${detalleSolicitud.title || 'Solicitud de compra'}`
+                  : ''
+              }
+              subtitulo={
+                detalleSolicitud ? resolverEmpresaRequerimiento(detalleSolicitud, companies).name : null
+              }
+              onClose={() => setDetalleModalId(null)}
+            >
+              {detalleSolicitud ? renderTarjetaSolicitud(detalleSolicitud, true) : null}
+            </ComprasDetalleModal>
+          </>
+        );
+      })()}
 
       {/* ── MODAL: CONVERTIR A REQUERIMIENTO OFICIAL ───────────────────────────── */}
       <Modal visible={Boolean(convertTarget)} transparent animationType="slide">

@@ -73,6 +73,17 @@ import { useTheme } from '../theme/ThemeContext';
 import { matchNorm, norm, cmpText } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
 import { useBcvRate, fmtBs, bsFromUsd } from '../lib/bcv';
+import { ComprasViewToggle, useComprasVista } from '../components/compras/ComprasViewToggle';
+import { ComprasKanbanBoard } from '../components/compras/ComprasKanbanBoard';
+import { ComprasListaTable } from '../components/compras/ComprasListaTable';
+import { ComprasDetalleModal } from '../components/compras/ComprasDetalleModal';
+import {
+  OrdenVistaItem,
+  construirColumnasKanban,
+  construirFilasLista,
+  esOrdenUrgente,
+  resolverColumnaPorPagar,
+} from '../lib/comprasVista';
 import { montosBsCuenta } from '../lib/cuentasBs';
 import {
   extraerReciboPagoCuenta,
@@ -656,6 +667,14 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [fechaDesdeCxp, setFechaDesdeCxp] = useState('');
   const [fechaHastaCxp, setFechaHastaCxp] = useState('');
   const [monedaFiltroCxp, setMonedaFiltroCxp] = useState<'todas' | MonedaRealPago>('todas');
+  const permitidosVistaCuentas: readonly ('actual' | 'kanban' | 'lista')[] =
+    tipo === 'por_pagar' ? ['actual', 'kanban', 'lista'] : ['actual', 'lista'];
+  const [modoVista, setModoVista] = useComprasVista(
+    'por_pagar',
+    `${session?.user?.id || 'anon'}_${tipo}`,
+    permitidosVistaCuentas,
+  );
+  const [detalleModalId, setDetalleModalId] = useState<string | null>(null);
 
   // Tarjetas desplegadas (plegable / desplegable individual y en lote)
   const [tarjetasAbiertasIds, setTarjetasAbiertasIds] = useState<Set<string>>(new Set());
@@ -2306,7 +2325,45 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const uni = ord.filter(pasaVerPagadas);
 
     return { lista: vis, tot: t, empresaCounts: arrEmpresas, ordenadas: ord, universo: uni, porEmpresasCounts: countsCxp };
-  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, suppliers, tasaBcv, companies, requirements, orders, machinery, vehicles, empresaSel, configAprobacion, filtroEstadoCxp, modoFechaCxp, campoFechaCxp, fechaDesdeCxp, fechaHastaCxp, usarTasaEseDiaGlobal, usarTasaEseDiaCuentasIds, tasasPorFecha]);
+  }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, suppliers, tasaBcv, companies, requirements, orders, machinery, vehicles, empresaSel, configAprobacion, filtroEstadoCxp, modoFechaCxp, campoFechaCxp, fechaDesdeCxp, fechaHastaCxp, monedaFiltroCxp, usarTasaEseDiaGlobal, usarTasaEseDiaCuentasIds, tasasPorFecha]);
+
+  const itemsVistaCuentas = useMemo<OrdenVistaItem<(typeof lista)[number]>[]>(() => {
+    return lista.map((c) => {
+      const urg = esOrdenUrgente({ prioridad: c.prioridad, situacion: c.situacion });
+      const b = bsDe(c);
+      const bsTxt = tasaBcv && c.saldo > 0 ? `${b.fijo && c.saldo >= (Number(c.monto) || 0) ? '' : '≈ '}${fmtBs(b.saldoBs)}` : null;
+      const fechaIso = c.fecha_emision || c.created_at || '';
+      const fechaCorta = fechaIso ? `${fechaIso.slice(8, 10)}/${fechaIso.slice(5, 7)}` : '—';
+      const sitInfo = SIT_INFO[c.situacion];
+      const maq = c.traza?.destinoTexto ? `${c.traza.destinoTexto}` : null;
+      const almacenTag = c.traza?.almacenTexto ? ` · ${c.traza.almacenTexto}` : '';
+      return {
+        id: c.id,
+        origen: 'por_pagar',
+        codigo: c.traza?.reqCode || c.documento || 'CTA',
+        titulo: `${c.concepto || 'Orden / Cuenta'}${almacenTag}`,
+        empresaNombre: c.empresaNombre || 'General',
+        solicitanteNombre: c.traza?.solicitadoPor || '',
+        proveedorNombre: c.contraparte || '',
+        maquinariaTexto: maq,
+        itemsCount: c.traza?.items?.length || 1,
+        estadoCodigo: c.aprobacionEstado === 'esperando_aprobacion' ? 'esperando_aprobacion' : c.situacion,
+        estadoLabel: c.aprobacionEstado === 'esperando_aprobacion' ? '👔 Por aprobar' : sitInfo.label,
+        estadoTono: c.aprobacionEstado === 'esperando_aprobacion' ? 'warning' : sitInfo.tone,
+        columnaId: resolverColumnaPorPagar({ situacion: c.situacion, aprobacionEstado: c.aprobacionEstado }),
+        montoUsd: Number(c.monto) || 0,
+        saldoUsd: Number(c.saldo) || 0,
+        monedaBadge: `${c.pagoResuelto.monedaIcono} ${c.pagoResuelto.monedaLabel}`,
+        montoBsTexto: bsTxt,
+        prioridad: c.prioridad ?? null,
+        esUrgente: urg.esUrgente,
+        motivoUrgencia: urg.motivoUrgencia,
+        fechaIso,
+        fechaCorta,
+        raw: c,
+      };
+    });
+  }, [lista, tasaBcv, usarTasaEseDiaGlobal, usarTasaEseDiaCuentasIds, tasasPorFecha]);
 
   // Contador de marcas: solo las que existen en esta pestaña; y cuántas no se ven ahora.
   const nMarcadas = useMemo(() => ordenadas.filter((c) => marcadas.has(c.id)).length, [ordenadas, marcadas]);
@@ -3416,21 +3473,34 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         </View>
       ) : null}
 
+      {/* Selector de vista (Actual / Kanban / Lista) */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: spacing.sm }}>
+        <ComprasViewToggle
+          value={modoVista}
+          onChange={setModoVista}
+          permitidos={permitidosVistaCuentas}
+        />
+        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>
+          {lista.length} {lista.length === 1 ? 'cuenta' : 'cuentas'}
+        </Text>
+      </View>
+
       {lista.length === 0 ? (
         <EmptyState
           title={q ? 'Sin resultados' : `Sin cuentas ${cfg.label.toLowerCase()}`}
           subtitle={q ? 'Prueba con otro texto.' : (tipo === 'por_pagar' ? 'Registra lo que la empresa le debe a sus proveedores.' : 'Registra lo que le deben a la empresa.')}
         />
-      ) : lista.map((c) => {
-        const st = SIT_INFO[c.situacion];
-        const dias = c.fecha_vencimiento ? diasEntre(hoy, c.fecha_vencimiento) : null;
-        const vencida = c.situacion === 'vencida';
-        const abiertas = c.situacion !== 'pagada' && c.situacion !== 'anulada';
-        return (
-          <ExpandableCard
-            key={c.id}
-            open={tarjetasAbiertasIds.has(c.id)}
-            onToggle={() => toggleTarjetaCuenta(c.id)}
+      ) : (() => {
+        const renderTarjetaCuenta = (c: (typeof lista)[number], forzarExpandida = false) => {
+          const st = SIT_INFO[c.situacion];
+          const dias = c.fecha_vencimiento ? diasEntre(hoy, c.fecha_vencimiento) : null;
+          const vencida = c.situacion === 'vencida';
+          const abiertas = c.situacion !== 'pagada' && c.situacion !== 'anulada';
+          return (
+            <ExpandableCard
+              key={c.id}
+              open={forzarExpandida || tarjetasAbiertasIds.has(c.id)}
+              onToggle={() => { if (!forzarExpandida) toggleTarjetaCuenta(c.id); }}
             // Marca visual de lo VENCIDO: borde rojo grueso a la izquierda —
             // se ve de un vistazo sin tener que leer el badge.
             style={vencida ? { borderLeftWidth: 4, borderLeftColor: colors.danger } : undefined}
@@ -4640,8 +4710,57 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               </>
             }
           />
+          );
+        };
+        const detalleCta = detalleModalId ? lista.find((x) => x.id === detalleModalId) ?? null : null;
+        const colsCxp = construirColumnasKanban('por_pagar', itemsVistaCuentas).columnas.filter(
+          (col) => (col.id !== 'pagada' && col.id !== 'anulada') || col.count > 0 || verPagadas || filtroEstadoCxp === 'pagada',
         );
-      })}
+        return (
+          <>
+            {modoVista === 'kanban' && tipo === 'por_pagar' ? (
+              <ComprasKanbanBoard
+                columnas={colsCxp}
+                selectedIds={marcadas}
+                onToggleSelect={alternarMarca}
+                onToggleColumna={(ids, allCol) => {
+                  setMarcadas((prev) => {
+                    const next = new Set(prev);
+                    ids.forEach((id) => (allCol ? next.delete(id) : next.add(id)));
+                    return next;
+                  });
+                }}
+                onSelectItem={(it) => setDetalleModalId(it.id)}
+              />
+            ) : modoVista === 'lista' ? (
+              <ComprasListaTable
+                filas={construirFilasLista(itemsVistaCuentas).filas}
+                selectedIds={marcadas}
+                onToggleSelect={alternarMarca}
+                onToggleAll={() => {
+                  const allM = lista.length > 0 && lista.every((x) => marcadas.has(x.id));
+                  setMarcadas((prev) => {
+                    const next = new Set(prev);
+                    lista.forEach((x) => (allM ? next.delete(x.id) : next.add(x.id)));
+                    return next;
+                  });
+                }}
+                onSelectItem={(it) => setDetalleModalId(it.id)}
+              />
+            ) : (
+              lista.map((c) => renderTarjetaCuenta(c, false))
+            )}
+            <ComprasDetalleModal
+              visible={Boolean(detalleCta)}
+              titulo={detalleCta ? `${detalleCta.contraparte}${detalleCta.traza?.reqCode ? ` · ${detalleCta.traza.reqCode}` : ''}` : ''}
+              subtitulo={detalleCta ? `${detalleCta.empresaNombre} · ${detalleCta.concepto || 'Cuenta'}` : null}
+              onClose={() => setDetalleModalId(null)}
+            >
+              {detalleCta ? renderTarjetaCuenta(detalleCta, true) : null}
+            </ComprasDetalleModal>
+          </>
+        );
+      })()}
 
       {/* ── Modal: alta / edición ─────────────────────────────────────────── */}
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>

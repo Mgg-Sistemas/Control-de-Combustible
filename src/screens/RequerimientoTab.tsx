@@ -76,6 +76,18 @@ import {
   type PersonaElegida, type PersonaNomina,
 } from '../lib/requerimientoPersonas';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
+import { ComprasViewToggle, useComprasVista } from '../components/compras/ComprasViewToggle';
+import { ComprasKanbanBoard } from '../components/compras/ComprasKanbanBoard';
+import { ComprasListaTable } from '../components/compras/ComprasListaTable';
+import { ComprasDetalleModal } from '../components/compras/ComprasDetalleModal';
+import {
+  OrdenVistaItem,
+  construirColumnasKanban,
+  construirFilasLista,
+  esOrdenUrgente,
+  resolverColumnaRequerimiento,
+  tonoDeEstadoReq,
+} from '../lib/comprasVista';
 import {
   calcularEstadoRequerimiento,
   calcularTotalReqUsd,
@@ -478,6 +490,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   // ninguno seleccionado, el PDF por lote toma a TODOS los que quedaron filtrados.
   const [reqSelIds, setReqSelIds] = useState<Set<string>>(new Set());
   const toggleReqSel = (id: string) => setReqSelIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const [modoVista, setModoVista] = useComprasVista('requerimientos', uid);
+  const [detalleModalId, setDetalleModalId] = useState<string | null>(null);
   const { data: levels } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name', ascending: true });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? null : null);
@@ -4303,7 +4317,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 </View>
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todos ({filteredReqs.length})</Text>
               </TouchableOpacity>
-              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs }}>
+                <ComprasViewToggle value={modoVista} onChange={setModoVista} />
                 <TouchableOpacity onPress={pdfResumen} style={{ backgroundColor: colors.surfaceAlt ?? colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📄 Resumen{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
                 </TouchableOpacity>
@@ -4323,25 +4338,66 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 </TouchableOpacity>
               );
             })()}
-            {aplicarLimiteTarjetasVisibles(filteredReqs, limiteTarjetasReq).visibles.map((r) => {
-              const rSel = reqSelIds.has(r.id);
-              return (
-                <View key={r.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs }}>
-                  <TouchableOpacity onPress={() => toggleReqSel(r.id)} style={{ paddingTop: spacing.md }}>
-                    <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: rSel ? colors.brand : colors.border, backgroundColor: rSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                      {rSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
-                    </View>
-                  </TouchableOpacity>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    {(() => {
-                      const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
-                      const estDinamico = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion, cuentasPagadasSet.has(r.id));
-                      const tUsd = estDinamico.totalUSD;
-                      const faltaPrecio = !estDinamico.tieneCotizacionCompleta;
-                      return (
-                        <ExpandableCard
-                          key={r.id}
-                          summary={
+            {(() => {
+              const reqsVisibles = aplicarLimiteTarjetasVisibles(filteredReqs, limiteTarjetasReq).visibles;
+              const itemsVistaReq: OrdenVistaItem<(typeof filteredReqs)[number]>[] = reqsVisibles.map((r) => {
+                const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+                const estDin = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion, cuentasPagadasSet.has(r.id));
+                const empInfo = resolverEmpresaRequerimiento(r, companies);
+                const maq = (r as any).machinery_id ? machines.find((m) => m.id === (r as any).machinery_id) : null;
+                const maqTexto = maq ? machineLabel(maq) : ((r as any).destino_maquina || null);
+                const urg = esOrdenUrgente({ prioridad: (r as any).prioridad, urgency: (r as any).urgency });
+                const fechaIso = r.created_at || '';
+                const fechaCorta = fechaIso ? `${fechaIso.slice(8, 10)}/${fechaIso.slice(5, 7)}` : '—';
+                const totalUsd = Number(estDin.totalUSD) || 0;
+                return {
+                  id: r.id,
+                  origen: 'requerimientos',
+                  codigo: r.code ?? 'REQ',
+                  titulo: r.title || (Array.isArray(r.items) && r.items[0]?.name) || `${r.items?.length ?? 0} ítem(s)`,
+                  empresaNombre: empInfo.name,
+                  solicitanteNombre: (r as any).solicitante_nombre || r.requested_by_name || '',
+                  proveedorNombre: provGeneral?.name || estDin.proveedoresNombres.join(', ') || '',
+                  maquinariaTexto: maqTexto,
+                  itemsCount: r.items?.length || 0,
+                  estadoCodigo: estDin.codigo,
+                  estadoLabel: estDin.short || estDin.label,
+                  estadoTono: tonoDeEstadoReq(estDin.codigo),
+                  columnaId: resolverColumnaRequerimiento({ estadoCodigo: estDin.codigo, status: r.status }),
+                  montoUsd: totalUsd,
+                  saldoUsd: totalUsd,
+                  monedaBadge: null,
+                  montoBsTexto: null,
+                  prioridad: (r as any).prioridad ?? null,
+                  esUrgente: urg.esUrgente,
+                  motivoUrgencia: urg.motivoUrgencia,
+                  fechaIso,
+                  fechaCorta,
+                  raw: r,
+                };
+              });
+              const renderTarjetaReq = (r: (typeof filteredReqs)[number], forzarExpandida = false) => {
+                const rSel = reqSelIds.has(r.id);
+                return (
+                  <View key={r.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs }}>
+                    {!forzarExpandida ? (
+                      <TouchableOpacity onPress={() => toggleReqSel(r.id)} style={{ paddingTop: spacing.md }}>
+                        <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: rSel ? colors.brand : colors.border, backgroundColor: rSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                          {rSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                        </View>
+                      </TouchableOpacity>
+                    ) : null}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      {(() => {
+                        const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
+                        const estDinamico = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion, cuentasPagadasSet.has(r.id));
+                        const tUsd = estDinamico.totalUSD;
+                        const faltaPrecio = !estDinamico.tieneCotizacionCompleta;
+                        return (
+                          <ExpandableCard
+                            key={r.id}
+                            defaultOpen={forzarExpandida}
+                            summary={
                             <View>
                               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
                                 <View style={{ flex: 1, minWidth: 150 }}>
@@ -5395,7 +5451,48 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   </View>
                 </View>
               );
-            })}
+              };
+              const detalleReqObj = detalleModalId ? filteredReqs.find((x) => x.id === detalleModalId) ?? null : null;
+              return (
+                <>
+                  {modoVista === 'kanban' ? (
+                    <ComprasKanbanBoard
+                      columnas={construirColumnasKanban('requerimientos', itemsVistaReq).columnas}
+                      selectedIds={reqSelIds}
+                      onToggleSelect={toggleReqSel}
+                      onToggleColumna={(ids, allCol) => {
+                        setReqSelIds((prev) => {
+                          const next = new Set(prev);
+                          ids.forEach((id) => (allCol ? next.delete(id) : next.add(id)));
+                          return next;
+                        });
+                      }}
+                      onSelectItem={(it) => setDetalleModalId(it.id)}
+                    />
+                  ) : modoVista === 'lista' ? (
+                    <ComprasListaTable
+                      filas={construirFilasLista(itemsVistaReq).filas}
+                      selectedIds={reqSelIds}
+                      onToggleSelect={toggleReqSel}
+                      onToggleAll={() => {
+                        setReqSelIds(allSel ? new Set() : new Set(filteredReqs.map((r) => r.id)));
+                      }}
+                      onSelectItem={(it) => setDetalleModalId(it.id)}
+                    />
+                  ) : (
+                    reqsVisibles.map((r) => renderTarjetaReq(r, false))
+                  )}
+                  <ComprasDetalleModal
+                    visible={Boolean(detalleReqObj)}
+                    titulo={detalleReqObj ? `${detalleReqObj.code ?? 'REQ'} · ${detalleReqObj.title || 'Requerimiento'}` : ''}
+                    subtitulo={detalleReqObj ? resolverEmpresaRequerimiento(detalleReqObj, companies).name : null}
+                    onClose={() => setDetalleModalId(null)}
+                  >
+                    {detalleReqObj ? renderTarjetaReq(detalleReqObj, true) : null}
+                  </ComprasDetalleModal>
+                </>
+              );
+            })()}
           </>
         );
       })()}

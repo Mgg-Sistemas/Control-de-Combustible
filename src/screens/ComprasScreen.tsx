@@ -35,6 +35,10 @@ import { useTheme } from '../theme/ThemeContext';
 import { norm, cmpText } from '../lib/text';
 import { leerNumero } from '../lib/numeros';
 import { rawCaseField } from '../lib/fonts';
+import { ComprasViewToggle, useComprasVista } from '../components/compras/ComprasViewToggle';
+import { ComprasListaTable } from '../components/compras/ComprasListaTable';
+import { ComprasDetalleModal } from '../components/compras/ComprasDetalleModal';
+import { OrdenVistaItem, construirFilasLista } from '../lib/comprasVista';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Acepta punto O coma como separador decimal (12,50 y 12.50 valen igual). Si vienen
@@ -979,6 +983,9 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
 
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // null = nueva; id = editando una ya cargada
+  const [modoVista, setModoVista] = useComprasVista('directas', session?.user?.id, ['actual', 'lista']);
+  const [qDirectas, setQDirectas] = useState('');
+  const [detalleDirectaId, setDetalleDirectaId] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0); // remonta el editor de renglones en cada apertura (limpia texto a medio escribir)
   const [company, setCompany] = useState('');
   const [supplier, setSupplier] = useState('');
@@ -1236,18 +1243,58 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Compra ya hecha con su factura: al guardarla entra DIRECTO al inventario (entrada con su precio). No genera cuenta por pagar.</Text>
 
-      {loading ? <Loading /> : compras.length === 0 ? (
-        <EmptyState title="Sin compras directas" subtitle="Registra una compra directa: producto, precio y factura → entra al inventario." />
-      ) : groupByCompany(compras, companyName).map((grp) => (
-        <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
-          {grp.items.map((c) => {
-            const condPago = extraerCondicionesPago(c.note);
-            const notaLimpia = limpiarNotaFotoProducto(c.note);
-            const fotoObj = extraerFotoProducto(c);
-            return (
-              <ExpandableCard
-                key={c.id}
-                summary={
+      {/* Buscador y Selector de Vista (Tarjetas / Lista) */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: spacing.sm }}>
+        <TextInput
+          value={qDirectas}
+          onChangeText={setQDirectas}
+          placeholder="Buscar compra directa por código, proveedor, empresa o ítem…"
+          placeholderTextColor={colors.muted}
+          style={{
+            flex: 1,
+            minWidth: 220,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: radius.md,
+            paddingHorizontal: spacing.sm + 2,
+            paddingVertical: 7,
+            color: colors.text,
+            fontSize: 13,
+          }}
+        />
+        <ComprasViewToggle
+          value={modoVista}
+          onChange={setModoVista}
+          permitidos={['actual', 'lista']}
+        />
+      </View>
+
+      {(() => {
+        const nq = norm(qDirectas);
+        const comprasFiltradas = nq
+          ? compras.filter((c) => {
+              const hay = [
+                c.code,
+                companyName(c.company_id),
+                supplierName(c.supplier_id),
+                catInfo(c.category).label,
+                c.note,
+                ...(c.items || []).map((l) => l.description),
+              ].filter(Boolean).join(' ');
+              return norm(hay).includes(nq);
+            })
+          : compras;
+
+        const renderTarjetaDirecta = (c: DirectPurchase, forzarExpandida = false) => {
+          const condPago = extraerCondicionesPago(c.note);
+          const notaLimpia = limpiarNotaFotoProducto(c.note);
+          const fotoObj = extraerFotoProducto(c);
+          return (
+            <ExpandableCard
+              key={c.id}
+              defaultOpen={forzarExpandida}
+              summary={
                   <View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                       <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>🛒 {c.code}</Text>
@@ -1344,10 +1391,76 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
                   </>
                 }
               />
-            );
-          })}
-        </AccordionGroup>
-      ))}
+          );
+        };
+
+        if (loading) return <Loading />;
+        if (comprasFiltradas.length === 0) {
+          return (
+            <EmptyState
+              title="Sin compras directas"
+              subtitle={qDirectas ? 'Ninguna compra directa coincide con tu búsqueda.' : 'Registra una compra directa: producto, precio y factura → entra al inventario.'}
+            />
+          );
+        }
+
+        const itemsVistaDirectas: OrdenVistaItem<DirectPurchase>[] = comprasFiltradas.map((c) => {
+          const fechaIso = c.created_at || '';
+          const fechaCorta = fechaIso ? `${fechaIso.slice(8, 10)}/${fechaIso.slice(5, 7)}` : '—';
+          return {
+            id: c.id,
+            origen: 'directas',
+            codigo: c.code || 'CD',
+            titulo: c.items?.[0]?.description || catInfo(c.category).label,
+            empresaNombre: companyName(c.company_id),
+            solicitanteNombre: '',
+            proveedorNombre: supplierName(c.supplier_id),
+            maquinariaTexto: null,
+            itemsCount: c.items?.length || 0,
+            estadoCodigo: 'recibido',
+            estadoLabel: '✓ En inventario',
+            estadoTono: 'success',
+            columnaId: 'completado',
+            montoUsd: Number(c.total) || 0,
+            saldoUsd: Number(c.total) || 0,
+            monedaBadge: c.factura_url ? '📎 Factura' : null,
+            montoBsTexto: null,
+            prioridad: null,
+            esUrgente: false,
+            motivoUrgencia: null,
+            fechaIso,
+            fechaCorta,
+            raw: c,
+          };
+        });
+
+        const detalleDirecta = detalleDirectaId ? comprasFiltradas.find((x) => x.id === detalleDirectaId) ?? null : null;
+
+        return (
+          <>
+            {modoVista === 'lista' ? (
+              <ComprasListaTable
+                filas={construirFilasLista(itemsVistaDirectas).filas}
+                onSelectItem={(it) => setDetalleDirectaId(it.id)}
+              />
+            ) : (
+              groupByCompany(comprasFiltradas, companyName).map((grp) => (
+                <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
+                  {grp.items.map((c) => renderTarjetaDirecta(c, false))}
+                </AccordionGroup>
+              ))
+            )}
+            <ComprasDetalleModal
+              visible={Boolean(detalleDirecta)}
+              titulo={detalleDirecta ? `🛒 ${detalleDirecta.code} · Compra directa` : ''}
+              subtitulo={detalleDirecta ? `${companyName(detalleDirecta.company_id)} · ${supplierName(detalleDirecta.supplier_id)}` : null}
+              onClose={() => setDetalleDirectaId(null)}
+            >
+              {detalleDirecta ? renderTarjetaDirecta(detalleDirecta, true) : null}
+            </ComprasDetalleModal>
+          </>
+        );
+      })()}
 
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <Screen>
