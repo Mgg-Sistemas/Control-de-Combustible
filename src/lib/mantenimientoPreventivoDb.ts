@@ -28,6 +28,31 @@ export async function cargarUltimosServiciosPorMaquina(): Promise<Map<string, nu
   return map;
 }
 
+export async function cargarTodosServiciosPreventivos(): Promise<ServicioPreventivoRow[]> {
+  const { data, error } = await supabase
+    .from('machinery_preventive_services')
+    .select('*')
+    .order('fecha_servicio', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error || !data) return [];
+  return (data as any[]).map((r) => ({
+    id: r.id as string,
+    machinery_id: r.machinery_id as string,
+    horometro_servicio: Number(r.horometro_servicio),
+    horometro_anterior: r.horometro_anterior != null ? Number(r.horometro_anterior) : null,
+    fecha_servicio: r.fecha_servicio as string,
+    notas: (r.notas ?? null) as string | null,
+    realizado_por: (r.realizado_por ?? null) as string | null,
+    realizado_por_nombre: (r.realizado_por_nombre ?? null) as string | null,
+    created_at: r.created_at as string,
+    anulado: r.anulado === true,
+    anulado_el: (r.anulado_el ?? null) as string | null,
+    anulado_por: (r.anulado_por ?? null) as string | null,
+    anulado_por_nombre: (r.anulado_por_nombre ?? null) as string | null,
+    motivo_anulacion: (r.motivo_anulacion ?? null) as string | null,
+  }));
+}
+
 /**
  * Sincroniza únicamente `horometro_base` y `horometro_maint_pending` en `machinery`
  * (NUNCA toca `last_horometro` ni lecturas de inspectores). Si el usuario de

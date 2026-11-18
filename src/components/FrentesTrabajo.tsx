@@ -747,7 +747,8 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     { k: 'estado', label: '⚙️ Estado de la máquina', ayuda: esMaq ? 'El estado de la jornada de ese día, o el de la ficha.' : 'El estado anotado en los viajes de ese día, o el de la ficha.' },
     { k: 'resumen', label: '📊 Resumen ejecutivo (tablero arriba del reporte)', ayuda: `Tarjetas y cuadros: ${E.plural} asignados, frentes en uso, por tipo, por empresa${esMaq ? '' : ', viajes del día'} y los que tengas encendidos (estado, turno, clasificación, obra).` },
     { k: 'contador', label: `🔟 Cuántos ${E.plural} lleva cada frente`, ayuda: `El «N ${E.unidad}» al lado del nombre del frente.` },
-    { k: 'totales', label: '📋 Línea de totales arriba', ayuda: 'Camiones asignados y cuántos frentes se usaron.' },
+    { k: 'totales', label: '📋 Línea de totales arriba', ayuda: 'Equipos reales, repetidos y cuántos frentes se usaron.' },
+    { k: 'mostrarRepetidos', label: '🔁 Identificar repetidos en más de un frente', ayuda: 'Muestra cuáles están en varios frentes y cuenta los reales.' },
     { k: 'sinCamiones', label: `⬜ Incluir los frentes SIN ${E.plural}`, ayuda: 'Apagado (como pediste) salen SOLO los frentes asignados ese día. Encendido también los que quedaron vacíos.' },
   ];
   const LOGOS: { k: keyof LogosFrentes; label: string }[] = [

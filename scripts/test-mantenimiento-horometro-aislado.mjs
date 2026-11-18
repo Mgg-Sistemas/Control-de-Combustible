@@ -22,5 +22,6 @@ assert(!dbSrc.includes('No se pudo actualizar el horómetro base de la máquina 
 
 // 3. MantenimientoMaquinariaScreen prioriza el último servicio preventivo de machinery_preventive_services
 assert(scrSrc.includes('cargarUltimosServiciosPorMaquina'), 'MantenimientoMaquinariaScreen debe cargar los últimos servicios preventivos');
+assert(scrSrc.includes('cargarTodosServiciosPreventivos') && scrSrc.includes('preventivosFiltrados'), 'La pestaña Historial y su PDF deben incluir los mantenimientos preventivos confirmados');
 
-console.log('✅ test-mantenimiento-horometro-aislado: todas las verificaciones pasaron (6/6).');
+console.log('✅ test-mantenimiento-horometro-aislado: todas las verificaciones pasaron (7/7).');

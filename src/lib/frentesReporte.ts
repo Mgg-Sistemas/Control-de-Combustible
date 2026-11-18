@@ -130,6 +130,8 @@ export type OpcionesFrentes = {
    *    con su nombre. Lo que no se ve es cuáles se dejaron fuera.)
    */
   soloFrentes?: string[];
+  /** 🔁 Identificar y contar camiones reales (únicos) vs repetidos en más de un frente. */
+  mostrarRepetidos?: boolean;
 };
 
 export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
@@ -140,6 +142,7 @@ export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
   contador: true,
   totales: true,
   sinCamiones: false,
+  mostrarRepetidos: true,
   empresaUnica: '',
   // Lo nuevo entra apagado: la hoja sale igual que ayer hasta que se encienda algo.
   medidas: false,
@@ -369,7 +372,10 @@ export const CSS_FRENTES = `
   .fr-q{flex:1 1 150px;border:1px solid #c9d2dc;border-radius:6px;padding:6px 9px;page-break-inside:avoid}
   .fr-qt{font-size:10px;font-weight:800;color:#16324F;border-bottom:1px solid #c9d2dc;margin-bottom:3px;padding-bottom:2px}
   .fr-q p{display:flex;justify-content:space-between;gap:8px;font-size:10px;margin:1px 0}
-  .fr-q i{font-style:normal;color:#333}`;
+  .fr-q i{font-style:normal;color:#333}
+  .fr-rep{margin:0 0 12px;padding:8px 10px;border:1px solid #F59E0B;border-left:4px solid #D97706;border-radius:6px;background:#FFFBEB;font-size:10.5px;color:#78350F}
+  .fr-rep b{color:#92400E}
+  .fr-rep-tag{display:inline-block;margin-left:6px;padding:1px 5px;border-radius:4px;background:#FEF3C7;color:#92400E;font-size:9px;font-weight:800;border:1px solid #FCD34D}`;
 
 /**
  * El cuerpo del PDF: un bloque por frente con la lista de sus camiones.
@@ -558,6 +564,32 @@ function htmlResumenFrentes(r: ResumenFrentes): string {
   return tj + cq;
 }
 
+export function analizarRepetidosFrentes(grupos: FrenteDelDia[]): {
+  unicos: number;
+  asignaciones: number;
+  repetidos: { key: string; code: string; placa: string; frentes: string[] }[];
+  frentesPorKey: Map<string, string[]>;
+} {
+  const mapa = new Map<string, { code: string; placa: string; frentes: string[] }>();
+  let asignaciones = 0;
+  for (const g of grupos) {
+    for (const c of g.camiones) {
+      asignaciones += 1;
+      const k = String(c.id || `${c.code}|${c.placa || ''}`).trim();
+      const prev = mapa.get(k) ?? { code: c.code, placa: String(c.placa ?? '').trim(), frentes: [] };
+      if (!prev.frentes.includes(g.nombre)) prev.frentes.push(g.nombre);
+      mapa.set(k, prev);
+    }
+  }
+  const frentesPorKey = new Map<string, string[]>();
+  const repetidos: { key: string; code: string; placa: string; frentes: string[] }[] = [];
+  for (const [k, v] of mapa.entries()) {
+    frentesPorKey.set(k, v.frentes);
+    if (v.frentes.length > 1) repetidos.push({ key: k, code: v.code, placa: v.placa, frentes: v.frentes });
+  }
+  return { unicos: mapa.size, asignaciones, repetidos, frentesPorKey };
+}
+
 export function cuerpoFrentesDelDia(
   grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO, e: EtiquetaEquipo = ETIQUETA_CAMION,
   /** ✏️ Lo que el usuario le cambió al tablero (03-oct-2026). Sin esto, el tablero
@@ -568,10 +600,16 @@ export function cuerpoFrentesDelDia(
   if (t.frentes === 0) {
     return `<p class="fr-vacio">Ese día no hay ningún ${e.singular} asignado a un frente.</p>`;
   }
+  const rep = analizarRepetidosFrentes(grupos);
+  const mostrarRep = op.mostrarRepetidos !== false;
   const tablero = op.resumen ? htmlResumenFrentes(aplicarEdicionResumen(resumenFrentes(grupos, op, e, ed?.ordenFrentes ?? 'cantidad'), ed)) : '';
-  const cabecera = tablero + (op.totales
-    ? `<p class="fr-tot">${t.camiones} ${e.unidad} asignados · ${t.frentesConCamiones} de ${t.frentes} frente(s) con ${e.plural}</p>`
-    : '');
+  const lineaTotal = rep.repetidos.length > 0
+    ? `${rep.unicos} ${e.unidad} reales (${rep.asignaciones} asignaciones · ${rep.repetidos.length} repetido(s) en varios frentes) · ${t.frentesConCamiones} de ${t.frentes} frente(s) con ${e.plural}`
+    : `${rep.unicos} ${e.unidad} asignados · ${t.frentesConCamiones} de ${t.frentes} frente(s) con ${e.plural}`;
+  const cajaRepetidos = mostrarRep && rep.repetidos.length > 0
+    ? `<div class="fr-rep"><b>🔁 ${e.plural[0].toUpperCase()}${e.plural.slice(1)} repetidos en más de un frente (${rep.repetidos.length}):</b> ${rep.repetidos.map((r) => `${esc(r.code)}${r.placa ? ` · ${esc(r.placa)}` : ''} (${r.frentes.map(esc).join(', ')})`).join(' &nbsp;|&nbsp; ')}</div>`
+    : '';
+  const cabecera = tablero + (op.totales ? `<p class="fr-tot">${lineaTotal}</p>` : '') + cajaRepetidos;
   // Las columnas del 03-oct, en el orden de la Lista completa. Cada una sale
   // SOLO si está encendida: apagada no deja ni la celda.
   type ColExtra = { on: boolean | undefined; titulo: string; de: (c: CamionDelFrente, g: FrenteDelDia) => string };
@@ -586,14 +624,19 @@ export function cuerpoFrentesDelDia(
   ];
   const extras = todas.filter((x) => x.on);
   const bloques = grupos.map((g) => {
-    const filas = g.camiones.map((c, i) => `<tr>
+    const filas = g.camiones.map((c, i) => {
+      const k = String(c.id || `${c.code}|${c.placa || ''}`).trim();
+      const frentesDeEste = rep.frentesPorKey.get(k) ?? [];
+      const tagRep = mostrarRep && frentesDeEste.length > 1 ? `<span class="fr-rep-tag">🔁 ${frentesDeEste.length} frentes</span>` : '';
+      return `<tr>
       ${op.numeracion ? `<td>${i + 1}</td>` : ''}
-      <td>${esc(c.code)}</td>
+      <td>${esc(c.code)}${tagRep}</td>
       ${op.placa ? `<td>${esc(c.placa || '—')}</td>` : ''}
       ${op.empresa ? `<td>${esc(empresaImpresa(c, op))}</td>` : ''}
       ${op.marcaModelo ? `<td>${esc(c.marcaModelo || '—')}</td>` : ''}
       ${extras.map((x) => `<td>${esc(x.de(c, g))}</td>`).join('')}
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
     const cabeceras = `${op.numeracion ? '<th style="width:34px">Nº</th>' : ''}<th>${e.columna}</th>${op.placa ? '<th>Placa / Serial</th>' : ''}${op.empresa ? '<th>Empresa</th>' : ''}${op.marcaModelo ? '<th>Marca / Modelo</th>' : ''}${extras.map((x) => `<th>${x.titulo}</th>`).join('')}`;
     const tabla = g.camiones.length
       ? `<table><thead><tr>${cabeceras}</tr></thead><tbody>${filas}</tbody></table>`

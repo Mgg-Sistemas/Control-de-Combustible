@@ -45,4 +45,9 @@ assert(viajesScreenSrc.includes('busqFrenteListero'), 'El selector de frente del
 assert(!viajesScreenSrc.includes('sincronizarFrenteDesdeListero('), 'Cambiar el frente en el listero no debe modificar la planificación global del camión');
 assert(viajesScreenSrc.includes('frente: row.frenteNombre ?? null'), 'datosTiqueDeViaje debe pasar frente al ticket');
 
-console.log('✅ test-frente-cambio-historico: todas las verificaciones pasaron (17/17).');
+// 7. frentesReporte.ts: cuenta camiones únicos reales e identifica repetidos en más de un frente
+const frentesRepSrc = leer('src/lib/frentesReporte.ts');
+assert(frentesRepSrc.includes('export function analizarRepetidosFrentes'), 'Falta analizarRepetidosFrentes en frentesReporte.ts');
+assert(frentesRepSrc.includes('repetidos en más de un frente'), 'El reporte debe listar repetidos en más de un frente');
+
+console.log('✅ test-frente-cambio-historico: todas las verificaciones pasaron (19/19).');

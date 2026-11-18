@@ -11,8 +11,8 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { horometroAlertaDe, horasAcumuladas, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
-import { etiquetaMaquinaConPlaca } from '../lib/mantenimientoPreventivo';
-import { cargarUltimosServiciosPorMaquina } from '../lib/mantenimientoPreventivoDb';
+import { etiquetaMaquinaConPlaca, type ServicioPreventivoRow } from '../lib/mantenimientoPreventivo';
+import { cargarUltimosServiciosPorMaquina, cargarTodosServiciosPreventivos } from '../lib/mantenimientoPreventivoDb';
 import { RegistrarMantenimientoModal, type MaquinaMantenimientoTarget } from '../components/RegistrarMantenimientoModal';
 import { HistorialServiciosModal } from '../components/HistorialServiciosModal';
 import { listInspectorAssignments } from '../lib/machineInspectors';
@@ -248,6 +248,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   // bloqueada la Luminaria de Mayker sin que nadie se diera cuenta. Este banner
   // la hace VISIBLE proactivamente, igual que la alerta de horómetro de abajo.
   const [paradasViejas, setParadasViejas] = useState<{ id: string; machinery_id: string; code: string; company: string; created_at: string; notes: string | null }[]>([]);
+  const [preventivosHist, setPreventivosHist] = useState<ServicioPreventivoRow[]>([]);
   const [paradasOpen, setParadasOpen] = useState(false);
   const [resolvingParada, setResolvingParada] = useState<string | null>(null);
   const PARADA_STALE_HOURS = 4;
@@ -327,7 +328,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     // una avería marcada como REALIZADO desaparecía de la pantalla sin dejar rastro:
     // salía de "Averías" (que solo lista pendientes) y el Historial solo mostraba
     // expedientes de taller (`machinery_repairs`), no averías resueltas.
-    const [mrRaw, rpRaw, { data: mac, error: eMac }, { data: profs, error: eProf }, { data: par, error: ePar }, ultimosServicios] = await Promise.all([
+    const [mrRaw, rpRaw, { data: mac, error: eMac }, { data: profs, error: eProf }, { data: par, error: ePar }, ultimosServicios, todosPreventivos] = await Promise.all([
       selectAllRows('maintenance_requests', 'id, machinery_id, material, quantity, notes, status, created_at, resolved_at, resolved_by, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))', (q) => q.neq('material', 'MÁQUINA PARADA')),
       selectAllRows('machinery_repairs', 'id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, created_by, closed_by, machinery:machinery_id(code, tipo, plate, serial, company:company_id(name))'),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, horometro_maint_pending, company:company_id(name)').eq('active', true).order('code'),
@@ -336,6 +337,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
       // sin resolver" — consulta chica y separada, no toca la lista de Averías de arriba.
       supabase.from('maintenance_requests').select('id, machinery_id, notes, created_at, machinery:machinery_id(code, company:company_id(name))').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: true }),
       cargarUltimosServiciosPorMaquina().catch(() => new Map<string, number>()),
+      cargarTodosServiciosPreventivos().catch(() => [] as ServicioPreventivoRow[]),
     ]);
     // `selectAllRows` revienta solo cuando falla; las otras tres devuelven el error en
     // la mano, así que hay que levantarlo a propósito para caer en el `catch`.
@@ -349,6 +351,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     const mr = (mrRaw ?? []).slice().sort(porFechaDesc);
     const rp = (rpRaw ?? []).slice().sort(porFechaDesc);
     setParadasViejas((par ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa', created_at: r.created_at, notes: r.notes ?? null })));
+    setPreventivosHist(todosPreventivos ?? []);
     // Mapa uuid → nombre para resolver quién reportó cada avería (requested_by).
     const nameById = new Map<string, string>();
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
@@ -382,7 +385,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     }
   };
   useEffect(() => { load(); }, []);
-  useRealtimeRefresh(['maintenance_requests', 'machinery_repairs', 'machinery', 'profiles'], () => { load(); });
+  useRealtimeRefresh(['maintenance_requests', 'machinery_repairs', 'machinery', 'profiles', 'machinery_preventive_services'], () => { load(); });
 
   // Gasto por equipo = materiales que SALIERON del almacén para esa máquina × su costo.
   // El equipo se toma de machinery_id del movimiento; para salidas viejas (sin ese dato)
@@ -945,8 +948,20 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     [reqs, nq, esServicio, histMachineId, histFechaDesde, histFechaHasta],
   );
 
+  const preventivosFiltrados = useMemo(
+    () => (esServicio ? [] : preventivosHist
+      .filter((s) => {
+        if (s.anulado) return false;
+        if (histMachineId && s.machinery_id !== histMachineId) return false;
+        if (!matchHistorialDates(s.fecha_servicio, s.fecha_servicio)) return false;
+        const mac = machById.get(s.machinery_id);
+        return matchesQ(mac?.code, mac?.company, mac?.tipo, mac?.plate, mac?.serial, s.notas, s.realizado_por_nombre);
+      })),
+    [preventivosHist, esServicio, histMachineId, histFechaDesde, histFechaHasta, nq, machById],
+  );
+
   const exportHistorialPdf = async () => {
-    const totalItems = averiasResueltas.length + historial.length;
+    const totalItems = averiasResueltas.length + historial.length + preventivosFiltrados.length;
     if (totalItems === 0) {
       toast.error('No hay registros en el historial para los filtros seleccionados.');
       return;
@@ -965,6 +980,11 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
       historial.forEach((r) => {
         if (r.machinery_id) machSet.add(r.machinery_id);
         if (r.company) compSet.add(r.company);
+      });
+      preventivosFiltrados.forEach((s) => {
+        const mac = machById.get(s.machinery_id);
+        if (s.machinery_id) machSet.add(s.machinery_id);
+        if (mac?.company) compSet.add(mac.company);
       });
 
       let rangoLabel = 'Histórico completo';
@@ -1107,13 +1127,52 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         </table>
       ` : '';
 
+      const rowsPreventivos = preventivosFiltrados.map((s, i) => {
+        const mac = machById.get(s.machinery_id);
+        const plate = mac?.plate || 'Sin placa';
+        const serial = mac?.serial || null;
+        const hrs = s.horometro_anterior != null ? Math.max(0, s.horometro_servicio - s.horometro_anterior) : null;
+        return `<tr>
+          <td style="text-align:center;color:#6B7280">${i + 1}</td>
+          <td><b>${esc(mac?.code || '—')}</b>${mac?.tipo ? `<br/><span style="color:#6B7280;font-size:9px">🏷️ ${esc(mac.tipo)}</span>` : ''}</td>
+          <td><b style="color:#1E3A5F">🔖 ${esc(plate)}</b>${serial ? `<br/><span style="color:#6B7280;font-size:9px"># ${esc(serial)}</span>` : ''}</td>
+          <td>${esc(mac?.company || '—')}</td>
+          <td><b>${s.horometro_servicio} h</b>${s.horometro_anterior != null ? `<br/><span style="color:#6B7280;font-size:9px">Ant: ${s.horometro_anterior} h${hrs != null ? ` (+${hrs.toFixed(1)} h)` : ''}</span>` : ''}</td>
+          <td>${esc(s.notas || '—')}</td>
+          <td><span class="tag tag-ok">✓ ${fmtDMY(s.fecha_servicio)}</span></td>
+          <td style="font-size:9.5px">${esc(s.realizado_por_nombre || '—')}</td>
+        </tr>`;
+      }).join('');
+
+      const tablaPreventivosHtml = preventivosFiltrados.length > 0 ? `
+        <div class="sec-title">🛠️ Mantenimientos Preventivos Confirmados (${preventivosFiltrados.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:24px;text-align:center">#</th>
+              <th>Equipo</th>
+              <th>Placa / Serial</th>
+              <th>Empresa</th>
+              <th>Horómetro Servicio</th>
+              <th>Trabajos / Filtros</th>
+              <th>Fecha</th>
+              <th>Confirmado Por</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsPreventivos}
+          </tbody>
+        </table>
+      ` : '';
+
       const body = `
         ${filterBox}
         ${kpisHtml}
+        ${tablaPreventivosHtml}
         ${tablaAveriasHtml}
         ${tablaTallerHtml}
         <div style="margin-top:14px;font-size:10px;color:#6B7280;text-align:right">
-          Reporte generado automáticamente · ${totalItems} registro(s) resueltos en total
+          Reporte generado automáticamente · ${totalItems} registro(s) en total
         </div>
       `;
 
@@ -1462,7 +1521,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         )
       ) : tab === 'historial' ? (
         (() => {
-          const totalHistorial = averiasResueltas.length + historial.length;
+          const totalHistorial = averiasResueltas.length + historial.length + preventivosFiltrados.length;
           const hasActiveFilters = !!(histMachineId || histFechaDesde || histFechaHasta);
 
           return (
@@ -1664,6 +1723,41 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                 />
               ) : (
                 <>
+                  {preventivosFiltrados.length > 0 ? (
+                    <>
+                      <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12, marginBottom: spacing.xs }}>
+                        🛠️ MANTENIMIENTOS PREVENTIVOS CONFIRMADOS ({preventivosFiltrados.length})
+                      </Text>
+                      {preventivosFiltrados.map((s) => {
+                        const mac = machById.get(s.machinery_id);
+                        const hrs = s.horometro_anterior != null ? Math.max(0, s.horometro_servicio - s.horometro_anterior) : null;
+                        return (
+                          <Card key={`prev-${s.id}`}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{mac?.code || 'Máquina'}</Text>
+                              <Badge label={`⏱️ ${s.horometro_servicio} h`} tone="success" />
+                            </View>
+                            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                              🔖 Placa: <Text style={{ color: colors.text, fontWeight: '700' }}>{mac?.plate || 'Sin placa'}</Text>
+                              {mac?.serial ? ` · #️⃣ ${mac.serial}` : ''}
+                            </Text>
+                            {mac?.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {mac.tipo}</Text> : null}
+                            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {mac?.company || 'Sin empresa'}</Text>
+                            {s.horometro_anterior != null ? (
+                              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                                📊 Servicio anterior: {s.horometro_anterior} h{hrs != null ? ` · Ciclo: ${hrs.toFixed(1)} h` : ''}
+                              </Text>
+                            ) : null}
+                            {s.notas ? <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>📝 {s.notas}</Text> : null}
+                            <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>
+                              📅 {fmtDMY(s.fecha_servicio)} <Text style={{ color: colors.success, fontWeight: '700' }}>· Preventivo confirmado</Text>
+                            </Text>
+                            {s.realizado_por_nombre ? <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '700' }}>✅ Confirmado por {s.realizado_por_nombre}</Text> : null}
+                          </Card>
+                        );
+                      })}
+                    </>
+                  ) : null}
                   {/* AVERÍAS RESUELTAS (solo Servicio): las que se marcaron "realizado" sin pasar
                       por el taller. */}
                   {averiasResueltas.length > 0 ? (
@@ -2580,6 +2674,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         onGuardado={({ machineryId, horometroBase, maintPending }) => {
           setMachines((prev) => prev.map((x) => (x.id === machineryId ? { ...x, horometro_base: horometroBase, horometro_maint_pending: maintPending } : x)));
           setNotice(`✅ Mantenimiento confirmado · horómetro base actualizado a ${horometroBase} h.`);
+          void load();
         }}
       />
 
@@ -2594,6 +2689,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           setMachines((prev) => prev.map((x) => (x.id === machineryId ? { ...x, horometro_base: nuevaBase, horometro_maint_pending: maintPending } : x)));
           setHistModalMach((prev) => (prev && prev.id === machineryId ? { ...prev, horometro_base: nuevaBase } : prev));
           setNotice(maintPending ? '🚫 Servicio anulado · máquina volvió a estado vencido.' : '🚫 Servicio anulado · horómetro base recalculado.');
+          void load();
         }}
       />
     </Screen>
