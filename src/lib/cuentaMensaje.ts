@@ -210,17 +210,16 @@ export function lineasBanco(b: DatosBancariosMensaje | null | undefined, plan?: 
 }
 
 /** Resumen compacto en 1 línea de las coordenadas bancarias / método de pago de un proveedor. */
+import type { PagoResueltoCuenta } from './cuentaPagoResuelto';
+
 export function resumenBancoEnLinea(
   b?: DatosBancariosMensaje | null,
   pagoTexto?: string | null,
   condiciones?: string | null,
 ): string {
-  const p = txt(pagoTexto);
-  if (p) {
-    const c = txt(condiciones);
-    return c && !p.toLowerCase().includes(c.toLowerCase()) ? `${p} · 🤝 ${c}` : p;
-  }
   const partes: string[] = [];
+  const p = txt(pagoTexto);
+  if (p) partes.push(p);
   if (b) {
     if (txt(b.banco) || txt(b.numeroCuenta)) {
       const tit = [txt(b.titular), txt(b.rifTitular)].filter(Boolean).join(' ');
@@ -240,7 +239,7 @@ export function resumenBancoEnLinea(
     if (txt(b.binanceId)) {
       partes.push(`🟡 Binance: ${txt(b.binanceId)}`);
     }
-    if (txt(b.instruccionesPago)) {
+    if (txt(b.instruccionesPago) && !p.toLowerCase().includes(txt(b.instruccionesPago).toLowerCase())) {
       partes.push(`📝 ${txt(b.instruccionesPago)}`);
     }
   }
@@ -551,16 +550,20 @@ function montoBsAPagarDe(d: DatosMensajeCuenta): number {
   return parcial ? Number(d.saldoBs) || 0 : Number(d.totalBs) || 0;
 }
 
-function clasificarMetodoMensaje(d: DatosMensajeCuenta): { clave: string; etiqueta: string; icono: string } {
+function clasificarMetodoMensaje(d: DatosMensajeCuenta & { pagoResuelto?: PagoResueltoCuenta | null }): { clave: string; etiqueta: string; icono: string } {
+  if (d.pagoResuelto && d.pagoResuelto.monedaReal !== 'POR_DEFINIR') {
+    return { clave: `${d.pagoResuelto.monedaReal}:${d.pagoResuelto.metodoClave}`, etiqueta: d.pagoResuelto.metodoLabel, icono: d.pagoResuelto.monedaIcono };
+  }
   const c = txt(d.condiciones).toUpperCase();
-  if (/PAGO\s*M[OÓ]VIL/.test(c)) return { clave: 'pm', etiqueta: 'Pago móvil', icono: '📲' };
-  if (/BINANCE|USDT/.test(c)) return { clave: 'binance', etiqueta: 'Binance / USDT', icono: '🪙' };
+  if (/PAGO\s*M[OÓ]VIL/.test(c)) return { clave: 'pm', etiqueta: 'Pago móvil (Bs)', icono: '📲' };
+  if (/BINANCE|USDT/.test(c)) return { clave: 'binance', etiqueta: 'USDT / Binance', icono: '🪙' };
   if (/ZELLE/.test(c)) return { clave: 'zelle', etiqueta: 'Zelle', icono: '💸' };
-  if (/EFECTIVO|DIVISA/.test(c)) return { clave: 'efectivo', etiqueta: 'Efectivo / Divisas', icono: '💵' };
-  if (/TRANSFERENCIA|BANCO|CUENTA/.test(c)) return { clave: 'transf', etiqueta: 'Transferencia bancaria', icono: '💳' };
-  if (d.banco?.pagoMovilTelefono && !d.banco?.numeroCuenta) return { clave: 'pm', etiqueta: 'Pago móvil', icono: '📲' };
-  if (d.banco?.binanceId && !d.banco?.numeroCuenta && !d.banco?.pagoMovilTelefono) return { clave: 'binance', etiqueta: 'Binance / USDT', icono: '🪙' };
-  if (d.banco?.numeroCuenta || d.banco?.banco) return { clave: 'transf', etiqueta: 'Transferencia bancaria', icono: '💳' };
+  if (/EFECTIVO\s*BS/.test(c)) return { clave: 'efectivo_bs', etiqueta: 'Efectivo Bs', icono: '💵' };
+  if (/EFECTIVO|DIVISA/.test(c)) return { clave: 'efectivo', etiqueta: 'Efectivo $ / Divisas', icono: '💵' };
+  if (/TRANSFERENCIA|BANCO|CUENTA/.test(c)) return { clave: 'transf', etiqueta: 'Transferencia bancaria (Bs)', icono: '💳' };
+  if (d.banco?.pagoMovilTelefono && !d.banco?.numeroCuenta && !d.banco?.binanceId) return { clave: 'pm', etiqueta: 'Pago móvil (Bs)', icono: '📲' };
+  if (d.banco?.binanceId && !d.banco?.numeroCuenta && !d.banco?.pagoMovilTelefono) return { clave: 'binance', etiqueta: 'USDT / Binance', icono: '🪙' };
+  if ((d.banco?.numeroCuenta || d.banco?.banco) && !d.banco?.binanceId) return { clave: 'transf', etiqueta: 'Transferencia bancaria (Bs)', icono: '💳' };
   if (txt(d.condiciones)) return { clave: `c:${txt(d.condiciones).toLowerCase()}`, etiqueta: txt(d.condiciones), icono: '🤝' };
   return { clave: 'por_definir', etiqueta: 'Método por definir', icono: '📌' };
 }

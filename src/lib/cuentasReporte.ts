@@ -22,6 +22,13 @@
 //    su saldo cuenta como 0 aunque la hayan marcado pagada sin abonos: ya no se
 //    debe. Así subtotales y total general cuadran siempre entre sí.
 
+import type {
+  MonedaRealPago,
+  PagoResueltoCuenta,
+  BancoMinParaResolver,
+} from './cuentaPagoResuelto';
+import type { PlanPago } from './planPago';
+
 function extraerCondicionesDeNotaInterna(nota?: string | null): string {
   if (!nota) return '';
   const m = String(nota).match(/\[CONDICIONES_PAGO:\s*([^\]]*)\]/i);
@@ -67,6 +74,10 @@ export type CuentaParaReporte = {
   condicionesPago?: string | null;
   notaLimpia?: string | null;
   nota?: string | null;
+  notaEspera?: string | null;
+  alicuotaIva?: number | null;
+  plan?: PlanPago | null;
+  pagoResuelto?: PagoResueltoCuenta | null;
   prioridad?: 'alta' | 'media' | 'baja' | null;
   traza?: {
     reqCode?: string | null;
@@ -77,12 +88,18 @@ export type CuentaParaReporte = {
   } | null;
   infoPago?: {
     metodosActivos?: string[];
+    datosBancarios?: (BancoMinParaResolver & {
+      titular?: string | null;
+      documentoTitular?: string | null;
+      pagoMovilDocumento?: string | null;
+    }) | null;
   } | null;
   desgloseProveedores?: {
     proveedor: string;
     totalUsd: number;
     totalBs?: number;
     pago?: string | null;
+    banco?: BancoMinParaResolver | null;
   }[] | null;
 };
 
@@ -105,6 +122,12 @@ export type OpcionesReporteCuentas = {
   verMarcaTexto: boolean;
   /** 📅 Línea «Emitida: …» del membrete. */
   verFechaEmision: boolean;
+  /** 📌 En modo resumen: incluir notas y nota de espera. */
+  incluirNotasResumen?: boolean;
+  /** 📋 En modo resumen: incluir desglose de plan de pagos y tasas. */
+  incluirPlanResumen?: boolean;
+  /** 🏦 En modo resumen: incluir datos bancarios y desglose multi-proveedor. */
+  incluirBancoResumen?: boolean;
 };
 
 export const COLUMNAS_POR_DEFECTO: Record<ColumnaCuenta, boolean> = {
@@ -435,6 +458,14 @@ export const CSS_REPORTE_CUENTAS = `
   .sos-card-foot{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding-top:7px}
   .sos-f-lbl{font-size:8px;font-weight:800;color:#64748B;text-transform:uppercase}
   .sos-f-val{font-size:9.5px;font-weight:800;color:#0284C7;margin-top:1px;word-break:break-word}
+  .sos-mon-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;margin-bottom:12px}
+  .sos-mon-pill{border:1px solid #D7E3F4;border-top:3px solid #0284C7;border-radius:6px;background:#FFFFFF;padding:8px 10px}
+  .sos-mon-lbl{font-size:8.5px;font-weight:800;color:#475569;text-transform:uppercase}
+  .sos-mon-usd{font-size:13px;font-weight:900;color:#16324F;margin-top:2px}
+  .sos-mon-bs{font-size:10px;font-weight:800;color:#0284C7;margin-top:1px}
+  .sos-card-extra{margin-top:7px;padding-top:6px;border-top:1px dashed #CBD5E1;font-size:8.8px;color:#334155;line-height:1.35}
+  .sos-card-extra div{margin-top:2px}
+  .sos-badge-mon{display:inline-block;background:#E0F2FE;color:#0369A1;font-size:8.5px;font-weight:800;padding:2px 6px;border-radius:4px;margin-top:3px}
 `;
 
 export type ReporteCuentasArmado = {
@@ -495,21 +526,85 @@ export function armarReporteCuentas(args: {
   if (op.modo === 'resumen') {
     const activas = cuentas.filter((c) => c.situacion !== 'anulada');
     const totalUsd = total.saldo;
-    const totalBs = tasa != null ? sumaBs(activas) : null;
     const nOrdenes = activas.length;
+    const incluirNotas = op.incluirNotasResumen !== false;
+    const incluirPlan = op.incluirPlanResumen !== false;
+    const incluirBanco = op.incluirBancoResumen !== false;
 
-    const metMap = new Map<string, { etiqueta: string; usd: number; bs: number; ops: number }>();
+    const ETIQUETA_MON: Record<MonedaRealPago, { label: string; icono: string }> = {
+      BS:           { label: 'Bolívares (Bs)',         icono: '🇻🇪' },
+      USDT:         { label: 'USDT / Binance',         icono: '🪙' },
+      USD_EFECTIVO: { label: 'Efectivo $ / Divisas',   icono: '💵' },
+      ZELLE:        { label: 'Zelle',                  icono: '💸' },
+      MIXTO:        { label: 'Mixto (varias monedas)', icono: '🔀' },
+      POR_DEFINIR:  { label: 'Por definir',            icono: '📌' },
+    };
+
+    const resueltoPorId = new Map<string, PagoResueltoCuenta>();
+    const metMap = new Map<string, { etiqueta: string; usd: number; bs: number; monedaReal: Exclude<MonedaRealPago, 'MIXTO'>; ops: number }>();
+    const monMap = new Map<Exclude<MonedaRealPago, 'MIXTO'>, { usd: number; bs: number; ops: number }>();
+
     for (const c of activas) {
-      const m = clasificarMetodoCuenta(c);
       const sUsd = aporteDe(c).saldo;
-      const sBs = tasa != null ? bsSaldo(c, sUsd) : 0;
-      const prev = metMap.get(m.clave) ?? { etiqueta: m.etiqueta, usd: 0, bs: 0, ops: 0 };
-      prev.usd += sUsd;
-      prev.bs += sBs;
-      prev.ops += 1;
-      metMap.set(m.clave, prev);
+      const fijo = args.saldoBsDe ? args.saldoBsDe(c, sUsd) : null;
+      const res: PagoResueltoCuenta = c.pagoResuelto ?? (() => {
+        const m = clasificarMetodoCuenta(c);
+        const mon: Exclude<MonedaRealPago, 'MIXTO'> = m.clave === 'binance' ? 'USDT' : m.clave === 'zelle' ? 'ZELLE' : m.clave === 'efectivo' ? 'USD_EFECTIVO' : (m.clave === 'pago_movil' || m.clave === 'transferencia') ? 'BS' : 'POR_DEFINIR';
+        const bsReal = mon === 'BS' ? (fijo != null && fijo > 0 ? fijo : (tasa != null ? Math.round(sUsd * tasa * 100) / 100 : 0)) : 0;
+        const metaM = ETIQUETA_MON[mon];
+        return {
+          monedaReal: mon,
+          monedaLabel: metaM.label,
+          monedaIcono: metaM.icono,
+          metodoClave: m.clave,
+          metodoLabel: m.etiqueta,
+          cubetas: [{ monedaReal: mon, metodoClave: m.clave, metodoLabel: m.etiqueta, icono: m.icono, tasaTipo: null, tasaValor: mon === 'BS' ? tasa : null, montoUsd: sUsd, montoBs: bsReal, concepto: null, proveedor: c.contraparte }],
+          notasUnificadas: [limpio(c.notaLimpia) || limpiarNotaInterna(c.nota), limpio(c.notaEspera)].filter(Boolean).join(' · '),
+        };
+      })();
+      resueltoPorId.set(c.id, res);
+
+      const monedasEnCuenta = new Set<Exclude<MonedaRealPago, 'MIXTO'>>();
+      const metodosEnCuenta = new Set<string>();
+      for (const cub of res.cubetas) {
+        const mKey = `${cub.monedaReal}:${cub.metodoClave}`;
+        const prevM = metMap.get(mKey) ?? { etiqueta: cub.metodoLabel, usd: 0, bs: 0, monedaReal: cub.monedaReal, ops: 0 };
+        prevM.usd += cub.montoUsd;
+        prevM.bs += cub.montoBs;
+        if (!metodosEnCuenta.has(mKey)) {
+          prevM.ops += 1;
+          metodosEnCuenta.add(mKey);
+        }
+        metMap.set(mKey, prevM);
+
+        const prevMon = monMap.get(cub.monedaReal) ?? { usd: 0, bs: 0, ops: 0 };
+        prevMon.usd += cub.montoUsd;
+        prevMon.bs += cub.montoBs;
+        if (!monedasEnCuenta.has(cub.monedaReal)) {
+          prevMon.ops += 1;
+          monedasEnCuenta.add(cub.monedaReal);
+        }
+        monMap.set(cub.monedaReal, prevMon);
+      }
     }
+
     const metodosOrdenados = Array.from(metMap.values()).sort((a, b) => b.usd - a.usd);
+    const ordenMonedas: Exclude<MonedaRealPago, 'MIXTO'>[] = ['BS', 'USDT', 'USD_EFECTIVO', 'ZELLE', 'POR_DEFINIR'];
+    const monedasHtml = ordenMonedas
+      .filter((m) => (monMap.get(m)?.usd ?? 0) > 0)
+      .map((m) => {
+        const d = monMap.get(m)!;
+        const meta = ETIQUETA_MON[m];
+        return `
+          <div class="sos-mon-pill">
+            <div class="sos-mon-lbl">${esc(meta.icono)} ${esc(meta.label)} · ${d.ops} ord.</div>
+            <div class="sos-mon-usd">${esc(usdTexto(d.usd))}</div>
+            ${m === 'BS' && d.bs > 0 ? `<div class="sos-mon-bs">Bs ${esc(miles(d.bs))}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+
+    const totalBsReales = Math.round((monMap.get('BS')?.bs ?? 0) * 100) / 100;
 
     const etiquetaEjeMap: Record<AgruparCuentas, string> = {
       ninguno: tipo === 'por_pagar' ? 'Proveedor' : 'Cliente',
@@ -521,20 +616,73 @@ export function armarReporteCuentas(args: {
     };
     const eyebrowGrupo = (ejeEfectivo === 'contraparte' ? (tipo === 'por_pagar' ? 'PROVEEDOR' : 'CLIENTE') : ejeEfectivo.toUpperCase());
 
+    const formatBancoResumen = (b?: BancoMinParaResolver & { titular?: string | null; documentoTitular?: string | null; pagoMovilDocumento?: string | null } | null) => {
+      if (!b) return '';
+      const partes: string[] = [];
+      if (limpio(b.numeroCuenta)) {
+        partes.push(`Transf: ${limpio(b.banco)} ${limpio(b.numeroCuenta)}${limpio(b.titular) ? ` (${limpio(b.titular)}${limpio(b.documentoTitular) ? ` · ${limpio(b.documentoTitular)}` : ''})` : ''}`);
+      }
+      if (limpio(b.pagoMovilTelefono)) {
+        partes.push(`PM: ${limpio(b.pagoMovilBanco)} ${limpio(b.pagoMovilTelefono)}${limpio(b.pagoMovilDocumento) ? ` (${limpio(b.pagoMovilDocumento)})` : ''}`);
+      }
+      if (limpio(b.binanceId)) {
+        partes.push(`Binance/ID: ${limpio(b.binanceId)}`);
+      }
+      return partes.join(' · ');
+    };
+
     const tarjetasHtml = [...grupos]
       .filter((g) => g.cuentas.some((c) => c.situacion !== 'anulada'))
       .sort((a, b) => b.totales.saldo - a.totales.saldo)
       .map((g) => {
         const gActivas = g.cuentas.filter((c) => c.situacion !== 'anulada');
         const gUsd = g.totales.saldo;
-        const gBs = tasa != null ? sumaBs(gActivas) : null;
+        const gResueltos = gActivas.map((c) => ({ c, res: resueltoPorId.get(c.id)! })).filter((x) => !!x.res);
+        const gBsReal = Math.round(
+          gResueltos.reduce((s, { res }) => s + res.cubetas.reduce((sc, cub) => sc + (cub.monedaReal === 'BS' ? cub.montoBs : 0), 0), 0) * 100,
+        ) / 100;
         const pct = totalUsd > 0 ? ((gUsd / totalUsd) * 100).toFixed(1) : '0.0';
-        const metodosGrupo = Array.from(new Set(gActivas.map((c) => clasificarMetodoCuenta(c).etiqueta)));
+
+        const monedasG = Array.from(new Set(gResueltos.map(({ res }) => `${res.monedaIcono} ${res.monedaLabel}`)));
+        const metodosG = Array.from(new Set(gResueltos.flatMap(({ res }) => res.cubetas.map((cub) => cub.metodoLabel))));
         const empresasGrupo = Array.from(new Set(gActivas.map((c) => limpio(c.empresaNombre)).filter((x) => x && x !== '—')));
         const reqs = Array.from(new Set(gActivas.map((c) => limpio(c.traza?.reqCode) || limpio(c.documento)).filter(Boolean)));
         const subCat = reqs.length > 0
           ? `Órdenes: ${reqs.slice(0, 3).join(', ')}${reqs.length > 3 ? ` (+${reqs.length - 3})` : ''}`
           : (limpio(gActivas[0]?.concepto) || (tipo === 'por_pagar' ? 'Orden de compra' : 'Cuenta por cobrar'));
+
+        const extrasHtml: string[] = [];
+        for (const { c, res } of gResueltos) {
+          const prefOrden = gActivas.length > 1 ? `[${limpio(c.traza?.reqCode) || limpio(c.documento) || limpio(c.concepto).slice(0, 20)}] ` : '';
+          if (incluirPlan && res.cubetas.length > 1) {
+            const detPartes = res.cubetas.map((cub) => {
+              const tagConcepto = cub.concepto || cub.proveedor || cub.metodoLabel;
+              const bsPart = cub.monedaReal === 'BS' && cub.montoBs > 0 ? ` (Bs ${miles(cub.montoBs)}${cub.tasaValor ? ` @ ${tasaTexto(cub.tasaValor)}` : ''})` : '';
+              return `${tagConcepto}: ${usdTexto(cub.montoUsd)}${bsPart}`;
+            }).join(' · ');
+            extrasHtml.push(`<div><b>${esc(prefOrden)}Plan / Desglose:</b> ${esc(detPartes)}</div>`);
+          }
+          if (incluirNotas && res.notasUnificadas) {
+            extrasHtml.push(`<div><b>${esc(prefOrden)}Nota:</b> ${esc(res.notasUnificadas)}</div>`);
+          }
+          if (incluirBanco) {
+            const bTxt = formatBancoResumen(c.infoPago?.datosBancarios);
+            if (bTxt) extrasHtml.push(`<div><b>${esc(prefOrden)}Banco:</b> ${esc(bTxt)}</div>`);
+            if (c.desgloseProveedores && c.desgloseProveedores.length > 1) {
+              const factor = Number(c.monto) > 0 ? Math.min(1, aporteDe(c).saldo / Number(c.monto)) : 1;
+              const provsTxt = c.desgloseProveedores.map((dp) => {
+                const dpUsd = Math.round((Number(dp.totalUsd) || 0) * factor * 100) / 100;
+                return `${dp.proveedor}: ${usdTexto(dpUsd)}${limpio(dp.pago) ? ` (${limpio(dp.pago)})` : ''}`;
+              }).join(' · ');
+              extrasHtml.push(`<div><b>${esc(prefOrden)}Proveedores:</b> ${esc(provsTxt)}</div>`);
+            }
+          }
+        }
+        const solicitaTxt = Array.from(new Set(gActivas.map((c) => limpio(c.traza?.solicitadoPor)).filter(Boolean))).join(', ');
+        const autorizoTxt = Array.from(new Set(gActivas.map((c) => limpio(c.traza?.aprobadoGerenciaPor)).filter(Boolean))).join(', ');
+        if (solicitaTxt || autorizoTxt) {
+          extrasHtml.push(`<div>${solicitaTxt ? `<b>Solicita:</b> ${esc(solicitaTxt)}` : ''}${solicitaTxt && autorizoTxt ? ' · ' : ''}${autorizoTxt ? `<b>Autorizó:</b> ${esc(autorizoTxt)}` : ''}</div>`);
+        }
 
         return `
           <div class="sos-card">
@@ -543,6 +691,7 @@ export function armarReporteCuentas(args: {
                 <div class="sos-card-eyebrow">${esc(eyebrowGrupo)}</div>
                 <div class="sos-card-name">${esc(g.etiqueta)}</div>
                 <div class="sos-card-cat">${esc(subCat)}</div>
+                <div class="sos-badge-mon">${esc(monedasG.join(' / '))}</div>
               </div>
               <div class="sos-pct">${esc(pct)}%</div>
             </div>
@@ -550,7 +699,7 @@ export function armarReporteCuentas(args: {
               <div>
                 <div class="sos-m-lbl">MONTO ($ USD)</div>
                 <div class="sos-m-usd">${esc(usdTexto(gUsd))}</div>
-                ${gBs != null ? `<div class="sos-m-bs">≈ ${esc(bsTexto(gBs))}</div>` : ''}
+                ${gBsReal > 0 ? `<div class="sos-m-bs">Bs ${esc(miles(gBsReal))}</div>` : ''}
               </div>
               <div>
                 <div class="sos-m-lbl">ÓRDENES</div>
@@ -571,10 +720,11 @@ export function armarReporteCuentas(args: {
                   : (empresasGrupo.length ? empresasGrupo.join(', ') : g.etiqueta))}</div>
               </div>
               <div>
-                <div class="sos-f-lbl">MÉTODO / CATEGORÍA</div>
-                <div class="sos-f-val">${esc(metodosGrupo.join(' · ') || 'Orden de compra')}</div>
+                <div class="sos-f-lbl">MÉTODO DE PAGO</div>
+                <div class="sos-f-val">${esc(metodosG.join(' · ') || 'Por definir')}</div>
               </div>
             </div>
+            ${extrasHtml.length > 0 ? `<div class="sos-card-extra">${extrasHtml.join('')}</div>` : ''}
           </div>
         `;
       })
@@ -599,22 +749,25 @@ export function armarReporteCuentas(args: {
       : '';
 
     const cuerpoResumen = `
-      <div class="sos-sec-tit">RESUMEN DE PAGOS — POR MÉTODO (EXPRESADO EN $ USD Y BS)</div>
+      <div class="sos-sec-tit">TOTALES POR MONEDA REAL A PAGAR</div>
+      <div class="sos-mon-grid">${monedasHtml || '<div class="cx-nota">Sin órdenes vigentes.</div>'}</div>
+
+      <div class="sos-sec-tit">RESUMEN DE PAGOS — POR MÉTODO (EXPRESADO EN $ USD Y BS REALES)</div>
       <div class="sos-met-box">
         <div class="sos-met-head">
           <div>
-            <div class="sos-met-title">${esc(tipo === 'por_pagar' ? 'PENDIENTES POR PAGAR ($ USD · ref. BCV)' : 'CUENTAS POR COBRAR ($ USD · ref. BCV)')}</div>
+            <div class="sos-met-title">${esc(tipo === 'por_pagar' ? 'PENDIENTES POR PAGAR ($ USD · ref. real por método)' : 'CUENTAS POR COBRAR ($ USD)')}</div>
             <div class="sos-met-sub">${nOrdenes} ${nOrdenes === 1 ? 'orden' : 'órdenes'}</div>
           </div>
           <div>
             <div class="sos-met-tot-usd">${esc(usdTexto(totalUsd))}</div>
-            ${totalBs != null ? `<div class="sos-met-tot-bs">≈ ${esc(bsTexto(totalBs))}</div>` : ''}
+            ${totalBsReales > 0 ? `<div class="sos-met-tot-bs">Bs ${esc(miles(totalBsReales))} (en órdenes en Bs)</div>` : ''}
           </div>
         </div>
         ${metodosOrdenados.map((m) => `
           <div class="sos-met-row">
             <span>• ${esc(m.etiqueta)}</span>
-            <span><b>${esc(usdTexto(m.usd))}</b>${tasa != null ? ` · ≈ ${esc(bsTexto(m.bs))}` : ''} · ${m.ops} ord.</span>
+            <span><b>${esc(usdTexto(m.usd))}</b>${m.monedaReal === 'BS' && m.bs > 0 ? ` · Bs ${esc(miles(m.bs))}` : ''} · ${m.ops} ord.</span>
           </div>
         `).join('')}
       </div>
@@ -623,7 +776,7 @@ export function armarReporteCuentas(args: {
         <div>
           <div class="sos-cons-lbl">TOTAL CONSOLIDADO (DÓLARES - $ USD)</div>
           <div class="sos-cons-usd">${esc(usdTexto(totalUsd))}</div>
-          ${totalBs != null ? `<div class="sos-cons-bs">≈ ${esc(bsTexto(totalBs))}</div>` : ''}
+          ${totalBsReales > 0 ? `<div class="sos-cons-bs">Total a pagar en Bs: Bs ${esc(miles(totalBsReales))}</div>` : ''}
           <div class="sos-cons-ord">${nOrdenes} ${nOrdenes === 1 ? 'orden' : 'órdenes'}</div>
         </div>
         <div class="sos-cons-pill">

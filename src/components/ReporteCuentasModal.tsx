@@ -18,6 +18,8 @@ import { useToast } from './ToastProvider';
 import { Toggle } from './CubicajeTab';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
+import { norm } from '../lib/text';
+import { resolverPagoCuenta, type MonedaRealPago } from '../lib/cuentaPagoResuelto';
 import {
   OPCIONES_CUENTAS_POR_DEFECTO, COLUMNAS_POR_DEFECTO, columnasCuentas, agrupacionesCuentas,
   elegirCuentas, reporteEsFiltrado, armarReporteCuentas, totalesDe, usdTexto, tasaTexto, tituloPorDefecto,
@@ -94,6 +96,9 @@ export function ReporteCuentasModal({
   );
   const [logos, setLogos] = useState<LogosReporte>(LOGOS_POR_DEFECTO);
   const [generando, setGenerando] = useState(false);
+  const [empresaModal, setEmpresaModal] = useState<string | null>(null);
+  const [busqEmpresaModal, setBusqEmpresaModal] = useState('');
+  const [monedaModal, setMonedaModal] = useState<'TODAS' | MonedaRealPago>('TODAS');
 
   // Lo elegido se recuerda en este equipo (menos el alcance, que depende de las marcas de ahora).
   useEffect(() => {
@@ -134,7 +139,30 @@ export function ReporteCuentasModal({
     setWopState((prev) => { const n = { ...prev, [k]: v }; guardar(op, logos, n); return n; });
   };
 
-  const elegidas = useMemo(() => elegirCuentas(lista, todas, marcadas, op.alcance), [lista, todas, marcadas, op.alcance]);
+  const elegidasBase = useMemo(() => elegirCuentas(lista, todas, marcadas, op.alcance), [lista, todas, marcadas, op.alcance]);
+  const empresasModalOpts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of elegidasBase) {
+      const emp = String(c.empresaNombre ?? '').trim() || 'Sin empresa';
+      counts.set(emp, (counts.get(emp) ?? 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [elegidasBase]);
+  const elegidas = useMemo(() => {
+    return elegidasBase.filter((c) => {
+      if (empresaModal) {
+        const emp = String(c.empresaNombre ?? '').trim() || 'Sin empresa';
+        if (emp !== empresaModal) return false;
+      }
+      if (monedaModal !== 'TODAS') {
+        const fijo = saldoBsDe ? saldoBsDe(c, Number(c.saldo ?? c.monto ?? 0)) : null;
+        const res = resolverPagoCuenta({ ...c, banco: c.infoPago?.datosBancarios ?? null }, tasaBcv, fijo);
+        if (res.monedaReal !== monedaModal) return false;
+      }
+      return true;
+    });
+  }, [elegidasBase, empresaModal, monedaModal, saldoBsDe, tasaBcv]);
+  const empresaHeaderEfectivo = empresaModal || empresaTexto;
   const filtrado = useMemo(() => reporteEsFiltrado(elegidas, universo), [elegidas, universo]);
   const tot = useMemo(() => totalesDe(elegidas), [elegidas]);
 
@@ -144,12 +172,12 @@ export function ReporteCuentasModal({
         tipo,
         cuentas: elegidas,
         op,
-        wop: { ...wop, desde, hasta, empresaTexto },
+        wop: { ...wop, desde, hasta, empresaTexto: empresaHeaderEfectivo },
         tasaBcv,
         hoyISO: hoy,
         saldoBsDe,
       }),
-    [tipo, elegidas, op, wop, desde, hasta, empresaTexto, tasaBcv, hoy, saldoBsDe],
+    [tipo, elegidas, op, wop, desde, hasta, empresaHeaderEfectivo, tasaBcv, hoy, saldoBsDe],
   );
 
   const copiarWhatsapp = async () => {
@@ -194,7 +222,7 @@ export function ReporteCuentasModal({
     }
     setGenerando(true);
     try {
-      const r = armarReporteCuentas({ tipo, cuentas: elegidas, op, tasaBcv, hoyISO: hoy, filtrado, saldoBsDe, desde, hasta, empresaTexto });
+      const r = armarReporteCuentas({ tipo, cuentas: elegidas, op, tasaBcv, hoyISO: hoy, filtrado, saldoBsDe, desde, hasta, empresaTexto: empresaHeaderEfectivo });
       const html = pdfDocument({
         title: r.titulo,
         subtitle: r.subtitulo,
@@ -274,6 +302,46 @@ export function ReporteCuentasModal({
                 Es una parte de la lista: el papel sale marcado «FILTRADO».
               </Text>
             ) : null}
+
+            {empresasModalOpts.length > 1 ? (
+              <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>🏢 FILTRAR POR EMPRESA EN ESTE REPORTE</Text>
+                {empresasModalOpts.length > 6 ? (
+                  <TextInput
+                    value={busqEmpresaModal}
+                    onChangeText={setBusqEmpresaModal}
+                    placeholder="🔎 Buscar empresa (ej. Golden Touch)..."
+                    placeholderTextColor={colors.muted}
+                    style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 6, color: colors.text, fontSize: 12, marginBottom: 6 }}
+                  />
+                ) : null}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  <Pastilla on={empresaModal === null} label={`Todas (${elegidasBase.length})`} onPress={() => setEmpresaModal(null)} />
+                  {empresasModalOpts
+                    .filter(([name]) => !busqEmpresaModal.trim() || norm(name).includes(norm(busqEmpresaModal)))
+                    .map(([name, cnt]) => (
+                      <Pastilla key={`emp-m-${name}`} on={empresaModal === name} label={`${name} (${cnt})`} onPress={() => setEmpresaModal((prev) => (prev === name ? null : name))} />
+                    ))}
+                </View>
+              </View>
+            ) : null}
+
+            <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>💱 FILTRAR POR MONEDA REAL A PAGAR</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {([
+                  ['TODAS', 'Todas'],
+                  ['BS', '🇻🇪 Bs'],
+                  ['USDT', '🪙 USDT'],
+                  ['USD_EFECTIVO', '💵 Efectivo $'],
+                  ['ZELLE', '💸 Zelle'],
+                  ['MIXTO', '🔀 Mixto'],
+                  ['POR_DEFINIR', '📌 Por definir'],
+                ] as const).map(([k, lbl]) => (
+                  <Pastilla key={`mon-m-${k}`} on={monedaModal === k} label={lbl} onPress={() => setMonedaModal(k)} />
+                ))}
+              </View>
+            </View>
           </View>
 
           {/* ── 2. AGRUPAR ── */}
@@ -311,7 +379,26 @@ export function ReporteCuentasModal({
                 />
               ))}
             </View>
-          ) : null}
+          ) : (
+            <View style={caja}>
+              <Text style={tituloCaja}>QUÉ MOSTRAR EN LAS TARJETAS DEL RESUMEN</Text>
+              <Toggle
+                on={op.incluirPlanResumen !== false}
+                label="📋 Plan de pagos y tasas (Euro, BCV, USDT)"
+                onPress={() => setOp('incluirPlanResumen', op.incluirPlanResumen === false)}
+              />
+              <Toggle
+                on={op.incluirNotasResumen !== false}
+                label="📌 Notas y nota de espera («por qué no se ha pagado»)"
+                onPress={() => setOp('incluirNotasResumen', op.incluirNotasResumen === false)}
+              />
+              <Toggle
+                on={op.incluirBancoResumen !== false}
+                label="🏦 Datos bancarios y desglose multi-proveedor"
+                onPress={() => setOp('incluirBancoResumen', op.incluirBancoResumen === false)}
+              />
+            </View>
+          )}
 
           {/* ── 4. TÍTULO Y MEMBRETE ── */}
           <View style={caja}>

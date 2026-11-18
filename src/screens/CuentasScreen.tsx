@@ -118,6 +118,7 @@ import {
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
 import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
+import { resolverPagoCuenta } from '../lib/cuentaPagoResuelto';
 import { MensajeCuentaModal } from '../components/MensajeCuentaModal';
 import { PlanPagoModal } from '../components/PlanPagoModal';
 import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, estadoPartes, lineaParte, tituloParte, advertenciaPlanGuardado } from '../lib/planPago';
@@ -6331,9 +6332,45 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       {reporteOpen ? (
         <ReporteCuentasModal
           tipo={tipo}
-          lista={lista}
-          todas={ordenadas}
-          universo={universo}
+          lista={lista.map((c: any) => {
+            const plan = planDeCuenta(c)?.plan ?? null;
+            const notaEspera = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id));
+            const alicuotaIva = alicuotaDe(c);
+            const mBs = bsDe(c);
+            return {
+              ...c,
+              plan,
+              notaEspera,
+              alicuotaIva,
+              pagoResuelto: resolverPagoCuenta({ ...c, plan, notaEspera, alicuotaIva, banco: c.infoPago?.datosBancarios ?? null, metodosActivos: c.infoPago?.metodosActivos ?? null }, tasaBcv, mBs.fijo ? mBs.saldoBs : null),
+            };
+          })}
+          todas={ordenadas.map((c: any) => {
+            const plan = planDeCuenta(c)?.plan ?? null;
+            const notaEspera = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id));
+            const alicuotaIva = alicuotaDe(c);
+            const mBs = bsDe(c);
+            return {
+              ...c,
+              plan,
+              notaEspera,
+              alicuotaIva,
+              pagoResuelto: resolverPagoCuenta({ ...c, plan, notaEspera, alicuotaIva, banco: c.infoPago?.datosBancarios ?? null, metodosActivos: c.infoPago?.metodosActivos ?? null }, tasaBcv, mBs.fijo ? mBs.saldoBs : null),
+            };
+          })}
+          universo={universo.map((c: any) => {
+            const plan = planDeCuenta(c)?.plan ?? null;
+            const notaEspera = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id));
+            const alicuotaIva = alicuotaDe(c);
+            const mBs = bsDe(c);
+            return {
+              ...c,
+              plan,
+              notaEspera,
+              alicuotaIva,
+              pagoResuelto: resolverPagoCuenta({ ...c, plan, notaEspera, alicuotaIva, banco: c.infoPago?.datosBancarios ?? null, metodosActivos: c.infoPago?.metodosActivos ?? null }, tasaBcv, mBs.fijo ? mBs.saldoBs : null),
+            };
+          })}
           marcadas={marcadas}
           tasaBcv={tasaBcv}
           hoy={hoy}
