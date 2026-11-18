@@ -107,9 +107,11 @@ const B = loadTs('src/lib/backupSql.ts');
   // ⭐ audit_log: 115 mil filas y 181 MB de BITÁCORA. Meterla hace un archivo que
   //    el navegador no puede ni armar, y sin ella el respaldo sigue sirviendo.
   ok('⭐ la bitácora de auditoría NO', !B.seRespalda('audit_log'));
+  ok('⭐ sesiones_usuario NO (sesiones efímeras)', !B.seRespalda('sesiones_usuario'));
   // Respaldar un `backup_*` es respaldar un respaldo.
   ok('⭐ los respaldos viejos dentro de la base NO', !B.seRespalda('backup_rounds_congelar_20260817'));
   ok('...ni los «bkp_»', !B.seRespalda('bkp_sos_18ago_20260819'));
+  ok('...ni los «bk_»', !B.seRespalda('bk_lecturas_horometro_tope12_2026_10_26'));
   // 27-sep-2026: desde que el admin puede LEER estas tablas ya no salían vacías
   // y se colaban al archivo — mismos prefijos que filtra `tablas_para_respaldo`.
   ok('...ni los «respaldo_»', !B.seRespalda('respaldo_listeros_2026_08_18'));
@@ -203,8 +205,8 @@ const B = loadTs('src/lib/backupSql.ts');
 
   const sql = leer('supabase/respaldo_sql.sql');
   ok('el SQL crea la función de la lista', /create or replace function public\.tablas_para_respaldo/.test(sql));
-  ok('deja fuera la bitácora', /relname <> 'audit_log'/.test(sql));
-  ok('y los respaldos viejos', /\^\(backup\|bkp\)/.test(sql));
+  ok('deja fuera la bitácora y sesiones', /relname <> 'audit_log'/.test(sql) && /relname <> 'sesiones_usuario'/.test(sql));
+  ok('y los respaldos viejos', /\^\(backup\|bkp/.test(sql));
   ok('solo tablas, no vistas', /relkind = 'r'/.test(sql));
   ok('trae su verificación', /✅/.test(sql));
 }

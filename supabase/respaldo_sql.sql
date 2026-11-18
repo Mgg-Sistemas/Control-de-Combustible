@@ -25,9 +25,8 @@
 --   cada módulo nuevo y la lista no se puede volver a quedar vieja.
 --
 -- QUÉ DEJA FUERA, A PROPÓSITO
---   · `audit_log` — 115 mil filas y 181 MB de BITÁCORA, no de datos del negocio.
---     Meterla haría un archivo que el navegador no puede ni armar.
---   · `backup_*` y `bkp_*` — respaldos manuales viejos guardados dentro de la
+--   · `audit_log` y `sesiones_usuario` — 115 mil filas de auditoría y sesiones efímeras, no de datos del negocio.
+--   · `backup_*`, `bkp_*`, `bk_*`, `respaldo_*` — respaldos manuales viejos guardados dentro de la
 --     propia base. Respaldarlos es respaldar un respaldo.
 --   · Las vistas: no tienen datos propios, se recalculan solas.
 -- ============================================================================
@@ -47,7 +46,8 @@ as $fn$
    where n.nspname = 'public'
      and c.relkind = 'r'                      -- solo tablas de verdad, no vistas
      and c.relname <> 'audit_log'
-     and c.relname !~* '^(backup|bkp)[_-]'
+     and c.relname <> 'sesiones_usuario'
+     and c.relname !~* '^(backup|bkp|bk|respaldo|rls_backup|permisos_backup)[_-]'
    order by c.relname;
 $fn$;
 
@@ -81,14 +81,14 @@ from (
   select 4, 'Filas que se va a llevar (aprox.)',
          (select coalesce(sum(filas), 0)::text from public.tablas_para_respaldo()), true
   union all
-  -- ⭐ El control: la bitácora NO entra (es lo que hacía inviable el archivo).
-  select 5, '⭐ «audit_log» queda fuera (tiene que ser 0)',
-         (select count(*)::text from public.tablas_para_respaldo() where tabla = 'audit_log'),
-         (select count(*) from public.tablas_para_respaldo() where tabla = 'audit_log') = 0
+  -- ⭐ El control: la bitácora y sesiones NO entran.
+  select 5, '⭐ «audit_log» y «sesiones_usuario» quedan fuera (tiene que ser 0)',
+         (select count(*)::text from public.tablas_para_respaldo() where tabla in ('audit_log', 'sesiones_usuario')),
+         (select count(*) from public.tablas_para_respaldo() where tabla in ('audit_log', 'sesiones_usuario')) = 0
   union all
-  select 6, '⭐ Los respaldos viejos «backup_*» quedan fuera (tiene que ser 0)',
-         (select count(*)::text from public.tablas_para_respaldo() where tabla ~* '^(backup|bkp)[_-]'),
-         (select count(*) from public.tablas_para_respaldo() where tabla ~* '^(backup|bkp)[_-]') = 0
+  select 6, '⭐ Los respaldos viejos «backup_*», «bk_*» quedan fuera (tiene que ser 0)',
+         (select count(*)::text from public.tablas_para_respaldo() where tabla ~* '^(backup|bkp|bk|respaldo|rls_backup|permisos_backup)[_-]'),
+         (select count(*) from public.tablas_para_respaldo() where tabla ~* '^(backup|bkp|bk|respaldo|rls_backup|permisos_backup)[_-]') = 0
 ) t
 order by n;
 

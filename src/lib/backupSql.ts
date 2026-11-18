@@ -12,21 +12,22 @@
 //    antes de tiempo y, al restaurar, PostgreSQL se pierde a mitad del archivo. Por
 //    eso el escapado vive acá, en una función probada, y no repartido por la app.
 
-/** Las tablas `backup_*`, `bkp_*`, `respaldo_*`, `rls_backup_*` y
+/** Las tablas `backup_*`, `bkp_*`, `bk_*`, `respaldo_*`, `rls_backup_*` y
  *  `permisos_backup_*` son respaldos manuales viejos dentro de la propia base:
- *  respaldarlas otra vez es respaldar un respaldo. (Los tres prefijos nuevos
- *  entraron el 27-sep-2026: desde que el admin puede LEER esas tablas, ya no
- *  salían vacías y se colaban al archivo.) La función de la base
- *  `tablas_para_respaldo` filtra con ESTA MISMA regla — si cambian, juntos. */
+ *  respaldarlas otra vez es respaldar un respaldo. (Los prefijos se mantienen
+ *  alineados con la función de la base `tablas_para_respaldo`.) */
 export const esTablaDeRespaldoViejo = (t: string): boolean =>
-  /^(backup|bkp|respaldo|rls_backup|permisos_backup)[_-]/i.test(String(t ?? ''));
+  /^(backup|bkp|bk|respaldo|rls_backup|permisos_backup)[_-]/i.test(String(t ?? ''));
 
 /**
  * `audit_log` queda fuera: son 115 mil filas y 181 MB de BITÁCORA, no de datos del
  * negocio. Meterla haría un archivo que el navegador no puede armar, y sin ella el
  * respaldo sigue teniendo todo lo que hace falta para volver a levantar el sistema.
+ *
+ * `sesiones_usuario` queda fuera: son sesiones efímeras de conexión/login, no datos
+ * del negocio que deban restaurarse.
  */
-export const TABLAS_EXCLUIDAS = ['audit_log'];
+export const TABLAS_EXCLUIDAS = ['audit_log', 'sesiones_usuario'];
 
 export const seRespalda = (t: string): boolean =>
   !!t && !TABLAS_EXCLUIDAS.includes(t) && !esTablaDeRespaldoViejo(t);
@@ -112,8 +113,8 @@ export function cabeceraSql(resumen: TablaRespaldada[], generadoEn: string): str
     '-- ⚠️ QUÉ NO TRAE: solo DATOS. No trae el esquema (tablas, índices, funciones,',
     '--    triggers ni políticas RLS): eso vive en los archivos de supabase/. Tampoco',
     `--    trae la bitácora «audit_log» (son más de 100 mil filas de auditoría, no de`,
-    '--    datos del negocio) ni las tablas «backup_*» y «bkp_*», que ya son respaldos',
-    '--    viejos guardados dentro de la propia base.',
+    '--    datos del negocio), ni «sesiones_usuario», ni las tablas «backup_*», «bkp_*»',
+    '--    y «bk_*», que ya son respaldos viejos guardados dentro de la propia base.',
   ];
   // ⭐ Las tablas que fallaron van ARRIBA y con nombre. Un respaldo incompleto que
   //    parece completo es peor que uno que falla: nadie lo revisa hasta que hace
