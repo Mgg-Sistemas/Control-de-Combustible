@@ -12,6 +12,7 @@ import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { horometroAlertaDe, horasAcumuladas, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
 import { etiquetaMaquinaConPlaca } from '../lib/mantenimientoPreventivo';
+import { cargarUltimosServiciosPorMaquina } from '../lib/mantenimientoPreventivoDb';
 import { RegistrarMantenimientoModal, type MaquinaMantenimientoTarget } from '../components/RegistrarMantenimientoModal';
 import { HistorialServiciosModal } from '../components/HistorialServiciosModal';
 import { listInspectorAssignments } from '../lib/machineInspectors';
@@ -326,7 +327,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     // una avería marcada como REALIZADO desaparecía de la pantalla sin dejar rastro:
     // salía de "Averías" (que solo lista pendientes) y el Historial solo mostraba
     // expedientes de taller (`machinery_repairs`), no averías resueltas.
-    const [mrRaw, rpRaw, { data: mac, error: eMac }, { data: profs, error: eProf }, { data: par, error: ePar }] = await Promise.all([
+    const [mrRaw, rpRaw, { data: mac, error: eMac }, { data: profs, error: eProf }, { data: par, error: ePar }, ultimosServicios] = await Promise.all([
       selectAllRows('maintenance_requests', 'id, machinery_id, material, quantity, notes, status, created_at, resolved_at, resolved_by, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))', (q) => q.neq('material', 'MÁQUINA PARADA')),
       selectAllRows('machinery_repairs', 'id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, created_by, closed_by, machinery:machinery_id(code, tipo, plate, serial, company:company_id(name))'),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, horometro_maint_pending, company:company_id(name)').eq('active', true).order('code'),
@@ -334,6 +335,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
       // Solo el marcador MÁQUINA PARADA pendiente, para el banner de "paradas viejas
       // sin resolver" — consulta chica y separada, no toca la lista de Averías de arriba.
       supabase.from('maintenance_requests').select('id, machinery_id, notes, created_at, machinery:machinery_id(code, company:company_id(name))').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: true }),
+      cargarUltimosServiciosPorMaquina().catch(() => new Map<string, number>()),
     ]);
     // `selectAllRows` revienta solo cuando falla; las otras tres devuelven el error en
     // la mano, así que hay que levantarlo a propósito para caer en el `catch`.
@@ -352,7 +354,14 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
     setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null, resolved_at: r.resolved_at ?? null, resolvedByName: r.resolved_by ? (nameById.get(r.resolved_by) ?? null) : null })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', machineTipo: r.machinery?.tipo ?? null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', createdByName: r.created_by ? (nameById.get(r.created_by) ?? null) : null, closedByName: r.closed_by ? (nameById.get(r.closed_by) ?? null) : null })));
-    setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null, horometro_maint_pending: m.horometro_maint_pending === true })));
+    setMachines((mac ?? []).map((m: any) => {
+      const lastH = m.last_horometro != null ? Number(m.last_horometro) : null;
+      const baseServ = ultimosServicios.get(m.id);
+      const baseH = baseServ != null ? baseServ : (m.horometro_base != null ? Number(m.horometro_base) : null);
+      const acumH = horasAcumuladas(lastH, baseH);
+      const pendingH = acumH != null ? acumH >= HOROMETRO_UMBRAL_ALTA : m.horometro_maint_pending === true;
+      return { id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: lastH, horometro_base: baseH, horometro_maint_pending: pendingH };
+    }));
     // 🧾 ¿cuáles de estas averías ya tienen hoja de servicio? Va DESPUÉS de pintar la
     // lista y solo con las PENDIENTES: son las únicas que muestran el aviso, y los ids
     // viajan dentro de la URL del `.in(...)` — mandar también las miles de resueltas

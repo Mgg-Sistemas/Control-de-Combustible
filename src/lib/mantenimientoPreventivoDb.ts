@@ -10,6 +10,52 @@ function isMissingTable(msg: string, code?: string): boolean {
   return /does not exist|schema cache|could not find the table/i.test(String(msg || ''));
 }
 
+export async function cargarUltimosServiciosPorMaquina(): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const { data, error } = await supabase
+    .from('machinery_preventive_services')
+    .select('machinery_id, horometro_servicio, fecha_servicio, created_at')
+    .eq('anulado', false)
+    .order('fecha_servicio', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error || !data) return map;
+  for (const r of data as any[]) {
+    const mid = String(r.machinery_id ?? '');
+    if (!mid || map.has(mid)) continue;
+    const val = Number(r.horometro_servicio);
+    if (Number.isFinite(val)) map.set(mid, val);
+  }
+  return map;
+}
+
+/**
+ * Sincroniza únicamente `horometro_base` y `horometro_maint_pending` en `machinery`
+ * (NUNCA toca `last_horometro` ni lecturas de inspectores). Si el usuario de
+ * Mantenimiento no tiene permiso directo de escritura en `machinery` y aún no
+ * existe la RPC, no falla mientras `machinery_preventive_services` sí haya guardado.
+ */
+async function syncMachineryBasePreventivo(
+  machineryId: string,
+  horometroBase: number | null,
+  maintPending: boolean,
+): Promise<{ synced: boolean; error?: string }> {
+  const rpc = await supabase.rpc('sync_mantenimiento_preventivo_base', {
+    p_machinery_id: machineryId,
+    p_horometro_base: horometroBase,
+    p_maint_pending: maintPending,
+  });
+  if (!rpc.error) return { synced: true };
+
+  const { data: macData, error: macErr } = await supabase
+    .from('machinery')
+    .update({ horometro_base: horometroBase, horometro_maint_pending: maintPending })
+    .eq('id', machineryId)
+    .select('id');
+  if (macErr) return { synced: false, error: macErr.message };
+  if (!macData?.length) return { synced: false };
+  return { synced: true };
+}
+
 export async function cargarServiciosPreventivos(machineryId: string): Promise<{
   rows: ServicioPreventivoRow[];
   faltaSql: boolean;
@@ -97,17 +143,14 @@ export async function registrarServicioPreventivo(params: {
   const acum = lastHorometro != null ? Math.max(0, lastHorometro - horometroServicio) : 0;
   const maintPending = acum >= CICLO_MANTENIMIENTO_HORAS;
 
-  const { data: macData, error: macErr } = await supabase
-    .from('machinery')
-    .update({ horometro_base: horometroServicio, horometro_maint_pending: maintPending })
-    .eq('id', machineryId)
-    .select('id');
-
-  if (macErr) {
-    return { ok: false, faltaSql, maintPending, error: `No se pudo actualizar el horómetro base: ${macErr.message}` };
-  }
-  if (!macData?.length) {
-    return { ok: false, faltaSql, maintPending, error: 'No se pudo actualizar el horómetro base de la máquina (sin permiso).' };
+  const syncRes = await syncMachineryBasePreventivo(machineryId, horometroServicio, maintPending);
+  if (faltaSql && !syncRes.synced) {
+    return {
+      ok: false,
+      faltaSql,
+      maintPending,
+      error: syncRes.error || 'No se pudo actualizar el horómetro base de mantenimiento.',
+    };
   }
 
   return { ok: true, faltaSql, maintPending };
@@ -157,18 +200,7 @@ export async function anularServicioPreventivo(params: {
     : 0;
   const maintPending = acum >= CICLO_MANTENIMIENTO_HORAS;
 
-  const { data: macData, error: macErr } = await supabase
-    .from('machinery')
-    .update({ horometro_base: nuevaBase, horometro_maint_pending: maintPending })
-    .eq('id', params.machineryId)
-    .select('id');
-
-  if (macErr) {
-    return { ok: false, nuevaBase, maintPending, error: `Servicio anulado, pero falló recalcular la máquina: ${macErr.message}` };
-  }
-  if (!macData?.length) {
-    return { ok: false, nuevaBase, maintPending, error: 'Servicio anulado, pero sin permiso para recalcular el horómetro base de la máquina.' };
-  }
+  await syncMachineryBasePreventivo(params.machineryId, nuevaBase, maintPending);
 
   return { ok: true, nuevaBase, maintPending };
 }
