@@ -595,11 +595,16 @@ export function armarReporteCuentas(args: {
       .map((m) => {
         const d = monMap.get(m)!;
         const meta = ETIQUETA_MON[m];
+        const subBs = m === 'BS' && d.bs > 0
+          ? `<div class="sos-mon-bs">Bs ${esc(miles(d.bs))}</div>`
+          : (tasa != null && tasa > 0
+              ? `<div class="sos-mon-bs" style="color:#64748B;font-weight:600">≈ Bs ${esc(miles(Math.round(d.usd * tasa * 100) / 100))} <span style="font-size:7.5px">(ref. BCV)</span></div>`
+              : '');
         return `
           <div class="sos-mon-pill">
             <div class="sos-mon-lbl">${esc(meta.icono)} ${esc(meta.label)} · ${d.ops} ord.</div>
             <div class="sos-mon-usd">${esc(usdTexto(d.usd))}</div>
-            ${m === 'BS' && d.bs > 0 ? `<div class="sos-mon-bs">Bs ${esc(miles(d.bs))}</div>` : ''}
+            ${subBs}
           </div>
         `;
       }).join('');
@@ -699,7 +704,11 @@ export function armarReporteCuentas(args: {
               <div>
                 <div class="sos-m-lbl">MONTO ($ USD)</div>
                 <div class="sos-m-usd">${esc(usdTexto(gUsd))}</div>
-                ${gBsReal > 0 ? `<div class="sos-m-bs">Bs ${esc(miles(gBsReal))}</div>` : ''}
+                ${gBsReal > 0
+                  ? `<div class="sos-m-bs">Bs ${esc(miles(gBsReal))}</div>`
+                  : (tasa != null && tasa > 0
+                      ? `<div class="sos-m-bs" style="color:#64748B;font-weight:600">≈ Bs ${esc(miles(Math.round(gUsd * tasa * 100) / 100))} <span style="font-size:7.5px">(ref.)</span></div>`
+                      : '')}
               </div>
               <div>
                 <div class="sos-m-lbl">ÓRDENES</div>
@@ -777,6 +786,7 @@ export function armarReporteCuentas(args: {
           <div class="sos-cons-lbl">TOTAL CONSOLIDADO (DÓLARES - $ USD)</div>
           <div class="sos-cons-usd">${esc(usdTexto(totalUsd))}</div>
           ${totalBsReales > 0 ? `<div class="sos-cons-bs">Total a pagar en Bs: Bs ${esc(miles(totalBsReales))}</div>` : ''}
+          ${tasa != null && tasa > 0 ? `<div style="font-size:10px;font-weight:700;color:#64748B;margin-top:2px">Equivalente consolidado: ≈ Bs ${esc(miles(Math.round(totalUsd * tasa * 100) / 100))} (a tasa BCV ${esc(tasaTexto(tasa))})</div>` : ''}
           <div class="sos-cons-ord">${nOrdenes} ${nOrdenes === 1 ? 'orden' : 'órdenes'}</div>
         </div>
         <div class="sos-cons-pill">
