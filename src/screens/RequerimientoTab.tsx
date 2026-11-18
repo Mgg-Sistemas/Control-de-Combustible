@@ -908,6 +908,36 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [cotizacionesTarget, setCotizacionesTarget] = useState<InventoryRequirement | null>(null);
   const [cotizacionesModalOpen, setCotizacionesModalOpen] = useState(false);
 
+  useEffect(() => {
+    if (
+      createOpen ||
+      facturaModalOpen ||
+      facturaViewerOpen ||
+      despachoModalOpen ||
+      modalPagoProvOpen ||
+      aclaratoriaOpen ||
+      respuestaOpen ||
+      previewReq ||
+      recvFor ||
+      entregaDirectaFor ||
+      cotizacionesModalOpen
+    ) {
+      setDetalleModalId(null);
+    }
+  }, [
+    createOpen,
+    facturaModalOpen,
+    facturaViewerOpen,
+    despachoModalOpen,
+    modalPagoProvOpen,
+    aclaratoriaOpen,
+    respuestaOpen,
+    previewReq,
+    recvFor,
+    entregaDirectaFor,
+    cotizacionesModalOpen,
+  ]);
+
   const getReqCotizaciones = (r: InventoryRequirement): CotizacionAlternativa[] => {
     if (Array.isArray(r.cotizaciones) && r.cotizaciones.length > 0) return r.cotizaciones;
     return extraerCotizacionesDeTexto(r.observaciones);
@@ -4344,8 +4374,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 const provGeneral = suppliers.find((s) => s.id === r.supplier_id);
                 const estDin = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion, cuentasPagadasSet.has(r.id));
                 const empInfo = resolverEmpresaRequerimiento(r, companies);
-                const maq = (r as any).machinery_id ? machines.find((m) => m.id === (r as any).machinery_id) : null;
-                const maqTexto = maq ? machineLabel(maq) : ((r as any).destino_maquina || null);
+                const maqTexto = extraerDestinoDeRequerimiento(r, machines, null) || null;
                 const urg = esOrdenUrgente({ prioridad: (r as any).prioridad, urgency: (r as any).urgency });
                 const fechaIso = r.created_at || '';
                 const fechaCorta = fechaIso ? `${fechaIso.slice(8, 10)}/${fechaIso.slice(5, 7)}` : '—';
@@ -5310,23 +5339,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
                                 </TouchableOpacity>
                                 {/* Botón de Cotizaciones Múltiples y Multi-Moneda */}
-                                <TouchableOpacity
-                                  onPress={() => abrirCotizaciones(r)}
-                                  style={{
-                                    backgroundColor: '#0EA5E9',
-                                    borderRadius: radius.md,
-                                    paddingHorizontal: spacing.md,
-                                    paddingVertical: spacing.xs,
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                  }}
-                                >
-                                  <Text style={{ fontSize: 12 }}>📋</Text>
-                                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
-                                    Cotizaciones ({getReqCotizaciones(r).length})
-                                  </Text>
-                                </TouchableOpacity>
+                                {canWrite ? (
+                                  <TouchableOpacity
+                                    onPress={() => abrirCotizaciones(r)}
+                                    style={{
+                                      backgroundColor: '#0EA5E9',
+                                      borderRadius: radius.md,
+                                      paddingHorizontal: spacing.md,
+                                      paddingVertical: spacing.xs,
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 12 }}>📋</Text>
+                                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
+                                      Cotizaciones ({getReqCotizaciones(r).length})
+                                    </Text>
+                                  </TouchableOpacity>
+                                ) : null}
                                 {/* Botón de Expediente Completo Oficial (PDF) */}
                                 <TouchableOpacity
                                   onPress={() => descargarExpediente(r)}
@@ -5375,7 +5406,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                                   </TouchableOpacity>
                                 ) : null}
                                 {/* Responder aclaratoria técnica si está en aclaratoria */}
-                                {r.status === 'aclaratoria_solicitada' ? (
+                                {canWrite && r.status === 'aclaratoria_solicitada' ? (
                                   <TouchableOpacity onPress={() => abrirResponderAclaratoria(r)} style={{ backgroundColor: '#F59E0B', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                                     <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>📝 Responder Aclaratoria</Text>
                                   </TouchableOpacity>
@@ -5475,7 +5506,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       selectedIds={reqSelIds}
                       onToggleSelect={toggleReqSel}
                       onToggleAll={() => {
-                        setReqSelIds(allSel ? new Set() : new Set(filteredReqs.map((r) => r.id)));
+                        const allVis = reqsVisibles.length > 0 && reqsVisibles.every((r) => reqSelIds.has(r.id));
+                        setReqSelIds((prev) => {
+                          const next = new Set(prev);
+                          reqsVisibles.forEach((r) => (allVis ? next.delete(r.id) : next.add(r.id)));
+                          return next;
+                        });
                       }}
                       onSelectItem={(it) => setDetalleModalId(it.id)}
                     />

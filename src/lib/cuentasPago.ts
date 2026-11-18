@@ -858,34 +858,45 @@ export function resolverInfoMetodoPagoPorPagar(
   lineasCopia.push(`💳 DATOS DE PAGO — ${datosBancarios.proveedorNombre}`);
   if (datosBancarios.proveedorRif) lineasCopia.push(`RIF / C.I.: ${datosBancarios.proveedorRif}`);
   if (datosBancarios.proveedorTelefono) lineasCopia.push(`Teléfono: ${datosBancarios.proveedorTelefono}`);
+
+  const bloqueMonto: string[] = [];
   if (typeof contexto.saldoUsd === 'number' && contexto.saldoUsd > 0) {
     const bsTxt =
       contexto.tasaBcv && contexto.tasaBcv > 0
         ? ` (≈ Bs. ${(Math.round(contexto.saldoUsd * contexto.tasaBcv * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} a tasa BCV Bs ${contexto.tasaBcv.toLocaleString('es-VE')})`
         : '';
-    lineasCopia.push(`Monto a pagar: $${contexto.saldoUsd.toFixed(2)} USD${bsTxt}`);
+    bloqueMonto.push(`Monto a pagar: $${contexto.saldoUsd.toFixed(2)} USD${bsTxt}`);
   }
-  if (condStr) lineasCopia.push(`Condiciones: ${condStr}`);
-  if (tasaMonedaTexto) lineasCopia.push(`Tasa / Moneda: ${tasaMonedaTexto}`);
-  if (metodosActivos.length > 0) lineasCopia.push(`Métodos: ${metodosActivos.join(' · ')}`);
+  if (condStr) bloqueMonto.push(`Condiciones: ${condStr}`);
+  if (tasaMonedaTexto) bloqueMonto.push(`Tasa / Moneda: ${tasaMonedaTexto}`);
+  if (metodosActivos.length > 0) bloqueMonto.push(`Métodos: ${metodosActivos.join(' · ')}`);
+  if (bloqueMonto.length > 0) {
+    lineasCopia.push('', ...bloqueMonto);
+  }
+
+  const bloqueBanco: string[] = [];
   if (datosBancarios.banco || datosBancarios.numeroCuenta) {
-    lineasCopia.push(
+    bloqueBanco.push(
       `🏦 Transferencia: ${[datosBancarios.banco, datosBancarios.tipoCuenta, datosBancarios.numeroCuenta].filter(Boolean).join(' · ')}${datosBancarios.titular ? ` | Titular: ${datosBancarios.titular}` : ''}${datosBancarios.rifTitular ? ` (${datosBancarios.rifTitular})` : ''}`,
     );
   }
   if (datosBancarios.pagoMovilTelefono || datosBancarios.pagoMovilBanco) {
-    lineasCopia.push(
+    bloqueBanco.push(
       `📲 Pago Móvil: ${[datosBancarios.pagoMovilBanco, datosBancarios.pagoMovilTelefono, datosBancarios.pagoMovilCedulaRif].filter(Boolean).join(' · ')}`,
     );
   }
   if (datosBancarios.binanceId) {
-    lineasCopia.push(`🪙 Binance / Zelle / ID: ${datosBancarios.binanceId}`);
+    bloqueBanco.push(`🪙 Binance / Zelle / ID: ${datosBancarios.binanceId}`);
   }
   if (datosBancarios.instruccionesPago) {
-    lineasCopia.push(`📝 Datos de pago proveedor: ${datosBancarios.instruccionesPago}`);
+    bloqueBanco.push(`📝 Datos de pago proveedor: ${datosBancarios.instruccionesPago}`);
   }
+  if (bloqueBanco.length > 0) {
+    lineasCopia.push('', ...bloqueBanco);
+  }
+
   if (notaStr) {
-    lineasCopia.push(`📝 Nota de la cuenta: ${notaStr}`);
+    lineasCopia.push('', `📝 Nota de la cuenta: ${notaStr}`);
   }
 
   return {

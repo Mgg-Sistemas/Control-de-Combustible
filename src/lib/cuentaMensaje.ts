@@ -216,34 +216,60 @@ export function resumenBancoEnLinea(
   b?: DatosBancariosMensaje | null,
   pagoTexto?: string | null,
   condiciones?: string | null,
+  omitirCondiciones = false,
 ): string {
   const partes: string[] = [];
   const p = txt(pagoTexto);
-  if (p) partes.push(p);
+  const tieneCoordsEnB = !!(
+    b &&
+    (txt(b.banco) || txt(b.numeroCuenta) || txt(b.pagoMovilTelefono) || txt(b.binanceId))
+  );
+
+  if (p) {
+    const pLow = p.toLowerCase();
+    const ctaYa = b && txt(b.numeroCuenta) && pLow.includes(txt(b.numeroCuenta).toLowerCase());
+    const pmYa = b && txt(b.pagoMovilTelefono) && pLow.includes(txt(b.pagoMovilTelefono).toLowerCase());
+    const binYa = b && txt(b.binanceId) && pLow.includes(txt(b.binanceId).toLowerCase());
+    const esMetodoSolo = /^(transferencia|pago\s*m[oó]vil|binance|usdt|cta|pm)$/i.test(
+      p.replace(/[^\w\sáéíóúñ]/gi, '').trim(),
+    );
+    if (!tieneCoordsEnB || (!ctaYa && !pmYa && !binYa && !esMetodoSolo)) {
+      partes.push(p);
+    }
+  }
+
   if (b) {
     if (txt(b.banco) || txt(b.numeroCuenta)) {
       const tit = [txt(b.titular), txt(b.rifTitular)].filter(Boolean).join(' ');
-      partes.push(
-        `🏦 ${[txt(b.banco), txt(b.numeroCuenta) ? `Cta: ${txt(b.numeroCuenta)}` : '', tit ? `(${tit})` : '']
-          .filter(Boolean)
-          .join(' ')}`,
-      );
+      const ctaStr = txt(b.numeroCuenta);
+      const lineaCta = `🏦 ${[txt(b.banco), ctaStr ? `Cta: ${ctaStr}` : '', tit ? `(${tit})` : ''].filter(Boolean).join(' ')}`;
+      const yaEsta = ctaStr
+        ? partes.some((x) => x.toLowerCase().includes(ctaStr.toLowerCase()))
+        : partes.some((x) => x.toLowerCase().includes(lineaCta.toLowerCase()));
+      if (!yaEsta) partes.push(lineaCta);
     }
     if (txt(b.pagoMovilTelefono)) {
-      partes.push(
-        `📱 PM: ${[txt(b.pagoMovilBanco), txt(b.pagoMovilTelefono), txt(b.pagoMovilCedulaRif) ? `(${txt(b.pagoMovilCedulaRif)})` : '']
-          .filter(Boolean)
-          .join(' ')}`,
-      );
+      const pmTel = txt(b.pagoMovilTelefono);
+      const lineaPm = `📱 PM: ${[txt(b.pagoMovilBanco), pmTel, txt(b.pagoMovilCedulaRif) ? `(${txt(b.pagoMovilCedulaRif)})` : ''].filter(Boolean).join(' ')}`;
+      if (!partes.some((x) => x.toLowerCase().includes(pmTel.toLowerCase()))) {
+        partes.push(lineaPm);
+      }
     }
     if (txt(b.binanceId)) {
-      partes.push(`🟡 Binance: ${txt(b.binanceId)}`);
+      const bin = txt(b.binanceId);
+      if (!partes.some((x) => x.toLowerCase().includes(bin.toLowerCase()))) {
+        partes.push(`🟡 Binance: ${bin}`);
+      }
     }
-    if (txt(b.instruccionesPago) && !p.toLowerCase().includes(txt(b.instruccionesPago).toLowerCase())) {
-      partes.push(`📝 ${txt(b.instruccionesPago)}`);
+    if (txt(b.instruccionesPago)) {
+      const instr = txt(b.instruccionesPago);
+      if (!partes.join(' ').toLowerCase().includes(instr.toLowerCase())) {
+        partes.push(`📝 ${instr}`);
+      }
     }
   }
-  if (txt(condiciones)) {
+
+  if (!omitirCondiciones && txt(condiciones)) {
     const c = txt(condiciones);
     const unido = partes.join(' · ');
     if (!unido.toLowerCase().includes(c.toLowerCase())) {
@@ -294,6 +320,7 @@ function cuerpoCuenta(d: DatosMensajeCuenta, op: OpcionesMensajeCuenta): string[
   const saldo = d.saldoUsd != null ? Number(d.saldoUsd) || 0 : total;
   const parcial = saldo > 0 && saldo < total - 0.005;
   const factorSaldo = parcial && total > 0 ? saldo / total : 1;
+  L.push('');
   L.push(`💵 *Total:* $${montoEs(total)}`);
   if (parcial) L.push(`⏳ *Falta por pagar:* $${montoEs(saldo)}`);
   if (d.plan && d.plan.partes.length > 0) {
@@ -317,6 +344,7 @@ function cuerpoCuenta(d: DatosMensajeCuenta, op: OpcionesMensajeCuenta): string[
       L.push('');
       L.push(`💳 *Desglose por proveedor (${des.length} proveedores — cuánto pagarle a cada uno):*`);
       des.forEach((g, idx) => {
+        L.push('');
         const gUsd = Math.round((Number(g.totalUsd) || 0) * factorSaldo * 100) / 100;
         const tasaCuenta = Number(d.tasaBs) || 0;
         const gBsBase = Number(g.totalBs) > 0 ? Number(g.totalBs) : tasaCuenta > 0 ? (Number(g.totalUsd) || 0) * tasaCuenta : 0;
@@ -335,7 +363,7 @@ function cuerpoCuenta(d: DatosMensajeCuenta, op: OpcionesMensajeCuenta): string[
               L.push(`   ${b.titulo}: ${b.lineas.join(' · ')}`);
             }
           } else {
-            const resMetodo = resumenBancoEnLinea(g.banco, g.pago, d.condiciones);
+            const resMetodo = resumenBancoEnLinea(g.banco, g.pago, d.condiciones, op.condiciones);
             L.push(`   💳 Método de pago: ${resMetodo || 'Sin datos bancarios registrados en la ficha del proveedor'}`);
           }
         }
@@ -377,7 +405,10 @@ export function construirMensajeCuentas(lista: DatosMensajeCuenta[], op: Opcione
   const empresas = Array.from(new Set(cuentas.map((d) => txt(d.empresa)).filter(Boolean)));
   if (cuentas.length === 1) {
     const L = cuerpoCuenta(cuentas[0], op);
-    if (op.empresa && empresas[0]) L.push(`🏢 *${empresas[0]}*`);
+    if (op.empresa && empresas[0]) {
+      L.push('');
+      L.push(`🏢 *${empresas[0]}*`);
+    }
     return L.join('\n');
   }
   const totalUsd = cuentas.reduce((s, d) => s + (d.saldoUsd != null ? Number(d.saldoUsd) || 0 : Number(d.totalUsd) || 0), 0);
@@ -593,6 +624,7 @@ export function construirListaTesoreriaCuentas(
   }
 
   cuentas.forEach((d, idx) => {
+    if (idx > 0) L.push('');
     const des = (d.desgloseProveedores ?? []).filter(Boolean);
     const multiProv = des.length > 1;
     const prov = multiProv && esProveedorGenerico(d.proveedor)
@@ -627,23 +659,25 @@ export function construirListaTesoreriaCuentas(
     // 💳 Desglose de lo que se debe pagar a cada proveedor y el método de pago de cada uno
     if (cfg.incluirDesgloseProveedores !== false && multiProv) {
       const tasaCuenta = Number(d.tasaBs) || 0;
+      L.push('');
       L.push(`   💳 *Desglose por proveedor (${des.length}):*`);
       des.forEach((g, gi) => {
+        if (gi > 0) L.push('');
         const gUsd = Math.round((Number(g.totalUsd) || 0) * factorSaldo * 100) / 100;
         const gBsBase = Number(g.totalBs) > 0 ? Number(g.totalBs) : tasaCuenta > 0 ? (Number(g.totalUsd) || 0) * tasaCuenta : 0;
         const gBs = Math.round(gBsBase * factorSaldo * 100) / 100;
         const bsSub = (cfg.incluirBs || gBs > 0) ? ` (Bs ${montoEs(gBs)})` : '';
         L.push(`   • ${idx + 1}.${gi + 1} 🏭 *${txt(g.proveedor)}* — *USD ${montoEs(gUsd)}*${bsSub}`);
         if (cfg.incluirMetodosPago !== false) {
-          const met = resumenBancoEnLinea(g.banco, g.pago, d.condiciones);
-          L.push(`     💳 Método de pago: ${met || 'Sin método de pago registrado en su ficha'}`);
+          const met = resumenBancoEnLinea(g.banco, g.pago, d.condiciones, !!cfg.incluirCondiciones);
+          L.push(`     💳 *Pago:* ${met || 'Sin método de pago registrado en su ficha'}`);
         }
       });
     } else if (cfg.incluirMetodosPago || (des.length === 1 && cfg.incluirDesgloseProveedores !== false && (txt(des[0].pago) || des[0].banco || d.banco))) {
       const unico = des[0];
-      const met = resumenBancoEnLinea(d.banco || unico?.banco, unico?.pago, d.condiciones);
+      const met = resumenBancoEnLinea(d.banco || unico?.banco, unico?.pago, d.condiciones, !!cfg.incluirCondiciones);
       if (met) {
-        L.push(`   💳 Método de pago: ${met}`);
+        L.push(`   💳 *Pago:* ${met}`);
       }
     }
   });
@@ -854,6 +888,7 @@ export function construirResumenDecisionCuentas(
   let noPaganBs = 0;
 
   cuentas.forEach((d, idx) => {
+    if (idx > 0) L.push('');
     const k = claveCuentaDecision(d, idx);
     const dec = decisiones[k] ?? { motivo: 'si' as const };
     const mUsd = montoAPagarDe(d);
@@ -895,19 +930,22 @@ export function construirResumenDecisionCuentas(
     L.push(`   💵 *A pagar:* $${montoEs(mUsd)}${bsInline} · ${textoMotivoDecision(dec)}`);
     if (multiProv) {
       const tasaCuenta = Number(d.tasaBs) || 0;
+      L.push('');
       L.push(`   💳 *Desglose por proveedor (${des.length}):*`);
       des.forEach((g, gi) => {
+        if (gi > 0) L.push('');
         const gUsd = Math.round((Number(g.totalUsd) || 0) * factorSaldo * 100) / 100;
         const gBsBase = Number(g.totalBs) > 0 ? Number(g.totalBs) : tasaCuenta > 0 ? (Number(g.totalUsd) || 0) * tasaCuenta : 0;
         const gBs = Math.round(gBsBase * factorSaldo * 100) / 100;
-        const met = resumenBancoEnLinea(g.banco, g.pago, d.condiciones) || 'Sin método de pago registrado';
-        L.push(`   • ${idx + 1}.${gi + 1} 🏭 *${txt(g.proveedor)}*: *$${montoEs(gUsd)}*${gBs > 0 ? ` (Bs ${montoEs(gBs)})` : ''} · 💳 ${met}`);
+        const met = resumenBancoEnLinea(g.banco, g.pago, d.condiciones, incCondiciones) || 'Sin método de pago registrado';
+        L.push(`   • ${idx + 1}.${gi + 1} 🏭 *${txt(g.proveedor)}*: *$${montoEs(gUsd)}*${gBs > 0 ? ` (Bs ${montoEs(gBs)})` : ''}`);
+        L.push(`     💳 ${met}`);
       });
     } else if (des.length === 1 || d.banco) {
       const unico = des[0];
-      const met = resumenBancoEnLinea(d.banco || unico?.banco, unico?.pago, d.condiciones);
+      const met = resumenBancoEnLinea(d.banco || unico?.banco, unico?.pago, d.condiciones, incCondiciones);
       if (met) {
-        L.push(`   💳 *Método de pago:* ${met}`);
+        L.push(`   💳 *Pago:* ${met}`);
       }
     }
   });

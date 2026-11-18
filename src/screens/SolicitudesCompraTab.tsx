@@ -44,7 +44,7 @@ import {
   quitarTodasLasMarcasDeTexto,
   type ReglaAprobacionMonto,
 } from '../lib/requerimientoFlujo';
-import { anexarEventoHistorial, calcularDiffItemsCompra, resumirCambiosCabeceraCompra } from '../lib/comprasHistorico';
+import { anexarEventoHistorial, calcularDiffItemsCompra, extraerDestinoDeRequerimiento, resumirCambiosCabeceraCompra } from '../lib/comprasHistorico';
 import { construirNombreDescargaFoto, construirUrlDescargaDirecta } from '../lib/formatosAdjuntos';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -650,6 +650,30 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
   const [modoVista, setModoVista] = useComprasVista('solicitudes', uid);
   const [detalleModalId, setDetalleModalId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (
+      convertTarget ||
+      aclaratoriaTarget ||
+      rechazoTarget ||
+      editTarget ||
+      facturaModalOpen ||
+      facturaViewerOpen ||
+      despachoModalOpen ||
+      fotoModalUrl
+    ) {
+      setDetalleModalId(null);
+    }
+  }, [
+    convertTarget,
+    aclaratoriaTarget,
+    rechazoTarget,
+    editTarget,
+    facturaModalOpen,
+    facturaViewerOpen,
+    despachoModalOpen,
+    fotoModalUrl,
+  ]);
+
   const solicitudesVisibles = useMemo(
     () => aplicarLimiteTarjetasVisibles(solicitudes, limiteTarjetas).visibles,
     [solicitudes, limiteTarjetas],
@@ -661,10 +685,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
       const est = calcularEstadoRequerimiento(r, rate, provGeneral, configAprobacion);
       const yaConvertida = estaSolicitudConvertidaEnRequerimiento(r);
       const empInfo = resolverEmpresaRequerimiento(r, companies);
-      const maq = (r as any).machinery_id
-        ? machines.find((m) => m.id === (r as any).machinery_id)
-        : null;
-      const maqTexto = maq ? machineLabel(maq) : ((r as any).destino_maquina || null);
+      const maqTexto = extraerDestinoDeRequerimiento(r, machines, null) || null;
       const urg = esOrdenUrgente({
         prioridad: (r as any).prioridad,
         urgency: (r as any).urgency,
@@ -2882,7 +2903,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
                 Empresa Pagadora (Desembolso):
               </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: spacing.sm, paddingVertical: 2 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm, paddingVertical: 2 }}>
                 <TouchableOpacity
                   onPress={() => setConvertEmpresaPagadoraId(null)}
                   style={{
@@ -2919,7 +2940,7 @@ export function SolicitudesCompraTab({ canWrite }: { canWrite: boolean }) {
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </View>
 
               {/* Precio estimado / cotizado */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>

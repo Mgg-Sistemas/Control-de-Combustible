@@ -29,9 +29,11 @@ export function useComprasVista(
   );
 
   const key = `compras_vista_${contexto}_${String(userId ?? '').trim() || 'anon'}`;
+  const permitidosKey = permitidos.join(',');
 
   useEffect(() => {
     let vivo = true;
+    setModoState(obtenerVistaPreferidaCompras(contexto, userId, null, permitidos));
     AsyncStorage.getItem(key)
       .then((val) => {
         if (!vivo || !val) return;
@@ -41,7 +43,7 @@ export function useComprasVista(
     return () => {
       vivo = false;
     };
-  }, [key]);
+  }, [key, permitidosKey]);
 
   const setModo = useCallback(
     (nuevo: ModoVistaCompras) => {

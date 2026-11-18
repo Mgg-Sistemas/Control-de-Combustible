@@ -141,6 +141,7 @@ export function ServiciosTab({ canWrite, onGoToAires }: { canWrite: boolean; onG
   };
   const abrirNueva = () => { resetForm(); setOpen(true); };
   const abrirEditar = (s: ServicioRecord) => {
+    setDetalleSrvId(null);
     setEditingId(s.id); setCompany(s.company_id ?? ''); setSupplier(s.supplier_id ?? '');
     setServiceDate(String(s.service_date ?? todayISO()).slice(0, 10));
     setCondicionesPago(extraerCondicionesPago(s.note));

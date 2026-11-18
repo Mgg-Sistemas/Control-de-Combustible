@@ -970,7 +970,7 @@ export function CotizacionesModal({
                 {/* Moneda activa de la cotización */}
                 <View style={{ marginBottom: spacing.sm }}>
                   <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 4 }}>Moneda de la Cotización:</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                     {MONEDAS_COMUNES.map((m) => {
                       const sel = currency === m.codigo;
                       return (
@@ -1016,7 +1016,7 @@ export function CotizacionesModal({
                         🌐 Otra
                       </Text>
                     </TouchableOpacity>
-                  </ScrollView>
+                  </View>
                 </View>
 
                 {/* Si eligió OTRA moneda */}

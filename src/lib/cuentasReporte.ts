@@ -1077,20 +1077,24 @@ export function textoWhatsappReporteCuentas(args: {
     ];
 
     if (desglose.length > 1) {
+      const montoOrig = Number(c.monto) || 0;
+      const factorSaldo = montoOrig > 0 && mUsd < montoOrig - 0.005 ? mUsd / montoOrig : 1;
       desglose.forEach((dp, pi) => {
-        const dpUsd = Number(dp.totalUsd) || 0;
-        const dpBs = dp.totalBs && dp.totalBs > 0 ? dp.totalBs : (tasa ? dpUsd * tasa : 0);
+        if (pi > 0) lineas.push('');
+        const dpUsd = Math.round((Number(dp.totalUsd) || 0) * factorSaldo * 100) / 100;
+        const dpBsBase = dp.totalBs && dp.totalBs > 0 ? dp.totalBs : (tasa ? (Number(dp.totalUsd) || 0) * tasa : 0);
+        const dpBs = Math.round(dpBsBase * factorSaldo * 100) / 100;
         const bsTxt = mostrarBs && dpBs > 0 ? ` _(≈ ${bsTexto(dpBs)})_` : '';
         lineas.push(`   ${idx}.${pi + 1} 🏭 *${limpio(dp.proveedor)}* — *USD ${miles(dpUsd)}*${bsTxt}`);
         const pagoTxt = limpio(dp.pago);
         if (pagoTxt) {
-          lineas.push(`      💳 _Método de pago:_ ${pagoTxt}`);
+          lineas.push(`      💳 _Pago:_ ${pagoTxt}`);
         } else {
-          lineas.push(`      💳 _Método de pago:_ ⚠️ Por confirmar con el proveedor`);
+          lineas.push(`      💳 _Pago:_ ⚠️ Por confirmar con el proveedor`);
         }
       });
     } else if (desglose.length === 1 && limpio(desglose[0].pago)) {
-      lineas.push(`   💳 _Método de pago:_ ${limpio(desglose[0].pago)}`);
+      lineas.push(`   💳 _Pago:_ ${limpio(desglose[0].pago)}`);
     }
 
     if (wop.incluirConcepto && limpio(c.concepto)) {
@@ -1125,21 +1129,25 @@ export function textoWhatsappReporteCuentas(args: {
     grupos.forEach((g, gi) => {
       if (gi > 0) lineasCuerpo.push('');
       lineasCuerpo.push(`📂 *${g.etiqueta.toUpperCase()} (${g.cuentas.length}):*`);
-      g.cuentas.forEach((c) => {
+      g.cuentas.forEach((c, ci) => {
+        if (ci > 0) lineasCuerpo.push('');
         contador += 1;
         lineasCuerpo.push(...formatearRenglon(c, contador));
       });
       const subUsd = g.cuentas.reduce((s, c) => s + montoFilaUsd(c), 0);
+      lineasCuerpo.push('');
       lineasCuerpo.push(`   💵 *Subtotal ${g.etiqueta}:* $ ${miles(subUsd)}`);
     });
   } else {
     activas.forEach((c, i) => {
+      if (i > 0) lineasCuerpo.push('');
       lineasCuerpo.push(...formatearRenglon(c, i + 1));
     });
   }
 
   const totalUsd = activas.reduce((s, c) => s + montoFilaUsd(c), 0);
   const lineasPie: string[] = [
+    '━━━━━━━━━━━━━━━━━━━━',
     `💰 *Total (${activas.length}):* $ ${miles(totalUsd)}`,
   ];
 

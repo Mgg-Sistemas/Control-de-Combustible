@@ -1043,6 +1043,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const abrirEditar = (c: DirectPurchase) => {
+    setDetalleDirectaId(null);
     setEditingId(c.id);
     setCompany(c.company_id ?? '');
     setSupplier(c.supplier_id ?? '');
@@ -1226,7 +1227,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
 
   const verFactura = (c: DirectPurchase) => {
     if (!c.factura_url) return;
-    if (Platform.OS === 'web') { setPreview(c); return; }
+    if (Platform.OS === 'web') { setDetalleDirectaId(null); setPreview(c); return; }
     Linking.openURL(c.factura_url);
   };
 

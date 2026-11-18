@@ -156,7 +156,15 @@ export function ReporteCuentasModal({
       }
       if (monedaModal !== 'TODAS') {
         const fijo = saldoBsDe ? saldoBsDe(c, Number(c.saldo ?? c.monto ?? 0)) : null;
-        const res = resolverPagoCuenta({ ...c, banco: c.infoPago?.datosBancarios ?? null }, tasaBcv, fijo);
+        const res = c.pagoResuelto ?? resolverPagoCuenta(
+          {
+            ...c,
+            banco: c.infoPago?.datosBancarios ?? null,
+            metodosActivos: c.infoPago?.metodosActivos ?? null,
+          },
+          tasaBcv,
+          fijo,
+        );
         if (res.monedaReal !== monedaModal) return false;
       }
       return true;

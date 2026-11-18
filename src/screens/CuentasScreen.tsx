@@ -1413,6 +1413,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       aprobadoPorId: uid,
       fecha: nowISO(),
     };
+    let aprobadasOk = 0;
+    let primerError: string | null = null;
     for (const c of cuentasParaAprobar) {
       const evAp = {
         tipo: 'aprobacion_gerencial' as const,
@@ -1424,7 +1426,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         detalle: `Monto: ${usd(Number(c.monto) || 0)} · Proveedor: ${c.contraparte}`,
       };
       const nuevaNota = anexarEventoHistorial(inyectarAprobacionCxpEnNota(c.nota, infoAp), evAp);
-      await supabase.from('cuentas').update({ nota: nuevaNota, updated_at: nowISO() }).eq('id', c.id);
+      const { data: upData, error: upErr } = await supabase
+        .from('cuentas')
+        .update({ nota: nuevaNota, updated_at: nowISO() })
+        .eq('id', c.id)
+        .select('id');
+      if (upErr || !upData || upData.length === 0) {
+        if (!primerError) primerError = upErr?.message || 'Sin permiso para autorizar alguna cuenta (0 filas).';
+        continue;
+      }
+      aprobadasOk += 1;
       if (c.inventory_requirement_id) {
         try {
           const { data: reqRows } = await supabase
@@ -1442,10 +1453,15 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         } catch {}
       }
     }
-    setMarcadas(new Set());
-    refetchRequirements();
-    refetch();
-    toast.success(`✅ ${cuentasParaAprobar.length} cuenta(s) autorizada(s) por ${aprobadorNombre}.`);
+    if (aprobadasOk > 0) {
+      setMarcadas(new Set());
+      refetchRequirements();
+      refetch();
+      toast.success(`✅ ${aprobadasOk} cuenta(s) autorizada(s) por ${aprobadorNombre}.`);
+    }
+    if (primerError) {
+      toast.error(`No se pudieron autorizar algunas cuentas: ${primerError}`);
+    }
   };
 
   const abrirNueva = () => {
@@ -2501,6 +2517,30 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   };
 
   const [pagoModalCuenta, setPagoModalCuenta] = useState<CuentaCalc | null>(null);
+
+  useEffect(() => {
+    if (
+      open ||
+      abonoDe ||
+      comprobanteDe ||
+      facturaDe ||
+      editItemsCuenta ||
+      pagoModalCuenta ||
+      planDe ||
+      reporteOpen
+    ) {
+      setDetalleModalId(null);
+    }
+  }, [
+    open,
+    abonoDe,
+    comprobanteDe,
+    facturaDe,
+    editItemsCuenta,
+    pagoModalCuenta,
+    planDe,
+    reporteOpen,
+  ]);
   const [pmCondiciones, setPmCondiciones] = useState('');
   const [pmNotaCuenta, setPmNotaCuenta] = useState('');
   const [pmVence, setPmVence] = useState('');
@@ -3378,7 +3418,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>☐ Quitar marcas</Text>
             </TouchableOpacity>
           ) : null}
-          {lista.length > 0 ? (
+          {modoVista === 'actual' && lista.length > 0 ? (
             <>
               <TouchableOpacity
                 onPress={() =>
