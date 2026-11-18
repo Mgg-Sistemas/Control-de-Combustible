@@ -2188,11 +2188,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         const baseCalc = calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, desgloseIva, apEstado, apInfo);
         const planCta = (c as any).plan_pago ?? (reqVincDesglose as any)?.plan_pago ?? null;
         const notaEsp = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id))?.texto ?? null;
+        const alicCta = (c as any).alicuota_iva != null ? Number((c as any).alicuota_iva) || null : (desgloseIva as any)?.alicuota ?? null;
         const pagoResuelto = resolverPagoCuenta({
           ...baseCalc,
           plan: planCta,
           notaEspera: notaEsp,
-          alicuotaIva: alicuotaDe(baseCalc),
+          alicuotaIva: alicCta,
           banco: infoPago.datosBancarios,
           metodosActivos: infoPago.metodosActivos,
           desgloseProveedores,
