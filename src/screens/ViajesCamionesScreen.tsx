@@ -787,6 +787,8 @@ export default function ViajesCamionesScreen() {
   const [materialSel, setMaterialSel] = useState<string | null>(null);
   const [operacionSel, setOperacionSel] = useState<ProyectoOperacion | null>(null);
   const [frenteSel, setFrenteSel] = useState<string | null>(null);
+  const [frentesListeroAbierto, setFrentesListeroAbierto] = useState(false);
+  const [busqFrenteListero, setBusqFrenteListero] = useState('');
 
   // ── FRENTES DE TRABAJO (28-sep-2026): de dónde recoge cada camión. La
   // oficina los asigna por jornada; el teléfono los lee para CONGELAR el
@@ -5098,45 +5100,114 @@ export default function ViajesCamionesScreen() {
               </View>
             </View>
 
-            {frentesActivos.length > 0 ? (
-              <View style={{ gap: 6 }}>
-                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ FRENTE DE TRABAJO (solo para este viaje)</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {frentesActivos.length > 0 ? (() => {
+              const frenteActual = frenteSel ? frentesActivos.find((f) => f.id === frenteSel) ?? null : null;
+              const qF = norm(busqFrenteListero);
+              const frentesFiltrados = qF
+                ? frentesActivos.filter((f) => norm(f.nombre).includes(qF))
+                : frentesActivos;
+              return (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ FRENTE DE TRABAJO (solo para este viaje)</Text>
                   <TouchableOpacity
-                    onPress={() => setFrenteSel(null)}
+                    onPress={() => setFrentesListeroAbierto((v) => !v)}
                     style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                       paddingHorizontal: spacing.md,
-                      paddingVertical: 8,
-                      borderRadius: radius.pill,
+                      paddingVertical: 10,
+                      borderRadius: radius.md,
                       borderWidth: 1.5,
-                      borderColor: frenteSel === null ? colors.primary : colors.border,
-                      backgroundColor: frenteSel === null ? colors.primary : colors.surface,
+                      borderColor: frenteActual ? '#B45309' : colors.border,
+                      backgroundColor: frenteActual ? '#FEF3C7' : colors.surface,
+                      gap: 8,
                     }}
                   >
-                    <Text style={{ color: frenteSel === null ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12.5 }}>Sin frente</Text>
+                    <Text style={{ color: frenteActual ? '#92400E' : colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
+                      {frenteActual ? `⛏️ ${frenteActual.nombre}` : '⛏️ Sin frente (toca para elegir)'}
+                    </Text>
+                    <Text style={{ color: frenteActual ? '#92400E' : colors.muted, fontWeight: '800', fontSize: 12 }}>
+                      {frentesListeroAbierto ? '▴ Ocultar' : `▾ Cambiar (${frentesActivos.length})`}
+                    </Text>
                   </TouchableOpacity>
-                  {frentesActivos.map((f) => {
-                    const on = frenteSel === f.id;
-                    return (
-                      <TouchableOpacity
-                        key={f.id}
-                        onPress={() => setFrenteSel((prev) => (prev === f.id ? null : f.id))}
-                        style={{
-                          paddingHorizontal: spacing.md,
-                          paddingVertical: 8,
-                          borderRadius: radius.pill,
-                          borderWidth: 1.5,
-                          borderColor: on ? '#B45309' : colors.border,
-                          backgroundColor: on ? '#B45309' : colors.surface,
-                        }}
-                      >
-                        <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>⛏️ {f.nombre}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                  {frentesListeroAbierto ? (
+                    <View style={{ gap: 8, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TextInput
+                          value={busqFrenteListero}
+                          onChangeText={setBusqFrenteListero}
+                          placeholder="🔎 Buscar frente por nombre…"
+                          placeholderTextColor={colors.muted}
+                          style={{
+                            flex: 1,
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            borderRadius: radius.md,
+                            paddingHorizontal: spacing.sm,
+                            paddingVertical: 7,
+                            color: colors.text,
+                            fontSize: 13,
+                          }}
+                        />
+                        {busqFrenteListero ? (
+                          <TouchableOpacity
+                            onPress={() => setBusqFrenteListero('')}
+                            style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                          >
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✕</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                        <TouchableOpacity
+                          onPress={() => { setFrenteSel(null); setBusqFrenteListero(''); setFrentesListeroAbierto(false); }}
+                          style={{
+                            paddingHorizontal: spacing.md,
+                            paddingVertical: 8,
+                            borderRadius: radius.pill,
+                            borderWidth: 1.5,
+                            borderColor: frenteSel === null ? colors.primary : colors.border,
+                            backgroundColor: frenteSel === null ? colors.primary : colors.surface,
+                          }}
+                        >
+                          <Text style={{ color: frenteSel === null ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12.5 }}>Sin frente</Text>
+                        </TouchableOpacity>
+                        {frentesFiltrados.map((f) => {
+                          const on = frenteSel === f.id;
+                          return (
+                            <TouchableOpacity
+                              key={f.id}
+                              onPress={() => {
+                                setFrenteSel((prev) => (prev === f.id ? null : f.id));
+                                setBusqFrenteListero('');
+                                setFrentesListeroAbierto(false);
+                              }}
+                              style={{
+                                paddingHorizontal: spacing.md,
+                                paddingVertical: 8,
+                                borderRadius: radius.pill,
+                                borderWidth: 1.5,
+                                borderColor: on ? '#B45309' : colors.border,
+                                backgroundColor: on ? '#B45309' : colors.surface,
+                              }}
+                            >
+                              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>⛏️ {f.nombre}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                        {frentesFiltrados.length === 0 ? (
+                          <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: 4 }}>
+                            Ningún frente coincide con «{busqFrenteListero}».
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
-              </View>
-            ) : null}
+              );
+            })() : null}
 
             {/* ── 🧾 TIPO DE VIAJE (26-sep-2026) — solo si hay tipos creados. El
                 normal viene marcado: el toque extra es SOLO para el cruzado. */}

@@ -40,6 +40,8 @@ const tiqueConfigSrc = leer('src/lib/tiqueConfig.ts');
 assert(tiqueConfigSrc.includes("k: 'frente'"), 'CAMPOS_TIQUE debe incluir frente');
 assert(tiqueConfigSrc.includes('frente: true'), 'frente debe venir encendido por defecto en tickets');
 assert(viajesScreenSrc.includes('FRENTE DE TRABAJO (solo para este viaje)'), 'El selector de frente del listero debe aclarar que es solo para este viaje');
+assert(viajesScreenSrc.includes('frentesListeroAbierto'), 'El selector de frente del listero debe ser plegable');
+assert(viajesScreenSrc.includes('busqFrenteListero'), 'El selector de frente del listero debe tener buscador');
 assert(!viajesScreenSrc.includes('sincronizarFrenteDesdeListero('), 'Cambiar el frente en el listero no debe modificar la planificación global del camión');
 assert(viajesScreenSrc.includes('frente: row.frenteNombre ?? null'), 'datosTiqueDeViaje debe pasar frente al ticket');
 
