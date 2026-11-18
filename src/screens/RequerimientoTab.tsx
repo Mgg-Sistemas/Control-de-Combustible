@@ -3322,6 +3322,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           fecha: ahoraIso,
         })
         : r.observaciones;
+    // Si tenía un despacho previo de almacén al enviarse a Por Pagar, limpiarlo para que no vuelva a mostrarse como Despachado.
+    if (status === 'aprobado' && esRequerimientoDespachado(r)) {
+      nuevaObs = inyectarDespachoEnObservaciones(nuevaObs, { estado: 'disponible' });
+    }
     if (status === 'aprobado') {
       nuevaObs =
         inyectarEnvioCxpEnTexto(nuevaObs, {
@@ -3371,13 +3375,20 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (status === 'aprobado') {
       if (fallbackSup && !r.supplier_id) patch.supplier_id = fallbackSup;
     }
-    const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
+    const { data: upReqRows, error } = await supabase
+      .from('inventory_requirements')
+      .update(patch)
+      .eq('id', r.id)
+      .select('id');
     if (error) return toast.error(error.message);
+    if (!upReqRows || upReqRows.length === 0) {
+      return toast.error('No se pudo actualizar el requerimiento (sin permiso o no encontrado).');
+    }
     if (status === 'aprobado') {
       try {
         const { data: cxpRows } = await supabase
           .from('cuentas')
-          .select('id, nota')
+          .select('id, nota, estado, tipo, supplier_id')
           .eq('inventory_requirement_id', r.id);
         const empId = r.empresa_pagadora_id || r.company_id || null;
         const empNombre =
@@ -3435,13 +3446,69 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               alicuota_iva: alicEnv,
               updated_at: ahoraIso,
             };
+            if (cxp.tipo === 'por_pagar' && cxp.estado === 'anulada') {
+              patchCxp.estado = 'pendiente';
+            }
+            if (fallbackSup && !cxp.supplier_id) {
+              patchCxp.supplier_id = fallbackSup;
+            }
             if (montoEnv > 0) patchCxp.monto = montoEnv;
             if (esPrioridadCompra(r.prioridad)) patchCxp.prioridad = r.prioridad;
-            await supabase.from('cuentas').update(patchCxp).eq('id', cxp.id);
+            await supabase.from('cuentas').update(patchCxp).eq('id', cxp.id).select('id');
             if (montoEnv > 0) {
               await supabase.from('purchase_orders').update({ total: montoEnv }).eq('inventory_requirement_id', r.id);
             }
           }
+        }
+        const tienePorPagar = (cxpRows || []).some((c: any) => c.tipo === 'por_pagar');
+        if (!tienePorPagar) {
+          let notaNuevaCxp = '';
+          if (empId && empNombre) {
+            notaNuevaCxp = inyectarEmpresaEnNota(notaNuevaCxp, empId, empNombre) ?? notaNuevaCxp;
+          }
+          if (condReq) {
+            notaNuevaCxp = inyectarCondicionesPagoEnNota(notaNuevaCxp, condReq) ?? notaNuevaCxp;
+          }
+          notaNuevaCxp = inyectarIvaEnCuentaNota(notaNuevaCxp, alicEnv) ?? notaNuevaCxp;
+          notaNuevaCxp = inyectarEnvioCxpEnTexto(notaNuevaCxp, {
+            enviadoPor: decName,
+            enviadoPorId: uid,
+            fecha: ahoraIso,
+            origen: 'requerimiento',
+          }) ?? notaNuevaCxp;
+          notaNuevaCxp = inyectarAprobacionCxpEnNota(notaNuevaCxp, {
+            estado: 'pendiente',
+            aprobadoPor: null,
+            aprobadoPorId: null,
+            fecha: ahoraIso,
+          }) ?? notaNuevaCxp;
+          notaNuevaCxp = anexarEventoHistorial(notaNuevaCxp, {
+            at: ahoraIso,
+            by: decName,
+            byId: uid,
+            modulo: 'Requerimientos',
+            tipo: 'enviado_por_pagar',
+            titulo: 'Enviado a Por Pagar desde Requerimientos',
+            detalle: `Enviado a Cuentas por Pagar por ${decName} · Proveedor: ${provNombreEnv} · Monto: ${usd(montoEnv)} USD.`,
+            montoDespuesUsd: montoEnv,
+            reqId: r.id,
+            reqCode: r.code,
+          });
+          await supabase.from('cuentas').insert({
+            tipo: 'por_pagar',
+            estado: 'pendiente',
+            supplier_id: fallbackSup || r.supplier_id || null,
+            inventory_requirement_id: r.id,
+            concepto: `Compra aprobada: ${r.title || r.code || 'Requerimiento'}`,
+            documento: r.code || null,
+            monto: montoEnv > 0 ? montoEnv : 0,
+            moneda: 'USD',
+            fecha_emision: ahoraIso.slice(0, 10),
+            nota: notaNuevaCxp || null,
+            alicuota_iva: alicEnv,
+            ...(esPrioridadCompra(r.prioridad) ? { prioridad: r.prioridad } : {}),
+            created_by: uid,
+          });
         }
       } catch { }
       const aprobadoresTxt =
@@ -3469,24 +3536,31 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (!ok) return;
     const decName = await perfilNombre();
     const ahoraIso = nowISO();
-    const { error } = await supabase.from('inventory_requirements').update({
+    const { data: upLoteRows, error } = await supabase.from('inventory_requirements').update({
       status: 'aprobado',
       decided_by: uid,
       decided_by_name: decName,
       decided_at: ahoraIso,
-    }).in('id', ids);
+    }).in('id', ids).select('id');
     if (error) return toast.error(error.message);
+    if (!upLoteRows || upLoteRows.length === 0) {
+      return toast.error('No se pudieron actualizar los requerimientos (sin permiso o no encontrados).');
+    }
 
     // Sincronizar monto con IVA, empresa, condiciones, plan de pago y trazabilidad en cuentas y órdenes
     try {
       for (const reqItem of reqsLote) {
+        if (esRequerimientoDespachado(reqItem)) {
+          const obsLimpia = inyectarDespachoEnObservaciones(reqItem.observaciones, { estado: 'disponible' });
+          await supabase.from('inventory_requirements').update({ observaciones: obsLimpia }).eq('id', reqItem.id);
+        }
         const alicItem = reqItem.iva_alicuota != null ? Number(reqItem.iva_alicuota) : null;
         const montoConIva = calcularTotalReqUsd(reqItem.items, rate, alicItem);
         const condItem = extraerCondicionesPago(reqItem.observaciones);
         const empIdItem = reqItem.empresa_pagadora_id || reqItem.company_id || null;
         const empNameItem = reqItem.empresa_pagadora_nombre || (empIdItem ? companies.find((c) => c.id === empIdItem)?.name || null : null);
 
-        const { data: ctas } = await supabase.from('cuentas').select('id, nota').eq('inventory_requirement_id', reqItem.id);
+        const { data: ctas } = await supabase.from('cuentas').select('id, nota, estado, tipo').eq('inventory_requirement_id', reqItem.id);
         for (const cta of ctas ?? []) {
           let notaCta = String((cta as any).nota || '');
           if (empIdItem && empNameItem) notaCta = inyectarEmpresaEnNota(notaCta, empIdItem, empNameItem) ?? notaCta;
@@ -3512,6 +3586,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             alicuota_iva: alicItem,
             updated_at: ahoraIso,
           };
+          if ((cta as any).tipo === 'por_pagar' && (cta as any).estado === 'anulada') {
+            patch.estado = 'pendiente';
+          }
           if (montoConIva > 0) patch.monto = montoConIva;
           if (reqItem.prioridad === 'alta' || reqItem.prioridad === 'media' || reqItem.prioridad === 'baja') patch.prioridad = reqItem.prioridad;
           if ((reqItem as any).plan_pago) patch.plan_pago = (reqItem as any).plan_pago;
@@ -3632,6 +3709,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       confirmText: 'Cambiar', cancelText: 'Cancelar',
     });
     if (!ok) return;
+    if (status === 'aprobado') {
+      setStatusPickerId(null);
+      await decidir(r, 'aprobado');
+      return;
+    }
     const ahoraEst = nowISO();
     const autorEst = (await perfilNombre()) || session?.user?.email || 'Usuario';
     const tipoEvEst =
@@ -3643,7 +3725,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             ? ('rechazado_o_anulado' as const)
             : ('estado_flujo' as const);
     const baseObsEst =
-      status === 'recibido' && esRequerimientoDespachado(r)
+      (status === 'recibido' || status === 'pendiente') && esRequerimientoDespachado(r)
         ? inyectarDespachoEnObservaciones(r.observaciones, { estado: 'disponible' })
         : r.observaciones;
     const obsConHistEst = anexarEventoHistorial(baseObsEst, {
@@ -3665,8 +3747,15 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (!r.decided_by && uid) patch.decided_by = uid;
     if (!r.decided_by_name && autorEst) patch.decided_by_name = autorEst;
     if (!r.decided_at) patch.decided_at = ahoraEst;
-    const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
+    const { data: upEstRows, error } = await supabase
+      .from('inventory_requirements')
+      .update(patch)
+      .eq('id', r.id)
+      .select('id');
     if (error) return toast.error(error.message);
+    if (!upEstRows || upEstRows.length === 0) {
+      return toast.error('No se pudo actualizar el estado (sin permiso o no encontrado).');
+    }
     setStatusPickerId(null);
     refetch();
     toast.success('Estado actualizado.');
