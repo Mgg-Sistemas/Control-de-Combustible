@@ -108,6 +108,7 @@ import {
   crearFrente,
   setActivoFrente,
   listAsignacionesFrente,
+  listAsignacionesFrenteConMaquinariaRango,
   asignarFrente,
   quitarAsignacionFrente,
   listMaterialesViaje,
@@ -807,18 +808,21 @@ export default function ViajesCamionesScreen() {
       setFrentesMissing(r.missing);
       if (r.error && !r.missing) console.warn('[viajes] no se pudo leer los frentes:', r.error);
     });
-    listAsignacionesFrente(caracasBusinessToday()).then((r) => {
+    listAsignacionesFrenteConMaquinariaRango([caracasBusinessToday()]).then((asigs) => {
       if (!vivo) return;
       // ⭐ Un camión puede tener VARIOS frentes el mismo día (30-sep-2026), así
       //    que se guardan todos: quedarse con el último pisaría los otros.
+      //    Si una máquina no tiene asignación en Viajes, toma su frente vigente
+      //    de Maquinaria (`maquinaria_frente_asignaciones`).
       const porCamion = new Map<string, AsignacionFrente[]>();
-      r.asignaciones.forEach((a) => {
+      asigs.forEach((a) => {
         const l = porCamion.get(a.machineryId) ?? [];
         if (!l.some((x) => x.frenteId === a.frenteId)) l.push(a);
         porCamion.set(a.machineryId, l);
       });
       setAsignacionesHoy(porCamion);
-      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer las asignaciones de frente:', r.error);
+    }).catch((err) => {
+      if (vivo) console.warn('[viajes] no se pudo leer las asignaciones de frente:', err);
     });
     return () => { vivo = false; };
   }, [frentesRecarga]);
@@ -833,7 +837,7 @@ export default function ViajesCamionesScreen() {
     const g = frenteParaGrabar(selectedTruck.id);
     setFrenteSel(g.frenteId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTruck?.id, asignacionesHoy]);
+  }, [selectedTruck?.id, asignacionesHoy, frentes.length]);
   /**
    * El frente congelado que le toca a un camión HOY (o nada).
    *
@@ -843,13 +847,20 @@ export default function ViajesCamionesScreen() {
    *    uno al azar sería inventar de dónde salió el material.
    */
   const frenteParaGrabar = (machineryId: string | null) => {
+    const resolverFrenteViajes = (a: AsignacionFrente) => {
+      const porId = frentes.find((x) => x.id === a.frenteId);
+      if (porId) return { frenteId: porId.id, frenteNombre: porId.nombre };
+      const porNombre = a.frenteNombre ? frentes.find((x) => norm(x.nombre) === norm(a.frenteNombre)) : undefined;
+      if (porNombre) return { frenteId: porNombre.id, frenteNombre: porNombre.nombre };
+      return { frenteId: null, frenteNombre: null };
+    };
     const l = machineryId ? asignacionesHoy.get(machineryId) ?? [] : [];
     if (l.length === 0) return { frenteId: null, frenteNombre: null };
-    if (l.length === 1) return { frenteId: l[0].frenteId, frenteNombre: l[0].frenteNombre };
+    if (l.length === 1) return resolverFrenteViajes(l[0]);
     const conHora = l.filter((a) => !!a.creadoAt && Number.isFinite(Date.parse(a.creadoAt)));
     if (conHora.length === l.length) {
       const masReciente = [...conHora].sort((a, b) => Date.parse(b.creadoAt!) - Date.parse(a.creadoAt!))[0];
-      return { frenteId: masReciente.frenteId, frenteNombre: masReciente.frenteNombre };
+      return resolverFrenteViajes(masReciente);
     }
     return { frenteId: null, frenteNombre: null };
   };
@@ -1477,7 +1488,7 @@ export default function ViajesCamionesScreen() {
         //    asignación del camión HOY). Reasignarlo después no toca este viaje.
         ...(frenteSel
           ? (() => {
-              const f = frentesActivos.find((x) => x.id === frenteSel);
+              const f = frentes.find((x) => x.id === frenteSel);
               return f ? { frenteId: f.id, frenteNombre: f.nombre } : { frenteId: null, frenteNombre: null };
             })()
           : { frenteId: null, frenteNombre: null }),
@@ -4121,7 +4132,7 @@ export default function ViajesCamionesScreen() {
     if (canVerPanel) loadAlerta();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canVerPanel, alertaHoras]);
-  useRealtimeRefresh(['camion_viajes', 'machine_operators', 'machinery', 'viaje_frente_asignaciones', 'frentes_trabajo'], () => {
+  useRealtimeRefresh(['camion_viajes', 'machine_operators', 'machinery', 'viaje_frente_asignaciones', 'maquinaria_frente_asignaciones', 'frentes_trabajo'], () => {
     loadTrucks();
     setFrentesRecarga((n) => n + 1);
     if (canWrite) loadMisViajes();

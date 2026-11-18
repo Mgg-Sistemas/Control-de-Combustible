@@ -3,7 +3,8 @@ import { esRolListero } from './rolListero';
 import { jornadaDeFecha, jornadaWindowISO } from './caracasDay';
 import { unidadTarifa, type UnidadTarifaViaje } from './tarifaViajeUnidad';
 import {
-  CAMPOS_VIAJE_ROW, completarFrentes, mapaAsignaciones, rangoJornadas, type AsignacionDia,
+  CAMPOS_VIAJE_ROW, completarFrentes, combinarAsignacionesConRespaldoMaquinaria,
+  mapaAsignaciones, rangoJornadas, type AsignacionDia,
 } from './frentesAuto';
 import { proyectoOperacionValido, type ProyectoOperacion } from './ubicacionesObra';
 
@@ -1346,11 +1347,33 @@ export async function quitarFrenteDesde(
  * Si todos los viajes ya traen frente —o la tabla todavía no existe— NO se hace
  * ninguna consulta extra.
  */
+/**
+ * Lee las asignaciones diarias de viajes y las completa con el frente vigente
+ * de maquinaria (`FRENTES_MAQUINARIA`) cuando el equipo no tiene asignación
+ * propia en `viaje_frente_asignaciones` para esa jornada.
+ */
+export async function listAsignacionesFrenteConMaquinariaRango(
+  jornadas: string[],
+): Promise<AsignacionDia[]> {
+  const rango = rangoJornadas(jornadas);
+  if (!rango) return [];
+  const [resViajes, resMaq] = await Promise.all([
+    listAsignacionesFrenteRango(rango.desde, rango.hasta),
+    listAsignacionesHasta(rango.hasta, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [] as AsignacionDia[], missing: true })),
+  ]);
+  return combinarAsignacionesConRespaldoMaquinaria(
+    resViajes.asignaciones,
+    resMaq.asignaciones,
+    jornadas,
+  );
+}
+
 async function conFrenteDelDia(rows: CamionViajeRow[]): Promise<CamionViajeRow[]> {
   const sinFrente = rows.filter((r) => r.machineryId && !CAMPOS_VIAJE_ROW.tieneFrente(r));
-  const rango = rangoJornadas(sinFrente.map((r) => jornadaDeFecha(new Date(r.registeredAt))));
+  const jornadas = sinFrente.map((r) => jornadaDeFecha(new Date(r.registeredAt)));
+  const rango = rangoJornadas(jornadas);
   if (!rango) return rows;
-  const { asignaciones } = await listAsignacionesFrenteRango(rango.desde, rango.hasta);
+  const asignaciones = await listAsignacionesFrenteConMaquinariaRango(jornadas);
   if (asignaciones.length === 0) return rows;
   const { filas } = completarFrentes(
     rows, mapaAsignaciones(asignaciones),

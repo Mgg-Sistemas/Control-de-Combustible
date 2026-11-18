@@ -1,8 +1,8 @@
 import { supabase, selectAllRows } from './supabase';
 import { AlcancePeso, MarcaPeso, TarifaPeso, UnidadTarifaPeso, ViajePeso } from './pagoPeso';
-import { listAsignacionesFrenteRango } from './camionViajes';
+import { listAsignacionesFrenteConMaquinariaRango } from './camionViajes';
 import { jornadaDeFecha } from './caracasDay';
-import { CAMPOS_VIAJE_PAGO, completarFrentes, mapaAsignaciones, rangoJornadas } from './frentesAuto';
+import { CAMPOS_VIAJE_PAGO, completarFrentes, mapaAsignaciones } from './frentesAuto';
 
 // Lecturas y escrituras del PAGO POR PESO (03-oct-2026). Las reglas de dinero viven
 // en `pagoPeso.ts`; acá solo se habla con la base.
@@ -53,9 +53,8 @@ export async function cargarDatosPagoPeso(desdeJornada: string = INICIO_PAGO_PES
 /** El frente del día también acá: solo agrupa y rotula, no mueve un centavo. */
 async function conFrenteDelDia(viajes: ViajePeso[]): Promise<ViajePeso[]> {
   const sinFrente = viajes.filter((v: any) => v.machinery_id && !CAMPOS_VIAJE_PAGO.tieneFrente(v));
-  const rango = rangoJornadas(sinFrente.map((v: any) => jornadaDeFecha(new Date(v.registered_at))));
-  if (!rango) return viajes;
-  const { asignaciones } = await listAsignacionesFrenteRango(rango.desde, rango.hasta);
+  const jornadas = sinFrente.map((v: any) => jornadaDeFecha(new Date(v.registered_at)));
+  const asignaciones = await listAsignacionesFrenteConMaquinariaRango(jornadas);
   if (asignaciones.length === 0) return viajes;
   const { filas } = completarFrentes(viajes, mapaAsignaciones(asignaciones), (iso) => jornadaDeFecha(new Date(iso)), CAMPOS_VIAJE_PAGO);
   return filas as ViajePeso[];

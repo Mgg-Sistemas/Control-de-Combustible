@@ -176,3 +176,45 @@ export function rangoJornadas(jornadas: string[]): { desde: string; hasta: strin
   if (v.length === 0) return null;
   return { desde: v[0], hasta: v[v.length - 1] };
 }
+
+/**
+ * Combina asignaciones diarias de viajes (`FRENTES_VIAJES`) con asignaciones
+ * vigentes de maquinaria (`FRENTES_MAQUINARIA`) para las jornadas pedidas.
+ * Si un equipo ya tiene asignación en viajes para esa jornada, manda viajes;
+ * si no tiene en viajes, toma el frente vigente de maquinaria en esa jornada.
+ */
+export function combinarAsignacionesConRespaldoMaquinaria(
+  asigsViajes: AsignacionDia[],
+  asigsMaq: AsignacionDia[],
+  jornadas: string[],
+): AsignacionDia[] {
+  const salida: AsignacionDia[] = [...(asigsViajes ?? [])];
+  if (!asigsMaq || asigsMaq.length === 0 || !jornadas || jornadas.length === 0) return salida;
+  const tieneEnViajes = new Set(
+    salida.filter((a) => a && a.jornada && a.machineryId && a.frenteId)
+      .map((a) => claveAsignacion(a.jornada, a.machineryId)),
+  );
+  const jornadasUnicas = [...new Set(jornadas.map((j) => String(j ?? '').slice(0, 10)).filter(Boolean))];
+  const orden = (a: AsignacionDia) => `${String(a.jornada ?? '').slice(0, 10)}|${String(a.creadoAt ?? '')}`;
+  for (const j of jornadasUnicas) {
+    const ultima = new Map<string, AsignacionDia>();
+    for (const a of asigsMaq) {
+      const aj = String(a?.jornada ?? '').slice(0, 10);
+      if (!aj || aj > j || !a.machineryId) continue;
+      const prev = ultima.get(a.machineryId);
+      if (!prev || orden(a) >= orden(prev)) ultima.set(a.machineryId, a);
+    }
+    for (const [mid, a] of ultima.entries()) {
+      if (!a.frenteId) continue;
+      if (tieneEnViajes.has(claveAsignacion(j, mid))) continue;
+      salida.push({
+        jornada: j,
+        machineryId: mid,
+        frenteId: a.frenteId,
+        frenteNombre: a.frenteNombre,
+        creadoAt: a.creadoAt ?? null,
+      });
+    }
+  }
+  return salida;
+}

@@ -1,8 +1,8 @@
 import { supabase, selectAllRows } from './supabase';
 import { AlcanceTarifa, AnuladaModo, INICIO_PAGO_VIAJES, MarcaViaje, ModoPago, ModoPagoFila, TarifaViaje, ViajePago } from './pagoViajes';
-import { listAsignacionesFrenteRango } from './camionViajes';
+import { listAsignacionesFrenteConMaquinariaRango } from './camionViajes';
 import { jornadaDeFecha } from './caracasDay';
-import { CAMPOS_VIAJE_PAGO, completarFrentes, mapaAsignaciones, rangoJornadas } from './frentesAuto';
+import { CAMPOS_VIAJE_PAGO, completarFrentes, mapaAsignaciones } from './frentesAuto';
 
 // Lecturas y escrituras del pago de viajes. Las reglas de dinero viven en
 // `pagoViajes.ts`; acá solo se habla con la base.
@@ -70,9 +70,8 @@ export async function cargarDatosPagoViajes(desdeJornada: string = INICIO_PAGO_V
  */
 async function conFrenteDelDia(viajes: ViajePago[]): Promise<ViajePago[]> {
   const sinFrente = viajes.filter((v: any) => v.machinery_id && !CAMPOS_VIAJE_PAGO.tieneFrente(v));
-  const rango = rangoJornadas(sinFrente.map((v: any) => jornadaDeFecha(new Date(v.registered_at))));
-  if (!rango) return viajes;
-  const { asignaciones } = await listAsignacionesFrenteRango(rango.desde, rango.hasta);
+  const jornadas = sinFrente.map((v: any) => jornadaDeFecha(new Date(v.registered_at)));
+  const asignaciones = await listAsignacionesFrenteConMaquinariaRango(jornadas);
   if (asignaciones.length === 0) return viajes;
   const { filas } = completarFrentes(
     viajes, mapaAsignaciones(asignaciones),

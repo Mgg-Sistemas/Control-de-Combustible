@@ -48,6 +48,7 @@ const cargar = (rel) => {
 
 const {
   claveAsignacion, mapaAsignaciones, completarFrentes, rangoJornadas,
+  combinarAsignacionesConRespaldoMaquinaria,
   CAMPOS_VIAJE_ROW, CAMPOS_VIAJE_PAGO,
 } = cargar('src/lib/frentesAuto.ts');
 
@@ -169,6 +170,36 @@ eq('un solo día es un rango de un día', rangoJornadas(['2026-09-29']), { desde
   const pg = sinComentarios(leer('src/lib/pagoViajesDb.ts'));
   ok('⭐ el reporte de pago usa la misma función', /await conFrenteDelDia\(viajes as ViajePago\[\]\)/.test(pg));
   ok('…con los campos de la fila cruda', /CAMPOS_VIAJE_PAGO/.test(pg));
+}
+
+// ── 6) Respaldo desde frentes de maquinaria (cuando el viaje es sobre una máquina) ──
+{
+  const asigsViajes = [
+    { jornada: '2026-11-18', machineryId: 'cam-1', frenteId: 'fv-1', frenteNombre: 'PORTO FINO' },
+  ];
+  const asigsMaq = [
+    { jornada: '2026-11-15', machineryId: 'maq-1', frenteId: 'fm-1', frenteNombre: 'VENLIV', creadoAt: '2026-11-15T08:00:00Z' },
+    // cam-1 ya tiene en viajes el 2026-11-18: manda viajes, no maquinaria
+    { jornada: '2026-11-10', machineryId: 'cam-1', frenteId: 'fm-9', frenteNombre: 'OTRO', creadoAt: '2026-11-10T08:00:00Z' },
+    // maq-2 quedó marcada «sin frente» desde el 2026-11-17
+    { jornada: '2026-11-10', machineryId: 'maq-2', frenteId: 'fm-2', frenteNombre: 'EL MAMON', creadoAt: '2026-11-10T08:00:00Z' },
+    { jornada: '2026-11-17', machineryId: 'maq-2', frenteId: '', frenteNombre: '', creadoAt: '2026-11-17T08:00:00Z' },
+  ];
+  const comb = combinarAsignacionesConRespaldoMaquinaria(asigsViajes, asigsMaq, ['2026-11-18']);
+  const { filas, completados } = completarFrentes(
+    [
+      { id: 'v1', machineryId: 'maq-1', registeredAt: '2026-11-18T14:00:00.000Z', frenteId: null, frenteNombre: null },
+      { id: 'v2', machineryId: 'cam-1', registeredAt: '2026-11-18T14:00:00.000Z', frenteId: null, frenteNombre: null },
+      { id: 'v3', machineryId: 'maq-2', registeredAt: '2026-11-18T14:00:00.000Z', frenteId: null, frenteNombre: null },
+    ],
+    mapaAsignaciones(comb),
+    (iso) => jornadaDe(iso),
+    CAMPOS_VIAJE_ROW,
+  );
+  eq('máquina sin frente en viajes toma su frente vigente de maquinaria', filas[0].frenteNombre, 'VENLIV');
+  eq('camión con frente en viajes conserva el de viajes', filas[1].frenteNombre, 'PORTO FINO');
+  eq('máquina con marca sin frente se queda sin frente', filas[2].frenteNombre, null);
+  eq('completó 2 viajes', completados, 2);
 }
 
 console.log('\nEL FRENTE DEL DÍA SE TOMA SOLO — hacia atrás y hacia adelante\n');
