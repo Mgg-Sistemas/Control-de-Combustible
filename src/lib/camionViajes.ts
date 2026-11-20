@@ -1358,7 +1358,7 @@ export async function listAsignacionesFrenteConMaquinariaRango(
   const rango = rangoJornadas(jornadas);
   if (!rango) return [];
   const [resViajes, resMaq] = await Promise.all([
-    listAsignacionesFrenteRango(rango.desde, rango.hasta),
+    listAsignacionesHasta(rango.hasta, FRENTES_VIAJES).catch(() => listAsignacionesFrenteRango(rango.desde, rango.hasta)),
     listAsignacionesHasta(rango.hasta, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [] as AsignacionDia[], missing: true })),
   ]);
   return combinarAsignacionesConRespaldoMaquinaria(

@@ -111,6 +111,8 @@ import {
   listAsignacionesFrenteConMaquinariaRango,
   asignarFrente,
   quitarAsignacionFrente,
+  congelarFrentePrevioEnViajes,
+  sincronizarFrenteDesdeListero,
   listMaterialesViaje,
   cambiarMiCdtListero,
   sentidoViajeValido,
@@ -875,14 +877,18 @@ export default function ViajesCamionesScreen() {
   const [fotoPeso, setFotoPeso] = useState<string | null>(null);
   const [fotoTomando, setFotoTomando] = useState(false);
   // El tipo también es DE ESTE viaje: se limpia junto con el peso.
-  // Y el frente vuelve al planificado del camión (si el listero lo cambió, fue solo para ese viaje).
+  // El frente del camión SE CONSERVA si ya tiene uno seleccionado o asignado (20-nov-2026).
   const limpiarPeso = () => {
     setPesoTexto('');
     setTaraManualTexto('');
     setFotoPeso(null);
     setTipoSel(null);
-    if (!selectedTruck || selectedTruck.id === FUERA_CATALOGO_ID) setFrenteSel(null);
-    else setFrenteSel(frenteParaGrabar(selectedTruck.id).frenteId);
+    if (!selectedTruck || selectedTruck.id === FUERA_CATALOGO_ID) {
+      setFrenteSel(null);
+    } else {
+      const fActual = frenteSel ?? frenteParaGrabar(selectedTruck.id).frenteId;
+      setFrenteSel(fActual);
+    }
   };
 
   // Cámara o galería (27-sep-2026, a pedido: «si deja tomar foto, también debe
@@ -1521,6 +1527,42 @@ export default function ViajesCamionesScreen() {
         listeroId: uid,
         registeredAtISO: registeredAt,
       }) || nuevoClientActionId();
+
+      // ⛏️ Si el listero cambió el frente del camión, sellar los previos y fijar el nuevo
+      if (frenteSel && selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID) {
+        const asigActual = frenteParaGrabar(selectedTruck.id);
+        if (asigActual.frenteId !== frenteSel) {
+          if (asigActual.frenteId && asigActual.frenteNombre) {
+            congelarFrentePrevioEnViajes({
+              jornada: caracasBusinessToday(),
+              machineryId: selectedTruck.id,
+              frenteId: asigActual.frenteId,
+              frenteNombre: asigActual.frenteNombre,
+            }).catch(() => {});
+          }
+          const fObj = frentes.find((x) => x.id === frenteSel);
+          if (fObj) {
+            sincronizarFrenteDesdeListero({
+              jornada: caracasBusinessToday(),
+              machineryId: selectedTruck.id,
+              frenteId: fObj.id,
+              userId: uid,
+              userName: fullName || listeroName || null,
+            }).catch(() => {});
+            setAsignacionesHoy((prev) => {
+              const next = new Map(prev);
+              const cur = next.get(selectedTruck.id) ?? [];
+              next.set(selectedTruck.id, [...cur.filter((x) => x.frenteId !== fObj.id), {
+                machineryId: selectedTruck.id,
+                frenteId: fObj.id,
+                frenteNombre: fObj.nombre,
+                creadoAt: new Date().toISOString(),
+              }]);
+              return next;
+            });
+          }
+        }
+      }
 
       if (!isOnline()) {
         if (await guardarEnCola(payload, clientActionId,

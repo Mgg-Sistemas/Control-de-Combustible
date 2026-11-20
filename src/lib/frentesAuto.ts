@@ -139,24 +139,28 @@ export function completarFrentes<T>(
     if (!mid) return r;                     // camión fuera del catálogo: no hay a qué asignarle
     const asigs = frentesDe(mapa, jornadaDe(campos.fechaISO(r)), mid);
     if (asigs.length === 0) return r;
-    // ⭐ CON VARIOS FRENTES EN LA MISMA JORNADA (17-nov-2026):
+    // ⭐ CON VARIOS FRENTES EN LA MISMA JORNADA (17-nov-2026, blindado 20-nov-2026):
     //    Si las asignaciones traen su marca de hora `creadoAt`, podemos saber
     //    con exactitud en qué frente estaba trabajando el camión a la hora del
     //    viaje (el último frente asignado hasta esa hora; si el viaje fue antes
     //    del primero, el primero del día). Así, pasar por varios frentes en un
-    //    mismo día NO deja los viajes en «Sin frente». Solo queda ambiguo si
-    //    falta la hora en alguna asignación.
+    //    mismo día NO deja los viajes en «Sin frente». Y si falta la hora en
+    //    alguna asignación, se usa la última disponible como fallback en vez de
+    //    descartar el viaje a ambiguos.
     if (asigs.length > 1) {
       const tViaje = Date.parse(campos.fechaISO(r));
-      const todasConHora = Number.isFinite(tViaje) && asigs.every((a) => !!a.creadoAt && Number.isFinite(Date.parse(a.creadoAt)));
-      if (!todasConHora) { ambiguos++; return r; }
-      const ordenadas = [...asigs].sort((a, b) => Date.parse(a.creadoAt!) - Date.parse(b.creadoAt!));
-      let elegida = ordenadas[0];
-      for (const a of ordenadas) {
-        if (Date.parse(a.creadoAt!) <= tViaje) elegida = a;
+      const conHora = asigs.filter((a) => !!a.creadoAt && Number.isFinite(Date.parse(a.creadoAt!)));
+      if (Number.isFinite(tViaje) && conHora.length > 0) {
+        const ordenadas = [...conHora].sort((a, b) => Date.parse(a.creadoAt!) - Date.parse(b.creadoAt!));
+        let elegida = ordenadas[0];
+        for (const a of ordenadas) {
+          if (Date.parse(a.creadoAt!) <= tViaje) elegida = a;
+        }
+        completados++;
+        return campos.poner(r, elegida);
       }
       completados++;
-      return campos.poner(r, elegida);
+      return campos.poner(r, asigs[asigs.length - 1]);
     }
     completados++;
     return campos.poner(r, asigs[0]);
@@ -178,8 +182,79 @@ export function rangoJornadas(jornadas: string[]): { desde: string; hasta: strin
 }
 
 /**
- * Combina asignaciones diarias de viajes (`FRENTES_VIAJES`) con asignaciones
- * vigentes de maquinaria (`FRENTES_MAQUINARIA`) para las jornadas pedidas.
+ * Resuelve las asignaciones para un conjunto de jornadas con soporte de ARRASTRE
+ * CONTINUO (frente pegajoso) e INTRA-JORNADA (múltiples frentes en un mismo día).
+ *
+ * Para cada jornada pedida y cada camión/máquina:
+ * 1. Si en esa jornada exacta hay asignaciones registradas, se toman todas (con sus timestamps `creadoAt`).
+ * 2. Si no hay asignación en esa jornada, se busca la última asignación histórica (< jornada).
+ *    Si tiene un frente válido (no es la marca de "sin frente"), se arrastra a esa jornada.
+ *    Si la última marca previa fue "sin frente", se respeta y no se le asigna frente.
+ */
+export function resolverAsignacionesArrastrables(
+  asignacionesHistoricas: AsignacionDia[],
+  jornadas: string[],
+): AsignacionDia[] {
+  if (!asignacionesHistoricas || asignacionesHistoricas.length === 0 || !jornadas || jornadas.length === 0) {
+    return asignacionesHistoricas ?? [];
+  }
+  const jornadasUnicas = [...new Set(jornadas.map((j) => String(j ?? '').slice(0, 10)).filter(Boolean))];
+  const salida: AsignacionDia[] = [];
+
+  // Agrupar asignaciones históricas por camión/máquina
+  const porCamion = new Map<string, AsignacionDia[]>();
+  for (const a of asignacionesHistoricas) {
+    if (!a || !a.machineryId) continue;
+    const l = porCamion.get(a.machineryId) ?? [];
+    l.push(a);
+    porCamion.set(a.machineryId, l);
+  }
+
+  const orden = (a: AsignacionDia) => `${String(a.jornada ?? '').slice(0, 10)}|${String(a.creadoAt ?? '')}`;
+
+  for (const j of jornadasUnicas) {
+    for (const [mid, hist] of porCamion.entries()) {
+      // 1. Asignaciones exactas de esta jornada
+      const deHoy = hist.filter((a) => String(a.jornada ?? '').slice(0, 10) === j);
+      if (deHoy.length > 0) {
+        for (const a of deHoy) {
+          if (a.frenteId) salida.push(a);
+        }
+        continue;
+      }
+
+      // 2. Si no hay en esta jornada, buscar la última previa (< j)
+      const previas = hist.filter((a) => {
+        const aj = String(a.jornada ?? '').slice(0, 10);
+        return aj && aj < j;
+      });
+      if (previas.length === 0) continue;
+
+      let ultimaPrevia = previas[0];
+      for (const a of previas) {
+        if (orden(a) >= orden(ultimaPrevia)) ultimaPrevia = a;
+      }
+
+      // Si la última asignación tiene frente válido (no es marca 'sin frente'), se arrastra
+      if (ultimaPrevia && ultimaPrevia.frenteId) {
+        salida.push({
+          jornada: j,
+          machineryId: mid,
+          frenteId: ultimaPrevia.frenteId,
+          frenteNombre: ultimaPrevia.frenteNombre,
+          creadoAt: ultimaPrevia.creadoAt ?? null,
+        });
+      }
+    }
+  }
+
+  return salida;
+}
+
+/**
+ * Combina asignaciones de viajes (`FRENTES_VIAJES`) con asignaciones vigentes de
+ * maquinaria (`FRENTES_MAQUINARIA`) para las jornadas pedidas, con ARRASTRE CONTINUO
+ * (frente pegajoso) tanto en camiones como en maquinaria.
  * Si un equipo ya tiene asignación en viajes para esa jornada, manda viajes;
  * si no tiene en viajes, toma el frente vigente de maquinaria en esa jornada.
  */
@@ -188,33 +263,19 @@ export function combinarAsignacionesConRespaldoMaquinaria(
   asigsMaq: AsignacionDia[],
   jornadas: string[],
 ): AsignacionDia[] {
-  const salida: AsignacionDia[] = [...(asigsViajes ?? [])];
+  const viajesResueltos = resolverAsignacionesArrastrables(asigsViajes ?? [], jornadas);
+  const salida: AsignacionDia[] = [...viajesResueltos];
   if (!asigsMaq || asigsMaq.length === 0 || !jornadas || jornadas.length === 0) return salida;
+
   const tieneEnViajes = new Set(
     salida.filter((a) => a && a.jornada && a.machineryId && a.frenteId)
       .map((a) => claveAsignacion(a.jornada, a.machineryId)),
   );
-  const jornadasUnicas = [...new Set(jornadas.map((j) => String(j ?? '').slice(0, 10)).filter(Boolean))];
-  const orden = (a: AsignacionDia) => `${String(a.jornada ?? '').slice(0, 10)}|${String(a.creadoAt ?? '')}`;
-  for (const j of jornadasUnicas) {
-    const ultima = new Map<string, AsignacionDia>();
-    for (const a of asigsMaq) {
-      const aj = String(a?.jornada ?? '').slice(0, 10);
-      if (!aj || aj > j || !a.machineryId) continue;
-      const prev = ultima.get(a.machineryId);
-      if (!prev || orden(a) >= orden(prev)) ultima.set(a.machineryId, a);
-    }
-    for (const [mid, a] of ultima.entries()) {
-      if (!a.frenteId) continue;
-      if (tieneEnViajes.has(claveAsignacion(j, mid))) continue;
-      salida.push({
-        jornada: j,
-        machineryId: mid,
-        frenteId: a.frenteId,
-        frenteNombre: a.frenteNombre,
-        creadoAt: a.creadoAt ?? null,
-      });
-    }
+  const maqResueltas = resolverAsignacionesArrastrables(asigsMaq, jornadas);
+  for (const a of maqResueltas) {
+    if (!a.frenteId) continue;
+    if (tieneEnViajes.has(claveAsignacion(a.jornada, a.machineryId))) continue;
+    salida.push(a);
   }
   return salida;
 }
