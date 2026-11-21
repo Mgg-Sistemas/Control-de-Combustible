@@ -139,28 +139,24 @@ export function completarFrentes<T>(
     if (!mid) return r;                     // camión fuera del catálogo: no hay a qué asignarle
     const asigs = frentesDe(mapa, jornadaDe(campos.fechaISO(r)), mid);
     if (asigs.length === 0) return r;
-    // ⭐ CON VARIOS FRENTES EN LA MISMA JORNADA (17-nov-2026, blindado 20-nov-2026):
+    // ⭐ CON VARIOS FRENTES EN LA MISMA JORNADA (17-nov-2026):
     //    Si las asignaciones traen su marca de hora `creadoAt`, podemos saber
     //    con exactitud en qué frente estaba trabajando el camión a la hora del
     //    viaje (el último frente asignado hasta esa hora; si el viaje fue antes
     //    del primero, el primero del día). Así, pasar por varios frentes en un
-    //    mismo día NO deja los viajes en «Sin frente». Y si falta la hora en
-    //    alguna asignación, se usa la última disponible como fallback en vez de
-    //    descartar el viaje a ambiguos.
+    //    mismo día NO deja los viajes en «Sin frente». Solo queda ambiguo si
+    //    falta la hora en alguna asignación.
     if (asigs.length > 1) {
       const tViaje = Date.parse(campos.fechaISO(r));
-      const conHora = asigs.filter((a) => !!a.creadoAt && Number.isFinite(Date.parse(a.creadoAt!)));
-      if (Number.isFinite(tViaje) && conHora.length > 0) {
-        const ordenadas = [...conHora].sort((a, b) => Date.parse(a.creadoAt!) - Date.parse(b.creadoAt!));
-        let elegida = ordenadas[0];
-        for (const a of ordenadas) {
-          if (Date.parse(a.creadoAt!) <= tViaje) elegida = a;
-        }
-        completados++;
-        return campos.poner(r, elegida);
+      const todasConHora = Number.isFinite(tViaje) && asigs.every((a) => !!a.creadoAt && Number.isFinite(Date.parse(a.creadoAt)));
+      if (!todasConHora) { ambiguos++; return r; }
+      const ordenadas = [...asigs].sort((a, b) => Date.parse(a.creadoAt!) - Date.parse(b.creadoAt!));
+      let elegida = ordenadas[0];
+      for (const a of ordenadas) {
+        if (Date.parse(a.creadoAt!) <= tViaje) elegida = a;
       }
       completados++;
-      return campos.poner(r, asigs[asigs.length - 1]);
+      return campos.poner(r, elegida);
     }
     completados++;
     return campos.poner(r, asigs[0]);

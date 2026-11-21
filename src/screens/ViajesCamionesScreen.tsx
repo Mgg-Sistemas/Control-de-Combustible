@@ -111,8 +111,6 @@ import {
   listAsignacionesFrenteConMaquinariaRango,
   asignarFrente,
   quitarAsignacionFrente,
-  congelarFrentePrevioEnViajes,
-  sincronizarFrenteDesdeListero,
   listMaterialesViaje,
   cambiarMiCdtListero,
   sentidoViajeValido,
@@ -789,9 +787,6 @@ export default function ViajesCamionesScreen() {
   const [sentidoSel, setSentidoSel] = useState<SentidoViaje | null>(null);
   const [materialSel, setMaterialSel] = useState<string | null>(null);
   const [operacionSel, setOperacionSel] = useState<ProyectoOperacion | null>(null);
-  const [frenteSel, setFrenteSel] = useState<string | null>(null);
-  const [frentesListeroAbierto, setFrentesListeroAbierto] = useState(false);
-  const [busqFrenteListero, setBusqFrenteListero] = useState('');
 
   // ── FRENTES DE TRABAJO (28-sep-2026): de dónde recoge cada camión. La
   // oficina los asigna por jornada; el teléfono los lee para CONGELAR el
@@ -829,17 +824,6 @@ export default function ViajesCamionesScreen() {
     return () => { vivo = false; };
   }, [frentesRecarga]);
   const frentesActivos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
-  // Al elegir camión en la pantalla del listero, pre-selecciona el frente
-  // asignado hoy (o el más reciente si tiene varios) para que quede listo.
-  useEffect(() => {
-    if (!selectedTruck || selectedTruck.id === FUERA_CATALOGO_ID) {
-      setFrenteSel(null);
-      return;
-    }
-    const g = frenteParaGrabar(selectedTruck.id);
-    setFrenteSel(g.frenteId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTruck?.id, asignacionesHoy, frentes.length]);
   /**
    * El frente congelado que le toca a un camión HOY (o nada).
    *
@@ -877,18 +861,11 @@ export default function ViajesCamionesScreen() {
   const [fotoPeso, setFotoPeso] = useState<string | null>(null);
   const [fotoTomando, setFotoTomando] = useState(false);
   // El tipo también es DE ESTE viaje: se limpia junto con el peso.
-  // El frente del camión SE CONSERVA si ya tiene uno seleccionado o asignado (20-nov-2026).
   const limpiarPeso = () => {
     setPesoTexto('');
     setTaraManualTexto('');
     setFotoPeso(null);
     setTipoSel(null);
-    if (!selectedTruck || selectedTruck.id === FUERA_CATALOGO_ID) {
-      setFrenteSel(null);
-    } else {
-      const fActual = frenteSel ?? frenteParaGrabar(selectedTruck.id).frenteId;
-      setFrenteSel(fActual);
-    }
   };
 
   // Cámara o galería (27-sep-2026, a pedido: «si deja tomar foto, también debe
@@ -1490,14 +1467,10 @@ export default function ViajesCamionesScreen() {
         tipoViajeNombre: tipoElegido?.nombre ?? null,
         tipoViajeTarifa: tipoElegido?.tarifaUsd ?? null,
         tipoViajeUnidad: tipoElegido?.unidad ?? null,
-        // ⭐ EL FRENTE, CONGELADO: lo que el listero eligió (precargado de la
-        //    asignación del camión HOY). Reasignarlo después no toca este viaje.
-        ...(frenteSel
-          ? (() => {
-              const f = frentes.find((x) => x.id === frenteSel);
-              return f ? { frenteId: f.id, frenteNombre: f.nombre } : { frenteId: null, frenteNombre: null };
-            })()
-          : { frenteId: null, frenteNombre: null }),
+        // ⭐ EL FRENTE, CONGELADO: la asignación que este camión tiene HOY.
+        //    Reasignarlo mañana no toca este viaje; un camión sin asignación
+        //    registra sin frente (se le puede poner después en ✏️ Editar).
+        ...frenteParaGrabar(esFuera ? null : selectedTruck.id),
         sentido: sentidoSel,
         materialId: materialSel ? (materialesActivos.find((m) => m.id === materialSel)?.id ?? null) : null,
         materialNombre: materialSel ? (materialesActivos.find((m) => m.id === materialSel)?.nombre ?? null) : null,
@@ -1527,42 +1500,6 @@ export default function ViajesCamionesScreen() {
         listeroId: uid,
         registeredAtISO: registeredAt,
       }) || nuevoClientActionId();
-
-      // ⛏️ Si el listero cambió el frente del camión, sellar los previos y fijar el nuevo
-      if (frenteSel && selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID) {
-        const asigActual = frenteParaGrabar(selectedTruck.id);
-        if (asigActual.frenteId !== frenteSel) {
-          if (asigActual.frenteId && asigActual.frenteNombre) {
-            congelarFrentePrevioEnViajes({
-              jornada: caracasBusinessToday(),
-              machineryId: selectedTruck.id,
-              frenteId: asigActual.frenteId,
-              frenteNombre: asigActual.frenteNombre,
-            }).catch(() => {});
-          }
-          const fObj = frentes.find((x) => x.id === frenteSel);
-          if (fObj) {
-            sincronizarFrenteDesdeListero({
-              jornada: caracasBusinessToday(),
-              machineryId: selectedTruck.id,
-              frenteId: fObj.id,
-              userId: uid,
-              userName: fullName || listeroName || null,
-            }).catch(() => {});
-            setAsignacionesHoy((prev) => {
-              const next = new Map(prev);
-              const cur = next.get(selectedTruck.id) ?? [];
-              next.set(selectedTruck.id, [...cur.filter((x) => x.frenteId !== fObj.id), {
-                machineryId: selectedTruck.id,
-                frenteId: fObj.id,
-                frenteNombre: fObj.nombre,
-                creadoAt: new Date().toISOString(),
-              }]);
-              return next;
-            });
-          }
-        }
-      }
 
       if (!isOnline()) {
         if (await guardarEnCola(payload, clientActionId,
@@ -5152,115 +5089,6 @@ export default function ViajesCamionesScreen() {
                 })}
               </View>
             </View>
-
-            {frentesActivos.length > 0 ? (() => {
-              const frenteActual = frenteSel ? frentesActivos.find((f) => f.id === frenteSel) ?? null : null;
-              const qF = norm(busqFrenteListero);
-              const frentesFiltrados = qF
-                ? frentesActivos.filter((f) => norm(f.nombre).includes(qF))
-                : frentesActivos;
-              return (
-                <View style={{ gap: 6 }}>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ FRENTE DE TRABAJO (solo para este viaje)</Text>
-                  <TouchableOpacity
-                    onPress={() => setFrentesListeroAbierto((v) => !v)}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      paddingHorizontal: spacing.md,
-                      paddingVertical: 10,
-                      borderRadius: radius.md,
-                      borderWidth: 1.5,
-                      borderColor: frenteActual ? '#B45309' : colors.border,
-                      backgroundColor: frenteActual ? '#FEF3C7' : colors.surface,
-                      gap: 8,
-                    }}
-                  >
-                    <Text style={{ color: frenteActual ? '#92400E' : colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
-                      {frenteActual ? `⛏️ ${frenteActual.nombre}` : '⛏️ Sin frente (toca para elegir)'}
-                    </Text>
-                    <Text style={{ color: frenteActual ? '#92400E' : colors.muted, fontWeight: '800', fontSize: 12 }}>
-                      {frentesListeroAbierto ? '▴ Ocultar' : `▾ Cambiar (${frentesActivos.length})`}
-                    </Text>
-                  </TouchableOpacity>
-                  {frentesListeroAbierto ? (
-                    <View style={{ gap: 8, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <TextInput
-                          value={busqFrenteListero}
-                          onChangeText={setBusqFrenteListero}
-                          placeholder="🔎 Buscar frente por nombre…"
-                          placeholderTextColor={colors.muted}
-                          style={{
-                            flex: 1,
-                            backgroundColor: colors.surface,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            borderRadius: radius.md,
-                            paddingHorizontal: spacing.sm,
-                            paddingVertical: 7,
-                            color: colors.text,
-                            fontSize: 13,
-                          }}
-                        />
-                        {busqFrenteListero ? (
-                          <TouchableOpacity
-                            onPress={() => setBusqFrenteListero('')}
-                            style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
-                          >
-                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✕</Text>
-                          </TouchableOpacity>
-                        ) : null}
-                      </View>
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                        <TouchableOpacity
-                          onPress={() => { setFrenteSel(null); setBusqFrenteListero(''); setFrentesListeroAbierto(false); }}
-                          style={{
-                            paddingHorizontal: spacing.md,
-                            paddingVertical: 8,
-                            borderRadius: radius.pill,
-                            borderWidth: 1.5,
-                            borderColor: frenteSel === null ? colors.primary : colors.border,
-                            backgroundColor: frenteSel === null ? colors.primary : colors.surface,
-                          }}
-                        >
-                          <Text style={{ color: frenteSel === null ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12.5 }}>Sin frente</Text>
-                        </TouchableOpacity>
-                        {frentesFiltrados.map((f) => {
-                          const on = frenteSel === f.id;
-                          return (
-                            <TouchableOpacity
-                              key={f.id}
-                              onPress={() => {
-                                setFrenteSel((prev) => (prev === f.id ? null : f.id));
-                                setBusqFrenteListero('');
-                                setFrentesListeroAbierto(false);
-                              }}
-                              style={{
-                                paddingHorizontal: spacing.md,
-                                paddingVertical: 8,
-                                borderRadius: radius.pill,
-                                borderWidth: 1.5,
-                                borderColor: on ? '#B45309' : colors.border,
-                                backgroundColor: on ? '#B45309' : colors.surface,
-                              }}
-                            >
-                              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>⛏️ {f.nombre}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                        {frentesFiltrados.length === 0 ? (
-                          <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: 4 }}>
-                            Ningún frente coincide con «{busqFrenteListero}».
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  ) : null}
-                </View>
-              );
-            })() : null}
 
             {/* ── 🧾 TIPO DE VIAJE (26-sep-2026) — solo si hay tipos creados. El
                 normal viene marcado: el toque extra es SOLO para el cruzado. */}
