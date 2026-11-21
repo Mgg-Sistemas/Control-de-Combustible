@@ -111,6 +111,8 @@ type Props = {
    * nada más que la asignación, como siempre.
    */
   datosDelDia?: (jornadaISO: string) => Promise<Map<string, DatosDelDiaFrente>>;
+  /** Incrementar desde fuera (p. ej. tras editar un viaje) para refrescar tablero, PDF e historial. */
+  refreshKey?: number;
 };
 
 const norm = (s: unknown) =>
@@ -136,7 +138,7 @@ function diasAntes(iso: string, dias: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHoy, uid, userName, onCambio, tipo = 'camiones', fuente = FRENTES_VIAJES, datosDelDia }: Props) {
+export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHoy, uid, userName, onCambio, refreshKey = 0, tipo = 'camiones', fuente = FRENTES_VIAJES, datosDelDia }: Props) {
   const { colors } = useTheme();
   const toast = useToast();
   const esMaq = tipo === 'maquinas';
@@ -241,6 +243,8 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const [repetir, setRepetir] = useState<{ origen: string; plan: PlanRepetirFrentes } | null>(null);
   const [repitiendo, setRepitiendo] = useState(false);
 
+  const viajesHistCacheRef = useRef<{ clave: string; asigs: AsignacionDia[] } | null>(null);
+
   useEffect(() => {
     let vivo = true;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return;
@@ -270,23 +274,36 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
         setAsignaciones(unirAsignacionesConViajes(ofiConFecha, deViajes));
         setViajesPorCamionFrente(rViajes.viajesPorClave);
         if (rOfi.error && !rOfi.missing) console.warn('[frentes] no se pudo leer las asignaciones:', rOfi.error);
+        if (rViajes.error) console.warn('[frentes] no se pudo leer frentes de viajes del día:', rViajes.error);
+      }).catch((err) => {
+        if (vivo) console.warn('[frentes] error cargando frentes del día:', err);
       });
     }
     return () => { vivo = false; };
-  }, [fecha, recarga, claveLista]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fecha, recarga, refreshKey, claveLista]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 🕘 EL HISTORIAL: los últimos 45 días de asignaciones, agrupados por jornada.
   //    Se recarga cuando se asigna o se quita algo, para que lo que acabas de
-  //    hacer se vea sin refrescar la pantalla.
+  //    hacer se vea sin refrescar la pantalla. Los viajes de 45 días se cachean
+  //    por `(jornadaHoy, refreshKey)` para no re-descargar miles de filas en cada clic.
   useEffect(() => {
     let vivo = true;
     if (!canFull) return;
     const desde = diasAntes(jornadaHoy, DIAS_HISTORIAL);
+    const cacheKey = `${jornadaHoy}|${refreshKey}`;
+    const cacheValido = !esMaq && viajesHistCacheRef.current?.clave === cacheKey;
     Promise.all([
       listAsignacionesFrenteRango(desde, jornadaHoy, fuente),
-      esMaq ? Promise.resolve({ asignaciones: [] as AsignacionDia[], viajesPorClave: new Map<string, number>() }) : listAsignacionesDesdeViajesRango(desde, jornadaHoy),
+      esMaq
+        ? Promise.resolve({ asignaciones: [] as AsignacionDia[], viajesPorClave: new Map<string, number>(), error: undefined as string | undefined })
+        : cacheValido
+          ? Promise.resolve({ asignaciones: viajesHistCacheRef.current!.asigs, viajesPorClave: new Map<string, number>(), error: undefined as string | undefined })
+          : listAsignacionesDesdeViajesRango(desde, jornadaHoy),
     ]).then(([r, rViajes]) => {
       if (!vivo) return;
+      if (!esMaq && !cacheValido && !rViajes.error) {
+        viajesHistCacheRef.current = { clave: cacheKey, asigs: rViajes.asignaciones };
+      }
       // El mismo filtro de siempre: solo lo de ESTA lista (ver `tipo` en Props).
       // ⛏️ En maquinaria se dejan fuera las marcas «sin frente» (frenteId vacío):
       //    el historial y 📋 repetir hablan de asignaciones, no de quitadas.
@@ -302,9 +319,12 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       //    frente, y eso es justo lo que hay que copiar.
       setAsigRango(mias);
       if (r.error && !r.missing) console.warn('[frentes] no se pudo leer el historial:', r.error);
+      if (rViajes.error) console.warn('[frentes] no se pudo leer historial de viajes:', rViajes.error);
+    }).catch((err) => {
+      if (vivo) console.warn('[frentes] error cargando historial:', err);
     });
     return () => { vivo = false; };
-  }, [canFull, jornadaHoy, recarga, claveLista]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canFull, jornadaHoy, recarga, refreshKey, claveLista]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 📋 Al cambiar de día se cierra la confirmación de repetir (03-oct-2026):
   //    el plan se calculó contra el día que estaba elegido, así que dejarla
@@ -390,7 +410,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     const fallos: string[] = [];
     if (!esMaq) {
       for (const id of ids) {
-        const asigsCamion = asignaciones.filter((a) => a.machineryId === id);
+        const asigsCamion = asignaciones.filter((a) => a.machineryId === id && !a.soloViajes);
         if (asigsCamion.length === 1 && !frenteSel.has(asigsCamion[0].frenteId) && asigsCamion[0].frenteNombre) {
           const { error: errCongelar } = await congelarFrentePrevioEnViajes({
             jornada: fecha,
@@ -440,7 +460,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const pedirRepetir = (jornada: string) => {
     const plan = planRepetirFrentes({
       origen: asigRango.filter((a) => a.jornada === jornada),
-      destino: asignaciones,
+      destino: asignaciones.filter((a) => !a.soloViajes),
       equipos: idsLista,
       frentes: activos.map((f) => f.id),
     });
@@ -533,6 +553,16 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       // Lo del día se lee SOLO si hace falta. Si la lectura falla, el papel no
       // sale con columnas vacías que parezcan «no hubo nada»: se avisa y se para.
       const delDia = datosDelDia && necesitaDatosDelDia(opPapel) ? await datosDelDia(fecha) : new Map<string, DatosDelDiaFrente>();
+      let viajesFrentePdf = viajesPorCamionFrente;
+      if (!esMaq && (opPapel.viajesPorFrente || opPapel.resumen)) {
+        const rVf = await listAsignacionesDesdeViajesRango(fecha, fecha);
+        if (rVf.error) {
+          toast.error(`No se pudieron consultar los viajes del día: ${rVf.error}`);
+          return;
+        }
+        viajesFrentePdf = rVf.viajesPorClave;
+        setViajesPorCamionFrente(rVf.viajesPorClave);
+      }
       const grupos = frentesParaReporte(
         asignaciones.map((a) => {
           const c = camiones.find((x) => x.id === a.machineryId);
@@ -552,7 +582,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               turno: d?.turno || null,
               estado: d?.estado || c?.estado || null,
               viajes: esMaq ? null : (d?.viajes ?? 0),
-              viajesEnFrente: esMaq ? null : (viajesPorCamionFrente.get(`${fecha}|${a.machineryId}|${a.frenteId}`) ?? 0),
+              viajesEnFrente: esMaq ? null : (viajesFrentePdf.get(`${fecha}|${a.machineryId}|${a.frenteId}`) ?? 0),
             },
           };
         }),
@@ -587,7 +617,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   /** Quita ESE frente de ese camión — no todos los que tenga ese día. En
    *  maquinaria (frente pegajoso) deja la marca «sin frente desde esa fecha»:
    *  los días anteriores no cambian, y hacia adelante queda libre. */
-  const quitar = async (a: AsignacionFrente & { soloViajes?: boolean }) => {
+  const quitar = async (a: AsignacionFrente & { desdeViajes?: boolean; soloViajes?: boolean }) => {
     if (esMaq) {
       const { error } = await quitarFrenteDesde(fecha, a.machineryId, uid, userName, fuente);
       if (error) { toast.error(error); return; }
@@ -612,6 +642,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       }
       const { error } = await quitarAsignacionFrente(fecha, a.machineryId, a.frenteId, fuente);
       if (error) { toast.error(error); return; }
+      if (a.desdeViajes) {
+        toast.info(`Se quitó la planificación de ${codigoDe(a.machineryId)}, pero sigue visible aquí porque ya registró viajes en ${a.frenteNombre} hoy.`);
+      }
     }
     setRecarga((n) => n + 1);
     onCambio();
@@ -626,14 +659,22 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
    * Los fallos se cuentan aparte: nunca se dice «listo» si algo no se guardó.
    */
   const mover = async (ids: string[], destino: string | null, ademas: boolean) => {
-    const plan = planMover(ids, destino, asignaciones, esMaq, ademas);
-    if (!plan.asignar.length && !plan.quitar.length && !plan.sinFrenteDesde.length) { toast.info('No había nada que cambiar.'); return; }
+    const asigsPlanificadas = esMaq ? asignaciones : asignaciones.filter((a) => !a.soloViajes);
+    const plan = planMover(ids, destino, asigsPlanificadas, esMaq, ademas);
+    if (!plan.asignar.length && !plan.quitar.length && !plan.sinFrenteDesde.length) {
+      if (!esMaq && destino === null && ids.some((id) => asignaciones.some((a) => a.machineryId === id && a.soloViajes))) {
+        toast.info('Esos frentes provienen de viajes ya registrados ese día; para cambiarlos, edita los viajes en la Lista completa.');
+      } else {
+        toast.info('No había nada que cambiar.');
+      }
+      return;
+    }
     setGuardando(true);
     const fallos: string[] = [];
     try {
       if (!esMaq) {
         for (const id of ids) {
-          const asigsCamion = asignaciones.filter((a) => a.machineryId === id);
+          const asigsCamion = asigsPlanificadas.filter((a) => a.machineryId === id);
           if (asigsCamion.length === 1 && asigsCamion[0].frenteId !== destino && asigsCamion[0].frenteNombre) {
             const { error: errCongelar } = await congelarFrentePrevioEnViajes({
               jornada: fecha,
@@ -1062,18 +1103,26 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                   {activos.filter((f) => asignaciones.some((a) => a.frenteId === f.id)).map((f) => (
                     <View key={`g-${f.id}`} style={{ marginTop: 4 }}>
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>⛏️ {f.nombre}</Text>
-                      {asignaciones.filter((a) => a.frenteId === f.id).map((a) => (
-                        <View key={`${a.frenteId}-${a.machineryId}`} style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: spacing.sm, paddingVertical: 2 }}>
-                          {/* ⛏️ En maquinaria se dice DESDE CUÁNDO está ahí (el frente arrastra). */}
-                          <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>
-                            🚜 {codigoDe(a.machineryId)}
-                            {esMaq && a.jornada ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>  · desde el {dmy(a.jornada)}</Text> : null}
-                          </Text>
-                          <TouchableOpacity onPress={() => quitar(a)}>
-                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
+                      {asignaciones.filter((a) => a.frenteId === f.id).map((a) => {
+                        const nViajes = !esMaq ? (viajesPorCamionFrente.get(`${fecha}|${a.machineryId}|${a.frenteId}`) ?? 0) : 0;
+                        return (
+                          <View key={`${a.frenteId}-${a.machineryId}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: spacing.sm, paddingVertical: 2 }}>
+                            {/* ⛏️ En maquinaria se dice DESDE CUÁNDO está ahí (el frente arrastra). */}
+                            <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>
+                              🚜 {codigoDe(a.machineryId)}
+                              {esMaq && a.jornada ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>  · desde el {dmy(a.jornada)}</Text> : null}
+                              {nViajes > 0 ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>{`  · ${nViajes} viaje${nViajes === 1 ? '' : 's'}`}</Text> : null}
+                            </Text>
+                            {a.soloViajes ? (
+                              <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 10.5 }}>🚛 viajes</Text>
+                            ) : (
+                              <TouchableOpacity onPress={() => quitar(a)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                                <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        );
+                      })}
                     </View>
                   ))}
 

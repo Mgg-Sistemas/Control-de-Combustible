@@ -54,6 +54,7 @@ const {
   cuerpoFrentesDelDia,
   nombreArchivoFrentes,
   historialFrentes,
+  resumenFrentes,
   FRENTES_POR_DEFECTO,
 } = cargar('src/lib/frentesReporte.ts');
 
@@ -234,4 +235,23 @@ assert(htmlConViajes.includes('<th>Viajes</th>'), 'Con viajesPorFrente encendido
 assert(htmlConViajes.includes('<td>3</td>') && htmlConViajes.includes('<td>2</td>'), 'Debe mostrar los viajes exactos en cada frente');
 assert(nombreArchivoFrentes('2026-11-21', { ...FRENTES_POR_DEFECTO, viajesPorFrente: true }).includes('con viajes'));
 
-console.log('✅ test-frente-listero: todas las pruebas pasaron (12/12).');
+// 13. resumenFrentes con soloFrentes suma SOLO viajesEnFrente del frente filtrado (sin duplicar otros frentes)
+const resSoloA = resumenFrentes(
+  [{ nombre: 'PORTO FINO', camiones: [{ id: 'm1', code: 'VOL-01', placa: 'A36AD7J', empresa: 'GT', viajes: 8, viajesEnFrente: 3 }] }],
+  { ...FRENTES_POR_DEFECTO, resumen: true, soloFrentes: ['PORTO FINO'] },
+);
+const tjViajes = resSoloA.tarjetas.find((t) => t.k === 'viajes');
+assert.equal(tjViajes?.valor, '3', 'Filtrado por soloFrentes debe contar 3 viajes en ese frente, no los 8 totales del camión');
+
+// 14. Blindajes de auditoría: fallback '—' sin viajesEnFrente, FK 23503 en registrarViaje y !soloViajes en FrentesTrabajo
+const htmlSinDatoViaje = cuerpoFrentesDelDia(
+  [{ nombre: 'PORTO FINO', camiones: [{ id: 'm1', code: 'VOL-01', placa: 'A36AD7J', empresa: 'GT', viajes: 8, viajesEnFrente: null }] }],
+  { ...FRENTES_POR_DEFECTO, viajesPorFrente: true },
+);
+assert(htmlSinDatoViaje.includes('<td>—</td>'), 'Sin viajesEnFrente debe caer a — y no repetir total diario');
+const camionViajesSrc = fs.readFileSync(path.join(ROOT, 'src/lib/camionViajes.ts'), 'utf8');
+assert(camionViajesSrc.includes("r.error.code === '23503'") && camionViajesSrc.includes('frente_id: null'), 'registrarViaje debe recuperar FK 23503 de frente borrado');
+const frentesTrabajoSrc = fs.readFileSync(path.join(ROOT, 'src/components/FrentesTrabajo.tsx'), 'utf8');
+assert(frentesTrabajoSrc.includes('asignaciones.filter((a) => !a.soloViajes)'), 'mover y pedirRepetir deben excluir filas soloViajes');
+
+console.log('✅ test-frente-listero: todas las pruebas pasaron (14/14).');

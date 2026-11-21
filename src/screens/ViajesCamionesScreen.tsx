@@ -110,6 +110,7 @@ import {
   setActivoFrente,
   listAsignacionesFrente,
   listAsignacionesFrenteConMaquinariaRango,
+  listAsignacionesFrenteConMaquinariaRangoSeguro,
   asignarFrente,
   quitarAsignacionFrente,
   listMaterialesViaje,
@@ -806,10 +807,10 @@ export default function ViajesCamionesScreen() {
   const [frenteExpandido, setFrenteExpandido] = useState(false);
   const [frenteBusqueda, setFrenteBusqueda] = useState('');
 
+  // Hidratación única de caché local al montar (para abrir la app sin señal en el patio)
   useEffect(() => {
     let vivo = true;
     const hoy = caracasBusinessToday();
-    // Hidratar caché local para modo offline en el patio
     AsyncStorage.getItem('viajes_frentes_cache_v1').then((raw) => {
       if (!vivo || !raw) return;
       try {
@@ -834,7 +835,24 @@ export default function ViajesCamionesScreen() {
         }
       } catch { /* ignore */ }
     }).catch(() => {});
+    return () => { vivo = false; };
+  }, []);
 
+  // Cruce automático de las 7:00 AM Caracas (usando nowTick cada 60s): limpia selección manual y asignaciones de ayer
+  useEffect(() => {
+    const hoy = caracasBusinessToday();
+    if (hoy !== frenteJornadaActual) {
+      setFrenteJornadaActual(hoy);
+      setFrenteManualPorCamion(new Map());
+      setAsignacionesHoy(new Map());
+      setFrentesRecarga((n) => n + 1);
+    }
+  }, [nowTick, frenteJornadaActual]);
+
+  useEffect(() => {
+    let vivo = true;
+    if (!isOnline()) return () => { vivo = false; };
+    const hoy = caracasBusinessToday();
     listFrentes().then((r) => {
       if (!vivo) return;
       setFrentesMissing(r.missing);
@@ -847,25 +865,25 @@ export default function ViajesCamionesScreen() {
         AsyncStorage.setItem('viajes_frentes_cache_v1', JSON.stringify(r.frentes)).catch(() => {});
       }
     });
-    listAsignacionesFrenteConMaquinariaRango([hoy]).then((asigs) => {
+    listAsignacionesFrenteConMaquinariaRangoSeguro([hoy]).then((res) => {
       if (!vivo) return;
-      if (hoy !== frenteJornadaActual) {
-        setFrenteJornadaActual(hoy);
-        setFrenteManualPorCamion(new Map());
+      if (res.error) {
+        console.warn('[viajes] no se pudo leer las asignaciones de frente:', res.error);
+        return; // NO pisar asignacionesHoy ni borrar caché en fallo de red/offline
       }
       const porCamion = new Map<string, AsignacionFrente[]>();
-      asigs.forEach((a) => {
+      res.asignaciones.forEach((a) => {
         const l = porCamion.get(a.machineryId) ?? [];
         if (!l.some((x) => x.frenteId === a.frenteId)) l.push(a);
         porCamion.set(a.machineryId, l);
       });
       setAsignacionesHoy(porCamion);
-      AsyncStorage.setItem('viajes_asigs_hoy_cache_v1', JSON.stringify({ jornada: hoy, asigs })).catch(() => {});
+      AsyncStorage.setItem('viajes_asigs_hoy_cache_v1', JSON.stringify({ jornada: hoy, asigs: res.asignaciones })).catch(() => {});
     }).catch((err) => {
       if (vivo) console.warn('[viajes] no se pudo leer las asignaciones de frente:', err);
     });
     return () => { vivo = false; };
-  }, [frentesRecarga, frenteJornadaActual]);
+  }, [frentesRecarga]);
   const frentesActivos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
 
   const seleccionManualActual = selectedTruck ? (frenteManualPorCamion.get(selectedTruck.id) ?? null) : null;
@@ -1077,6 +1095,20 @@ export default function ViajesCamionesScreen() {
     setChoferLoading(false);
     setFrenteBusqueda('');
     setFrenteExpandido(false);
+    const hoyFc = caracasBusinessToday();
+    if (hoyFc !== frenteJornadaActual) {
+      setFrenteJornadaActual(hoyFc);
+      setFrenteManualPorCamion(new Map());
+      setAsignacionesHoy(new Map());
+    } else {
+      // Cada camión fuera de catálogo es distinto: no heredar el frente manual del anterior
+      setFrenteManualPorCamion((prev) => {
+        if (!prev.has(FUERA_CATALOGO_ID)) return prev;
+        const next = new Map(prev);
+        next.delete(FUERA_CATALOGO_ID);
+        return next;
+      });
+    }
     // Mismo motivo que en `onSelectTruck`: el peso pertenece a UN viaje.
     limpiarPeso();
     // Se arma un camión "de mentira" con el id centinela para que el resto de la
@@ -2113,6 +2145,9 @@ export default function ViajesCamionesScreen() {
           // próximo viaje se registraría con la asignación vieja en memoria.
           if (jornadaDelViaje === caracasBusinessToday()) setFrentesRecarga((n) => n + 1);
         }
+      }
+      if (cambios.frente !== undefined || cambios.registeredAtISO !== undefined) {
+        setFrentesRecarga((n) => n + 1);
       }
 
       setEditing(null);
@@ -4176,6 +4211,7 @@ export default function ViajesCamionesScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
+      setFrentesRecarga((n) => n + 1);
       await loadTrucks();
       if (canWrite) await loadMisViajes();
       if (canVerPanel) { await loadResumen(); await loadAlerta(); await loadRangeRows(); }
@@ -5164,12 +5200,17 @@ export default function ViajesCamionesScreen() {
               const hayMuchos = frentesActivos.length > 6;
               const visibles = q || frenteExpandido || !hayMuchos ? filtrados : filtrados.slice(0, 6);
               const elegirFrenteManual = (f: FrenteTrabajo | null) => {
+                const hoySel = caracasBusinessToday();
+                if (hoySel !== frenteJornadaActual) {
+                  setFrenteJornadaActual(hoySel);
+                  setAsignacionesHoy(new Map());
+                }
                 const key = selectedTruck.id;
                 setFrenteManualPorCamion((prev) => {
-                  const next = new Map(prev);
-                  if (!f || prev.get(key)?.frenteId === f.id) next.delete(key);
-                  else next.set(key, { frenteId: f.id, frenteNombre: f.nombre });
-                  return next;
+                  const base = hoySel !== frenteJornadaActual ? new Map<string, { frenteId: string; frenteNombre: string }>() : new Map(prev);
+                  if (!f || base.get(key)?.frenteId === f.id) base.delete(key);
+                  else base.set(key, { frenteId: f.id, frenteNombre: f.nombre });
+                  return base;
                 });
               };
               return (
@@ -5178,26 +5219,27 @@ export default function ViajesCamionesScreen() {
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ FRENTE DE TRABAJO</Text>
                     {frenteEstadoActual.origen === 'listero' ? (
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-                        <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B' }}>
-                          <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800' }}>👷 Elegido por ti: {frenteEstadoActual.frenteNombre}</Text>
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder }}>
+                          <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '800' }}>👷 Elegido por ti: {frenteEstadoActual.frenteNombre}</Text>
                         </View>
                         <TouchableOpacity
                           onPress={() => elegirFrenteManual(null)}
-                          style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
                         >
-                          <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>↩️ Usar el de oficina</Text>
+                          <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '700' }}>↩️ Usar el de oficina</Text>
                         </TouchableOpacity>
                       </View>
                     ) : frenteEstadoActual.origen === 'oficina' ? (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: '#E0F2FE', borderWidth: 1, borderColor: '#38BDF8' }}>
-                        <Text style={{ color: '#0369A1', fontSize: 11, fontWeight: '800' }}>🏢 Según oficina: {frenteEstadoActual.frenteNombre}</Text>
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder }}>
+                        <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>🏢 Según oficina: {frenteEstadoActual.frenteNombre}</Text>
                       </View>
                     ) : frenteEstadoActual.ambiguoOficina ? (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B' }}>
-                        <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800' }}>⚠️ Varios frentes hoy — toca el de este viaje</Text>
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder }}>
+                        <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '800' }}>⚠️ Varios frentes hoy — toca el de este viaje</Text>
                       </View>
                     ) : (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                         <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>∅ Sin frente asignado</Text>
                       </View>
                     )}
@@ -5226,6 +5268,7 @@ export default function ViajesCamionesScreen() {
                       {frenteBusqueda ? (
                         <TouchableOpacity
                           onPress={() => setFrenteBusqueda('')}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                           style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
                         >
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✕</Text>
@@ -5266,11 +5309,11 @@ export default function ViajesCamionesScreen() {
                             paddingVertical: 8,
                             borderRadius: radius.pill,
                             borderWidth: 1.5,
-                            borderColor: onManual ? '#B45309' : esOfi ? '#38BDF8' : colors.border,
-                            backgroundColor: onManual ? '#B45309' : colors.surfaceAlt,
+                            borderColor: onManual ? colors.accent : esOfi ? colors.infoSoftBorder : colors.border,
+                            backgroundColor: onManual ? colors.accent : colors.surfaceAlt,
                           }}
                         >
-                          <Text style={{ color: onManual ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                          <Text style={{ color: onManual ? colors.accentContrast : colors.text, fontWeight: '800', fontSize: 12.5 }}>
                             {esOfi && !onManual ? '🏢 ' : '⛏️ '}{f.nombre}
                           </Text>
                         </TouchableOpacity>
@@ -5286,9 +5329,10 @@ export default function ViajesCamionesScreen() {
                   {hayMuchos && !q ? (
                     <TouchableOpacity
                       onPress={() => setFrenteExpandido((v) => !v)}
-                      style={{ alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 8 }}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      style={{ alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 10 }}
                     >
-                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>
+                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12.5 }}>
                         {frenteExpandido ? '▴ Mostrar menos' : `▾ Ver todos los frentes (${frentesActivos.length})`}
                       </Text>
                     </TouchableOpacity>
@@ -5434,9 +5478,9 @@ export default function ViajesCamionesScreen() {
             </View>
             ) : null}
             {selectedTruck ? (
-              <View style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: frenteEstadoActual.origen === 'listero' ? '#F59E0B' : colors.border, backgroundColor: colors.surfaceAlt }}>
-                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
-                  {`🚜 ${selectedTruck.code}${selectedTruck.plate ? ` · 🏷️ ${selectedTruck.plate}` : ''} · ⛏️ ${frenteEstadoActual.frenteNombre ?? 'Sin frente'}${frenteEstadoActual.origen === 'listero' ? ' (elegido por ti)' : frenteEstadoActual.origen === 'oficina' ? ' (oficina)' : ''}`}
+              <View style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: frenteEstadoActual.origen === 'listero' ? colors.warningSoftBorder : colors.border, backgroundColor: frenteEstadoActual.origen === 'listero' ? colors.warningSoftBg : colors.surfaceAlt }}>
+                <Text style={{ color: frenteEstadoActual.origen === 'listero' ? colors.warningSoftText : colors.text, fontSize: 12, fontWeight: '700' }}>
+                  {`🚜 ${selectedTruck.code}${selectedTruckIdent ? ` · 🏷️ ${selectedTruckIdent}` : ''} · ⛏️ ${frenteEstadoActual.frenteNombre ?? 'Sin frente'}${frenteEstadoActual.origen === 'listero' ? ' (elegido por ti)' : frenteEstadoActual.origen === 'oficina' ? ' (oficina)' : ''}`}
                 </Text>
               </View>
             ) : null}
@@ -6527,6 +6571,7 @@ export default function ViajesCamionesScreen() {
                 jornadaHoy={caracasBusinessToday()}
                 uid={uid}
                 userName={fullName || listeroName || null}
+                refreshKey={frentesRecarga}
                 onCambio={() => setFrentesRecarga((n) => n + 1)}
               />
             }

@@ -536,9 +536,20 @@ export function resumenFrentes(grupos: FrenteDelDia[], op: OpcionesFrentes = FRE
   ];
   if (mayor) tarjetas.push({ k: 'mayor', titulo: 'Frente con más carga', valor: mayor.nombre, nota: `${mayor.camiones.length} ${e.unidad}` });
   if (op.empresa) tarjetas.push({ k: 'empresas', titulo: 'Empresas', valor: String(new Set(equipos.map((c) => empresaImpresa(c, op))).size) });
-  const viajes = equipos.reduce((a, c) => a + (Number(c.viajes) || 0), 0);
-  const conViajes = equipos.filter((c) => (Number(c.viajes) || 0) > 0).length;
-  if (equipos.some((c) => c.viajes != null)) {
+  const filtradoFrentes = frentesElegidos(op).size > 0;
+  const hayViajesEnFrente = grupos.some((g) => g.camiones.some((c) => c.viajesEnFrente != null));
+  if (filtradoFrentes && hayViajesEnFrente) {
+    let viajesFiltrados = 0;
+    const eqConViajes = new Set<string>();
+    grupos.forEach((g) => g.camiones.forEach((c) => {
+      const n = Number(c.viajesEnFrente) || 0;
+      viajesFiltrados += n;
+      if (n > 0) eqConViajes.add(String(c.id ?? '') || `${c.code}|${c.placa ?? ''}`);
+    }));
+    tarjetas.push({ k: 'viajes', titulo: 'Viajes del día', valor: String(viajesFiltrados), nota: `${eqConViajes.size} de ${equipos.length} ${e.plural} con viajes` });
+  } else if (equipos.some((c) => c.viajes != null)) {
+    const viajes = equipos.reduce((a, c) => a + (Number(c.viajes) || 0), 0);
+    const conViajes = equipos.filter((c) => (Number(c.viajes) || 0) > 0).length;
     tarjetas.push({ k: 'viajes', titulo: 'Viajes del día', valor: String(viajes), nota: `${conViajes} de ${equipos.length} ${e.plural} con viajes` });
   }
 
@@ -626,7 +637,7 @@ export function cuerpoFrentesDelDia(
     { on: op.chofer, titulo: e.chofer ?? 'Chofer', de: (c) => String(c.chofer ?? '').trim() || '—' },
     { on: op.turno, titulo: 'Turno', de: (c) => String(c.turno ?? '').trim() || '—' },
     { on: op.estado, titulo: 'Estado', de: (c) => String(c.estado ?? '').trim() || '—' },
-    { on: op.viajesPorFrente, titulo: 'Viajes', de: (c) => (c.viajesEnFrente != null ? String(c.viajesEnFrente) : (c.viajes != null ? String(c.viajes) : '—')) },
+    { on: op.viajesPorFrente, titulo: 'Viajes', de: (c) => (c.viajesEnFrente != null ? String(c.viajesEnFrente) : '—') },
   ];
   const extras = todas.filter((x) => x.on);
   const bloques = grupos.map((g) => {

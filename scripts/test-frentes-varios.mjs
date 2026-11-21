@@ -199,8 +199,10 @@ ok('el buscador muestra TODOS los frentes que ya tiene el camión',
   /ya\.map\(\(a\) => a\.frenteNombre\)\.join/.test(ui));
 
 const scr = sinComentarios(leer('src/screens/ViajesCamionesScreen.tsx'));
+const autoSrc = sinComentarios(leer('src/lib/frentesAuto.ts'));
 ok('⭐ al registrar, con VARIOS frentes no se precarga ninguno sin hora exacta',
-  /if \(l\.length !== 1\) return \{ frenteId: null, frenteNombre: null \}|frenteParaGrabar[\s\S]*?masReciente[\s\S]*?return \{ frenteId: null, frenteNombre: null \}/.test(scr));
+  /frenteParaGrabar[\s\S]*?resolverFrenteParaViaje/.test(scr)
+  && /resolverFrenteOficina[\s\S]*?masReciente[\s\S]*?return \{ frenteId: null, frenteNombre: null \}/.test(autoSrc));
 
 // ── 6) EL SQL QUE QUITA EL CANDADO ──────────────────────────────────────────
 const sql = leer('supabase/frentes_varios_por_camion.sql');

@@ -622,7 +622,18 @@ export async function registrarViaje(params: {
 
   let error: any = null;
   for (const paso of escalones) {
-    const r = await supabase.from('camion_viajes').insert(paso.cuerpo);
+    let r = await supabase.from('camion_viajes').insert(paso.cuerpo);
+    // Si el frente fue borrado del catálogo mientras el viaje estaba en cola offline (FK 23503),
+    // se reintenta con frente_id = null conservando frente_nombre para no mandar el viaje a cuarentena.
+    if (
+      r.error &&
+      paso.frente &&
+      paso.cuerpo.frente_id &&
+      (r.error.code === '23503' || /foreign key/i.test(r.error.message ?? '')) &&
+      /frente_id/i.test(r.error.message ?? '')
+    ) {
+      r = await supabase.from('camion_viajes').insert({ ...paso.cuerpo, frente_id: null });
+    }
     error = r.error;
     if (!error) {
       if (paso.obra) hayColumnasDeObra = true;
@@ -1352,20 +1363,35 @@ export async function quitarFrenteDesde(
  * de maquinaria (`FRENTES_MAQUINARIA`) cuando el equipo no tiene asignación
  * propia en `viaje_frente_asignaciones` para esa jornada.
  */
+export async function listAsignacionesFrenteConMaquinariaRangoSeguro(
+  jornadas: string[],
+): Promise<{ asignaciones: AsignacionDia[]; error?: string }> {
+  const rango = rangoJornadas(jornadas);
+  if (!rango) return { asignaciones: [] };
+  const [resViajes, resMaq] = await Promise.all([
+    listAsignacionesHasta(rango.hasta, FRENTES_VIAJES).catch(() => listAsignacionesFrenteRango(rango.desde, rango.hasta)),
+    listAsignacionesHasta(rango.hasta, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [] as AsignacionDia[], missing: true, error: undefined as string | undefined })),
+  ]);
+  const errViajes = (resViajes as any)?.error as string | undefined;
+  const errMaq = (resMaq as any)?.error as string | undefined;
+  if (errViajes && !(resViajes as any)?.missing) {
+    return { asignaciones: [], error: errViajes };
+  }
+  return {
+    asignaciones: combinarAsignacionesConRespaldoMaquinaria(
+      resViajes.asignaciones,
+      resMaq.asignaciones,
+      jornadas,
+    ),
+    ...(errMaq && !(resMaq as any)?.missing ? { error: errMaq } : {}),
+  };
+}
+
 export async function listAsignacionesFrenteConMaquinariaRango(
   jornadas: string[],
 ): Promise<AsignacionDia[]> {
-  const rango = rangoJornadas(jornadas);
-  if (!rango) return [];
-  const [resViajes, resMaq] = await Promise.all([
-    listAsignacionesHasta(rango.hasta, FRENTES_VIAJES).catch(() => listAsignacionesFrenteRango(rango.desde, rango.hasta)),
-    listAsignacionesHasta(rango.hasta, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [] as AsignacionDia[], missing: true })),
-  ]);
-  return combinarAsignacionesConRespaldoMaquinaria(
-    resViajes.asignaciones,
-    resMaq.asignaciones,
-    jornadas,
-  );
+  const r = await listAsignacionesFrenteConMaquinariaRangoSeguro(jornadas);
+  return r.asignaciones;
 }
 
 /**
@@ -1401,28 +1427,33 @@ export async function listAsignacionesDesdeViajesRango(
       const mid = String(r.machinery_id ?? '').trim();
       const fid = String(r.frente_id ?? '').trim();
       const reg = String(r.registered_at ?? '').trim();
-      if (!mid || !fid || !reg) continue;
+      if (!mid || !fid || !reg || !Number.isFinite(Date.parse(reg))) continue;
       const j = jornadaDeFecha(new Date(reg));
       const k = `${j}|${mid}|${fid}`;
       viajesPorClave.set(k, (viajesPorClave.get(k) ?? 0) + 1);
-      if (!porClave.has(k)) {
+      const nom = String(r.frente_nombre ?? '').trim();
+      const prev = porClave.get(k);
+      if (!prev) {
         porClave.set(k, {
           jornada: j,
           machineryId: mid,
           frenteId: fid,
-          frenteNombre: String(r.frente_nombre ?? '').trim() || 'Frente',
+          frenteNombre: nom || 'Frente',
           creadoAt: reg,
         });
+      } else {
+        // Determinista: conserva la hora más temprana del primer viaje en ese frente y nombre no vacío
+        if (!prev.creadoAt || Date.parse(reg) < Date.parse(prev.creadoAt)) prev.creadoAt = reg;
+        if (nom && (prev.frenteNombre === 'Frente' || !prev.frenteNombre)) prev.frenteNombre = nom;
       }
     }
     return { asignaciones: Array.from(porClave.values()), viajesPorClave };
   } catch (e: any) {
-    const msg = String(e?.message ?? e);
-    if (/frente_id|frente_nombre/i.test(msg)) {
+    if (esColumnaQueFalta(e)) {
       hayColumnasDeFrente = false;
       return { asignaciones: [], viajesPorClave: new Map() };
     }
-    return { asignaciones: [], viajesPorClave: new Map(), error: msg };
+    return { asignaciones: [], viajesPorClave: new Map(), error: String(e?.message ?? e) };
   }
 }
 
