@@ -26,7 +26,7 @@ import { Toggle } from './CubicajeTab';
 import { FrentesTablero } from './FrentesTablero';
 import { planMover } from '../lib/frentesTablero';
 import {
-  listAsignacionesFrente, listAsignacionesFrenteRango, asignarFrente, quitarAsignacionFrente, congelarFrentePrevioEnViajes,
+  listAsignacionesFrente, listAsignacionesFrenteRango, listAsignacionesDesdeViajesRango, asignarFrente, quitarAsignacionFrente, congelarFrentePrevioEnViajes,
   // ⛏️ El frente PEGAJOSO de maquinaria (19-oct-2026): vigentes a una fecha y
   //    quitar «desde ese día» con la marca sin frente.
   listAsignacionesHasta, quitarFrenteDesde,
@@ -38,7 +38,7 @@ import {
 // lleva: es siempre la del día que se pidió). Es el tipo que devuelve
 // `listAsignacionesFrenteRango`, y hace falta para filtrar por día al repetir.
 import { cmpText } from '../lib/text';
-import { type AsignacionDia } from '../lib/frentesAuto';
+import { unirAsignacionesConViajes, type AsignacionDia } from '../lib/frentesAuto';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
   ETIQUETA_CAMION, ETIQUETA_EQUIPO,
@@ -170,7 +170,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const [borrando, setBorrando] = useState<{ id: string; nombre: string; asignaciones: number } | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   // ⛏️ En maquinaria cada asignación trae su `jornada` (desde cuándo rige).
-  const [asignaciones, setAsignaciones] = useState<(AsignacionFrente & { jornada?: string })[]>([]);
+  //    En viajes se unen las asignaciones planificadas con los frentes reales de `camion_viajes`.
+  const [asignaciones, setAsignaciones] = useState<(AsignacionFrente & { jornada?: string; desdeViajes?: boolean; soloViajes?: boolean })[]>([]);
+  const [viajesPorCamionFrente, setViajesPorCamionFrente] = useState<Map<string, number>>(new Map());
   const [recarga, setRecarga] = useState(0);
   const [pdfBusy, setPdfBusy] = useState(false);
   // ── 🖨️ Qué sale en la hoja (29-sep-2026, a pedido) ──
@@ -254,12 +256,20 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
         if (r.error && !r.missing) console.warn('[frentes] no se pudo leer las asignaciones:', r.error);
       });
     } else {
-      // 🚛 VIAJES: la asignación sigue siendo DIARIA (cada viaje congela el
-      //    frente de SU jornada, y así se paga). Solo lo de ESTA lista.
-      listAsignacionesFrente(fecha, fuente).then((r) => {
+      // 🚛 VIAJES: une las asignaciones planificadas por oficina con los frentes
+      //    reales en los que cada camión registró viajes esa jornada (21-nov-2026).
+      Promise.all([
+        listAsignacionesFrente(fecha, fuente),
+        listAsignacionesDesdeViajesRango(fecha, fecha),
+      ]).then(([rOfi, rViajes]) => {
         if (!vivo) return;
-        setAsignaciones(r.asignaciones.filter((a) => idsLista.has(a.machineryId)));
-        if (r.error && !r.missing) console.warn('[frentes] no se pudo leer las asignaciones:', r.error);
+        const ofiConFecha: AsignacionDia[] = rOfi.asignaciones
+          .filter((a) => idsLista.has(a.machineryId))
+          .map((a) => ({ ...a, jornada: fecha }));
+        const deViajes = rViajes.asignaciones.filter((a) => idsLista.has(a.machineryId));
+        setAsignaciones(unirAsignacionesConViajes(ofiConFecha, deViajes));
+        setViajesPorCamionFrente(rViajes.viajesPorClave);
+        if (rOfi.error && !rOfi.missing) console.warn('[frentes] no se pudo leer las asignaciones:', rOfi.error);
       });
     }
     return () => { vivo = false; };
@@ -271,12 +281,18 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   useEffect(() => {
     let vivo = true;
     if (!canFull) return;
-    listAsignacionesFrenteRango(diasAntes(jornadaHoy, DIAS_HISTORIAL), jornadaHoy, fuente).then((r) => {
+    const desde = diasAntes(jornadaHoy, DIAS_HISTORIAL);
+    Promise.all([
+      listAsignacionesFrenteRango(desde, jornadaHoy, fuente),
+      esMaq ? Promise.resolve({ asignaciones: [] as AsignacionDia[], viajesPorClave: new Map<string, number>() }) : listAsignacionesDesdeViajesRango(desde, jornadaHoy),
+    ]).then(([r, rViajes]) => {
       if (!vivo) return;
       // El mismo filtro de siempre: solo lo de ESTA lista (ver `tipo` en Props).
       // ⛏️ En maquinaria se dejan fuera las marcas «sin frente» (frenteId vacío):
       //    el historial y 📋 repetir hablan de asignaciones, no de quitadas.
-      const todas = r.asignaciones.filter((a) => idsLista.has(a.machineryId) && (!esMaq || !!a.frenteId));
+      const todasOfi = r.asignaciones.filter((a) => idsLista.has(a.machineryId) && (!esMaq || !!a.frenteId));
+      const deViajes = esMaq ? [] : rViajes.asignaciones.filter((a) => idsLista.has(a.machineryId));
+      const todas = esMaq ? todasOfi : unirAsignacionesConViajes(todasOfi, deViajes);
       // ⛏️ MAQUINARIA: también en el historial y al repetir un día manda UN
       //    frente por máquina (el más reciente de cada jornada).
       const mias = esMaq ? unFrentePorMaquina(todas) : todas;
@@ -536,6 +552,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               turno: d?.turno || null,
               estado: d?.estado || c?.estado || null,
               viajes: esMaq ? null : (d?.viajes ?? 0),
+              viajesEnFrente: esMaq ? null : (viajesPorCamionFrente.get(`${fecha}|${a.machineryId}|${a.frenteId}`) ?? 0),
             },
           };
         }),
@@ -570,13 +587,17 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   /** Quita ESE frente de ese camión — no todos los que tenga ese día. En
    *  maquinaria (frente pegajoso) deja la marca «sin frente desde esa fecha»:
    *  los días anteriores no cambian, y hacia adelante queda libre. */
-  const quitar = async (a: AsignacionFrente) => {
+  const quitar = async (a: AsignacionFrente & { soloViajes?: boolean }) => {
     if (esMaq) {
       const { error } = await quitarFrenteDesde(fecha, a.machineryId, uid, userName, fuente);
       if (error) { toast.error(error); return; }
       toast.success(`${codigoDe(a.machineryId)} queda SIN frente desde el ${dmy(fecha)}. Los días anteriores no cambian.`);
     } else {
-      const asigsCamion = asignaciones.filter((x) => x.machineryId === a.machineryId);
+      if (a.soloViajes) {
+        toast.info('Este frente aparece porque el camión registró viajes ahí ese día. Para cambiarlo, edita esos viajes en la Lista completa.');
+        return;
+      }
+      const asigsCamion = asignaciones.filter((x) => x.machineryId === a.machineryId && !x.soloViajes);
       if (asigsCamion.length === 1 && a.frenteId && a.frenteNombre) {
         const { error: errCongelar } = await congelarFrentePrevioEnViajes({
           jornada: fecha,
@@ -745,6 +766,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     { k: 'chofer', label: esMaq ? '👷 Operador' : '👷 Chofer', ayuda: esMaq ? 'El operador de la jornada de ese día.' : 'El chofer anotado en los viajes de ese día.' },
     { k: 'turno', label: '🕘 Turno', ayuda: esMaq ? 'Día, noche o los dos, según la jornada de ese día.' : 'Día, noche o los dos, según la hora de sus viajes.' },
     { k: 'estado', label: '⚙️ Estado de la máquina', ayuda: esMaq ? 'El estado de la jornada de ese día, o el de la ficha.' : 'El estado anotado en los viajes de ese día, o el de la ficha.' },
+    ...(!esMaq ? [{ k: 'viajesPorFrente' as const, label: '🚛 Cantidad de viajes en cada frente', ayuda: 'Muestra cuántos viajes registró cada camión en ese frente ese día. Apagado no deja rastro en el papel.' }] : []),
     { k: 'resumen', label: '📊 Resumen ejecutivo (tablero arriba del reporte)', ayuda: `Tarjetas y cuadros: ${E.plural} asignados, frentes en uso, por tipo, por empresa${esMaq ? '' : ', viajes del día'} y los que tengas encendidos (estado, turno, clasificación, obra).` },
     { k: 'contador', label: `🔟 Cuántos ${E.plural} lleva cada frente`, ayuda: `El «N ${E.unidad}» al lado del nombre del frente.` },
     { k: 'totales', label: '📋 Línea de totales arriba', ayuda: 'Equipos reales, repetidos y cuántos frentes se usaron.' },

@@ -1368,6 +1368,64 @@ export async function listAsignacionesFrenteConMaquinariaRango(
   );
 }
 
+/**
+ * Deriva asignaciones de frente y conteo de viajes por `(jornada, machineryId, frenteId)`
+ * directamente desde los viajes registrados en `camion_viajes` en el rango de jornadas
+ * (7am→7am hora de Caracas).
+ *
+ * Solo lectura: permite que el Tablero de Frentes, la Hoja PDF del día y el Historial
+ * de 45 días reflejen automáticamente todos los frentes donde cada camión hizo viajes,
+ * sin depender de que el listero escriba en `viaje_frente_asignaciones`.
+ */
+export async function listAsignacionesDesdeViajesRango(
+  desdeJornada: string,
+  hastaJornada: string,
+): Promise<{ asignaciones: AsignacionDia[]; viajesPorClave: Map<string, number>; error?: string }> {
+  if (hayColumnasDeFrente === false) return { asignaciones: [], viajesPorClave: new Map() };
+  const desdeISO = jornadaWindowISO(desdeJornada).desdeISO;
+  const hastaExclusivoISO = jornadaWindowISO(hastaJornada).hastaExclusivoISO;
+  try {
+    const data = await selectAllRows(
+      'camion_viajes',
+      'machinery_id, frente_id, frente_nombre, registered_at',
+      (q: any) =>
+        q
+          .gte('registered_at', desdeISO)
+          .lt('registered_at', hastaExclusivoISO)
+          .not('machinery_id', 'is', null)
+          .not('frente_id', 'is', null),
+    );
+    const porClave = new Map<string, AsignacionDia>();
+    const viajesPorClave = new Map<string, number>();
+    for (const r of data ?? []) {
+      const mid = String(r.machinery_id ?? '').trim();
+      const fid = String(r.frente_id ?? '').trim();
+      const reg = String(r.registered_at ?? '').trim();
+      if (!mid || !fid || !reg) continue;
+      const j = jornadaDeFecha(new Date(reg));
+      const k = `${j}|${mid}|${fid}`;
+      viajesPorClave.set(k, (viajesPorClave.get(k) ?? 0) + 1);
+      if (!porClave.has(k)) {
+        porClave.set(k, {
+          jornada: j,
+          machineryId: mid,
+          frenteId: fid,
+          frenteNombre: String(r.frente_nombre ?? '').trim() || 'Frente',
+          creadoAt: reg,
+        });
+      }
+    }
+    return { asignaciones: Array.from(porClave.values()), viajesPorClave };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    if (/frente_id|frente_nombre/i.test(msg)) {
+      hayColumnasDeFrente = false;
+      return { asignaciones: [], viajesPorClave: new Map() };
+    }
+    return { asignaciones: [], viajesPorClave: new Map(), error: msg };
+  }
+}
+
 async function conFrenteDelDia(rows: CamionViajeRow[]): Promise<CamionViajeRow[]> {
   const sinFrente = rows.filter((r) => r.machineryId && !CAMPOS_VIAJE_ROW.tieneFrente(r));
   const jornadas = sinFrente.map((r) => jornadaDeFecha(new Date(r.registeredAt)));

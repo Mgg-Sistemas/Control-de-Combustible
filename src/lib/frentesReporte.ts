@@ -48,6 +48,8 @@ export type CamionDelFrente = {
   estado?: string | null;
   /** Viajes de ese día (solo camiones). Solo lo usa el resumen ejecutivo. */
   viajes?: number | null;
+  /** Viajes que hizo este camión específicamente EN ESTE FRENTE ese día. */
+  viajesEnFrente?: number | null;
   /** Clave para no contar dos veces un equipo que está en dos frentes. */
   id?: string | null;
 };
@@ -132,6 +134,8 @@ export type OpcionesFrentes = {
   soloFrentes?: string[];
   /** 🔁 Identificar y contar camiones reales (únicos) vs repetidos en más de un frente. */
   mostrarRepetidos?: boolean;
+  /** 🚛 Columna opcional «Viajes» con la cantidad de viajes hechos en cada frente (solo camiones). */
+  viajesPorFrente?: boolean;
 };
 
 export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
@@ -143,6 +147,7 @@ export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
   totales: true,
   sinCamiones: false,
   mostrarRepetidos: true,
+  viajesPorFrente: false,
   empresaUnica: '',
   // Lo nuevo entra apagado: la hoja sale igual que ayer hasta que se encienda algo.
   medidas: false,
@@ -621,6 +626,7 @@ export function cuerpoFrentesDelDia(
     { on: op.chofer, titulo: e.chofer ?? 'Chofer', de: (c) => String(c.chofer ?? '').trim() || '—' },
     { on: op.turno, titulo: 'Turno', de: (c) => String(c.turno ?? '').trim() || '—' },
     { on: op.estado, titulo: 'Estado', de: (c) => String(c.estado ?? '').trim() || '—' },
+    { on: op.viajesPorFrente, titulo: 'Viajes', de: (c) => (c.viajesEnFrente != null ? String(c.viajesEnFrente) : (c.viajes != null ? String(c.viajes) : '—')) },
   ];
   const extras = todas.filter((x) => x.on);
   const bloques = grupos.map((g) => {
@@ -659,10 +665,11 @@ export function nombreArchivoFrentes(jornadaISO: string, op?: OpcionesFrentes | 
   const nombres = (op?.soloFrentes ?? [])
     .map((n) => String(n ?? '').replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim())
     .filter(Boolean);
-  if (nombres.length === 0) return base;
+  const sufijoViajes = op?.viajesPorFrente ? ' - con viajes' : '';
+  if (nombres.length === 0) return `${base}${sufijoViajes}`;
   return nombres.length <= 3
-    ? `${base} - solo ${nombres.join(', ')}`
-    : `${base} - solo ${nombres.length} frentes`;
+    ? `${base} - solo ${nombres.join(', ')}${sufijoViajes}`
+    : `${base} - solo ${nombres.length} frentes${sufijoViajes}`;
 }
 
 // ── 🕘 EL HISTORIAL (29-sep-2026, a pedido: «que haya un historial de frentes

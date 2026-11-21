@@ -13,6 +13,7 @@
 // Pedido del cliente 12-ago-2026.
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, Image, Linking, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -124,6 +125,7 @@ import {
   type AsignacionFrente,
 } from '../lib/camionViajes';
 import { asignarModoPago } from '../lib/pagoViajesDb';
+import { resolverFrenteParaViaje, preseleccionarFrenteListero } from '../lib/frentesAuto';
 import {
   pesoTecleadoAKg, kgTexto, kgTextoOpcional, tonTexto, tonTextoOpcional, netoDe, motivoPesoInvalido,
   avisoPesoSospechoso, pesosParaTique, UNIDADES_PESO, type UnidadPeso,
@@ -788,29 +790,69 @@ export default function ViajesCamionesScreen() {
   const [materialSel, setMaterialSel] = useState<string | null>(null);
   const [operacionSel, setOperacionSel] = useState<ProyectoOperacion | null>(null);
 
-  // ── FRENTES DE TRABAJO (28-sep-2026): de dónde recoge cada camión. La
-  // oficina los asigna por jornada; el teléfono los lee para CONGELAR el
-  // frente del camión en cada viaje que registra. Los lee todo el mundo
-  // (como los tipos); los administra solo quien tiene full.
+  // ── FRENTES DE TRABAJO (28-sep-2026, selector listero blindado 21-nov-2026):
+  // La oficina asigna por jornada; además el listero puede elegir el frente
+  // puntual para ESTE viaje (o dejarlo "Según oficina"). La elección del listero
+  // se congela DIRECTAMENTE en `camion_viajes` y NO muta `viaje_frente_asignaciones`,
+  // evitando choques RLS, offline o carreras entre teléfonos.
   const [frentes, setFrentes] = useState<FrenteTrabajo[]>([]);
   const [frentesMissing, setFrentesMissing] = useState(false);
   const [frentesRecarga, setFrentesRecarga] = useState(0);
   /** machineryId → asignación de la jornada de HOY. */
   const [asignacionesHoy, setAsignacionesHoy] = useState<Map<string, AsignacionFrente[]>>(new Map());
+  /** Elección explícita del listero por camión en la jornada actual (clave: truck.id). */
+  const [frenteManualPorCamion, setFrenteManualPorCamion] = useState<Map<string, { frenteId: string; frenteNombre: string }>>(new Map());
+  const [frenteJornadaActual, setFrenteJornadaActual] = useState<string>(() => caracasBusinessToday());
+  const [frenteExpandido, setFrenteExpandido] = useState(false);
+  const [frenteBusqueda, setFrenteBusqueda] = useState('');
+
   useEffect(() => {
     let vivo = true;
+    const hoy = caracasBusinessToday();
+    // Hidratar caché local para modo offline en el patio
+    AsyncStorage.getItem('viajes_frentes_cache_v1').then((raw) => {
+      if (!vivo || !raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setFrentes((prev) => (prev.length > 0 ? prev : parsed));
+        }
+      } catch { /* ignore */ }
+    }).catch(() => {});
+    AsyncStorage.getItem('viajes_asigs_hoy_cache_v1').then((raw) => {
+      if (!vivo || !raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.jornada === hoy && Array.isArray(parsed.asigs)) {
+          const porCamion = new Map<string, AsignacionFrente[]>();
+          parsed.asigs.forEach((a: AsignacionFrente) => {
+            const l = porCamion.get(a.machineryId) ?? [];
+            if (!l.some((x) => x.frenteId === a.frenteId)) l.push(a);
+            porCamion.set(a.machineryId, l);
+          });
+          setAsignacionesHoy((prev) => (prev.size > 0 ? prev : porCamion));
+        }
+      } catch { /* ignore */ }
+    }).catch(() => {});
+
     listFrentes().then((r) => {
       if (!vivo) return;
-      setFrentes(r.frentes);
       setFrentesMissing(r.missing);
-      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer los frentes:', r.error);
+      if (r.error && !r.missing) {
+        console.warn('[viajes] no se pudo leer los frentes:', r.error);
+        return; // NO pisar catálogo existente/cacheado con [] en fallo de red
+      }
+      if (!r.error) {
+        setFrentes(r.frentes);
+        AsyncStorage.setItem('viajes_frentes_cache_v1', JSON.stringify(r.frentes)).catch(() => {});
+      }
     });
-    listAsignacionesFrenteConMaquinariaRango([caracasBusinessToday()]).then((asigs) => {
+    listAsignacionesFrenteConMaquinariaRango([hoy]).then((asigs) => {
       if (!vivo) return;
-      // ⭐ Un camión puede tener VARIOS frentes el mismo día (30-sep-2026), así
-      //    que se guardan todos: quedarse con el último pisaría los otros.
-      //    Si una máquina no tiene asignación en Viajes, toma su frente vigente
-      //    de Maquinaria (`maquinaria_frente_asignaciones`).
+      if (hoy !== frenteJornadaActual) {
+        setFrenteJornadaActual(hoy);
+        setFrenteManualPorCamion(new Map());
+      }
       const porCamion = new Map<string, AsignacionFrente[]>();
       asigs.forEach((a) => {
         const l = porCamion.get(a.machineryId) ?? [];
@@ -818,37 +860,37 @@ export default function ViajesCamionesScreen() {
         porCamion.set(a.machineryId, l);
       });
       setAsignacionesHoy(porCamion);
+      AsyncStorage.setItem('viajes_asigs_hoy_cache_v1', JSON.stringify({ jornada: hoy, asigs })).catch(() => {});
     }).catch((err) => {
       if (vivo) console.warn('[viajes] no se pudo leer las asignaciones de frente:', err);
     });
     return () => { vivo = false; };
-  }, [frentesRecarga]);
+  }, [frentesRecarga, frenteJornadaActual]);
   const frentesActivos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
+
+  const seleccionManualActual = selectedTruck ? (frenteManualPorCamion.get(selectedTruck.id) ?? null) : null;
+  const frenteEstadoActual = useMemo(() => preseleccionarFrenteListero({
+    seleccionManual: seleccionManualActual,
+    machineryId: selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID ? selectedTruck.id : null,
+    asignacionesCamion: selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID ? (asignacionesHoy.get(selectedTruck.id) ?? []) : [],
+    frentesCatalogo: frentes,
+  }), [seleccionManualActual, selectedTruck, asignacionesHoy, frentes]);
+
   /**
-   * El frente congelado que le toca a un camión HOY (o nada).
-   *
-   * ⚠️ CON VARIOS FRENTES NO SE ADIVINA (30-sep-2026): un viaje se carga en UN
-   *    frente, y si el camión tiene dos asignados hoy el sistema no sabe en
-   *    cuál se cargó ESTE. Se graba sin frente y el listero lo elige; ponerle
-   *    uno al azar sería inventar de dónde salió el material.
+   * El frente congelado que se graba en ESTE viaje:
+   * Prioridad 1: elección explícita del listero para este camión/viaje.
+   * Prioridad 2: asignación planificada de oficina hoy (si no es ambigua).
    */
   const frenteParaGrabar = (machineryId: string | null) => {
-    const resolverFrenteViajes = (a: AsignacionFrente) => {
-      const porId = frentes.find((x) => x.id === a.frenteId);
-      if (porId) return { frenteId: porId.id, frenteNombre: porId.nombre };
-      const porNombre = a.frenteNombre ? frentes.find((x) => norm(x.nombre) === norm(a.frenteNombre)) : undefined;
-      if (porNombre) return { frenteId: porNombre.id, frenteNombre: porNombre.nombre };
-      return { frenteId: null, frenteNombre: null };
-    };
-    const l = machineryId ? asignacionesHoy.get(machineryId) ?? [] : [];
-    if (l.length === 0) return { frenteId: null, frenteNombre: null };
-    if (l.length === 1) return resolverFrenteViajes(l[0]);
-    const conHora = l.filter((a) => !!a.creadoAt && Number.isFinite(Date.parse(a.creadoAt)));
-    if (conHora.length === l.length) {
-      const masReciente = [...conHora].sort((a, b) => Date.parse(b.creadoAt!) - Date.parse(a.creadoAt!))[0];
-      return resolverFrenteViajes(masReciente);
-    }
-    return { frenteId: null, frenteNombre: null };
+    const key = machineryId ?? (selectedTruck?.id === FUERA_CATALOGO_ID ? FUERA_CATALOGO_ID : null);
+    const manual = key ? frenteManualPorCamion.get(key) : undefined;
+    return resolverFrenteParaViaje({
+      frenteElegidoId: manual?.frenteId ?? null,
+      frenteElegidoNombre: manual?.frenteNombre ?? null,
+      machineryId,
+      asignacionesCamion: machineryId ? (asignacionesHoy.get(machineryId) ?? []) : [],
+      frentesCatalogo: frentes,
+    });
   };
 
   const [pesoTexto, setPesoTexto] = useState('');
@@ -935,6 +977,13 @@ export default function ViajesCamionesScreen() {
     setSelectedTruck(t);
     setSelectedChofer(null);
     setChoferIncierto(false);
+    setFrenteBusqueda('');
+    setFrenteExpandido(false);
+    const hoy = caracasBusinessToday();
+    if (hoy !== frenteJornadaActual) {
+      setFrenteJornadaActual(hoy);
+      setFrenteManualPorCamion(new Map());
+    }
     // El peso es DE ESTE viaje: cambiar de camión lo limpia, o el bruto del
     // camión anterior se registraría en el nuevo sin que nadie lo note.
     limpiarPeso();
@@ -1023,6 +1072,11 @@ export default function ViajesCamionesScreen() {
       if (!ok) { setFcOpen(false); setPickOpen(true); return; }
     }
     setFcOpen(false);
+    // Cancelar cualquier búsqueda de chofer pendiente del camión anterior
+    choferPedidoRef.current++;
+    setChoferLoading(false);
+    setFrenteBusqueda('');
+    setFrenteExpandido(false);
     // Mismo motivo que en `onSelectTruck`: el peso pertenece a UN viaje.
     limpiarPeso();
     // Se arma un camión "de mentira" con el id centinela para que el resto de la
@@ -4111,7 +4165,7 @@ export default function ViajesCamionesScreen() {
     if (canVerPanel) loadAlerta();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canVerPanel, alertaHoras]);
-  useRealtimeRefresh(['camion_viajes', 'machine_operators', 'machinery', 'viaje_frente_asignaciones', 'maquinaria_frente_asignaciones', 'frentes_trabajo'], () => {
+  useRealtimeRefresh(['camion_viajes', 'machine_operators', 'machinery', 'viaje_frente_asignaciones', 'maquinaria_frente_asignaciones', 'viaje_frentes', 'maquinaria_frentes'], () => {
     loadTrucks();
     setFrentesRecarga((n) => n + 1);
     if (canWrite) loadMisViajes();
@@ -5090,6 +5144,159 @@ export default function ViajesCamionesScreen() {
               </View>
             </View>
 
+            {/* ── ⛏️ FRENTE DE TRABAJO (selector listero blindado 21-nov-2026) ── */}
+            {frentesActivos.length > 0 && selectedTruck ? (() => {
+              const asigsTruck = selectedTruck.id !== FUERA_CATALOGO_ID
+                ? (asignacionesHoy.get(selectedTruck.id) ?? [])
+                : [];
+              const idsOficina = new Set(asigsTruck.map((a) => a.frenteId));
+              const q = norm(frenteBusqueda);
+              const ordenados = [...frentesActivos].sort((a, b) => {
+                const aSel = seleccionManualActual?.frenteId === a.id ? 0 : 1;
+                const bSel = seleccionManualActual?.frenteId === b.id ? 0 : 1;
+                if (aSel !== bSel) return aSel - bSel;
+                const aOfi = idsOficina.has(a.id) ? 0 : 1;
+                const bOfi = idsOficina.has(b.id) ? 0 : 1;
+                if (aOfi !== bOfi) return aOfi - bOfi;
+                return cmpText(a.nombre, b.nombre);
+              });
+              const filtrados = q ? ordenados.filter((f) => norm(f.nombre).includes(q)) : ordenados;
+              const hayMuchos = frentesActivos.length > 6;
+              const visibles = q || frenteExpandido || !hayMuchos ? filtrados : filtrados.slice(0, 6);
+              const elegirFrenteManual = (f: FrenteTrabajo | null) => {
+                const key = selectedTruck.id;
+                setFrenteManualPorCamion((prev) => {
+                  const next = new Map(prev);
+                  if (!f || prev.get(key)?.frenteId === f.id) next.delete(key);
+                  else next.set(key, { frenteId: f.id, frenteNombre: f.nombre });
+                  return next;
+                });
+              };
+              return (
+                <View style={{ gap: 6, borderWidth: 1, borderColor: frenteEstadoActual.ambiguoOficina ? colors.warning : colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ FRENTE DE TRABAJO</Text>
+                    {frenteEstadoActual.origen === 'listero' ? (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B' }}>
+                          <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800' }}>👷 Elegido por ti: {frenteEstadoActual.frenteNombre}</Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => elegirFrenteManual(null)}
+                          style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                        >
+                          <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>↩️ Usar el de oficina</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : frenteEstadoActual.origen === 'oficina' ? (
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: '#E0F2FE', borderWidth: 1, borderColor: '#38BDF8' }}>
+                        <Text style={{ color: '#0369A1', fontSize: 11, fontWeight: '800' }}>🏢 Según oficina: {frenteEstadoActual.frenteNombre}</Text>
+                      </View>
+                    ) : frenteEstadoActual.ambiguoOficina ? (
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B' }}>
+                        <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800' }}>⚠️ Varios frentes hoy — toca el de este viaje</Text>
+                      </View>
+                    ) : (
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>∅ Sin frente asignado</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {hayMuchos ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TextInput
+                        value={frenteBusqueda}
+                        onChangeText={setFrenteBusqueda}
+                        placeholder="🔎 Buscar frente por nombre…"
+                        placeholderTextColor={colors.muted}
+                        autoCorrect={false}
+                        style={{
+                          flex: 1,
+                          backgroundColor: colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radius.md,
+                          paddingHorizontal: spacing.sm,
+                          paddingVertical: 7,
+                          color: colors.text,
+                          fontSize: 13,
+                        }}
+                      />
+                      {frenteBusqueda ? (
+                        <TouchableOpacity
+                          onPress={() => setFrenteBusqueda('')}
+                          style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✕</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    <TouchableOpacity
+                      onPress={() => elegirFrenteManual(null)}
+                      style={{
+                        minHeight: 38,
+                        justifyContent: 'center',
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 8,
+                        borderRadius: radius.pill,
+                        borderWidth: 1.5,
+                        borderColor: !seleccionManualActual ? colors.primary : colors.border,
+                        backgroundColor: !seleccionManualActual ? colors.primary : colors.surfaceAlt,
+                      }}
+                    >
+                      <Text style={{ color: !seleccionManualActual ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                        📋 {frenteEstadoActual.oficinaFrenteNombre ? `Según oficina (${frenteEstadoActual.oficinaFrenteNombre})` : 'Según oficina (Sin asignar)'}
+                      </Text>
+                    </TouchableOpacity>
+                    {visibles.map((f) => {
+                      const onManual = seleccionManualActual?.frenteId === f.id;
+                      const esOfi = idsOficina.has(f.id);
+                      return (
+                        <TouchableOpacity
+                          key={f.id}
+                          onPress={() => elegirFrenteManual(f)}
+                          style={{
+                            minHeight: 38,
+                            justifyContent: 'center',
+                            paddingHorizontal: spacing.md,
+                            paddingVertical: 8,
+                            borderRadius: radius.pill,
+                            borderWidth: 1.5,
+                            borderColor: onManual ? '#B45309' : esOfi ? '#38BDF8' : colors.border,
+                            backgroundColor: onManual ? '#B45309' : colors.surfaceAlt,
+                          }}
+                        >
+                          <Text style={{ color: onManual ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                            {esOfi && !onManual ? '🏢 ' : '⛏️ '}{f.nombre}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    {q && visibles.length === 0 ? (
+                      <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: 4 }}>
+                        Ningún frente coincide con «{frenteBusqueda}».
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  {hayMuchos && !q ? (
+                    <TouchableOpacity
+                      onPress={() => setFrenteExpandido((v) => !v)}
+                      style={{ alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 8 }}
+                    >
+                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>
+                        {frenteExpandido ? '▴ Mostrar menos' : `▾ Ver todos los frentes (${frentesActivos.length})`}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              );
+            })() : null}
+
             {/* ── 🧾 TIPO DE VIAJE (26-sep-2026) — solo si hay tipos creados. El
                 normal viene marcado: el toque extra es SOLO para el cruzado. */}
             {tiposActivos.length > 0 ? (
@@ -5225,6 +5432,13 @@ export default function ViajesCamionesScreen() {
                 </TouchableOpacity>
               </View>
             </View>
+            ) : null}
+            {selectedTruck ? (
+              <View style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: frenteEstadoActual.origen === 'listero' ? '#F59E0B' : colors.border, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+                  {`🚜 ${selectedTruck.code}${selectedTruck.plate ? ` · 🏷️ ${selectedTruck.plate}` : ''} · ⛏️ ${frenteEstadoActual.frenteNombre ?? 'Sin frente'}${frenteEstadoActual.origen === 'listero' ? ' (elegido por ti)' : frenteEstadoActual.origen === 'oficina' ? ' (oficina)' : ''}`}
+                </Text>
+              </View>
             ) : null}
             {/* ⚠️ TAMBIÉN DESHABILITADO MIENTRAS CARGA EL CHOFER. El listero
                 cierra el buscador y toca Registrar de una —su trabajo es un

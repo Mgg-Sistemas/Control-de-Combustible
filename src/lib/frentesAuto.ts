@@ -275,3 +275,185 @@ export function combinarAsignacionesConRespaldoMaquinaria(
   }
   return salida;
 }
+
+export type FrenteCatalogoMin = {
+  id: string;
+  nombre: string;
+  activo?: boolean;
+};
+
+export type FrenteResuelto = {
+  frenteId: string | null;
+  frenteNombre: string | null;
+};
+
+const normFrente = (s: unknown) =>
+  String(s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+
+function resolverFrenteEnCatalogo(
+  a: Pick<AsignacionDia, 'frenteId' | 'frenteNombre'>,
+  frentesCatalogo: FrenteCatalogoMin[],
+): FrenteResuelto {
+  const porId = a.frenteId ? frentesCatalogo.find((x) => x.id === a.frenteId) : undefined;
+  if (porId) return { frenteId: porId.id, frenteNombre: porId.nombre };
+  const nombreBuscado = normFrente(a.frenteNombre);
+  if (nombreBuscado) {
+    const porNombre = frentesCatalogo.find((x) => normFrente(x.nombre) === nombreBuscado);
+    if (porNombre) return { frenteId: porNombre.id, frenteNombre: porNombre.nombre };
+  }
+  return { frenteId: null, frenteNombre: null };
+}
+
+export type AsignacionCamionMin = Pick<AsignacionDia, 'machineryId' | 'frenteId' | 'frenteNombre' | 'creadoAt'>;
+
+/**
+ * Resuelve el frente planificado por la oficina para un camión hoy, sin adivinar
+ * cuando hay múltiples asignaciones sin marca horaria `creadoAt`.
+ */
+export function resolverFrenteOficina(
+  asignacionesCamion: AsignacionCamionMin[],
+  frentesCatalogo: FrenteCatalogoMin[],
+): FrenteResuelto {
+  const l = asignacionesCamion ?? [];
+  if (l.length === 0) return { frenteId: null, frenteNombre: null };
+  if (l.length === 1) return resolverFrenteEnCatalogo(l[0], frentesCatalogo);
+  const conHora = l.filter((a) => !!a.creadoAt && Number.isFinite(Date.parse(a.creadoAt)));
+  if (conHora.length === l.length) {
+    const masReciente = [...conHora].sort((a, b) => Date.parse(b.creadoAt!) - Date.parse(a.creadoAt!))[0];
+    return resolverFrenteEnCatalogo(masReciente, frentesCatalogo);
+  }
+  return { frenteId: null, frenteNombre: null };
+}
+
+/**
+ * Determina el frente que se debe congelar al registrar un viaje en la pantalla
+ * del listero:
+ * 1. Si el listero eligió explícitamente un frente para este viaje, MANDA SIEMPRE
+ *    (incluso si el catálogo aún no terminó de cargar o si la oficina tiene otro).
+ * 2. Si el listero dejó la opción automática ("Según oficina"), usa la asignación
+ *    del día para el camión (`resolverFrenteOficina`).
+ */
+export function resolverFrenteParaViaje(params: {
+  frenteElegidoId?: string | null;
+  frenteElegidoNombre?: string | null;
+  machineryId: string | null;
+  asignacionesCamion: AsignacionCamionMin[];
+  frentesCatalogo: FrenteCatalogoMin[];
+}): FrenteResuelto {
+  const idElegido = String(params.frenteElegidoId ?? '').trim();
+  if (idElegido) {
+    const enCat = params.frentesCatalogo.find((x) => x.id === idElegido);
+    if (enCat) return { frenteId: enCat.id, frenteNombre: enCat.nombre };
+    const nombreFallback = String(params.frenteElegidoNombre ?? '').trim();
+    if (nombreFallback) {
+      const porNombre = params.frentesCatalogo.find((x) => normFrente(x.nombre) === normFrente(nombreFallback));
+      if (porNombre) return { frenteId: porNombre.id, frenteNombre: porNombre.nombre };
+      return { frenteId: idElegido, frenteNombre: nombreFallback };
+    }
+    return { frenteId: idElegido, frenteNombre: null };
+  }
+  if (!params.machineryId) return { frenteId: null, frenteNombre: null };
+  return resolverFrenteOficina(params.asignacionesCamion, params.frentesCatalogo);
+}
+
+/**
+ * Calcula qué frente debe mostrar el formulario del listero y su origen.
+ * Si el listero ya eligió manualmente un frente para este camión, un refresco
+ * Realtime de las asignaciones de oficina NUNCA pisa su selección.
+ */
+export function preseleccionarFrenteListero(params: {
+  seleccionManual?: { frenteId: string; frenteNombre: string } | null;
+  machineryId: string | null;
+  asignacionesCamion: AsignacionCamionMin[];
+  frentesCatalogo: FrenteCatalogoMin[];
+}): {
+  frenteId: string | null;
+  frenteNombre: string | null;
+  origen: 'listero' | 'oficina' | 'ninguno';
+  oficinaFrenteId: string | null;
+  oficinaFrenteNombre: string | null;
+  ambiguoOficina: boolean;
+} {
+  const oficina = params.machineryId
+    ? resolverFrenteOficina(params.asignacionesCamion, params.frentesCatalogo)
+    : { frenteId: null, frenteNombre: null };
+  const ambiguoOficina = !!params.machineryId && !oficina.frenteId && (params.asignacionesCamion?.length ?? 0) > 1;
+
+  if (params.seleccionManual?.frenteId) {
+    const resuelto = resolverFrenteParaViaje({
+      frenteElegidoId: params.seleccionManual.frenteId,
+      frenteElegidoNombre: params.seleccionManual.frenteNombre,
+      machineryId: params.machineryId,
+      asignacionesCamion: params.asignacionesCamion,
+      frentesCatalogo: params.frentesCatalogo,
+    });
+    return {
+      frenteId: resuelto.frenteId,
+      frenteNombre: resuelto.frenteNombre,
+      origen: 'listero',
+      oficinaFrenteId: oficina.frenteId,
+      oficinaFrenteNombre: oficina.frenteNombre,
+      ambiguoOficina,
+    };
+  }
+
+  return {
+    frenteId: oficina.frenteId,
+    frenteNombre: oficina.frenteNombre,
+    origen: oficina.frenteId ? 'oficina' : 'ninguno',
+    oficinaFrenteId: oficina.frenteId,
+    oficinaFrenteNombre: oficina.frenteNombre,
+    ambiguoOficina,
+  };
+}
+
+export type AsignacionConOrigen = AsignacionDia & {
+  /** `true` si el camión registró al menos un viaje en ese frente esa jornada. */
+  desdeViajes?: boolean;
+  /** `true` si la fila proviene únicamente de viajes registrados (no de `viaje_frente_asignaciones`). */
+  soloViajes?: boolean;
+};
+
+/**
+ * Une las asignaciones planificadas por la oficina (`viaje_frente_asignaciones`)
+ * con los frentes reales en los que cada camión registró viajes (`camion_viajes`),
+ * deduplicando por `(jornada, machineryId, frenteId)`.
+ *
+ * Así el Tablero de Frentes, la Hoja PDF y el Historial de 45 días reflejan
+ * automáticamente todos los frentes donde trabajó cada camión (incluso si cambió
+ * de frente a mitad del día o si la oficina no planificó ese día), sin borrar ni
+ * pisar ninguna asignación previa.
+ */
+export function unirAsignacionesConViajes(
+  asignacionesOficina: AsignacionDia[],
+  asignacionesDeViajes: AsignacionDia[],
+): AsignacionConOrigen[] {
+  const porClave = new Map<string, AsignacionConOrigen>();
+  const clave = (a: AsignacionDia) =>
+    `${String(a.jornada ?? '').slice(0, 10)}|${String(a.machineryId ?? '')}|${String(a.frenteId ?? '')}`;
+
+  for (const a of asignacionesOficina ?? []) {
+    if (!a || !a.jornada || !a.machineryId || !a.frenteId) continue;
+    const k = clave(a);
+    if (!porClave.has(k)) {
+      porClave.set(k, { ...a, jornada: String(a.jornada).slice(0, 10), desdeViajes: false, soloViajes: false });
+    }
+  }
+
+  for (const v of asignacionesDeViajes ?? []) {
+    if (!v || !v.jornada || !v.machineryId || !v.frenteId) continue;
+    const k = clave(v);
+    const existente = porClave.get(k);
+    if (existente) {
+      existente.desdeViajes = true;
+    } else {
+      porClave.set(k, { ...v, jornada: String(v.jornada).slice(0, 10), desdeViajes: true, soloViajes: true });
+    }
+  }
+
+  return Array.from(porClave.values());
+}

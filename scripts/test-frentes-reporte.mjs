@@ -247,9 +247,10 @@ ok('y ofrece también los frentes activos sin asignación',
   ok('⭐ el componente tiene `tipo` y arranca como camiones', /tipo\?: 'camiones' \| 'maquinas'/.test(compM) && /tipo = 'camiones'/.test(compM));
   ok('⭐ las asignaciones y el historial se ACOTAN a la lista que recibe (ninguno pisa al otro)',
     compM.includes('const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId))')
-    && compM.includes("const todas = r.asignaciones.filter((a) => idsLista.has(a.machineryId) && (!esMaq || !!a.frenteId))")
+    && compM.includes("const todasOfi = r.asignaciones.filter((a) => idsLista.has(a.machineryId) && (!esMaq || !!a.frenteId))")
     && compM.includes('setAsignaciones(vigentesAlDia(mias, fecha))')
-    && compM.includes('setAsignaciones(r.asignaciones.filter((a) => idsLista.has(a.machineryId)))')
+    && compM.includes('rOfi.asignaciones\n          .filter((a) => idsLista.has(a.machineryId))')
+    && compM.includes('rViajes.asignaciones.filter((a) => idsLista.has(a.machineryId))')
     && compM.includes('historialFrentes(mias)') && compM.includes('setAsigRango(mias)'));
   ok('el buscador de viajes sigue diciendo camión', /Buscar camión: placa, código, serial, empresa/.test(compM));
   ok('en máquinas no promete lo de los viajes; dice que el frente se queda', /const auto = esMaq\s*\?\s*'Quedan ahí hasta que las reasignes o las quites\.'/.test(compM));

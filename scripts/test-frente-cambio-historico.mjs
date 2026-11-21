@@ -33,16 +33,16 @@ assert(viajesResumenSrc.includes('claveFrenteViaje(r)'), 'resumirViajes debe usa
 // 5. frentesAuto.ts y ViajesCamionesScreen.tsx: con 2+ frentes y creadoAt resuelven por línea de tiempo (no quedan en Sin frente)
 const frentesAutoSrc = leer('src/lib/frentesAuto.ts');
 assert(frentesAutoSrc.includes('todasConHora'), 'completarFrentes debe resolver por hora creadoAt cuando hay 2+ frentes');
-assert(viajesScreenSrc.includes('masReciente'), 'frenteParaGrabar debe tomar el frente más reciente por creadoAt cuando hay 2+');
+assert(frentesAutoSrc.includes('masReciente'), 'resolverFrenteOficina debe tomar el frente más reciente por creadoAt cuando hay 2+');
 
-// 6. Asignación de frente en planificación se refleja en tickets y listero no cambia frentes
+// 6. Selector seguro en listeros: congela elección o asignación de oficina y se refleja en tickets sin tocar planificación global
 const tiqueConfigSrc = leer('src/lib/tiqueConfig.ts');
 assert(tiqueConfigSrc.includes("k: 'frente'"), 'CAMPOS_TIQUE debe incluir frente');
 assert(tiqueConfigSrc.includes('frente: true'), 'frente debe venir encendido por defecto en tickets');
-assert(!viajesScreenSrc.includes('frentesListeroAbierto'), 'El listero no debe tener selector de frente');
-assert(!viajesScreenSrc.includes('busqFrenteListero'), 'El listero no debe tener buscador de frente');
-assert(viajesScreenSrc.includes('...frenteParaGrabar(esFuera ? null : selectedTruck.id)'), 'El viaje debe congelar la asignación de frentes del camión');
-assert(!viajesScreenSrc.includes('sincronizarFrenteDesdeListero('), 'No debe haber sincronización de frente desde listero');
+assert(viajesScreenSrc.includes('preseleccionarFrenteListero'), 'El listero debe usar preseleccionarFrenteListero');
+assert(viajesScreenSrc.includes('resolverFrenteParaViaje'), 'frenteParaGrabar debe usar resolverFrenteParaViaje');
+assert(viajesScreenSrc.includes('...frenteParaGrabar(esFuera ? null : selectedTruck.id)'), 'El viaje debe congelar el frente resuelto para el camión');
+assert(!viajesScreenSrc.includes('sincronizarFrenteDesdeListero('), 'El listero no debe mutar viaje_frente_asignaciones al registrar');
 assert(viajesScreenSrc.includes('frente: row.frenteNombre ?? null'), 'datosTiqueDeViaje debe pasar frente al ticket');
 
 // 7. frentesReporte.ts: cuenta camiones únicos reales e identifica repetidos en más de un frente
