@@ -237,7 +237,9 @@ ok('⭐ la tarjeta PagoPesoResumen NO pisa la pastilla del alcance al filtrar', 
     ok(`${f}: sin la marca BCV/SOS en el pie (regla del módulo)`, !/marcaTexto: true/.test(c) && (f.includes('Panel') || /marcaTexto: false/.test(c)));
   }
   const pantalla = leer('src/screens/ViajesCamionesScreen.tsx');
-  ok('⭐ el apartado está montado en Viajes de camiones, aparte del pago por viaje', /<PagoPesoResumen canEdit=\{canFull\}/.test(pantalla) && /<PagoViajesResumen canEdit=\{canFull\}/.test(pantalla));
+  // (23-nov-2026) Ambos comparten ahora la selección de responsables: se sigue
+  // comprobando el permiso y que siguen montados, no que el tag esté en una línea.
+  ok('⭐ el apartado está montado en Viajes de camiones, aparte del pago por viaje', /<PagoPesoResumen\s+canEdit=\{canFull\}/.test(pantalla) && /<PagoViajesResumen\s+canEdit=\{canFull\}/.test(pantalla));
 }
 
 console.log('\nPAGO POR PESO — el neto de la romana por el precio del día, aparte del pago por viaje\n');

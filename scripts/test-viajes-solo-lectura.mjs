@@ -102,7 +102,9 @@ check(screenCode.includes('{canFull ? (') && screenCode.includes('titulo="🧾 T
 check(screenCode.includes('{canFull ? <TiqueConfigCard'),
   "'TiqueConfigCard' está protegido por canFull");
 
-check(screenCode.includes('<InformeOperativoCard canVer={canVerPanel} />'),
+// (23-nov-2026) El componente recibe además la selección de responsables; se
+// comprueba el permiso, no que el tag quepa en una sola línea.
+check(/<InformeOperativoCard\s+canVer=\{canVerPanel\}/.test(screenCode),
   "'InformeOperativoCard' recibe canVer={canVerPanel}");
 
 check(screenCode.includes('renderRow(row, { canEdit: canFull, canDelete: canFull, showListero: true })'),

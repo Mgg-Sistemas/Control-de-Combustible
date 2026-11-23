@@ -50,6 +50,9 @@ export type ViajeOperativo = {
   sentido?: string | null;
   material_nombre?: string | null;
   proyecto_operacion?: string | null;
+  /** 🧑‍🔧 Foto del responsable al registrar (23-nov-2026). Reporte por VIAJE. */
+  responsable_id?: string | null;
+  responsable_nombre?: string | null;
 };
 
 const num = (v: unknown): number => {
@@ -134,6 +137,19 @@ export const operacionDeViajeOp = (v: ViajeOperativo): string => {
   const o = String(v.proyecto_operacion ?? '').trim().toLowerCase();
   return o === 'miyamoto' ? 'Miyamoto' : o === 'tfi' ? 'TFI' : SIN_OPERACION_OP;
 };
+/**
+ * Clave del RESPONSABLE CONGELADO. Espejo de `claveResponsableDeViaje` — copiada
+ * en vez de importada para que este archivo siga sin imports (la prueba lo exige).
+ */
+export const SIN_RESPONSABLE_OP = '__sin_responsable__';
+export const claveResponsableOp = (v: ViajeOperativo): string => {
+  const extra = v as ViajeOperativo & { responsableId?: unknown; responsableNombre?: unknown };
+  const id = String(v.responsable_id ?? extra.responsableId ?? '').trim();
+  if (id) return id;
+  const nombre = String(v.responsable_nombre ?? extra.responsableNombre ?? '').trim();
+  if (!nombre) return SIN_RESPONSABLE_OP;
+  return `nombre:${nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es').replace(/\s+/g, ' ')}`;
+};
 
 // ── FILTROS (vacío = todas, igual que en los papeles de pago) ───────────────
 
@@ -149,11 +165,13 @@ export type FiltroOperativo = {
   sentidos?: string[];
   materiales?: string[];
   operaciones?: string[];
+  /** 🧑‍🔧 Claves del responsable congelado. Opcional: llamadores viejos no lo mandan. */
+  responsables?: string[];
 };
 export const FILTRO_OPERATIVO_TODO: FiltroOperativo = {
   empresas: [], obras: [], zonas: [], camiones: [],
   listeros: [], frentes: [], turnos: [], formatos: [],
-  sentidos: [], materiales: [], operaciones: [],
+  sentidos: [], materiales: [], operaciones: [], responsables: [],
 };
 
 const pasa = (lista: string[] | null | undefined, clave: string) => !lista || lista.length === 0 || lista.includes(clave);
@@ -170,7 +188,8 @@ export function filtrarViajesOperativo(viajes: ViajeOperativo[] | null | undefin
     && pasa(f.formatos, formatoDeViajeOp(v))
     && pasa(f.sentidos, sentidoDeViajeOp(v))
     && pasa(f.materiales, materialDeViajeOp(v))
-    && pasa(f.operaciones, operacionDeViajeOp(v)));
+    && pasa(f.operaciones, operacionDeViajeOp(v))
+    && pasa(f.responsables, claveResponsableOp(v)));
 }
 
 /** El filtro, acotado a lo que de verdad hay en el rango: una empresa marcada
@@ -180,7 +199,7 @@ export function acotarFiltroOperativo(
   hay: {
     empresas: string[]; obras: string[]; zonas: string[]; camiones: string[];
     listeros?: string[]; frentes?: string[]; turnos?: string[]; formatos?: string[];
-    sentidos?: string[]; materiales?: string[]; operaciones?: string[];
+    sentidos?: string[]; materiales?: string[]; operaciones?: string[]; responsables?: string[];
   },
 ): FiltroOperativo {
   const e = new Set(hay.empresas); const o = new Set(hay.obras);
@@ -192,6 +211,7 @@ export function acotarFiltroOperativo(
   const se = hay.sentidos ? new Set(hay.sentidos) : null;
   const ma = hay.materiales ? new Set(hay.materiales) : null;
   const op = hay.operaciones ? new Set(hay.operaciones) : null;
+  const re = hay.responsables ? new Set(hay.responsables) : null;
   const res: FiltroOperativo = {
     empresas: f.empresas.filter((k) => e.has(k)),
     obras: f.obras.filter((k) => o.has(k)),
@@ -205,6 +225,7 @@ export function acotarFiltroOperativo(
   if (f.sentidos) res.sentidos = f.sentidos.filter((k) => !se || se.has(k));
   if (f.materiales) res.materiales = f.materiales.filter((k) => !ma || ma.has(k));
   if (f.operaciones) res.operaciones = f.operaciones.filter((k) => !op || op.has(k));
+  if (f.responsables) res.responsables = f.responsables.filter((k) => !re || re.has(k));
   return res;
 }
 
@@ -594,6 +615,8 @@ export type DatosPapelOperativo = {
    * día —; el catálogo solo rellena cuando el viaje no guardó nada.
    */
   placasCatalogo?: Map<string, string> | null;
+  /** 🧑‍🔧 «Responsable: ...», armado por la tarjeta con el catálogo del módulo. */
+  etiquetaResponsable?: string | null;
 };
 
 /** «Pico: 02 y 03 de octubre», con las jornadas del pico de flota. */
@@ -745,7 +768,8 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
     || ((d.filtro.listeros?.length ?? 0) > 0)
     || ((d.filtro.frentes?.length ?? 0) > 0)
     || ((d.filtro.turnos?.length ?? 0) > 0)
-    || ((d.filtro.formatos?.length ?? 0) > 0);
+    || ((d.filtro.formatos?.length ?? 0) > 0)
+    || ((d.filtro.responsables?.length ?? 0) > 0);
   // ⚠️ A diferencia de los papeles de PAGO (donde un filtro mueve plata y el
   //    alcance sale a la fuerza), acá la pastilla MANDA SIEMPRE (09-oct-2026, a
   //    pedido: «quiero quitar el alcance y aún lo deja»). La honestidad no se
@@ -763,6 +787,7 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
       if (f.frentes?.length) l.push(`Solo frente(s): ${f.frentes.map(esc).join(', ')}.`);
       if (f.turnos?.length) l.push(`Solo turno: ${f.turnos.map((t) => t === 'day' ? 'Día (☀️)' : 'Noche (🌙)').join(', ')}.`);
       if (f.formatos?.length) l.push(`Solo formato(s): ${f.formatos.map(esc).join(', ')}.`);
+      if (d.etiquetaResponsable) l.push(`${esc(d.etiquetaResponsable)}.`);
       l.unshift('FILTRADO: este papel NO es toda la operación.');
     }
     partes.push(`<h3>Alcance del informe</h3><p class="n">${l.join(' ')}</p>`);

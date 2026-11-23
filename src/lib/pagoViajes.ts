@@ -129,6 +129,9 @@ export type ViajePago = {
   /** FRENTE DE TRABAJO (28-sep-2026): de dónde recogió, congelado en el viaje.
    *  Solo informa (agrupar y columna del papel): NO toca ningún cálculo. */
   frente_nombre?: string | null;
+  /** 🧑‍🔧 Foto del responsable al registrar (23-nov-2026). Solo filtra el papel. */
+  responsable_id?: string | null;
+  responsable_nombre?: string | null;
 };
 
 /** El tipo de viaje de una fila, limpio. null = viaje normal (por zona). */

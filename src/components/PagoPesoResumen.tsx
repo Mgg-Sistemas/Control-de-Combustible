@@ -35,6 +35,7 @@ import {
   alternarPeso,
   bloquesPeso,
   calcularPagoPeso,
+  claveResponsableLineaPeso, SIN_RESPONSABLE_PESO,
   cuerpoPagoPeso,
   empresasDisponiblesPeso,
   etiquetaMotivoSinPagoPeso,
@@ -57,10 +58,16 @@ import {
   viajesPesoEnRango,
 } from '../lib/pagoPeso';
 import { cargarDatosPagoPeso, DatosPagoPeso, INICIO_PAGO_PESO } from '../lib/pagoPesoDb';
+import { etiquetaFiltroResponsables, sufijoArchivoResponsables } from '../lib/camionResponsables';
 
 type Props = {
   canEdit: boolean;
   usuarioId: string | null;
+  /** 🧑‍🔧 Selección COMPARTIDA con la Lista completa (responsable congelado). */
+  responsablesSel?: string[];
+  nombresResponsables?: Record<string, string>;
+  onToggleResponsable?: (clave: string) => void;
+  onLimpiarResponsables?: () => void;
 };
 
 const dmy = (iso: string) => {
@@ -92,7 +99,7 @@ const LOGOS: { k: keyof Logos; label: string }[] = [
   { k: 'golden', label: '✨ Golden Touch' },
 ];
 
-export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
+export function PagoPesoResumen({ canEdit, usuarioId, responsablesSel, nombresResponsables, onToggleResponsable, onLimpiarResponsables }: Props) {
   const { colors } = useTheme();
   const hoy = jornadaDeInstantePeso(new Date().toISOString());
   const [desde, setDesde] = useState(() => lunesDe(hoy));
@@ -162,6 +169,13 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
   const obrasPdf = useMemo(() => obrasDisponiblesPeso(lineas), [lineas]);
   const frentesPdf = useMemo(() => frentesDisponiblesPeso(lineas), [lineas]);
   const maquinasPdf = useMemo(() => maquinasDisponiblesPeso(lineas, datos?.fichas, datos?.empresas), [lineas, datos]);
+  // 🧑‍🔧 Faceta del responsable congelado, contada sobre las mismas líneas del papel.
+  const responsablesPdf = useMemo(() => {
+    const m = new Map<string, number>();
+    lineas.forEach((l) => { const k = claveResponsableLineaPeso(l); m.set(k, (m.get(k) ?? 0) + 1); });
+    return Array.from(m, ([id, n]) => ({ id, name: nombresResponsables?.[id] ?? id, viajes: n }))
+      .sort((a, b) => Number(a.id === SIN_RESPONSABLE_PESO) - Number(b.id === SIN_RESPONSABLE_PESO) || a.name.localeCompare(b.name, 'es'));
+  }, [lineas, nombresResponsables]);
   // El buscador recorta lo que se ve, no lo que está marcado: una máquina marcada
   // que no coincide con la búsqueda sigue filtrando el papel (por eso se cuentan aparte).
   const maquinasVistas = useMemo(() => {
@@ -173,10 +187,10 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
   // puede seguir filtrando sin verse.
   const filtroPdf = useMemo<FiltroPeso>(
     () => acotarFiltroPeso(
-      { empresas: Array.from(empresasSel), obras: Array.from(obrasSel), maquinas: Array.from(maquinasSel), frentes: Array.from(frentesSel) },
-      { empresas: empresasPdf.map((e) => e.id), obras: obrasPdf.map((x) => x.id), maquinas: maquinasPdf.map((x) => x.id), frentes: frentesPdf.map((x) => x.id) },
+      { empresas: Array.from(empresasSel), obras: Array.from(obrasSel), maquinas: Array.from(maquinasSel), frentes: Array.from(frentesSel), responsables: responsablesSel },
+      { empresas: empresasPdf.map((e) => e.id), obras: obrasPdf.map((x) => x.id), maquinas: maquinasPdf.map((x) => x.id), frentes: frentesPdf.map((x) => x.id), responsables: responsablesPdf.map((x) => x.id) },
     ),
-    [empresasSel, obrasSel, maquinasSel, frentesSel, empresasPdf, obrasPdf, maquinasPdf, frentesPdf],
+    [empresasSel, obrasSel, maquinasSel, frentesSel, responsablesSel, empresasPdf, obrasPdf, maquinasPdf, frentesPdf, responsablesPdf],
   );
   const lineasPdf = useMemo(() => filtrarLineasPeso(lineas, filtroPdf), [lineas, filtroPdf]);
   const totPdf = useMemo(() => totalPeso(lineasPdf), [lineasPdf]);
@@ -188,6 +202,7 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
   const nombreEje = (e: EjePeso) => (e === 'obra' ? 'obra' : e === 'frente' ? 'frente' : e === 'maquina' ? 'camión' : 'empresa');
 
   const descargarPdf = async () => {
+    const sResp = sufijoArchivoResponsables(responsablesSel).replace(/^-/, '');
     const html = pdfDocument({
       title: 'Pago por peso de los viajes de camiones',
       subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am) · en ${unidad === 'kg' ? 'kilos' : 'toneladas'}${ejePdf !== 'empresa' ? ` · por ${nombreEje(ejePdf)}` : ''}${pdfFiltrado ? ' · FILTRADO' : ''}`,
@@ -203,9 +218,10 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
         unidad,
         nombresEmpresa: datos?.empresas ?? new Map(),
         fichas: datos?.fichas,
+        etiquetaResponsable: etiquetaFiltroResponsables(responsablesSel, nombresResponsables ?? {}),
       }),
     });
-    await exportPdf(html, `Pago por peso ${dmy(desde)} a ${dmy(hasta)}${sufijoArchivoPeso(filtroPdf, ejePdf, opcionesPdf)}`.replace(/\//g, '-'));
+    await exportPdf(html, `Pago por peso ${dmy(desde)} a ${dmy(hasta)}${sufijoArchivoPeso(filtroPdf, ejePdf, opcionesPdf)}${sResp ? ` · ${sResp}` : ''}`.replace(/\//g, '-'));
   };
 
   const alternarSel = (set: Set<string>, poner: (x: Set<string>) => void, k: string) => {
@@ -338,6 +354,18 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
               {pastilla('eje-f', '⛏️ Frente de trabajo', ejePdf === 'frente', () => setEjePdf('frente'))}
               {pastilla('eje-m', '🚛 Camión', ejePdf === 'maquina', () => setEjePdf('maquina'))}
             </View>
+
+            {/* 🧑‍🔧 RESPONSABLE — compartido con la Lista completa: manda el
+                responsable guardado en cada viaje, no el vigente de hoy. */}
+            {responsablesPdf.length > 0 ? (
+              <View>
+                {rotuloPdf(`🧑‍🔧 RESPONSABLE (vacío = todos · ${responsablesPdf.length})`)}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  {pastilla('r-todos', '✅ Todos', (responsablesSel?.length ?? 0) === 0, () => onLimpiarResponsables?.())}
+                  {responsablesPdf.map((x) => pastilla('r' + x.id, `🧑‍🔧 ${x.name} (${x.viajes})`, responsablesSel?.includes(x.id) ?? false, () => onToggleResponsable?.(x.id)))}
+                </View>
+              </View>
+            ) : null}
 
             {rotuloPdf(`📍 OBRAS (vacío = todas · ${obrasPdf.length})`)}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>

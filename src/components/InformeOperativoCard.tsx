@@ -25,10 +25,12 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { norm } from '../lib/text';
 import { leerConfigTique } from '../lib/tiqueConfigDatos';
 import { resolverFormatoDeViaje } from '../lib/tiqueConfig';
+import { etiquetaFiltroResponsables, sufijoArchivoResponsables } from '../lib/camionResponsables';
 import {
   CSS_INFORME_OPERATIVO, FiltroOperativo, OpcionesInformeOperativo, OPCIONES_OPERATIVO_INICIAL,
   PASTILLAS_OPERATIVO, ViajeOperativo,
   acotarFiltroOperativo, alternarOperativo, camionesOperativo, cuerpoInformeOperativo,
+  claveResponsableOp, SIN_RESPONSABLE_OP,
   empresasOperativo, filtrarViajesOperativo, jornadaOperativa, nro, obrasOperativo,
   ocultosOperativoEnPalabras, resumenOperativo, sufijoArchivoOperativo, textoPicoFlota, zonasOperativo,
   listerosOperativo, frentesOperativo, formatosOperativo, turnosOperativo,
@@ -38,6 +40,11 @@ import {
 type Props = {
   /** Permiso de lectura o completo para ver el informe operativo. */
   canVer: boolean;
+  /** 🧑‍🔧 Selección COMPARTIDA con la Lista completa de viajes (congelada). */
+  responsablesSel?: string[];
+  nombresResponsables?: Record<string, string>;
+  onToggleResponsable?: (clave: string) => void;
+  onLimpiarResponsables?: () => void;
 };
 
 const dmy = (iso: string) => {
@@ -55,6 +62,10 @@ const primeroDelMes = (iso: string) => `${iso.slice(0, 7)}-01`;
 // Lo que se le pide a la base por cada viaje: incluye campos congelados de listero, frente, folio y máquina.
 const COLS_OPERATIVO_BASE = 'id, machinery_id, machine_code, company_id, zona_pago, registered_at, peso_neto_kg, ubicacion_nombre, placa_snap, fuera_catalogo, listero_id, listero_name, folio, frente_id, frente_nombre';
 const COLS_OPERATIVO = `${COLS_OPERATIVO_BASE}, sentido, material_nombre, proyecto_operacion`;
+// 🧑‍🔧 Escalones: si el SQL de responsables aún no corrió, se omite el grupo y
+// el papel sigue saliendo (los viajes viejos caen en «Sin responsable»).
+const COLS_RESPONSABLE = ', responsable_id, responsable_nombre';
+const COLS_OPERATIVO_RESP = `${COLS_OPERATIVO}${COLS_RESPONSABLE}`;
 
 type Logos = { bcv: boolean; sos: boolean; golden: boolean; renace: boolean; jhenzaen: boolean };
 // 🏷️ Regla de la casa en Viajes de camiones: el papel nace SIN logos y sin la
@@ -68,7 +79,7 @@ const LOGOS: { k: keyof Logos; label: string }[] = [
   { k: 'jhenzaen', label: '🏗️ Jhenzaen 2.012 C.A' },
 ];
 
-export function InformeOperativoCard({ canVer }: Props) {
+export function InformeOperativoCard({ canVer, responsablesSel, nombresResponsables, onToggleResponsable, onLimpiarResponsables }: Props) {
   const { colors } = useTheme();
   const hoy = jornadaOperativa(new Date().toISOString());
 
@@ -112,10 +123,12 @@ export function InformeOperativoCard({ canVer }: Props) {
       // La jornada va de 7am a 7am: el rango en instantes es [desde 7am, hasta+1 7am).
       const finExclusivo = sumarDias(hasta, 1);
       const [filas, empresas, maqs, tiqueCfg] = await Promise.all([
-        selectAllRows('camion_viajes', COLS_OPERATIVO, (q: any) =>
+        selectAllRows('camion_viajes', COLS_OPERATIVO_RESP, (q: any) =>
           q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`))
-          .catch(() => selectAllRows('camion_viajes', COLS_OPERATIVO_BASE, (q: any) =>
-            q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`))),
+          .catch(() => selectAllRows('camion_viajes', COLS_OPERATIVO, (q: any) =>
+            q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`))
+            .catch(() => selectAllRows('camion_viajes', COLS_OPERATIVO_BASE, (q: any) =>
+              q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`)))),
         selectAllRows('companies', 'id, name'),
         // 🚛 Placa/serial del catálogo: respalda los viajes viejos sin placa
         //    congelada en el cuadro por camión. Si falla, el papel sale igual.
@@ -166,6 +179,14 @@ export function InformeOperativoCard({ canVer }: Props) {
   const sentidosHay = useMemo(() => sentidosOperativo(viajes), [viajes]);
   const materialesHay = useMemo(() => materialesOperativo(viajes), [viajes]);
   const operacionesHay = useMemo(() => operacionesOperativo(viajes), [viajes]);
+  // 🧑‍🔧 Conteo por responsable sobre el MISMO rango de viajes que los demás
+  // contadores de esta tarjeta. El filtro compartido se aplica después.
+  const responsablesHay = useMemo(() => {
+    const m = new Map<string, number>();
+    viajes.forEach((v) => { const k = claveResponsableOp(v); m.set(k, (m.get(k) ?? 0) + 1); });
+    return Array.from(m, ([id, n]) => ({ id, name: nombresResponsables?.[id] ?? id, viajes: n }))
+      .sort((a, b) => Number(a.id === SIN_RESPONSABLE_OP) - Number(b.id === SIN_RESPONSABLE_OP) || a.name.localeCompare(b.name, 'es'));
+  }, [viajes, nombresResponsables]);
 
   // Buscador de filtros unificado: filtra opciones visibles sin esconder nunca los elementos ya marcados
   const qFiltro = norm(busqFiltros.trim());
@@ -215,6 +236,7 @@ export function InformeOperativoCard({ canVer }: Props) {
       sentidos: Array.from(sentidosSel),
       materiales: Array.from(materialesSel),
       operaciones: Array.from(operacionesSel),
+      responsables: responsablesSel,
     },
     {
       empresas: empresasHay.map((x) => x.id),
@@ -228,8 +250,9 @@ export function InformeOperativoCard({ canVer }: Props) {
       sentidos: sentidosHay.map((x) => x.id),
       materiales: materialesHay.map((x) => x.id),
       operaciones: operacionesHay.map((x) => x.id),
+      responsables: responsablesHay.map((x) => x.id),
     },
-  ), [empresasSel, obrasSel, zonasSel, camionesSel, listerosSel, frentesSel, turnosSel, formatosSel, sentidosSel, materialesSel, operacionesSel, empresasHay, obrasHay, zonasHay, camionesHay, listerosHay, frentesHay, turnosHay, formatosHay, sentidosHay, materialesHay, operacionesHay]);
+  ), [empresasSel, obrasSel, zonasSel, camionesSel, listerosSel, frentesSel, turnosSel, formatosSel, sentidosSel, materialesSel, operacionesSel, responsablesSel, empresasHay, obrasHay, zonasHay, camionesHay, listerosHay, frentesHay, turnosHay, formatosHay, sentidosHay, materialesHay, operacionesHay, responsablesHay]);
 
   const filtrados = useMemo(() => filtrarViajesOperativo(viajes, filtro), [viajes, filtro]);
   const filtrado = filtro.empresas.length > 0 || filtro.obras.length > 0 || filtro.zonas.length > 0 || filtro.camiones.length > 0
@@ -239,7 +262,8 @@ export function InformeOperativoCard({ canVer }: Props) {
     || ((filtro.formatos?.length ?? 0) > 0)
     || ((filtro.sentidos?.length ?? 0) > 0)
     || ((filtro.materiales?.length ?? 0) > 0)
-    || ((filtro.operaciones?.length ?? 0) > 0);
+    || ((filtro.operaciones?.length ?? 0) > 0)
+    || ((filtro.responsables?.length ?? 0) > 0);
 
   const cantFiltrosActivos = (filtro.empresas.length > 0 ? 1 : 0)
     + (filtro.obras.length > 0 ? 1 : 0)
@@ -251,7 +275,8 @@ export function InformeOperativoCard({ canVer }: Props) {
     + ((filtro.formatos?.length ?? 0) > 0 ? 1 : 0)
     + ((filtro.sentidos?.length ?? 0) > 0 ? 1 : 0)
     + ((filtro.materiales?.length ?? 0) > 0 ? 1 : 0)
-    + ((filtro.operaciones?.length ?? 0) > 0 ? 1 : 0);
+    + ((filtro.operaciones?.length ?? 0) > 0 ? 1 : 0)
+    + ((filtro.responsables?.length ?? 0) > 0 ? 1 : 0);
 
   const limpiarFiltros = () => {
     setTurnosSel(new Set());
@@ -273,6 +298,7 @@ export function InformeOperativoCard({ canVer }: Props) {
   const descargarPdf = async () => {
     setDescargando(true);
     try {
+      const etiquetaResponsable = etiquetaFiltroResponsables(responsablesSel, nombresResponsables ?? {});
       const html = pdfDocument({
         title: 'Informe operativo de transporte y carga',
         subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} (${nro(resumen.diasRango, 0)} día(s)) · por jornada (7am a 7am) · sin montos${filtrado ? ' · FILTRADO' : ''}`,
@@ -285,10 +311,11 @@ export function InformeOperativoCard({ canVer }: Props) {
           // La pastilla del alcance manda SIEMPRE, hasta filtrado (09-oct-2026, a
           // pedido). El «FILTRADO» del subtítulo es el que no se puede apagar.
           opciones,
-          filtro, nombresEmpresa,
+          filtro, nombresEmpresa, etiquetaResponsable,
         }),
       });
-      await exportPdf(html, `Informe operativo ${sufijoArchivoOperativo(desde, hasta, opciones, filtrado)}`.replace(/\//g, '-'));
+      const sufijoResp = sufijoArchivoResponsables(responsablesSel).replace(/^-/, '');
+      await exportPdf(html, `Informe operativo ${sufijoArchivoOperativo(desde, hasta, opciones, filtrado)}${sufijoResp ? ` · ${sufijoResp}` : ''}`.replace(/\//g, '-'));
     } finally {
       setDescargando(false);
     }
@@ -414,6 +441,21 @@ export function InformeOperativoCard({ canVer }: Props) {
           <TouchableOpacity onPress={limpiarFiltros} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.xs, alignSelf: 'flex-start' }}>
             <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros ({cantFiltrosActivos})</Text>
           </TouchableOpacity>
+        ) : null}
+
+        {/* 🧑‍🔧 RESPONSABLE — compartido con la Lista completa. Mandan los
+            viajes congelados, no la asignación vigente de hoy. */}
+        {responsablesHay.length > 0 ? (
+          <View>
+            {rotulo(`🧑‍🔧 RESPONSABLE${(responsablesSel?.length ?? 0) > 0 ? ` (${responsablesSel?.length ?? 0})` : ' (todos)'}`)}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {pastilla('r-todos', '✓ TODOS', (responsablesSel?.length ?? 0) === 0, () => onLimpiarResponsables?.())}
+              {responsablesHay.map((x) => pastilla('r' + x.id, `🧑‍🔧 ${x.name} (${x.viajes})`, responsablesSel?.includes(x.id) ?? false, () => onToggleResponsable?.(x.id)))}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+              Filtro compartido con la Lista completa de viajes. Se aplica al responsable guardado en cada viaje.
+            </Text>
+          </View>
         ) : null}
 
         {/* ☀️ TURNO */}

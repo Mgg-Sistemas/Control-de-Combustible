@@ -48,7 +48,7 @@ import {
   volumenConGuardado, LOGOS_POR_DEFECTO, type LogosReporte,
   RESUMEN_POR_DEFECTO, tarjetasResumen, htmlResumenEjecutivo, CSS_RESUMEN_EJECUTIVO, type OpcionesResumen,
 } from '../lib/cubicaje';
-import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LISTERO, claveCamion, claveUbicacionViaje, claveFrenteViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
+import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LISTERO, claveCamion, claveUbicacionViaje, claveFrenteViaje, claveResponsableViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
@@ -63,6 +63,14 @@ import { FrentesTrabajo, type CamionParaFrente, type DatosDelDiaFrente } from '.
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
 import { ReporteTarasBox } from '../components/ReporteTarasBox';
 import { ChoferesCamionesBox } from '../components/ChoferesCamionesBox';
+import { ResponsablesCamionesBox } from '../components/ResponsablesCamionesBox';
+import { listarResponsablesCamiones, listarAsignacionesResponsables } from '../lib/camionResponsablesDb';
+import {
+  SIN_RESPONSABLE, ETIQUETA_SIN_RESPONSABLE, mapaNombresResponsables,
+  nombreResponsableDeViaje, responsableVigentePorCamion, responsableCongeladoParaViaje,
+  etiquetaFiltroResponsables, sufijoArchivoResponsables, claveResponsableDeViaje, pasaFiltroResponsables,
+  type ResponsableCamion, type AsignacionResponsable,
+} from '../lib/camionResponsables';
 import { EstadoCamionPermisosBox } from '../components/EstadoCamionPermisosBox';
 import { leerPermisoEstado, cambiarEstadoCamion, ESTADO_BASICO_META, type EstadoBasico } from '../lib/estadoCamionListero';
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
@@ -458,6 +466,28 @@ export default function ViajesCamionesScreen() {
   const [ajustesLista, setAjustesLista] = useState<IndiceAjustesLista>(new Map());
   const [faltaSqlLista, setFaltaSqlLista] = useState(false);
   const ajustesListaRef = useRef<IndiceAjustesLista>(new Map());
+  // 🧑‍🔧 Responsables propios del módulo (23-nov-2026). Si falta el SQL, se
+  // avisa en la caja de Configuración y el resto de Viajes sigue igual.
+  const [responsablesCamiones, setResponsablesCamiones] = useState<Record<string, string>>({});
+  const [faltaSqlResponsables, setFaltaSqlResponsables] = useState(false);
+  // Se guarda el catálogo completo para CONGELAR en cada viaje (no solo el mapa de hoy).
+  const [catalogoResponsables, setCatalogoResponsables] = useState<ResponsableCamion[]>([]);
+  const [asignacionesResponsables, setAsignacionesResponsables] = useState<AsignacionResponsable[]>([]);
+  // Nombres para rotular los chips del filtro. La cubeta «Sin responsable» siempre
+  // está incluida: viajes viejos y camiones sin asignación no son un dato perdido.
+  const nombresResponsables = useMemo(
+    () => mapaNombresResponsables(catalogoResponsables),
+    [catalogoResponsables]
+  );
+  // VIGENTE por camión, en el MISMO espacio de claves del filtro. Lo usan las
+  // vistas por camión (lista, metas, taras); los viajes siguen usando el congelado.
+  const responsableVigenteClavePorCamion = useMemo(() => {
+    const out: Record<string, string> = {};
+    Object.entries(responsableVigentePorCamion(asignacionesResponsables)).forEach(([camionId, responsableId]) => {
+      out[camionId] = claveResponsableDeViaje({ responsable_id: responsableId });
+    });
+    return out;
+  }, [asignacionesResponsables]);
   const [averiaCat, setAveriaCat] = useState<Record<string, AveriaEntry>>({});
   const [jornadaCat, setJornadaCat] = useState<Record<string, JornadaEntry>>({});
   const [inspByShift, setInspByShift] = useState<Record<string, InspByShiftEntry>>({});
@@ -500,7 +530,7 @@ export default function ViajesCamionesScreen() {
     //    (ReportsScreen, InspectionsSummary, HistoricoJornadas…). El orden por
     //    código se hace acá abajo con `cmpText`, porque `selectAllRows` pagina
     //    por id y no admite un `.order()` propio.
-    const [cat, aCat, jCat, iShift, ajLista] = await Promise.all([
+    const [cat, aCat, jCat, iShift, ajLista, respResp, respAsig] = await Promise.all([
       selectAllRows('machinery', 'id, code, plate, serial, clasificacion, marca, modelo, company_id, operational, en_espera, company:company_id(name)', (q: any) => q.eq('active', true))
         .then((rows: any[]) => ({ rows, error: null as string | null }))
         .catch((e: any) => ({ rows: [] as any[], error: String(e?.message ?? e) })),
@@ -508,7 +538,23 @@ export default function ViajesCamionesScreen() {
       fetchJornadaCat(),
       fetchInspByShift(),
       cargarAjustesListaViajes(),
+      listarResponsablesCamiones(),
+      listarAsignacionesResponsables(),
     ]);
+    // 🧑‍🔧 El mapa es solo para PINTAR "Le trabaja a". Los reportes usan el
+    // responsable CONGELADO en cada viaje, nunca este mapa (que es el de hoy).
+    setFaltaSqlResponsables(respResp.missing || respAsig.missing);
+    setCatalogoResponsables(respResp.missing ? [] : respResp.rows);
+    setAsignacionesResponsables(respAsig.missing ? [] : respAsig.rows);
+    if (!respResp.missing && !respAsig.missing) {
+      const nombresResp = mapaNombresResponsables(respResp.rows);
+      const vigentesResp = responsableVigentePorCamion(respAsig.rows);
+      const mapa: Record<string, string> = {};
+      Object.entries(vigentesResp).forEach(([camionId, responsableId]) => {
+        mapa[camionId] = nombresResp[responsableId] ?? 'Sin responsable';
+      });
+      setResponsablesCamiones(mapa);
+    }
     if (!ajLista.error) {
       ajustesListaRef.current = indexarAjustesLista(ajLista.filas);
       setAjustesLista(ajustesListaRef.current);
@@ -1254,6 +1300,8 @@ export default function ViajesCamionesScreen() {
       listeroId: q.payload.listeroId,
       listeroName: q.payload.listeroName,
       choferName: q.payload.choferName,
+      responsableId: q.payload.responsableId ?? null,
+      responsableNombre: q.payload.responsableNombre ?? null,
       shift: q.payload.shift,
       estadoMaquina: q.payload.estadoMaquina,
       // La zona la congela el SERVIDOR al entrar el viaje (por su CDT): en cola aún no hay.
@@ -1308,6 +1356,8 @@ export default function ViajesCamionesScreen() {
       listeroId: q.payload.listeroId,
       listeroName: q.payload.listeroName,
       choferName: q.payload.choferName,
+      responsableId: q.payload.responsableId ?? null,
+      responsableNombre: q.payload.responsableNombre ?? null,
       shift: q.payload.shift,
       estadoMaquina: q.payload.estadoMaquina,
       zonaPago: null,
@@ -1506,6 +1556,14 @@ export default function ViajesCamionesScreen() {
         // ve el nombre y el próximo toque no vuelve a gastar el tope entero.
         if (!vencioElTope && choferIncierto) { setChoferIncierto(false); setSelectedChofer(chofer); }
       }
+      // 🧑‍🔧 El responsable se CONGELA con la fecha REAL del viaje (no con now()):
+      //    si el teléfono está offline y sincroniza horas después, debe quedar
+      //    quien correspondía cuando se registró, no el de ahora. Viajes viejos
+      //    o fuera de catálogo caen en «Sin responsable», sin inventar nada.
+      const respCongelado = responsableCongeladoParaViaje(
+        asignacionesResponsables, catalogoResponsables,
+        esFuera ? null : selectedTruck.id, registeredAt
+      );
       const payload = {
         // ⭐ Fuera de catálogo: SIN id de máquina. Ese es todo el punto — el camión
         // existe únicamente como texto en esta fila. La BD lo exige con el CHECK
@@ -1517,6 +1575,8 @@ export default function ViajesCamionesScreen() {
         listeroId: uid,
         listeroName,
         choferName: chofer,
+        responsableId: respCongelado.id,
+        responsableNombre: respCongelado.nombre,
         shift,
         estadoMaquina: estadoConteo,
         // ⭐ QUE SE VEA QUE NO SE PUDO AVERIGUAR EL CHOFER. Es la única forma de
@@ -2432,6 +2492,10 @@ export default function ViajesCamionesScreen() {
       let yaEstaban = 0;   // rebotaron por clave repetida: ya estaban de antes
       let ultimoError = '';
       for (const iso of horarios) {
+        // 🧑‍🔧 Igual congelado que en el patio, con la fecha DE ESTE viaje.
+        const respCarga = responsableCongeladoParaViaje(
+          asignacionesResponsables, catalogoResponsables, cargaTruck.id, iso
+        );
         const { error } = await registrarViaje({
           machineryId: cargaTruck.id,
           machineCode: cargaTruck.code,
@@ -2440,6 +2504,8 @@ export default function ViajesCamionesScreen() {
           listeroId: listero.id,
           listeroName: listero.full_name,
           choferName: cargaChofer.trim() || null,
+          responsableId: respCarga.id,
+          responsableNombre: respCarga.nombre,
           shift: turnoParaGuardar(iso),
           // ⚠️ `null` a propósito: `estado_maquina` es la foto del estado EN EL
           //    MOMENTO del viaje, y de un día pasado no se sabe. Poner el estado
@@ -2770,6 +2836,13 @@ export default function ViajesCamionesScreen() {
   const [filterFormatoSel, setFilterFormatoSel] = useState<Map<string, string>>(new Map());
   // ⛏️ FRENTE DE TRABAJO (13-nov-2026, a pedido: filtrar por uno o varios frentes en la Lista completa de viajes).
   const [filterFrenteSel, setFilterFrenteSel] = useState<Map<string, string>>(new Map());
+  // 🧑‍🔧 RESPONSABLE (23-nov-2026): el guardado en CADA VIAJE, no el vigente de
+  // hoy. Clave → etiqueta, para que un chip marcado siga visible aunque ese
+  // responsable ya no aparezca en el rango. Vacío = todos.
+  const [filterResponsableSel, setFilterResponsableSel] = useState<Map<string, string>>(new Map());
+  // 🧑‍🔧 El VIGENTE manda en los reportes por CAMIÓN (lista, metas y taras).
+  // Es una selección aparte: la de arriba es la foto congelada de cada viaje.
+  const [filterRespVigenteSel, setFilterRespVigenteSel] = useState<Map<string, string>>(new Map());
   const [filterSentidoSel, setFilterSentidoSel] = useState<Map<string, string>>(new Map());
   const [filterMaterialSel, setFilterMaterialSel] = useState<Map<string, string>>(new Map());
   const [filterOperacionSel, setFilterOperacionSel] = useState<Map<string, string>>(new Map());
@@ -2850,6 +2923,7 @@ export default function ViajesCamionesScreen() {
   const porUbicacion = resumenEje === 'ubicacion';
   const porFrente = resumenEje === 'frente';
   const porFormato = resumenEje === 'formato';
+  const porResponsable = resumenEje === 'responsable';
   const toggleEn = (set: React.Dispatch<React.SetStateAction<Map<string, string>>>) =>
     (id: string, label: string) => set((prev) => { const n = new Map(prev); n.has(id) ? n.delete(id) : n.set(id, label); return n; });
   const toggleFilterListero = toggleEn(setFilterListeroSel);
@@ -2859,6 +2933,23 @@ export default function ViajesCamionesScreen() {
   const toggleFilterUbicacion = toggleEn(setFilterUbicacionSel);
   const toggleFilterFormato = toggleEn(setFilterFormatoSel);
   const toggleFilterFrente = toggleEn(setFilterFrenteSel);
+  const toggleFilterResponsable = toggleEn(setFilterResponsableSel);
+  // Los reportes hermanos comparten ESTA MISMA selección. La etiqueta del chip
+  // se resuelve acá, que es donde está el catálogo de nombres.
+  const responsablesSelArray = Array.from(filterResponsableSel.keys());
+  const toggleResponsableCompartido = (clave: string) =>
+    toggleFilterResponsable(clave, nombresResponsables[clave] || clave);
+  const limpiarResponsablesCompartido = () => setFilterResponsableSel(new Map());
+  const toggleRespVigente = (clave: string) => {
+    setFilterRespVigenteSel((prev) => {
+      const n = new Map(prev);
+      if (n.has(clave)) n.delete(clave); else n.set(clave, nombresResponsables[clave] || clave);
+      return n;
+    });
+  };
+  const responsablesVigentesSelArray = Array.from(filterRespVigenteSel.keys());
+  const pasaRespVigente = (camionId: string) =>
+    pasaFiltroResponsables(responsablesVigentesSelArray, responsableVigenteClavePorCamion[camionId] ?? SIN_RESPONSABLE);
   const toggleFilterSentido = toggleEn(setFilterSentidoSel);
   const toggleFilterMaterial = toggleEn(setFilterMaterialSel);
   const toggleFilterOperacion = toggleEn(setFilterOperacionSel);
@@ -3083,7 +3174,7 @@ export default function ViajesCamionesScreen() {
    */
   const ICONO_EJE: Record<EjeFiltro, string> = {
     listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '', ubicacion: '🏗️ ', formato: '🎟️ ', frente: '⛏️ ',
-    sentido: '↕️ ', material: '🪨 ', operacion: '🏢 ',
+    sentido: '↕️ ', material: '🪨 ', operacion: '🏢 ', responsable: '🧑‍🔧 ',
   };
 
   const clavesDe = (r: CamionViajeRow): ClavesViaje => ({
@@ -3097,14 +3188,16 @@ export default function ViajesCamionesScreen() {
     sentido: r.sentido || '__sin_sentido__',
     material: r.materialNombre || '__sin_material__',
     operacion: r.proyectoOperacion || '__sin_operacion__',
+    responsable: claveResponsableViaje(r),
   });
   const seleccion: SeleccionFiltros = useMemo(
     () => ({
       listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel,
       ubicacion: filterUbicacionSel, formato: filterFormatoSel, frente: filterFrenteSel,
       sentido: filterSentidoSel, material: filterMaterialSel, operacion: filterOperacionSel,
+      responsable: filterResponsableSel,
     }),
-    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel, filterUbicacionSel, filterFormatoSel, filterFrenteSel, filterSentidoSel, filterMaterialSel, filterOperacionSel]
+    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel, filterUbicacionSel, filterFormatoSel, filterFrenteSel, filterSentidoSel, filterMaterialSel, filterOperacionSel, filterResponsableSel]
   );
   const listeroOptions = useMemo(
     () => conCatalogoOpciones(
@@ -3134,6 +3227,24 @@ export default function ViajesCamionesScreen() {
       }, seleccion, cmpText),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dateScopedRows, seleccion, truckById]
+  );
+
+  // 🧑‍🔧 RESPONSABLE: se cuenta igual que las demás facetas (los otros filtros
+  // SI, el suyo NO), pero el valor sale del VIAJE, congelado al registrarlo.
+  // El catálogo solo da las etiquetas; no inventa viajes para quien hoy tiene
+  // camiones asignados pero no registró ninguno en este rango.
+  const responsableOptions = useMemo(
+    () => conCatalogoOpciones(
+      opcionesDeEje(dateScopedRows, 'responsable', clavesDe,
+        (r) => ({
+          id: claveResponsableViaje(r),
+          label: nombreResponsableDeViaje(r, nombresResponsables),
+        }), seleccion, cmpText),
+      catalogoResponsables.map((r) => ({ id: r.id, label: nombresResponsables[r.id] || r.name })),
+      cmpText,
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, catalogoResponsables, nombresResponsables]
   );
 
   const turnoOptions = useMemo(
@@ -3176,6 +3287,10 @@ export default function ViajesCamionesScreen() {
   const truckOptionsVisibles = useMemo(
     () => filtrarOpciones(truckOptions, busqFiltros, filterTruckSel, norm),
     [truckOptions, busqFiltros, filterTruckSel]
+  );
+  const responsableOptionsVisibles = useMemo(
+    () => filtrarOpciones(responsableOptions, busqFiltros, filterResponsableSel, norm),
+    [responsableOptions, busqFiltros, filterResponsableSel]
   );
   const ubicacionOptionsVisibles = useMemo(
     () => filtrarOpciones(ubicacionOptions, busqFiltros, filterUbicacionSel, norm),
@@ -3259,7 +3374,8 @@ export default function ViajesCamionesScreen() {
     (truckOptions.length - truckOptionsVisibles.length) +
     (ubicacionOptions.length - ubicacionOptionsVisibles.length) +
     (formatoOptions.length - formatoOptionsVisibles.length) +
-    (frenteOptions.length - frenteOptionsVisibles.length);
+    (frenteOptions.length - frenteOptionsVisibles.length) +
+    (responsableOptions.length - responsableOptionsVisibles.length);
 
   // ⭐ BUSCAR POR NÚMERO DE TICKET (17-sep-2026). Lo escrito en el buscador recorta
   //    la lista SOLO si parece un ticket (dígitos o CDT-…); ver `tiqueBuscado`. Si no,
@@ -3336,13 +3452,19 @@ export default function ViajesCamionesScreen() {
         name: fmt.nombre,
       };
     }
+    if (eje === 'responsable') {
+      return {
+        key: claveResponsableViaje(r),
+        name: nombreResponsableDeViaje(r, nombresResponsables),
+      };
+    }
     return companyOfRow(r);
   };
   /** El detallado partido por empresa, listero u obra; null = una sola lista. */
   const gruposDetalle = useMemo(
     () => (detalleEje === 'ninguno' ? null : agruparDetalle(filteredRangeRows, (r) => grupoDeViaje(r, detalleEje))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filteredRangeRows, detalleEje, truckById]
+    [filteredRangeRows, detalleEje, truckById, nombresResponsables]
   );
 
   /** «Solo camiones»: los mismos camiones del resumido, sin cantidades y en
@@ -3782,6 +3904,7 @@ export default function ViajesCamionesScreen() {
         filterUbicacionSel.size ? `Obras: ${esc(Array.from(filterUbicacionSel.values()).join(', '))}` : null,
         filterFrenteSel.size ? `Frentes: ${esc(Array.from(filterFrenteSel.values()).join(', '))}` : null,
         filterFormatoSel.size ? `Formatos: ${esc(Array.from(filterFormatoSel.values()).join(', '))}` : null,
+        filterResponsableSel.size ? esc(etiquetaFiltroResponsables(Array.from(filterResponsableSel.keys()), nombresResponsables)) : null,
       ].filter(Boolean).join(' · ');
 
       // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
@@ -3793,8 +3916,8 @@ export default function ViajesCamionesScreen() {
       //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
       // Los tres ejes se rotulan desde un solo sitio: dos ternarios encadenados en
       // cada punto del PDF acabarian discrepando entre si.
-      const icoGrupo = porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : porFormato ? '🎟️' : '🏢';
-      const palabraGrupo = porUbicacion ? 'obra(s)' : porListero ? 'listero(s)' : porFrente ? 'frente(s)' : porFormato ? 'formato(s)' : 'empresa(s)';
+      const icoGrupo = porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : porFormato ? '🎟️' : porResponsable ? '🧑‍🔧' : '🏢';
+      const palabraGrupo = porUbicacion ? 'obra(s)' : porListero ? 'listero(s)' : porFrente ? 'frente(s)' : porFormato ? 'formato(s)' : porResponsable ? 'responsable(s)' : 'empresa(s)';
       // Un 0 en una columna de números se lee peor que un guion: la fila del
       // camión que solo trabaja de día queda limpia en vez de arrastrar un
       // «0» en la de noche.
@@ -3988,7 +4111,7 @@ export default function ViajesCamionesScreen() {
       // m³ de un grupo: la suma de lo que vale cada uno de SUS viajes. El total general
       // sigue siendo el de siempre (arriba); el del grupo es su parte.
       const m3DeFilas = (fs: CamionViajeRow[]) => redondear(fs.reduce((a, r) => a + (r.machineryId ? porViajeDe(r.machineryId) : 0), 0));
-      const icoD = ejeD === 'ubicacion' ? '🏗️' : ejeD === 'listero' ? '👤' : ejeD === 'frente' ? '⛏️' : ejeD === 'formato' ? '🎟️' : '🏢';
+      const icoD = ejeD === 'ubicacion' ? '🏗️' : ejeD === 'listero' ? '👤' : ejeD === 'frente' ? '⛏️' : ejeD === 'formato' ? '🎟️' : ejeD === 'responsable' ? '🧑‍🔧' : '🏢';
       const cuerpoD = gruposDetalle
         ? gruposDetalle.map((g) => {
           const pieG = colsD.map((c, i) => (
@@ -4034,14 +4157,15 @@ export default function ViajesCamionesScreen() {
       const bloqueResumen = htmlResumenEjecutivo(tarjetas, esc);
       const html = pdfDocument({
         title: soloCamiones
-          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : porFrente ? 'Camiones que salieron · por frente' : porFormato ? 'Camiones que salieron · por formato' : 'Camiones que salieron · por empresa')
+          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : porFrente ? 'Camiones que salieron · por frente' : porFormato ? 'Camiones que salieron · por formato' : porResponsable ? 'Camiones que salieron · por responsable' : 'Camiones que salieron · por empresa')
           : reporteModo === 'resumen'
-          ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : porFrente ? 'Viajes de camiones · resumen por frente' : porFormato ? 'Viajes de camiones · resumen por formato' : 'Viajes de camiones · resumen por camión')
+          ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : porFrente ? 'Viajes de camiones · resumen por frente' : porFormato ? 'Viajes de camiones · resumen por formato' : porResponsable ? 'Viajes de camiones · resumen por responsable' : 'Viajes de camiones · resumen por camión')
           : detalleEje === 'ubicacion' ? 'Viajes de camiones · detallado por obra'
           : detalleEje === 'listero' ? 'Viajes de camiones · detallado por listero'
           : detalleEje === 'empresa' ? 'Viajes de camiones · detallado por empresa'
           : detalleEje === 'frente' ? 'Viajes de camiones · detallado por frente'
           : detalleEje === 'formato' ? 'Viajes de camiones · detallado por formato'
+          : detalleEje === 'responsable' ? 'Viajes de camiones · detallado por responsable'
           : 'Viajes de camiones',
         // El modo de volumen va en el subtítulo: dos reportes del mismo rango
         // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
@@ -4065,11 +4189,12 @@ export default function ViajesCamionesScreen() {
       //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los
       //    reciba no sabría cuál es cuál. Mismo criterio que porEmpresaReport.
       const sufijo = soloCamiones
-        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : porFrente ? 'camiones por frente ' : porFormato ? 'camiones por formato ' : 'camiones por empresa ')
+        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : porFrente ? 'camiones por frente ' : porFormato ? 'camiones por formato ' : porResponsable ? 'camiones por responsable ' : 'camiones por empresa ')
         : reporteModo === 'resumen'
-        ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : porFrente ? 'resumen por frente ' : porFormato ? 'resumen por formato ' : 'resumen por camion ')
-        : detalleEje === 'ubicacion' ? 'detallado por obra ' : detalleEje === 'listero' ? 'detallado por listero ' : detalleEje === 'empresa' ? 'detallado por empresa ' : detalleEje === 'frente' ? 'detallado por frente ' : detalleEje === 'formato' ? 'detallado por formato ' : '';
-      await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
+        ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : porFrente ? 'resumen por frente ' : porFormato ? 'resumen por formato ' : porResponsable ? 'resumen por responsable ' : 'resumen por camion ')
+        : detalleEje === 'ubicacion' ? 'detallado por obra ' : detalleEje === 'listero' ? 'detallado por listero ' : detalleEje === 'empresa' ? 'detallado por empresa ' : detalleEje === 'frente' ? 'detallado por frente ' : detalleEje === 'formato' ? 'detallado por formato ' : detalleEje === 'responsable' ? 'detallado por responsable ' : '';
+      const sufijoResp = sufijoArchivoResponsables(Array.from(filterResponsableSel.keys())).replace(/^-/, ' ');
+      await exportPdf(html, `Viajes de camiones ${sufijo}${sufijoResp}${todayISO}`);
     } catch (e: any) {
       // Sin este catch, un fallo de exportPdf dejaba el botón como si nada y la
       // jefa concluía que «no hizo nada», sin saber por qué.
@@ -6592,17 +6717,38 @@ export default function ViajesCamionesScreen() {
 
           {/* Lo que hay que pagarle a cada empresa por los viajes de sus camiones
               (15-sep-2026). Vive acá y solo acá: no toca jornadas ni Control de Pagos. */}
-          <PagoViajesResumen canEdit={canFull} usuarioId={uid || null} m3PorViaje={m3PorViajePago} />
+          <PagoViajesResumen
+            canEdit={canFull}
+            usuarioId={uid || null}
+            m3PorViaje={m3PorViajePago}
+            responsablesSel={responsablesSelArray}
+            nombresResponsables={nombresResponsables}
+            onToggleResponsable={toggleResponsableCompartido}
+            onLimpiarResponsables={limpiarResponsablesCompartido}
+          />
 
           {/* ⚖️ Pago POR PESO (03-oct-2026, a pedido: «un reporte aparte del de
               viajes; de normal se paga por el peso que cargue el camión»). Apartado
               hermano con tablas y papel propios; respeta el «no facturó» de arriba. */}
-          <PagoPesoResumen canEdit={canFull} usuarioId={uid || null} />
+          <PagoPesoResumen
+            canEdit={canFull}
+            usuarioId={uid || null}
+            responsablesSel={responsablesSelArray}
+            nombresResponsables={nombresResponsables}
+            onToggleResponsable={toggleResponsableCompartido}
+            onLimpiarResponsables={limpiarResponsablesCompartido}
+          />
 
           {/* 📊 INFORME OPERATIVO (09-oct-2026, a pedido, con un consolidado de
               otra empresa de muestra): flota, viajes y toneladas por día, con
               gráfico — SIN montos. No toca pagos: es papel de lectura. */}
-          <InformeOperativoCard canVer={canVerPanel} />
+          <InformeOperativoCard
+            canVer={canVerPanel}
+            responsablesSel={responsablesSelArray}
+            nombresResponsables={nombresResponsables}
+            onToggleResponsable={toggleResponsableCompartido}
+            onLimpiarResponsables={limpiarResponsablesCompartido}
+          />
 
           <Plegable
             titulo="🚛 Lista completa de viajes"
@@ -6839,6 +6985,31 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
+            {/* 🧑‍🔧 RESPONSABLE CONGELADO. Mandan los viajes, no la asignación de hoy. */}
+            {responsableOptionsVisibles.length > 0 ? (
+              <View style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                  RESPONSABLE{filterResponsableSel.size > 0 ? ` (${filterResponsableSel.size})` : ' (todos)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todos', filterResponsableSel, setFilterResponsableSel)}
+                  {responsableOptionsVisibles.map((o) => {
+                    const on = filterResponsableSel.has(o.id);
+                    return (
+                      <TouchableOpacity
+                        key={o.id}
+                        onPress={() => toggleFilterResponsable(o.id, o.label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🧑‍🔧 {o.label}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
             {companyOptionsVisibles.length > 0 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
@@ -7033,8 +7204,8 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || filterFormatoSel.size > 0 || filterFrenteSel.size > 0 || filterSentidoSel.size > 0 || filterMaterialSel.size > 0 || filterOperacionSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterFormatoSel(new Map()); setFilterFrenteSel(new Map()); setFilterSentidoSel(new Map()); setFilterMaterialSel(new Map()); setFilterOperacionSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || filterFormatoSel.size > 0 || filterFrenteSel.size > 0 || filterResponsableSel.size > 0 || filterSentidoSel.size > 0 || filterMaterialSel.size > 0 || filterOperacionSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterFormatoSel(new Map()); setFilterFrenteSel(new Map()); setFilterResponsableSel(new Map()); setFilterSentidoSel(new Map()); setFilterMaterialSel(new Map()); setFilterOperacionSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
@@ -7063,7 +7234,7 @@ export default function ViajesCamionesScreen() {
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente'], ['formato', '🎟️ Formato']] as const).map(([key, label]) => {
+                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente'], ['formato', '🎟️ Formato'], ['responsable', '🧑‍🔧 Responsable']] as const).map(([key, label]) => {
                       const on = resumenEje === key;
                       return (
                         <TouchableOpacity
@@ -7086,7 +7257,7 @@ export default function ViajesCamionesScreen() {
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-                    {([['ninguno', '📄 Sin agrupar'], ['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente'], ['formato', '🎟️ Formato']] as const).map(([key, label]) => {
+                    {([['ninguno', '📄 Sin agrupar'], ['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente'], ['formato', '🎟️ Formato'], ['responsable', '🧑‍🔧 Responsable']] as const).map(([key, label]) => {
                       const on = detalleEje === key;
                       return (
                         <TouchableOpacity
@@ -7138,7 +7309,7 @@ export default function ViajesCamionesScreen() {
                         // La franja horaria también puede ser la que vacía la lista —
                         // y como es un campo y no una pastilla, se olvida fácil.
                         ? `Sin viajes ${textoRangoHoras(horaDesde, horaHasta)} en este rango. Amplía la ⏱️ franja de horas o tócale «✕ Quitar».`
-                        : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size + seleccion.turno.size + seleccion.ubicacion.size + seleccion.formato.size + seleccion.frente.size > 0
+                        : (seleccion.listero?.size ?? 0) + (seleccion.empresa?.size ?? 0) + (seleccion.camion?.size ?? 0) + (seleccion.turno?.size ?? 0) + (seleccion.ubicacion?.size ?? 0) + (seleccion.formato?.size ?? 0) + (seleccion.frente?.size ?? 0) + filterResponsableSel.size > 0
                           ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
                           : 'Sin viajes en el rango seleccionado.'}
                 </Text>
@@ -7298,13 +7469,16 @@ export default function ViajesCamionesScreen() {
           {canFull ? (
             <Plegable
               titulo="🚜 Máquinas que salen en Viajes"
-              resumen={faltaSqlLista ? 'Falta crear la tabla en la base' : `${allTrucks.length} le salen al listero`}
+              resumen={faltaSqlLista ? 'Falta crear la tabla en la base' : `${allTrucks.length} le salen al listero · ${Object.keys(responsablesCamiones).length} con responsable`}
             >
               <ListaCamionesViajes
                 catalogo={catalogoTrucks}
                 ajustes={ajustesLista}
                 faltaSql={faltaSqlLista}
                 onChanged={loadTrucks}
+                responsablesPorCamion={faltaSqlResponsables ? undefined : responsablesCamiones}
+                responsableVigenteClave={responsableVigenteClavePorCamion}
+                responsablesSel={responsablesVigentesSelArray}
               />
             </Plegable>
           ) : null}
@@ -7332,9 +7506,11 @@ export default function ViajesCamionesScreen() {
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: MOSTRAR_SIN_VIAJE_RECIENTE ? spacing.md : 0, marginBottom: spacing.xs }}>META DE VIAJES DIARIOS POR CAMIÓN</Text>
             {camionesEnObra.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones.</Text>
+            ) : camionesEnObra.every((t) => !pasaRespVigente(t.id)) ? (
+              <Text style={{ color: colors.muted }}>Ningún camión le trabaja a los responsables elegidos.</Text>
             ) : (
               <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                {camionesEnObra.map((t) => (
+                {camionesEnObra.filter((t) => pasaRespVigente(t.id)).map((t) => (
                   <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.text }}>🚜 {t.code}</Text>
@@ -7365,6 +7541,45 @@ export default function ViajesCamionesScreen() {
                 donde cada viaje congela su chofer al registrarse. */}
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>👤 CHOFERES POR CAMIÓN</Text>
             <ChoferesCamionesBox camiones={camionesEnObra} uid={uid || null} />
+            <View style={{ height: spacing.md }} />
+            <ResponsablesCamionesBox camiones={camionesEnObra} uid={uid || null} onChanged={loadTrucks} />
+
+            {/* 🧑‍🔧 Filtro de los reportes por CAMIÓN: aquí manda el responsable
+                VIGENTE. La lista de viajes y los PDFs por viaje usan el congelado. */}
+            {!faltaSqlResponsables ? (
+              <View style={{ marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>
+                  🧑‍🔧 FILTRAR REPORTES POR CAMIÓN (RESPONSABLE VIGENTE)
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  <TouchableOpacity
+                    onPress={() => setFilterRespVigenteSel(new Map())}
+                    style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: responsablesVigentesSelArray.length === 0 ? colors.primary : colors.border }}
+                  >
+                    <Text style={{ color: responsablesVigentesSelArray.length === 0 ? colors.primary : colors.text, fontWeight: '700', fontSize: 11 }}>✅ Todos</Text>
+                  </TouchableOpacity>
+                  {Object.entries(nombresResponsables)
+                    .sort((a, b) => Number(a[0] === SIN_RESPONSABLE) - Number(b[0] === SIN_RESPONSABLE) || a[1].localeCompare(b[1], 'es'))
+                    .map(([clave, nombre]) => {
+                      const on = filterRespVigenteSel.has(clave);
+                      return (
+                        <TouchableOpacity
+                          key={'rv' + clave}
+                          onPress={() => toggleRespVigente(clave)}
+                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border }}
+                        >
+                          <Text style={{ color: on ? colors.primary : colors.text, fontWeight: '700', fontSize: 11 }}>
+                            🧑‍🔧 {nombre} ({camionesEnObra.filter((t) => (responsableVigenteClavePorCamion[t.id] ?? SIN_RESPONSABLE) === clave).length})
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
+                  Aplica a la lista de máquinas, las metas y el reporte de taras. Vacío = todos.
+                </Text>
+              </View>
+            ) : null}
 
             {/* 🚦 Permiso por listero para cambiar el estado del camión (19-oct-2026). */}
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>🚦 ESTADO DEL CAMIÓN DESDE EL TELÉFONO</Text>
@@ -7435,6 +7650,9 @@ export default function ViajesCamionesScreen() {
                 camiones={camionesEnObraConCombustible}
                 taras={tarasConCombustible}
                 fechaCombustible={taraCombFecha}
+                responsablesSel={responsablesVigentesSelArray}
+                nombresResponsables={nombresResponsables}
+                responsableVigenteClave={responsableVigenteClavePorCamion}
               />
               {/* ⛽ Selector de fecha para colocar la cantidad de combustible del día en cada maquinaria */}
               <View style={{

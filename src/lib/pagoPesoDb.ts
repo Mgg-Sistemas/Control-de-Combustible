@@ -14,6 +14,8 @@ import { CAMPOS_VIAJE_PAGO, completarFrentes, mapaAsignaciones } from './frentes
 
 const COLS_VIAJE =
   'id, machinery_id, machine_code, company_id, zona_pago, registered_at, folio, fuera_catalogo, placa_snap, ubicacion_nombre, listero_name, frente_nombre, peso_bruto_kg, peso_tara_kg, peso_neto_kg';
+// 🧑‍🔧 Escalón de compatibilidad: sin el SQL de responsables, el papel sale igual.
+const COLS_VIAJE_RESP = `${COLS_VIAJE}, responsable_id, responsable_nombre`;
 
 export const SIN_PERMISO_PESO = 'No se guardó: hace falta permiso completo en Viajes de camiones.';
 
@@ -32,7 +34,8 @@ export type DatosPagoPeso = {
 
 export async function cargarDatosPagoPeso(desdeJornada: string = INICIO_PAGO_PESO): Promise<DatosPagoPeso> {
   const [viajes, tarifasR, marcas, empresas, maquinas] = await Promise.all([
-    selectAllRows('camion_viajes', COLS_VIAJE, (q: any) => q.gte('registered_at', `${desdeJornada}T07:00:00-04:00`)),
+    selectAllRows('camion_viajes', COLS_VIAJE_RESP, (q: any) => q.gte('registered_at', `${desdeJornada}T07:00:00-04:00`))
+      .catch(() => selectAllRows('camion_viajes', COLS_VIAJE, (q: any) => q.gte('registered_at', `${desdeJornada}T07:00:00-04:00`))),
     cargarTarifasPeso(),
     selectAllRows('viaje_pago_marcas', 'id, viaje_id, facturable, created_at'),
     selectAllRows('companies', 'id, name'),

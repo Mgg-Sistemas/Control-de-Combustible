@@ -187,9 +187,12 @@ const tras = res.resumirViajes(BORRADA, camionPorId, 'ubicacion');
 eq('borrar la obra no dispersa sus viajes', tras.empresas.length, 1);
 eq('...y conservan su nombre', tras.empresas[0].name, 'CDF');
 
-// ── 5) EL QUINTO EJE DE FILTRO NO PUEDE TUMBAR EL PANEL ────────────────────
+// ── 5) EL SEXTO EJE DE FILTRO NO PUEDE TUMBAR EL PANEL ─────────────────────
+// (23-nov-2026) Se sumó `responsable`; los llamadores viejos que no mandan esa
+// clave siguen pasando todo (vacío = todos).
 eq('el eje de obra está declarado', fil.EJES_FILTRO.includes('ubicacion'), true);
-eq('son cinco ejes', fil.EJES_FILTRO.length, 5);
+ok('el eje de responsable está declarado', fil.EJES_FILTRO.includes('responsable'));
+eq('son seis ejes', fil.EJES_FILTRO.length, 6);
 const claves = { listero: 'l1', empresa: 'e1', camion: 'm1', turno: 'day', ubicacion: 'u1' };
 const vacia = { listero: new Map(), empresa: new Map(), camion: new Map(), turno: new Map(), ubicacion: new Map() };
 ok('sin nada marcado pasa todo', fil.pasaFiltros(claves, vacia));

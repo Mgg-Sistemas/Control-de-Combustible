@@ -80,6 +80,14 @@ export type CamionViajeRow = {
   listeroId: string;
   listeroName: string;
   choferName: string | null;
+  /**
+   * 🧑‍🔧 RESPONSABLE DE CAMIÓN CONGELADO al registrar (23-nov-2026). Igual que
+   *  el chofer: si mañana reasignan el camión, este viaje sigue diciendo quién
+   *  le trabajaba ese día. `null` = viaje anterior a la feature o camión sin
+   *  responsable → se lee como «Sin responsable» sin reescribir el pasado.
+   */
+  responsableId: string | null;
+  responsableNombre: string | null;
   shift: 'day' | 'night' | null;
   estadoMaquina: string | null;
   note: string | null;
@@ -194,6 +202,8 @@ function mapRow(r: any): CamionViajeRow {
     listeroId: r.listero_id as string,
     listeroName: (r.listero_name ?? '—') as string,
     choferName: (r.chofer_name ?? null) as string | null,
+    responsableId: (r.responsable_id ?? null) as string | null,
+    responsableNombre: (r.responsable_nombre ?? null) as string | null,
     shift: (r.shift === 'night' ? 'night' : r.shift === 'day' ? 'day' : null) as 'day' | 'night' | null,
     estadoMaquina: (r.estado_maquina ?? null) as string | null,
     note: (r.note ?? null) as string | null,
@@ -272,6 +282,10 @@ let hayColumnasDeTipo: boolean | null = null;
  *  otros cuatro: un respaldo de esta mañana tiene tipo y no tiene frente. */
 let hayColumnasDeFrente: boolean | null = null;
 let hayColumnasDeClasificacion: boolean | null = null;
+/** Y el sexto, para el RESPONSABLE DE CAMIÓN (23-nov-2026). Mismo motivo: el
+ *  código se despliega antes de correr el SQL aditivo, y sin este escalón un
+ *  respaldo anterior dejaría al listero sin poder LEER ni registrar viajes. */
+let hayColumnasDeResponsable: boolean | null = null;
 
 const COLS_OBRA = 'ubicacion_id, ubicacion_nombre, zona_pago';
 const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
@@ -282,6 +296,7 @@ const COLS_PESO = 'peso_bruto_kg, peso_tara_kg, peso_neto_kg, tara_manual, tara_
 const COLS_TIPO = 'tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa, tipo_viaje_unidad';
 const COLS_FRENTE = 'frente_id, frente_nombre';
 const COLS_CLASIFICACION = 'sentido, material_id, material_nombre, proyecto_operacion';
+const COLS_RESPONSABLE = 'responsable_id, responsable_nombre';
 
 /** Las columnas que se piden, según lo que se sepa que existe. */
 const colsViaje = () =>
@@ -292,6 +307,7 @@ const colsViaje = () =>
    hayColumnasDeTipo === false ? null : COLS_TIPO,
    hayColumnasDeFrente === false ? null : COLS_FRENTE,
    hayColumnasDeClasificacion === false ? null : COLS_CLASIFICACION,
+   hayColumnasDeResponsable === false ? null : COLS_RESPONSABLE,
   ].filter(Boolean).join(', ');
 
 /** ¿El error es «esa columna no existe»? Solo eso: una tabla que falta es otra cosa. */
@@ -316,9 +332,30 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
     if (hayColumnasDeTipo === null) hayColumnasDeTipo = true;
     if (hayColumnasDeFrente === null) hayColumnasDeFrente = true;
     if (hayColumnasDeClasificacion === null) hayColumnasDeClasificacion = true;
+    if (hayColumnasDeResponsable === null) hayColumnasDeResponsable = true;
     return data as any[];
   } catch (e: any) {
     if (!esColumnaQueFalta(e)) throw e;
+
+    // ESCALÓN -4 (23-nov-2026): igual pero SIN el responsable. Si el SQL todavía
+    // no corrió, PostgREST devuelve 42703 y sin este intento la pantalla se
+    // quedaría sin viajes. Los viajes antiguos siguen leyéndose igual.
+    if (hayColumnasDeResponsable !== false) {
+      try {
+        const data = await selectAllRows('camion_viajes',
+          [SELECT_COLS, COLS_OBRA, COLS_TIQUE, COLS_PESO, COLS_TIPO, COLS_FRENTE, COLS_CLASIFICACION].join(', '), filtro);
+        hayColumnasDeResponsable = false;
+        hayColumnasDeObra = true;
+        hayColumnasDeTique = true;
+        hayColumnasDePeso = true;
+        hayColumnasDeTipo = true;
+        hayColumnasDeFrente = true;
+        hayColumnasDeClasificacion = true;
+        return data as any[];
+      } catch (eR: any) {
+        if (!esColumnaQueFalta(eR)) throw eR;
+      }
+    }
 
     // ESCALÓN -3: sin sentido / material / proyecto_operacion.
     if (hayColumnasDeClasificacion !== false) {
@@ -330,6 +367,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
         hayColumnasDePeso = true;
         hayColumnasDeTique = true;
         hayColumnasDeObra = true;
+        hayColumnasDeResponsable = false;
         return data as any[];
       } catch (eC: any) {
         if (!esColumnaQueFalta(eC)) throw eC;
@@ -345,6 +383,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
         hayColumnasDePeso = true;
         hayColumnasDeTique = true;
         hayColumnasDeObra = true;
+        hayColumnasDeResponsable = false;
         return data as any[];
       } catch (eF: any) {
         if (!esColumnaQueFalta(eF)) throw eF;
@@ -360,6 +399,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
         hayColumnasDePeso = true;
         hayColumnasDeTique = true;
         hayColumnasDeObra = true;
+        hayColumnasDeResponsable = false;
         return data as any[];
       } catch (eT: any) {
         if (!esColumnaQueFalta(eT)) throw eT;
@@ -376,6 +416,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
         hayColumnasDeFrente = false;
         hayColumnasDeTique = true;
         hayColumnasDeObra = true;
+        hayColumnasDeResponsable = false;
         return data as any[];
       } catch (e0: any) {
         if (!esColumnaQueFalta(e0)) throw e0;
@@ -392,6 +433,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
         hayColumnasDeTipo = false;
         hayColumnasDeFrente = false;
         hayColumnasDeObra = true;
+        hayColumnasDeResponsable = false;
         return data as any[];
       } catch (e2: any) {
         if (!esColumnaQueFalta(e2)) throw e2;
@@ -405,6 +447,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
     hayColumnasDePeso = false;
     hayColumnasDeTipo = false;
     hayColumnasDeFrente = false;
+    hayColumnasDeResponsable = false;
     return data as any[];
   }
 }
@@ -481,6 +524,10 @@ export async function registrarViaje(params: {
   listeroId: string;
   listeroName: string;
   choferName: string | null;
+  /** 🧑‍🔧 Responsable congelado por la pantalla con la fecha REAL del viaje.
+   *  Opcional: viajes viejos de la cola offline no lo traen y eso está bien. */
+  responsableId?: string | null;
+  responsableNombre?: string | null;
   shift: 'day' | 'night' | null;
   estadoMaquina: string | null;
   note?: string | null;
@@ -598,10 +645,16 @@ export async function registrarViaje(params: {
     material_nombre: params.materialNombre ?? null,
     proyecto_operacion: proyectoOperacionValido(params.proyectoOperacion),
   };
+  // 🧑‍🔧 Se manda SOLO si la pantalla lo resolvió: un null no cambia el
+  // comportamiento de los viajes anteriores a la feature.
+  const camposResponsable = {
+    responsable_id: params.responsableId ?? null,
+    responsable_nombre: params.responsableNombre ?? null,
+  };
 
-  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean; peso: boolean; tipo: boolean; frente: boolean; clasificacion: boolean }[] = [];
+  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean; peso: boolean; tipo: boolean; frente: boolean; clasificacion: boolean; responsable?: boolean }[] = [];
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false && hayColumnasDeFrente !== false && hayColumnasDeClasificacion !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo, ...camposFrente, ...camposClasificacion }, obra: true, ticket: true, peso: true, tipo: true, frente: true, clasificacion: true });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo, ...camposFrente, ...camposClasificacion, ...camposResponsable }, obra: true, ticket: true, peso: true, tipo: true, frente: true, clasificacion: true, responsable: true });
   }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false && hayColumnasDeFrente !== false) {
     escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo, ...camposFrente }, obra: true, ticket: true, peso: true, tipo: true, frente: true, clasificacion: false });
@@ -645,12 +698,17 @@ export async function registrarViaje(params: {
       else if (paso.tipo) hayColumnasDeFrente = false;
       if (paso.clasificacion) hayColumnasDeClasificacion = true;
       else if (paso.frente) hayColumnasDeClasificacion = false;
+      if (paso.responsable) hayColumnasDeResponsable = true;
+      else if (hayColumnasDeResponsable === null) hayColumnasDeResponsable = false;
       if (!paso.peso && paso.ticket) { hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; hayColumnasDeClasificacion = false; }
       if (!paso.ticket && paso.obra) { hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; hayColumnasDeClasificacion = false; }
       if (!paso.obra) { hayColumnasDeObra = false; hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; hayColumnasDeClasificacion = false; }
       return {};
     }
     if (!esColumnaQueFalta(error)) break;
+    // El escalón más alto es el único que pide las columnas de responsable. Si
+    // el SQL aún no corrió, se baja al siguiente y se recuerda para la sesión.
+    if (paso.responsable && /responsable/i.test(String(error.message ?? ''))) hayColumnasDeResponsable = false;
   }
   if (error) return { error: error.message, missing: isMissingTable(error.message, (error as any).code) };
   return {};
@@ -738,8 +796,11 @@ export async function listTodosLosViajes(filtro: {
 export type CambiosViaje = {
   /** Fecha Y hora. Ver `src/lib/viajesEdicion.ts` — puede mudar el viaje de día. */
   registeredAtISO?: string;
-  /** El chofer/responsable que iba en el camión. `null` = sin chofer anotado. */
+  /** El chofer que iba en el camión. `null` = sin chofer anotado. */
   choferName?: string | null;
+  /** 🧑‍🔧 Corrección EXCEPCIONAL del responsable congelado (solo si se pide
+   *  explícitamente; NUNCA se recalcula solo al editar). Snapshot completo. */
+  responsable?: { id: string | null; nombre: string | null } | null;
   /** Reasignar a otro listero. Los DOS campos van juntos: `listero_name` es el
    *  nombre congelado que se muestra en el reporte, y dejarlo sin actualizar
    *  mostraría al listero viejo con el id del nuevo. */
@@ -788,6 +849,10 @@ export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ 
   const patch: Record<string, any> = {};
   if (cambios.registeredAtISO !== undefined) patch.registered_at = cambios.registeredAtISO;
   if (cambios.choferName !== undefined) patch.chofer_name = cambios.choferName;
+  if (cambios.responsable !== undefined && cambios.responsable !== null) {
+    patch.responsable_id = cambios.responsable.id;
+    patch.responsable_nombre = cambios.responsable.nombre;
+  }
   if (cambios.listeroId !== undefined) patch.listero_id = cambios.listeroId;
   if (cambios.listeroName !== undefined) patch.listero_name = cambios.listeroName;
   if (cambios.shift !== undefined) patch.shift = cambios.shift;

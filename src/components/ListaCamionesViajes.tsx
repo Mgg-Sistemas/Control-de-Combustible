@@ -14,6 +14,7 @@ import { useToast } from './ToastProvider';
 import { norm, cmpText } from '../lib/text';
 import { estadoEnLista, etiquetaEstadoEnLista, saleEnViajes, type IndiceAjustesLista } from '../lib/viajesListaCamiones';
 import { guardarAjusteListaViajes } from '../lib/viajesListaCamionesDb';
+import { ETIQUETA_SIN_RESPONSABLE, SIN_RESPONSABLE, pasaFiltroResponsables } from '../lib/camionResponsables';
 
 export type MaquinaParaLista = { id: string; code: string; plate: string | null; serial: string | null; companyName: string };
 
@@ -25,11 +26,16 @@ type Props = {
   /** La tabla todavía no existe en la base: se avisa en vez de dejar tocar botones que fallarían. */
   faltaSql: boolean;
   onChanged: () => void;
+  /** 🧑‍🔧Responsable VIGENTE por camión (23-nov-2026). Opcional: si falta el SQL, no se pinta. */
+  responsablesPorCamion?: Record<string, string>;
+  /** 🧑‍🔧 Clave vigente por camión, para filtrar esta lista por responsable. */
+  responsableVigenteClave?: Record<string, string>;
+  responsablesSel?: string[];
 };
 
 const MAX_FILAS = 60;
 
-export function ListaCamionesViajes({ catalogo, ajustes, faltaSql, onChanged }: Props) {
+export function ListaCamionesViajes({ catalogo, ajustes, faltaSql, onChanged, responsablesPorCamion, responsableVigenteClave, responsablesSel }: Props) {
   const { colors } = useTheme();
   const toast = useToast();
   const [q, setQ] = useState('');
@@ -47,6 +53,8 @@ export function ListaCamionesViajes({ catalogo, ajustes, faltaSql, onChanged }: 
     return catalogo
       .filter((m) => {
         const sale = saleEnViajes(m.code, ajustes.get(m.id));
+        // 🧑‍🔧 Filtro por responsable VIGENTE (no por la foto de los viajes).
+        if (!pasaFiltroResponsables(responsablesSel, responsableVigenteClave?.[m.id] ?? SIN_RESPONSABLE)) return false;
         // Con búsqueda se busca en TODO el catálogo: si escribes, es porque buscas una máquina concreta.
         if (!nq) {
           if (filtro === 'salen' && !sale) return false;
@@ -56,7 +64,7 @@ export function ListaCamionesViajes({ catalogo, ajustes, faltaSql, onChanged }: 
         return !nq || [m.code, m.plate, m.serial, m.companyName].some((f) => f != null && norm(String(f)).includes(nq));
       })
       .sort((a, b) => cmpText(a.companyName, b.companyName) || cmpText(a.code, b.code));
-  }, [catalogo, ajustes, q, filtro]);
+  }, [catalogo, ajustes, q, filtro, responsablesSel, responsableVigenteClave]);
 
   const cambiar = async (m: MaquinaParaLista, visible: boolean | null) => {
     setGuardando(m.id);
@@ -119,6 +127,11 @@ export function ListaCamionesViajes({ catalogo, ajustes, faltaSql, onChanged }: 
             <Text style={{ color: sale ? colors.success : colors.muted, fontSize: 11 }}>
               {etiquetaEstadoEnLista(estado)}{ajuste?.updated_by_nombre ? ` · ${ajuste.updated_by_nombre}` : ''}
             </Text>
+            {responsablesPorCamion ? (
+              <Text style={{ color: colors.muted, fontSize: 10 }}>
+                🧑‍🔧 Le trabaja a: {responsablesPorCamion[m.id] ?? ETIQUETA_SIN_RESPONSABLE}
+              </Text>
+            ) : null}
             <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4, flexWrap: 'wrap' }}>
               <TouchableOpacity disabled={ocupado} onPress={() => cambiar(m, !sale)} style={{ ...chip(false), opacity: ocupado ? 0.5 : 1 }}>
                 <Text style={chipTxt(false)}>{sale ? '🚫 Quitar de Viajes' : '✅ Poner en Viajes'}</Text>

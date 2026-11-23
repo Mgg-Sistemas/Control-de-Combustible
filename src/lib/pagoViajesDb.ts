@@ -18,6 +18,9 @@ import { CAMPOS_VIAJE_PAGO, completarFrentes, mapaAsignaciones } from './frentes
 //    con la tarifa de zona — 39 cruces «Este → Oeste» de $100 salían a $50.
 const COLS_VIAJE =
   'id, machinery_id, machine_code, company_id, zona_pago, registered_at, estado_maquina, folio, origen, fuera_catalogo, placa_snap, ubicacion_nombre, listero_name, tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa, tipo_viaje_unidad, peso_neto_kg, frente_nombre';
+// 🧑‍🔧 Escalón de compatibilidad: si el SQL de responsables aún no corrió, se
+// omite el grupo y este papel sigue saliendo como siempre.
+const COLS_VIAJE_RESP = `${COLS_VIAJE}, responsable_id, responsable_nombre`;
 
 export const SIN_PERMISO_PAGO = 'No se guardó: hace falta permiso completo en Viajes de camiones.';
 
@@ -39,7 +42,8 @@ export type DatosPagoViajes = {
 /** Viajes desde el inicio del pago (jornada del 14-sep a las 7am), modos, tarifas, marcas y empresas. */
 export async function cargarDatosPagoViajes(desdeJornada: string = INICIO_PAGO_VIAJES): Promise<DatosPagoViajes> {
   const [viajes, modos, tarifas, marcas, empresas, maquinas] = await Promise.all([
-    selectAllRows('camion_viajes', COLS_VIAJE, (q: any) => q.gte('registered_at', `${desdeJornada}T07:00:00-04:00`)),
+    selectAllRows('camion_viajes', COLS_VIAJE_RESP, (q: any) => q.gte('registered_at', `${desdeJornada}T07:00:00-04:00`))
+      .catch(() => selectAllRows('camion_viajes', COLS_VIAJE, (q: any) => q.gte('registered_at', `${desdeJornada}T07:00:00-04:00`))),
     cargarModosPago(),
     cargarTarifasViaje(),
     selectAllRows('viaje_pago_marcas', 'id, viaje_id, facturable, motivo, created_at, created_by_nombre'),

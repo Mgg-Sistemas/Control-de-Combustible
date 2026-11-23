@@ -358,7 +358,12 @@ const db = sinComentarios(leer('src/lib/pagoViajesDb.ts'));
   ok('⭐ si la base aún no tiene `anulada_modo`, se anula igual', /error\?\.code === '42703'/.test(dbT));
 }
 
-ok('las lecturas no se tragan errores', (db.match(/catch/g) ?? []).length === 1 && /if \(e\?\.code !== '42703'\) throw e;/.test(db));
+// (23-nov-2026) Hay un SEGUNDO catch: el escalón que pide las columnas nuevas de
+// responsables y, si no existen, vuelve a leer sin ellas. No traga el error: la
+// segunda lectura rechaza igual si el fallo era de red. La regla de 42703 sigue.
+ok('las lecturas no se tragan errores', (db.match(/catch/g) ?? []).length === 2
+  && /if \(e\?\.code !== '42703'\) throw e;/.test(db)
+  && /\.catch\(\(\) => selectAllRows\('camion_viajes', COLS_VIAJE,/.test(db));
 ok('los viajes se leen desde las 7am del inicio', /gte\('registered_at', `\$\{desdeJornada\}T07:00:00-04:00`\)/.test(db));
 // ⭐ EL TIPO DE VIAJE TIENE QUE VIAJAR EN LAS COLUMNAS (28-sep-2026). Sin
 // pedirlas, calcularPagoViajes nunca veía el tipo y TODOS los viajes caían a
@@ -377,7 +382,8 @@ ok('la tarifa se anula, no se borra', /anulada_at: new Date\(\)\.toISOString\(\)
 // ── 7) VIVE EN VIAJES DE CAMIONES, NO EN JORNADA ────────────────────────────
 const vc = sinComentarios(leer('src/screens/ViajesCamionesScreen.tsx'));
 const res = sinComentarios(leer('src/components/PagoViajesResumen.tsx'));
-ok('la tarjeta está en el panel de Viajes de camiones, con permiso completo', /<PagoViajesResumen canEdit=\{canFull\}/.test(vc));
+// El tag ahora recibe también la selección compartida de responsables.
+ok('la tarjeta está en el panel de Viajes de camiones, con permiso completo', /<PagoViajesResumen\s+canEdit=\{canFull\}/.test(vc));
 ok('el resumen cuenta los viajes del rango por jornada', /viajesEnRango\(datos\.viajes, desde, hasta\)/.test(res));
 ok('el resumen nombra la empresa guardada en el viaje', /datos\.empresas\.get\(g\.companyId\)/.test(res));
 ok('abre tarifas y camiones', /<PagoViajesPanel/.test(res));

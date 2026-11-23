@@ -7,7 +7,7 @@
 // - Activar/desactivar tarjetas de resumen (KPIs), totales al pie, notas, membrete y marcas.
 // - Las opciones se guardan localmente para recordar siempre la preferencia del usuario.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../theme/ThemeContext';
@@ -19,6 +19,7 @@ import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
 import { UNIDADES_PESO } from '../lib/viajesPeso';
 import { caracasBusinessToday } from '../lib/caracasDay';
 import { listOperatorAssignments } from '../lib/machineOperators';
+import { etiquetaFiltroResponsables, sufijoArchivoResponsables, pasaFiltroResponsables, SIN_RESPONSABLE } from '../lib/camionResponsables';
 import {
   OPCIONES_TARAS_POR_DEFECTO, cuerpoReporteTaras, resumenTaras, resumenCombustibleTaras, subtituloReporteTaras,
   nombreArchivoTaras, CSS_REPORTE_TARAS, litrosTexto,
@@ -36,10 +37,14 @@ const LOGOS: [keyof LogosReporte, string][] = [
   ['jhenzaen', '🏢 Jhenzaen 2.012 C.A'],
 ];
 
-export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
+export function ReporteTarasBox({ camiones, taras, fechaCombustible, responsablesSel, nombresResponsables, responsableVigenteClave }: {
   camiones: CamionParaTara[];
   taras: Map<string, TaraParaReporte>;
   fechaCombustible?: string;
+  /** 🧑‍🔧 Filtro compartido. Acá manda el responsable VIGENTE del camión. */
+  responsablesSel?: string[];
+  nombresResponsables?: Record<string, string>;
+  responsableVigenteClave?: Record<string, string>;
 }) {
   const { colors } = useTheme();
   const toast = useToast();
@@ -186,8 +191,18 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
     toast.success('Logos del membrete actualizados.');
   };
 
-  const r = resumenTaras(camiones, taras);
-  const rComb = resumenCombustibleTaras(camiones, taras, op.alcance);
+  // 🧑‍🔧 Los reportes por CAMIÓN filtran por el responsable VIGENTE, no por la
+  // foto congelada en cada viaje. Sin selección, la flota queda intacta.
+  const camionesFiltrados = useMemo(() => {
+    if (!responsablesSel?.length) return camiones;
+    return camiones.filter((c) => pasaFiltroResponsables(responsablesSel, responsableVigenteClave?.[c.id] ?? SIN_RESPONSABLE));
+  }, [camiones, responsablesSel, responsableVigenteClave]);
+  // Etiqueta del PDF y del nombre de archivo, con el mismo catálogo del módulo.
+  const etiquetaResp = etiquetaFiltroResponsables(responsablesSel, nombresResponsables ?? {});
+  const sResp = sufijoArchivoResponsables(responsablesSel).replace(/^-/, '');
+
+  const r = resumenTaras(camionesFiltrados, taras);
+  const rComb = resumenCombustibleTaras(camionesFiltrados, taras, op.alcance);
   const fechaCombDmy = fechaCombustible && /^\d{4}-\d{2}-\d{2}$/.test(fechaCombustible)
     ? `${fechaCombustible.slice(8, 10)}/${fechaCombustible.slice(5, 7)}/${fechaCombustible.slice(0, 4)}`
     : null;
@@ -199,7 +214,7 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
     }
     setGenerando(true);
     try {
-      let camionesPdf = camiones;
+      let camionesPdf = camionesFiltrados;
       if (op.chofer === true) {
         const { rows } = await listOperatorAssignments();
         const dia = new Map<string, string>();
@@ -216,14 +231,17 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
         : (op.combustible !== false && rComb.totalLitros > 0 ? 'Reporte de taras y combustible' : 'Reporte de taras');
       const html = pdfDocument({
         title: (op.tituloPersonalizado ?? '').trim() || defaultTitle,
-        subtitle: op.verSubtitulo !== false ? ((op.subtituloPersonalizado ?? '').trim() || `${subBase}${subComb}`) : '',
+        subtitle: op.verSubtitulo !== false
+          ? `${(op.subtituloPersonalizado ?? '').trim() || `${subBase}${subComb}`}${etiquetaResp ? ` · ${etiquetaResp}` : ''}`
+          : '',
         body: cuerpoReporteTaras(camionesPdf, taras, { ...op, fechaCombustible }),
         extraCss: CSS_REPORTE_TARAS,
         logos,
         marcaTexto: op.verMarcaTexto === true,
         verEmitida: op.verFechaEmision !== false,
       });
-      await exportPdf(html, nombreArchivoTaras(op.alcance, caracasBusinessToday(), op));
+      const nombreBase = nombreArchivoTaras(op.alcance, caracasBusinessToday(), op);
+      await exportPdf(html, `${nombreBase}${sResp ? ` · ${sResp}` : ''}`);
     } catch (e: any) {
       toast.error(`No se pudo generar el reporte: ${e?.message ?? e}`);
     } finally {
@@ -282,6 +300,7 @@ export function ReporteTarasBox({ camiones, taras, fechaCombustible }: {
             {r.conTara} de {r.flota} camión(es) con tara cargada{r.exentos > 0 ? ` · ${r.exentos} no pasan por romana` : ''}
             {rComb.totalLitros > 0 ? ` · ⛽ ${rComb.conCombustible} con combustible (${litrosTexto(rComb.totalLitros)})` : ''}
           </Text>
+          {etiquetaResp ? <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>{etiquetaResp} · se filtra por responsable vigente</Text> : null}
         </View>
         <TouchableOpacity
           onPress={generar}

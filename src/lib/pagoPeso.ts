@@ -67,6 +67,9 @@ export type ViajePeso = {
   peso_bruto_kg?: number | string | null;
   peso_tara_kg?: number | string | null;
   peso_neto_kg?: number | string | null;
+  /** 🧑‍🔧 Foto del responsable al registrar (23-nov-2026). Solo filtra el papel. */
+  responsable_id?: string | null;
+  responsable_nombre?: string | null;
 };
 
 export type MotivoSinPagoPeso = 'no_facturo' | 'sin_peso' | 'sin_tarifa' | 'sin_empresa' | 'fuera_catalogo';
@@ -378,31 +381,50 @@ export const empresaDeLineaPeso = (l: LineaPeso): string => limpio(l.viaje?.comp
 export const maquinaDeLineaPeso = (l: LineaPeso): string =>
   limpio(l.viaje?.machinery_id) || `code:${limpio(l.viaje?.machine_code) || '—'}`;
 
+/** 🧑‍🔧 RESPONSABLE CONGELADO de la línea. Espejo de `camionResponsables` para
+ *  que este módulo siga cargándose sin dependencias nuevas en sus pruebas. */
+export const SIN_RESPONSABLE_PESO = '__sin_responsable__';
+export const claveResponsableLineaPeso = (l: LineaPeso): string => {
+  const v = l.viaje as (LineaPeso['viaje'] & { responsableId?: unknown; responsableNombre?: unknown }) | null | undefined;
+  const id = limpio(v?.responsable_id ?? v?.responsableId);
+  if (id) return id;
+  const nombre = limpio(v?.responsable_nombre ?? v?.responsableNombre);
+  if (!nombre) return SIN_RESPONSABLE_PESO;
+  return `nombre:${nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es').replace(/\s+/g, ' ')}`;
+};
+
 /** Lista vacía = todas. */
-export type FiltroPeso = { empresas: string[]; obras: string[]; maquinas: string[]; frentes: string[] };
-export const FILTRO_PESO_TODO: FiltroPeso = { empresas: [], obras: [], maquinas: [], frentes: [] };
+export type FiltroPeso = { empresas: string[]; obras: string[]; maquinas: string[]; frentes: string[]; responsables?: string[] };
+export const FILTRO_PESO_TODO: FiltroPeso = { empresas: [], obras: [], maquinas: [], frentes: [], responsables: [] };
 
 const pasa = (lista: string[] | null | undefined, clave: string) => !lista || lista.length === 0 || lista.includes(clave);
 
 export function filtrarLineasPeso(lineas: LineaPeso[] | null | undefined, f: FiltroPeso): LineaPeso[] {
   return (lineas ?? []).filter((l) =>
     pasa(f.empresas, empresaDeLineaPeso(l)) && pasa(f.obras, obraDeLineaPeso(l))
-    && pasa(f.maquinas, maquinaDeLineaPeso(l)) && pasa(f.frentes, frenteDeLineaPeso(l)));
+    && pasa(f.maquinas, maquinaDeLineaPeso(l)) && pasa(f.frentes, frenteDeLineaPeso(l))
+    && pasa(f.responsables, claveResponsableLineaPeso(l)));
 }
 
-export function acotarFiltroPeso(f: FiltroPeso, hay: { empresas: string[]; obras: string[]; maquinas: string[]; frentes: string[] }): FiltroPeso {
+export function acotarFiltroPeso(
+  f: FiltroPeso, hay: { empresas: string[]; obras: string[]; maquinas: string[]; frentes: string[]; responsables?: string[] },
+): FiltroPeso {
   const s = (xs: string[]) => new Set(xs);
   const e = s(hay.empresas), o = s(hay.obras), m = s(hay.maquinas), fr = s(hay.frentes);
-  return {
+  const re = hay.responsables ? new Set(hay.responsables) : null;
+  const res: FiltroPeso = {
     empresas: (f.empresas ?? []).filter((k) => e.has(k)),
     obras: (f.obras ?? []).filter((k) => o.has(k)),
     maquinas: (f.maquinas ?? []).filter((k) => m.has(k)),
     frentes: (f.frentes ?? []).filter((k) => fr.has(k)),
   };
+  if (f.responsables) res.responsables = f.responsables.filter((k) => !re || re.has(k));
+  return res;
 }
 
 export function filtroPesoActivo(f: FiltroPeso): boolean {
-  return (f.empresas?.length ?? 0) + (f.obras?.length ?? 0) + (f.maquinas?.length ?? 0) + (f.frentes?.length ?? 0) > 0;
+  return (f.empresas?.length ?? 0) + (f.obras?.length ?? 0) + (f.maquinas?.length ?? 0)
+    + (f.frentes?.length ?? 0) + (f.responsables?.length ?? 0) > 0;
 }
 
 export type OpcionDisponible = { id: string; name: string; viajes: number };
@@ -594,13 +616,17 @@ export function ocultosPesoEnPalabras(o: OpcionesPagoPeso): string {
   return l.length === 0 ? 'Sale completo.' : `No sale: ${l.join(', ')}.`;
 }
 
-export function alcancePesoEnPalabras(f: FiltroPeso, eje: EjePeso, o: OpcionesPagoPeso, nombresEmpresa: Map<string, string> | null | undefined): string[] {
+export function alcancePesoEnPalabras(
+  f: FiltroPeso, eje: EjePeso, o: OpcionesPagoPeso, nombresEmpresa: Map<string, string> | null | undefined,
+  etiquetaResponsable?: string | null,
+): string[] {
   const nombreE = (k: string) => (k === CLAVE_SIN_EMPRESA_PESO ? 'Sin empresa' : nombresEmpresa?.get(k) || 'Empresa');
   const l: string[] = [`Agrupado por ${eje === 'obra' ? 'obra / ubicación' : eje === 'frente' ? 'frente de trabajo' : eje === 'maquina' ? 'camión' : 'empresa'}.`];
   l.push(f.empresas.length === 0 ? 'Empresas: todas.' : o.sinEmpresas ? `Empresas: solo ${f.empresas.length} elegida(s).` : `Empresas: solo ${f.empresas.map(nombreE).join(', ')}.`);
   l.push(f.obras.length === 0 ? 'Obras: todas.' : `Obras: solo ${f.obras.join(', ')}.`);
   l.push((f.frentes ?? []).length === 0 ? 'Frentes: todos.' : `Frentes: solo ${f.frentes.join(', ')}.`);
   l.push((f.maquinas ?? []).length === 0 ? 'Camiones: todos.' : `Camiones: solo ${f.maquinas.length} elegido(s).`);
+  if (etiquetaResponsable) l.push(etiquetaResponsable);
   if (filtroPesoActivo(f)) l.push('⚠️ Este papel está FILTRADO: su total no es el pago completo del rango.');
   return l;
 }
@@ -613,6 +639,10 @@ export function sufijoArchivoPeso(f: FiltroPeso, eje: EjePeso, o: OpcionesPagoPe
   if (f.empresas.length) partes.push(`${f.empresas.length} empresa(s)`);
   if ((f.frentes ?? []).length) partes.push(`${f.frentes.length} frente(s)`);
   if ((f.maquinas ?? []).length) partes.push(`${f.maquinas.length} camion(es)`);
+  const resp = f.responsables ?? [];
+  if (resp.length === 1) partes.push(resp[0] === SIN_RESPONSABLE_PESO ? 'sin responsable'
+    : `resp-${String(resp[0]).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es').replace(/[^a-z0-9]+/g, '-')}`);
+  else if (resp.length > 1) partes.push(`resp-${resp.length}`);
   PASTILLAS_PESO.filter((p) => o[p.key] !== OPCIONES_PESO_POR_DEFECTO[p.key]).forEach((p) => partes.push(o[p.key] ? p.archivo : p.archivo.replace(/^sin /, 'con ')));
   return partes.length ? ` (${partes.join(', ')})`.replace(/[\\/:*?"<>|]/g, ' ') : '';
 }
@@ -675,6 +705,8 @@ export type DatosPapelPeso = {
   unidad: UnidadTarifaPeso;
   nombresEmpresa: Map<string, string>;
   fichas?: Map<string, FichaCamionPeso> | null;
+  /** 🧑‍🔧 «Responsable: ...», armado por la tarjeta con el catálogo del módulo. */
+  etiquetaResponsable?: string | null;
 };
 
 /**
@@ -761,7 +793,7 @@ export function cuerpoPagoPeso(d: DatosPapelPeso): string {
 
   if (!o.sinAlcance) {
     // Dice QUÉ viajes entraron (el filtro cambia el total), nunca qué columnas se apagaron.
-    partes.push(`<div class="alc"><b>Alcance del informe</b><br/>${alcancePesoEnPalabras(d.filtro, d.eje, o, d.nombresEmpresa).map(esc).join('<br/>')}</div>`);
+    partes.push(`<div class="alc"><b>Alcance del informe</b><br/>${alcancePesoEnPalabras(d.filtro, d.eje, o, d.nombresEmpresa, d.etiquetaResponsable).map(esc).join('<br/>')}</div>`);
   }
   return partes.join('\n');
 }

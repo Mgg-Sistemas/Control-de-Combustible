@@ -200,7 +200,9 @@ ok('* el manual en pantalla también',
   /EN EL PANEL, LAS QUE ESPERAN INSTRUCCIONES TAMPOCO SE VEN \(12\/09\/2026\)/
     .test(fs.readFileSync(path.join(ROOT, 'src/screens/ManualScreen.tsx'), 'utf8')));
 ok('* la meta diaria se pide para esos', /getMetasPorCamion\(camionesEnObra\.map/.test(pantalla));
-ok('* el panel de metas lista esos', /\{camionesEnObra\.map\(\(t\) => \(/.test(pantalla));
+// (23-nov-2026) El panel de metas sigue listando esos camiones, pero ahora pasa
+// antes por el filtro de responsable VIGENTE (distinto del congelado de los viajes).
+ok('* el panel de metas lista esos', /\{camionesEnObra\.filter\(\(t\) => pasaRespVigente\(t\.id\)\)\.map\(\(t\) => \(/.test(pantalla));
 ok('* y el resumen por camion arranca de esos', /new Set<string>\(\[\.\.\.camionesEnObra\.map/.test(pantalla));
 // PERO los viajes viejos de un camion retirado NO pueden desaparecer.
 ok('* sumando los que tengan viajes en el rango', /resumenRows\.map\(\(r\) => claveCamion\(r\)\)\]\)/.test(pantalla));

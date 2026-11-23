@@ -22,7 +22,7 @@
 // camiones. Ver `scripts/test-viajes-resumen.mjs`.
 
 /** Por cuál de los cinco ejes se parte el resumen (23-oct-2026: formato de ticket añadido). */
-export type EjeResumen = 'empresa' | 'listero' | 'ubicacion' | 'frente' | 'formato';
+export type EjeResumen = 'empresa' | 'listero' | 'ubicacion' | 'frente' | 'formato' | 'responsable';
 
 /** Clave de los camiones sin empresa asignada: van todos a una sola cubeta. */
 export const SIN_EMPRESA = '__sin_empresa__';
@@ -59,6 +59,14 @@ export const SIN_FRENTE = '__sin_frente__';
  * Cubeta de los viajes sin formato de ticket identificado (23-oct-2026).
  */
 export const SIN_FORMATO = '__sin_formato__';
+
+/**
+ * Cubeta de los viajes sin responsable congelado (23-nov-2026): los anteriores a
+ * la feature y los camiones que no le trabajan a nadie. Espejo de
+ * `SIN_RESPONSABLE` en `camionResponsables.ts` (este archivo se mantiene SIN
+ * imports para poder probarse solo).
+ */
+export const SIN_RESPONSABLE = '__sin_responsable__';
 
 /** Clave de los camiones que el listero anotó a mano por no estar en el catálogo. */
 export const FUERA_CATALOGO = '__fuera_catalogo__';
@@ -107,6 +115,10 @@ export type ViajeMin = {
   /** Formato de ticket asignado o sellado en el viaje (23-oct-2026). */
   formatoId?: string | null;
   formatoNombre?: string | null;
+  /** 🧑‍🔧 Responsable CONGELADO en el viaje (23-nov-2026). Se lee de la fila,
+   *  nunca del catálogo de hoy: reasignar un camión no reescribe el pasado. */
+  responsableId?: string | null;
+  responsableNombre?: string | null;
 };
 
 /**
@@ -242,6 +254,7 @@ const SIN_NOMBRE: Record<EjeResumen, string> = {
   ubicacion: 'Sin ubicación',
   frente: 'Sin frente',
   formato: 'Sin formato',
+  responsable: 'Sin responsable',
 };
 
 /** Texto de un nombre listo para agrupar: sin espacios dobles ni de los bordes. */
@@ -272,6 +285,20 @@ export function claveFrenteViaje(r: { frenteId?: string | null; frenteNombre?: s
   if (id) return id;
   const nombre = limpio(r.frenteNombre);
   return nombre ? `nombre:${nombre.toLowerCase()}` : SIN_FRENTE;
+}
+
+/**
+ * CLAVE DEL RESPONSABLE CONGELADO. Espejo de `claveResponsableDeViaje` de
+ * `camionResponsables.ts`: id → id, nombre congelado → `nombre:<normalizado>`,
+ * y nada → cubeta explícita. La cubeta es una opción filtrable, no un viaje
+ * perdido. Se duplica acá solo para conservar este archivo sin imports.
+ */
+export function claveResponsableViaje(r: { responsableId?: string | null; responsableNombre?: string | null; responsable_id?: string | null; responsable_nombre?: string | null }): string {
+  const id = String(r.responsableId ?? r.responsable_id ?? '').trim();
+  if (id) return id;
+  const nombre = limpio(r.responsableNombre ?? r.responsable_nombre);
+  if (nombre) return `nombre:${nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es').replace(/\s+/g, ' ')}`;
+  return SIN_RESPONSABLE;
 }
 
 /**
@@ -308,6 +335,13 @@ function grupoDeViaje(
         key: String(r.formatoId ?? '').trim() || SIN_FORMATO,
         name: limpio(r.formatoNombre) || SIN_NOMBRE.formato,
       };
+    case 'responsable': {
+      const key = claveResponsableViaje(r);
+      return {
+        key,
+        name: limpio(r.responsableNombre) || (key === SIN_RESPONSABLE ? SIN_NOMBRE.responsable : key),
+      };
+    }
     case 'empresa':
     default:
       return {
@@ -411,7 +445,7 @@ export type CamionSalio = { key: string; code: string; placa: string };
 export type GrupoCamiones = { key: string; name: string; camiones: CamionSalio[] };
 export type CamionesQueSalieron = { grupos: GrupoCamiones[]; totalCamiones: number; groupBy: EjeResumen };
 
-const esCubetaSin = (key: string) => key === SIN_EMPRESA || key === SIN_LISTERO || key === SIN_UBICACION || key === SIN_FRENTE || key === SIN_FORMATO;
+const esCubetaSin = (key: string) => key === SIN_EMPRESA || key === SIN_LISTERO || key === SIN_UBICACION || key === SIN_FRENTE || key === SIN_FORMATO || key === SIN_RESPONSABLE;
 
 /**
  * La misma lista del resumido, sin ninguna cifra de viajes.

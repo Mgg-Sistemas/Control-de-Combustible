@@ -32,9 +32,11 @@ import { cargarDatosPagoViajes, DatosPagoViajes } from '../lib/pagoViajesDb';
 import {
   CSS_PAGO_VIAJES, EJES_PAGO, ETIQUETA_EJE, EjePago, OPCIONES_PAGO_COMO_ANTES, OpcionesPagoViajes, PASTILLAS_PAGO,
   acotarFiltroPago, alternarPago, cuerpoPagoViajes, empresasDisponibles, filtrarLineasPago, lineasDeGrupos,
+  claveResponsableLinea, SIN_RESPONSABLE_PAGO,
   maquinasDisponiblesPago, obrasDisponibles, ocultosPagoEnPalabras, sufijoArchivoPago, totalDeLineas,
   zonasDisponiblesPago,
 } from '../lib/pagoViajesReporte';
+import { etiquetaFiltroResponsables } from '../lib/camionResponsables';
 // 🔒 Cierres del pago (06-oct-2026): el cliente preguntó «¿cómo defino que ya
 // pagaron viajes?, ¿desde dónde?». Desde aquí: se marca el rango como PAGADO y
 // queda la constancia con su foto (pagoViajesCierres.ts tiene las reglas).
@@ -49,6 +51,11 @@ type Props = {
   usuarioId: string | null;
   /** id del camión → m³ de UN viaje, de Cubicaje. Solo para la columna opcional del PDF. */
   m3PorViaje?: Map<string, number> | null;
+  /** 🧑‍🔧 Selección COMPARTIDA con la Lista completa (responsable congelado). */
+  responsablesSel?: string[];
+  nombresResponsables?: Record<string, string>;
+  onToggleResponsable?: (clave: string) => void;
+  onLimpiarResponsables?: () => void;
 };
 
 const usd = (n: number) => `$${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -79,7 +86,7 @@ const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g,
  */
 const CIERRES_PAGO_VISIBLES = false;
 
-export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
+export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje, responsablesSel, nombresResponsables, onToggleResponsable, onLimpiarResponsables }: Props) {
   const { colors } = useTheme();
   const hoy = jornadaDeInstante(new Date().toISOString());
   const [desde, setDesde] = useState(() => lunesDe(hoy));
@@ -201,6 +208,14 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   const obrasPdf = useMemo(() => obrasDisponibles(lineasTodas), [lineasTodas]);
   const zonasPdf = useMemo(() => zonasDisponiblesPago(lineasTodas), [lineasTodas]);
   const maquinasPdf = useMemo(() => maquinasDisponiblesPago(lineasTodas, datos?.fichas, datos?.empresas), [lineasTodas, datos]);
+  // 🧑‍🔧 Responsables presentes en el rango del pago, contados sobre las MISMAS
+  // líneas de la tarjeta para que el chip no mienta sobre lo que mueve.
+  const responsablesPdf = useMemo(() => {
+    const m = new Map<string, number>();
+    lineasTodas.forEach((l) => { const k = claveResponsableLinea(l); m.set(k, (m.get(k) ?? 0) + 1); });
+    return Array.from(m, ([id, n]) => ({ id, name: nombresResponsables?.[id] ?? id, viajes: n }))
+      .sort((a, b) => Number(a.id === SIN_RESPONSABLE_PAGO) - Number(b.id === SIN_RESPONSABLE_PAGO) || a.name.localeCompare(b.name, 'es'));
+  }, [lineasTodas, nombresResponsables]);
   // El buscador recorta lo que se ve, no lo que está marcado: una máquina marcada
   // que no coincide con la búsqueda sigue filtrando el papel (por eso se cuentan aparte).
   const maquinasVistas = useMemo(() => {
@@ -212,14 +227,14 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   // puede seguir filtrando sin verse.
   const filtroPdf = useMemo(
     () => acotarFiltroPago(
-      { empresas: Array.from(empresasSel), obras: Array.from(obrasSel), maquinas: Array.from(maquinasSel), zonas: Array.from(zonasSel) },
-      { empresas: empresasPdf.map((e) => e.id), obras: obrasPdf.map((x) => x.id), maquinas: maquinasPdf.map((x) => x.id), zonas: zonasPdf.map((x) => x.id) },
+      { empresas: Array.from(empresasSel), obras: Array.from(obrasSel), maquinas: Array.from(maquinasSel), zonas: Array.from(zonasSel), responsables: responsablesSel },
+      { empresas: empresasPdf.map((e) => e.id), obras: obrasPdf.map((x) => x.id), maquinas: maquinasPdf.map((x) => x.id), zonas: zonasPdf.map((x) => x.id), responsables: responsablesPdf.map((x) => x.id) },
     ),
-    [empresasSel, obrasSel, maquinasSel, zonasSel, empresasPdf, obrasPdf, maquinasPdf, zonasPdf],
+    [empresasSel, obrasSel, maquinasSel, zonasSel, responsablesSel, empresasPdf, obrasPdf, maquinasPdf, zonasPdf, responsablesPdf],
   );
   const lineasPdf = useMemo(() => filtrarLineasPago(lineasTodas, filtroPdf), [lineasTodas, filtroPdf]);
   const totPdf = useMemo(() => totalDeLineas(lineasPdf), [lineasPdf]);
-  const pdfFiltrado = filtroPdf.empresas.length > 0 || filtroPdf.obras.length > 0 || filtroPdf.maquinas.length > 0 || (filtroPdf.zonas ?? []).length > 0;
+  const pdfFiltrado = filtroPdf.empresas.length > 0 || filtroPdf.obras.length > 0 || filtroPdf.maquinas.length > 0 || (filtroPdf.zonas ?? []).length > 0 || (filtroPdf.responsables?.length ?? 0) > 0;
 
   const rangoInvalido = hasta < desde;
   const rangoAntesDelInicio = hasta < INICIO_PAGO_VIAJES;
@@ -318,6 +333,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
         m3PorViaje,
         etiquetaMotivo: etiquetaMotivoSinPago,
         htmlFueraDelPago: fuera,
+        etiquetaResponsable: etiquetaFiltroResponsables(responsablesSel, nombresResponsables ?? {}),
       }),
     });
     await exportPdf(html, `Pago de viajes ${dmy(desde)} a ${dmy(hasta)}${sufijoArchivoPago(filtroPdf, ejePdf, opcionesPdf)}`.replace(/\//g, '-'));
@@ -406,6 +422,18 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {EJES_PAGO.map((e) => pastilla('eje-' + e.key, e.chip, ejePdf === e.key, () => setEjePdf(e.key)))}
             </View>
+
+            {/* 🧑‍🔧 RESPONSABLE — compartido con la Lista completa. El congelado
+                en cada viaje manda; reasignar hoy NO reescribe este papel. */}
+            {responsablesPdf.length > 0 ? (
+              <View>
+                {rotuloPdf(`🧑‍🔧 RESPONSABLE (vacío = todos · ${responsablesPdf.length})`)}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  {pastilla('r-todos', '✅ Todos', (responsablesSel?.length ?? 0) === 0, () => onLimpiarResponsables?.())}
+                  {responsablesPdf.map((x) => pastilla('r' + x.id, `🧑‍🔧 ${x.name} (${x.viajes})`, responsablesSel?.includes(x.id) ?? false, () => onToggleResponsable?.(x.id)))}
+                </View>
+              </View>
+            ) : null}
 
             {rotuloPdf(`📍 OBRAS (vacío = todas · ${obrasPdf.length})`)}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>

@@ -38,17 +38,22 @@
  * camión—. Un filtro de turno por fuera se contradiría con los otros tres en
  * cuanto se marcaran juntos.
  */
-export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion' | 'formato' | 'frente' | 'sentido' | 'material' | 'operacion';
-export const EJES_FILTRO: readonly ('listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion')[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion'] as const;
-export const TODOS_LOS_EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion', 'formato', 'frente', 'sentido', 'material', 'operacion'] as const;
+export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion' | 'formato' | 'frente' | 'sentido' | 'material' | 'operacion' | 'responsable';
+export const EJES_FILTRO: readonly ('listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion' | 'responsable')[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion', 'responsable'] as const;
+export const TODOS_LOS_EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion', 'formato', 'frente', 'sentido', 'material', 'operacion', 'responsable'] as const;
 
 /** Lo marcado en un eje: id → etiqueta. Vacío = «todos». */
 export type MarcadosEje = ReadonlyMap<string, string>;
-export type SeleccionFiltros = Record<EjeFiltro, MarcadosEje>;
+/**
+ * `Partial` a propósito: un llamador viejo que todavía no manda el eje nuevo no
+ * puede tumbar el panel. Igual que en `pasaFiltros`, un eje que no viene es un
+ * eje sin marcar.
+ */
+export type SeleccionFiltros = Partial<Record<EjeFiltro, MarcadosEje>>;
 
 /** La clave de un viaje en cada eje (id del listero, de la empresa del camión,
  *  del camión). Las calcula la pantalla, que es la que tiene el catálogo. */
-export type ClavesViaje = Record<EjeFiltro, string>;
+export type ClavesViaje = Partial<Record<EjeFiltro, string>>;
 
 export type OpcionFiltro = { id: string; label: string; count: number };
 
@@ -63,7 +68,7 @@ export function pasaFiltros(claves: ClavesViaje, sel: SeleccionFiltros, excepto?
     // `undefined` y tumbaría el panel entero con un error ilegible. Un eje que
     // no viene es un eje sin marcar, o sea: no filtra. Pasó al sumar el eje de
     // OBRA el 12-sep-2026.
-    (eje) => eje === excepto || !sel[eje]?.size || sel[eje].has(claves[eje])
+    (eje) => eje === excepto || !sel[eje]?.size || sel[eje].has(claves[eje] ?? '')
   );
 }
 
@@ -89,7 +94,7 @@ export function opcionesDeEje<R>(
   // Primero, TODO lo marcado — aunque no aparezca en un solo viaje del rango.
   // Entra en 0 y solo sube contando; sin esto, un filtro puesto ayer se vuelve
   // invisible al cambiar de día y tapa la lista sin dar la cara.
-  sel[eje].forEach((label, id) => m.set(id, { id, label, count: 0 }));
+  sel[eje]?.forEach((label, id) => m.set(id, { id, label, count: 0 }));
   // Después, lo que hay en el rango (su etiqueta manda: es la más fresca).
   rows.forEach((r) => {
     const o = opcionDe(r);
@@ -104,7 +109,7 @@ export function opcionesDeEje<R>(
   });
   // Se muestran las que tienen viajes y, pase lo que pase, las marcadas.
   return Array.from(m.values())
-    .filter((o) => o.count > 0 || sel[eje].has(o.id))
+    .filter((o) => o.count > 0 || !!sel[eje]?.has(o.id))
     .sort((a, b) => cmp(a.label, b.label));
 }
 
@@ -191,7 +196,13 @@ export function marcadosFueraDelRango<R>(
   const presentes = Object.fromEntries(TODOS_LOS_EJES_FILTRO.map((eje) => [eje, new Set<string>()])) as Record<EjeFiltro, Set<string>>;
   rows.forEach((r) => {
     const c = clavesDe(r);
-    TODOS_LOS_EJES_FILTRO.forEach((eje) => presentes[eje].add(c[eje]));
+    TODOS_LOS_EJES_FILTRO.forEach((eje) => {
+      const clave = c[eje];
+      // Un llamador viejo puede no calcular todavía el eje nuevo. Eso no es un
+      // dato «presente»: marcarlo como tal es lo que hacía creer que un filtro
+      // sobraba cuando en realidad el eje ni se estaba midiendo.
+      if (clave !== undefined) presentes[eje].add(clave);
+    });
   });
   // Se devuelve el EJE junto a la etiqueta: sin él, un mensaje como
   // «(☀️ Día, MGG, MGG)» es irresoluble cuando un listero se apellida igual que

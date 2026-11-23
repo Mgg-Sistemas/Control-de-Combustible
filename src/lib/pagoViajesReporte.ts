@@ -106,8 +106,8 @@ export const CLAVE_SIN_EMPRESA = '(sin empresa)';
 /** Una lista VACÍA quiere decir «todas»: es lo que espera quien no toca nada.
  *  `maquinas` (30-sep-2026, a pedido: «un buscador por si quiero un reporte de
  *  unas máquinas que yo seleccione»): filtra el papel a esos camiones. */
-export type FiltroPagoViajes = { empresas: string[]; obras: string[]; maquinas: string[]; zonas?: string[] };
-export const FILTRO_PAGO_TODO: FiltroPagoViajes = { empresas: [], obras: [], maquinas: [], zonas: [] };
+export type FiltroPagoViajes = { empresas: string[]; obras: string[]; maquinas: string[]; zonas?: string[]; responsables?: string[] };
+export const FILTRO_PAGO_TODO: FiltroPagoViajes = { empresas: [], obras: [], maquinas: [], zonas: [], responsables: [] };
 
 /**
  * Cómo se parte el papel en bloques.
@@ -163,6 +163,18 @@ export const empresaDeLinea = (l: LineaViaje): string => limpio(l.viaje?.company
 export const maquinaDeLinea = (l: LineaViaje): string =>
   limpio(l.viaje?.machinery_id) || `code:${limpio(l.viaje?.machine_code) || '—'}`;
 
+/** 🧑‍🔧 RESPONSABLE CONGELADO de la línea. Copiada de `camionResponsables` para
+ *  que este archivo siga cargándose solo en su prueba (solo importa TIPOS). */
+export const SIN_RESPONSABLE_PAGO = '__sin_responsable__';
+export const claveResponsableLinea = (l: LineaViaje): string => {
+  const v = l.viaje as (LineaViaje['viaje'] & { responsableId?: unknown; responsableNombre?: unknown }) | null | undefined;
+  const id = limpio(v?.responsable_id ?? v?.responsableId);
+  if (id) return id;
+  const nombre = limpio(v?.responsable_nombre ?? v?.responsableNombre);
+  if (!nombre) return SIN_RESPONSABLE_PAGO;
+  return `nombre:${nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es').replace(/\s+/g, ' ')}`;
+};
+
 const pasa = (lista: string[] | null | undefined, clave: string) => !lista || lista.length === 0 || lista.includes(clave);
 
 /** Todas las líneas de todos los grupos, en una sola lista. */
@@ -177,24 +189,28 @@ export function filtrarLineasPago(lineas: LineaViaje[] | null | undefined, f: Fi
   // sin `maquinas` sigue funcionando igual.
   return (lineas ?? []).filter((l) =>
     pasa(f.empresas, empresaDeLinea(l)) && pasa(f.obras, obraDeLinea(l)) && pasa(f.maquinas, maquinaDeLinea(l))
-    && pasa(f.zonas, zonaDeLinea(l)));
+    && pasa(f.zonas, zonaDeLinea(l)) && pasa(f.responsables, claveResponsableLinea(l)));
 }
 
 /** El filtro, acotado a lo que de verdad hay: una obra marcada que ya no está en el
  *  rango seguiría filtrando sin verse y sin poder desmarcarse. */
 export function acotarFiltroPago(
-  f: FiltroPagoViajes, hay: { empresas: string[]; obras: string[]; maquinas?: string[]; zonas?: string[] },
+  f: FiltroPagoViajes, hay: { empresas: string[]; obras: string[]; maquinas?: string[]; zonas?: string[]; responsables?: string[] },
 ): FiltroPagoViajes {
   const e = new Set(hay.empresas);
   const o = new Set(hay.obras);
   const mq = new Set(hay.maquinas ?? []);
   const z = new Set(hay.zonas ?? []);
-  return {
+  const re = hay.responsables ? new Set(hay.responsables) : null;
+  const res: FiltroPagoViajes = {
     empresas: f.empresas.filter((k) => e.has(k)),
     obras: f.obras.filter((k) => o.has(k)),
     maquinas: (f.maquinas ?? []).filter((k) => mq.has(k)),
     zonas: (f.zonas ?? []).filter((k) => z.has(k)),
   };
+  // Solo se devuelve si venía: las pruebas viejas comparan el objeto exacto.
+  if (f.responsables) res.responsables = f.responsables.filter((k) => !re || re.has(k));
+  return res;
 }
 
 /** Las ZONAS (y tipos de viaje) que existen en las líneas, para las pastillas del
@@ -444,6 +460,7 @@ export function marcaModeloPago(r: { marca: string; modelo: string }, o: Opcione
 export function alcancePagoEnPalabras(
   f: FiltroPagoViajes, eje: EjePago, o: OpcionesPagoViajes,
   nombresEmpresa: Map<string, string> | null | undefined,
+  etiquetaResponsable?: string | null,
 ): string[] {
   const nombreE = (k: string) => (k === CLAVE_SIN_EMPRESA ? 'Sin empresa' : nombresEmpresa?.get(k) || 'Empresa');
   const l: string[] = [`Agrupado por ${ETIQUETA_EJE[eje] ?? 'empresa'}.`];
@@ -456,7 +473,8 @@ export function alcancePagoEnPalabras(
   // A propósito NO se listan los códigos de las máquinas: pueden ser decenas y
   // ensuciarían el cuadro. Basta con decir que el papel está acotado a unas pocas.
   l.push(maquinas.length === 0 ? 'Máquinas: todas.' : `Máquinas: solo ${maquinas.length} elegida(s).`);
-  if (f.empresas.length || f.obras.length || maquinas.length) l.push('⚠️ Este papel está FILTRADO: su total no es el pago completo del rango.');
+  if (etiquetaResponsable) l.push(etiquetaResponsable);
+  if (f.empresas.length || f.obras.length || maquinas.length || (f.responsables?.length ?? 0)) l.push('⚠️ Este papel está FILTRADO: su total no es el pago completo del rango.');
   return l;
 }
 
@@ -470,6 +488,10 @@ export function sufijoArchivoPago(f: FiltroPagoViajes, eje: EjePago, o: Opciones
   else if (f.obras.length > 1) partes.push(`${f.obras.length} obras`);
   if (f.empresas.length) partes.push(`${f.empresas.length} empresa(s)`);
   if ((f.maquinas ?? []).length) partes.push(`${f.maquinas.length} maquina(s)`);
+  const resp = f.responsables ?? [];
+  if (resp.length === 1) partes.push(resp[0] === SIN_RESPONSABLE_PAGO ? 'sin responsable'
+    : `resp-${String(resp[0]).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es').replace(/[^a-z0-9]+/g, '-')}`);
+  else if (resp.length > 1) partes.push(`resp-${resp.length}`);
   PASTILLAS_PAGO.filter((p) => o[p.key] !== OPCIONES_PAGO_COMO_ANTES[p.key]).forEach((p) => partes.push(o[p.key] ? p.archivo : p.archivo.replace(/^sin |^solo /, 'con ')));
   return partes.length ? ` (${partes.join(', ')})`.replace(/[\\/:*?"<>|]/g, ' ') : '';
 }
@@ -520,6 +542,8 @@ export type DatosPapelPago = {
   etiquetaMotivo: (m: MotivoSinPago) => string;
   /** Bloque ya armado de «camiones que no entran al pago». Solo va en el papel SIN filtrar. */
   htmlFueraDelPago?: string;
+  /** 🧑‍🔧 «Responsable: ...», armado por la tarjeta con el catálogo del módulo. */
+  etiquetaResponsable?: string | null;
 };
 
 export function cuerpoPagoViajes(d: DatosPapelPago): string {
@@ -576,7 +600,7 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
     //    papel filtrado que no lo avisa se lee como el pago completo del rango.
     //    `ocultosPagoEnPalabras` sigue existiendo para la PANTALLA, que te dice
     //    qué vas a dejar fuera ANTES de descargar.
-    partes.push(`<div class="alc"><b>Alcance del informe</b><br/>${alcancePagoEnPalabras(d.filtro, d.eje, o, d.nombresEmpresa).map(esc).join('<br/>')}</div>`);
+    partes.push(`<div class="alc"><b>Alcance del informe</b><br/>${alcancePagoEnPalabras(d.filtro, d.eje, o, d.nombresEmpresa, d.etiquetaResponsable).map(esc).join('<br/>')}</div>`);
   }
   return partes.join('\n');
 }

@@ -288,7 +288,9 @@ ok('no escribe NADA en la base (puro papel de lectura)',
   && /import \{ selectAllRows \} from '\.\.\/lib\/supabase';/.test(srcCard));
 
 const srcPantalla = fs.readFileSync(path.join(ROOT, 'src/screens/ViajesCamionesScreen.tsx'), 'utf8');
-ok('la tarjeta está montada en Viajes de camiones, solo con nivel full o lectura', /<InformeOperativoCard canVer=\{can(Full|VerPanel)\} \/>/.test(srcPantalla));
+// (23-nov-2026) Ahora recibe además la selección compartida de responsables;
+// se sigue comprobando el permiso con el que se monta, no el formato del tag.
+ok('la tarjeta está montada en Viajes de camiones, solo con nivel full o lectura', /<InformeOperativoCard\s+canVer=\{can(?:Full|VerPanel)\}/.test(srcPantalla));
 
 console.log(`\n${pass} OK · ${fail} FALLO(S)`);
 if (failures.length) {
