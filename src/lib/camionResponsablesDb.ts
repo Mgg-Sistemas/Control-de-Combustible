@@ -11,6 +11,9 @@ import { logAudit } from './audit';
 import {
   type AsignacionResponsable,
   type ResponsableCamion,
+  type OperacionBackfill,
+  type VentanaBackfill,
+  operacionBackfillValida,
   responsableCongeladoParaViaje,
 } from './camionResponsables';
 
@@ -23,7 +26,7 @@ const AUDIT_TABLA = 'camion_responsables';
 /** Detecta "falta correr el SQL" por código de error / mensaje de PostgREST. */
 function isMissing(msg: unknown): boolean {
   const s = String(msg ?? '');
-  return /42P01|42703|42883|camion_responsable|does not exist|relation|schema cache|could not find/i.test(s);
+  return /42P01|42703|42883|camion_responsable|backfill_responsable|does not exist|relation|schema cache|could not find/i.test(s);
 }
 
 const err = (e: unknown) => ({ error: String((e as any)?.message ?? e), missing: isMissing(e) });
@@ -175,6 +178,69 @@ export async function quitarCamionAResponsable(
     if (error) return err(error);
     await logAudit('CHECK', AUDIT_TABLA, responsableId, `quitó camión ${machineryId} a responsable`);
     return { cerrados: ((data ?? {}) as Record<string, number>).cerrados ?? 0 };
+  } catch (e) {
+    return err(e);
+  }
+}
+
+// ── BACKFILL DE VIAJES YA REGISTRADOS ────────────────────────────────────────
+// La UI pide primero el CONTEO (para que el operador vea cuántos viajes van a
+// cambiar) y solo después llama a la RPC. Ambas usan la MISMA ventana 7am→7am,
+// la misma operación congelada y los mismos camiones: lo que se cuenta es lo
+// que se marca. La RPC nunca toca viajes que ya tienen responsable.
+export type ParamsBackfillViajes = {
+  responsableId: string;
+  ventana: VentanaBackfill;
+  operacion: OperacionBackfill;
+  camiones: string[];
+  userId: string | null;
+};
+
+export async function contarViajesParaBackfill(p: Omit<ParamsBackfillViajes, 'responsableId' | 'userId'>): Promise<{
+  sinResponsable: number; conResponsable: number; error?: string; missing?: boolean;
+}> {
+  try {
+    // Se construye DOS queries separadas: reutilizar el builder de Supabase
+    // para ambos count mezclaría los filtros `.is()` / `.not()`.
+    const build = (soloSinResponsable: boolean) => {
+      let q: any = supabase
+        .from('camion_viajes')
+        .select('id', { count: 'exact', head: true })
+        .gte('registered_at', p.ventana.desdeISO)
+        .lt('registered_at', p.ventana.hastaExclusivoISO);
+      const op = operacionBackfillValida(p.operacion);
+      if (op) q = q.eq('proyecto_operacion', op);
+      const ids = Array.from(new Set((p.camiones ?? []).map(String).filter(Boolean)));
+      if (ids.length) q = q.in('machinery_id', ids);
+      return soloSinResponsable ? q.is('responsable_id', null) : q.not('responsable_id', 'is', null);
+    };
+    const [vacíos, ocupados] = await Promise.all([build(true), build(false)]);
+    if (vacíos.error) return { ...err(vacíos.error), sinResponsable: 0, conResponsable: 0 };
+    if (ocupados.error) return { ...err(ocupados.error), sinResponsable: 0, conResponsable: 0 };
+    return { sinResponsable: vacíos.count ?? 0, conResponsable: ocupados.count ?? 0 };
+  } catch (e) {
+    return { ...err(e), sinResponsable: 0, conResponsable: 0 };
+  }
+}
+
+export async function backfillResponsableEnViajes(p: ParamsBackfillViajes): Promise<{
+  actualizados?: number; yaConResponsable?: number; error?: string; missing?: boolean;
+}> {
+  try {
+    const { data, error } = await supabase.rpc('camion_viaje_backfill_responsable', {
+      p_responsable: p.responsableId,
+      p_desde_iso: p.ventana.desdeISO,
+      p_hasta_exclusivo_iso: p.ventana.hastaExclusivoISO,
+      p_operacion: operacionBackfillValida(p.operacion) || null,
+      p_camiones: Array.from(new Set((p.camiones ?? []).map(String).filter(Boolean))),
+      p_user: p.userId,
+    });
+    if (error) return err(error);
+    const r = (data ?? {}) as Record<string, number>;
+    const actualizados = r.actualizados ?? 0;
+    await logAudit('CHECK', AUDIT_TABLA, p.responsableId,
+      `backfill: marcó ${actualizados} viaje(s) sin responsable (${p.ventana.jornadaDesde} → ${p.ventana.jornadaHasta})`);
+    return { actualizados, yaConResponsable: r.ya_con_responsable ?? 0 };
   } catch (e) {
     return err(e);
   }

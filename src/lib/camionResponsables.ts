@@ -24,6 +24,8 @@ export const SIN_RESPONSABLE = '__sin_responsable__';
 export const ETIQUETA_SIN_RESPONSABLE = 'Sin responsable';
 /** Nombre del SQL aditivo que hay que correr en Supabase (NUNCA va al git). */
 export const SQL_RESPONSABLES = 'sql-camion-responsables-2026-11-23.sql';
+/** SQL aditivo del backfill de viajes viejos (NUNCA va al git). */
+export const SQL_BACKFILL_RESPONSABLES = 'sql-backfill-responsables-2026-11-23.sql';
 
 export type ResponsableCamion = {
   id: string;
@@ -304,4 +306,133 @@ export function sufijoArchivoResponsables(seleccion: string[] | null | undefined
 export function alternarResponsable(seleccion: string[] | null | undefined, clave: string): string[] {
   const actual = seleccion ?? [];
   return actual.includes(clave) ? actual.filter((c) => c !== clave) : [...actual, clave];
+}
+
+// ── BACKFILL DE VIAJES YA REGISTRADOS ────────────────────────────────────────
+// Los viajes anteriores a esta función nacieron con `responsable_id` NULL y hoy
+// caen en «Sin responsable». Este bloque decide QUÉ filas se pueden completar
+// SIN reescribir historia ajena.
+//
+// REGLA DE ORO: solo se marca un viaje si NO tiene responsable congelado. Si ya
+// tiene nombre, se respeta aunque el operador esté intentando atribuírselo a
+// otro: para corregir eso existe ✏️ Editar viaje, no un UPDATE masivo.
+//
+// Se puede filtrar por la OPERACIÓN congelada (`proyecto_operacion`, que ya
+// traían los viajes desde el 16-nov-2026: 'miyamoto' / 'tfi') y por JORNADAS
+// (corte 7am→7am, el mismo de `caracasDay.ts`; se replica acá sin imports para
+// que este archivo siga siendo cargable por los tests en memoria) y por camiones.
+export type OperacionBackfill = '' | 'miyamoto' | 'tfi';
+
+export type FiltroBackfill = {
+  desde?: string | null;
+  hasta?: string | null;
+  operacion?: OperacionBackfill | null;
+  camiones?: string[] | null;
+};
+
+export type VentanaBackfill = {
+  jornadaDesde: string;
+  jornadaHasta: string;
+  desdeISO: string;
+  hastaExclusivoISO: string;
+};
+
+export type ViajeParaBackfill = ViajeConResponsable & {
+  machinery_id?: string | null;
+  machineryId?: string | null;
+  registered_at?: string | null;
+  registeredAt?: string | null;
+  proyecto_operacion?: string | null;
+  proyectoOperacion?: string | null;
+};
+
+const RE_DIA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+function diaISOValido(v: unknown): string | null {
+  const s = texto(v);
+  if (!RE_DIA_ISO.test(s)) return null;
+  const t = Date.parse(`${s}T12:00:00Z`);
+  // Date.parse normaliza fechas imposibles (2026-02-31 → 03-mar): comparar el
+  // ISO de vuelta las descarta en vez de dejar que el backfill use otro día.
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toISOString().slice(0, 10) === s ? s : null;
+}
+
+/** Correr una fecha ISO en días, sin depender de la zona horaria local. */
+export function isoDesplazar(iso: string, dias: number): string {
+  const d = diaISOValido(iso) ?? '1900-01-01';
+  const [y, m, dd] = d.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, dd + dias)).toISOString().slice(0, 10);
+}
+
+export function operacionBackfillValida(v: unknown): OperacionBackfill {
+  const s = texto(v).toLocaleLowerCase('es');
+  return s === 'miyamoto' || s === 'tfi' ? s : '';
+}
+
+/**
+ * Ventana semiabierta [7am del desde, 7am del día siguiente al hasta).
+ * Vacío en `desde` = desde el principio; vacío en `hasta` = hasta `hoyISO`.
+ * Devuelve null si el rango está al revés (para que la UI no aplique nada).
+ */
+export function ventanaJornadasBackfill(
+  desde: unknown,
+  hasta: unknown,
+  hoyISO?: unknown
+): VentanaBackfill | null {
+  const d = diaISOValido(desde) ?? '1900-01-01';
+  const h = diaISOValido(hasta) ?? diaISOValido(hoyISO) ?? '2100-01-01';
+  if (d > h) return null;
+  return {
+    jornadaDesde: d,
+    jornadaHasta: h,
+    desdeISO: `${d}T07:00:00-04:00`,
+    hastaExclusivoISO: `${isoDesplazar(h, 1)}T07:00:00-04:00`,
+  };
+}
+
+/** Filtro de fecha/operación/camiones, SIN mirar el responsable del viaje. */
+export function pasaFiltroBackfillBase(
+  v: ViajeParaBackfill | null | undefined,
+  filtro: FiltroBackfill | null | undefined,
+  ventana: VentanaBackfill | null | undefined
+): boolean {
+  if (!v || !ventana) return false;
+  const t = fechaMs(v.registered_at ?? v.registeredAt);
+  if (!Number.isFinite(t)) return false;
+  if (t < fechaMs(ventana.desdeISO) || t >= fechaMs(ventana.hastaExclusivoISO)) return false;
+  const op = operacionBackfillValida(v.proyecto_operacion ?? v.proyectoOperacion);
+  const pedida = operacionBackfillValida(filtro?.operacion);
+  if (pedida && op !== pedida) return false;
+  const ids = (filtro?.camiones ?? []).map(texto).filter(Boolean);
+  if (ids.length > 0) {
+    const id = texto(v.machinery_id ?? v.machineryId);
+    if (!ids.includes(id)) return false;
+  }
+  return true;
+}
+
+/** ¿Este viaje es candidato a ser marcado? Solo si está vacío y pasa el filtro. */
+export function pasaFiltroBackfill(
+  v: ViajeParaBackfill | null | undefined,
+  filtro: FiltroBackfill | null | undefined,
+  ventana: VentanaBackfill | null | undefined
+): boolean {
+  return claveResponsableDeViaje(v) === SIN_RESPONSABLE && pasaFiltroBackfillBase(v, filtro, ventana);
+}
+
+/** Conteo para la vista previa: los vacíos se marcan; los ocupados se respetan. */
+export function resumenBackfill(
+  viajes: ViajeParaBackfill[] | null | undefined,
+  filtro: FiltroBackfill | null | undefined,
+  ventana: VentanaBackfill | null | undefined
+): { aMarcar: number; yaConResponsable: number } {
+  let aMarcar = 0;
+  let yaConResponsable = 0;
+  (viajes ?? []).forEach((v) => {
+    if (!pasaFiltroBackfillBase(v, filtro, ventana)) return;
+    if (claveResponsableDeViaje(v) === SIN_RESPONSABLE) aMarcar++;
+    else yaConResponsable++;
+  });
+  return { aMarcar, yaConResponsable };
 }

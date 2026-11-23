@@ -18,15 +18,17 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useToast } from './ToastProvider';
 import { useConfirm } from './ConfirmProvider';
+import { caracasToday, isoYesterday } from '../lib/caracasDay';
 import {
-  SQL_RESPONSABLES, ETIQUETA_SIN_RESPONSABLE, nombreValidoResponsable,
+  SQL_RESPONSABLES, SQL_BACKFILL_RESPONSABLES, ETIQUETA_SIN_RESPONSABLE, nombreValidoResponsable,
   mapaNombresResponsables, responsableVigentePorCamion, conteoCamionesPorResponsable,
-  planAsignarCamiones, type ResponsableCamion, type AsignacionResponsable,
+  planAsignarCamiones, ventanaJornadasBackfill, isoDesplazar,
+  type ResponsableCamion, type AsignacionResponsable, type OperacionBackfill,
 } from '../lib/camionResponsables';
 import {
   listarResponsablesCamiones, listarAsignacionesResponsables, crearResponsableCamion,
   editarResponsableCamion, activarResponsableCamion, asignarCamionesAResponsable,
-  quitarCamionAResponsable,
+  quitarCamionAResponsable, contarViajesParaBackfill, backfillResponsableEnViajes,
 } from '../lib/camionResponsablesDb';
 
 export type CamionParaResponsable = {
@@ -76,6 +78,14 @@ export function ResponsablesCamionesBox({ camiones, uid, onChanged }: Props) {
   const [buscaCamion, setBuscaCamion] = useState('');
   const [historialCamion, setHistorialCamion] = useState<string | null>(null);
 
+  // ── 📥 Backfill de viajes ya registrados (por responsable) ──
+  const [backfillPara, setBackfillPara] = useState<string | null>(null);
+  const [backfill, setBackfill] = useState<{
+    desde: string; hasta: string; operacion: OperacionBackfill; todosCamiones: boolean;
+  }>({ desde: '', hasta: '', operacion: '', todosCamiones: false });
+  const [conteoBackfill, setConteoBackfill] = useState<{ sinResponsable: number; conResponsable: number } | null>(null);
+  const [contandoBackfill, setContandoBackfill] = useState(false);
+
   const cargar = useCallback(async () => {
     setCargando(true);
     const [resp, asig] = await Promise.all([listarResponsablesCamiones(), listarAsignacionesResponsables()]);
@@ -98,6 +108,17 @@ export function ResponsablesCamionesBox({ camiones, uid, onChanged }: Props) {
       .filter((c) => !q || referencia(c).toLocaleLowerCase('es').includes(q) || (c.companyName ?? '').toLocaleLowerCase('es').includes(q))
       .sort((a, b) => a.code.localeCompare(b.code, 'es') || (a.plate ?? '').localeCompare(b.plate ?? ''));
   }, [camiones, buscaCamion]);
+
+  // La misma ventana que usa el reporte: jornada de 7am a 7am en Caracas.
+  const hoyCaracas = useMemo(() => caracasToday(), []);
+  const ventanaBackfill = useMemo(
+    () => ventanaJornadasBackfill(backfill.desde, backfill.hasta, hoyCaracas),
+    [backfill.desde, backfill.hasta, hoyCaracas]
+  );
+  const camionesBackfill = useMemo(
+    () => (backfill.todosCamiones ? camiones.map((c) => c.id) : Array.from(seleccion)),
+    [backfill.todosCamiones, camiones, seleccion]
+  );
 
   const guardarResponsable = async () => {
     if (!nombreValidoResponsable(form.name)) {
@@ -137,6 +158,8 @@ export function ResponsablesCamionesBox({ camiones, uid, onChanged }: Props) {
 
   const abrirPanel = (r: ResponsableCamion) => {
     setPanelId(panelId === r.id ? null : r.id);
+    setBackfillPara(null);
+    setConteoBackfill(null);
     setHistorialCamion(null);
     setBuscaCamion('');
     setSeleccion(new Set(asignaciones.filter((a) => a.hasta === null && a.responsable_id === r.id).map((a) => a.machinery_id)));
@@ -185,6 +208,80 @@ export function ResponsablesCamionesBox({ camiones, uid, onChanged }: Props) {
     if (res.error) { toast.error(res.error); return; }
     setSeleccion((s) => { const n = new Set(s); n.delete(machineryId); return n; });
     toast.success('Camión quitado (historial conservado).');
+    await cargar();
+    onChanged?.();
+  };
+
+  // ── 📥 Viajes anteriores: contar → confirmar → marcar solo los vacíos ──
+  const abrirBackfill = (r: ResponsableCamion) => {
+    const seAbre = backfillPara !== r.id;
+    setBackfillPara(seAbre ? r.id : null);
+    setConteoBackfill(null);
+    // Si el responsable se llama Miyamoto, el filtro de operación ya viene
+    // puesto: es el caso de uso que motivó esta opción.
+    setBackfill({
+      desde: '', hasta: '',
+      operacion: r.name.trim().toLocaleLowerCase('es') === 'miyamoto' ? 'miyamoto' : '',
+      todosCamiones: false,
+    });
+  };
+
+  const contarBackfill = async () => {
+    if (!ventanaBackfill) {
+      toast.error('El rango de jornadas está al revés (desde mayor que hasta).');
+      return;
+    }
+    if (!backfill.todosCamiones && camionesBackfill.length === 0) {
+      toast.error('Marca los camiones arriba o activa «Todos los camiones».');
+      return;
+    }
+    setContandoBackfill(true);
+    const res = await contarViajesParaBackfill({
+      ventana: ventanaBackfill,
+      operacion: backfill.operacion,
+      camiones: camionesBackfill,
+    });
+    setContandoBackfill(false);
+    if (res.error) { toast.error(res.error); return; }
+    setConteoBackfill({ sinResponsable: res.sinResponsable, conResponsable: res.conResponsable });
+  };
+
+  const aplicarBackfill = async (r: ResponsableCamion) => {
+    if (!ventanaBackfill || !conteoBackfill || conteoBackfill.sinResponsable === 0) return;
+    const detalle = [
+      `Responsable: ${r.name}`,
+      `Operación: ${backfill.operacion === 'miyamoto' ? 'Miyamoto' : backfill.operacion === 'tfi' ? 'TFI' : 'cualquiera'}`,
+      `Jornadas: ${ventanaBackfill.jornadaDesde} → ${ventanaBackfill.jornadaHasta}`,
+      `Camiones: ${backfill.todosCamiones ? 'todos' : camionesBackfill.length}`,
+      '',
+      `Viajes a marcar: ${conteoBackfill.sinResponsable}`,
+      `Viajes con responsable que NO se tocan: ${conteoBackfill.conResponsable}`,
+    ].join('\n');
+    const ok = await confirm({
+      title: 'Traer viajes ya registrados',
+      message: `${detalle}\n\nSolo se completan viajes SIN responsable: no se sobrescribe ningún nombre ya congelado. No se borra nada y «Le trabaja a hoy» sigue igual. Asegúrate de haber corrido el respaldo (${SQL_BACKFILL_RESPONSABLES}). ¿Continuar?`,
+      confirmText: `✅ Marcar ${conteoBackfill.sinResponsable} viaje(s)`,
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    setGuardando(true);
+    const res = await backfillResponsableEnViajes({
+      responsableId: r.id,
+      ventana: ventanaBackfill,
+      operacion: backfill.operacion,
+      camiones: camionesBackfill,
+      userId: uid,
+    });
+    setGuardando(false);
+    if (res.error) {
+      toast.error(res.missing
+        ? `Falta correr el SQL aditivo ${SQL_BACKFILL_RESPONSABLES} en Supabase.`
+        : res.error);
+      return;
+    }
+    toast.success(`${res.actualizados ?? 0} viaje(s) marcado(s) como ${r.name}. ${res.yaConResponsable ?? 0} ya tenían responsable y se respetaron.`);
+    setConteoBackfill(null);
     await cargar();
     onChanged?.();
   };
@@ -341,8 +438,87 @@ export function ResponsablesCamionesBox({ camiones, uid, onChanged }: Props) {
                       })}
                     </ScrollView>
                     <Text style={{ color: colors.muted, fontSize: 10, marginTop: 6 }}>
-                      Los cambios afectan los viajes que se registren DESPUÉS. Los viajes ya anotados conservan el responsable que tenían congelado. Nada se borra: cambiar cierra la vigencia anterior y abre otra.
+                      Cambiar la asignación afecta los viajes que se registren DESPUÉS. Para viajes viejos sin responsable usa «📥 Traer viajes ya registrados» más abajo. Nada se borra: cambiar cierra la vigencia anterior y abre otra.
                     </Text>
+
+                    {/* 📥 BACKFILL: llena SOLO viajes con responsable congelado vacío */}
+                    <View style={{ borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.sm, paddingTop: spacing.sm }}>
+                      <Boton
+                        label={backfillPara === r.id ? '📥 Ocultar «traer viajes anteriores»' : '📥 Traer viajes ya registrados'}
+                        color={colors.warning}
+                        onPress={() => abrirBackfill(r)}
+                      />
+                      {backfillPara === r.id ? (
+                        <View style={{ marginTop: 6 }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11, marginBottom: 4 }}>
+                            OPERACIÓN CONGELADA EN EL VIAJE
+                          </Text>
+                          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                            {(['', 'miyamoto', 'tfi'] as OperacionBackfill[]).map((op) => (
+                              <Boton
+                                key={op || 'todas'}
+                                label={op === '' ? 'Cualquiera' : op === 'miyamoto' ? '🏗️ Miyamoto' : '🏗️ TFI'}
+                                color={backfill.operacion === op ? colors.primary : colors.muted}
+                                onPress={() => { setBackfill({ ...backfill, operacion: op }); setConteoBackfill(null); }}
+                              />
+                            ))}
+                          </View>
+
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 11, marginTop: spacing.sm, marginBottom: 4 }}>
+                            JORNADAS (AAAA-MM-DD, 7am → 7am). Vacío = todo
+                          </Text>
+                          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                            <TextInput
+                              value={backfill.desde}
+                              onChangeText={(t) => { setBackfill({ ...backfill, desde: t }); setConteoBackfill(null); }}
+                              placeholder="Desde (todo)"
+                              placeholderTextColor={colors.muted}
+                              style={{ flex: 1, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 6 }}
+                            />
+                            <TextInput
+                              value={backfill.hasta}
+                              onChangeText={(t) => { setBackfill({ ...backfill, hasta: t }); setConteoBackfill(null); }}
+                              placeholder="Hasta (hoy)"
+                              placeholderTextColor={colors.muted}
+                              style={{ flex: 1, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 6 }}
+                            />
+                          </View>
+                          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                            <Boton label="Todo el histórico" color={colors.muted} onPress={() => { setBackfill({ ...backfill, desde: '', hasta: '' }); setConteoBackfill(null); }} />
+                            <Boton label="Ayer" color={colors.muted} onPress={() => { const ayer = isoYesterday(hoyCaracas); setBackfill({ ...backfill, desde: ayer, hasta: ayer }); setConteoBackfill(null); }} />
+                            <Boton label="Últimos 7 días" color={colors.muted} onPress={() => { setBackfill({ ...backfill, desde: isoDesplazar(hoyCaracas, -6), hasta: hoyCaracas }); setConteoBackfill(null); }} />
+                            <Boton
+                              label={backfill.todosCamiones ? '☑ Todos los camiones' : '☐ Solo los marcados arriba'}
+                              color={backfill.todosCamiones ? colors.primary : colors.muted}
+                              onPress={() => { setBackfill({ ...backfill, todosCamiones: !backfill.todosCamiones }); setConteoBackfill(null); }}
+                            />
+                          </View>
+
+                          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: spacing.sm }}>
+                            <Boton
+                              label={contandoBackfill ? 'Contando…' : '👁 Contar viajes'}
+                              color={colors.muted}
+                              onPress={() => void contarBackfill()}
+                              disabled={contandoBackfill || guardando}
+                            />
+                            <Boton
+                              label={guardando ? 'Aplicando…' : `📥 Marcar ${conteoBackfill?.sinResponsable ?? 0} viaje(s)`}
+                              color={colors.success}
+                              onPress={() => void aplicarBackfill(r)}
+                              disabled={!conteoBackfill || conteoBackfill.sinResponsable === 0 || guardando}
+                            />
+                          </View>
+                          {conteoBackfill ? (
+                            <Text style={{ color: colors.text, fontSize: 11, marginTop: 6 }}>
+                              {conteoBackfill.sinResponsable} viaje(s) sin responsable se pueden marcar · {conteoBackfill.conResponsable} ya tienen responsable y NO se tocan.
+                            </Text>
+                          ) : null}
+                          <Text style={{ color: colors.muted, fontSize: 10, marginTop: 6 }}>
+                            Solo se llena el responsable de viajes que no tenían. No se sobrescribe nada, no se borra nada y «Le trabaja a hoy» no cambia. Requiere el SQL aditivo {SQL_BACKFILL_RESPONSABLES} y su respaldo previo.
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
                 ) : null}
               </View>
