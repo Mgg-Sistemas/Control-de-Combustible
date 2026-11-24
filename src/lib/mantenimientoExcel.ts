@@ -363,3 +363,122 @@ export function leerFilasDesdeBufferExcel(data: ArrayBuffer): unknown[][] {
   const ws = wb.Sheets[sheetName];
   return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }) as unknown[][];
 }
+
+/**
+ * Construye el libro `.xlsx` de plantilla para rellenar mantenimientos preventivos,
+ * pre-cargado con las máquinas del catálogo agrupadas por empresa y su Serial/Placa exacto.
+ */
+export function construirWorkbookPlantillaMantenimiento(
+  catalogo: readonly MaquinaCatalogoExcel[],
+  ahora = new Date()
+): XLSX.WorkBook {
+  const mm = String(ahora.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(ahora.getFullYear());
+  const head = [
+    'Equipo',
+    'Marca / Modelo',
+    'Serial / Placa',
+    'Horometro Actual (HORAS)',
+    'Horometro Proximo Cambio (250H)',
+    `Fecha (${mm}/${yyyy})`,
+    'LT',
+    'UBICACIÓN',
+  ];
+
+  const aoa: unknown[][] = [];
+  const styleEmpresaRows = new Set<number>();
+  const styleHeadRows = new Set<number>();
+
+  // Agrupar por empresa manteniendo orden alfabético
+  const porEmpresa = new Map<string, MaquinaCatalogoExcel[]>();
+  (catalogo ?? []).forEach((m) => {
+    const emp = String(m.company ?? '').trim() || 'SIN EMPRESA';
+    const arr = porEmpresa.get(emp) ?? [];
+    arr.push(m);
+    porEmpresa.set(emp, arr);
+  });
+
+  const empresasOrdenadas = Array.from(porEmpresa.keys()).sort((a, b) => a.localeCompare(b, 'es'));
+
+  if (empresasOrdenadas.length === 0) {
+    styleEmpresaRows.add(aoa.length);
+    aoa.push(['EMPRESA EJEMPLO']);
+    styleHeadRows.add(aoa.length);
+    aoa.push(head);
+    aoa.push(['Jumbo 320', 'CAT 320', 'SERIAL-O-PLACA', '', '', `${yyyy}-${mm}-01`, '', '']);
+  } else {
+    empresasOrdenadas.forEach((emp, idx) => {
+      if (idx > 0) aoa.push([]);
+      styleEmpresaRows.add(aoa.length);
+      aoa.push([emp]);
+      styleHeadRows.add(aoa.length);
+      aoa.push(head);
+
+      const maqs = (porEmpresa.get(emp) ?? []).slice().sort((a, b) => a.code.localeCompare(b.code, 'es'));
+      maqs.forEach((m) => {
+        const ident = String(m.serial ?? '').trim() || String(m.plate ?? '').trim();
+        aoa.push([m.code, '', ident, '', '', '', '', '']);
+      });
+    });
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [
+    { wch: 28 },
+    { wch: 18 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 26 },
+    { wch: 16 },
+    { wch: 8 },
+    { wch: 26 },
+  ];
+
+  // Aplicar estilos limpios a encabezados y títulos de empresa
+  for (let r = 0; r < aoa.length; r++) {
+    if (styleEmpresaRows.has(r)) {
+      const ref = XLSX.utils.encode_cell({ r, c: 0 });
+      if (ws[ref]) {
+        ws[ref].s = {
+          font: { bold: true, sz: 11, color: { rgb: '16324F' } },
+          fill: { fgColor: { rgb: 'E6F2F8' } },
+        };
+      }
+    } else if (styleHeadRows.has(r)) {
+      for (let c = 0; c < head.length; c++) {
+        const ref = XLSX.utils.encode_cell({ r, c });
+        if (ws[ref]) {
+          ws[ref].s = {
+            font: { bold: true, sz: 10, color: { rgb: 'FFFFFF' } },
+            fill: { fgColor: { rgb: '16324F' } },
+            alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+          };
+        }
+      }
+    }
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Mantenimientos');
+  return wb;
+}
+
+/** Descarga la plantilla `.xlsx` en el navegador (web). */
+export function descargarPlantillaMantenimientoExcel(catalogo: readonly MaquinaCatalogoExcel[]): boolean {
+  const doc = (globalThis as any).document;
+  if (!doc) return false;
+  const wb = construirWorkbookPlantillaMantenimiento(catalogo);
+  const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  const blob = new Blob([out], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = doc.createElement('a');
+  a.href = url;
+  a.download = 'Plantilla_Mantenimiento_Maquinaria.xlsx';
+  doc.body.appendChild(a);
+  a.click();
+  doc.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
+}

@@ -21,7 +21,13 @@ require.extensions['.ts'] = (m, filename) => {
 };
 
 const { generarMensajeWhatsAppMantenimiento } = require(path.join(ROOT, 'src/lib/mantenimientoPreventivo.ts'));
-const { parsearFechaExcel, parsearMatrizMantenimientoExcel } = require(path.join(ROOT, 'src/lib/mantenimientoExcel.ts'));
+const {
+  construirWorkbookPlantillaMantenimiento,
+  leerFilasDesdeBufferExcel,
+  parsearFechaExcel,
+  parsearMatrizMantenimientoExcel,
+} = require(path.join(ROOT, 'src/lib/mantenimientoExcel.ts'));
+const XLSX = require('xlsx-js-style');
 
 let pass = 0;
 let fail = 0;
@@ -131,6 +137,28 @@ ok('MantenimientoMaquinariaScreen tiene botón Importar Excel', /Importar Excel/
 ok('MantenimientoMaquinariaScreen tiene botón WhatsApp en historial', /Sacar mensaje WhatsApp/.test(srcScreen));
 ok('HistorialServiciosModal tiene botón WhatsApp', /💬 WhatsApp/.test(srcHistModal));
 ok('RegistrarMantenimientoModal tiene botón Guardar y WhatsApp', /Guardar y WhatsApp/.test(srcRegModal));
+
+// 5. Plantilla descargable (.xlsx) y round-trip con el parser
+const wbPlantilla = construirWorkbookPlantillaMantenimiento(catalogo, new Date('2026-11-24T12:00:00Z'));
+const bufPlantilla = XLSX.write(wbPlantilla, { type: 'array', bookType: 'xlsx' });
+const filasPlantilla = leerFilasDesdeBufferExcel(bufPlantilla);
+ok('plantilla incluye empresa GOLDEN TOUCH', filasPlantilla.some((r) => r[0] === 'GOLDEN TOUCH'));
+ok('plantilla incluye serial CAT0320DCZBH00579', filasPlantilla.some((r) => r[2] === 'CAT0320DCZBH00579'));
+
+// Simular que el usuario rellena una fila de la plantilla y la vuelve a subir
+const idxFilaM1 = filasPlantilla.findIndex((r) => r[2] === 'CAT0320DCZBH00579');
+filasPlantilla[idxFilaM1][3] = 1520.5;
+filasPlantilla[idxFilaM1][4] = 1770.5;
+filasPlantilla[idxFilaM1][5] = '2026-11-24';
+filasPlantilla[idxFilaM1][6] = 26;
+filasPlantilla[idxFilaM1][7] = 'CARIBE';
+const resRoundTrip = parsearMatrizMantenimientoExcel(filasPlantilla, catalogo, []);
+eq('round-trip plantilla detecta 1 servicio', resRoundTrip.nuevos.length, 1);
+eq('round-trip horómetro 1520.5', resRoundTrip.nuevos[0]?.horometroServicio, 1520.5);
+eq('round-trip fecha 2026-11-24', resRoundTrip.nuevos[0]?.fechaServicio, '2026-11-24');
+
+const srcImportModal = fs.readFileSync(path.join(ROOT, 'src/components/ImportarMantenimientoExcelModal.tsx'), 'utf8');
+ok('ImportarMantenimientoExcelModal tiene botón Descargar plantilla', /Descargar plantilla/.test(srcImportModal));
 
 console.log(`test-mantenimiento-excel-y-whatsapp: ${pass} pasaron, ${fail} fallaron.`);
 if (failures.length) {

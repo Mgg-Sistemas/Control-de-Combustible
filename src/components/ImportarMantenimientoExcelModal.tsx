@@ -6,6 +6,7 @@ import { spacing, radius } from '../theme';
 import { useToast } from './ToastProvider';
 import { Card } from './ui';
 import {
+  descargarPlantillaMantenimientoExcel,
   leerFilasDesdeBufferExcel,
   parsearMatrizMantenimientoExcel,
   type MaquinaCatalogoExcel,
@@ -135,15 +136,34 @@ export function ImportarMantenimientoExcelModal({ visible, catalogo, uid, nombre
               Sube la planilla de control de cambios de aceite (`.xlsx`, `.xls` o `.csv`) con columnas de Equipo, Serial/Placa, Horómetro Actual, Próximo Cambio, Fecha, LT y Ubicación. El sistema cruza por Serial/Placa, evita duplicados y deja el servicio más reciente como base vigente.
             </Text>
 
-            <TouchableOpacity
-              onPress={seleccionarArchivoWeb}
-              disabled={analizando || guardando}
-              style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm + 2, alignItems: 'center', opacity: (analizando || guardando) ? 0.6 : 1 }}
-            >
-              <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
-                {archivoNombre ? `📄 Cambiar archivo (${archivoNombre})` : '📂 Seleccionar archivo Excel / CSV'}
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    toast.error('La descarga de plantilla está disponible desde la versión web.');
+                    return;
+                  }
+                  if (descargarPlantillaMantenimientoExcel(catalogo)) {
+                    toast.success('Plantilla Excel descargada con tus máquinas y seriales.');
+                  }
+                }}
+                disabled={analizando || guardando}
+                style={{ flex: 1, minWidth: 180, backgroundColor: colors.surfaceAlt, borderWidth: 1.5, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm + 2, alignItems: 'center', opacity: (analizando || guardando) ? 0.6 : 1 }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                  📥 Descargar plantilla (.xlsx)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={seleccionarArchivoWeb}
+                disabled={analizando || guardando}
+                style={{ flex: 1, minWidth: 180, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm + 2, alignItems: 'center', opacity: (analizando || guardando) ? 0.6 : 1 }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
+                  {archivoNombre ? `📄 Cambiar (${archivoNombre})` : '📂 Subir Excel / CSV'}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
             {analizando ? (
               <View style={{ paddingVertical: spacing.md, alignItems: 'center' }}>
