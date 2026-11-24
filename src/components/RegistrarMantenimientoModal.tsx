@@ -26,7 +26,7 @@ type Props = {
   uid: string | null;
   nombreUsuario: string | null;
   onClose: () => void;
-  onGuardado: (res: { machineryId: string; horometroBase: number; maintPending: boolean; faltaSql?: boolean }) => void;
+  onGuardado: (res: { machineryId: string; horometroBase: number; maintPending: boolean; faltaSql?: boolean; fechaServicio?: string; notas?: string | null; abrirWhatsapp?: boolean }) => void;
 };
 
 function fechaCaracasHoy(): string {
@@ -63,7 +63,7 @@ export function RegistrarMantenimientoModal({ visible, maquina, uid, nombreUsuar
     return calcularCicloPreventivo(maquina.last_horometro, validacion.valor);
   }, [maquina, validacion]);
 
-  const guardar = async () => {
+  const guardar = async (abrirWhatsapp = false) => {
     if (!maquina || saving) return;
     const v = validarHorometroServicio(horoTxt, maquina.last_horometro);
     if (!v.ok) {
@@ -102,6 +102,9 @@ export function RegistrarMantenimientoModal({ visible, maquina, uid, nombreUsuar
       horometroBase: v.valor,
       maintPending: res.maintPending,
       faltaSql: res.faltaSql,
+      fechaServicio: fechaISO,
+      notas: notas.trim() || null,
+      abrirWhatsapp,
     });
     onClose();
   };
@@ -208,20 +211,29 @@ export function RegistrarMantenimientoModal({ visible, maquina, uid, nombreUsuar
               />
             </View>
 
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
               <TouchableOpacity
                 onPress={onClose}
-                style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
+                style={{ flex: 1, minWidth: 90, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}
               >
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={guardar}
+                onPress={() => guardar(false)}
                 disabled={saving || (validacion ? !validacion.ok : true)}
-                style={{ flex: 2, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: saving || (validacion ? !validacion.ok : true) ? 0.5 : 1 }}
+                style={{ flex: 1.5, minWidth: 140, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: saving || (validacion ? !validacion.ok : true) ? 0.5 : 1 }}
               >
                 <Text style={{ color: '#fff', fontWeight: '900' }}>
-                  {saving ? 'Guardando…' : '✓ Confirmar mantenimiento'}
+                  {saving ? 'Guardando…' : '✓ Confirmar'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => guardar(true)}
+                disabled={saving || (validacion ? !validacion.ok : true)}
+                style={{ flex: 1.5, minWidth: 160, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: saving || (validacion ? !validacion.ok : true) ? 0.5 : 1 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '900' }}>
+                  {saving ? 'Guardando…' : '💬 Guardar y WhatsApp'}
                 </Text>
               </TouchableOpacity>
             </View>

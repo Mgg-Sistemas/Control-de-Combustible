@@ -4,8 +4,9 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useToast } from './ToastProvider';
 import { Card } from './ui';
-import { etiquetaMaquinaConPlaca, type ServicioPreventivoRow } from '../lib/mantenimientoPreventivo';
+import { etiquetaMaquinaConPlaca, generarMensajeWhatsAppMantenimiento, type ServicioPreventivoRow } from '../lib/mantenimientoPreventivo';
 import { anularServicioPreventivo, cargarServiciosPreventivos } from '../lib/mantenimientoPreventivoDb';
+import { MensajeMantenimientoModal } from './MensajeMantenimientoModal';
 import type { MaquinaMantenimientoTarget } from './RegistrarMantenimientoModal';
 
 type Props = {
@@ -41,6 +42,7 @@ export function HistorialServiciosModal({ visible, maquina, canWrite, uid, nombr
   const [anulandoId, setAnulandoId] = useState<string | null>(null);
   const [motivo, setMotivo] = useState('');
   const [busy, setBusy] = useState(false);
+  const [waMsg, setWaMsg] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     if (!visible || !maquina) return;
@@ -194,19 +196,56 @@ export function HistorialServiciosModal({ visible, maquina, canWrite, uid, nombr
                       </View>
                     </View>
                   ) : (
-                    <TouchableOpacity
-                      onPress={() => { setAnulandoId(r.id); setMotivo(''); }}
-                      style={{ alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4 }}
-                    >
-                      <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11.5 }}>🚫 Anular servicio</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => setWaMsg(generarMensajeWhatsAppMantenimiento({
+                          code: maquina.code,
+                          plate: maquina.plate,
+                          company: maquina.company,
+                          horometroActual: maquina.last_horometro,
+                          horometroServicio: r.horometro_servicio,
+                          fechaServicio: r.fecha_servicio,
+                          notas: r.notas,
+                        }))}
+                        style={{ borderWidth: 1, borderColor: '#16A34A', backgroundColor: '#DCFCE7', borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4 }}
+                      >
+                        <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 11.5 }}>💬 WhatsApp</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => { setAnulandoId(r.id); setMotivo(''); }}
+                        style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4 }}
+                      >
+                        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11.5 }}>🚫 Anular servicio</Text>
+                      </TouchableOpacity>
+                    </View>
                   )
+                ) : !r.anulado ? (
+                  <TouchableOpacity
+                    onPress={() => setWaMsg(generarMensajeWhatsAppMantenimiento({
+                      code: maquina.code,
+                      plate: maquina.plate,
+                      company: maquina.company,
+                      horometroActual: maquina.last_horometro,
+                      horometroServicio: r.horometro_servicio,
+                      fechaServicio: r.fecha_servicio,
+                      notas: r.notas,
+                    }))}
+                    style={{ alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: '#16A34A', backgroundColor: '#DCFCE7', borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4 }}
+                  >
+                    <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 11.5 }}>💬 WhatsApp</Text>
+                  </TouchableOpacity>
                 ) : null}
               </Card>
             ))}
           </ScrollView>
         </View>
       </View>
+
+      <MensajeMantenimientoModal
+        visible={Boolean(waMsg)}
+        mensaje={waMsg ?? ''}
+        onClose={() => setWaMsg(null)}
+      />
     </Modal>
   );
 }

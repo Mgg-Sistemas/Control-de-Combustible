@@ -121,6 +121,115 @@ export function etiquetaMaquinaConPlaca(code: string, plate?: string | null): st
   return `🚜 ${code} · Placa: ${p || 'Sin placa'}`;
 }
 
+function fmtFechaCortaVe(isoOrYmd: string | null | undefined): string {
+  const s = String(isoOrYmd ?? '').trim();
+  if (!s) return '—';
+  const ymd = s.slice(0, 10);
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  try {
+    return new Intl.DateTimeFormat('es-VE', {
+      timeZone: 'America/Caracas',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(new Date(s));
+  } catch {
+    return ymd || '—';
+  }
+}
+
+function fmtEmisionCaracas(ahora: Date): string {
+  try {
+    return new Intl.DateTimeFormat('es-VE', {
+      timeZone: 'America/Caracas',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }).format(ahora);
+  } catch {
+    return ahora.toISOString().slice(0, 16).replace('T', ' ');
+  }
+}
+
+export type ParamsMensajeWhatsAppMantenimiento = {
+  code: string;
+  plate?: string | null;
+  serial?: string | null;
+  company?: string | null;
+  /** Horómetro actual de la máquina (`last_horometro`). */
+  horometroActual: number | null | undefined;
+  /** Horómetro en que se realizó el servicio (`horometro_servicio` / `horometro_base`). */
+  horometroServicio: number | null | undefined;
+  /** Fecha del último servicio (ISO o AAAA-MM-DD). */
+  fechaServicio: string | null | undefined;
+  notas?: string | null;
+  cicloHoras?: number;
+  /** Fecha/hora de emisión (inyectable para pruebas). */
+  ahora?: Date;
+};
+
+/**
+ * Genera el mensaje de WhatsApp del mantenimiento preventivo con los campos solicitados:
+ * - Horómetro Actual
+ * - Horómetro que le toca el cambio
+ * - Fecha del último servicio
+ * - Estatus de la máquina (Por vencer / Vencida / Al día)
+ * - Día y hora en que se emitió el mensaje
+ */
+export function generarMensajeWhatsAppMantenimiento(p: ParamsMensajeWhatsAppMantenimiento): string {
+  const ciclo = p.cicloHoras ?? CICLO_MANTENIMIENTO_HORAS;
+  const placaOS = String(p.plate ?? '').trim() || String(p.serial ?? '').trim() || 'Sin placa';
+  const emp = String(p.company ?? '').trim() || 'Sin empresa';
+
+  const hAct = p.horometroActual != null && Number.isFinite(Number(p.horometroActual))
+    ? Math.round(Number(p.horometroActual) * 100) / 100
+    : null;
+  const hServ = p.horometroServicio != null && Number.isFinite(Number(p.horometroServicio))
+    ? Math.round(Number(p.horometroServicio) * 100) / 100
+    : null;
+
+  const proximo = hServ != null ? Math.round((hServ + ciclo) * 100) / 100 : null;
+
+  let estatusTxt = '⚪ Sin datos suficientes de horómetro';
+  if (hAct != null && hServ != null) {
+    const proy = calcularCicloPreventivo(hAct, hServ, ciclo);
+    if (proy.vencida) {
+      const pasadas = Math.round(Math.max(0, proy.acumuladas - ciclo) * 100) / 100;
+      estatusTxt = `🔴 *VENCIDA* (${proy.acumuladas} h acumuladas · +${pasadas} h pasadas)`;
+    } else if (proy.proxima) {
+      estatusTxt = `🟡 *POR VENCER* (${proy.acumuladas} h acumuladas · faltan ${proy.restante} h)`;
+    } else {
+      estatusTxt = `🟢 *AL DÍA* (${proy.acumuladas} h acumuladas · faltan ${proy.restante} h)`;
+    }
+  } else if (hAct != null && hServ == null) {
+    estatusTxt = '⚪ Sin servicio base registrado';
+  }
+
+  const lineas: string[] = [
+    '🔧 *REPORTE DE MANTENIMIENTO PREVENTIVO*',
+    `🚜 *Máquina:* ${p.code} · Placa: ${placaOS}`,
+    `🏢 *Empresa:* ${emp}`,
+    '',
+    `▷ *Horómetro Actual:* ${hAct != null ? `${hAct} h` : '—'}`,
+    `▷ *Horómetro que le toca el cambio:* ${proximo != null ? `${proximo} h` : '—'}`,
+    `⇒ *Fecha del último servicio:* ${fmtFechaCortaVe(p.fechaServicio)}${hServ != null ? ` (a las ${hServ} h)` : ''}`,
+    `▷ *Estatus de la máquina:* ${estatusTxt}`,
+  ];
+
+  const notasLimpias = String(p.notas ?? '').trim();
+  if (notasLimpias) {
+    lineas.push(`📝 *Notas:* ${notasLimpias}`);
+  }
+
+  lineas.push('');
+  lineas.push(`📅 *Emitido:* ${fmtEmisionCaracas(p.ahora ?? new Date())} (Caracas)`);
+  return lineas.join('\n');
+}
+
 export type PermisosNotificaciones = {
   uid: string | null;
   role: string | null;

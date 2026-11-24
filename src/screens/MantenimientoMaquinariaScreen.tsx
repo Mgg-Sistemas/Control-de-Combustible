@@ -11,10 +11,12 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { horometroAlertaDe, horasAcumuladas, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
-import { etiquetaMaquinaConPlaca, type ServicioPreventivoRow } from '../lib/mantenimientoPreventivo';
+import { etiquetaMaquinaConPlaca, generarMensajeWhatsAppMantenimiento, type ServicioPreventivoRow } from '../lib/mantenimientoPreventivo';
 import { cargarUltimosServiciosPorMaquina, cargarTodosServiciosPreventivos } from '../lib/mantenimientoPreventivoDb';
 import { RegistrarMantenimientoModal, type MaquinaMantenimientoTarget } from '../components/RegistrarMantenimientoModal';
 import { HistorialServiciosModal } from '../components/HistorialServiciosModal';
+import { MensajeMantenimientoModal } from '../components/MensajeMantenimientoModal';
+import { ImportarMantenimientoExcelModal } from '../components/ImportarMantenimientoExcelModal';
 import { listInspectorAssignments } from '../lib/machineInspectors';
 import { serviciosPorAveria, esReporteViejo, DIAS_REPORTE_VIEJO } from '../lib/machineService';
 import { caracasParts } from '../lib/jornada';
@@ -526,6 +528,8 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   const [confirmingHoro, setConfirmingHoro] = useState<string | null>(null);
   const [regModalMach, setRegModalMach] = useState<MaquinaMantenimientoTarget | null>(null);
   const [histModalMach, setHistModalMach] = useState<MaquinaMantenimientoTarget | null>(null);
+  const [importExcelOpen, setImportExcelOpen] = useState(false);
+  const [waMensaje, setWaMensaje] = useState<string | null>(null);
   const confirmarMantenimientoHorometro = (m: Mach) => {
     setRegModalMach({
       id: m.id,
@@ -1753,6 +1757,21 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                               📅 {fmtDMY(s.fecha_servicio)} <Text style={{ color: colors.success, fontWeight: '700' }}>· Preventivo confirmado</Text>
                             </Text>
                             {s.realizado_por_nombre ? <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '700' }}>✅ Confirmado por {s.realizado_por_nombre}</Text> : null}
+                            <TouchableOpacity
+                              onPress={() => setWaMensaje(generarMensajeWhatsAppMantenimiento({
+                                code: mac?.code || 'Máquina',
+                                plate: mac?.plate,
+                                serial: mac?.serial,
+                                company: mac?.company,
+                                horometroActual: mac?.last_horometro,
+                                horometroServicio: s.horometro_servicio,
+                                fechaServicio: s.fecha_servicio,
+                                notas: s.notas,
+                              }))}
+                              style={{ alignSelf: 'flex-start', marginTop: spacing.xs, backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#16A34A', borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 5 }}
+                            >
+                              <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 12 }}>💬 Sacar mensaje WhatsApp</Text>
+                            </TouchableOpacity>
                           </Card>
                         );
                       })}
@@ -1898,6 +1917,23 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                     🔴 Solo vencidas ({vencidas})
                   </Text>
                 </TouchableOpacity>
+                {canWrite ? (
+                  <TouchableOpacity
+                    onPress={() => setImportExcelOpen(true)}
+                    style={{
+                      borderRadius: radius.pill,
+                      borderWidth: 1.5,
+                      borderColor: colors.brand,
+                      backgroundColor: colors.brand,
+                      paddingHorizontal: spacing.md,
+                      paddingVertical: 7,
+                    }}
+                  >
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                      📥 Importar Excel
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               {horoLoading ? <View style={{ paddingVertical: spacing.md }}><Loading /></View> : null}
@@ -1983,6 +2019,24 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                         style={{ flex: 1, minWidth: 130, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}
                       >
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📋 Historial servicios</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => {
+                          const ult = preventivosHist.find((s) => !s.anulado && s.machinery_id === m.id);
+                          setWaMensaje(generarMensajeWhatsAppMantenimiento({
+                            code: m.code,
+                            plate: m.plate,
+                            serial: m.serial,
+                            company: m.company,
+                            horometroActual: m.last_horometro,
+                            horometroServicio: ult?.horometro_servicio ?? m.horometro_base,
+                            fechaServicio: ult?.fecha_servicio ?? null,
+                            notas: ult?.notas ?? null,
+                          }));
+                        }}
+                        style={{ minWidth: 110, backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 12 }}>💬 WhatsApp</Text>
                       </TouchableOpacity>
                     </View>
                   </Card>
@@ -2671,9 +2725,21 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         uid={uid}
         nombreUsuario={fullName || session?.user?.email || null}
         onClose={() => setRegModalMach(null)}
-        onGuardado={({ machineryId, horometroBase, maintPending }) => {
+        onGuardado={({ machineryId, horometroBase, maintPending, fechaServicio, notas, abrirWhatsapp }) => {
+          const macTarget = regModalMach;
           setMachines((prev) => prev.map((x) => (x.id === machineryId ? { ...x, horometro_base: horometroBase, horometro_maint_pending: maintPending } : x)));
           setNotice(`✅ Mantenimiento confirmado · horómetro base actualizado a ${horometroBase} h.`);
+          if (abrirWhatsapp && macTarget) {
+            setWaMensaje(generarMensajeWhatsAppMantenimiento({
+              code: macTarget.code,
+              plate: macTarget.plate,
+              company: macTarget.company,
+              horometroActual: macTarget.last_horometro,
+              horometroServicio: horometroBase,
+              fechaServicio: fechaServicio ?? new Date().toISOString(),
+              notas: notas ?? null,
+            }));
+          }
           void load();
         }}
       />
@@ -2691,6 +2757,29 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           setNotice(maintPending ? '🚫 Servicio anulado · máquina volvió a estado vencido.' : '🚫 Servicio anulado · horómetro base recalculado.');
           void load();
         }}
+      />
+
+      <MensajeMantenimientoModal
+        visible={Boolean(waMensaje)}
+        mensaje={waMensaje ?? ''}
+        onClose={() => setWaMensaje(null)}
+      />
+
+      <ImportarMantenimientoExcelModal
+        visible={importExcelOpen}
+        catalogo={machines.map((m) => ({
+          id: m.id,
+          code: m.code,
+          plate: m.plate,
+          serial: m.serial,
+          company: m.company,
+          last_horometro: m.last_horometro,
+          horometro_base: m.horometro_base,
+        }))}
+        uid={uid}
+        nombreUsuario={fullName || session?.user?.email || null}
+        onClose={() => setImportExcelOpen(false)}
+        onImportado={() => { void load(); }}
       />
     </Screen>
   );
