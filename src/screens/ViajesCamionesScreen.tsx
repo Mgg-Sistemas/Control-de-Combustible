@@ -76,6 +76,7 @@ import { leerPermisoEstado, cambiarEstadoCamion, ESTADO_BASICO_META, type Estado
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
 import { PagoPesoResumen } from '../components/PagoPesoResumen';
 import { InformeOperativoCard } from '../components/InformeOperativoCard';
+import { ValuacionViajesCard } from '../components/ValuacionViajesCard';
 import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
 import QrScanner from '../components/QrScanner';
 import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
@@ -6749,6 +6750,8 @@ export default function ViajesCamionesScreen() {
             onToggleResponsable={toggleResponsableCompartido}
             onLimpiarResponsables={limpiarResponsablesCompartido}
           />
+
+          <ValuacionViajesCard canVer={canVerPanel} />
 
           <Plegable
             titulo="🚛 Lista completa de viajes"
