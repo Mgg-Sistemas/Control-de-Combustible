@@ -2481,6 +2481,21 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > y totales en Entradas. Lo que apagas simplemente no sale, y tus opciones se recuerdan para la próxima vez. El
 > **horómetro** es el que cargan los inspectores en la jornada (7am a 7am) y aquí solo se lee. Un consumo de una
 > máquina de apoyo sin catálogo sale como «🆘 nombre».
+>
+> **📁 Informes subidos en Combustible** *(24/11/2026)*. **Solo en la versión de PC/web**:
+> **Más → ⛽ Combustible → pestaña «📁 Informes subidos»**. En el teléfono **no aparece**.
+> La ve quien tenga el permiso propio **«Informes subidos (Combustible)» en Escritura o Control
+> total** (el administrador siempre); **no** la regala el permiso de Combustible ni el rol de
+> supervisor. Con **«📎 Elegir archivos»** se suben **uno o varios archivos de cualquier tipo**
+> (no solo PDF ni fotos), con un **título opcional y editable**; si se deja en blanco, el título
+> es el nombre del archivo. Cada fila guarda el **nombre real**, **quién lo subió** (tomado de tu
+> sesión) y la **fecha y hora de subida en Caracas**, como **día calendario** (no la jornada
+> 7am→7am). Se busca por **título, nombre del archivo o usuario** sin importar tildes, por
+> **rango de fechas desde–hasta** y por **quién lo subió**; **«Limpiar filtros»** quita todo.
+> **«👁️ Abrir»** muestra el archivo y **«⬇️ Descargar»** lo baja con su nombre original. Con
+> **Control total** sale **«Anular»**: pide confirmación, el informe deja de aparecer y el
+> archivo **no se borra**. Ojo: el almacenamiento es **público**, cualquiera con la URL puede
+> abrirlo; no subas archivos confidenciales.
 
 > **✏️ Editar mi solicitud desde Pedir Material** *(01/11/2026)*. Quien pidió un repuesto **corrige su propia
 > solicitud** de compra técnica con el botón **«✏️ Editar mi solicitud»** de 🛒 Pedir Material → Mis solicitudes,

@@ -2350,3 +2350,24 @@ export interface CopAjusteRow extends CopSello {
   clave: string;
   valor: unknown;                     // jsonb
 }
+
+/**
+ * 📁 Informes subidos desde la PC dentro de Combustible (24-nov-2026).
+ * Metadatos en `public.informes_archivos`; el archivo vive en el bucket
+ * `machinery`. `uploadedBy`/`uploadedByNombre` son SNAPSHOT: nunca se
+ * rellenan hacia atrás si la persona cambia de nombre. `anuladoAt` guarda
+ * el rastro: no se borra la fila ni el archivo del Storage al anular.
+ */
+export interface InformeArchivo {
+  id: string;
+  titulo: string;
+  fileName: string;
+  storagePath: string;
+  publicUrl: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  uploadedBy: string | null;
+  uploadedByNombre: string | null;
+  createdAt: string;
+  anuladoAt: string | null;
+}

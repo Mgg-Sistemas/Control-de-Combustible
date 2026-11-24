@@ -132,6 +132,8 @@ const TABLA_A_MODULO: Record<string, string> = {
   // 🚜 Catálogo de equipos: las fichas y su ubicación en el mapa
   machinery: 'equipos', vehicles: 'equipos', machinery_locations: 'equipos', map_zone_offsets: 'equipos',
   actas_recepcion: 'equipos', traslados_maquinaria: 'equipos', machinery_precio_historial: 'equipos', ficha_tecnica_documentos: 'equipos',
+  // 📁 Informes subidos desde la PC (Combustible → pestaña Informes subidos).
+  informes_archivos: 'combustible',
   // 🏭 Centro de Operaciones (23-oct-2026): sus seis tablas propias, aisladas (la sexta,
   // el Reporte General pegado del 📅 Parte diario, desde el 25-oct-2026).
   // Su trigger de auditoría NO está en ningún .sql del repo: ver AUDITADAS_FUERA_DEL_GIT.

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +15,8 @@ import SurtidorMovil from '../components/combustible/SurtidorMovil';
 import CubicacionTab from './redesign/CubicacionTab';
 import ConciliacionTab from './redesign/ConciliacionTab';
 import MaquinasApoyoPanel from '../components/combustible/MaquinasApoyoPanel';
+// 📁 24-nov-2026: bandeja de informes subidos desde la PC. Solo se monta en web.
+import InformesSubidosPanel from '../components/InformesSubidosPanel';
 
 // Un solo módulo "Combustible" integral con todos los apartados de gestión:
 // Tanques, Surtidor Móvil (Golden), Consumos, Ingresos, Traslados, Cubicación geométrica,
@@ -30,21 +32,30 @@ const TABS: { key: string; label: string; icon: string; Comp: React.ComponentTyp
   { key: 'autorizaciones', label: 'Solicitudes', icon: '📋', Comp: AuthorizationsPilot },
   // 02-nov-2026: consumo de las máquinas que no están en el catálogo (la ve quien ve Consumos).
   { key: 'apoyo', label: 'Máquinas de apoyo', icon: '🆘', Comp: MaquinasApoyoPanel },
+  // 24-nov-2026: 📁 Informes subidos. Módulo PROPIO cerrado por defecto, NO hereda
+  // Combustible: lo abre el admin con escritura/full. Solo PC/web (abajo se filtra).
+  { key: 'informes_archivos', label: 'Informes subidos', icon: '📁', Comp: InformesSubidosPanel },
 ];
 
 export default function CombustibleScreen() {
   const { colors } = useTheme();
-  const { canSee, role } = useAuth();
+  const { canSee, role, moduleLevel, fullName } = useAuth();
   // Permisos: los módulos core respetan canSee, y las herramientas de cubicación/conciliación/surtidor
   // están habilitadas si el usuario puede ver tanques o es admin/supervisor.
-  const tabs = TABS.filter(
-    (t) =>
+  // ⚠️ Informes subidos va APARTE: no lo regala `role === supervisor`, ni hereda
+  // Combustible. Solo PC/web y solo escritura/full del módulo informes_archivos.
+  const tabs = TABS.filter((t) => {
+    if (t.key === 'informes_archivos') {
+      return Platform.OS === 'web' && ['escritura', 'full'].includes(moduleLevel('informes_archivos'));
+    }
+    return (
       canSee(t.key) ||
       role === 'admin' ||
       role === 'supervisor' ||
       (['surtidor', 'cubicacion', 'conciliacion', 'traslados'].includes(t.key) && canSee('tanques')) ||
       (t.key === 'apoyo' && canSee('consumos'))
-  );
+    );
+  });
   const [active, setActive] = useState<string>(tabs[0]?.key ?? 'tanques');
   const current = tabs.find((t) => t.key === active) ?? tabs[0];
 
@@ -73,7 +84,14 @@ export default function CombustibleScreen() {
       {/* Contenido de la sub-pestaña activa (cada pantalla trae su propio scroll) */}
       <View style={{ flex: 1 }}>
         {current ? (
-          <current.Comp />
+          current.key === 'informes_archivos' ? (
+            <InformesSubidosPanel
+              nombreSubida={fullName}
+              puedeAnular={moduleLevel('informes_archivos') === 'full'}
+            />
+          ) : (
+            <current.Comp />
+          )
         ) : (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg }}>
             <Text style={{ color: colors.muted, textAlign: 'center' }}>No tienes acceso a las secciones de combustible.</Text>

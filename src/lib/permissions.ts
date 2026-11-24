@@ -60,6 +60,9 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'acarreo', label: 'Acarreo / Transporte' },
   { key: 'mapa', label: 'Mapa' },
   { key: 'reportes', label: 'Reportes' },
+  // 📁 24-nov-2026: bandeja de informes subidos desde la PC, DENTRO de Combustible.
+  //    Nace cerrada: la abre el admin (por persona o ficha de rol) en Usuarios.
+  { key: 'informes_archivos', label: 'Informes subidos (Combustible)' },
   // ⛏️ 02-oct-2026: quién ASIGNA frentes a la maquinaria (Reportes → ⛏️ Frentes).
   //    Verlos y sacar la hoja va con Reportes; asignar exige este permiso, porque
   //    Reportes está abierto para casi todos los roles y no sirve de candado.
@@ -121,6 +124,7 @@ export function nivelDeFicha(ficha: FichaRol | null | undefined, moduleKey: stri
  *  Control de Pagos y Usuarios quedan restringidos; el resto abierto (compat.). */
 export function defaultLevel(moduleKey: string): PermLevel {
   if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'uniformes' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'viajes_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores' || moduleKey === 'coordinacion_operadores' || moduleKey === 'mangueras' || moduleKey === 'fabricacion_planta' || moduleKey === 'acarreo' || moduleKey === 'geodesta' || moduleKey === 'lavado_maquinaria' || moduleKey === 'cuentas' || moduleKey === 'ventas' || moduleKey === 'contactos' || moduleKey === 'caja' || moduleKey === 'cobro_viajes' || moduleKey === 'horometros' || moduleKey === 'frentes_maquinaria' || moduleKey === 'actas_recepcion' || moduleKey === 'traslados_maquinaria' || moduleKey === 'centro_operaciones' || moduleKey === 'gps') return 'none';
+  if (moduleKey === 'informes_archivos') return 'none';
   // ⭐ 'cobro_viajes' y 'horometros' (14-sep-2026) todavía no existen como módulos: están
   //    acá ANTES de crearlos para que nazcan CERRADOS. Un módulo nuevo sin fila en
   //    module_permissions cae en el 'escritura' de abajo, abierto para cualquier usuario.
