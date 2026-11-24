@@ -312,6 +312,7 @@ export interface Employee {
    *  desde las columnas de arriba cuando esta viene vacía. */
   emergency_contacts?: { nombre: string; telefono: string; parentesco: string }[] | null;
   hire_date: string | null;      // fecha de ingreso
+  fecha_egreso?: string | null;  // fecha hasta cuando trabajó (al pasar a inactivo)
   status: 'activo' | 'inactivo' | 'suspendido';
   /** EMPRESA FILTRO NÓMINA: lista propia de Nómina (tabla `payroll_companies`),
    *  aparte del catálogo general. Es REFERENCIAL — solo agrupa y filtra en la

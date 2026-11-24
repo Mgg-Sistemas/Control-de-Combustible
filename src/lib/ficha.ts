@@ -68,6 +68,7 @@ export function fichaEmpleadoHtml(e: Employee & { companyName?: string }, opts?:
     + section('💼 Datos laborales', [
         ['Empresa', opts?.companyName ?? e.companyName], ['Cargo', e.cargo], ['Departamento', e.department],
         ['Grupo / zona', e.grupo], ['Fecha de ingreso', fmtDMY(e.hire_date)],
+        ['Fecha hasta cuando trabajó', fmtDMY(e.fecha_egreso)],
       ])
     + (habs.length ? section('🛠️ Habilidades', habs.map((h, i) => [`Habilidad ${i + 1}`, h] as [string, any])) : '')
     + section('📞 Contacto', [

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, Image, ScrollView, Modal, Aler
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { DateField } from '../components/DateField';
 import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
@@ -25,6 +26,8 @@ import {
   formatearMontoSalarioReporte,
   leerSalarioSemanalEmpleado,
   formatearSalarioSemanalReporte,
+  pasaFiltroFechaIngreso,
+  fmtFechaCortaDMY,
 } from '../lib/empleadosReporte';
 import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
 import { agruparPorCargo } from '../lib/empleadosAgrupar';
@@ -113,6 +116,7 @@ const FIELDS: Field[] = [
   { key: '__sec_emergencia', label: '🚑 Contactos de emergencia', type: 'section' },
   { key: 'emergency_contacts', label: 'Se pueden agregar varios (el primero es el principal)', type: 'contactos' },
   { key: 'hire_date', label: 'Fecha de ingreso', type: 'date' },
+  { key: 'fecha_egreso', label: 'Fecha hasta cuando trabajó (si está inactivo)', type: 'date' },
   { key: 'status', label: 'Estado', type: 'select', options: STATUS_OPTS },
   // Datos bancarios y Salario Semanal / Turnos (para pagos).
   { key: '__sec_banco', label: '🏦 Datos bancarios', type: 'section' },
@@ -156,6 +160,10 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     route?.params?.initialFilter === 'inactivo' ? new Set(['inactivo']) : new Set(['todos'])
   ); // multi-selección de estados vigentes y pestañas aparte, o apartado exclusivo 'inactivo'
   const [inactivoGrupoSel, setInactivoGrupoSel] = useState<string>('todos'); // dentro de 🚫 Inactivos: 'todos' | '__ninguno__' | id de grupo aparte
+  const [hireDesde, setHireDesde] = useState('');
+  const [hireHasta, setHireHasta] = useState('');
+  const [inactivarTarget, setInactivarTarget] = useState<Employee | null>(null);
+  const [fechaEgresoInput, setFechaEgresoInput] = useState('');
   const enVistaInactivos = statusFilter.has('inactivo');
   const toggleStatus = (key: string) => {
     setInactivoGrupoSel('todos');
@@ -317,11 +325,12 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const estadoFiltered = useMemo(
     () => employees.filter((e) =>
       pasaEstado(e) &&
+      pasaFiltroFechaIngreso(e.hire_date, hireDesde, hireHasta) &&
       // La regla vive en `src/lib/empleadosBuscar.ts` para poder probarla; acá
       // solo se le pasan los dos nombres de empresa ya resueltos y sus habilidades.
       coincideEmpleado({ ...(e as any), habilidades: habilidadesDe(e) }, query, [companyName(e.company_id), nominaName((e as any).payroll_company_id)])
     ),
-    [employees, q, statusFilter, inactivoGrupoSel, enVistaInactivos, companies, payrollCompanies, mapaHabilidades, gruposConfig]
+    [employees, q, statusFilter, inactivoGrupoSel, enVistaInactivos, hireDesde, hireHasta, companies, payrollCompanies, mapaHabilidades, gruposConfig]
   );
 
   // Coincidencias en el Apartado de Inactivos cuando el usuario busca un nombre/cédula desde las listas activas
@@ -487,35 +496,73 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     setBusy(null);
   };
 
+  const hoyCaracas = () => {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
+    } catch {
+      return new Date().toISOString().slice(0, 10);
+    }
+  };
+
   // Cambio rápido de estado (Activo <-> Inactivo) desde la tarjeta del empleado.
-  // Al pasar a INACTIVO, el empleado sale de inmediato de todas las listas activas y pestañas aparte,
-  // y pasa a vivir únicamente en el Apartado de Inactivos (🚫 Inactivos).
+  // Al pasar a INACTIVO, pide la fecha hasta cuando trabajó (`fecha_egreso`), sale
+  // inmediatamente de las listas activas y pasa al Apartado de Inactivos.
   const cambiarEstadoEmpleado = async (e: Employee, nuevoEstado: 'activo' | 'inactivo') => {
-    const pasarAInactivo = nuevoEstado === 'inactivo';
+    if (nuevoEstado === 'inactivo') {
+      setFechaEgresoInput(String(e.fecha_egreso ?? '').slice(0, 10) || hoyCaracas());
+      setInactivarTarget(e);
+      return;
+    }
     const grpLbl = grupoLabelDe(grupoDe(e));
     const ok = await confirm({
-      title: pasarAInactivo ? 'Pasar empleado a Inactivo' : 'Reactivar empleado a Activo',
-      message: pasarAInactivo
-        ? `¿Pasar a ${fullName(e)} a estado INACTIVO?\n\nSe quitará inmediatamente de las listas operativas${grpLbl ? ` (incluyendo ${grpLbl})` : ''} y pasará al 🚫 Apartado de Inactivos.`
-        : `¿Reactivar a ${fullName(e)} como ACTIVO?\n\nSaldrá del Apartado de Inactivos y volverá a su lista activa${grpLbl ? ` (${grpLbl})` : ''}.`,
-      confirmText: pasarAInactivo ? '🚫 Pasar a Inactivo' : '✅ Reactivar',
+      title: 'Reactivar empleado a Activo',
+      message: `¿Reactivar a ${fullName(e)} como ACTIVO?\n\nSaldrá del Apartado de Inactivos y volverá a su lista activa${grpLbl ? ` (${grpLbl})` : ''}.`,
+      confirmText: '✅ Reactivar',
       cancelText: 'Cancelar',
-      danger: pasarAInactivo,
+      danger: false,
     });
     if (!ok) return;
     setBusy(e.id + '-status');
-    const { error } = await supabase.from('employees').update({ status: nuevoEstado }).eq('id', e.id);
+    let { error } = await supabase.from('employees').update({ status: 'activo', fecha_egreso: null } as any).eq('id', e.id);
+    if (error && /fecha_egreso|column/i.test(error.message)) {
+      ({ error } = await supabase.from('employees').update({ status: 'activo' }).eq('id', e.id));
+    }
     setBusy(null);
     if (error) {
       toast.error(`No se pudo cambiar el estado: ${error.message}`);
       return;
     }
     await refetch();
-    toast.success(
-      pasarAInactivo
-        ? `🚫 ${fullName(e)} se movió al Apartado de Inactivos.`
-        : `✅ ${fullName(e)} reactivado en nómina activa${grpLbl ? ` (${grpLbl})` : ''}.`
-    );
+    toast.success(`✅ ${fullName(e)} reactivado en nómina activa${grpLbl ? ` (${grpLbl})` : ''}.`);
+  };
+
+  const confirmarInactivarConFecha = async () => {
+    if (!inactivarTarget) return;
+    const f = fechaEgresoInput.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) {
+      toast.error('Indica una fecha válida (AAAA-MM-DD) de hasta cuando trabajó.');
+      return;
+    }
+    const e = inactivarTarget;
+    setBusy(e.id + '-status');
+    let faltaCol = false;
+    let { error } = await supabase.from('employees').update({ status: 'inactivo', fecha_egreso: f } as any).eq('id', e.id);
+    if (error && /fecha_egreso|column/i.test(error.message)) {
+      faltaCol = true;
+      ({ error } = await supabase.from('employees').update({ status: 'inactivo' }).eq('id', e.id));
+    }
+    setBusy(null);
+    if (error) {
+      toast.error(`No se pudo pasar a inactivo: ${error.message}`);
+      return;
+    }
+    setInactivarTarget(null);
+    await refetch();
+    if (faltaCol) {
+      toast.success(`🚫 ${fullName(e)} pasó a Inactivo (falta agregar la columna fecha_egreso en la base para guardar la fecha).`);
+    } else {
+      toast.success(`🚫 ${fullName(e)} pasó a Inactivo (trabajó hasta ${fmtFechaCortaDMY(f)}).`);
+    }
   };
 
   const imprimirCarnet = async (e: Employee) => {
@@ -783,6 +830,10 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     const departamentoTxt = deptoSel.size === 0 ? 'Todos' : Array.from(deptoSel).sort().join(', ');
     const cargoTxt = cargoSel.size === 0 ? 'Todos los cargos' : Array.from(cargoSel).sort().join(', ');
 
+    const fechaIngresoTxt = (hireDesde || hireHasta)
+      ? `${hireDesde ? `Desde ${fmtFechaCortaDMY(hireDesde)}` : ''}${hireDesde && hireHasta ? ' · ' : ''}${hireHasta ? `Hasta ${fmtFechaCortaDMY(hireHasta)}` : ''}`
+      : null;
+
     const { body, extraCss, totalCargos } = cuerpoReporteEmpleados({
       empleados: list.map((e) => ({
         ...e,
@@ -796,6 +847,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       empresaTxt,
       departamentoTxt,
       cargoTxt,
+      fechaIngresoTxt,
       busquedaTxt: query.trim() || null,
       opciones: opReporte,
       firmantes: firmantesReporte,
@@ -1384,6 +1436,33 @@ export default function EmpleadosScreen({ navigation, route }: any) {
         })}
       </View>
 
+      {/* Filtro por Fecha de ingreso (Desde / Hasta) */}
+      <Card style={{ marginBottom: spacing.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs, marginBottom: 6 }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+            📅 Fecha de ingreso {(hireDesde || hireHasta) ? `· ${shown.length} empleado(s)` : '(todas)'}
+          </Text>
+          {(hireDesde || hireHasta) ? (
+            <TouchableOpacity
+              onPress={() => { setHireDesde(''); setHireHasta(''); }}
+              style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface }}
+            >
+              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 11 }}>✕ Limpiar fechas</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          <View style={{ flex: 1, minWidth: 150 }}>
+            <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '800', marginBottom: 2 }}>DESDE</Text>
+            <DateField value={hireDesde} onChange={setHireDesde} />
+          </View>
+          <View style={{ flex: 1, minWidth: 150 }}>
+            <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '800', marginBottom: 2 }}>HASTA</Text>
+            <DateField value={hireHasta} onChange={setHireHasta} />
+          </View>
+        </View>
+      </Card>
+
       {/* Filtro por CARGO (tipo) + reporte por cargo modificable */}
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, flexWrap: 'wrap' }}>
@@ -1437,6 +1516,8 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         empresaReal: true,
                         departamento: true,
                         estado: true,
+                        fechaIngreso: true,
+                        fechaEgreso: true,
                         telefono: true,
                         salarioDiario: true,
                         salarioNocturno: true,
@@ -1484,6 +1565,8 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                   ['empresaReal', '🏛️ Empresa contratista'],
                   ['departamento', '🗂️ Departamento'],
                   ['estado', '● Estado'],
+                  ['fechaIngreso', '📅 Fecha de ingreso'],
+                  ['fechaEgreso', '📅 Trabajó hasta'],
                   ['telefono', '📞 Teléfono'],
                   ['salarioDiario', '☀️ Por Día (Diurno)'],
                   ['salarioNocturno', '🌙 Por Noche (Nocturno)'],
@@ -2024,6 +2107,13 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                       <Text style={{ color: colors.muted, fontSize: 13 }}>
                         {[e.cedula ? `C.I ${e.cedula}` : '', e.blood_type ? `🩸 ${e.blood_type}` : '', e.phone || ''].filter(Boolean).join(' · ') || 'Sin datos adicionales'}
                       </Text>
+                      {(e.hire_date || e.fecha_egreso) ? (
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                          {e.hire_date ? `📅 Ingreso: ${fmtFechaCortaDMY(e.hire_date)}` : ''}
+                          {e.hire_date && e.fecha_egreso ? ' · ' : ''}
+                          {e.fecha_egreso ? `🚫 Trabajó hasta: ${fmtFechaCortaDMY(e.fecha_egreso)}` : ''}
+                        </Text>
+                      ) : null}
                       {(() => {
                         const sals = calcularSalariosEmpleadoReporte(e);
                         if (sals.semanal === null && sals.diario === null && sals.quincenal === null && sals.mensual === null) return null;
@@ -2699,6 +2789,41 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                 style={{ paddingVertical: spacing.sm, alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}
               >
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Listo / Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal: Pedir fecha hasta cuando trabajó al pasar a Inactivo */}
+      <Modal visible={Boolean(inactivarTarget)} transparent animationType="fade" onRequestClose={() => setInactivarTarget(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}>
+          <View style={{ width: '100%', maxWidth: 420, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, gap: spacing.sm }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>
+              🚫 Pasar empleado a Inactivo
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12.5 }}>
+              {inactivarTarget ? `Indica la fecha hasta cuando trabajó ${fullName(inactivarTarget)} para dejarla registrada en su ficha.` : ''}
+            </Text>
+            <View>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 4 }}>
+                📅 Fecha hasta cuando trabajó
+              </Text>
+              <DateField value={fechaEgresoInput} onChange={setFechaEgresoInput} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+              <TouchableOpacity
+                onPress={() => setInactivarTarget(null)}
+                style={{ flex: 1, paddingVertical: spacing.sm + 2, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={confirmarInactivarConFecha}
+                disabled={Boolean(inactivarTarget && busy === inactivarTarget.id + '-status')}
+                style={{ flex: 1.5, paddingVertical: spacing.sm + 2, borderRadius: radius.md, backgroundColor: '#DC2626', alignItems: 'center', opacity: (inactivarTarget && busy === inactivarTarget.id + '-status') ? 0.6 : 1 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>🚫 Confirmar Inactivo</Text>
               </TouchableOpacity>
             </View>
           </View>

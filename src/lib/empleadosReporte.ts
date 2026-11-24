@@ -25,6 +25,10 @@ export type OpcionesReporteEmpleados = {
   departamento: boolean;
   /** ● Columna «Estado» (activo / inactivo / otro). */
   estado: boolean;
+  /** 📅 Columna «Fecha de ingreso». */
+  fechaIngreso?: boolean;
+  /** 📅 Columna «Trabajó hasta» (fecha de egreso/inactivación). */
+  fechaEgreso?: boolean;
   /** 📞 Columna «Teléfono». */
   telefono: boolean;
   /** ☀️ Columna «Por Día (Diurno)» (cuánto gana en turno diurno: `precio_dia` o calculado desde semanal/quincenal/mensual). */
@@ -78,6 +82,8 @@ export const OPCIONES_REPORTE_EMPLEADOS_DEFECTO: OpcionesReporteEmpleados = {
   empresaReal: false,
   departamento: false,
   estado: true,
+  fechaIngreso: false,
+  fechaEgreso: false,
   telefono: true,
   salarioDiario: false,
   salarioNocturno: false,
@@ -104,6 +110,8 @@ export type EmpleadoParaReporte = {
   department?: string | null;
   grupo?: string | null;
   status?: string | null;
+  hire_date?: string | null;
+  fecha_egreso?: string | null;
   phone?: string | null;
   base_salary?: number | string | null;
   precio_dia?: number | string | null;
@@ -127,6 +135,7 @@ export type EntradaReporteEmpleados = {
   empresaTxt: string;
   departamentoTxt?: string | null;
   cargoTxt: string;
+  fechaIngresoTxt?: string | null;
   busquedaTxt?: string | null;
   opciones?: Partial<OpcionesReporteEmpleados>;
   firmantes?: readonly FirmanteReporteEmpleados[] | null;
@@ -408,6 +417,8 @@ export function contarColumnasActivasEmpleados(parcial?: Partial<OpcionesReporte
   if (op.empresaReal) n++;
   if (op.departamento) n++;
   if (op.estado) n++;
+  if (op.fechaIngreso) n++;
+  if (op.fechaEgreso) n++;
   if (op.telefono) n++;
   if (op.salarioDiario) n++;
   if (op.salarioNocturno) n++;
@@ -416,6 +427,33 @@ export function contarColumnasActivasEmpleados(parcial?: Partial<OpcionesReporte
   if (op.salarioMensual) n++;
   if (op.datosBancarios) n++;
   return Math.max(1, n);
+}
+
+/** Formatea una fecha YYYY-MM-DD (o ISO) a DD/MM/YYYY. */
+export function fmtFechaCortaDMY(v: string | null | undefined): string {
+  const s = String(v ?? '').trim().slice(0, 10);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '—';
+}
+
+/**
+ * Filtra un empleado según su fecha de ingreso (`hire_date`) y el rango [desde, hasta] (YYYY-MM-DD).
+ * Si ni `desde` ni `hasta` están definidos, pasan todos (incluso los que no tienen `hire_date`).
+ * Si hay filtro activo, los empleados sin `hire_date` quedan fuera.
+ */
+export function pasaFiltroFechaIngreso(
+  hireDate: string | null | undefined,
+  desde?: string | null,
+  hasta?: string | null,
+): boolean {
+  const d0 = String(desde ?? '').trim().slice(0, 10);
+  const d1 = String(hasta ?? '').trim().slice(0, 10);
+  if (!d0 && !d1) return true;
+  const f = String(hireDate ?? '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return false;
+  if (d0 && f < d0) return false;
+  if (d1 && f > d1) return false;
+  return true;
 }
 
 export const REPORTE_EMPLEADOS_CSS = `
@@ -593,6 +631,9 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     if (op.cargo || op.resumenCargo) {
       partesMeta.push(`<b>Cargo:</b> ${esc(input.cargoTxt || 'Todos')}`);
     }
+    if (input.fechaIngresoTxt && input.fechaIngresoTxt.trim()) {
+      partesMeta.push(`<b>Fecha de ingreso:</b> ${esc(input.fechaIngresoTxt.trim())}`);
+    }
     if (input.busquedaTxt && input.busquedaTxt.trim()) {
       partesMeta.push(`<b>Búsqueda:</b> «${esc(input.busquedaTxt.trim())}»`);
     }
@@ -737,6 +778,8 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     if (op.empresa) ths.push('<th>Empresa filtro nómina</th>');
     if (op.empresaReal) ths.push('<th>Empresa contratista</th>');
     if (op.estado) ths.push('<th class="c nw">Estado</th>');
+    if (op.fechaIngreso) ths.push('<th class="c nw">Ingreso</th>');
+    if (op.fechaEgreso) ths.push('<th class="c nw">Trabajó hasta</th>');
     if (op.telefono) ths.push('<th class="nw">Teléfono</th>');
     if (op.salarioDiario) ths.push('<th class="r nw">Por Día</th>');
     if (op.salarioNocturno) ths.push('<th class="r nw">Por Noche</th>');
@@ -778,7 +821,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
 
         const tds: string[] = [];
         if (op.numeracion) tds.push(`<td class="r nw">${i + 1}</td>`);
-        if (op.empleado !== false || (tds.length === 0 && !op.cedula && !op.ficha && !op.cargo && !op.departamento && !op.habilidades && !op.empresa && !op.empresaReal && !op.estado && !op.telefono && !op.salarioDiario && !op.salarioNocturno && !op.salarioSemanal && !op.salarioQuincenal && !op.salarioMensual && !op.datosBancarios)) {
+        if (op.empleado !== false || (tds.length === 0 && !op.cedula && !op.ficha && !op.cargo && !op.departamento && !op.habilidades && !op.empresa && !op.empresaReal && !op.estado && !op.fechaIngreso && !op.fechaEgreso && !op.telefono && !op.salarioDiario && !op.salarioNocturno && !op.salarioSemanal && !op.salarioQuincenal && !op.salarioMensual && !op.datosBancarios)) {
           tds.push(`<td><b>${esc(nombreCompleto)}</b></td>`);
         }
         if (op.cedula) tds.push(`<td class="nw">${esc(e.cedula || '—')}</td>`);
@@ -789,6 +832,8 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
         if (op.empresa) tds.push(`<td>${esc(e.empresaNomina || 'Sin empresa')}</td>`);
         if (op.empresaReal) tds.push(`<td>${esc(e.empresaContratista || 'Sin empresa')}</td>`);
         if (op.estado) tds.push(`<td class="c nw">${esc(e.status || '—')}</td>`);
+        if (op.fechaIngreso) tds.push(`<td class="c nw">${esc(fmtFechaCortaDMY(e.hire_date))}</td>`);
+        if (op.fechaEgreso) tds.push(`<td class="c nw">${esc(fmtFechaCortaDMY(e.fecha_egreso))}</td>`);
         if (op.telefono) tds.push(`<td class="nw">${esc(e.phone || '—')}</td>`);
         if (op.salarioDiario) tds.push(`<td class="r nw">${sals.diario !== null ? `<b>${esc(salDiaTxt)}</b>` : '—'}</td>`);
         if (op.salarioNocturno) tds.push(`<td class="r nw">${sals.nocturno !== null ? `<b>${esc(salNocheTxt)}</b>` : '—'}</td>`);
