@@ -1582,6 +1582,8 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 
 > El reporte respeta TODO lo que estás viendo (estado + empresa + cargos marcados + búsqueda): imprime exactamente esa selección.
 
+> **↕️ Orden del listado en el reporte (24/11/2026).** En **Nómina → Empleados**, toca **🖨️ Qué sale** y baja a **«ORDEN DEL LISTADO EN EL REPORTE»**. Elige una opción: **Nombre (A → Z)** (por defecto), **Nombre (Z → A)**, **Por Cargo**, **Por Departamento**, **Por Cédula**, **Por N° Ficha** o **Por Salario (mayor → menor)**. La opción elegida se guarda y ordena la tabla «LISTADO DE EMPLEADOS» del PDF. El orden no quita ni agrega personas: solo cambia el orden de las filas.
+
 > **🏢 Filtrar por empresa (20-ago-2026):** debajo de los chips de **Estado** hay una línea
 > **"Empresa: 🏢 Todas · N"**. Tócala y se despliega la lista de empresas **con su cantidad de
 > personas**, con buscador; **marca una o varias**. El personal **sin contratista asignado**
