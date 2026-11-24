@@ -278,14 +278,23 @@ export function ReporteCuentasModal({
                 }}
               />
               <Pastilla
-                on={op.modo !== 'resumen'}
+                on={op.modo === 'detallado' || !op.modo}
                 label="📋 Tabla Detallada (Columnas)"
                 onPress={() => setOp('modo', 'detallado')}
               />
+              {tipo === 'por_pagar' ? (
+                <Pastilla
+                  on={op.modo === 'credito'}
+                  label="💳 Cuentas a Crédito (OC y OS)"
+                  onPress={() => setOp('modo', 'credito')}
+                />
+              ) : null}
             </View>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
               {op.modo === 'resumen'
                 ? 'Formato ejecutivo SOS: resumen por método de pago, total de órdenes, totales en $ USD y conversión a Bs, más tarjetas por grupo.'
+                : op.modo === 'credito'
+                ? 'Listado exclusivo de cuentas a crédito pendientes (OC y OS), o aviso «Tesorería al día» si no hay pendientes.'
                 : 'Tabla completa con filas individuales y columnas configurables.'}
             </Text>
           </View>

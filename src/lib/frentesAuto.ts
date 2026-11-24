@@ -457,3 +457,46 @@ export function unirAsignacionesConViajes(
 
   return Array.from(porClave.values());
 }
+
+/**
+ * Combina la asignación vigente de maquinaria (`FRENTES_MAQUINARIA`) con los viajes
+ * reales de los camiones en `camion_viajes` para la jornada:
+ *  - Maquinaria pesada (`!esCamion(id)`): conserva su frente único de oficina.
+ *  - Camiones (`esCamion(id)`): si tuvieron viajes reales ese día en uno o VARIOS
+ *    frentes, mandan todos esos frentes reales (pudiendo repetirse el camión en
+ *    varios frentes); si no viajaron ese día, conservan su asignación de oficina.
+ *  - Mapea el nombre del frente al `id` del catálogo local (`frentesCatalogo`) cuando
+ *    coincide, para que las listas de pantalla y los filtros funcionen sin duplicar UUIDs.
+ */
+export function combinarMaquinariaConViajesCamiones(
+  asigsOficinaVigentes: AsignacionDia[],
+  asigsViajes: AsignacionDia[],
+  frentesCatalogo: readonly { id: string; nombre: string }[],
+  esCamion: (machineryId: string) => boolean,
+): AsignacionConOrigen[] {
+  const normNom = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const idPorNombre = new Map<string, { id: string; nombre: string }>();
+  for (const f of frentesCatalogo ?? []) {
+    const k = normNom(f?.nombre);
+    if (k && f?.id && !idPorNombre.has(k)) idPorNombre.set(k, { id: f.id, nombre: f.nombre });
+  }
+
+  const camionesConViajes = new Set<string>();
+  const viajesResueltos: AsignacionDia[] = [];
+  for (const v of asigsViajes ?? []) {
+    if (!v || !v.machineryId) continue;
+    const match = idPorNombre.get(normNom(v.frenteNombre));
+    const fid = match?.id || v.frenteId;
+    const fnom = match?.nombre || v.frenteNombre;
+    if (!fid) continue;
+    camionesConViajes.add(v.machineryId);
+    viajesResueltos.push({ ...v, frenteId: fid, frenteNombre: fnom });
+  }
+
+  // Para camiones que SÍ registraron viajes ese día, mandan sus frentes reales de viaje
+  // (no la asignación pegajosa anterior). Los demás equipos conservan su asignación de oficina.
+  const ofiFiltrada = (asigsOficinaVigentes ?? []).filter(
+    (a) => !(esCamion(a.machineryId) && camionesConViajes.has(a.machineryId)),
+  );
+  return unirAsignacionesConViajes(ofiFiltrada, viajesResueltos);
+}

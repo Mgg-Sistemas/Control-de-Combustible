@@ -120,6 +120,15 @@ export type FilaConsolidada = {
    *  esas horas salen en $0, igual que en Control de Pagos, pero la máquina
    *  ya no desaparece del papel — sale con sus horas y la marca. */
   sinPrecio?: boolean;
+  /** 💲 Tiene viajes o peso de romana en el rango pero sin tarifa/empresa activa ($0):
+   *  igual que `sinPrecio` en maquinaria, no se borra en silencio — sale con sus
+   *  toneladas/viajes en $0 y la marca para que puedan cargarle su tarifa (24-nov-2026). */
+  sinTarifaAcarreo?: boolean;
+  /** ⛏️🚛 Desglose del acarreo (`viajes` y `peso`) por el `frente_nombre` REAL
+   *  congelado en cada viaje (24-nov-2026). Al agrupar o filtrar por frente,
+   *  evita que un camión con asignación vigente en otro frente se lleve sus
+   *  viajes de aquí (o viceversa). */
+  acarreoPorFrente?: Record<string, { viajes?: number; viajesCant?: number; peso?: number; pesoKg?: number }>;
 };
 
 /** La cantidad en palabras del jefe: «36 h», «11,37 h», «12 viajes», «48,50 t». */
@@ -607,7 +616,15 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
     .filter((f) => marcadas.size === 0 || marcadas.has(f.id))
     .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
     .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
-    .filter((f) => frentes.size === 0 || frentes.has(idxF.clave(frenteDe(f))))
+    .filter((f) => {
+      if (frentes.size === 0) return true;
+      const tieneAcarreoFrente = f.acarreoPorFrente && Object.keys(f.acarreoPorFrente).length > 0;
+      if (!tieneAcarreoFrente) return frentes.has(idxF.clave(frenteDe(f)));
+      const tieneMaq = (f.montos.jornadas ?? 0) !== 0 || (f.montos.horometros ?? 0) !== 0
+        || (f.cant?.jornadas ?? 0) !== 0 || (f.cant?.horometros ?? 0) !== 0;
+      return (tieneMaq && frentes.has(idxF.clave(frenteDe(f))))
+        || Object.keys(f.acarreoPorFrente!).some((fr) => frentes.has(idxF.clave(fr)));
+    })
     .filter((f) => encargados.size === 0 || encargados.has(encargadoDe(f).toLowerCase()))
     .filter((f) => estados.size === 0 || estados.has(String(f.estado ?? 'Operativa').trim().toLowerCase()))
     // 💲 Con plata O con horas/viajes (02-nov-2026): una máquina con jornada
@@ -744,7 +761,12 @@ export function topMaquinas(filas: readonly FilaConsolidada[], op: OpcionesConso
 export const FUENTES_MAQUINARIA: readonly FuenteKey[] = ['jornadas', 'horometros'];
 
 /** Lo que hace falta de cada viaje del rango: su frente congelado y su peso. */
-export type ViajeToneladas = { frente_nombre?: string | null; peso_neto_kg?: number | string | null };
+export type ViajeToneladas = {
+  frente_nombre?: string | null;
+  peso_neto_kg?: number | string | null;
+  code?: string | null;
+  placa?: string | null;
+};
 
 export type FrenteTonelada = { frente: string; costo: number; horas: number; toneladas: number; usdPorTon: number | null };
 export type CostoTonelada = {
@@ -1530,7 +1552,7 @@ export function cuerpoConsolidado(d: {
     const celdas = colsP.map((c) => `<td class="${clsCol(c)}">${celdaColumna(c, f.montos, f.cant, conCant, false, sinPagos)}</td>`).join('');
     const warn = solapeIds.has(f.id) && op.solapes && !sinPagos;
     const totVal = sinPagos ? cantTotalFila(f, op) : usd(totalFila(f, op));
-    return `<tr><td>${warn ? '⚠️ ' : ''}${esc(f.code)}${f.sinPrecio && !sinPagos ? '<div class="q">💲 sin precio en Control</div>' : ''}</td>${op.sinPlaca ? '' : `<td>${esc(f.placa || '—')}</td>`}${op.sinMarcaModelo ? '' : `<td>${esc([f.marca, f.modelo].filter(Boolean).join(' ') || '—')}</td>`}${op.sinEmpresas || op.agruparPor === 'empresa' ? '' : `<td>${esc(f.empresa)}</td>`}${celdas}<td class="r b">${totVal}</td></tr>`;
+    return `<tr><td>${warn ? '⚠️ ' : ''}${esc(f.code)}${f.sinPrecio && !sinPagos ? '<div class="q">💲 sin precio en Control</div>' : ''}${f.sinTarifaAcarreo && !sinPagos ? '<div class="q">💲 sin tarifa de acarreo</div>' : ''}</td>${op.sinPlaca ? '' : `<td>${esc(f.placa || '—')}</td>`}${op.sinMarcaModelo ? '' : `<td>${esc([f.marca, f.modelo].filter(Boolean).join(' ') || '—')}</td>`}${op.sinEmpresas || op.agruparPor === 'empresa' ? '' : `<td>${esc(f.empresa)}</td>`}${celdas}<td class="r b">${totVal}</td></tr>`;
   };
   const filaTotales = (lista: FilaConsolidada[], etiqueta: string, clase: string) => {
     const cols = 1 + (op.sinPlaca ? 0 : 1) + (op.sinMarcaModelo ? 0 : 1) + (op.sinEmpresas || op.agruparPor === 'empresa' ? 0 : 1);
@@ -1564,18 +1586,94 @@ export function cuerpoConsolidado(d: {
     const idxB = op.agruparPor === 'frente' ? indiceFrentesConsolidado(elegidas, d.viajesTon, op) : null;
     const claveB = (nombre: string) => (idxB ? idxB.clave(nombre) : norm(nombre));
     const nombreB = (nombre: string) => (idxB ? idxB.nombre(nombre) : nombre);
+    const soloFrentesClaves = new Set((op.soloFrentes ?? []).map((e) => claveB(e)).filter(Boolean));
     const bloques = new Map<string, { nombre: string; lista: FilaConsolidada[] }>();
-    for (const f of elegidas) {
-      const nombre = porBloques.clave(f);
-      const k = claveB(nombre);
+    const agregarAlBloque = (frenteNombreRaw: string, item: FilaConsolidada) => {
+      const k = claveB(frenteNombreRaw);
+      if (op.agruparPor === 'frente' && soloFrentesClaves.size > 0 && !soloFrentesClaves.has(k)) return;
       let b = bloques.get(k);
-      if (!b) { b = { nombre: nombreB(nombre), lista: [] }; bloques.set(k, b); }
-      b.lista.push(f);
+      if (!b) { b = { nombre: nombreB(frenteNombreRaw), lista: [] }; bloques.set(k, b); }
+      const ex = b.lista.find((x) => x.id === item.id);
+      if (ex) {
+        for (const fk of FUENTES_ORDEN) {
+          if (item.montos[fk]) ex.montos[fk] = r2((ex.montos[fk] ?? 0) + (item.montos[fk] ?? 0));
+          if (item.cant?.[fk]) {
+            ex.cant = ex.cant ?? {};
+            ex.cant[fk] = r2((ex.cant[fk] ?? 0) + (item.cant[fk] ?? 0));
+          }
+        }
+      } else {
+        b.lista.push(item);
+      }
+    };
+    for (const f of elegidas) {
+      if (op.agruparPor === 'frente' && f.acarreoPorFrente && Object.keys(f.acarreoPorFrente).length > 0) {
+        const tieneMaq = (f.montos.jornadas ?? 0) !== 0 || (f.montos.horometros ?? 0) !== 0
+          || (f.cant?.jornadas ?? 0) !== 0 || (f.cant?.horometros ?? 0) !== 0;
+        if (tieneMaq) {
+          agregarAlBloque(porBloques.clave(f), {
+            ...f,
+            montos: { jornadas: f.montos.jornadas, horometros: f.montos.horometros },
+            cant: f.cant ? { jornadas: f.cant.jornadas, horometros: f.cant.horometros } : undefined,
+            acarreoPorFrente: undefined,
+          });
+        }
+        const descPesoViajes = (f.descartadoPorPeso?.viajes ?? 0) !== 0;
+        const descJor = (f.descartadoPorJornada?.peso ?? 0) !== 0 || (f.descartadoPorJornada?.viajes ?? 0) !== 0;
+        for (const [frNom, sl] of Object.entries(f.acarreoPorFrente)) {
+          const mp = descJor ? 0 : r2(sl.peso ?? 0);
+          const cp = descJor ? 0 : r2(sl.pesoKg ?? 0);
+          const tienePesoEnFrente = mp !== 0 || cp !== 0;
+          const ocultarViajesPorPeso = descPesoViajes || descJor || (op.seleccionAutomatica && op.fuentes.peso === 'suma' && tienePesoEnFrente);
+          const mv = ocultarViajesPorPeso ? 0 : r2(sl.viajes ?? 0);
+          const cv = ocultarViajesPorPeso ? 0 : Math.round(sl.viajesCant ?? 0);
+          const tieneAlgo = mv !== 0 || mp !== 0 || cv !== 0 || cp !== 0;
+          if (!tieneAlgo) continue;
+          agregarAlBloque(frNom || SIN_FRENTE, {
+            ...f,
+            frente: frNom || SIN_FRENTE,
+            sinTarifaAcarreo: f.sinTarifaAcarreo && mp === 0 && mv === 0,
+            montos: { ...(mv ? { viajes: mv } : {}), ...(mp ? { peso: mp } : {}) },
+            cant: (cv || cp) ? { ...(cv ? { viajes: cv } : {}), ...(cp ? { peso: cp } : {}) } : undefined,
+            descartadoPorPeso: undefined,
+            descartadoPorJornada: undefined,
+            jornadaDescartada: undefined,
+            jornadaHorasDescartadas: undefined,
+            acarreoPorFrente: undefined,
+          });
+        }
+      } else {
+        agregarAlBloque(porBloques.clave(f), f);
+      }
     }
-    for (const b of Array.from(bloques.values()).sort((a, z) => cmpTx(a.nombre, z.nombre))) {
-      html += `<h3>${porBloques.icon} ${esc(b.nombre)}</h3><table><thead>${cab}</thead><tbody>${b.lista.map(filaTd).join('')}${filaTotales(b.lista, `Subtotal ${b.nombre}`, 'sub')}</tbody></table>`;
+    const listaBloques = Array.from(bloques.values()).sort((a, z) => cmpTx(a.nombre, z.nombre));
+    const listaParaTotal = op.agruparPor === 'frente' ? listaBloques.flatMap((b) => b.lista) : elegidas;
+    for (const b of listaBloques) {
+      let notaFrente = '';
+      if (op.agruparPor === 'frente' && (d.viajesTon?.length ?? 0) > 0) {
+        const bKey = claveB(b.nombre);
+        const vFrente = (d.viajesTon ?? []).filter((v) => claveB(String(v.frente_nombre ?? '').trim() || SIN_FRENTE) === bKey);
+        if (vFrente.length > 0) {
+          const kgFis = vFrente.reduce((s, v) => s + (Number(v.peso_neto_kg) > 0 ? Number(v.peso_neto_kg) : 0), 0);
+          const tFis = r2(kgFis / 1000);
+          const tPag = r2(b.lista.reduce((s, f) => s + Number(f.cant?.peso ?? 0), 0) / 1000);
+          const placasEnBloque = new Set(b.lista.map((f) => norm(f.placa || f.code)).filter(Boolean));
+          const faltantes = new Map<string, string>();
+          for (const v of vFrente) {
+            const idKey = norm(v.placa || v.code || '');
+            if (idKey && !placasEnBloque.has(idKey)) {
+              faltantes.set(idKey, [String(v.code ?? '').trim(), String(v.placa ?? '').trim()].filter(Boolean).join(' · '));
+            }
+          }
+          if (faltantes.size > 0 || (tFis > 0 && Math.abs(tFis - tPag) > 0.05)) {
+            const listaFalt = Array.from(faltantes.values()).slice(0, 5).join(', ');
+            notaFrente = `<div class="nota" style="margin:3px 0 8px">⚠️ Acarreo físico en ${esc(b.nombre)}: <b>${tons(tFis)}</b> (${vFrente.length} viaje${vFrente.length === 1 ? '' : 's'}).${faltantes.size > 0 ? ` ${faltantes.size} camión(es) sin tarifa activa en este frente no suman $: ${esc(listaFalt)}${faltantes.size > 5 ? '…' : ''}.` : ''}</div>`;
+          }
+        }
+      }
+      html += `<h3>${porBloques.icon} ${esc(b.nombre)}</h3><table><thead>${cab}</thead><tbody>${b.lista.map(filaTd).join('')}${filaTotales(b.lista, `Subtotal ${b.nombre}`, 'sub')}</tbody></table>${notaFrente}`;
     }
-    html += `<table><tbody>${filaTotales(elegidas, 'TOTAL GENERAL', 'tot')}</tbody></table>`;
+    html += `<table><tbody>${filaTotales(listaParaTotal, 'TOTAL GENERAL', 'tot')}</tbody></table>`;
   } else {
     html += `<h3>${op.agruparPor === 'maquina' ? '🚜 Por máquina' : '📋 Todas las máquinas'}</h3><table><thead>${cab}</thead><tbody>${elegidas.map(filaTd).join('')}${filaTotales(elegidas, 'TOTAL GENERAL', 'tot')}</tbody></table>`;
   }

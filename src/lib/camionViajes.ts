@@ -1483,20 +1483,19 @@ export async function listAsignacionesDesdeViajesRango(
         q
           .gte('registered_at', desdeISO)
           .lt('registered_at', hastaExclusivoISO)
-          .not('machinery_id', 'is', null)
-          .not('frente_id', 'is', null),
+          .not('machinery_id', 'is', null),
     );
     const porClave = new Map<string, AsignacionDia>();
     const viajesPorClave = new Map<string, number>();
     for (const r of data ?? []) {
       const mid = String(r.machinery_id ?? '').trim();
-      const fid = String(r.frente_id ?? '').trim();
+      const nom = String(r.frente_nombre ?? '').trim();
+      const fid = String(r.frente_id ?? '').trim() || (nom ? `nom:${nom.toLowerCase()}` : '');
       const reg = String(r.registered_at ?? '').trim();
       if (!mid || !fid || !reg || !Number.isFinite(Date.parse(reg))) continue;
       const j = jornadaDeFecha(new Date(reg));
       const k = `${j}|${mid}|${fid}`;
       viajesPorClave.set(k, (viajesPorClave.get(k) ?? 0) + 1);
-      const nom = String(r.frente_nombre ?? '').trim();
       const prev = porClave.get(k);
       if (!prev) {
         porClave.set(k, {

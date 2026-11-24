@@ -38,7 +38,8 @@ import {
 // lleva: es siempre la del día que se pidió). Es el tipo que devuelve
 // `listAsignacionesFrenteRango`, y hace falta para filtrar por día al repetir.
 import { cmpText } from '../lib/text';
-import { unirAsignacionesConViajes, type AsignacionDia } from '../lib/frentesAuto';
+import { esCamionDeViajes } from '../lib/equipos';
+import { combinarMaquinariaConViajesCamiones, unirAsignacionesConViajes, type AsignacionDia } from '../lib/frentesAuto';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
   ETIQUETA_CAMION, ETIQUETA_EQUIPO,
@@ -249,15 +250,38 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     let vivo = true;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return;
     if (esMaq) {
-      // ⛏️ MAQUINARIA: EL FRENTE ES PEGAJOSO (19-oct-2026, a pedido: «como con
-      //    los inspectores: se asigna y se queda ahí hasta que se reasigna»).
-      //    Se leen las anotaciones HASTA la fecha y rige la última de cada
-      //    máquina (vigentesAlDia); la marca «sin frente» la saca de la lista.
-      listAsignacionesHasta(fecha, fuente).then((r) => {
+      // ⛏️ MAQUINARIA + CAMIONES: para maquinaria pesada rige su frente único
+      //    pegajoso (`vigentesAlDia`), mientras que para camiones (`esCamionDeViajes`)
+      //    si hicieron viajes reales ese día en uno o varios frentes, mandan todos
+      //    sus frentes reales de `camion_viajes` (pudiendo repetirse por frente).
+      const esCam = (mid: string) => {
+        const c = camiones.find((x) => x.id === mid);
+        return c ? esCamionDeViajes(c.code) : false;
+      };
+      Promise.all([
+        listAsignacionesHasta(fecha, fuente),
+        listAsignacionesDesdeViajesRango(fecha, fecha),
+      ]).then(([r, rViajes]) => {
         if (!vivo) return;
-        const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId));
-        setAsignaciones(vigentesAlDia(mias, fecha));
+        const mias = vigentesAlDia(r.asignaciones.filter((a) => idsLista.has(a.machineryId)), fecha);
+        const deViajes = rViajes.asignaciones.filter((a) => idsLista.has(a.machineryId));
+        setAsignaciones(combinarMaquinariaConViajesCamiones(mias, deViajes, frentes, esCam));
+        // Guardar también las cuentas de viajes indexadas tanto por frenteId original como por el del catálogo local
+        const vMap = new Map<string, number>(rViajes.viajesPorClave);
+        const normNom = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const catPorNom = new Map(frentes.map((f) => [normNom(f.nombre), f.id]));
+        for (const dv of deViajes) {
+          const catId = catPorNom.get(normNom(dv.frenteNombre));
+          if (catId && catId !== dv.frenteId) {
+            const cnt = rViajes.viajesPorClave.get(`${fecha}|${dv.machineryId}|${dv.frenteId}`) ?? 0;
+            if (cnt > 0) vMap.set(`${fecha}|${dv.machineryId}|${catId}`, (vMap.get(`${fecha}|${dv.machineryId}|${catId}`) ?? 0) + cnt);
+          }
+        }
+        setViajesPorCamionFrente(vMap);
         if (r.error && !r.missing) console.warn('[frentes] no se pudo leer las asignaciones:', r.error);
+        if (rViajes.error) console.warn('[frentes] no se pudo leer frentes de viajes del día:', rViajes.error);
+      }).catch((err) => {
+        if (vivo) console.warn('[frentes] error cargando frentes del día:', err);
       });
     } else {
       // 🚛 VIAJES: une las asignaciones planificadas por oficina con los frentes
@@ -554,14 +578,26 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       // sale con columnas vacías que parezcan «no hubo nada»: se avisa y se para.
       const delDia = datosDelDia && necesitaDatosDelDia(opPapel) ? await datosDelDia(fecha) : new Map<string, DatosDelDiaFrente>();
       let viajesFrentePdf = viajesPorCamionFrente;
-      if (!esMaq && (opPapel.viajesPorFrente || opPapel.resumen)) {
+      if (opPapel.viajesPorFrente || opPapel.resumen) {
         const rVf = await listAsignacionesDesdeViajesRango(fecha, fecha);
         if (rVf.error) {
           toast.error(`No se pudieron consultar los viajes del día: ${rVf.error}`);
           return;
         }
-        viajesFrentePdf = rVf.viajesPorClave;
-        setViajesPorCamionFrente(rVf.viajesPorClave);
+        const vMapPdf = new Map<string, number>(rVf.viajesPorClave);
+        if (esMaq) {
+          const normNom = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+          const catPorNom = new Map(frentes.map((f) => [normNom(f.nombre), f.id]));
+          for (const dv of rVf.asignaciones) {
+            const catId = catPorNom.get(normNom(dv.frenteNombre));
+            if (catId && catId !== dv.frenteId) {
+              const cnt = rVf.viajesPorClave.get(`${fecha}|${dv.machineryId}|${dv.frenteId}`) ?? 0;
+              if (cnt > 0) vMapPdf.set(`${fecha}|${dv.machineryId}|${catId}`, (vMapPdf.get(`${fecha}|${dv.machineryId}|${catId}`) ?? 0) + cnt);
+            }
+          }
+        }
+        viajesFrentePdf = vMapPdf;
+        setViajesPorCamionFrente(vMapPdf);
       }
       const grupos = frentesParaReporte(
         asignaciones.map((a) => {
@@ -581,8 +617,8 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               chofer: String(operadores[claveOperador(a.machineryId)] ?? '').replace(/\s+/g, ' ').trim() || d?.chofer || null,
               turno: d?.turno || null,
               estado: d?.estado || c?.estado || null,
-              viajes: esMaq ? null : (d?.viajes ?? 0),
-              viajesEnFrente: esMaq ? null : (viajesFrentePdf.get(`${fecha}|${a.machineryId}|${a.frenteId}`) ?? 0),
+              viajes: (viajesFrentePdf.get(`${fecha}|${a.machineryId}|${a.frenteId}`) ?? (esMaq ? null : (d?.viajes ?? 0))),
+              viajesEnFrente: viajesFrentePdf.get(`${fecha}|${a.machineryId}|${a.frenteId}`) ?? (esMaq ? null : 0),
             },
           };
         }),
@@ -807,7 +843,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     { k: 'chofer', label: esMaq ? '👷 Operador' : '👷 Chofer', ayuda: esMaq ? 'El operador de la jornada de ese día.' : 'El chofer anotado en los viajes de ese día.' },
     { k: 'turno', label: '🕘 Turno', ayuda: esMaq ? 'Día, noche o los dos, según la jornada de ese día.' : 'Día, noche o los dos, según la hora de sus viajes.' },
     { k: 'estado', label: '⚙️ Estado de la máquina', ayuda: esMaq ? 'El estado de la jornada de ese día, o el de la ficha.' : 'El estado anotado en los viajes de ese día, o el de la ficha.' },
-    ...(!esMaq ? [{ k: 'viajesPorFrente' as const, label: '🚛 Cantidad de viajes en cada frente', ayuda: 'Muestra cuántos viajes registró cada camión en ese frente ese día. Apagado no deja rastro en el papel.' }] : []),
+    { k: 'viajesPorFrente' as const, label: '🚛 Cantidad de viajes en cada frente', ayuda: 'Muestra cuántos viajes registró cada camión en ese frente ese día. Apagado no deja rastro en el papel.' },
     { k: 'resumen', label: '📊 Resumen ejecutivo (tablero arriba del reporte)', ayuda: `Tarjetas y cuadros: ${E.plural} asignados, frentes en uso, por tipo, por empresa${esMaq ? '' : ', viajes del día'} y los que tengas encendidos (estado, turno, clasificación, obra).` },
     { k: 'contador', label: `🔟 Cuántos ${E.plural} lleva cada frente`, ayuda: `El «N ${E.unidad}» al lado del nombre del frente.` },
     { k: 'totales', label: '📋 Línea de totales arriba', ayuda: 'Equipos reales, repetidos y cuántos frentes se usaron.' },
@@ -1104,7 +1140,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                     <View key={`g-${f.id}`} style={{ marginTop: 4 }}>
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>⛏️ {f.nombre}</Text>
                       {asignaciones.filter((a) => a.frenteId === f.id).map((a) => {
-                        const nViajes = !esMaq ? (viajesPorCamionFrente.get(`${fecha}|${a.machineryId}|${a.frenteId}`) ?? 0) : 0;
+                        const nViajes = viajesPorCamionFrente.get(`${fecha}|${a.machineryId}|${a.frenteId}`) ?? 0;
                         return (
                           <View key={`${a.frenteId}-${a.machineryId}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: spacing.sm, paddingVertical: 2 }}>
                             {/* ⛏️ En maquinaria se dice DESDE CUÁNDO está ahí (el frente arrastra). */}

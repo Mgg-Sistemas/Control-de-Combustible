@@ -137,7 +137,7 @@ export function ValuacionViajesCard({ canVer }: Props) {
   const opcionesFrentes = useMemo(() => {
     const s = new Set<string>();
     viajes.forEach((v) => {
-      const n = String(v.frente_nombre ?? '').trim() || 'Sin frente';
+      const n = (String(v.frente_nombre ?? '').trim() || 'Sin frente').toUpperCase();
       s.add(n);
     });
     return Array.from(s).sort((a, b) => a.localeCompare(b, 'es'));
@@ -176,7 +176,7 @@ export function ValuacionViajesCard({ canVer }: Props) {
         if (!obrasSel.has(ub)) return false;
       }
       if (frentesSel.size > 0) {
-        const fr = String(v.frente_nombre ?? '').trim() || 'Sin frente';
+        const fr = (String(v.frente_nombre ?? '').trim() || 'Sin frente').toUpperCase();
         if (!frentesSel.has(fr)) return false;
       }
       if (camionesSel.size > 0) {

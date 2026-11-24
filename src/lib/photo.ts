@@ -264,6 +264,67 @@ export async function pickPhotoFromGalleryAndUpload(
   return uploadToMachinery(path, body);
 }
 
+/** Sube un Blob de imagen (p. ej. pegado desde el portapapeles) al bucket 'machinery'. */
+export async function uploadImageBlobToMachinery(
+  blob: Blob,
+  machineryId: string,
+  folder = 'horometro',
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  if (!blob || !(blob.size > 0)) return { ok: false, error: 'La imagen pegada está vacía.' };
+  let body: Blob = blob;
+  if (Platform.OS === 'web') {
+    const opt = await optimizarImagenWeb(blob);
+    if (opt && opt.size > 0) body = opt;
+  }
+  const path = `${machineryId}/${folder}/${Date.now()}.jpg`;
+  return uploadToMachinery(path, body);
+}
+
+/** Extrae el primer archivo de imagen de un evento `paste` (Ctrl+V) en navegador web. */
+export function extractImageBlobFromClipboardEvent(e: any): Blob | null {
+  const items = e?.clipboardData?.items;
+  if (!items) return null;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it && it.kind === 'file' && String(it.type || '').toLowerCase().startsWith('image/')) {
+      const f = typeof it.getAsFile === 'function' ? it.getAsFile() : null;
+      if (f && f.size > 0) return f;
+    }
+  }
+  return null;
+}
+
+/** Lee una imagen copiada en el portapapeles (Web) y la sube al bucket 'machinery'. */
+export async function pastePhotoFromClipboardAndUpload(
+  machineryId: string,
+  folder = 'horometro',
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  if (Platform.OS !== 'web') {
+    return { ok: false, error: 'En esta app móvil usa Cámara o Galería.' };
+  }
+  const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+  if (!nav?.clipboard?.read) {
+    return { ok: false, error: 'Este navegador no permite leer el botón Pegar. Prueba pegando directo con Ctrl+V.' };
+  }
+  try {
+    const items = await nav.clipboard.read();
+    for (const item of items) {
+      const imgType = (item.types || []).find((t: string) => String(t).toLowerCase().startsWith('image/'));
+      if (imgType) {
+        const blob = await item.getType(imgType);
+        return await uploadImageBlobToMachinery(blob, machineryId, folder);
+      }
+    }
+    return { ok: false, error: 'No hay ninguna imagen copiada en el portapapeles. Copia una foto primero y vuelve a tocar Pegar.' };
+  } catch (e: any) {
+    const msg = String(e?.name || e?.message || '');
+    if (/NotAllowed|Permission/i.test(msg)) {
+      return { ok: false, error: 'El navegador bloqueó el acceso al portapapeles. Permite el acceso o pega directo con Ctrl+V.' };
+    }
+    return { ok: false, error: e?.message || 'No se pudo leer la imagen del portapapeles.' };
+  }
+}
+
 export const pickPhotoAndUpload = pickPhotoFromGalleryAndUpload;
 
 /**

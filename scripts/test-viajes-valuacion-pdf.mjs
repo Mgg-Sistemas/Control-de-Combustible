@@ -123,7 +123,9 @@ eq('incluye sección 3 conciliación', html.includes('3 &nbsp; CONCILIACIÓN DE 
 eq('incluye registro diario de acarreo y pesaje', html.includes('Registro diario de acarreo y pesaje'), true);
 eq('usa placa de catálogo cuando placa_snap es null', html.includes('A07CW5J'), true);
 eq('usa chofer de respaldo cuando chofer_name es null', html.includes('Douglas Azuaje'), true);
-eq('escapa HTML peligroso en frente', html.includes('Frente Norte &lt;test&gt;'), true);
+eq('denominación de frente en MAYÚSCULA', html.includes('CDT PLAYA ESCONDIDA'), true);
+eq('escapa HTML peligroso en frente', html.includes('FRENTE NORTE &lt;TEST&gt;'), true);
+eq('incluye márgenes de página 16mm', html.includes('margin: 16mm 16mm 16mm 16mm;'), true);
 eq('NO incluye tag crudo <test>', html.includes('<test>'), false);
 eq('incluye Página 4 de 4', html.includes('Página 4 de 4'), true);
 

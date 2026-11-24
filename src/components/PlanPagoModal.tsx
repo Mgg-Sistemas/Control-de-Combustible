@@ -51,6 +51,20 @@ export function PlanPagoModal({ visible, titulo, totalUsd, alicuotaIva, planInic
   const error = validarPlan(partes, totalUsd, tasaBcv);
   const suma = r2(partes.reduce((s, p) => s + p.monto_usd, 0));
   const { base, iva } = baseEIva(totalUsd, alicuotaIva);
+  const hayBcvDesactualizado = Number(tasaBcv) > 0 && filas.some((f) => {
+    if (monedaDeMetodo(f.metodo) !== 'VES') return false;
+    if ((f.tasa_tipo ?? 'bcv') !== 'bcv') return false;
+    return Math.abs(leerNumero(f.tasaTxt) - Number(tasaBcv)) > 0.01;
+  });
+  const actualizarBcvHoy = () => {
+    const bcv = Number(tasaBcv);
+    if (!(bcv > 0)) return;
+    setFilas((prev) => prev.map((f) => {
+      if (monedaDeMetodo(f.metodo) !== 'VES') return f;
+      if ((f.tasa_tipo ?? 'bcv') !== 'bcv') return f;
+      return { ...f, tasa_tipo: 'bcv', tasaTxt: String(bcv) };
+    }));
+  };
 
   const setFila = (i: number, patch: Partial<Fila>) => setFilas((prev) => prev.map((f, k) => (k === i ? { ...f, ...patch } : f)));
   const plantilla = (k: PlantillaPlan) => setFilas(aplicarPlantilla(k, totalUsd, alicuotaIva, { bcv: tasaBcv }).map(aFila));
@@ -124,6 +138,25 @@ export function PlanPagoModal({ visible, titulo, totalUsd, alicuotaIva, planInic
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               {PLANTILLAS.filter((p) => !p.necesitaIva || Number(alicuotaIva) > 0).map((p) => chip(false, p.label, () => plantilla(p.key), p.key))}
             </View>
+            {hayBcvDesactualizado ? (
+              <TouchableOpacity
+                onPress={actualizarBcvHoy}
+                style={{
+                  marginTop: spacing.xs,
+                  backgroundColor: colors.infoSoftBg,
+                  borderWidth: 1,
+                  borderColor: colors.brand,
+                  borderRadius: radius.md,
+                  paddingVertical: 7,
+                  paddingHorizontal: spacing.sm,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 12 }}>
+                  🔄 Actualizar partes BCV a tasa de hoy ({fmt(Number(tasaBcv))})
+                </Text>
+              </TouchableOpacity>
+            ) : null}
 
             {filas.map((f, i) => {
               const ves = monedaDeMetodo(f.metodo) === 'VES';

@@ -147,6 +147,11 @@ const num = (v: unknown): number => {
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
+/** Normaliza la denominación del frente siempre en MAYÚSCULAS para agrupar y mostrar uniforme. */
+export function normalizarFrenteValuacion(v: unknown): string {
+  return (String(v ?? '').trim() || 'Sin frente').toUpperCase();
+}
+
 /** Jornada (7am a 7am Caracas UTC-4) de un instante ISO. */
 export function jornadaDeInstante(iso: string | null | undefined): string {
   const t = Date.parse(String(iso ?? ''));
@@ -298,7 +303,7 @@ export function construirDatosValuacion(
   const frentesMap = new Map<string, { nombre: string; inicio: string; kg: number; viajes: number }>();
   diasActivos.forEach((d) => {
     d.viajesDetalle.forEach((v) => {
-      const nombre = String(v.frente_nombre ?? '').trim() || 'Sin frente';
+      const nombre = normalizarFrenteValuacion(v.frente_nombre);
       const cur = frentesMap.get(nombre) ?? { nombre, inicio: d.fecha, kg: 0, viajes: 0 };
       if (d.fecha < cur.inicio) cur.inicio = d.fecha;
       cur.kg += num(v.peso_neto_kg);
@@ -652,7 +657,7 @@ export function generarHtmlValuacionPdf(opts: {
       const netoKg = num(v.peso_neto_kg);
       totalNetoKg += netoKg;
       const netoT = r2(netoKg / 1000);
-      const frente = String(v.frente_nombre ?? '').trim() || 'Sin frente';
+      const frente = normalizarFrenteValuacion(v.frente_nombre);
 
       return `
         <tr>
@@ -675,7 +680,7 @@ export function generarHtmlValuacionPdf(opts: {
     // Resumen por frente del día
     const fDiaMap = new Map<string, { nombre: string; viajes: number; kg: number }>();
     d.viajesDetalle.forEach((v) => {
-      const nombre = String(v.frente_nombre ?? '').trim() || 'Sin frente';
+      const nombre = normalizarFrenteValuacion(v.frente_nombre);
       const cur = fDiaMap.get(nombre) ?? { nombre, viajes: 0, kg: 0 };
       cur.viajes += 1;
       cur.kg += num(v.peso_neto_kg);
@@ -809,15 +814,19 @@ export function generarHtmlValuacionPdf(opts: {
 <meta charset="utf-8"/>
 <title>${escHtml(cfg.titulo)} — ${dmy(desde)} al ${dmy(hasta)}</title>
 <style>
-  @page { size: letter; margin: 11mm 12mm 12mm 12mm; }
-  @page portraitPage { size: letter portrait; margin: 11mm 12mm 12mm 12mm; }
-  @page landscapePage { size: letter landscape; margin: 10mm 12mm 10mm 12mm; }
+  @page { size: letter; margin: 16mm 16mm 16mm 16mm; }
+  @page portraitPage { size: letter portrait; margin: 16mm 16mm 16mm 16mm; }
+  @page landscapePage { size: letter landscape; margin: 14mm 15mm 14mm 15mm; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   html, body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; color: #1f2937; font-size: 9.5px; }
   .page { position: relative; page-break-after: always; break-after: page; }
   .page:last-child { page-break-after: auto; break-after: auto; }
   .page-portrait { page: portraitPage; }
   .page-landscape { page: landscapePage; }
+  @media screen {
+    body { padding: 18px 22px; background: #f3f4f6; }
+    .page { background: #fff; padding: 16mm; margin: 0 auto 16px auto; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12); }
+  }
   .inst-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .inst-flag { width: 28px; height: 18px; border: 1px solid #d1d5db; overflow: hidden; border-radius: 2px; }
   .inst-text { line-height: 1.1; color: #16324F; }

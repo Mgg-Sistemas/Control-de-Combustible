@@ -250,3 +250,26 @@ export function bloquesBancoDelPlan(partes: PartePlan[]): { transferencia: boole
     binance: ms.has('usdt'),
   };
 }
+
+/**
+ * Actualiza únicamente las partes en Bs marcadas a tasa BCV (`tasa_tipo === 'bcv'` o sin definir)
+ * a la tasa BCV vigente del día, respetando intactas las partes en Euro, USDT, tasa manual o en $.
+ */
+export function actualizarPlanABcv(
+  plan: PlanPago | null | undefined,
+  tasaBcvHoy: number | null | undefined,
+): { plan: PlanPago | null; cambio: boolean } {
+  if (!plan || !Array.isArray(plan.partes)) return { plan: plan ?? null, cambio: false };
+  const bcv = Number(tasaBcvHoy);
+  if (!(bcv > 0)) return { plan, cambio: false };
+  let cambio = false;
+  const partes = plan.partes.map((p) => {
+    if (monedaDeMetodo(p.metodo) !== 'VES') return p;
+    const tipo = p.tasa_tipo ?? 'bcv';
+    if (tipo !== 'bcv') return p;
+    if (p.tasa != null && Math.abs(Number(p.tasa) - bcv) <= 0.005 && p.tasa_tipo === 'bcv') return p;
+    cambio = true;
+    return { ...p, tasa_tipo: 'bcv' as TasaTipo, tasa: bcv };
+  });
+  return cambio ? { plan: { ...plan, partes }, cambio: true } : { plan, cambio: false };
+}

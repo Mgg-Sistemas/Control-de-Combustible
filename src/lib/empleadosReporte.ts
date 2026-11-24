@@ -4,6 +4,15 @@
 import { limpiarHabilidades } from './empleadosHabilidades';
 import { estadoCartaBancoTercero } from './cartaBancoTercero';
 
+export type OrdenReporteEmpleados =
+  | 'nombre_az'
+  | 'nombre_za'
+  | 'cargo_az'
+  | 'departamento_az'
+  | 'cedula'
+  | 'ficha'
+  | 'salario_desc';
+
 export type OpcionesReporteEmpleados = {
   /** 1️⃣ Columna «#» (numeración consecutiva). */
   numeracion: boolean;
@@ -57,6 +66,8 @@ export type OpcionesReporteEmpleados = {
   marcaTexto: boolean;
   /** ✍️ Bloque de firmas al final del reporte (1 o más personas). */
   firmas: boolean;
+  /** ↕️ Cómo ordenar el listado de personas en el reporte (nombre, cargo, departamento, etc.). */
+  ordenarPor?: OrdenReporteEmpleados;
 };
 
 export type FirmanteReporteEmpleados = {
@@ -98,6 +109,7 @@ export const OPCIONES_REPORTE_EMPLEADOS_DEFECTO: OpcionesReporteEmpleados = {
   listadoPersonas: true,
   marcaTexto: true,
   firmas: false,
+  ordenarPor: 'nombre_az',
 };
 
 export type EmpleadoParaReporte = {
@@ -485,6 +497,57 @@ export const REPORTE_EMPLEADOS_CSS = `
   .firma-ci{color:#6B7280;font-size:9px;margin-top:1px}
 `;
 
+const nombreCompletoEmpleado = (e: EmpleadoParaReporte): string =>
+  `${String(e.first_name ?? '').trim()} ${String(e.last_name ?? '').trim()}`.replace(/\s+/g, ' ').trim();
+
+const cmpTextoEs = (a: string, b: string): number =>
+  a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' });
+
+/** Ordena el listado de empleados del reporte según la opción elegida por el usuario. */
+export function ordenarEmpleadosReporte<T extends EmpleadoParaReporte>(
+  empleados: readonly T[],
+  ordenarPor: OrdenReporteEmpleados | undefined,
+  preferirNocturno = false,
+): T[] {
+  const arr = (empleados ?? []).slice();
+  const modo: OrdenReporteEmpleados = ordenarPor ?? 'nombre_az';
+  return arr.sort((a, b) => {
+    const na = nombreCompletoEmpleado(a);
+    const nb = nombreCompletoEmpleado(b);
+    if (modo === 'nombre_za') return cmpTextoEs(nb, na);
+    if (modo === 'cargo_az') {
+      const ca = String(a.cargo ?? '').trim() || 'ZZZ';
+      const cb = String(b.cargo ?? '').trim() || 'ZZZ';
+      return cmpTextoEs(ca, cb) || cmpTextoEs(na, nb);
+    }
+    if (modo === 'departamento_az') {
+      const da = limpiarSoloDepartamento(a.department, a.grupo) || 'ZZZ';
+      const db = limpiarSoloDepartamento(b.department, b.grupo) || 'ZZZ';
+      const ca = String(a.cargo ?? '').trim() || 'ZZZ';
+      const cb = String(b.cargo ?? '').trim() || 'ZZZ';
+      return cmpTextoEs(da, db) || cmpTextoEs(ca, cb) || cmpTextoEs(na, nb);
+    }
+    if (modo === 'cedula') {
+      const cda = String(a.cedula ?? '').trim() || 'ZZZ';
+      const cdb = String(b.cedula ?? '').trim() || 'ZZZ';
+      return cmpTextoEs(cda, cdb) || cmpTextoEs(na, nb);
+    }
+    if (modo === 'ficha') {
+      const fa = String(a.ficha_number ?? '').trim() || 'ZZZ';
+      const fb = String(b.ficha_number ?? '').trim() || 'ZZZ';
+      return cmpTextoEs(fa, fb) || cmpTextoEs(na, nb);
+    }
+    if (modo === 'salario_desc') {
+      const sa = calcularSalariosEmpleadoReporte(a, { preferirNocturno });
+      const sb = calcularSalariosEmpleadoReporte(b, { preferirNocturno });
+      const va = sa.mensual ?? sa.semanal ?? sa.diario ?? sa.nocturno ?? 0;
+      const vb = sb.mensual ?? sb.semanal ?? sb.diario ?? sb.nocturno ?? 0;
+      return (vb - va) || cmpTextoEs(na, nb);
+    }
+    return cmpTextoEs(na, nb);
+  });
+}
+
 export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
   body: string;
   extraCss: string;
@@ -493,8 +556,8 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
   totalDepartamentos: number;
 } {
   const op = resolverOpcionesReporteEmpleados(input.opciones);
-  const lista = input.empleados ?? [];
   const preferirNocturno = Boolean(op.salarioNocturno && !op.salarioDiario);
+  const lista = ordenarEmpleadosReporte(input.empleados ?? [], op.ordenarPor, preferirNocturno);
   const hayColumnaSalario = Boolean(
     op.salarioDiario ||
       op.salarioNocturno ||

@@ -64,7 +64,7 @@ import {
   type ArchivoSoporte,
 } from '../lib/requerimientoExpediente';
 import { PlanPagoModal } from '../components/PlanPagoModal';
-import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, lineaParte, validarPlan, advertenciaPlanGuardado } from '../lib/planPago';
+import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, lineaParte, validarPlan, advertenciaPlanGuardado, actualizarPlanABcv } from '../lib/planPago';
 import { EditarSoporteReqModal, type TipoSoporteReq } from '../components/EditarSoporteReqModal';
 import { machineLabel, machineMatches } from '../lib/machineLabel';
 // 👤 Quién solicitó / quién autorizó, para qué (vehículo o maquinaria), a qué
@@ -1586,6 +1586,44 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         };
       }
     }));
+  };
+
+  // 🔄 Actualiza de un solo toque TODOS los ítems (desde USD) y las partes BCV del plan de pago a la tasa BCV de hoy.
+  const recomputarTodoDesdeBcv = () => {
+    if (!rate || rate <= 0) return toast.info('No hay tasa BCV activa para convertir.');
+    setRows((prev) => prev.map((x) => {
+      const q = Math.max(0.0001, parseNum(x.qty) || 1);
+      const modo = x.modo_precio || 'unidad';
+      if (modo === 'total') {
+        const tU = parseNum(x.total_usd || '0') || (parseNum(x.price) * q);
+        if (!(tU > 0)) return { ...x, bs_manual: false, tasa_propia: undefined, tasa_manual: undefined };
+        return {
+          ...x,
+          total_bs: fmtClean(tU * rate),
+          price_bs: fmtClean((tU * rate) / q),
+          usd_manual: true,
+          bs_manual: false,
+          tasa_propia: undefined,
+          tasa_manual: undefined,
+        };
+      }
+      const u = parseNum(x.price);
+      if (!(u > 0)) return { ...x, bs_manual: false, tasa_propia: undefined, tasa_manual: undefined };
+      return {
+        ...x,
+        price_bs: fmtClean(u * rate),
+        total_bs: fmtClean(u * rate * q),
+        usd_manual: true,
+        bs_manual: false,
+        tasa_propia: undefined,
+        tasa_manual: undefined,
+      };
+    }));
+    if (planForm) {
+      const { plan: planAct, cambio } = actualizarPlanABcv(planForm, rate);
+      if (cambio && planAct) setPlanForm(planAct);
+    }
+    toast.success(`🔄 Ítems y plan BCV actualizados a ${rate.toFixed(2)} Bs/$.`);
   };
 
   // 📋 Cotizaciones / Presupuestos alternativos por renglón (uno o varios presupuestos por ítem)
@@ -3591,7 +3629,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           }
           if (montoConIva > 0) patch.monto = montoConIva;
           if (reqItem.prioridad === 'alta' || reqItem.prioridad === 'media' || reqItem.prioridad === 'baja') patch.prioridad = reqItem.prioridad;
-          if ((reqItem as any).plan_pago) patch.plan_pago = (reqItem as any).plan_pago;
+          if ((reqItem as any).plan_pago) {
+            const normP = normalizarPlan((reqItem as any).plan_pago);
+            const { plan: planAct, cambio } = actualizarPlanABcv(normP, rate);
+            patch.plan_pago = planAct ?? (reqItem as any).plan_pago;
+            if (cambio && planAct) {
+              await supabase.from('inventory_requirements').update({ plan_pago: { ...planAct, actualizado_at: ahoraIso } } as any).eq('id', reqItem.id);
+            }
+          }
           await supabase.from('cuentas').update(patch).eq('id', (cta as any).id);
         }
         if (montoConIva > 0) {
@@ -5877,6 +5922,32 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               <TouchableOpacity onPress={() => setPickOpen((v) => !v)} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>📦 Del inventario</Text></TouchableOpacity>
               <TouchableOpacity onPress={addBlank} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>＋ Producto nuevo</Text></TouchableOpacity>
             </View>
+
+            {rate && rate > 0 && (
+              rows.some((x) => {
+                const u = parseNum(x.total_usd || '0') || parseNum(x.price);
+                const b = parseNum(x.total_bs || '0') || parseNum(x.price_bs);
+                const ti = x.tasa_propia || (u > 0 && b > 0 ? b / u : 0);
+                return ti > 0 && Math.abs(ti - rate) > 0.05;
+              }) || actualizarPlanABcv(planForm, rate).cambio
+            ) ? (
+              <TouchableOpacity
+                onPress={recomputarTodoDesdeBcv}
+                style={{
+                  backgroundColor: colors.infoSoftBg,
+                  borderWidth: 1,
+                  borderColor: colors.brand,
+                  borderRadius: radius.md,
+                  paddingVertical: spacing.xs + 2,
+                  paddingHorizontal: spacing.sm,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 12 }}>
+                  🔄 Actualizar todos los ítems y plan BCV a hoy ({rate.toFixed(2)} Bs/$)
+                </Text>
+              </TouchableOpacity>
+            ) : null}
 
             {pickOpen ? (
               <Card>

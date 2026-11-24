@@ -54,6 +54,10 @@ import {
   extraerEmpresaDeNota,
   pasaFiltroEmpresas,
   calcularTotalesKpiCxp,
+  fechaAprobacionSoloDiaDe,
+  fmtFechaAprobacionLegible,
+  agruparCuentasPorFechaAprobacion,
+  SIN_FECHA_APROBACION,
 } from '../lib/cuentasEmpresa';
 import {
   pickAndUploadDocFile,
@@ -141,9 +145,9 @@ import { quitarTodasLasMarcasDeTexto } from '../lib/requerimientoFlujo';
 // Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
 type Prioridad = 'alta' | 'media' | 'baja';
 const PRIORIDAD_INFO: Record<Prioridad, { label: string; tone: 'danger' | 'warning' | 'info' }> = {
-  alta:  { label: '🔺 Alta',  tone: 'danger'  },
+  alta: { label: '🔺 Alta', tone: 'danger' },
   media: { label: '🔸 Media', tone: 'warning' },
-  baja:  { label: '🔹 Baja',  tone: 'info'    },
+  baja: { label: '🔹 Baja', tone: 'info' },
 };
 const PRIORIDAD_RANK: Record<Prioridad, number> = { alta: 0, media: 1, baja: 2 };
 
@@ -219,11 +223,11 @@ function Pill({ label, bg, border, text }: { label: string; bg: string; border: 
 // ── Situación de una cuenta (lo que decide color, orden y totales) ───────────
 type Situacion = 'pagada' | 'anulada' | 'vencida' | 'por_vencer' | 'pendiente';
 const SIT_INFO: Record<Situacion, { label: string; tone: Tone }> = {
-  pagada:     { label: '✅ Pagada',    tone: 'success' },
-  anulada:    { label: '⛔ Anulada',   tone: 'danger'  },
-  vencida:    { label: '🔴 Vencida',   tone: 'danger'  },
+  pagada: { label: '✅ Pagada', tone: 'success' },
+  anulada: { label: '⛔ Anulada', tone: 'danger' },
+  vencida: { label: '🔴 Vencida', tone: 'danger' },
   por_vencer: { label: '🟠 Por vencer', tone: 'warning' },
-  pendiente:  { label: '🕓 Pendiente', tone: 'info'    },
+  pendiente: { label: '🕓 Pendiente', tone: 'info' },
 };
 /** Ventana de "por vencer": vence dentro de los próximos 7 días. */
 const DIAS_POR_VENCER = 7;
@@ -529,7 +533,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             return next;
           });
         }
-      } catch {}
+      } catch { }
     })();
     return () => { cancel = true; };
   }, [tipo]);
@@ -664,7 +668,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   // 📅 Filtro por Fecha Específica o Rango de Fechas en Por Pagar
   const [modoFechaCxp, setModoFechaCxp] = useState<'todas' | 'dia' | 'rango'>('todas');
-  const [campoFechaCxp, setCampoFechaCxp] = useState<'cualquiera' | 'envio' | 'solicitud'>('cualquiera');
+  const [campoFechaCxp, setCampoFechaCxp] = useState<'cualquiera' | 'aprobacion' | 'envio' | 'solicitud'>('cualquiera');
   const [fechaDesdeCxp, setFechaDesdeCxp] = useState('');
   const [fechaHastaCxp, setFechaHastaCxp] = useState('');
   const [monedaFiltroCxp, setMonedaFiltroCxp] = useState<'todas' | MonedaRealPago>('todas');
@@ -739,17 +743,17 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         : c.traza.items.length > 0
           ? c.traza.items
           : [
-              {
-                product_id: null,
-                name: c.concepto || 'Ítem de compra',
-                qty: 1,
-                unit: 'und',
-                est_price: Number(c.monto) || 0,
-                currency: 'USD',
-                note: null,
-                exento: true,
-              },
-            ];
+            {
+              product_id: null,
+              name: c.concepto || 'Ítem de compra',
+              qty: 1,
+              unit: 'und',
+              est_price: Number(c.monto) || 0,
+              currency: 'USD',
+              note: null,
+              exento: true,
+            },
+          ];
     setEditItemsCuenta(c);
     setEditItemsIvaAlicuota(
       c.desgloseIva?.alicuota ??
@@ -905,7 +909,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               total: nuevoMontoTotal,
             })
             .eq('id', editItemsCuenta.order_id);
-        } catch {}
+        } catch { }
       }
 
       setEditItemsCuenta(null);
@@ -1389,7 +1393,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             .eq('id', c.inventory_requirement_id);
           refetchRequirements();
         }
-      } catch {}
+      } catch { }
     }
 
     refetch();
@@ -1451,7 +1455,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               .update({ observaciones: obsAp })
               .eq('id', c.inventory_requirement_id);
           }
-        } catch {}
+        } catch { }
       }
     }
     if (aprobadasOk > 0) {
@@ -1607,16 +1611,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       notaLimpia,
       reciboPagoUrl
         ? {
-            url: reciboPagoUrl,
-            tipo: rpPrev?.tipo || 'image',
-            nombre: rpPrev?.nombre || 'Recibo de pago',
-            archivos: rpPrev?.archivos,
-            referencia: rpPrev?.referencia,
-            metodo: rpPrev?.metodo,
-            nota: rpPrev?.nota,
-            subidoPor: rpPrev?.subidoPor || session?.user?.email || 'Administración',
-            fecha: rpPrev?.fecha,
-          }
+          url: reciboPagoUrl,
+          tipo: rpPrev?.tipo || 'image',
+          nombre: rpPrev?.nombre || 'Recibo de pago',
+          archivos: rpPrev?.archivos,
+          referencia: rpPrev?.referencia,
+          metodo: rpPrev?.metodo,
+          nota: rpPrev?.nota,
+          subidoPor: rpPrev?.subidoPor || session?.user?.email || 'Administración',
+          fecha: rpPrev?.fecha,
+        }
         : null
     );
     if (facPrev) {
@@ -1764,7 +1768,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           })
           .eq('id', reqIdTarget);
         refetchRequirements();
-      } catch {}
+      } catch { }
     }
     setOpen(false); setEdit(null);
     refetch();
@@ -1799,20 +1803,20 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const rpPrev = extraerReciboPagoCuenta(c);
     const notaConRecibo = rpPrev
       ? inyectarReciboPagoEnNota(c.nota, {
-          ...rpPrev,
-          subidoPor: rpPrev.subidoPor || autorPago,
-          subidoAt: rpPrev.subidoAt || ahoraPago,
-        })
+        ...rpPrev,
+        subidoPor: rpPrev.subidoPor || autorPago,
+        subidoAt: rpPrev.subidoAt || ahoraPago,
+      })
       : inyectarReciboPagoEnNota(c.nota, {
-          url: null,
-          tipo: 'image',
-          nombre: 'Liquidación Cuentas por Pagar',
-          referencia: c.documento || 'CXP-PAGADA',
-          metodo: 'Cuentas por Pagar',
-          fecha: ahoraPago.slice(0, 10),
-          subidoPor: autorPago,
-          subidoAt: ahoraPago,
-        });
+        url: null,
+        tipo: 'image',
+        nombre: 'Liquidación Cuentas por Pagar',
+        referencia: c.documento || 'CXP-PAGADA',
+        metodo: 'Cuentas por Pagar',
+        fecha: ahoraPago.slice(0, 10),
+        subidoPor: autorPago,
+        subidoAt: ahoraPago,
+      });
     const notaConPag = anexarEventoHistorial(notaConRecibo, evPag);
     const { error } = await supabase.from('cuentas')
       .update({ estado: 'pagada', settled_by: session?.user?.id ?? null, settled_at: ahoraPago, nota: notaConPag, updated_at: ahoraPago })
@@ -1909,7 +1913,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           })
           .eq('id', c.inventory_requirement_id);
         refetchRequirements();
-      } catch {}
+      } catch { }
     }
     refetch();
     toast.success('Cuenta anulada.');
@@ -2014,7 +2018,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             .update({ observaciones: anexarEventoHistorial(rRow.observaciones, evDelAb) })
             .eq('id', c.inventory_requirement_id);
         }
-      } catch {}
+      } catch { }
     }
     refetchAbonos();
     refetch();
@@ -2096,7 +2100,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     try {
       const notaConAb = anexarEventoHistorial(abonoDe.nota, evAbono);
       await supabase.from('cuentas').update({ nota: notaConAb, updated_at: nowISO() }).eq('id', abonoDe.id);
-    } catch {}
+    } catch { }
 
     // Sincronización automática con requerimiento si el abono saldó la deuda
     if (abonoDe.inventory_requirement_id) {
@@ -2218,8 +2222,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         const desgloseProveedores =
           c.tipo === 'por_pagar' && reqVincDesglose
             ? desgloseProveedoresDeReq(reqVincDesglose, suppliers, tasaDesglose, {
-                actualizarATasaDelDia: !usarEseDiaCta,
-              })
+              actualizarATasaDelDia: !usarEseDiaCta,
+            })
             : null;
         const baseCalc = calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, desgloseIva, apEstado, apInfo);
         const planCta = (c as any).plan_pago ?? (reqVincDesglose as any)?.plan_pago ?? null;
@@ -2281,6 +2285,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     };
     const pasaFiltroFechaCxp = (c: CuentaCalc) => {
       if (modoFechaCxp === 'todas') return true;
+      const dAprob = fechaAprobacionSoloDiaDe(c) || '';
       const dEnvio = c.traza.fechaEnvioSoloDia || '';
       const dSol = c.traza.fechaSolicitudSoloDia || c.fecha_emision || '';
       const cumpleFecha = (d: string) => {
@@ -2293,9 +2298,10 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         if (fechaHastaCxp && d > fechaHastaCxp) return false;
         return true;
       };
+      if (campoFechaCxp === 'aprobacion') return cumpleFecha(dAprob);
       if (campoFechaCxp === 'envio') return cumpleFecha(dEnvio);
       if (campoFechaCxp === 'solicitud') return cumpleFecha(dSol);
-      return cumpleFecha(dEnvio) || cumpleFecha(dSol);
+      return cumpleFecha(dAprob) || cumpleFecha(dEnvio) || cumpleFecha(dSol);
     };
     const vis = porEmpresas
       .filter(pasaVerPagadas)
@@ -2428,20 +2434,20 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const tieneBancoDb = Boolean(db && (db.banco || db.numeroCuenta || db.pagoMovilTelefono || db.binanceId || db.instruccionesPago));
     const bancoResuelto = tieneBancoDb && db
       ? {
-          titular: db.titular, rifTitular: db.rifTitular, banco: db.banco, numeroCuenta: db.numeroCuenta, tipoCuenta: db.tipoCuenta,
-          pagoMovilBanco: db.pagoMovilBanco, pagoMovilTelefono: db.pagoMovilTelefono, pagoMovilCedulaRif: db.pagoMovilCedulaRif,
-          binanceId: db.binanceId, instruccionesPago: db.instruccionesPago,
-        }
+        titular: db.titular, rifTitular: db.rifTitular, banco: db.banco, numeroCuenta: db.numeroCuenta, tipoCuenta: db.tipoCuenta,
+        pagoMovilBanco: db.pagoMovilBanco, pagoMovilTelefono: db.pagoMovilTelefono, pagoMovilCedulaRif: db.pagoMovilCedulaRif,
+        binanceId: db.binanceId, instruccionesPago: db.instruccionesPago,
+      }
       : desglose.length === 1 && desglose[0].banco
-      ? desglose[0].banco
-      : null;
+        ? desglose[0].banco
+        : null;
     const provRaw = (t?.proveedorNombre || c.contraparte || '').trim();
     const provResuelto =
       (!provRaw || provRaw.toUpperCase() === 'PROVEEDOR') && desglose.length === 1
         ? desglose[0].proveedor
         : (!provRaw || provRaw.toUpperCase() === 'PROVEEDOR') && desglose.length > 1
-        ? `${desglose.length} PROVEEDORES (${desglose.map((d) => d.proveedor).join(' / ')})`
-        : provRaw || 'PROVEEDOR';
+          ? `${desglose.length} PROVEEDORES (${desglose.map((d) => d.proveedor).join(' / ')})`
+          : provRaw || 'PROVEEDOR';
     return {
       id: c.id,
       orden: t?.reqCode || c.documento || ('CTA-' + String(c.id).slice(0, 8).toUpperCase()),
@@ -2471,6 +2477,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       empresa: t?.empresaPagadoraNombre || c.empresaNombre || null,
       fecha: t?.fechaEnvioSoloDia || t?.fechaSolicitudSoloDia || c.fecha_emision || null,
       notaEspera: notaEspActiva?.texto || null,
+      fechaAprobacion: fmtFechaAprobacionLegible(
+        c.aprobacionInfo?.estado === 'aprobado' && c.aprobacionInfo?.fecha
+          ? c.aprobacionInfo.fecha
+          : (t as any)?.aprobadoGerenciaEl ?? (t?.reqVinculado as any)?.approved_at ?? null
+      ),
       aprobacionEstado: c.aprobacionEstado,
       plan: (() => {
         const pl = planDeCuenta(c);
@@ -2638,13 +2649,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
       const tieneAlgunDatoSup = Boolean(
         payloadSupplier.rif ||
-          payloadSupplier.phone ||
-          payloadSupplier.bank_name ||
-          payloadSupplier.account_number ||
-          payloadSupplier.pago_movil_phone ||
-          payloadSupplier.pago_movil_bank ||
-          payloadSupplier.binance_id ||
-          payloadSupplier.payment_notes,
+        payloadSupplier.phone ||
+        payloadSupplier.bank_name ||
+        payloadSupplier.account_number ||
+        payloadSupplier.pago_movil_phone ||
+        payloadSupplier.pago_movil_bank ||
+        payloadSupplier.binance_id ||
+        payloadSupplier.payment_notes,
       );
 
       if (supplierIdFinal) {
@@ -2750,7 +2761,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               .eq('id', reqIdVinc);
             refetchRequirements();
           }
-        } catch {}
+        } catch { }
       }
 
       await Promise.all([refetch(), refetchSuppliers()]);
@@ -3155,6 +3166,66 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         </View>
       ) : null}
 
+      {/* Resumen interactivo por Fecha de Aprobación cuando está activo "Esperando Pago" o el filtro por aprobación */}
+      {tipo === 'por_pagar' && (filtroEstadoCxp === 'esperando_pago' || campoFechaCxp === 'aprobacion') ? (() => {
+        const gruposAprob = agruparCuentasPorFechaAprobacion(lista);
+        if (gruposAprob.length === 0) return null;
+        return (
+          <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs + 2, marginBottom: spacing.xs, gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+              <Text style={{ color: colors.text, fontSize: 11, fontWeight: '800' }}>
+                ✅ RESUMEN POR FECHA DE APROBACIÓN (toca un día para filtrar):
+              </Text>
+              {(modoFechaCxp !== 'todas' && campoFechaCxp === 'aprobacion') ? (
+                <TouchableOpacity
+                  onPress={() => { setModoFechaCxp('todas'); setFechaDesdeCxp(''); setFechaHastaCxp(''); }}
+                  style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger }}
+                >
+                  <Text style={{ color: colors.danger, fontSize: 10.5, fontWeight: '800' }}>✕ Ver todos los días</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {gruposAprob.map((g) => {
+                const esSinFecha = g.fecha === SIN_FECHA_APROBACION;
+                const on = !esSinFecha && modoFechaCxp === 'dia' && campoFechaCxp === 'aprobacion' && fechaDesdeCxp === g.fecha;
+                return (
+                  <TouchableOpacity
+                    key={g.fecha}
+                    disabled={esSinFecha}
+                    onPress={() => {
+                      if (esSinFecha) return;
+                      if (on) {
+                        setModoFechaCxp('todas');
+                        setFechaDesdeCxp('');
+                        setFechaHastaCxp('');
+                      } else {
+                        setModoFechaCxp('dia');
+                        setCampoFechaCxp('aprobacion');
+                        setFechaDesdeCxp(g.fecha);
+                      }
+                    }}
+                    style={{
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: on ? colors.brand : colors.border,
+                      backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                      paddingHorizontal: 10,
+                      paddingVertical: 4,
+                      opacity: esSinFecha ? 0.7 : 1,
+                    }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '800' }}>
+                      📅 {g.etiqueta} · {g.count} cta(s) · {usd(g.totalUsd)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        );
+      })() : null}
+
       {/* 💱 Filtro rápido por moneda real de pago (Bs / USDT / Efectivo $ / Zelle / Mixto / Por definir) */}
       {tipo === 'por_pagar' ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.xs, width: '100%' }}>
@@ -3339,7 +3410,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>Filtrar por:</Text>
                 {(
                   [
-                    ['cualquiera', 'Solicitud o Enviado a Por Pagar'],
+                    ['cualquiera', 'Cualquiera (Aprob., Envío o Solicitud)'],
+                    ['aprobacion', '✅ Fecha de aprobación'],
                     ['envio', '📤 Fecha marcado para Por Pagar'],
                     ['solicitud', '📝 Fecha de solicitud / emisión'],
                   ] as const
@@ -3546,207 +3618,66 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               key={c.id}
               open={forzarExpandida || tarjetasAbiertasIds.has(c.id)}
               onToggle={() => { if (!forzarExpandida) toggleTarjetaCuenta(c.id); }}
-            // Marca visual de lo VENCIDO: borde rojo grueso a la izquierda —
-            // se ve de un vistazo sin tener que leer el badge.
-            style={vencida ? { borderLeftWidth: 4, borderLeftColor: colors.danger } : undefined}
-            summary={
-              <View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
-                  {/* ☐/☑ Marca para el reporte: el toque se queda en la casilla, no abre la tarjeta. */}
-                  <TouchableOpacity
-                    onPress={() => alternarMarca(c.id)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: marcadas.has(c.id) }}
-                    accessibilityLabel={`Marcar la cuenta de ${c.contraparte} para el reporte`}
-                  >
-                    <Text style={{ fontSize: 18, color: marcadas.has(c.id) ? colors.brandText : colors.muted }}>{marcadas.has(c.id) ? '☑' : '☐'}</Text>
-                  </TouchableOpacity>
-                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1, minWidth: 130 }} numberOfLines={1}>{c.contraparte}</Text>
-                  {c.prioridad ? <Pill label={PRIORIDAD_INFO[c.prioridad as Prioridad].label} {...toneSoft(colors, PRIORIDAD_INFO[c.prioridad as Prioridad].tone)} /> : null}
-                  {tipo === 'por_pagar' && c.pagoResuelto ? (
-                    <Pill label={`${c.pagoResuelto.monedaIcono} ${c.pagoResuelto.monedaLabel}`} {...toneSoft(colors, c.pagoResuelto.monedaReal === 'POR_DEFINIR' ? 'warning' : 'info')} />
-                  ) : null}
-                  {tipo === 'por_pagar' && c.traza?.almacenTexto ? (
-                    <Pill label={c.traza.almacenTexto} {...toneSoft(colors, c.traza.almacenEstado === 'pendiente_entrega' ? 'warning' : 'success')} />
-                  ) : null}
-                  {tipo === 'por_pagar' && c.esMayorAMil ? (
-                    <Pill label="💰 Pago > $1,000 USD" {...toneSoft(colors, 'danger')} />
-                  ) : null}
-                  <Pill label={st.label} {...toneSoft(colors, st.tone)} />
-                </View>
-                {/* Estado gerencial de aprobación o espera de pago (solo en Por Pagar cuando sigue abierta) */}
-                {tipo === 'por_pagar' && abiertas ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 4, width: '100%', maxWidth: '100%', minWidth: 0 }}>
-                    {c.aprobacionEstado === 'esperando_aprobacion' ? (
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 6,
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: radius.sm,
-                          backgroundColor: colors.warningSoftBg,
-                          borderWidth: 1,
-                          borderColor: colors.warningSoftBorder,
-                          maxWidth: '100%',
-                          flexShrink: 1,
-                        }}
-                      >
-                        <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
-                          👔 Esperando Aprobación de {aprobadoresLabel}
-                        </Text>
-                      </View>
-                    ) : (
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 6,
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: radius.sm,
-                          backgroundColor: colors.infoSoftBg,
-                          borderWidth: 1,
-                          borderColor: colors.infoSoftBorder,
-                          maxWidth: '100%',
-                          flexShrink: 1,
-                        }}
-                      >
-                        <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
-                          ⏳ Esperando Pago{c.aprobacionInfo?.aprobadoPor ? ` · ✅ Autorizado por ${c.aprobacionInfo.aprobadoPor}` : ''}
-                        </Text>
-                      </View>
-                    )}
-                    {c.aprobacionEstado === 'esperando_aprobacion' && (puedeAprobarPagos || role === 'admin') ? (
-                      <TouchableOpacity
-                        onPress={() => autorizarPagoCuenta(c)}
-                        style={{
-                          backgroundColor: colors.successSoftBg,
-                          borderWidth: 1,
-                          borderColor: colors.successSoftBorder,
-                          borderRadius: radius.pill,
-                          paddingHorizontal: 10,
-                          paddingVertical: 4,
-                          maxWidth: '100%',
-                          flexShrink: 1,
-                        }}
-                      >
-                        <Text style={{ color: colors.successSoftText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
-                          👔 Autorizar Pago
-                        </Text>
-                      </TouchableOpacity>
+              // Marca visual de lo VENCIDO: borde rojo grueso a la izquierda —
+              // se ve de un vistazo sin tener que leer el badge.
+              style={vencida ? { borderLeftWidth: 4, borderLeftColor: colors.danger } : undefined}
+              summary={
+                <View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+                    {/* ☐/☑ Marca para el reporte: el toque se queda en la casilla, no abre la tarjeta. */}
+                    <TouchableOpacity
+                      onPress={() => alternarMarca(c.id)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: marcadas.has(c.id) }}
+                      accessibilityLabel={`Marcar la cuenta de ${c.contraparte} para el reporte`}
+                    >
+                      <Text style={{ fontSize: 18, color: marcadas.has(c.id) ? colors.brandText : colors.muted }}>{marcadas.has(c.id) ? '☑' : '☐'}</Text>
+                    </TouchableOpacity>
+                    <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1, minWidth: 130 }} numberOfLines={1}>{c.contraparte}</Text>
+                    {c.prioridad ? <Pill label={PRIORIDAD_INFO[c.prioridad as Prioridad].label} {...toneSoft(colors, PRIORIDAD_INFO[c.prioridad as Prioridad].tone)} /> : null}
+                    {tipo === 'por_pagar' && c.pagoResuelto ? (
+                      <Pill label={`${c.pagoResuelto.monedaIcono} ${c.pagoResuelto.monedaLabel}`} {...toneSoft(colors, c.pagoResuelto.monedaReal === 'POR_DEFINIR' ? 'warning' : 'info')} />
                     ) : null}
-                  </View>
-                ) : null}
-                {/* 📝 Por qué no se ha pagado (04-nov-2026): visible sin abrir la tarjeta; la escribe cualquiera que vea Por Pagar. */}
-                {tipo === 'por_pagar' ? (
-                  <NotasEsperaCuenta
-                    cuentaId={c.id}
-                    notas={notasEsperaPorCuenta.get(c.id) ?? []}
-                    abierta={abiertas}
-                    miId={uid}
-                    puedeAnularTodas={canWrite}
-                    onCambio={refetchNotasEspera}
-                  />
-                ) : null}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
-                  <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 1 }}>
-                    <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>
-                      🏢 {c.empresaNombre}
-                    </Text>
-                  </View>
-                  <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>
-                    {c.concepto}{c.documento ? ` · ${c.documento}` : ''}
-                  </Text>
-                </View>
-
-                {/* Productos a solicitar visibles de una vez en la tarjeta */}
-                {tipo === 'por_pagar' && c.traza.items.length > 0 ? (
-                  <View style={{ marginTop: 3 }}>
-                    <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }} numberOfLines={2}>
-                      📦{' '}
-                      {c.traza.items
-                        .map((it) => `${it.name} (${Number(it.qty) || 1} ${it.unit || 'und'})`)
-                        .join(' · ')}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {/* Resumen compacto en vista plegada: Solicitante + Destino + Presupuestos + Vencimiento y Monto */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4, width: '100%', maxWidth: '100%', minWidth: 0 }}>
-                  <View style={{ flex: 1, minWidth: 150, gap: 2 }}>
-                    {tipo === 'por_pagar' ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                        <Text style={{ color: colors.text, fontSize: 11 }} numberOfLines={1}>
-                          👤 <Text style={{ color: colors.muted, fontWeight: '700' }}>Solicitó:</Text>{' '}
-                          <Text style={{ fontWeight: '800' }}>{c.traza.solicitadoPor || '—'}</Text>
-                          {c.traza.destinoTexto ? (
-                            <Text style={{ color: colors.brandText, fontWeight: '800' }}> · 🚜 {c.traza.destinoTexto}</Text>
-                          ) : null}
-                        </Text>
-                        {c.presupuestosCount > 0 ? (
-                          <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
-                            <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>
-                              📄 {c.presupuestosCount} presupuesto{c.presupuestosCount > 1 ? 's' : ''}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
+                    {tipo === 'por_pagar' && c.traza?.almacenTexto ? (
+                      <Pill label={c.traza.almacenTexto} {...toneSoft(colors, c.traza.almacenEstado === 'pendiente_entrega' ? 'warning' : 'success')} />
                     ) : null}
-                    <Text style={{ color: vencida ? colors.dangerSoftText : colors.muted, fontSize: 11.5, fontWeight: '700' }}>
-                      Vence: {fmtFecha(c.fecha_vencimiento)}
-                      {dias != null && abiertas ? (dias < 0 ? ` · hace ${Math.abs(dias)} día(s)` : dias === 0 ? ' · HOY' : ` · en ${dias} día(s)`) : ''}
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ color: colors.brandText, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
-                      {usd(c.saldo)}
-                    </Text>
-                    {c.desgloseIva?.tieneIva ? (
-                      <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: 5, paddingVertical: 1, marginTop: 1 }}>
-                        <Text style={{ color: colors.infoSoftText, fontSize: 9.5, fontWeight: '800' }}>
-                          IVA {c.desgloseIva.alicuota}% inc.
-                        </Text>
-                      </View>
+                    {tipo === 'por_pagar' && c.esMayorAMil ? (
+                      <Pill label="💰 Pago > $1,000 USD" {...toneSoft(colors, 'danger')} />
                     ) : null}
-                    {tasaBcv && c.saldo > 0 ? (
-                      <Text selectable style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700', fontVariant: ['tabular-nums'] as any }}>
-                        {bsDe(c).fijo && c.saldo >= (Number(c.monto) || 0) ? '' : '≈ '}{fmtBs(bsDe(c).saldoBs)}
-                      </Text>
-                    ) : null}
+                    <Pill label={st.label} {...toneSoft(colors, st.tone)} />
                   </View>
-                </View>
-              </View>
-            }
-            detail={
-              <>
-                {/* 📋 Ficha de Trazabilidad Completa en Por Pagar (visible al desplegar la tarjeta) */}
-                {tipo === 'por_pagar' ? (
-                  <View
-                    style={{
-                      marginBottom: 8,
-                      padding: 8,
-                      borderRadius: radius.md,
-                      backgroundColor: colors.surfaceAlt,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      gap: 4,
-                      width: '100%',
-                      maxWidth: '100%',
-                      minWidth: 0,
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, width: '100%', maxWidth: '100%', minWidth: 0 }}>
-                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
-                        📋 TRAZABILIDAD DE LA SOLICITUD{c.traza.reqCode ? ` · ${c.traza.reqCode}` : ''}
-                      </Text>
-                      {c.traza.fechaHoraEnviadoPorPagarTexto || c.traza.enviadoPorPagarPor ? (
+                  {/* Estado gerencial de aprobación o espera de pago (solo en Por Pagar cuando sigue abierta) */}
+                  {tipo === 'por_pagar' && abiertas ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 4, width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                      {c.aprobacionEstado === 'esperando_aprobacion' ? (
                         <View
                           style={{
-                            paddingHorizontal: 7,
-                            paddingVertical: 2,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: radius.sm,
+                            backgroundColor: colors.warningSoftBg,
+                            borderWidth: 1,
+                            borderColor: colors.warningSoftBorder,
+                            maxWidth: '100%',
+                            flexShrink: 1,
+                          }}
+                        >
+                          <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
+                            👔 Esperando Aprobación de {aprobadoresLabel}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
                             borderRadius: radius.sm,
                             backgroundColor: colors.infoSoftBg,
                             borderWidth: 1,
@@ -3755,1006 +3686,1149 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                             flexShrink: 1,
                           }}
                         >
-                          <Text style={{ color: colors.infoSoftText, fontSize: 10.5, fontWeight: '800', flexShrink: 1 }}>
-                            📤 Marcado para Por Pagar: {c.traza.enviadoPorPagarPor || 'Compras'}
-                            {c.traza.fechaHoraEnviadoPorPagarTexto ? ` · ${c.traza.fechaHoraEnviadoPorPagarTexto}` : ''}
+                          <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
+                            ⏳ Esperando Pago
+                            {c.aprobacionInfo?.aprobadoPor ? ` · ✅ Autorizado por ${c.aprobacionInfo.aprobadoPor}` : ''}
+                            {c.aprobacionInfo?.fecha ? ` · 📅 ${fmtFechaAprobacionLegible(c.aprobacionInfo.fecha)}` : ''}
                           </Text>
                         </View>
-                      ) : null}
-                    </View>
-
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                        👤 <Text style={{ color: colors.muted, fontWeight: '700' }}>Solicitado por:</Text>{' '}
-                        <Text style={{ fontWeight: '900' }}>{c.traza.solicitadoPor || '—'}</Text>
-                        {c.traza.registradoPor && norm(c.traza.registradoPor) !== norm(c.traza.solicitadoPor)
-                          ? ` (registró: ${c.traza.registradoPor})`
-                          : ''}
-                      </Text>
-                      {c.traza.fechaHoraSolicitudTexto ? (
-                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                          🕒 <Text style={{ color: colors.muted, fontWeight: '700' }}>Fecha/Hora Solicitud:</Text>{' '}
-                          <Text style={{ fontWeight: '800' }}>{c.traza.fechaHoraSolicitudTexto}</Text>
-                        </Text>
-                      ) : null}
-                    </View>
-
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                      {c.traza.destinoTexto ? (
-                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                          🚜 <Text style={{ color: colors.muted, fontWeight: '700' }}>Para / Destino:</Text>{' '}
-                          <Text style={{ color: colors.brandText, fontWeight: '900' }}>{c.traza.destinoTexto}</Text>
-                        </Text>
-                      ) : null}
-                      {c.traza.areaTexto ? (
-                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                          📍 <Text style={{ color: colors.muted, fontWeight: '700' }}>Área:</Text>{' '}
-                          <Text style={{ fontWeight: '800' }}>{c.traza.areaTexto}</Text>
-                        </Text>
-                      ) : null}
-                      <Text style={{ color: colors.text, fontSize: 11.5 }}>
-                        🏢 <Text style={{ color: colors.muted, fontWeight: '700' }}>Empresa:</Text>{' '}
-                        <Text style={{ fontWeight: '800' }}>{c.empresaNombre}</Text>
-                      </Text>
-                    </View>
-
-                    {/* 📦 Renglones / Ítems del requerimiento + Botón Modificar Ítems (Jesús Lozada / Aprobador) */}
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        gap: 6,
-                        marginTop: 2,
-                        paddingTop: 4,
-                        borderTopWidth: 1,
-                        borderTopColor: colors.border,
-                      }}
-                    >
-                      <TouchableOpacity
-                        onPress={() => toggleRenglonesCuenta(c.id)}
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 }}
-                      >
-                        <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '800' }}>
-                          {!renglonesOcultosIds.has(c.id)
-                            ? `▲ Ocultar renglones (${c.traza.items.length || 1})`
-                            : `▼ Ver renglones / ítems del requerimiento (${c.traza.items.length || 1})`}
-                        </Text>
-                      </TouchableOpacity>
-
-                      {puedeOperarCxp ? (
+                      )}
+                      {c.aprobacionEstado === 'esperando_aprobacion' && (puedeAprobarPagos || role === 'admin') ? (
                         <TouchableOpacity
-                          onPress={() => abrirEditorItemsCxp(c)}
+                          onPress={() => autorizarPagoCuenta(c)}
                           style={{
-                            borderRadius: radius.pill,
+                            backgroundColor: colors.successSoftBg,
                             borderWidth: 1,
-                            borderColor: colors.brand,
-                            backgroundColor: colors.surface,
+                            borderColor: colors.successSoftBorder,
+                            borderRadius: radius.pill,
                             paddingHorizontal: 10,
                             paddingVertical: 4,
                             maxWidth: '100%',
                             flexShrink: 1,
                           }}
                         >
-                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
-                            ✏️ Modificar ítems (Quitar / Agregar)
+                          <Text style={{ color: colors.successSoftText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
+                            👔 Autorizar Pago
                           </Text>
                         </TouchableOpacity>
                       ) : null}
                     </View>
+                  ) : null}
+                  {/* 📝 Por qué no se ha pagado (04-nov-2026): visible sin abrir la tarjeta; la escribe cualquiera que vea Por Pagar. */}
+                  {tipo === 'por_pagar' ? (
+                    <NotasEsperaCuenta
+                      cuentaId={c.id}
+                      notas={notasEsperaPorCuenta.get(c.id) ?? []}
+                      abierta={abiertas}
+                      miId={uid}
+                      puedeAnularTodas={canWrite}
+                      onCambio={refetchNotasEspera}
+                    />
+                  ) : null}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                    <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 1 }}>
+                      <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>
+                        🏢 {c.empresaNombre}
+                      </Text>
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>
+                      {c.concepto}{c.documento ? ` · ${c.documento}` : ''}
+                    </Text>
+                  </View>
 
-                    {!renglonesOcultosIds.has(c.id) ? (
-                      <View
-                        style={{
-                          marginTop: 4,
-                          padding: 8,
-                          borderRadius: radius.sm,
-                          backgroundColor: colors.surface,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          gap: 4,
-                        }}
-                      >
-                        {(c.traza.items.length > 0
-                          ? c.traza.items
-                          : [{ item_id: null, name: c.concepto, qty: 1, unit: 'und', est_price: Number(c.monto) || 0, note: null }]
-                        ).map((it, idx) => {
-                          const qty = Number(it.qty) || 0;
-                          const unitP = precioUnitarioUsdLinea(it as RequirementLine, tasaBcv);
-                          const sub = Math.round(totalUsdLinea(it as RequirementLine, tasaBcv) * 100) / 100;
-                          return (
-                            <View
-                              key={`item-${c.id}-${idx}`}
-                              style={{
-                                flexDirection: 'row',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                gap: 6,
-                                paddingVertical: 2,
-                                borderBottomWidth: idx < (c.traza.items.length || 1) - 1 ? 1 : 0,
-                                borderBottomColor: colors.border,
-                              }}
-                            >
-                              <View style={{ flex: 1 }}>
-                                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
-                                  • {it.name}{' '}
-                                  <Text style={{ color: colors.muted, fontWeight: '600' }}>
-                                    ({qty} {it.unit || 'und'}{unitP > 0 ? ` × ${usd(unitP)}` : ''})
-                                  </Text>
-                                </Text>
-                                {it.note ? (
-                                  <Text style={{ color: colors.muted, fontSize: 10.5 }}>Nota: {it.note}</Text>
-                                ) : null}
-                              </View>
-                              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>
-                                {sub > 0 ? usd(sub) : '—'}
+                  {/* Productos a solicitar visibles de una vez en la tarjeta */}
+                  {tipo === 'por_pagar' && c.traza.items.length > 0 ? (
+                    <View style={{ marginTop: 3 }}>
+                      <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }} numberOfLines={2}>
+                        📦{' '}
+                        {c.traza.items
+                          .map((it) => `${it.name} (${Number(it.qty) || 1} ${it.unit || 'und'})`)
+                          .join(' · ')}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {/* Resumen compacto en vista plegada: Solicitante + Destino + Presupuestos + Vencimiento y Monto */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4, width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                    <View style={{ flex: 1, minWidth: 150, gap: 2 }}>
+                      {tipo === 'por_pagar' ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <Text style={{ color: colors.text, fontSize: 11 }} numberOfLines={1}>
+                            👤 <Text style={{ color: colors.muted, fontWeight: '700' }}>Solicitó:</Text>{' '}
+                            <Text style={{ fontWeight: '800' }}>{c.traza.solicitadoPor || '—'}</Text>
+                            {c.traza.destinoTexto ? (
+                              <Text style={{ color: colors.brandText, fontWeight: '800' }}> · 🚜 {c.traza.destinoTexto}</Text>
+                            ) : null}
+                          </Text>
+                          {c.presupuestosCount > 0 ? (
+                            <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
+                              <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>
+                                📄 {c.presupuestosCount} presupuesto{c.presupuestosCount > 1 ? 's' : ''}
                               </Text>
                             </View>
-                          );
-                        })}
-                      </View>
-                    ) : null}
+                          ) : null}
+                        </View>
+                      ) : null}
+                      <Text style={{ color: vencida ? colors.dangerSoftText : colors.muted, fontSize: 11.5, fontWeight: '700' }}>
+                        Vence: {fmtFecha(c.fecha_vencimiento)}
+                        {dias != null && abiertas ? (dias < 0 ? ` · hace ${Math.abs(dias)} día(s)` : dias === 0 ? ' · HOY' : ` · en ${dias} día(s)`) : ''}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: colors.brandText, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
+                        {usd(c.saldo)}
+                      </Text>
+                      {c.desgloseIva?.tieneIva ? (
+                        <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: 5, paddingVertical: 1, marginTop: 1 }}>
+                          <Text style={{ color: colors.infoSoftText, fontSize: 9.5, fontWeight: '800' }}>
+                            IVA {c.desgloseIva.alicuota}% inc.
+                          </Text>
+                        </View>
+                      ) : null}
+                      {tasaBcv && c.saldo > 0 ? (
+                        <Text selectable style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700', fontVariant: ['tabular-nums'] as any }}>
+                          {bsDe(c).fijo && c.saldo >= (Number(c.monto) || 0) ? '' : '≈ '}{fmtBs(bsDe(c).saldoBs)}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
-                ) : null}
+                </View>
+              }
+              detail={
+                <>
+                  {/* 📋 Ficha de Trazabilidad Completa en Por Pagar (visible al desplegar la tarjeta) */}
+                  {tipo === 'por_pagar' ? (
+                    <View
+                      style={{
+                        marginBottom: 8,
+                        padding: 8,
+                        borderRadius: radius.md,
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        gap: 4,
+                        width: '100%',
+                        maxWidth: '100%',
+                        minWidth: 0,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
+                          📋 TRAZABILIDAD DE LA SOLICITUD{c.traza.reqCode ? ` · ${c.traza.reqCode}` : ''}
+                        </Text>
+                        {c.traza.fechaHoraEnviadoPorPagarTexto || c.traza.enviadoPorPagarPor ? (
+                          <View
+                            style={{
+                              paddingHorizontal: 7,
+                              paddingVertical: 2,
+                              borderRadius: radius.sm,
+                              backgroundColor: colors.infoSoftBg,
+                              borderWidth: 1,
+                              borderColor: colors.infoSoftBorder,
+                              maxWidth: '100%',
+                              flexShrink: 1,
+                            }}
+                          >
+                            <Text style={{ color: colors.infoSoftText, fontSize: 10.5, fontWeight: '800', flexShrink: 1 }}>
+                              📤 Marcado para Por Pagar: {c.traza.enviadoPorPagarPor || 'Compras'}
+                              {c.traza.fechaHoraEnviadoPorPagarTexto ? ` · ${c.traza.fechaHoraEnviadoPorPagarTexto}` : ''}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
 
-                {/* 💳 Desglose por proveedor + PDF del requerimiento (04-nov-2026): cuánto pagarle a cada uno. */}
-                {tipo === 'por_pagar' && c.inventory_requirement_id && reqPorIdBs.get(c.inventory_requirement_id) ? (
-                  <DesgloseProveedoresCxp
-                    req={reqPorIdBs.get(c.inventory_requirement_id) as InventoryRequirement}
-                    suppliers={suppliers}
-                    rate={tasaBcv ?? null}
-                    companyName={(id) => (id ? companies.find((co) => co.id === id)?.name ?? null : null)}
-                    usarTasaDeEseDia={usaTasaDeEseDia(c.id)}
-                    tasaDeEseDia={bsDe(c).tasaEseDia}
-                    montoBsEseDia={bsDe(c).montoBsEseDia}
-                    montoBsHoy={bsDe(c).montoBsHoy}
-                    onToggleTasaDeEseDia={() => toggleTasaEseDiaCuenta(c.id)}
-                  />
-                ) : null}
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                          👤 <Text style={{ color: colors.muted, fontWeight: '700' }}>Solicitado por:</Text>{' '}
+                          <Text style={{ fontWeight: '900' }}>{c.traza.solicitadoPor || '—'}</Text>
+                          {c.traza.registradoPor && norm(c.traza.registradoPor) !== norm(c.traza.solicitadoPor)
+                            ? ` (registró: ${c.traza.registradoPor})`
+                            : ''}
+                        </Text>
+                        {c.traza.fechaHoraSolicitudTexto ? (
+                          <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                            🕒 <Text style={{ color: colors.muted, fontWeight: '700' }}>Fecha/Hora Solicitud:</Text>{' '}
+                            <Text style={{ fontWeight: '800' }}>{c.traza.fechaHoraSolicitudTexto}</Text>
+                          </Text>
+                        ) : null}
+                      </View>
 
-                {/* 💳 BLOQUE COMPLETO DE MÉTODOS, CONDICIONES Y DATOS BANCARIOS DE PAGO (desplegable, por defecto oculto / plegado) */}
-                {tipo === 'por_pagar' ? (
-                  (() => {
-                    const ip = c.infoPago;
-                    const db = ip.datosBancarios;
-                    const rpResumen = extraerReciboPagoCuenta(c);
-                    const abonosCuenta = abonos.filter((a) => a.cuenta_id === c.id);
-                    const tieneTransferencia = Boolean(db.banco || db.numeroCuenta);
-                    const tienePagoMovil = Boolean(db.pagoMovilTelefono || db.pagoMovilBanco);
-                    const tieneDigital = Boolean(db.binanceId || db.instruccionesPago || db.capturaPago?.url);
-                    const metodoPagoAbierto = metodosPagoAbiertosIds.has(c.id);
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                        {c.traza.destinoTexto ? (
+                          <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                            🚜 <Text style={{ color: colors.muted, fontWeight: '700' }}>Para / Destino:</Text>{' '}
+                            <Text style={{ color: colors.brandText, fontWeight: '900' }}>{c.traza.destinoTexto}</Text>
+                          </Text>
+                        ) : null}
+                        {c.traza.areaTexto ? (
+                          <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                            📍 <Text style={{ color: colors.muted, fontWeight: '700' }}>Área:</Text>{' '}
+                            <Text style={{ fontWeight: '800' }}>{c.traza.areaTexto}</Text>
+                          </Text>
+                        ) : null}
+                        <Text style={{ color: colors.text, fontSize: 11.5 }}>
+                          🏢 <Text style={{ color: colors.muted, fontWeight: '700' }}>Empresa:</Text>{' '}
+                          <Text style={{ fontWeight: '800' }}>{c.empresaNombre}</Text>
+                        </Text>
+                      </View>
 
-                    return (
+                      {/* 📦 Renglones / Ítems del requerimiento + Botón Modificar Ítems (Jesús Lozada / Aprobador) */}
                       <View
                         style={{
-                          marginBottom: 8,
-                          padding: 9,
-                          borderRadius: radius.md,
-                          backgroundColor: colors.surfaceAlt,
-                          borderWidth: 1,
-                          borderColor: ip.alertaTasaEspecial ? colors.warningSoftBorder : colors.border,
-                          borderLeftWidth: 3,
-                          borderLeftColor: ip.alertaTasaEspecial
-                            ? colors.warning
-                            : ip.tieneDatosBancarios || c.condicionesPago
-                              ? colors.accent
-                              : colors.brand,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
                           gap: 6,
-                          width: '100%',
-                          maxWidth: '100%',
-                          minWidth: 0,
+                          marginTop: 2,
+                          paddingTop: 4,
+                          borderTopWidth: 1,
+                          borderTopColor: colors.border,
                         }}
                       >
-                        {/* Cabecera desplegable del bloque con botones rápidos de Copiar y Configurar/Editar */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <TouchableOpacity
+                          onPress={() => toggleRenglonesCuenta(c.id)}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 }}
+                        >
+                          <Text style={{ color: colors.brandText, fontSize: 11.5, fontWeight: '800' }}>
+                            {!renglonesOcultosIds.has(c.id)
+                              ? `▲ Ocultar renglones (${c.traza.items.length || 1})`
+                              : `▼ Ver renglones / ítems del requerimiento (${c.traza.items.length || 1})`}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {puedeOperarCxp ? (
                           <TouchableOpacity
-                            onPress={() => toggleMetodosPagoCuenta(c.id)}
-                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                            style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, flex: 1, paddingVertical: 2 }}
+                            onPress={() => abrirEditorItemsCxp(c)}
+                            style={{
+                              borderRadius: radius.pill,
+                              borderWidth: 1,
+                              borderColor: colors.brand,
+                              backgroundColor: colors.surface,
+                              paddingHorizontal: 10,
+                              paddingVertical: 4,
+                              maxWidth: '100%',
+                              flexShrink: 1,
+                            }}
                           >
-                            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
-                              {metodoPagoAbierto ? '▲' : '▼'} 💳 MÉTODOS, CONDICIONES Y DATOS DE PAGO
+                            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900', flexShrink: 1 }}>
+                              ✏️ Modificar ítems (Quitar / Agregar)
                             </Text>
-                            <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '800' }}>
-                              {metodoPagoAbierto ? '(Ocultar)' : '(Toque para desplegar)'}
-                            </Text>
-                            {ip.alertaTasaEspecial ? (
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+
+                      {!renglonesOcultosIds.has(c.id) ? (
+                        <View
+                          style={{
+                            marginTop: 4,
+                            padding: 8,
+                            borderRadius: radius.sm,
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            gap: 4,
+                          }}
+                        >
+                          {(c.traza.items.length > 0
+                            ? c.traza.items
+                            : [{ item_id: null, name: c.concepto, qty: 1, unit: 'und', est_price: Number(c.monto) || 0, note: null }]
+                          ).map((it, idx) => {
+                            const qty = Number(it.qty) || 0;
+                            const unitP = precioUnitarioUsdLinea(it as RequirementLine, tasaBcv);
+                            const sub = Math.round(totalUsdLinea(it as RequirementLine, tasaBcv) * 100) / 100;
+                            return (
                               <View
+                                key={`item-${c.id}-${idx}`}
                                 style={{
-                                  backgroundColor: colors.warningSoftBg,
-                                  borderWidth: 1,
-                                  borderColor: colors.warningSoftBorder,
-                                  borderRadius: radius.pill,
-                                  paddingHorizontal: 7,
-                                  paddingVertical: 1,
+                                  flexDirection: 'row',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  paddingVertical: 2,
+                                  borderBottomWidth: idx < (c.traza.items.length || 1) - 1 ? 1 : 0,
+                                  borderBottomColor: colors.border,
                                 }}
                               >
-                                <Text style={{ color: colors.warningSoftText, fontSize: 10.5, fontWeight: '900' }}>
-                                  {ip.alertaTasaEspecial}
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+                                    • {it.name}{' '}
+                                    <Text style={{ color: colors.muted, fontWeight: '600' }}>
+                                      ({qty} {it.unit || 'und'}{unitP > 0 ? ` × ${usd(unitP)}` : ''})
+                                    </Text>
+                                  </Text>
+                                  {it.note ? (
+                                    <Text style={{ color: colors.muted, fontSize: 10.5 }}>Nota: {it.note}</Text>
+                                  ) : null}
+                                </View>
+                                <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>
+                                  {sub > 0 ? usd(sub) : '—'}
                                 </Text>
                               </View>
-                            ) : null}
-                          </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
 
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  {/* 💳 Desglose por proveedor + PDF del requerimiento (04-nov-2026): cuánto pagarle a cada uno. */}
+                  {tipo === 'por_pagar' && c.inventory_requirement_id && reqPorIdBs.get(c.inventory_requirement_id) ? (
+                    <DesgloseProveedoresCxp
+                      req={reqPorIdBs.get(c.inventory_requirement_id) as InventoryRequirement}
+                      suppliers={suppliers}
+                      rate={tasaBcv ?? null}
+                      companyName={(id) => (id ? companies.find((co) => co.id === id)?.name ?? null : null)}
+                      usarTasaDeEseDia={usaTasaDeEseDia(c.id)}
+                      tasaDeEseDia={bsDe(c).tasaEseDia}
+                      montoBsEseDia={bsDe(c).montoBsEseDia}
+                      montoBsHoy={bsDe(c).montoBsHoy}
+                      onToggleTasaDeEseDia={() => toggleTasaEseDiaCuenta(c.id)}
+                    />
+                  ) : null}
+
+                  {/* 💳 BLOQUE COMPLETO DE MÉTODOS, CONDICIONES Y DATOS BANCARIOS DE PAGO (desplegable, por defecto oculto / plegado) */}
+                  {tipo === 'por_pagar' ? (
+                    (() => {
+                      const ip = c.infoPago;
+                      const db = ip.datosBancarios;
+                      const rpResumen = extraerReciboPagoCuenta(c);
+                      const abonosCuenta = abonos.filter((a) => a.cuenta_id === c.id);
+                      const tieneTransferencia = Boolean(db.banco || db.numeroCuenta);
+                      const tienePagoMovil = Boolean(db.pagoMovilTelefono || db.pagoMovilBanco);
+                      const tieneDigital = Boolean(db.binanceId || db.instruccionesPago || db.capturaPago?.url);
+                      const metodoPagoAbierto = metodosPagoAbiertosIds.has(c.id);
+
+                      return (
+                        <View
+                          style={{
+                            marginBottom: 8,
+                            padding: 9,
+                            borderRadius: radius.md,
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: ip.alertaTasaEspecial ? colors.warningSoftBorder : colors.border,
+                            borderLeftWidth: 3,
+                            borderLeftColor: ip.alertaTasaEspecial
+                              ? colors.warning
+                              : ip.tieneDatosBancarios || c.condicionesPago
+                                ? colors.accent
+                                : colors.brand,
+                            gap: 6,
+                            width: '100%',
+                            maxWidth: '100%',
+                            minWidth: 0,
+                          }}
+                        >
+                          {/* Cabecera desplegable del bloque con botones rápidos de Copiar y Configurar/Editar */}
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                             <TouchableOpacity
-                              onPress={() => copiarTextoPortapapeles(ip.resumenCopiable)}
+                              onPress={() => toggleMetodosPagoCuenta(c.id)}
                               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                              style={{
-                                backgroundColor: colors.surface,
-                                borderWidth: 1,
-                                borderColor: colors.brand,
-                                borderRadius: radius.pill,
-                                paddingHorizontal: 8,
-                                paddingVertical: 3,
-                              }}
+                              style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, flex: 1, paddingVertical: 2 }}
                             >
-                              <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '800' }}>
-                                📋 Copiar datos de pago
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                                {metodoPagoAbierto ? '▲' : '▼'} 💳 MÉTODOS, CONDICIONES Y DATOS DE PAGO
                               </Text>
+                              <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '800' }}>
+                                {metodoPagoAbierto ? '(Ocultar)' : '(Toque para desplegar)'}
+                              </Text>
+                              {ip.alertaTasaEspecial ? (
+                                <View
+                                  style={{
+                                    backgroundColor: colors.warningSoftBg,
+                                    borderWidth: 1,
+                                    borderColor: colors.warningSoftBorder,
+                                    borderRadius: radius.pill,
+                                    paddingHorizontal: 7,
+                                    paddingVertical: 1,
+                                  }}
+                                >
+                                  <Text style={{ color: colors.warningSoftText, fontSize: 10.5, fontWeight: '900' }}>
+                                    {ip.alertaTasaEspecial}
+                                  </Text>
+                                </View>
+                              ) : null}
                             </TouchableOpacity>
-                            {puedeOperarCxp ? (
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                               <TouchableOpacity
-                                onPress={() => abrirEditorPagoCxp(c)}
+                                onPress={() => copiarTextoPortapapeles(ip.resumenCopiable)}
                                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                 style={{
-                                  backgroundColor: colors.infoSoftBg,
+                                  backgroundColor: colors.surface,
                                   borderWidth: 1,
-                                  borderColor: colors.infoSoftBorder,
+                                  borderColor: colors.brand,
                                   borderRadius: radius.pill,
                                   paddingHorizontal: 8,
                                   paddingVertical: 3,
                                 }}
                               >
-                                <Text style={{ color: colors.infoSoftText, fontSize: 10.5, fontWeight: '900' }}>
-                                  💳 {ip.tieneDatosBancarios || c.condicionesPago ? 'Editar métodos / datos' : '+ Cargar métodos de pago'}
+                                <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '800' }}>
+                                  📋 Copiar datos de pago
                                 </Text>
                               </TouchableOpacity>
-                            ) : null}
-                          </View>
-                        </View>
-
-                        {metodoPagoAbierto ? (
-                          <>
-                        {/* Fila de Chips de Métodos de Pago y Condiciones */}
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, width: '100%', maxWidth: '100%', minWidth: 0 }}>
-                          {c.condicionesPago ? (
-                            <View
-                              style={{
-                                backgroundColor: colors.infoSoftBg,
-                                borderWidth: 1,
-                                borderColor: colors.infoSoftBorder,
-                                borderRadius: radius.sm,
-                                paddingHorizontal: 8,
-                                paddingVertical: 2,
-                                maxWidth: '100%',
-                                flexShrink: 1,
-                              }}
-                            >
-                              <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800', flexShrink: 1 }}>
-                                ⏱️ {c.condicionesPago}
-                              </Text>
+                              {puedeOperarCxp ? (
+                                <TouchableOpacity
+                                  onPress={() => abrirEditorPagoCxp(c)}
+                                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                  style={{
+                                    backgroundColor: colors.infoSoftBg,
+                                    borderWidth: 1,
+                                    borderColor: colors.infoSoftBorder,
+                                    borderRadius: radius.pill,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                  }}
+                                >
+                                  <Text style={{ color: colors.infoSoftText, fontSize: 10.5, fontWeight: '900' }}>
+                                    💳 {ip.tieneDatosBancarios || c.condicionesPago ? 'Editar métodos / datos' : '+ Cargar métodos de pago'}
+                                  </Text>
+                                </TouchableOpacity>
+                              ) : null}
                             </View>
-                          ) : null}
-                          {ip.metodosActivos.map((met) => (
-                            <View
-                              key={met}
-                              style={{
-                                backgroundColor: colors.surface,
-                                borderWidth: 1,
-                                borderColor: colors.brand,
-                                borderRadius: radius.pill,
-                                paddingHorizontal: 8,
-                                paddingVertical: 2,
-                                maxWidth: '100%',
-                                flexShrink: 1,
-                              }}
-                            >
-                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', flexShrink: 1 }}>
-                                {met}
-                              </Text>
-                            </View>
-                          ))}
-                          {!c.condicionesPago && ip.metodosActivos.length === 0 ? (
-                            <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic' }}>
-                              Sin método o condición especificada aún
-                            </Text>
-                          ) : null}
-                        </View>
-
-                        {/* RIF y Teléfono del Proveedor si están disponibles */}
-                        {db.proveedorRif || db.proveedorTelefono ? (
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                            {db.proveedorRif ? (
-                              <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
-                                🪪 <Text style={{ color: colors.muted, fontWeight: '700' }}>RIF / C.I.:</Text>{' '}
-                                <Text style={{ fontWeight: '800' }}>{db.proveedorRif}</Text>
-                              </Text>
-                            ) : null}
-                            {db.proveedorTelefono ? (
-                              <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
-                                📞 <Text style={{ color: colors.muted, fontWeight: '700' }}>Tel:</Text>{' '}
-                                <Text style={{ fontWeight: '800' }}>{db.proveedorTelefono}</Text>
-                              </Text>
-                            ) : null}
                           </View>
-                        ) : null}
 
-                        {/* Grilla Responsiva (Móvil 1 columna / PC 2-3 columnas) de Coordenadas Bancarias */}
-                        {tieneTransferencia || tienePagoMovil || tieneDigital ? (
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                            {tieneTransferencia ? (
-                              <View
-                                style={{
-                                  flexGrow: 1,
-                                  flexBasis: 220,
-                                  minWidth: 150,
-                                  maxWidth: '100%',
-                                  backgroundColor: colors.surface,
-                                  borderWidth: 1,
-                                  borderColor: colors.border,
-                                  borderRadius: radius.sm,
-                                  padding: 7,
-                                  gap: 2,
-                                }}
-                              >
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
-                                    🏦 TRANSFERENCIA {db.tipoCuenta ? `(${db.tipoCuenta.toUpperCase()})` : ''}
-                                  </Text>
-                                  {db.numeroCuenta ? (
-                                    <TouchableOpacity
-                                      onPress={() => copiarTextoPortapapeles(db.numeroCuenta!, '📋 N° de cuenta copiado.')}
-                                    >
-                                      <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>📋 Copiar Cta</Text>
-                                    </TouchableOpacity>
-                                  ) : null}
-                                </View>
-                                {db.banco ? (
-                                  <Text selectable style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
-                                    {db.banco}
-                                  </Text>
-                                ) : null}
-                                {db.numeroCuenta ? (
-                                  <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
-                                    Cta: {db.numeroCuenta}
-                                  </Text>
-                                ) : null}
-                                {db.titular || db.rifTitular ? (
-                                  <Text selectable style={{ color: colors.muted, fontSize: 11 }}>
-                                    Titular: <Text style={{ color: colors.text, fontWeight: '700' }}>{db.titular || db.proveedorNombre}</Text>
-                                    {db.rifTitular ? ` · ${db.rifTitular}` : ''}
-                                  </Text>
-                                ) : null}
-                              </View>
-                            ) : null}
-
-                            {tienePagoMovil ? (
-                              <View
-                                style={{
-                                  flexGrow: 1,
-                                  flexBasis: 210,
-                                  minWidth: 150,
-                                  maxWidth: '100%',
-                                  backgroundColor: colors.surface,
-                                  borderWidth: 1,
-                                  borderColor: colors.border,
-                                  borderRadius: radius.sm,
-                                  padding: 7,
-                                  gap: 2,
-                                }}
-                              >
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                                  <Text style={{ color: colors.successSoftText, fontSize: 11, fontWeight: '900' }}>
-                                    📲 PAGO MÓVIL
-                                  </Text>
-                                  <TouchableOpacity
-                                    onPress={() =>
-                                      copiarTextoPortapapeles(
-                                        [db.pagoMovilBanco, db.pagoMovilTelefono, db.pagoMovilCedulaRif].filter(Boolean).join(' '),
-                                        '📋 Datos de Pago Móvil copiados.',
-                                      )
-                                    }
-                                  >
-                                    <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>📋 Copiar PM</Text>
-                                  </TouchableOpacity>
-                                </View>
-                                <Text selectable style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
-                                  Banco: {db.pagoMovilBanco || db.banco || 'Por definir'}
-                                </Text>
-                                <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '900' }}>
-                                  Tel: {db.pagoMovilTelefono || '—'} · C.I./RIF: {db.pagoMovilCedulaRif || db.proveedorRif || '—'}
-                                </Text>
-                              </View>
-                            ) : null}
-
-                            {tieneDigital ? (
-                              <View
-                                style={{
-                                  flexGrow: 1,
-                                  flexBasis: 210,
-                                  minWidth: 150,
-                                  maxWidth: '100%',
-                                  backgroundColor: colors.surface,
-                                  borderWidth: 1,
-                                  borderColor: colors.border,
-                                  borderRadius: radius.sm,
-                                  padding: 7,
-                                  gap: 3,
-                                }}
-                              >
-                                <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '900' }}>
-                                  🪙 BINANCE / ZELLE / OTROS DATOS
-                                </Text>
-                                {db.binanceId ? (
-                                  <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
-                                    ID / Correo: {db.binanceId}
-                                  </Text>
-                                ) : null}
-                                {db.instruccionesPago ? (
-                                  <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
-                                    {db.instruccionesPago}
-                                  </Text>
-                                ) : null}
-                                {db.capturaPago?.url ? (
-                                  <TouchableOpacity
-                                    onPress={() => Linking.openURL(db.capturaPago!.url)}
+                          {metodoPagoAbierto ? (
+                            <>
+                              {/* Fila de Chips de Métodos de Pago y Condiciones */}
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                                {c.condicionesPago ? (
+                                  <View
                                     style={{
-                                      alignSelf: 'flex-start',
                                       backgroundColor: colors.infoSoftBg,
                                       borderWidth: 1,
                                       borderColor: colors.infoSoftBorder,
                                       borderRadius: radius.sm,
                                       paddingHorizontal: 8,
-                                      paddingVertical: 3,
-                                      marginTop: 2,
+                                      paddingVertical: 2,
+                                      maxWidth: '100%',
+                                      flexShrink: 1,
                                     }}
                                   >
-                                    <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>
-                                      📸 Ver Captura / QR de pago{db.capturaPago.name ? ` (${db.capturaPago.name})` : ''}
+                                    <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800', flexShrink: 1 }}>
+                                      ⏱️ {c.condicionesPago}
                                     </Text>
-                                  </TouchableOpacity>
+                                  </View>
+                                ) : null}
+                                {ip.metodosActivos.map((met) => (
+                                  <View
+                                    key={met}
+                                    style={{
+                                      backgroundColor: colors.surface,
+                                      borderWidth: 1,
+                                      borderColor: colors.brand,
+                                      borderRadius: radius.pill,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 2,
+                                      maxWidth: '100%',
+                                      flexShrink: 1,
+                                    }}
+                                  >
+                                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', flexShrink: 1 }}>
+                                      {met}
+                                    </Text>
+                                  </View>
+                                ))}
+                                {!c.condicionesPago && ip.metodosActivos.length === 0 ? (
+                                  <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic' }}>
+                                    Sin método o condición especificada aún
+                                  </Text>
                                 ) : null}
                               </View>
-                            ) : null}
-                          </View>
-                        ) : (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                            <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-                              ℹ️ Sin cuenta bancaria, Pago Móvil o Zelle cargado aún en la ficha de este proveedor.
-                            </Text>
-                          </View>
-                        )}
 
-                        {/* Proveedores secundarios si el requerimiento tiene compras multi-proveedor */}
-                        {ip.proveedoresSecundarios.length > 0 ? (
-                          <View style={{ gap: 3, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 4 }}>
-                            <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '800' }}>
-                              👥 Otros proveedores en los ítems de este requerimiento:
-                            </Text>
-                            {ip.proveedoresSecundarios.map((sec, idxSec) => (
-                              <Text key={`sec-sup-${idxSec}`} selectable style={{ color: colors.text, fontSize: 11 }}>
-                                • <Text style={{ fontWeight: '800' }}>{sec.proveedorNombre}:</Text>{' '}
-                                {[
-                                  sec.banco && sec.numeroCuenta ? `🏦 ${sec.banco} ${sec.numeroCuenta}` : null,
-                                  sec.pagoMovilTelefono ? `📲 PM: ${sec.pagoMovilBanco || ''} ${sec.pagoMovilTelefono} (${sec.pagoMovilCedulaRif || ''})` : null,
-                                  sec.binanceId ? `🪙 ${sec.binanceId}` : null,
-                                  sec.instruccionesPago ? sec.instruccionesPago : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(' · ')}
-                              </Text>
-                            ))}
-                          </View>
-                        ) : null}
+                              {/* RIF y Teléfono del Proveedor si están disponibles */}
+                              {db.proveedorRif || db.proveedorTelefono ? (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                                  {db.proveedorRif ? (
+                                    <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
+                                      🪪 <Text style={{ color: colors.muted, fontWeight: '700' }}>RIF / C.I.:</Text>{' '}
+                                      <Text style={{ fontWeight: '800' }}>{db.proveedorRif}</Text>
+                                    </Text>
+                                  ) : null}
+                                  {db.proveedorTelefono ? (
+                                    <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
+                                      📞 <Text style={{ color: colors.muted, fontWeight: '700' }}>Tel:</Text>{' '}
+                                      <Text style={{ fontWeight: '800' }}>{db.proveedorTelefono}</Text>
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              ) : null}
 
-                        {/* Nota / Instrucciones específicas de la cuenta */}
-                        {c.notaLimpia ? (
-                          <View
-                            style={{
-                              backgroundColor: colors.surface,
-                              borderWidth: 1,
-                              borderColor: colors.border,
-                              borderRadius: radius.sm,
-                              paddingHorizontal: 8,
-                              paddingVertical: 5,
-                            }}
-                          >
-                            <Text selectable style={{ color: colors.text, fontSize: 12, lineHeight: 16 }}>
-                              <Text style={{ color: colors.brandText, fontWeight: '900' }}>📝 Nota / Instrucción: </Text>
-                              {c.notaLimpia}
-                            </Text>
-                          </View>
-                        ) : null}
+                              {/* Grilla Responsiva (Móvil 1 columna / PC 2-3 columnas) de Coordenadas Bancarias */}
+                              {tieneTransferencia || tienePagoMovil || tieneDigital ? (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                  {tieneTransferencia ? (
+                                    <View
+                                      style={{
+                                        flexGrow: 1,
+                                        flexBasis: 220,
+                                        minWidth: 150,
+                                        maxWidth: '100%',
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.border,
+                                        borderRadius: radius.sm,
+                                        padding: 7,
+                                        gap: 2,
+                                      }}
+                                    >
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                                          🏦 TRANSFERENCIA {db.tipoCuenta ? `(${db.tipoCuenta.toUpperCase()})` : ''}
+                                        </Text>
+                                        {db.numeroCuenta ? (
+                                          <TouchableOpacity
+                                            onPress={() => copiarTextoPortapapeles(db.numeroCuenta!, '📋 N° de cuenta copiado.')}
+                                          >
+                                            <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>📋 Copiar Cta</Text>
+                                          </TouchableOpacity>
+                                        ) : null}
+                                      </View>
+                                      {db.banco ? (
+                                        <Text selectable style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
+                                          {db.banco}
+                                        </Text>
+                                      ) : null}
+                                      {db.numeroCuenta ? (
+                                        <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
+                                          Cta: {db.numeroCuenta}
+                                        </Text>
+                                      ) : null}
+                                      {db.titular || db.rifTitular ? (
+                                        <Text selectable style={{ color: colors.muted, fontSize: 11 }}>
+                                          Titular: <Text style={{ color: colors.text, fontWeight: '700' }}>{db.titular || db.proveedorNombre}</Text>
+                                          {db.rifTitular ? ` · ${db.rifTitular}` : ''}
+                                        </Text>
+                                      ) : null}
+                                    </View>
+                                  ) : null}
 
-                        {/* Resumen si ya tiene Abonos o Comprobante de Pago */}
-                        {c.abonado > 0 || rpResumen?.metodo || rpResumen?.referencia ? (
-                          <View
-                            style={{
-                              backgroundColor: colors.successSoftBg,
-                              borderWidth: 1,
-                              borderColor: colors.successSoftBorder,
-                              borderRadius: radius.sm,
-                              paddingHorizontal: 8,
-                              paddingVertical: 4,
-                              flexDirection: 'row',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              flexWrap: 'wrap',
-                              gap: 6,
-                            }}
-                          >
-                            <Text style={{ color: colors.successSoftText, fontSize: 11.5, fontWeight: '800', flex: 1 }}>
-                              ✅ {c.situacion === 'pagada' ? 'Pagado' : `Abonado ${usd(c.abonado)}`}
-                              {rpResumen?.metodo ? ` vía ${rpResumen.metodo}` : ''}
-                              {rpResumen?.referencia ? ` · Ref: ${rpResumen.referencia}` : ''}
-                              {abonosCuenta.length > 0
-                                ? ` (${abonosCuenta.map((a) => `${usd(Number(a.monto) || 0)}${a.metodo ? ` ${a.metodo}` : ''}`).join(', ')})`
-                                : ''}
-                            </Text>
-                            {rpResumen?.url ? (
-                              <TouchableOpacity onPress={() => Linking.openURL(rpResumen.url!)}>
-                                <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
-                                  👁️ Ver comprobante
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                          </View>
-                        ) : null}
-                          </>
-                        ) : null}
-                      </View>
-                    );
-                  })()
-                ) : null}
-                {/* Desglose financiero con IVA o Monto original */}
-                {c.desgloseIva?.tieneIva ? (
-                  <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginVertical: 4, gap: 3 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
-                        📊 DESGLOSE FINANCIERO CON IVA
-                      </Text>
-                      <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
-                        <Text style={{ color: colors.infoSoftText, fontSize: 10, fontWeight: '800' }}>
-                          IVA ({c.desgloseIva.alicuota}%)
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>
-                        Subtotal: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(c.desgloseIva.subtotal)}</Text>
-                      </Text>
-                      {c.desgloseIva.exento > 0 && (
-                        <Text style={{ color: colors.muted, fontSize: 12 }}>
-                          Exento: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(c.desgloseIva.exento)}</Text>
-                        </Text>
-                      )}
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>
-                        Base imponible: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(c.desgloseIva.baseImponible)}</Text>
-                      </Text>
-                      <Text style={{ color: colors.infoSoftText || colors.brandText, fontSize: 12, fontWeight: '700' }}>
-                        IVA: <Text style={{ color: colors.text, fontWeight: '800' }}>+{usd(c.desgloseIva.montoIva)}</Text>
-                      </Text>
-                    </View>
-                    <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '900', marginTop: 2 }}>
-                      Total Factura / Cuenta: {usd(Number(c.monto) || 0)} {c.moneda}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={{ color: colors.muted, fontSize: 13 }}>Monto original: {usd(Number(c.monto) || 0)} {c.moneda}</Text>
-                )}
-                {/* 💱 Los dos montos: el de la cuenta es en US$; su equivalente en Bs con la tasa BCV de hoy. */}
-                {tasaBcv ? (
-                  <View style={{ gap: 6, marginVertical: 4 }}>
-                    <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '800' }}>
-                      {bsDe(c).fijo
-                        ? `${fmtBs(bsDe(c).montoBs)} (montos en Bs a la tasa de ese día${bsDe(c).tasaEseDia ? ` · Bs ${bsDe(c).tasaEseDia!.toLocaleString('es-VE')}/$` : ''}) · saldo ${c.saldo >= (Number(c.monto) || 0) ? '' : '≈ '}${fmtBs(bsDe(c).saldoBs)}`
-                        : `≈ ${fmtBs(bsDe(c).montoBs)} · saldo ≈ ${fmtBs(bsDe(c).saldoBs)} (actualizado a tasa BCV de hoy: Bs ${tasaBcv.toLocaleString('es-VE')} por $)`}
-                    </Text>
-                    {tipo === 'por_pagar' && (c.inventory_requirement_id || bsDe(c).tieneTasaEseDia) ? (
-                      <TouchableOpacity
-                        onPress={() => toggleTasaEseDiaCuenta(c.id)}
-                        activeOpacity={0.85}
-                        style={{
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          borderRadius: radius.md,
-                          borderWidth: 2,
-                          borderColor: usaTasaDeEseDia(c.id) ? '#F59E0B' : '#10B981',
-                          backgroundColor: usaTasaDeEseDia(c.id) ? colors.warningSoftBg : colors.successSoftBg,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          flexWrap: 'wrap',
-                          gap: 8,
-                          width: '100%',
-                          maxWidth: '100%',
-                          minWidth: 0,
-                        }}
-                      >
-                        <View style={{ flex: 1, minWidth: 150 }}>
-                          <Text
-                            style={{
-                              color: usaTasaDeEseDia(c.id) ? colors.warningSoftText : colors.successSoftText,
-                              fontSize: 12,
-                              fontWeight: '900',
-                            }}
-                          >
-                            {usaTasaDeEseDia(c.id)
-                              ? `🟠 TASA DE ESE DÍA ACTIVA (${fmtBs(bsDe(c).montoBsEseDia ?? bsDe(c).montoBs)})`
-                              : `🟢 ACTUALIZADO A TASA DEL DÍA DE HOY (${fmtBs(bsDe(c).montoBsHoy ?? bsDe(c).montoBs)})`}
-                          </Text>
-                          {bsDe(c).tieneTasaEseDia ? (
-                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700', marginTop: 1 }}>
-                              {usaTasaDeEseDia(c.id)
-                                ? `A tasa BCV de hoy sería: ${fmtBs(bsDe(c).montoBsHoy ?? bsDe(c).montoBs)}`
-                                : `Con la tasa de ese día era: ${fmtBs(bsDe(c).montoBsEseDia ?? bsDe(c).montoBs)}${bsDe(c).tasaEseDia ? ` (Bs ${bsDe(c).tasaEseDia!.toLocaleString('es-VE')}/$)` : ''}`}
-                            </Text>
+                                  {tienePagoMovil ? (
+                                    <View
+                                      style={{
+                                        flexGrow: 1,
+                                        flexBasis: 210,
+                                        minWidth: 150,
+                                        maxWidth: '100%',
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.border,
+                                        borderRadius: radius.sm,
+                                        padding: 7,
+                                        gap: 2,
+                                      }}
+                                    >
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                                        <Text style={{ color: colors.successSoftText, fontSize: 11, fontWeight: '900' }}>
+                                          📲 PAGO MÓVIL
+                                        </Text>
+                                        <TouchableOpacity
+                                          onPress={() =>
+                                            copiarTextoPortapapeles(
+                                              [db.pagoMovilBanco, db.pagoMovilTelefono, db.pagoMovilCedulaRif].filter(Boolean).join(' '),
+                                              '📋 Datos de Pago Móvil copiados.',
+                                            )
+                                          }
+                                        >
+                                          <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '800' }}>📋 Copiar PM</Text>
+                                        </TouchableOpacity>
+                                      </View>
+                                      <Text selectable style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
+                                        Banco: {db.pagoMovilBanco || db.banco || 'Por definir'}
+                                      </Text>
+                                      <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '900' }}>
+                                        Tel: {db.pagoMovilTelefono || '—'} · C.I./RIF: {db.pagoMovilCedulaRif || db.proveedorRif || '—'}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+
+                                  {tieneDigital ? (
+                                    <View
+                                      style={{
+                                        flexGrow: 1,
+                                        flexBasis: 210,
+                                        minWidth: 150,
+                                        maxWidth: '100%',
+                                        backgroundColor: colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: colors.border,
+                                        borderRadius: radius.sm,
+                                        padding: 7,
+                                        gap: 3,
+                                      }}
+                                    >
+                                      <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '900' }}>
+                                        🪙 BINANCE / ZELLE / OTROS DATOS
+                                      </Text>
+                                      {db.binanceId ? (
+                                        <Text selectable style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>
+                                          ID / Correo: {db.binanceId}
+                                        </Text>
+                                      ) : null}
+                                      {db.instruccionesPago ? (
+                                        <Text selectable style={{ color: colors.text, fontSize: 11.5 }}>
+                                          {db.instruccionesPago}
+                                        </Text>
+                                      ) : null}
+                                      {db.capturaPago?.url ? (
+                                        <TouchableOpacity
+                                          onPress={() => Linking.openURL(db.capturaPago!.url)}
+                                          style={{
+                                            alignSelf: 'flex-start',
+                                            backgroundColor: colors.infoSoftBg,
+                                            borderWidth: 1,
+                                            borderColor: colors.infoSoftBorder,
+                                            borderRadius: radius.sm,
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 3,
+                                            marginTop: 2,
+                                          }}
+                                        >
+                                          <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>
+                                            📸 Ver Captura / QR de pago{db.capturaPago.name ? ` (${db.capturaPago.name})` : ''}
+                                          </Text>
+                                        </TouchableOpacity>
+                                      ) : null}
+                                    </View>
+                                  ) : null}
+                                </View>
+                              ) : (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                                  <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                                    ℹ️ Sin cuenta bancaria, Pago Móvil o Zelle cargado aún en la ficha de este proveedor.
+                                  </Text>
+                                </View>
+                              )}
+
+                              {/* Proveedores secundarios si el requerimiento tiene compras multi-proveedor */}
+                              {ip.proveedoresSecundarios.length > 0 ? (
+                                <View style={{ gap: 3, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 4 }}>
+                                  <Text style={{ color: colors.brandText, fontSize: 10.5, fontWeight: '800' }}>
+                                    👥 Otros proveedores en los ítems de este requerimiento:
+                                  </Text>
+                                  {ip.proveedoresSecundarios.map((sec, idxSec) => (
+                                    <Text key={`sec-sup-${idxSec}`} selectable style={{ color: colors.text, fontSize: 11 }}>
+                                      • <Text style={{ fontWeight: '800' }}>{sec.proveedorNombre}:</Text>{' '}
+                                      {[
+                                        sec.banco && sec.numeroCuenta ? `🏦 ${sec.banco} ${sec.numeroCuenta}` : null,
+                                        sec.pagoMovilTelefono ? `📲 PM: ${sec.pagoMovilBanco || ''} ${sec.pagoMovilTelefono} (${sec.pagoMovilCedulaRif || ''})` : null,
+                                        sec.binanceId ? `🪙 ${sec.binanceId}` : null,
+                                        sec.instruccionesPago ? sec.instruccionesPago : null,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(' · ')}
+                                    </Text>
+                                  ))}
+                                </View>
+                              ) : null}
+
+                              {/* Nota / Instrucciones específicas de la cuenta */}
+                              {c.notaLimpia ? (
+                                <View
+                                  style={{
+                                    backgroundColor: colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: colors.border,
+                                    borderRadius: radius.sm,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 5,
+                                  }}
+                                >
+                                  <Text selectable style={{ color: colors.text, fontSize: 12, lineHeight: 16 }}>
+                                    <Text style={{ color: colors.brandText, fontWeight: '900' }}>📝 Nota / Instrucción: </Text>
+                                    {c.notaLimpia}
+                                  </Text>
+                                </View>
+                              ) : null}
+
+                              {/* Resumen si ya tiene Abonos o Comprobante de Pago */}
+                              {c.abonado > 0 || rpResumen?.metodo || rpResumen?.referencia ? (
+                                <View
+                                  style={{
+                                    backgroundColor: colors.successSoftBg,
+                                    borderWidth: 1,
+                                    borderColor: colors.successSoftBorder,
+                                    borderRadius: radius.sm,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 4,
+                                    flexDirection: 'row',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    flexWrap: 'wrap',
+                                    gap: 6,
+                                  }}
+                                >
+                                  <Text style={{ color: colors.successSoftText, fontSize: 11.5, fontWeight: '800', flex: 1 }}>
+                                    ✅ {c.situacion === 'pagada' ? 'Pagado' : `Abonado ${usd(c.abonado)}`}
+                                    {rpResumen?.metodo ? ` vía ${rpResumen.metodo}` : ''}
+                                    {rpResumen?.referencia ? ` · Ref: ${rpResumen.referencia}` : ''}
+                                    {abonosCuenta.length > 0
+                                      ? ` (${abonosCuenta.map((a) => `${usd(Number(a.monto) || 0)}${a.metodo ? ` ${a.metodo}` : ''}`).join(', ')})`
+                                      : ''}
+                                  </Text>
+                                  {rpResumen?.url ? (
+                                    <TouchableOpacity onPress={() => Linking.openURL(rpResumen.url!)}>
+                                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '900' }}>
+                                        👁️ Ver comprobante
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                </View>
+                              ) : null}
+                            </>
                           ) : null}
                         </View>
-                        <View
-                          style={{
-                            paddingVertical: 7,
-                            paddingHorizontal: 12,
-                            borderRadius: radius.sm,
-                            backgroundColor: usaTasaDeEseDia(c.id) ? '#D97706' : '#059669',
-                            maxWidth: '100%',
-                            flexShrink: 1,
-                          }}
-                        >
-                          <Text style={{ color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', flexShrink: 1 }}>
-                            {usaTasaDeEseDia(c.id)
-                              ? '💱 USAR TASA DEL DÍA DE HOY'
-                              : '📅 QUIERO LA TASA DE ESE DÍA'}
+                      );
+                    })()
+                  ) : null}
+                  {/* Desglose financiero con IVA o Monto original */}
+                  {c.desgloseIva?.tieneIva ? (
+                    <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginVertical: 4, gap: 3 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                          📊 DESGLOSE FINANCIERO CON IVA
+                        </Text>
+                        <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
+                          <Text style={{ color: colors.infoSoftText, fontSize: 10, fontWeight: '800' }}>
+                            IVA ({c.desgloseIva.alicuota}%)
                           </Text>
                         </View>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                ) : null}
-                <Text style={{ color: colors.muted, fontSize: 13 }}>Abonado: {usd(c.abonado)}</Text>
-                <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Saldo: {usd(c.saldo)}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Emitida: {fmtFecha(c.fecha_emision)}</Text>
-                {c.order_id ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🧾 Atada a una orden de compra</Text> : null}
-                {c.traza?.almacenTexto ? (
-                  <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
-                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>📦 ESTADO FÍSICO EN ALMACÉN / ENTREGA</Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 }}>{c.traza.almacenTexto}</Text>
-                    {c.traza.autorizadoPor || c.traza.responsableAlmacen ? (
-                      <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }}>
-                        {c.traza.autorizadoPor ? `Autorizó: ${c.traza.autorizadoPor}` : ''}
-                        {c.traza.autorizadoPor && c.traza.responsableAlmacen ? ' · ' : ''}
-                        {c.traza.responsableAlmacen ? `Almacén: ${c.traza.responsableAlmacen}` : ''}
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          Subtotal: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(c.desgloseIva.subtotal)}</Text>
+                        </Text>
+                        {c.desgloseIva.exento > 0 && (
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>
+                            Exento: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(c.desgloseIva.exento)}</Text>
+                          </Text>
+                        )}
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          Base imponible: <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(c.desgloseIva.baseImponible)}</Text>
+                        </Text>
+                        <Text style={{ color: colors.infoSoftText || colors.brandText, fontSize: 12, fontWeight: '700' }}>
+                          IVA: <Text style={{ color: colors.text, fontWeight: '800' }}>+{usd(c.desgloseIva.montoIva)}</Text>
+                        </Text>
+                      </View>
+                      <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '900', marginTop: 2 }}>
+                        Total Factura / Cuenta: {usd(Number(c.monto) || 0)} {c.moneda}
                       </Text>
-                    ) : null}
-                  </View>
-                ) : null}
-                {c.condicionesPago ? (
-                  <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder }}>
-                    <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>💳 CONDICIONES DE PAGO</Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 }}>{c.condicionesPago}</Text>
-                  </View>
-                ) : null}
-                {(c.notaLimpia || c.traza?.notaReqLimpia) ? (
-                  <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder }}>
-                    <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '800' }}>📝 NOTA / OBSERVACIONES DEL REQUERIMIENTO</Text>
-                    {c.notaLimpia ? <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>{c.notaLimpia}</Text> : null}
-                    {c.traza?.notaReqLimpia && c.traza.notaReqLimpia !== c.notaLimpia ? (
-                      <Text style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}>Req.: {c.traza.notaReqLimpia}</Text>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {/* 📜 Línea de Tiempo / Histórico del Expediente (Requerimiento + Por Pagar) */}
-                {tipo === 'por_pagar' ? (
-                  <TimelineExpedienteBox
-                    eventos={construirTimelineExpediente({
-                      req: c.traza.reqVinculado,
-                      cuenta: c,
-                      abonos: abonos.filter((a) => a.cuenta_id === c.id),
-                      companies,
-                      suppliers,
-                      machinery,
-                      vehicles,
-                      usuariosMap: usuariosMapCxp,
-                      auditLogs: [
-                        ...(c.traza.reqVinculado ? logsPorRowIdCxp.get(c.traza.reqVinculado.id) || [] : []),
-                        ...(logsPorRowIdCxp.get(c.id) || []),
-                        ...abonos
-                          .filter((a) => a.cuenta_id === c.id)
-                          .flatMap((a) => logsPorRowIdCxp.get(a.id) || []),
-                      ],
-                    })}
-                    titulo="📜 Histórico de movimientos de esta compra"
-                  />
-                ) : null}
-
-                {/* 📄 Presupuesto(s) / Cotización(es) (1 o varios archivos: fotos / PDFs) */}
-                {(() => {
-                  const reqVinc = c.traza?.reqVinculado || (c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null);
-                  const presCta = extraerFormatosAdjuntos(c);
-                  const presReq = reqVinc ? extraerFormatosAdjuntos(reqVinc) : [];
-                  const mapaUrls = new Set<string>();
-                  const todosPres: FormatoAdjunto[] = [];
-                  for (const item of [...presCta, ...presReq]) {
-                    if (item.url && !mapaUrls.has(item.url)) {
-                      mapaUrls.add(item.url);
-                      todosPres.push(item);
-                    }
-                  }
-
-                  if (todosPres.length === 0) return null;
-
-                  return (
-                    <View style={{ marginTop: spacing.sm, marginBottom: spacing.xs }}>
-                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>
-                        📄 PRESUPUESTOS Y COTIZACIONES ADJUNTAS ({todosPres.length})
+                    </View>
+                  ) : (
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>Monto original: {usd(Number(c.monto) || 0)} {c.moneda}</Text>
+                  )}
+                  {/* 💱 Los dos montos: el de la cuenta es en US$; su equivalente en Bs con la tasa BCV de hoy. */}
+                  {tasaBcv ? (
+                    <View style={{ gap: 6, marginVertical: 4 }}>
+                      <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '800' }}>
+                        {bsDe(c).fijo
+                          ? `${fmtBs(bsDe(c).montoBs)} (montos en Bs a la tasa de ese día${bsDe(c).tasaEseDia ? ` · Bs ${bsDe(c).tasaEseDia!.toLocaleString('es-VE')}/$` : ''}) · saldo ${c.saldo >= (Number(c.monto) || 0) ? '' : '≈ '}${fmtBs(bsDe(c).saldoBs)}`
+                          : `≈ ${fmtBs(bsDe(c).montoBs)} · saldo ≈ ${fmtBs(bsDe(c).saldoBs)} (actualizado a tasa BCV de hoy: Bs ${tasaBcv.toLocaleString('es-VE')} por $)`}
                       </Text>
-                      <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', width: '100%', maxWidth: '100%', minWidth: 0 }}>
-                        {todosPres.map((p, idx) => (
-                          <TouchableOpacity
-                            key={`pres-${idx}-${p.url}`}
-                            onPress={() => Linking.openURL(p.url)}
+                      {tipo === 'por_pagar' && (c.inventory_requirement_id || bsDe(c).tieneTasaEseDia) ? (
+                        <TouchableOpacity
+                          onPress={() => toggleTasaEseDiaCuenta(c.id)}
+                          activeOpacity={0.85}
+                          style={{
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            borderRadius: radius.md,
+                            borderWidth: 2,
+                            borderColor: usaTasaDeEseDia(c.id) ? '#F59E0B' : '#10B981',
+                            backgroundColor: usaTasaDeEseDia(c.id) ? colors.warningSoftBg : colors.successSoftBg,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 8,
+                            width: '100%',
+                            maxWidth: '100%',
+                            minWidth: 0,
+                          }}
+                        >
+                          <View style={{ flex: 1, minWidth: 150 }}>
+                            <Text
+                              style={{
+                                color: usaTasaDeEseDia(c.id) ? colors.warningSoftText : colors.successSoftText,
+                                fontSize: 12,
+                                fontWeight: '900',
+                              }}
+                            >
+                              {usaTasaDeEseDia(c.id)
+                                ? `🟠 TASA DE ESE DÍA ACTIVA (${fmtBs(bsDe(c).montoBsEseDia ?? bsDe(c).montoBs)})`
+                                : `🟢 ACTUALIZADO A TASA DEL DÍA DE HOY (${fmtBs(bsDe(c).montoBsHoy ?? bsDe(c).montoBs)})`}
+                            </Text>
+                            {bsDe(c).tieneTasaEseDia ? (
+                              <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700', marginTop: 1 }}>
+                                {usaTasaDeEseDia(c.id)
+                                  ? `A tasa BCV de hoy sería: ${fmtBs(bsDe(c).montoBsHoy ?? bsDe(c).montoBs)}`
+                                  : `Con la tasa de ese día era: ${fmtBs(bsDe(c).montoBsEseDia ?? bsDe(c).montoBs)}${bsDe(c).tasaEseDia ? ` (Bs ${bsDe(c).tasaEseDia!.toLocaleString('es-VE')}/$)` : ''}`}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <View
                             style={{
-                              backgroundColor: colors.surfaceAlt,
-                              borderWidth: 1,
-                              borderColor: colors.brand,
-                              borderRadius: radius.md,
-                              paddingHorizontal: spacing.md,
-                              paddingVertical: spacing.xs,
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              gap: 5,
+                              paddingVertical: 7,
+                              paddingHorizontal: 12,
+                              borderRadius: radius.sm,
+                              backgroundColor: usaTasaDeEseDia(c.id) ? '#D97706' : '#059669',
                               maxWidth: '100%',
                               flexShrink: 1,
                             }}
                           >
-                            <Text style={{ fontSize: 12 }}>{p.kind === 'pdf' ? '📄' : '🖼️'}</Text>
+                            <Text style={{ color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', flexShrink: 1 }}>
+                              {usaTasaDeEseDia(c.id)
+                                ? '💱 USAR TASA DEL DÍA DE HOY'
+                                : '📅 QUIERO LA TASA DE ESE DÍA'}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
+                  <Text style={{ color: colors.muted, fontSize: 13 }}>Abonado: {usd(c.abonado)}</Text>
+                  <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Saldo: {usd(c.saldo)}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Emitida: {fmtFecha(c.fecha_emision)}</Text>
+                  {c.order_id ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🧾 Atada a una orden de compra</Text> : null}
+                  {c.traza?.almacenTexto ? (
+                    <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>📦 ESTADO FÍSICO EN ALMACÉN / ENTREGA</Text>
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 }}>{c.traza.almacenTexto}</Text>
+                      {c.traza.autorizadoPor || c.traza.responsableAlmacen ? (
+                        <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }}>
+                          {c.traza.autorizadoPor ? `Autorizó: ${c.traza.autorizadoPor}` : ''}
+                          {c.traza.autorizadoPor && c.traza.responsableAlmacen ? ' · ' : ''}
+                          {c.traza.responsableAlmacen ? `Almacén: ${c.traza.responsableAlmacen}` : ''}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+                  {c.condicionesPago ? (
+                    <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder }}>
+                      <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '800' }}>💳 CONDICIONES DE PAGO</Text>
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 }}>{c.condicionesPago}</Text>
+                    </View>
+                  ) : null}
+                  {(c.notaLimpia || c.traza?.notaReqLimpia) ? (
+                    <View style={{ marginTop: 6, padding: 8, borderRadius: radius.md, backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder }}>
+                      <Text style={{ color: colors.warningSoftText, fontSize: 11, fontWeight: '800' }}>📝 NOTA / OBSERVACIONES DEL REQUERIMIENTO</Text>
+                      {c.notaLimpia ? <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>{c.notaLimpia}</Text> : null}
+                      {c.traza?.notaReqLimpia && c.traza.notaReqLimpia !== c.notaLimpia ? (
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}>Req.: {c.traza.notaReqLimpia}</Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {/* 📜 Línea de Tiempo / Histórico del Expediente (Requerimiento + Por Pagar) */}
+                  {tipo === 'por_pagar' ? (
+                    <TimelineExpedienteBox
+                      eventos={construirTimelineExpediente({
+                        req: c.traza.reqVinculado,
+                        cuenta: c,
+                        abonos: abonos.filter((a) => a.cuenta_id === c.id),
+                        companies,
+                        suppliers,
+                        machinery,
+                        vehicles,
+                        usuariosMap: usuariosMapCxp,
+                        auditLogs: [
+                          ...(c.traza.reqVinculado ? logsPorRowIdCxp.get(c.traza.reqVinculado.id) || [] : []),
+                          ...(logsPorRowIdCxp.get(c.id) || []),
+                          ...abonos
+                            .filter((a) => a.cuenta_id === c.id)
+                            .flatMap((a) => logsPorRowIdCxp.get(a.id) || []),
+                        ],
+                      })}
+                      titulo="📜 Histórico de movimientos de esta compra"
+                    />
+                  ) : null}
+
+                  {/* 📄 Presupuesto(s) / Cotización(es) (1 o varios archivos: fotos / PDFs) */}
+                  {(() => {
+                    const reqVinc = c.traza?.reqVinculado || (c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null);
+                    const presCta = extraerFormatosAdjuntos(c);
+                    const presReq = reqVinc ? extraerFormatosAdjuntos(reqVinc) : [];
+                    const mapaUrls = new Set<string>();
+                    const todosPres: FormatoAdjunto[] = [];
+                    for (const item of [...presCta, ...presReq]) {
+                      if (item.url && !mapaUrls.has(item.url)) {
+                        mapaUrls.add(item.url);
+                        todosPres.push(item);
+                      }
+                    }
+
+                    if (todosPres.length === 0) return null;
+
+                    return (
+                      <View style={{ marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>
+                          📄 PRESUPUESTOS Y COTIZACIONES ADJUNTAS ({todosPres.length})
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                          {todosPres.map((p, idx) => (
+                            <TouchableOpacity
+                              key={`pres-${idx}-${p.url}`}
+                              onPress={() => Linking.openURL(p.url)}
+                              style={{
+                                backgroundColor: colors.surfaceAlt,
+                                borderWidth: 1,
+                                borderColor: colors.brand,
+                                borderRadius: radius.md,
+                                paddingHorizontal: spacing.md,
+                                paddingVertical: spacing.xs,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 5,
+                                maxWidth: '100%',
+                                flexShrink: 1,
+                              }}
+                            >
+                              <Text style={{ fontSize: 12 }}>{p.kind === 'pdf' ? '📄' : '🖼️'}</Text>
+                              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, flexShrink: 1 }}>
+                                {p.name || `Presupuesto #${idx + 1}`}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    );
+                  })()}
+
+                  {/* Soportes adjuntos: Factura(s) y Comprobante(s) de Pago (1 o más fotos/PDFs) */}
+                  {(() => {
+                    const rp = extraerReciboPagoCuenta(c);
+                    const facCta = extraerFacturaCuenta(c);
+                    const reqVinc = c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null;
+                    const facReq = reqVinc ? extraerFactura(reqVinc) : null;
+                    const recReq = reqVinc ? extraerReciboPago(reqVinc) : null;
+
+                    const listaFacturas: ArchivoSoporte[] =
+                      facCta?.archivos && facCta.archivos.length > 0
+                        ? facCta.archivos
+                        : facReq?.archivos && facReq.archivos.length > 0
+                          ? facReq.archivos
+                          : c.factura_url
+                            ? [{ url: c.factura_url, tipo: c.factura_url.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image', nombre: facCta?.nombre || facReq?.nombre || 'Factura' }]
+                            : facReq?.url
+                              ? [{ url: facReq.url, tipo: facReq.tipo === 'pdf' ? 'pdf' : 'image', nombre: facReq.nombre || 'Factura' }]
+                              : [];
+
+                    const listaComprobantes: ArchivoSoporte[] =
+                      rp?.archivos && rp.archivos.length > 0
+                        ? rp.archivos
+                        : recReq?.archivos && recReq.archivos.length > 0
+                          ? recReq.archivos
+                          : rp?.url
+                            ? [{ url: rp.url, tipo: rp.tipo === 'pdf' ? 'pdf' : 'image', nombre: rp.nombre || 'Comprobante de pago' }]
+                            : recReq?.url
+                              ? [{ url: recReq.url, tipo: recReq.tipo === 'pdf' ? 'pdf' : 'image', nombre: recReq.nombre || 'Comprobante de pago' }]
+                              : [];
+
+                    if (listaFacturas.length === 0 && listaComprobantes.length === 0) return null;
+                    return (
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap', width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                        {listaFacturas.map((f, idx) => (
+                          <TouchableOpacity
+                            key={`fac-${idx}-${f.url}`}
+                            onPress={() => Linking.openURL(f.url)}
+                            style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, maxWidth: '100%', flexShrink: 1 }}
+                          >
                             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, flexShrink: 1 }}>
-                              {p.name || `Presupuesto #${idx + 1}`}
+                              🧾 Ver factura {listaFacturas.length > 1 ? `#${idx + 1}` : ''}{f.nombre ? ` (${f.nombre})` : ''}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                        {listaComprobantes.map((p, idx) => (
+                          <TouchableOpacity
+                            key={`comp-${idx}-${p.url}`}
+                            onPress={() => Linking.openURL(p.url)}
+                            style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, maxWidth: '100%', flexShrink: 1 }}
+                          >
+                            <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12, flexShrink: 1 }}>
+                              💳 Ver comprobante {listaComprobantes.length > 1 ? `#${idx + 1}` : ''}{p.nombre ? ` (${p.nombre})` : ''}
                             </Text>
                           </TouchableOpacity>
                         ))}
                       </View>
+                    );
+                  })()}
+
+                  {/* Historial de abonos de esta cuenta */}
+                  {abonos.filter((a) => a.cuenta_id === c.id).length > 0 ? (
+                    <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>Abonos</Text>
+                      {abonos.filter((a) => a.cuenta_id === c.id).map((a) => {
+                        const abComp = extraerComprobanteAbono(a);
+                        return (
+                          <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, marginTop: 3 }}>
+                            <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
+                              • {fmtFecha(a.fecha)} · {usd(Number(a.monto) || 0)}{a.metodo ? ` · ${a.metodo}` : ''}{a.referencia ? ` · ${a.referencia}` : ''}
+                            </Text>
+                            {abComp?.url ? (
+                              <TouchableOpacity onPress={() => Linking.openURL(abComp.url!)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>📎 Soporte</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {puedeOperarCxp ? (
+                              <TouchableOpacity onPress={() => eliminarAbono(a, c)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>🗑️ Quitar</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+                        );
+                      })}
                     </View>
-                  );
-                })()}
+                  ) : null}
 
-                {/* Soportes adjuntos: Factura(s) y Comprobante(s) de Pago (1 o más fotos/PDFs) */}
-                {(() => {
-                  const rp = extraerReciboPagoCuenta(c);
-                  const facCta = extraerFacturaCuenta(c);
-                  const reqVinc = c.inventory_requirement_id ? requirements.find((r) => r.id === c.inventory_requirement_id) : null;
-                  const facReq = reqVinc ? extraerFactura(reqVinc) : null;
-                  const recReq = reqVinc ? extraerReciboPago(reqVinc) : null;
-
-                  const listaFacturas: ArchivoSoporte[] =
-                    facCta?.archivos && facCta.archivos.length > 0
-                      ? facCta.archivos
-                      : facReq?.archivos && facReq.archivos.length > 0
-                        ? facReq.archivos
-                        : c.factura_url
-                          ? [{ url: c.factura_url, tipo: c.factura_url.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image', nombre: facCta?.nombre || facReq?.nombre || 'Factura' }]
-                          : facReq?.url
-                            ? [{ url: facReq.url, tipo: facReq.tipo === 'pdf' ? 'pdf' : 'image', nombre: facReq.nombre || 'Factura' }]
-                            : [];
-
-                  const listaComprobantes: ArchivoSoporte[] =
-                    rp?.archivos && rp.archivos.length > 0
-                      ? rp.archivos
-                      : recReq?.archivos && recReq.archivos.length > 0
-                        ? recReq.archivos
-                        : rp?.url
-                          ? [{ url: rp.url, tipo: rp.tipo === 'pdf' ? 'pdf' : 'image', nombre: rp.nombre || 'Comprobante de pago' }]
-                          : recReq?.url
-                            ? [{ url: recReq.url, tipo: recReq.tipo === 'pdf' ? 'pdf' : 'image', nombre: recReq.nombre || 'Comprobante de pago' }]
-                            : [];
-
-                  if (listaFacturas.length === 0 && listaComprobantes.length === 0) return null;
-                  return (
-                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap', width: '100%', maxWidth: '100%', minWidth: 0 }}>
-                      {listaFacturas.map((f, idx) => (
-                        <TouchableOpacity
-                          key={`fac-${idx}-${f.url}`}
-                          onPress={() => Linking.openURL(f.url)}
-                          style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, maxWidth: '100%', flexShrink: 1 }}
-                        >
-                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, flexShrink: 1 }}>
-                            🧾 Ver factura {listaFacturas.length > 1 ? `#${idx + 1}` : ''}{f.nombre ? ` (${f.nombre})` : ''}
+                  {/* 📋 02-nov-2026: plan de pago (pagos mixtos) */}
+                  {tipo === 'por_pagar' && PLAN_PAGO_ACTIVO ? (() => {
+                    const pl = planDeCuenta(c);
+                    if (!pl && !puedeOperarCxp) return null;
+                    const est = pl ? estadosPlanDe(c, pl.plan) : [];
+                    const advPlan = pl ? advertenciaPlanGuardado(pl.plan.partes, tasaBcv) : null;
+                    return (
+                      <View style={{ marginTop: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: advPlan ? '#F59E0B' : colors.border, backgroundColor: colors.surfaceAlt, gap: 3 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 12 }}>
+                            📋 Plan de pago{pl?.delReq ? ' (del requerimiento)' : ''}
                           </Text>
-                        </TouchableOpacity>
-                      ))}
-                      {listaComprobantes.map((p, idx) => (
-                        <TouchableOpacity
-                          key={`comp-${idx}-${p.url}`}
-                          onPress={() => Linking.openURL(p.url)}
-                          style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, maxWidth: '100%', flexShrink: 1 }}
-                        >
-                          <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12, flexShrink: 1 }}>
-                            💳 Ver comprobante {listaComprobantes.length > 1 ? `#${idx + 1}` : ''}{p.nombre ? ` (${p.nombre})` : ''}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  );
-                })()}
-
-                {/* Historial de abonos de esta cuenta */}
-                {abonos.filter((a) => a.cuenta_id === c.id).length > 0 ? (
-                  <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
-                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>Abonos</Text>
-                    {abonos.filter((a) => a.cuenta_id === c.id).map((a) => {
-                      const abComp = extraerComprobanteAbono(a);
-                      return (
-                        <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, marginTop: 3 }}>
-                          <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
-                            • {fmtFecha(a.fecha)} · {usd(Number(a.monto) || 0)}{a.metodo ? ` · ${a.metodo}` : ''}{a.referencia ? ` · ${a.referencia}` : ''}
-                          </Text>
-                          {abComp?.url ? (
-                            <TouchableOpacity onPress={() => Linking.openURL(abComp.url!)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
-                              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>📎 Soporte</Text>
-                            </TouchableOpacity>
-                          ) : null}
-                          {puedeOperarCxp ? (
-                            <TouchableOpacity onPress={() => eliminarAbono(a, c)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
-                              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11 }}>🗑️ Quitar</Text>
+                          {puedeOperarCxp && c.situacion !== 'pagada' ? (
+                            <TouchableOpacity onPress={() => setPlanDe(c)}>
+                              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{pl ? '✏️ Editar' : '+ Definir cómo se paga'}</Text>
                             </TouchableOpacity>
                           ) : null}
                         </View>
-                      );
-                    })}
-                  </View>
-                ) : null}
-
-                {/* 📋 02-nov-2026: plan de pago (pagos mixtos) */}
-                {tipo === 'por_pagar' && PLAN_PAGO_ACTIVO ? (() => {
-                  const pl = planDeCuenta(c);
-                  if (!pl && !puedeOperarCxp) return null;
-                  const est = pl ? estadosPlanDe(c, pl.plan) : [];
-                  const advPlan = pl ? advertenciaPlanGuardado(pl.plan.partes, tasaBcv) : null;
-                  return (
-                    <View style={{ marginTop: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: advPlan ? '#F59E0B' : colors.border, backgroundColor: colors.surfaceAlt, gap: 3 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 12 }}>
-                          📋 Plan de pago{pl?.delReq ? ' (del requerimiento)' : ''}
-                        </Text>
-                        {puedeOperarCxp && c.situacion !== 'pagada' ? (
-                          <TouchableOpacity onPress={() => setPlanDe(c)}>
-                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{pl ? '✏️ Editar' : '+ Definir cómo se paga'}</Text>
-                          </TouchableOpacity>
+                        {pl ? pl.plan.partes.map((p, i) => (
+                          <Text key={p.id} style={{ color: est[i]?.pagada ? colors.success : colors.text, fontSize: 12 }}>
+                            {i + 1}) {lineaParte(p, alicuotaDe(c), est[i])}
+                          </Text>
+                        )) : (
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>Sin plan: se paga todo junto. Defínelo si una parte va en Bs y otra en $, USDT o Zelle.</Text>
+                        )}
+                        {advPlan ? (
+                          <View style={{ marginTop: 2, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 8 }}>
+                            <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800' }}>
+                              ⚠️ {advPlan}
+                            </Text>
+                          </View>
                         ) : null}
                       </View>
-                      {pl ? pl.plan.partes.map((p, i) => (
-                        <Text key={p.id} style={{ color: est[i]?.pagada ? colors.success : colors.text, fontSize: 12 }}>
-                          {i + 1}) {lineaParte(p, alicuotaDe(c), est[i])}
-                        </Text>
-                      )) : (
-                        <Text style={{ color: colors.muted, fontSize: 11 }}>Sin plan: se paga todo junto. Defínelo si una parte va en Bs y otra en $, USDT o Zelle.</Text>
-                      )}
-                      {advPlan ? (
-                        <View style={{ marginTop: 2, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 8 }}>
-                          <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800' }}>
-                            ⚠️ {advPlan}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })() : null}
+                    );
+                  })() : null}
 
-                {/* Subir Factura(s), Subir Comprobante(s) de Pago + Recibo (PDF) */}
-                <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-                  {puedeOperarCxp ? (
-                    <>
-                      <TouchableOpacity
-                        onPress={() => abrirSubirFactura(c)}
-                        style={{
-                          flexGrow: 1,
-                          backgroundColor: colors.surfaceAlt,
-                          borderWidth: 1,
-                          borderColor: colors.brand,
-                          borderRadius: radius.md,
-                          paddingVertical: spacing.sm,
-                          paddingHorizontal: spacing.sm,
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
-                          {c.factura_url || extraerFacturaCuenta(c)?.url ? '🧾 Editar / + Fotos Factura' : '🧾 Subir Factura(s)'}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => abrirSubirComprobante(c)}
-                        style={{
-                          flexGrow: 1,
-                          backgroundColor: colors.surfaceAlt,
-                          borderWidth: 1,
-                          borderColor: colors.successSoftBorder,
-                          borderRadius: radius.md,
-                          paddingVertical: spacing.sm,
-                          paddingHorizontal: spacing.sm,
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>
-                          {extraerReciboPagoCuenta(c)?.url ? '💳 Editar / + Fotos Comprobante' : '📤 Subir Comprobante(s) de Pago'}
-                        </Text>
-                      </TouchableOpacity>
-                      {tipo === 'por_pagar' ? (
+                  {/* Subir Factura(s), Subir Comprobante(s) de Pago + Recibo (PDF) */}
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                    {puedeOperarCxp ? (
+                      <>
                         <TouchableOpacity
-                          onPress={() => abrirEditorItemsCxp(c)}
+                          onPress={() => abrirSubirFactura(c)}
                           style={{
                             flexGrow: 1,
                             backgroundColor: colors.surfaceAlt,
                             borderWidth: 1,
-                            borderColor: colors.warningSoftBorder,
+                            borderColor: colors.brand,
                             borderRadius: radius.md,
                             paddingVertical: spacing.sm,
                             paddingHorizontal: spacing.sm,
                             alignItems: 'center',
                           }}
                         >
-                          <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>
-                            ✏️ Modificar Ítems (Quitar / Agregar)
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                            {c.factura_url || extraerFacturaCuenta(c)?.url ? '🧾 Editar / + Fotos Factura' : '🧾 Subir Factura(s)'}
                           </Text>
                         </TouchableOpacity>
-                      ) : null}
-                    </>
-                  ) : null}
-                  <TouchableOpacity onPress={() => generarRecibo(c)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
-                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 {tipo === 'por_cobrar' ? 'Recibo de cobro' : 'Recibo de pago'}</Text>
-                  </TouchableOpacity>
-                  {tipo === 'por_pagar' ? (
-                    <TouchableOpacity onPress={() => abrirMensajeModal([c], 'ficha')} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
-                      <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 13 }}>📲 Mensaje / PDF de pago</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                {puedeOperarCxp ? (
-                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-                    {abiertas ? (
-                      <>
-                        {tipo === 'por_pagar' && c.aprobacionEstado === 'esperando_aprobacion' && (puedeAprobarPagos || role === 'admin') ? (
+                        <TouchableOpacity
+                          onPress={() => abrirSubirComprobante(c)}
+                          style={{
+                            flexGrow: 1,
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.successSoftBorder,
+                            borderRadius: radius.md,
+                            paddingVertical: spacing.sm,
+                            paddingHorizontal: spacing.sm,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>
+                            {extraerReciboPagoCuenta(c)?.url ? '💳 Editar / + Fotos Comprobante' : '📤 Subir Comprobante(s) de Pago'}
+                          </Text>
+                        </TouchableOpacity>
+                        {tipo === 'por_pagar' ? (
                           <TouchableOpacity
-                            onPress={() => autorizarPagoCuenta(c)}
+                            onPress={() => abrirEditorItemsCxp(c)}
                             style={{
                               flexGrow: 1,
-                              backgroundColor: colors.infoSoftBg,
+                              backgroundColor: colors.surfaceAlt,
                               borderWidth: 1,
-                              borderColor: colors.infoSoftBorder,
+                              borderColor: colors.warningSoftBorder,
                               borderRadius: radius.md,
                               paddingVertical: spacing.sm,
+                              paddingHorizontal: spacing.sm,
                               alignItems: 'center',
                             }}
                           >
-                            <Text style={{ color: colors.infoSoftText, fontWeight: '900', fontSize: 13 }}>👔 Autorizar Pago</Text>
+                            <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>
+                              ✏️ Modificar Ítems (Quitar / Agregar)
+                            </Text>
                           </TouchableOpacity>
                         ) : null}
-                        <TouchableOpacity onPress={() => marcarPagada(c)} style={{ flexGrow: 1, backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                          <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>✅ Marcar pagada</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => abrirAbono(c)} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>💵 Registrar abono</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => abrirEdicion(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>✎ Editar</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => anular(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>⛔ Anular</Text>
-                        </TouchableOpacity>
                       </>
-                    ) : (
-                      <TouchableOpacity onPress={() => reabrir(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>↩ Volver a pendiente</Text>
+                    ) : null}
+                    <TouchableOpacity onPress={() => generarRecibo(c)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 {tipo === 'por_cobrar' ? 'Recibo de cobro' : 'Recibo de pago'}</Text>
+                    </TouchableOpacity>
+                    {tipo === 'por_pagar' ? (
+                      <TouchableOpacity onPress={() => abrirMensajeModal([c], 'ficha')} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
+                        <Text style={{ color: '#15803D', fontWeight: '800', fontSize: 13 }}>📲 Mensaje / PDF de pago</Text>
                       </TouchableOpacity>
-                    )}
+                    ) : null}
                   </View>
-                ) : null}
-              </>
-            }
-          />
+
+                  {puedeOperarCxp ? (
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                      {abiertas ? (
+                        <>
+                          {tipo === 'por_pagar' && c.aprobacionEstado === 'esperando_aprobacion' && (puedeAprobarPagos || role === 'admin') ? (
+                            <TouchableOpacity
+                              onPress={() => autorizarPagoCuenta(c)}
+                              style={{
+                                flexGrow: 1,
+                                backgroundColor: colors.infoSoftBg,
+                                borderWidth: 1,
+                                borderColor: colors.infoSoftBorder,
+                                borderRadius: radius.md,
+                                paddingVertical: spacing.sm,
+                                alignItems: 'center',
+                              }}
+                            >
+                              <Text style={{ color: colors.infoSoftText, fontWeight: '900', fontSize: 13 }}>👔 Autorizar Pago</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          <TouchableOpacity onPress={() => marcarPagada(c)} style={{ flexGrow: 1, backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                            <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>✅ Marcar pagada</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => abrirAbono(c)} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>💵 Registrar abono</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => abrirEdicion(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>✎ Editar</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => anular(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>⛔ Anular</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <TouchableOpacity onPress={() => reabrir(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>↩ Volver a pendiente</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ) : null}
+                </>
+              }
+            />
           );
         };
         const detalleCta = detalleModalId ? lista.find((x) => x.id === detalleModalId) ?? null : null;
@@ -6159,8 +6233,8 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     {pagoModalCuenta.saldo > 0 && bsDe(pagoModalCuenta).fijo
                       ? ` · ${pagoModalCuenta.saldo >= (Number(pagoModalCuenta.monto) || 0) ? '' : '≈ '}${fmtBs(bsDe(pagoModalCuenta).saldoBs)} (Bs del requerimiento)`
                       : tasaBcv && pagoModalCuenta.saldo > 0
-                      ? ` · ≈ ${fmtBs(bsFromUsd(pagoModalCuenta.saldo, tasaBcv))} (BCV: Bs ${tasaBcv.toLocaleString('es-VE')}/$)`
-                      : ''}
+                        ? ` · ≈ ${fmtBs(bsFromUsd(pagoModalCuenta.saldo, tasaBcv))} (BCV: Bs ${tasaBcv.toLocaleString('es-VE')}/$)`
+                        : ''}
                   </Text>
                 </Card>
 
@@ -6655,6 +6729,6 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 // Las dos pestañas, para que Compras las monte junto a las suyas. Se exponen
 // desde acá para no repetir etiqueta ni icono en dos archivos.
 export const CUENTAS_TABS: { key: CuentaTipo; label: string; icon: string }[] = [
-  { key: 'por_pagar',  label: TIPO_CFG.por_pagar.label,  icon: TIPO_CFG.por_pagar.icon },
+  { key: 'por_pagar', label: TIPO_CFG.por_pagar.label, icon: TIPO_CFG.por_pagar.icon },
   { key: 'por_cobrar', label: TIPO_CFG.por_cobrar.label, icon: TIPO_CFG.por_cobrar.icon },
 ];

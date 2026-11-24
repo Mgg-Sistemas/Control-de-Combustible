@@ -1532,6 +1532,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         listadoPersonas: true,
                         marcaTexto: true,
                         firmas: opReporte.firmas,
+                        ordenarPor: opReporte.ordenarPor ?? 'nombre_az',
                       },
                       logosReporte
                     )
@@ -1592,6 +1593,43 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                   >
                     <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
                       {on ? '☑ ' : '☐ '}{lbl}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: 4 }}>
+              ORDEN DEL LISTADO EN EL REPORTE (toca para elegir):
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {(
+                [
+                  ['nombre_az', '🔤 Nombre (A → Z)'],
+                  ['nombre_za', '🔤 Nombre (Z → A)'],
+                  ['cargo_az', '🏷️ Por Cargo (A → Z)'],
+                  ['departamento_az', '🗂️ Por Departamento'],
+                  ['cedula', '🪪 Por Cédula'],
+                  ['ficha', '🔢 Por N° Ficha'],
+                  ['salario_desc', '💵 Por Salario (mayor → menor)'],
+                ] as const
+              ).map(([okKey, okLbl]) => {
+                const on = (opReporte.ordenarPor ?? 'nombre_az') === okKey;
+                return (
+                  <TouchableOpacity
+                    key={okKey}
+                    onPress={() => guardarConfigReporte({ ...opReporte, ordenarPor: okKey }, logosReporte)}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 5,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: on ? colors.brand : colors.border,
+                      backgroundColor: on ? colors.brand : colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>
+                      {on ? '● ' : '○ '}{okLbl}
                     </Text>
                   </TouchableOpacity>
                 );

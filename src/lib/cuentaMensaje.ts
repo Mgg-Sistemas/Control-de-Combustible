@@ -83,6 +83,8 @@ export type DatosMensajeCuenta = {
   fecha?: string | null;
   /** Nota activa de espera («por qué no se ha pagado») de cuenta_notas_espera */
   notaEspera?: string | null;
+  /** Fecha legible de aprobación (ej. "23 nov. 2026, 09:45 a. m.") */
+  fechaAprobacion?: string | null;
   /** Estado de aprobación en Por Pagar */
   aprobacionEstado?: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica' | null;
 };
@@ -315,6 +317,7 @@ function cuerpoCuenta(d: DatosMensajeCuenta, op: OpcionesMensajeCuenta): string[
     if (txt(d.analista)) L.push(`🛒 *Analista de compras:* ${txt(d.analista)}`);
     if (txt(d.autorizo)) L.push(`👔 *Autorizó:* ${txt(d.autorizo)}`);
   }
+  if (txt(d.fechaAprobacion)) L.push(`📅 *Fecha de aprobación:* ${txt(d.fechaAprobacion)}`);
   if (op.condiciones && txt(d.condiciones)) L.push(`🤝 *Condiciones:* ${txt(d.condiciones)}`);
   const total = Number(d.totalUsd) || 0;
   const saldo = d.saldoUsd != null ? Number(d.saldoUsd) || 0 : total;
@@ -452,6 +455,7 @@ export function mensajeCuentasHtml(lista: DatosMensajeCuenta[], op: OpcionesMens
       if (txt(d.analista)) filas.push(fila('Analista de compras', txt(d.analista)));
       if (txt(d.autorizo)) filas.push(fila('Autorizó', txt(d.autorizo)));
     }
+    if (txt(d.fechaAprobacion)) filas.push(fila('Fecha de aprobación', txt(d.fechaAprobacion)));
     if (op.condiciones && txt(d.condiciones)) filas.push(fila('Condiciones', txt(d.condiciones)));
     filas.push(fila('Total', `$${montoEs(total)}`));
     if (parcial) filas.push(fila('Falta por pagar', `$${montoEs(saldo)}`));

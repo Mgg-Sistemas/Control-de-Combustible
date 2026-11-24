@@ -105,7 +105,7 @@ export type CuentaParaReporte = {
 
 export type AlcanceCuentas = 'marcadas' | 'todas';
 export type AgruparCuentas = 'ninguno' | 'contraparte' | 'empresa' | 'estado' | 'vencimiento' | 'mes';
-export type ModoReporteCuentas = 'detallado' | 'resumen';
+export type ModoReporteCuentas = 'detallado' | 'resumen' | 'credito';
 
 export type ColumnaCuenta =
   | 'contraparte' | 'empresa' | 'concepto' | 'documento' | 'condiciones' | 'nota' | 'emision' | 'vence'
@@ -523,8 +523,67 @@ export function armarReporteCuentas(args: {
   const sumaBs = (lista: CuentaParaReporte[]) =>
     Math.round(lista.reduce((s, c) => s + (c.situacion === 'anulada' ? 0 : bsSaldo(c, aporteDe(c).saldo)), 0) * 100) / 100;
 
+  if (op.modo === 'credito') {
+    const dmyCorto = (v?: string | null) => {
+      const s = String(v ?? '').trim().slice(0, 10);
+      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : '—';
+    };
+    const pendientesCred = cuentas.filter((c) => {
+      if (c.situacion === 'pagada' || c.situacion === 'anulada') return false;
+      const cond = String(c.condicionesPago || '').toLowerCase();
+      return /cr[eé]dito/.test(cond) || (c.fecha_vencimiento != null && String(c.fecha_vencimiento).trim() !== '');
+    });
+    const totalCredUsd = Math.round(pendientesCred.reduce((s, c) => s + aporteDe(c).saldo, 0) * 100) / 100;
+    const filasCred = pendientesCred.map((c, idx) => `
+      <tr>
+        <td class="c nw">${idx + 1}</td>
+        <td><b>${esc(c.contraparte || '—')}</b></td>
+        <td class="nw">${esc(c.traza?.reqCode || c.documento || '—')}</td>
+        <td>${esc(c.concepto || '—')}</td>
+        <td class="c nw">${esc(dmyCorto(c.fecha_vencimiento))}</td>
+        <td class="r nw"><b>${esc(usdTexto(aporteDe(c).saldo))}</b></td>
+      </tr>
+    `).join('');
+
+    const cuerpoCred = pendientesCred.length === 0
+      ? `
+        <div style="margin:24px 0;padding:24px 18px;border:2px solid #16A34A;border-radius:10px;background:#ECFDF5;text-align:center">
+          <div style="font-size:15px;font-weight:900;color:#111827;margin-bottom:8px">
+            CUENTAS A CRÉDITO (OC Y OS) PENDIENTES: 0
+          </div>
+          <div style="font-size:16px;font-weight:900;color:#15803D;margin-bottom:10px">
+            TESORERÍA AL DÍA EN CUENTAS A CRÉDITO
+          </div>
+          <div style="font-size:10.5px;color:#475569">Generado: ${esc(dmyCorto(args.hoyISO))}</div>
+        </div>
+      `
+      : `
+        <div style="margin:8px 0 12px;padding:10px 14px;border:1px solid #CBD5E1;border-left:4px solid #D97706;border-radius:6px;background:#FFFBEB">
+          <b>CUENTAS A CRÉDITO (OC Y OS) PENDIENTES: ${pendientesCred.length}</b> &nbsp;·&nbsp;
+          <b>TOTAL PENDIENTE: ${esc(usdTexto(totalCredUsd))}</b>
+        </div>
+        <table class="cx">
+          <thead><tr><th class="n" style="width:32px">#</th><th>Proveedor / Contraparte</th><th class="nw">Orden / Doc.</th><th>Concepto</th><th class="n nw">Vence</th><th class="r nw">Saldo (USD)</th></tr></thead>
+          <tbody>${filasCred}</tbody>
+          <tfoot><tr><td colspan="5">TOTAL (${pendientesCred.length} cuenta(s))</td><td class="r nw">${esc(usdTexto(totalCredUsd))}</td></tr></tfoot>
+        </table>
+      `;
+
+    return {
+      titulo: esc(tituloReporteCuentas(tipo, op)),
+      subtitulo: esc(`Situación al ${fechaTexto(hoyISO)}${filtrado ? ' · FILTRADO' : ''}`),
+      cuerpo: cuerpoCred,
+      css: CSS_REPORTE_CUENTAS,
+      nombreArchivo: nombreArchivoCuentas(tipo, op, hoyISO, filtrado, args.tasaBcv),
+      totales: totalesDe(pendientesCred),
+      grupos: agruparCuentas(pendientesCred, 'contraparte', tipo),
+    };
+  }
+
   if (op.modo === 'resumen') {
-    const activas = cuentas.filter((c) => c.situacion !== 'anulada');
+    const activas = cuentas.filter((c) => c.situacion !== 'anulada' && c.situacion !== 'pagada');
+    const nPagadasExcluidas = cuentas.filter((c) => c.situacion === 'pagada').length;
     const totalUsd = total.saldo;
     const nOrdenes = activas.length;
     const incluirNotas = op.incluirNotasResumen !== false;
@@ -532,12 +591,12 @@ export function armarReporteCuentas(args: {
     const incluirBanco = op.incluirBancoResumen !== false;
 
     const ETIQUETA_MON: Record<MonedaRealPago, { label: string; icono: string }> = {
-      BS:           { label: 'Bolívares (Bs)',         icono: '🇻🇪' },
-      USDT:         { label: 'USDT / Binance',         icono: '🪙' },
-      USD_EFECTIVO: { label: 'Efectivo $ / Divisas',   icono: '💵' },
-      ZELLE:        { label: 'Zelle',                  icono: '💸' },
-      MIXTO:        { label: 'Mixto (varias monedas)', icono: '🔀' },
-      POR_DEFINIR:  { label: 'Por definir',            icono: '📌' },
+      BS: { label: 'Bolívares (Bs)', icono: '🇻🇪' },
+      USDT: { label: 'USDT / Binance', icono: '🪙' },
+      USD_EFECTIVO: { label: 'Efectivo $ / Divisas', icono: '💵' },
+      ZELLE: { label: 'Zelle', icono: '💸' },
+      MIXTO: { label: 'Mixto (varias monedas)', icono: '🔀' },
+      POR_DEFINIR: { label: 'Por definir', icono: '📌' },
     };
 
     const resueltoPorId = new Map<string, PagoResueltoCuenta>();
@@ -598,8 +657,8 @@ export function armarReporteCuentas(args: {
         const subBs = m === 'BS' && d.bs > 0
           ? `<div class="sos-mon-bs">Bs ${esc(miles(d.bs))}</div>`
           : (tasa != null && tasa > 0
-              ? `<div class="sos-mon-bs" style="color:#64748B;font-weight:600">≈ Bs ${esc(miles(Math.round(d.usd * tasa * 100) / 100))} <span style="font-size:7.5px">(ref. BCV)</span></div>`
-              : '');
+            ? `<div class="sos-mon-bs" style="color:#64748B;font-weight:600">≈ Bs ${esc(miles(Math.round(d.usd * tasa * 100) / 100))} <span style="font-size:7.5px">(ref. BCV)</span></div>`
+            : '');
         return `
           <div class="sos-mon-pill">
             <div class="sos-mon-lbl">${esc(meta.icono)} ${esc(meta.label)} · ${d.ops} ord.</div>
@@ -637,10 +696,10 @@ export function armarReporteCuentas(args: {
     };
 
     const tarjetasHtml = [...grupos]
-      .filter((g) => g.cuentas.some((c) => c.situacion !== 'anulada'))
+      .filter((g) => g.cuentas.some((c) => c.situacion !== 'anulada' && c.situacion !== 'pagada'))
       .sort((a, b) => b.totales.saldo - a.totales.saldo)
       .map((g) => {
-        const gActivas = g.cuentas.filter((c) => c.situacion !== 'anulada');
+        const gActivas = g.cuentas.filter((c) => c.situacion !== 'anulada' && c.situacion !== 'pagada');
         const gUsd = g.totales.saldo;
         const gResueltos = gActivas.map((c) => ({ c, res: resueltoPorId.get(c.id)! })).filter((x) => !!x.res);
         const gBsReal = Math.round(
@@ -705,10 +764,10 @@ export function armarReporteCuentas(args: {
                 <div class="sos-m-lbl">MONTO ($ USD)</div>
                 <div class="sos-m-usd">${esc(usdTexto(gUsd))}</div>
                 ${gBsReal > 0
-                  ? `<div class="sos-m-bs">Bs ${esc(miles(gBsReal))}</div>`
-                  : (tasa != null && tasa > 0
-                      ? `<div class="sos-m-bs" style="color:#64748B;font-weight:600">≈ Bs ${esc(miles(Math.round(gUsd * tasa * 100) / 100))} <span style="font-size:7.5px">(ref.)</span></div>`
-                      : '')}
+            ? `<div class="sos-m-bs">Bs ${esc(miles(gBsReal))}</div>`
+            : (tasa != null && tasa > 0
+              ? `<div class="sos-m-bs" style="color:#64748B;font-weight:600">≈ Bs ${esc(miles(Math.round(gUsd * tasa * 100) / 100))} <span style="font-size:7.5px">(ref.)</span></div>`
+              : '')}
               </div>
               <div>
                 <div class="sos-m-lbl">ÓRDENES</div>
@@ -725,8 +784,8 @@ export function armarReporteCuentas(args: {
               <div>
                 <div class="sos-f-lbl">${esc(ejeEfectivo === 'empresa' ? 'PROVEEDOR(ES)' : 'EMPRESA / BENEFICIARIO')}</div>
                 <div class="sos-f-val">${esc(ejeEfectivo === 'empresa'
-                  ? (Array.from(new Set(gActivas.map((c) => limpio(c.contraparte)).filter(Boolean))).slice(0, 2).join(', ') || g.etiqueta)
-                  : (empresasGrupo.length ? empresasGrupo.join(', ') : g.etiqueta))}</div>
+                ? (Array.from(new Set(gActivas.map((c) => limpio(c.contraparte)).filter(Boolean))).slice(0, 2).join(', ') || g.etiqueta)
+                : (empresasGrupo.length ? empresasGrupo.join(', ') : g.etiqueta))}</div>
               </div>
               <div>
                 <div class="sos-f-lbl">MÉTODO DE PAGO</div>
@@ -753,8 +812,11 @@ export function armarReporteCuentas(args: {
       filtrado ? 'FILTRADO' : null,
     ].filter(Boolean);
 
-    const notaAnuladas = total.anuladas > 0
-      ? `<div class="cx-nota">${total.anuladas} cuenta(s) anulada(s) no se suman en este resumen.</div>`
+    const notasExcluidas: string[] = [];
+    if (total.anuladas > 0) notasExcluidas.push(`${total.anuladas} cuenta(s) anulada(s)`);
+    if (nPagadasExcluidas > 0) notasExcluidas.push(`${nPagadasExcluidas} cuenta(s) ya pagada(s)`);
+    const notaAnuladas = notasExcluidas.length > 0
+      ? `<div class="cx-nota">${esc(notasExcluidas.join(' y '))} no se suman en este resumen de pendientes.</div>`
       : '';
 
     const cuerpoResumen = `
@@ -1065,8 +1127,8 @@ export function textoWhatsappReporteCuentas(args: {
     const contraparte = esGenerico && desglose.length === 1
       ? limpio(desglose[0].proveedor)
       : esGenerico && desglose.length > 1
-      ? `${desglose.length} PROVEEDORES`
-      : rawContraparte || contraparteLabel(tipo);
+        ? `${desglose.length} PROVEEDORES`
+        : rawContraparte || contraparteLabel(tipo);
     const codigo = limpio(c.traza?.reqCode) || limpio(c.documento);
     const prefijoCodigo = wop.incluirCodigo && codigo ? `*${codigo}* · ` : '';
     const mUsd = montoFilaUsd(c);
@@ -1107,9 +1169,9 @@ export function textoWhatsappReporteCuentas(args: {
     if (wop.incluirEstado) {
       const estIcono =
         c.situacion === 'vencida' ? '🔴 Vencida'
-        : c.situacion === 'por_vencer' ? '🟡 Por vencer'
-        : c.situacion === 'pagada' ? '✅ Pagada'
-        : '⏳ Pendiente';
+          : c.situacion === 'por_vencer' ? '🟡 Por vencer'
+            : c.situacion === 'pagada' ? '✅ Pagada'
+              : '⏳ Pendiente';
       const venceTxt = c.fecha_vencimiento && c.situacion !== 'pagada' ? ` · Vence: ${fechaTexto(c.fecha_vencimiento)}` : '';
       lineas.push(`   📌 Estado: ${estIcono}${venceTxt}`);
     }
@@ -1161,11 +1223,25 @@ export function textoWhatsappReporteCuentas(args: {
     if (pendientes.length > 0) {
       const mapaMetodos = new Map<string, { etiqueta: string; icono: string; count: number; usd: number }>();
       for (const c of pendientes) {
-        const m = clasificarMetodoCuenta(c);
-        const prev = mapaMetodos.get(m.clave) ?? { etiqueta: m.etiqueta, icono: m.icono, count: 0, usd: 0 };
-        prev.count += 1;
-        prev.usd += montoFilaUsd(c);
-        mapaMetodos.set(m.clave, prev);
+        if (c.pagoResuelto?.cubetas?.length) {
+          const vistasEnCuenta = new Set<string>();
+          for (const cub of c.pagoResuelto.cubetas) {
+            const k = `${cub.monedaReal}:${cub.metodoClave}`;
+            const prev = mapaMetodos.get(k) ?? { etiqueta: cub.metodoLabel, icono: cub.icono, count: 0, usd: 0 };
+            if (!vistasEnCuenta.has(k)) {
+              prev.count += 1;
+              vistasEnCuenta.add(k);
+            }
+            prev.usd += Number(cub.montoUsd) || 0;
+            mapaMetodos.set(k, prev);
+          }
+        } else {
+          const m = clasificarMetodoCuenta(c);
+          const prev = mapaMetodos.get(m.clave) ?? { etiqueta: m.etiqueta, icono: m.icono, count: 0, usd: 0 };
+          prev.count += 1;
+          prev.usd += montoFilaUsd(c);
+          mapaMetodos.set(m.clave, prev);
+        }
       }
       lineasPie.push('');
       lineasPie.push('💳 *Por preparar (según método de pago):*');

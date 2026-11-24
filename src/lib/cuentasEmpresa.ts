@@ -250,4 +250,92 @@ export function calcularTotalesKpiCxp(
   return t;
 }
 
+export const SIN_FECHA_APROBACION = '__sin_fecha_aprobacion__';
+
+/** Extrae el día AAAA-MM-DD (hora Caracas UTC-4 si trae hora ISO) de aprobación de la cuenta. */
+export function fechaAprobacionSoloDiaDe(c: {
+  aprobacionInfo?: { estado?: string | null; fecha?: string | null } | null;
+  traza?: { aprobadoGerenciaEl?: string | null; reqVinculado?: Record<string, any> | null } | null;
+}): string | null {
+  const rawAprob =
+    c.aprobacionInfo?.estado === 'aprobado' && c.aprobacionInfo?.fecha
+      ? String(c.aprobacionInfo.fecha).trim()
+      : String(c.traza?.aprobadoGerenciaEl ?? c.traza?.reqVinculado?.approved_at ?? '').trim();
+  if (!rawAprob) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawAprob)) return rawAprob;
+  const t = Date.parse(rawAprob);
+  if (Number.isFinite(t)) {
+    return new Date(t - 4 * 3600 * 1000).toISOString().slice(0, 10);
+  }
+  const m = rawAprob.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
+/** Formatea una fecha ISO o YYYY-MM-DD a texto legible para ficha / WhatsApp (ej. "23 nov. 2026, 09:45 a. m."). */
+export function fmtFechaAprobacionLegible(raw?: string | null): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  const t = Date.parse(s);
+  if (!Number.isFinite(t)) return s;
+  try {
+    return new Intl.DateTimeFormat('es-VE', {
+      timeZone: 'America/Caracas',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(t));
+  } catch {
+    return s.slice(0, 10);
+  }
+}
+
+export interface ResumenPorFechaAprobacion {
+  fecha: string;
+  etiqueta: string;
+  count: number;
+  totalUsd: number;
+}
+
+/** Agrupa cuentas por su fecha de aprobación (más reciente primero, sin fecha al final). */
+export function agruparCuentasPorFechaAprobacion(
+  cuentas: readonly {
+    saldo?: number;
+    situacion?: string;
+    aprobacionInfo?: { estado?: string | null; fecha?: string | null } | null;
+    traza?: { aprobadoGerenciaEl?: string | null; reqVinculado?: Record<string, any> | null } | null;
+  }[]
+): ResumenPorFechaAprobacion[] {
+  const m = new Map<string, { count: number; totalUsd: number }>();
+  cuentas.forEach((c) => {
+    if (c.situacion === 'anulada' || c.situacion === 'pagada') return;
+    const f = fechaAprobacionSoloDiaDe(c) || SIN_FECHA_APROBACION;
+    const cur = m.get(f) ?? { count: 0, totalUsd: 0 };
+    cur.count += 1;
+    cur.totalUsd = Math.round((cur.totalUsd + (Number(c.saldo) || 0)) * 100) / 100;
+    m.set(f, cur);
+  });
+
+  return Array.from(m.entries())
+    .map(([fecha, info]) => {
+      let etiqueta = 'Sin fecha de aprobación';
+      if (fecha !== SIN_FECHA_APROBACION) {
+        const [y, mo, d] = fecha.split('-');
+        etiqueta = `${d}/${mo}/${y}`;
+      }
+      return { fecha, etiqueta, count: info.count, totalUsd: info.totalUsd };
+    })
+    .sort((a, b) => {
+      if (a.fecha === SIN_FECHA_APROBACION) return 1;
+      if (b.fecha === SIN_FECHA_APROBACION) return -1;
+      return b.fecha.localeCompare(a.fecha);
+    });
+}
+
 

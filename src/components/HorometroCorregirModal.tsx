@@ -14,10 +14,16 @@
 //    a ESA lectura. El motivo escrito queda grabado junto al cambio, y la fila
 //    guarda quién corrigió y cuándo (corregido_por / bitácora de auditoría).
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { LecturaTrabajo, Turno, validarCorreccionHorometro, numeroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 import { guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
-import { captureAndUploadPhoto, pickPhotoFromGalleryAndUpload } from '../lib/photo';
+import {
+  captureAndUploadPhoto,
+  extractImageBlobFromClipboardEvent,
+  pastePhotoFromClipboardAndUpload,
+  pickPhotoFromGalleryAndUpload,
+  uploadImageBlobToMachinery,
+} from '../lib/photo';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -49,7 +55,8 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
   const [fin, setFin] = useState('');
   const [fotoIni, setFotoIni] = useState<string | null>(null);
   const [fotoFin, setFotoFin] = useState<string | null>(null);
-  const [busyFoto, setBusyFoto] = useState<null | 'ini_cam' | 'ini_gal' | 'fin_cam' | 'fin_gal'>(null);
+  const [busyFoto, setBusyFoto] = useState<null | 'ini_cam' | 'ini_gal' | 'ini_paste' | 'fin_cam' | 'fin_gal' | 'fin_paste'>(null);
+  const [destinoPegado, setDestinoPegado] = useState<'ini' | 'fin'>('ini');
   const [previewFoto, setPreviewFoto] = useState<string | null>(null);
   const [reinicio, setReinicio] = useState(false);
   const [motivo, setMotivo] = useState('');
@@ -68,15 +75,18 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
     setError(null);
   }, [turno, actual?.inicial, actual?.final, actual?.reinicio, actual?.fotoInicialUrl, actual?.fotoFinalUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const tomarFoto = async (cual: 'ini' | 'fin', via: 'cam' | 'gal') => {
+  const tomarFoto = async (cual: 'ini' | 'fin', via: 'cam' | 'gal' | 'paste') => {
     if (busy || busyFoto) return;
+    setDestinoPegado(cual);
     const tag = `${cual}_${via}` as const;
     setBusyFoto(tag);
     setError(null);
     try {
       const res = via === 'cam'
         ? await captureAndUploadPhoto(machineryId, 'horometro')
-        : await pickPhotoFromGalleryAndUpload(machineryId, 'horometro');
+        : via === 'gal'
+          ? await pickPhotoFromGalleryAndUpload(machineryId, 'horometro')
+          : await pastePhotoFromClipboardAndUpload(machineryId, 'horometro');
       if (!res.ok || !res.url) {
         if (res.error) setError(res.error);
         return;
@@ -89,6 +99,35 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
       setBusyFoto(null);
     }
   };
+
+  // 📋 En Web, permite pegar directo con Ctrl+V cuando el modal está abierto.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const onPaste = async (e: any) => {
+      const blob = extractImageBlobFromClipboardEvent(e);
+      if (!blob) return;
+      e.preventDefault();
+      if (busy || busyFoto) return;
+      const target: 'ini' | 'fin' = !fotoIni ? 'ini' : !fotoFin ? 'fin' : destinoPegado;
+      setBusyFoto(`${target}_paste`);
+      setError(null);
+      try {
+        const res = await uploadImageBlobToMachinery(blob, machineryId, 'horometro');
+        if (!res.ok || !res.url) {
+          if (res.error) setError(res.error);
+          return;
+        }
+        if (target === 'ini') setFotoIni(res.url);
+        else setFotoFin(res.url);
+      } catch (err: any) {
+        setError(err?.message ?? 'Error al pegar la foto.');
+      } finally {
+        setBusyFoto(null);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [busy, busyFoto, destinoPegado, fotoFin, fotoIni, machineryId]);
 
   const guardar = async () => {
     if (busy) return;
@@ -156,15 +195,15 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
 
             {/* Horómetro Inicial */}
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro inicial (vacío = borrar el número)</Text>
-            <TextInput value={ini} onChangeText={(t) => setIni(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={[input, { marginBottom: 6 }]} />
+            <TextInput value={ini} onFocus={() => setDestinoPegado('ini')} onChangeText={(t) => setIni(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={[input, { marginBottom: 6 }]} />
             
             {/* Foto horómetro inicial */}
             <View style={{ marginBottom: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' }}>
                 <TouchableOpacity
                   onPress={() => tomarFoto('ini', 'cam')}
                   disabled={busy || !!busyFoto}
-                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: (busy || busyFoto) ? 0.6 : 1 }}
+                  style={{ flexGrow: 1, flexBasis: 105, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: (busy || busyFoto) ? 0.6 : 1 }}
                 >
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
                     {busyFoto === 'ini_cam' ? 'Subiendo…' : '📷 Foto inicial'}
@@ -173,12 +212,23 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
                 <TouchableOpacity
                   onPress={() => tomarFoto('ini', 'gal')}
                   disabled={busy || !!busyFoto}
-                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: (busy || busyFoto) ? 0.6 : 1 }}
+                  style={{ flexGrow: 1, flexBasis: 105, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: (busy || busyFoto) ? 0.6 : 1 }}
                 >
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
                     {busyFoto === 'ini_gal' ? 'Subiendo…' : '🖼️ Galería inicial'}
                   </Text>
                 </TouchableOpacity>
+                {Platform.OS === 'web' ? (
+                  <TouchableOpacity
+                    onPress={() => tomarFoto('ini', 'paste')}
+                    disabled={busy || !!busyFoto}
+                    style={{ flexGrow: 1, flexBasis: 105, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.infoSoftBg, opacity: (busy || busyFoto) ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                      {busyFoto === 'ini_paste' ? 'Pegando…' : '📋 Pegar inicial'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
               {fotoIni ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 4, padding: 6, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
@@ -198,15 +248,15 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
 
             {/* Horómetro Final */}
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final (vacío = borrar el número)</Text>
-            <TextInput value={fin} onChangeText={(t) => setFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={[input, { marginBottom: 6 }]} />
+            <TextInput value={fin} onFocus={() => setDestinoPegado('fin')} onChangeText={(t) => setFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={[input, { marginBottom: 6 }]} />
 
             {/* Foto horómetro final */}
             <View style={{ marginBottom: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' }}>
                 <TouchableOpacity
                   onPress={() => tomarFoto('fin', 'cam')}
                   disabled={busy || !!busyFoto}
-                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: (busy || busyFoto) ? 0.6 : 1 }}
+                  style={{ flexGrow: 1, flexBasis: 105, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: (busy || busyFoto) ? 0.6 : 1 }}
                 >
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
                     {busyFoto === 'fin_cam' ? 'Subiendo…' : '📷 Foto final'}
@@ -215,12 +265,23 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
                 <TouchableOpacity
                   onPress={() => tomarFoto('fin', 'gal')}
                   disabled={busy || !!busyFoto}
-                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: (busy || busyFoto) ? 0.6 : 1 }}
+                  style={{ flexGrow: 1, flexBasis: 105, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, opacity: (busy || busyFoto) ? 0.6 : 1 }}
                 >
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
                     {busyFoto === 'fin_gal' ? 'Subiendo…' : '🖼️ Galería final'}
                   </Text>
                 </TouchableOpacity>
+                {Platform.OS === 'web' ? (
+                  <TouchableOpacity
+                    onPress={() => tomarFoto('fin', 'paste')}
+                    disabled={busy || !!busyFoto}
+                    style={{ flexGrow: 1, flexBasis: 105, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.infoSoftBg, opacity: (busy || busyFoto) ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                      {busyFoto === 'fin_paste' ? 'Pegando…' : '📋 Pegar final'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
               {fotoFin ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 4, padding: 6, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>

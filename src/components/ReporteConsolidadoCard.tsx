@@ -211,6 +211,17 @@ export function ReporteConsolidadoCard() {
           if (h.monto === 0 && h.horas === 0) continue;
           suma(fila(h.maquina.id, h.maquina.code, h.maquina.placa, h.maquina.empresa, (h.maquina as any).marca, (h.maquina as any).modelo), 'horometros', h.monto, h.horas);
         }
+        const addAcarreoFrente = (f: FilaConsolidada, frenteRaw: unknown, patch: { viajes?: number; viajesCant?: number; peso?: number; pesoKg?: number }) => {
+          const fr = String(frenteRaw ?? '').trim() || frentePorId.get(f.id) || '';
+          f.acarreoPorFrente = f.acarreoPorFrente ?? {};
+          const prev = f.acarreoPorFrente[fr] ?? {};
+          if (patch.viajes) prev.viajes = Math.round(((prev.viajes ?? 0) + patch.viajes) * 100) / 100;
+          if (patch.viajesCant) prev.viajesCant = (prev.viajesCant ?? 0) + patch.viajesCant;
+          if (patch.peso) prev.peso = Math.round(((prev.peso ?? 0) + patch.peso) * 100) / 100;
+          if (patch.pesoKg) prev.pesoKg = Math.round(((prev.pesoKg ?? 0) + patch.pesoKg) * 100) / 100;
+          f.acarreoPorFrente[fr] = prev;
+        };
+
         // 🚛 Viajes (un solo grupo por empresa con semanaDe fija, como la tarjeta del módulo)
         const grupos = calcularPagoViajes({
           viajes: viajesEnRango((vDatos as any).viajes, d1, d2),
@@ -222,20 +233,99 @@ export function ReporteConsolidadoCard() {
         });
         grupos.forEach((g: any) => {
           const empresa = nombresEmpresa(g.companyId, true);
+          const pagadosIds = new Set<string>();
           for (const c of g.porCamion ?? []) {
             if (!c.monto) continue;
+            pagadosIds.add(c.machineryId);
             const ficha = fichasV?.get(c.machineryId);
             // El respaldo son los VIAJES CON TARIFA (los que hicieron el monto)
             suma(fila(c.machineryId, c.code, c.placa ?? ficha?.placa ?? '', empresa, ficha?.marca, ficha?.modelo), 'viajes', c.monto, c.pagados);
           }
+          for (const l of g.lineas ?? []) {
+            if (!(l.monto > 0)) continue;
+            const idCam = l.viaje?.machinery_id ?? `fuera:${l.viaje?.machine_code ?? '—'}`;
+            if (!pagadosIds.has(idCam)) continue;
+            const fc = porId.get(idCam);
+            if (fc) addAcarreoFrente(fc, l.viaje?.frente_nombre, { viajes: l.monto, viajesCant: 1 });
+          }
         });
         // ⚖️ Peso (todos los camiones; el solape con viajes lo marca el papel)
         const lineasPeso = calcularPagoPeso({ viajes: viajesPesoEnRango((pDatos as any).viajes, d1, d2), tarifas: (pDatos as any).tarifas, marcas: indexarMarcasPeso((pDatos as any).marcas) });
+        const pesoPagadosIds = new Set<string>();
         for (const r of renglonesPorCamionPeso(lineasPeso, (pDatos as any).fichas, (pDatos as any).empresas)) {
           if (!r.monto) continue;
+          pesoPagadosIds.add(r.machineryId);
           const ficha = fichasP?.get(r.machineryId);
           // El respaldo son los KG pagados (el papel los pinta en toneladas)
           suma(fila(r.machineryId, r.code, r.placa ?? ficha?.placa ?? '', r.empresa || 'Sin empresa', ficha?.marca, ficha?.modelo), 'peso', r.monto, r.kg);
+        }
+        for (const l of lineasPeso) {
+          if (!(l.monto > 0)) continue;
+          const idCam = l.viaje?.machinery_id ?? `fuera:${l.viaje?.machine_code ?? '—'}`;
+          if (!pesoPagadosIds.has(idCam)) continue;
+          const fc = porId.get(idCam);
+          if (fc) addAcarreoFrente(fc, l.viaje?.frente_nombre, { peso: l.monto, pesoKg: l.kg });
+        }
+
+        // 💲 Camiones que SÍ hicieron viajes / pesaron en romana en el rango, pero quedaron
+        //    en $0 (sin tarifa o sin empresa en Peso y Viajes, y sin cobrar por jornada/horómetro):
+        //    igual que `sinPrecio` en maquinaria, NO se borran en silencio — salen en la tabla
+        //    con sus toneladas/viajes reales en $0 para que ningún camión falte en el frente.
+        const sinTarifaMap = new Map<string, {
+          id: string; code: string; placa: string; empresa: string;
+          marca?: string | null; modelo?: string | null;
+          kgTotal: number; viajesTotal: number;
+          porFrente: Map<string, { kg: number; viajes: number }>;
+        }>();
+        for (const l of lineasPeso) {
+          if (l.facturable === false || l.monto > 0) continue;
+          const idCam = l.viaje?.machinery_id ?? `fuera:${l.viaje?.machine_code ?? '—'}`;
+          const yaEnTabla = porId.get(idCam);
+          if (yaEnTabla && (
+            (yaEnTabla.montos.jornadas ?? 0) !== 0 || (yaEnTabla.cant?.jornadas ?? 0) !== 0
+            || (yaEnTabla.montos.horometros ?? 0) !== 0 || (yaEnTabla.cant?.horometros ?? 0) !== 0
+            || (yaEnTabla.montos.viajes ?? 0) !== 0
+          )) continue;
+          const ficha = l.viaje?.machinery_id ? (fichasP?.get(l.viaje.machinery_id) ?? fichasV?.get(l.viaje.machinery_id)) : undefined;
+          const empNom = l.viaje?.company_id ? nombresEmpresa(l.viaje.company_id, false) : 'Sin empresa';
+          const cur = sinTarifaMap.get(idCam) ?? {
+            id: idCam,
+            code: String(l.viaje?.machine_code ?? '').trim() || '—',
+            placa: String(l.viaje?.placa_snap ?? ficha?.placa ?? ficha?.serial ?? '').trim(),
+            empresa: empNom,
+            marca: ficha?.marca ?? null,
+            modelo: ficha?.modelo ?? null,
+            kgTotal: 0,
+            viajesTotal: 0,
+            porFrente: new Map(),
+          };
+          cur.kgTotal = Math.round((cur.kgTotal + (Number(l.kg) || 0)) * 100) / 100;
+          cur.viajesTotal += 1;
+          const frKey = String(l.viaje?.frente_nombre ?? '').trim() || frentePorId.get(idCam) || '';
+          const pf = cur.porFrente.get(frKey) ?? { kg: 0, viajes: 0 };
+          pf.kg = Math.round((pf.kg + (Number(l.kg) || 0)) * 100) / 100;
+          pf.viajes += 1;
+          cur.porFrente.set(frKey, pf);
+          sinTarifaMap.set(idCam, cur);
+        }
+        for (const st of sinTarifaMap.values()) {
+          if (st.kgTotal <= 0 && st.viajesTotal <= 0) continue;
+          const fc = fila(st.id, st.code, st.placa, st.empresa, st.marca, st.modelo);
+          if ((fc.montos.peso ?? 0) === 0 && (fc.montos.viajes ?? 0) === 0) {
+            fc.sinTarifaAcarreo = true;
+          }
+          if (st.kgTotal > 0) {
+            suma(fc, 'peso', 0, st.kgTotal);
+            for (const [frNom, pf] of st.porFrente.entries()) {
+              if (pf.kg > 0) addAcarreoFrente(fc, frNom, { peso: 0, pesoKg: pf.kg });
+              else if (pf.viajes > 0) addAcarreoFrente(fc, frNom, { viajes: 0, viajesCant: pf.viajes });
+            }
+          } else {
+            suma(fc, 'viajes', 0, st.viajesTotal);
+            for (const [frNom, pf] of st.porFrente.entries()) {
+              if (pf.viajes > 0) addAcarreoFrente(fc, frNom, { viajes: 0, viajesCant: pf.viajes });
+            }
+          }
         }
         // 🏷️⛏️👤⚙️ A cada fila se le pega su categoría, su frente, su encargado y su estado (vacío =
         //    «Sin clasificación» / «Sin frente» / «Sin encargado» / «Operativa», lo resuelve la lib).
@@ -256,6 +346,11 @@ export function ReporteConsolidadoCard() {
         const nombres = sinPrecio.slice(0, 8).map((f) => `${f.code.trim()}${f.placa ? ` (${f.placa})` : ''}`).join(', ');
         nuevosAvisos.push(`💲 ${sinPrecio.length} máquina(s) con horas de jornada SIN PRECIO en Control (salen en $0): ${nombres}${sinPrecio.length > 8 ? '…' : ''}. Ponle el precio por hora en Control de Maquinaria y vuelve a calcular.`);
       }
+      const sinTarifaAcarreo = filasNuevas.filter((f) => f.sinTarifaAcarreo);
+      if (sinTarifaAcarreo.length) {
+        const nombres = sinTarifaAcarreo.slice(0, 8).map((f) => `${f.code.trim()}${f.placa ? ` (${f.placa})` : ''}`).join(', ');
+        nuevosAvisos.push(`🚛💲 ${sinTarifaAcarreo.length} camión(es) con viajes/peso SIN TARIFA activa (salen en $0 con sus toneladas/viajes): ${nombres}${sinTarifaAcarreo.length > 8 ? '…' : ''}. Configura su tarifa en Viajes → Pago por Peso o Pago por Viajes y vuelve a calcular.`);
+      }
       setFilas(filasNuevas);
       setFilasAnt(armar(antDesde, antHasta));
       // 🕐 Lo elegido «por jornada» solo vale para camiones CON PESO de este rango:
@@ -266,7 +361,7 @@ export function ReporteConsolidadoCard() {
       //    por tonelada: TODOS los viajes, con o sin tarifa — misma regla del
       //    informe operativo (el que no se pesó cuenta y suma 0 t).
       setViajesTon(viajesEnRango((vDatos as any).viajes, desde, hasta)
-        .map((v: any) => ({ frente_nombre: v.frente_nombre ?? null, peso_neto_kg: v.peso_neto_kg ?? null })));
+        .map((v: any) => ({ frente_nombre: v.frente_nombre ?? null, peso_neto_kg: v.peso_neto_kg ?? null, code: v.machine_code ?? null, placa: v.placa_snap ?? null })));
       // 📅 EL DÍA POR DÍA (21-oct-2026, a pedido: «una tabla operativa diaria
       //    con un desglose del estilo del de viajes de camiones, y la gráfica»):
       //    se corre LA MISMA `armar` con el rango de UN SOLO día — ni una
