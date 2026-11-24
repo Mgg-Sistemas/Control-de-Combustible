@@ -53,6 +53,7 @@ import {
   inyectarEmpresaEnNota,
   extraerEmpresaDeNota,
   pasaFiltroEmpresas,
+  calcularTotalesKpiCxp,
 } from '../lib/cuentasEmpresa';
 import {
   pickAndUploadDocFile,
@@ -2265,15 +2266,6 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       pagada: porEmpresas.filter((c) => c.situacion === 'pagada').length,
     };
 
-    // Los totales se calculan sobre las cuentas del filtro de empresa (la posición real de esa selección)
-    const t = { pendiente: 0, vencido: 0, porVencer: 0, nVencidas: 0 };
-    porEmpresas.forEach((c) => {
-      if (c.situacion === 'anulada' || c.situacion === 'pagada') return;
-      t.pendiente += c.saldo;
-      if (c.situacion === 'vencida') { t.vencido += c.saldo; t.nVencidas += 1; }
-      if (c.situacion === 'por_vencer') t.porVencer += c.saldo;
-    });
-
     const nq = norm(q);
     const mostrarPagadasEfectivo = verPagadas || (tipo === 'por_pagar' && filtroEstadoCxp === 'pagada');
     const pasaVerPagadas = (c: CuentaCalc) => (mostrarPagadasEfectivo ? true : c.situacion !== 'pagada' && c.situacion !== 'anulada');
@@ -2333,6 +2325,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       )
       // Orden: lo más urgente arriba (ver `ordenUrgencia`).
       .sort(ordenUrgencia);
+
+    // Los totales KPI reflejan el estado filtrado en Por Pagar (o la posición por empresa si está en "Todas").
+    const t = calcularTotalesKpiCxp(porEmpresas, vis, tipo, filtroEstadoCxp);
 
     // 📄 Para el reporte: TODAS las de la pestaña (las marcadas salen de aquí,
     // aunque el filtro de ahora las esconda) y el «universo» = la lista sin
@@ -2864,11 +2859,21 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         </View>
       </View>
 
-      {/* Totales — ajustados a las empresas seleccionadas */}
+      {/* Totales — ajustados a las empresas seleccionadas y al estado filtrado en Por Pagar */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
-        <Quick label="TOTAL PENDIENTE" value={tot.pendiente} color={colors.brandText} />
+        <Quick
+          label={tot.etiquetaPrincipal}
+          value={tot.pendiente}
+          color={filtroEstadoCxp === 'pagada' && tipo === 'por_pagar' ? colors.successSoftText : colors.brandText}
+          sub={tot.nPrincipal != null ? `${tot.nPrincipal} cuenta(s)` : undefined}
+        />
         <Quick label="VENCIDO" value={tot.vencido} color={colors.dangerSoftText} sub={tot.nVencidas ? `${tot.nVencidas} cuenta(s)` : undefined} />
-        <Quick label={`POR VENCER (${DIAS_POR_VENCER} DÍAS)`} value={tot.porVencer} color={colors.warningSoftText} />
+        <Quick
+          label={`POR VENCER (${DIAS_POR_VENCER} DÍAS)`}
+          value={tot.porVencer}
+          color={colors.warningSoftText}
+          sub={tot.nPrincipal != null && tot.nPorVencer ? `${tot.nPorVencer} cuenta(s)` : undefined}
+        />
       </View>
 
       {/* 💱 BOTÓN ENORME GLOBAL: Tasa del día de hoy vs. Tasa de ese día (del requerimiento) */}

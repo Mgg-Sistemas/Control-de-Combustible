@@ -37,7 +37,7 @@ t('botón para quitar filtros de empresa', /✕ Quitar filtros/.test(srcCuentas)
 t('etiqueta de empresa visible en cada tarjeta de cuenta', /🏢\s*\{c\.empresaNombre\}/.test(srcCuentas));
 t('selector de empresa en el modal de alta / edición', /🏢 Empresa solicitante \/ destino/.test(srcCuentas));
 t('guarda empresa seleccionada en notaFinal con inyectarEmpresaEnNota', /inyectarEmpresaEnNota\(notaFinal,\s*empresaFormId/.test(srcCuentas));
-t('totales se recalculan acordes al filtro de empresas seleccionado', /porEmpresas\.forEach/.test(srcCuentas));
+t('totales se recalculan acordes al filtro de empresas seleccionado', /(porEmpresas\.forEach|calcularTotalesKpiCxp\(porEmpresas)/.test(srcCuentas));
 
 // 4. Pruebas de lógica funcional (simulación exacta del algoritmo)
 const ID_SIN_EMPRESA = '__sin_empresa__';

@@ -157,3 +157,97 @@ export function pasaFiltroEmpresas(
   return empresaSel.has(empresaIdDeCuenta);
 }
 
+export type FiltroEstadoCxp =
+  | 'todos'
+  | 'esperando_aprobacion'
+  | 'mayor_mil'
+  | 'esperando_pago'
+  | 'vencida'
+  | 'prioridad_alta'
+  | 'pagada';
+
+export interface CuentaKpiMin {
+  situacion: string;
+  saldo: number;
+  monto?: number | string | null;
+}
+
+export interface TotalesKpiCuentas {
+  etiquetaPrincipal: string;
+  pendiente: number;
+  nPrincipal?: number;
+  vencido: number;
+  nVencidas: number;
+  porVencer: number;
+  nPorVencer: number;
+}
+
+const ETIQUETA_ESTADO_CXP: Record<Exclude<FiltroEstadoCxp, 'todos'>, string> = {
+  esperando_aprobacion: 'TOTAL ESPERANDO APROBACIÓN',
+  mayor_mil: 'TOTAL PAGO > $1,000 USD',
+  esperando_pago: 'TOTAL ESPERANDO PAGO',
+  vencida: 'TOTAL VENCIDAS',
+  prioridad_alta: 'TOTAL PRIORIDAD ALTA',
+  pagada: 'TOTAL PAGADAS',
+};
+
+/**
+ * Calcula los montos en USD de las tarjetas KPI superiores de Cuentas por Pagar.
+ * - Con `filtroEstado === 'todos'` (o fuera de Por Pagar), mantiene el resumen
+ *   general pendiente / vencido / por vencer sobre `porEmpresas`.
+ * - Con un estado seleccionado, calcula los totales en USD sobre `visibles`
+ *   (usando `monto` para `pagada`, donde `saldo` es 0, y `saldo` en los demás).
+ */
+export function calcularTotalesKpiCxp(
+  porEmpresas: readonly CuentaKpiMin[],
+  visibles: readonly CuentaKpiMin[],
+  tipo: 'por_pagar' | 'por_cobrar',
+  filtroEstado: FiltroEstadoCxp
+): TotalesKpiCuentas {
+  if (tipo !== 'por_pagar' || filtroEstado === 'todos') {
+    const t: TotalesKpiCuentas = {
+      etiquetaPrincipal: 'TOTAL PENDIENTE',
+      pendiente: 0,
+      vencido: 0,
+      nVencidas: 0,
+      porVencer: 0,
+      nPorVencer: 0,
+    };
+    porEmpresas.forEach((c) => {
+      if (c.situacion === 'anulada' || c.situacion === 'pagada') return;
+      const saldo = Number(c.saldo) || 0;
+      t.pendiente += saldo;
+      if (c.situacion === 'vencida') { t.vencido += saldo; t.nVencidas += 1; }
+      if (c.situacion === 'por_vencer') { t.porVencer += saldo; t.nPorVencer += 1; }
+    });
+    return t;
+  }
+
+  const t: TotalesKpiCuentas = {
+    etiquetaPrincipal: ETIQUETA_ESTADO_CXP[filtroEstado],
+    pendiente: 0,
+    nPrincipal: visibles.length,
+    vencido: 0,
+    nVencidas: 0,
+    porVencer: 0,
+    nPorVencer: 0,
+  };
+
+  if (filtroEstado === 'pagada') {
+    visibles.forEach((c) => {
+      t.pendiente += Number(c.monto) || 0;
+    });
+    return t;
+  }
+
+  visibles.forEach((c) => {
+    if (c.situacion === 'anulada' || c.situacion === 'pagada') return;
+    const saldo = Number(c.saldo) || 0;
+    t.pendiente += saldo;
+    if (c.situacion === 'vencida') { t.vencido += saldo; t.nVencidas += 1; }
+    if (c.situacion === 'por_vencer') { t.porVencer += saldo; t.nPorVencer += 1; }
+  });
+  return t;
+}
+
+
