@@ -17,6 +17,7 @@ export type ViajeValuacion = {
   machine_code?: string | null;
   placa_snap?: string | null;
   chofer_name?: string | null;
+  shift?: 'day' | 'night' | string | null;
   peso_tara_kg?: number | string | null;
   peso_bruto_kg?: number | string | null;
   peso_neto_kg?: number | string | null;
@@ -389,14 +390,39 @@ function footerHtml(pagina: number, total: number): string {
 export function generarHtmlValuacionPdf(opts: {
   viajes: readonly ViajeValuacion[];
   maquinas: readonly MaquinaValuacion[];
+  /** Respaldo de chofer por `machinery_id|shift` (cuando `chofer_name` viene vacío en viajes previos). */
+  choferesPorCamionTurno?: ReadonlyMap<string, string> | Record<string, string>;
   desde: string;
   hasta: string;
   config: ConfigValuacion;
 }): string {
-  const { viajes, maquinas, desde, hasta, config: cfg } = opts;
+  const { viajes, maquinas, choferesPorCamionTurno, desde, hasta, config: cfg } = opts;
   const datos = construirDatosValuacion(viajes, desde, hasta, cfg);
   const maqById = new Map<string, MaquinaValuacion>();
   (maquinas ?? []).forEach((m) => maqById.set(m.id, m));
+
+  const getChoferMapa = (k: string): string => {
+    if (!choferesPorCamionTurno) return '';
+    if (choferesPorCamionTurno instanceof Map) return String(choferesPorCamionTurno.get(k) ?? '').trim();
+    return String((choferesPorCamionTurno as Record<string, string>)[k] ?? '').trim();
+  };
+
+  const choferDe = (v: ViajeValuacion): string => {
+    const snap = String(v.chofer_name ?? '').trim();
+    if (snap) return snap;
+    if (!v.machinery_id) return '';
+    const turnoRaw = String(v.shift ?? '').trim().toLowerCase();
+    let turno: 'day' | 'night' = turnoRaw === 'night' ? 'night' : 'day';
+    if (turnoRaw !== 'day' && turnoRaw !== 'night') {
+      const hh = Number(horaCaracas(v.registered_at).slice(0, 2));
+      turno = Number.isFinite(hh) && (hh < 7 || hh >= 19) ? 'night' : 'day';
+    }
+    return (
+      getChoferMapa(`${v.machinery_id}|${turno}`) ||
+      getChoferMapa(`${v.machinery_id}|day`) ||
+      getChoferMapa(`${v.machinery_id}|night`)
+    );
+  };
 
   const placaDe = (v: ViajeValuacion): string => {
     const snap = String(v.placa_snap ?? '').trim();
@@ -634,7 +660,7 @@ export function generarHtmlValuacionPdf(opts: {
           <td class="c">${horaCaracas(v.registered_at)}</td>
           <td class="c b">${escHtml(placaDe(v))}</td>
           <td>${escHtml(tipoVehiculoDe(v))}</td>
-          <td>${escHtml(v.chofer_name ?? '')}</td>
+          <td>${escHtml(choferDe(v))}</td>
           <td class="r">${tara}</td>
           <td class="r">${bruto}</td>
           <td class="r">${netoKg > 0 ? fmtInt(netoKg) : '—'}</td>

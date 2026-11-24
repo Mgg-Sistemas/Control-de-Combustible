@@ -14,6 +14,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { selectAllRows } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
+import { listOperatorAssignments } from '../lib/machineOperators';
 import {
   CONFIG_VALUACION_INICIAL,
   ConfigValuacion,
@@ -27,7 +28,7 @@ import {
 
 const STORAGE_KEY = 'valuacion_viajes_cfg_v1';
 
-const COLS_BASE = 'id, registered_at, machinery_id, machine_code, chofer_name, peso_tara_kg, peso_bruto_kg, peso_neto_kg, ubicacion_nombre, placa_snap, frente_id, frente_nombre';
+const COLS_BASE = 'id, registered_at, machinery_id, machine_code, chofer_name, shift, peso_tara_kg, peso_bruto_kg, peso_neto_kg, ubicacion_nombre, placa_snap, frente_id, frente_nombre';
 const COLS_OP = `${COLS_BASE}, proyecto_operacion, material_nombre, sentido`;
 const COLS_FULL = `${COLS_OP}, responsable_id, responsable_nombre`;
 
@@ -53,6 +54,7 @@ export function ValuacionViajesCard({ canVer }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [viajes, setViajes] = useState<ViajeValuacion[]>([]);
   const [maquinas, setMaquinas] = useState<MaquinaValuacion[]>([]);
+  const [choferesMapa, setChoferesMapa] = useState<Map<string, string>>(new Map());
 
   const [opFiltro, setOpFiltro] = useState<'todas' | 'miyamoto' | 'tfi'>('miyamoto');
   const [obrasSel, setObrasSel] = useState<Set<string>>(new Set());
@@ -97,14 +99,21 @@ export function ValuacionViajesCard({ canVer }: Props) {
       const filtro = (q: any) =>
         q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`);
 
-      const [filas, maqs] = await Promise.all([
+      const [filas, maqs, asigOps] = await Promise.all([
         selectAllRows('camion_viajes', COLS_FULL, filtro)
           .catch(() => selectAllRows('camion_viajes', COLS_OP, filtro)
             .catch(() => selectAllRows('camion_viajes', COLS_BASE, filtro))),
         selectAllRows('machinery', 'id, code, plate, serial').catch(() => [] as any[]),
+        listOperatorAssignments().catch(() => ({ rows: [], missing: true })),
       ]);
       setViajes((filas ?? []) as ViajeValuacion[]);
       setMaquinas((maqs ?? []) as MaquinaValuacion[]);
+      const cMap = new Map<string, string>();
+      (asigOps?.rows ?? []).forEach((r: any) => {
+        const nom = String(r.operator_name ?? '').trim();
+        if (r.machinery_id && r.shift && nom) cMap.set(`${r.machinery_id}|${r.shift}`, nom);
+      });
+      setChoferesMapa(cMap);
     } catch (e: any) {
       setError(e?.message || 'No se pudieron cargar los viajes para la valuación.');
     } finally {
@@ -224,6 +233,7 @@ export function ValuacionViajesCard({ canVer }: Props) {
       const html = generarHtmlValuacionPdf({
         viajes: viajesFiltrados,
         maquinas,
+        choferesPorCamionTurno: choferesMapa,
         desde,
         hasta,
         config: cfg,

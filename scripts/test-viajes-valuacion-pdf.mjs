@@ -107,10 +107,11 @@ eq('total páginas = 2 + días activos', datos.totalPaginas, 4);
 eq('acumulado a la fecha = 100 + 43.96', datos.acumuladoAFechaT, 143.96);
 eq('saldo contractual = 500 - 143.96', datos.saldoContractualT, 356.04);
 
-// 3. Generación HTML y escape XSS
+// 3. Generación HTML y escape XSS (con respaldo de choferes por camión/turno)
 const html = generarHtmlValuacionPdf({
   viajes,
   maquinas,
+  choferesPorCamionTurno: { 'm2|day': 'Douglas Azuaje' },
   desde: '2026-11-13',
   hasta: '2026-11-15',
   config: CONFIG_VALUACION_INICIAL,
@@ -121,6 +122,7 @@ eq('incluye sección 2 distribución frentes', html.includes('2 &nbsp; DISTRIBUC
 eq('incluye sección 3 conciliación', html.includes('3 &nbsp; CONCILIACIÓN DE LA PARTIDA'), true);
 eq('incluye registro diario de acarreo y pesaje', html.includes('Registro diario de acarreo y pesaje'), true);
 eq('usa placa de catálogo cuando placa_snap es null', html.includes('A07CW5J'), true);
+eq('usa chofer de respaldo cuando chofer_name es null', html.includes('Douglas Azuaje'), true);
 eq('escapa HTML peligroso en frente', html.includes('Frente Norte &lt;test&gt;'), true);
 eq('NO incluye tag crudo <test>', html.includes('<test>'), false);
 eq('incluye Página 4 de 4', html.includes('Página 4 de 4'), true);
