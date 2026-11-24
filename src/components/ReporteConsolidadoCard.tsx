@@ -45,7 +45,7 @@ import {
   cuerpoConsolidado, subtituloConsolidado, nombreArchivoConsolidado, totalesConsolidado,
   usd, cantTexto, categoriaDe, frenteDe, encargadoDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
   type ViajeToneladas, type DiaCrudoConsolidado, MAX_DIAS_GRAFICO_CONSOLIDADO,
-  indiceFrentesConsolidado, camionesConPeso,
+  indiceFrentesConsolidado, camionesConPeso, filasElegidas, esFilaCamionAcarreo,
 } from '../lib/reporteConsolidado';
 import { EDICION_RESUMEN_VACIA, edicionAlCambiarDeDia, type EdicionResumen, type TarjetaPropia } from '../lib/frentesReporte';
 import { caracasBusinessToday } from '../lib/caracasDay';
@@ -406,7 +406,7 @@ export function ReporteConsolidadoCard() {
     try {
       const filtrado = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0
         || (op.soloCategorias ?? []).length > 0 || (op.soloFrentes ?? []).length > 0
-        || (op.soloEncargados ?? []).length > 0;
+        || (op.soloEncargados ?? []).length > 0 || (op.soloEstados ?? []).length > 0;
       const tituloFinal = op.sinTitulo
         ? ''
         : (op.tituloDoc?.trim() || (op.sinPagos ? 'Reporte de horas trabajadas de maquinaria' : 'Reporte consolidado de pagos'));
@@ -455,9 +455,37 @@ export function ReporteConsolidadoCard() {
     }
     return Array.from(vistos.values()).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
   }, [filas, viajesTon, opFull]);
-  const maquinasLista = useMemo(() => (filas ?? [])
-    .filter((f) => !q || `${f.code} ${f.placa} ${f.empresa}`.toLowerCase().includes(q))
-    .slice().sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true })), [filas, q]);
+  const filasBaseSelector = useMemo(() => {
+    if (!filas?.length) return [];
+    if (!(op.soloFrentes ?? []).length) return filas;
+    const delFrente = filasElegidas(filas, {
+      ...opFull,
+      soloMaquinas: [],
+      soloEmpresas: [],
+      soloCategorias: [],
+      soloEncargados: [],
+      soloEstados: [],
+      incluirCamionesAcarreo: false,
+    }, porDia);
+    const idsEnFrente = new Set(delFrente.map((f) => f.id));
+    const extrasMarcadas = filas.filter((f) => !idsEnFrente.has(f.id) && (op.soloMaquinas ?? []).includes(f.id));
+    return [...delFrente, ...extrasMarcadas];
+  }, [filas, opFull, op.soloFrentes, op.soloMaquinas, porDia]);
+  const elegidasIds = useMemo(
+    () => new Set(filas ? filasElegidas(filas, opFull, porDia).map((f) => f.id) : []),
+    [filas, opFull, porDia],
+  );
+  const marcadasOcultasPorFiltro = useMemo(
+    () => (op.soloMaquinas ?? []).filter((id) => !elegidasIds.has(id)),
+    [op.soloMaquinas, elegidasIds],
+  );
+  const maquinasLista = useMemo(() => filasBaseSelector
+    .filter((f) => !q || `${f.code} ${f.placa} ${f.empresa} ${frenteDe(f)}`.toLowerCase().includes(q))
+    .slice().sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }) || a.placa.localeCompare(b.placa, 'es', { numeric: true })), [filasBaseSelector, q]);
+  const camionesSelectorIds = useMemo(
+    () => filasBaseSelector.filter((f) => esFilaCamionAcarreo(f)).map((f) => f.id),
+    [filasBaseSelector],
+  );
   // 🚛⚖️ Los camiones que facturan por peso: se puede pasar cada uno a jornada.
   const camionesPeso = useMemo(() => camionesConPeso(filas), [filas]);
   const porJornadaSel = new Set(op.camionesPorJornada ?? []);
@@ -573,6 +601,14 @@ export function ReporteConsolidadoCard() {
           {(op.soloEmpresas ?? []).length ? (
             <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Filtrar SÍ cambia el total: el papel sale FILTRADO y el archivo dice de quién es.</Text>
           ) : null}
+          <View style={{ marginTop: 6 }}>
+            <Toggle
+              on={!!op.incluirCamionesAcarreo}
+              label="🚛 Incluir todos los camiones de acarreo (aunque sean de otra empresa)"
+              ayuda="Úsalo para sacar solo la maquinaria de un cliente (ej. AJJE) junto con todos los camiones que acarrearon en el frente."
+              onPress={() => setOp((p) => ({ ...p, incluirCamionesAcarreo: !p.incluirCamionesAcarreo }))}
+            />
+          </View>
         </View>
       ) : null}
 
@@ -669,24 +705,73 @@ export function ReporteConsolidadoCard() {
         <View>
           <TouchableOpacity onPress={() => setVerMaquinas((v) => !v)}>
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>
-              🚜 Elegir máquinas {maqSel.size ? `(solo ${maqSel.size} — FILTRADO)` : '(todas)'} {verMaquinas ? '▲' : '▼'}
+              🚜 Elegir máquinas {maqSel.size ? `(solo ${maqSel.size} — FILTRADO)` : `(todas · ${filasBaseSelector.length})`} {verMaquinas ? '▲' : '▼'}
             </Text>
           </TouchableOpacity>
+          {marcadasOcultasPorFiltro.length > 0 ? (
+            <View style={{ marginTop: 4, padding: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '700' }}>
+                ⚠️ {marcadasOcultasPorFiltro.length} máquina(s) marcada(s) no aparecen en el reporte porque otro filtro de arriba (empresa, categoría, encargado, estado o frente) las está excluyendo.
+              </Text>
+              {((op.soloEmpresas ?? []).length > 0 || (op.soloCategorias ?? []).length > 0 || (op.soloEncargados ?? []).length > 0 || (op.soloEstados ?? []).length > 0) ? (
+                <TouchableOpacity
+                  onPress={() => setOp((p) => ({ ...p, soloEmpresas: [], soloCategorias: [], soloEncargados: [], soloEstados: [] }))}
+                  style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                >
+                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>
+                    🔓 Quitar filtros de arriba para mostrar todas mis máquinas marcadas
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
           {verMaquinas ? (
             <View style={{ marginTop: spacing.xs }}>
+              {(op.soloFrentes ?? []).length > 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 4 }}>
+                  ⛏️ Mostrando los {filasBaseSelector.length} equipo(s) del frente elegido. Puedes marcar todos y desmarcar solo las máquinas que quieras excluir.
+                </Text>
+              ) : null}
               <TextInput value={buscaMaq} onChangeText={setBuscaMaq} placeholder="🔎 Buscar por código, placa o empresa…" placeholderTextColor={colors.muted}
                 style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} autoCorrect={false} />
-              {maqSel.size ? (
-                <TouchableOpacity onPress={() => setOp((p) => ({ ...p, soloMaquinas: [] }))}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 11, marginTop: 4 }}>✕ Limpiar (volver a todas)</Text></TouchableOpacity>
-              ) : null}
-              <ScrollView style={{ maxHeight: 220, marginTop: spacing.xs }} nestedScrollEnabled>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 6 }}>
+                {maquinasLista.length > 0 ? (
+                  <Pastilla
+                    on={false}
+                    label={`☑️ Marcar visibles (${maquinasLista.length})`}
+                    onPress={() => setOp((p) => {
+                      const s = new Set(p.soloMaquinas ?? []);
+                      for (const x of maquinasLista) s.add(x.id);
+                      return { ...p, soloMaquinas: Array.from(s) };
+                    })}
+                  />
+                ) : null}
+                {camionesSelectorIds.length > 0 ? (
+                  <Pastilla
+                    on={false}
+                    label={`🚛 + Camiones (${camionesSelectorIds.length})`}
+                    onPress={() => setOp((p) => {
+                      const s = new Set(p.soloMaquinas ?? []);
+                      for (const id of camionesSelectorIds) s.add(id);
+                      return { ...p, soloMaquinas: Array.from(s) };
+                    })}
+                  />
+                ) : null}
+                {maqSel.size ? (
+                  <Pastilla on={false} warn label="✕ Limpiar (volver a todas)" onPress={() => setOp((p) => ({ ...p, soloMaquinas: [] }))} />
+                ) : null}
+              </View>
+              <ScrollView style={{ maxHeight: 240, marginTop: spacing.xs }} nestedScrollEnabled>
                 {maquinasLista.map((f) => {
                   const on = maqSel.has(f.id);
+                  const esCam = esFilaCamionAcarreo(f);
                   return (
                     <TouchableOpacity key={f.id} onPress={() => setOp((p) => { const s = new Set(p.soloMaquinas ?? []); on ? s.delete(f.id) : s.add(f.id); return { ...p, soloMaquinas: Array.from(s) }; })}
-                      style={{ flexDirection: 'row', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                      style={{ flexDirection: 'row', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border, alignItems: 'center' }}>
                       <Text style={{ width: 24, fontSize: 13 }}>{on ? '☑️' : '⬜'}</Text>
-                      <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>{f.code}{f.placa ? ` · ${f.placa}` : ''} <Text style={{ color: colors.muted }}>· {f.empresa}{f.estado ? ` · ${f.estado}` : ''}</Text></Text>
+                      <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>
+                        {esCam ? '🚛 ' : '🏗️ '}{f.code} · {f.placa || 'SIN PLACA'} <Text style={{ color: colors.muted }}>· {f.empresa}{f.estado ? ` · ${f.estado}` : ''}</Text>
+                      </Text>
                     </TouchableOpacity>
                   );
                 })}

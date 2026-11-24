@@ -51,6 +51,9 @@ const {
   cuerpoConsolidado,
   totalesConsolidado,
   diasConsolidados,
+  costoPorTonelada,
+  filasElegidas,
+  sufijoArchivoConsolidado,
 } = loadTs(path.join(ROOT, 'src/lib/reporteConsolidado.ts'));
 
 let pass = 0;
@@ -152,6 +155,89 @@ ok('A13AG9D aparece en ambos bloques (Palma Real y SAIME) cuando NO hay filtro s
   const vecesA13 = (htmlTodos.match(/<td>A13AG9D<\/td>/g) || []).length;
   return vecesA13 === 2;
 })());
+
+// 4. Caso Winnerly / Chely (23/11/2026 · RESIDENCIA PALMA REAL):
+//    En Palma Real trabajaron 3 máquinas de INVERSIONES AJJE, 2 de FERRECONSTRUCCIONES 3-G y 2 Jumbos de GOLDEN TOUCH,
+//    más los 5 camiones volteo de GOLDEN TOUCH. Al activar `incluirCamionesAcarreo` con `soloEmpresas: ['INVERSIONES AJJE MAQUINARIAS, C.A.']`
+//    y `soloFrentes: ['Residencia Palma Real']`, entran SOLO las 3 máquinas de AJJE + los 5 camiones de Palma Real.
+const filasConMaquinaria = [
+  ...filasReales,
+  {
+    id: 'm_ajje_1', code: 'JUMBO 320', placa: 'CAT00320CPAB05827', empresa: 'INVERSIONES AJJE MAQUINARIAS, C.A.',
+    frente: 'Residencia Palma Real', categoria: 'REMOCIÓN Y EXCAVACIÓN', encargado: 'ALBERTO',
+    montos: { horometros: 640 }, cant: { horometros: 9.6 },
+  },
+  {
+    id: 'm_ajje_2', code: 'JUMBO CON MARTILLO', placa: 'CAT003223ETSF21435', empresa: 'INVERSIONES AJJE MAQUINARIAS, C.A.',
+    frente: 'Residencia Palma Real', categoria: 'REMOCIÓN Y EXCAVACIÓN', encargado: 'AJJE',
+    montos: { horometros: 725 }, cant: { horometros: 8.7 },
+  },
+  {
+    id: 'm_ajje_3', code: 'PAYLOADER', placa: 'CAT8958GT3JW82442X', empresa: 'INVERSIONES AJJE MAQUINARIAS, C.A.',
+    frente: 'Residencia Palma Real', categoria: 'REMOCIÓN Y EXCAVACIÓN', encargado: 'ALBERTO',
+    montos: { horometros: 445.83 }, cant: { horometros: 10.7 },
+  },
+  {
+    id: 'm_ferre_1', code: 'JUMBO 320', placa: 'CAT0320DJJFZ06753', empresa: 'FERRECONSTRUCCIONES 3-G, C.A',
+    frente: 'Residencia Palma Real', categoria: 'REMOCIÓN Y EXCAVACIÓN',
+    montos: { horometros: 1146.67 }, cant: { horometros: 17.2 },
+  },
+  {
+    id: 'm_ferre_2', code: 'JUMBO 320', placa: 'HHKHN623HP0036592', empresa: 'FERRECONSTRUCCIONES 3-G, C.A',
+    frente: 'Residencia Palma Real', categoria: 'REMOCIÓN Y EXCAVACIÓN',
+    montos: { horometros: 793.33 }, cant: { horometros: 11.9 },
+  },
+  {
+    id: 'm_gt_1', code: 'JUMBO CON MARTILLO', placa: 'CAT0320DCZBH00579', empresa: 'GOLDEN TOUCH 1127 CA',
+    frente: 'Residencia Palma Real', categoria: 'REMOCIÓN Y EXCAVACIÓN',
+    montos: { horometros: 1183.33 }, cant: { horometros: 14.2 },
+  },
+  {
+    id: 'm_gt_2', code: 'JUMBO CON MARTILLO', placa: 'SINE210HHM1300488', empresa: 'GOLDEN TOUCH 1127 CA',
+    frente: 'Residencia Palma Real', categoria: 'REMOCIÓN Y EXCAVACIÓN',
+    montos: { horometros: 1060 }, cant: { horometros: 10.6 },
+  },
+];
+const diasConMaquinaria = [{ jornada: '2026-11-23', filas: filasConMaquinaria, viajes: viajesTon }];
+
+// Sin incluirCamionesAcarreo (por defecto), soloEmpresas: AJJE deja únicamente las 3 máquinas ($1.810,83) y excluye los camiones de Golden Touch
+const opAjjeSinCamiones = {
+  ...opSoloPalma,
+  soloEmpresas: ['INVERSIONES AJJE MAQUINARIAS, C.A.'],
+};
+const totAjjeSin = totalesConsolidado(filasConMaquinaria, opAjjeSinCamiones, diasConMaquinaria);
+ok('por defecto soloEmpresas AJJE trae solo las 3 máquinas de AJJE ($1.810,83)',
+  totAjjeSin.maquinas === 3 && totAjjeSin.total === 1810.83, `got maq=${totAjjeSin.maquinas} total=${totAjjeSin.total}`);
+
+// Con incluirCamionesAcarreo: true, salen las 3 máquinas de AJJE ($1.810,83) + los 5 camiones reales de Palma Real ($967,08) = $2.777,91, excluyendo Ferreconstrucciones y Jumbos de Golden Touch
+const opChely = {
+  ...opSoloPalma,
+  soloEmpresas: ['INVERSIONES AJJE MAQUINARIAS, C.A.'],
+  incluirCamionesAcarreo: true,
+};
+const elChely = filasElegidas(filasConMaquinaria, opChely, diasConMaquinaria);
+const totChely = totalesConsolidado(filasConMaquinaria, opChely, diasConMaquinaria);
+const ctChely = costoPorTonelada(filasConMaquinaria, opChely, viajesTon, diasConMaquinaria);
+const dChely = diasConsolidados(diasConMaquinaria, opChely, filasConMaquinaria);
+const htmlChely = cuerpoConsolidado({ desde: '2026-11-23', hasta: '2026-11-23', filas: filasConMaquinaria, viajesTon, dias: diasConMaquinaria }, opChely);
+
+ok('con incluirCamionesAcarreo salen exactamente 8 equipos (3 AJJE + 5 camiones Palma Real)',
+  elChely.length === 8 && totChely.maquinas === 8, `got ${elChely.length}`);
+ok('suma exactamente $1.810,83 de maquinaria + $967,08 de acarreo = $2.777,91',
+  totChely.porFuente.horometros === 1810.83 && totChely.porFuente.peso === 967.08 && totChely.total === 2777.91,
+  `got horo=${totChely.porFuente.horometros} peso=${totChely.porFuente.peso} total=${totChely.total}`);
+ok('excluye las máquinas pesadas de FERRECONSTRUCCIONES y los Jumbos de GOLDEN TOUCH',
+  !htmlChely.includes('FERRECONSTRUCCIONES') && !htmlChely.includes('CAT0320DCZBH00579') && !htmlChely.includes('SINE210HHM1300488'));
+ok('incluye las 3 máquinas de AJJE y los 5 camiones de Palma Real en el PDF',
+  ['CAT00320CPAB05827', 'CAT003223ETSF21435', 'CAT8958GT3JW82442X', '49DDAR', 'A36AD9J', 'A17AW2E', 'A12DH7S', 'A13AG9D'].every((p) => htmlChely.includes(`<td>${p}</td>`)));
+ok('costo por tonelada divide solo la maquinaria de AJJE ($1.810,83) ÷ 483,54 t = $3,74/t',
+  ctChely.costo === 1810.83 && ctChely.toneladas === 483.54 && ctChely.usdPorTon === 3.74,
+  `got costo=${ctChely.costo} ton=${ctChely.toneladas} usdTon=${ctChely.usdPorTon}`);
+ok('tabla diaria cuadra al centavo ($2.777,91 y $3,74/t)',
+  dChely[0].total === 2777.91 && dChely[0].usdPorTon === 3.74,
+  `got total=${dChely[0].total} usdTon=${dChely[0].usdPorTon}`);
+ok('nombre de archivo indica con camiones de acarreo',
+  sufijoArchivoConsolidado(opChely).includes('con camiones de acarreo'));
 
 console.log(`test-reporte-consolidado-frente-real: ${pass} pasaron, ${fail} fallaron.`);
 if (failures.length) {

@@ -252,6 +252,12 @@ export type OpcionesConsolidado = {
   /** NOMBRES de empresa marcados; vacío = todas (19-oct-2026, a pedido: «poder
    *  sacarlo para una sola empresa»). También cambia el total: va FILTRADO. */
   soloEmpresas?: string[];
+  /** 🚛 Al filtrar por empresa, categoría o encargado, conserva TODOS los camiones
+   *  de acarreo del frente/rango aunque pertenezcan a otra empresa (24-nov-2026, a
+   *  pedido: sacar solo la maquinaria de un cliente —ej. AJJE— junto con los 5
+   *  camiones de Golden Touch que acarrearon en ese frente, sin meter las máquinas
+   *  pesadas de otras empresas). Nace apagado. */
+  incluirCamionesAcarreo?: boolean;
   /** CLASIFICACIONES marcadas; vacío = todas (20-oct-2026, a pedido: «para solo
    *  una categoría en específico»). También cambia el total: va FILTRADO. */
   soloCategorias?: string[];
@@ -342,6 +348,7 @@ export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
   //      relleno automático nace apagado (cambia la plata, es una elección).
   avisoHuecosHorometro: true,
   rellenoAutomaticoDia: false,
+  incluirCamionesAcarreo: false,
   sinPagos: false,
   sinTitulo: false,
 };
@@ -603,6 +610,17 @@ export function camionesConPeso(filas: readonly FilaConsolidada[] | null | undef
     .sort((a, b) => cmpTx(a.code, b.code) || cmpTx(a.placa, b.placa));
 }
 
+/** ¿Es un camión de acarreo (y no una máquina pesada)? */
+export function esFilaCamionAcarreo(f: Pick<FilaConsolidada, 'code' | 'montos' | 'cant' | 'acarreoPorFrente'>): boolean {
+  if (esCamionDeViajes(f.code)) return true;
+  const tieneAc = (f.montos.viajes ?? 0) !== 0 || (f.montos.peso ?? 0) !== 0
+    || (f.cant?.viajes ?? 0) !== 0 || (f.cant?.peso ?? 0) !== 0
+    || (f.acarreoPorFrente != null && Object.keys(f.acarreoPorFrente).length > 0);
+  const tieneMaq = (f.montos.jornadas ?? 0) !== 0 || (f.montos.horometros ?? 0) !== 0
+    || (f.cant?.jornadas ?? 0) !== 0 || (f.cant?.horometros ?? 0) !== 0;
+  return tieneAc && !tieneMaq;
+}
+
 /** Aplica el selector de máquinas y bota las filas que quedaron sin NINGÚN monto visible. */
 export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesConsolidado, dias?: readonly DiaCrudoConsolidado[] | null): FilaConsolidada[] {
   filas = conSeleccionAutomatica(filas, op, dias);
@@ -611,6 +629,7 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
   const categorias = new Set((op.soloCategorias ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const encargados = new Set((op.soloEncargados ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const estados = new Set((op.soloEstados ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
+  const conCamiones = !!op.incluirCamionesAcarreo;
   // Los frentes vienen de DOS catálogos escritos a mano: el filtro no distingue
   // mayúsculas NI acentos («Túnel» marca también a «TUNEL»).
   const idxF = indiceFrentesConsolidado(filas, null, op);
@@ -618,8 +637,8 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
   const visibles = fuentesVisibles(op);
   return (filas ?? [])
     .filter((f) => marcadas.size === 0 || marcadas.has(f.id))
-    .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
-    .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
+    .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()) || (conCamiones && esFilaCamionAcarreo(f)))
+    .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()) || (conCamiones && esFilaCamionAcarreo(f)))
     .map((f): FilaConsolidada | null => {
       if (frentes.size === 0) return f;
       const tieneAcarreoFrente = f.acarreoPorFrente && Object.keys(f.acarreoPorFrente).length > 0;
@@ -678,7 +697,7 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
       };
     })
     .filter((f): f is FilaConsolidada => f !== null)
-    .filter((f) => encargados.size === 0 || encargados.has(encargadoDe(f).toLowerCase()))
+    .filter((f) => encargados.size === 0 || encargados.has(encargadoDe(f).toLowerCase()) || (conCamiones && esFilaCamionAcarreo(f)))
     .filter((f) => estados.size === 0 || estados.has(String(f.estado ?? 'Operativa').trim().toLowerCase()))
     // 💲 Con plata O con horas/viajes (02-nov-2026): una máquina con jornada
     //    pero sin precio en Control salía en $0 y se botaba en silencio.
@@ -1773,6 +1792,9 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   const encs = (op.soloEncargados ?? []).map((e) => e.trim()).filter(Boolean);
   if (encs.length === 1) partes.push(`solo ${encs[0].toLowerCase()}`);
   else if (encs.length > 1) partes.push(`solo ${encs.length} encargados`);
+  if (op.incluirCamionesAcarreo && (emps.length > 0 || cats.length > 0 || encs.length > 0)) {
+    partes.push('con camiones de acarreo');
+  }
   const ests = (op.soloEstados ?? []).map((e) => e.trim()).filter(Boolean);
   if (ests.length === 1) partes.push(`solo ${ests[0].toLowerCase()}`);
   else if (ests.length > 1) partes.push(`solo ${ests.length} estados`);
