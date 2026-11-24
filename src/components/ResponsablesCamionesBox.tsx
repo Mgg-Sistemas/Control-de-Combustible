@@ -18,7 +18,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useToast } from './ToastProvider';
 import { useConfirm } from './ConfirmProvider';
-import { caracasToday, isoYesterday } from '../lib/caracasDay';
+import { caracasBusinessToday, isoYesterday } from '../lib/caracasDay';
 import {
   SQL_RESPONSABLES, SQL_BACKFILL_RESPONSABLES, ETIQUETA_SIN_RESPONSABLE, nombreValidoResponsable,
   mapaNombresResponsables, responsableVigentePorCamion, conteoCamionesPorResponsable,
@@ -110,10 +110,11 @@ export function ResponsablesCamionesBox({ camiones, uid, onChanged }: Props) {
   }, [camiones, buscaCamion]);
 
   // La misma ventana que usa el reporte: jornada de 7am a 7am en Caracas.
-  const hoyCaracas = useMemo(() => caracasToday(), []);
+  // Antes de las 7am el "hoy" de negocio sigue siendo AYER ( caracasDay.ts ).
+  const hoyJornada = useMemo(() => caracasBusinessToday(), []);
   const ventanaBackfill = useMemo(
-    () => ventanaJornadasBackfill(backfill.desde, backfill.hasta, hoyCaracas),
-    [backfill.desde, backfill.hasta, hoyCaracas]
+    () => ventanaJornadasBackfill(backfill.desde, backfill.hasta, hoyJornada),
+    [backfill.desde, backfill.hasta, hoyJornada]
   );
   const camionesBackfill = useMemo(
     () => (backfill.todosCamiones ? camiones.map((c) => c.id) : Array.from(seleccion)),
@@ -485,8 +486,8 @@ export function ResponsablesCamionesBox({ camiones, uid, onChanged }: Props) {
                           </View>
                           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
                             <Boton label="Todo el histórico" color={colors.muted} onPress={() => { setBackfill({ ...backfill, desde: '', hasta: '' }); setConteoBackfill(null); }} />
-                            <Boton label="Ayer" color={colors.muted} onPress={() => { const ayer = isoYesterday(hoyCaracas); setBackfill({ ...backfill, desde: ayer, hasta: ayer }); setConteoBackfill(null); }} />
-                            <Boton label="Últimos 7 días" color={colors.muted} onPress={() => { setBackfill({ ...backfill, desde: isoDesplazar(hoyCaracas, -6), hasta: hoyCaracas }); setConteoBackfill(null); }} />
+                            <Boton label="Ayer" color={colors.muted} onPress={() => { const ayer = isoYesterday(hoyJornada); setBackfill({ ...backfill, desde: ayer, hasta: ayer }); setConteoBackfill(null); }} />
+                            <Boton label="Últimos 7 días" color={colors.muted} onPress={() => { setBackfill({ ...backfill, desde: isoDesplazar(hoyJornada, -6), hasta: hoyJornada }); setConteoBackfill(null); }} />
                             <Boton
                               label={backfill.todosCamiones ? '☑ Todos los camiones' : '☐ Solo los marcados arriba'}
                               color={backfill.todosCamiones ? colors.primary : colors.muted}

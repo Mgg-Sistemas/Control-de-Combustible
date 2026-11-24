@@ -6500,6 +6500,33 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 - **Full** → además, el **panel de la jefa/administración**: todos los listeros combinados, por
   listero individual, resumen, metas, alerta y reporte.
 
+> **🧑‍🔧 Responsables propios de camiones y 📥 viajes ya registrados (23-nov-2026, solo nivel Full).**
+> En **Viajes de camiones → Panel de información → ⚙️ Configuración → «🧑‍🔧 Responsables de camiones»**
+> se crea un responsable del módulo (nombre y teléfono/cédula/nota opcionales; **no** es un usuario,
+> no tiene login y no toca el `encargado` del catálogo) y se le asigna **un camión, varios o todos**
+> desde el buscador. Un camión le trabaja a **un responsable vigente a la vez**: cambiarlo **cierra**
+> la vigencia anterior y **abre** otra; nada se borra y el historial sigue consultable con 📜.
+>
+> El responsable queda **congelado en cada viaje** al registrarlo, igual que la placa. Por eso la
+> **Lista completa**, el **Informe operativo**, el **Pago por viajes** y el **Pago por peso** pueden
+> filtrar por uno o varios responsables (se suman dentro del eje y se combinan con los demás filtros)
+> y llevar la columna **«Le trabaja a»**. La **«Sin responsable»** reúne los viajes viejos y los de
+> camiones sin asignar. En cambio, la **lista de camiones, las metas y las taras** usan el responsable
+> **vigente hoy**, no el congelado.
+>
+> **Para traer viajes anteriores:** dentro del panel de cada responsable, **«📥 Traer viajes ya
+> registrados»**. Se elige **operación** (Miyamoto / TFI / cualquiera — al responsable llamado
+> «Miyamoto» se le marca Miyamoto solo), **jornadas** de 7am a 7am (vacío = todo el histórico;
+> atajos *Ayer* y *Últimos 7 días*) y **camiones** (los marcados arriba o todos). Primero se toca
+> **«👁 Contar viajes»**: dice cuántos viajes **sin responsable** se pueden marcar y cuántos **ya
+> tienen** responsable. Después **«📥 Marcar N viaje(s)»** pide confirmación y deja auditoría.
+>
+> ⚠️ **Regla de oro:** solo se completa el responsable de viajes que **no tenían**. Nunca se
+> sobrescribe un nombre ya congelado, no se borra nada, no cambia *«Le trabaja a hoy»* y no toca
+> pesos ni pagos. Es **idempotente**: correrlo otra vez no marca nada. Necesita el **SQL aditivo en
+> Supabase** y su **respaldo previo** (tabla de copia de los viajes). Para corregir un viaje que ya
+> tiene responsable se usa **✏️ Editar viaje**, uno por uno, no esta herramienta.
+
 ### Vista del listero
 
 > **🚚 Un camión que no está en la lista (21-ago-2026).** Cuando el listero busca su camión y no lo
