@@ -7,7 +7,7 @@ import { spacing, radius } from '../theme';
 import { DateField } from './DateField';
 import type { InformeArchivo } from '../types/database';
 import {
-  anularInformeArchivo, listarInformesArchivos, subirInformesArchivos, type ArchivoParaSubir,
+  anularInformeArchivo, eliminarInformeArchivo, listarInformesArchivos, restaurarInformeArchivo, subirInformesArchivos, type ArchivoParaSubir,
 } from '../lib/informesArchivosDb';
 import {
   diaCaracas, fechaLegible, filtrarInformes, tamanoLegible, uploadersDe, urlDescarga,
@@ -35,21 +35,24 @@ export default function InformesSubidosPanel({ nombreSubida, puedeAnular }: Prop
   const [titulo, setTitulo] = useState('');
   const [seleccion, setSeleccion] = useState<ArchivoParaSubir[]>([]);
   const [subiendo, setSubiendo] = useState(false);
-  const [confirmarId, setConfirmarId] = useState<string | null>(null);
+  const [accionPendiente, setAccionPendiente] = useState<{ id: string; tipo: 'anular' | 'eliminar' } | null>(null);
+  const [procesandoId, setProcesandoId] = useState<string | null>(null);
+  const [verAnulados, setVerAnulados] = useState(false);
 
-  const cargar = async () => {
+  const cargar = async (incluirAnulados = verAnulados) => {
     setCargando(true);
-    const data = await listarInformesArchivos();
+    const data = await listarInformesArchivos({ incluirAnulados: puedeAnular && incluirAnulados });
     setFilas(data);
     setCargando(false);
   };
 
-  useEffect(() => { void cargar(); }, []);
+  useEffect(() => { void cargar(verAnulados); }, [verAnulados, puedeAnular]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const uploaders = useMemo(() => uploadersDe(filas), [filas]);
+  const anuladosCount = useMemo(() => filas.filter((f) => !!f.anuladoAt).length, [filas]);
   const visibles = useMemo(
-    () => filtrarInformes(filas, { query, desde, hasta, uploadedBy }),
-    [filas, query, desde, hasta, uploadedBy]
+    () => filtrarInformes(filas, { query, desde, hasta, uploadedBy, incluirAnulados: puedeAnular && verAnulados }),
+    [filas, query, desde, hasta, uploadedBy, puedeAnular, verAnulados]
   );
   const rangoInvalido = !!desde && !!hasta && desde > hasta;
   const hayFiltros = !!query || !!desde || !!hasta || !!uploadedBy;
@@ -108,15 +111,49 @@ export default function InformesSubidosPanel({ nombreSubida, puedeAnular }: Prop
   };
 
   const anular = async (id: string) => {
-    if (!puedeAnular || confirmarId !== id) return;
+    if (!puedeAnular || procesandoId) return;
     setError('');
-    const r = await anularInformeArchivo(id);
-    setConfirmarId(null);
+    setAviso('');
+    setProcesandoId(id);
+    const r = await anularInformeArchivo(id, nombreSubida);
+    setProcesandoId(null);
+    setAccionPendiente(null);
     if (!r.ok) {
       setError(r.error ?? 'No se pudo anular. Requiere control total.');
       return;
     }
-    setAviso('Informe anulado. Queda en el historial, ya no aparece en la lista.');
+    setAviso('Informe anulado. Ya no aparece en la bandeja activa (puedes consultarlo con «👁️ Ver anulados»).');
+    await cargar();
+  };
+
+  const restaurar = async (id: string) => {
+    if (!puedeAnular || procesandoId) return;
+    setError('');
+    setAviso('');
+    setProcesandoId(id);
+    const r = await restaurarInformeArchivo(id);
+    setProcesandoId(null);
+    if (!r.ok) {
+      setError(r.error ?? 'No se pudo restaurar el informe.');
+      return;
+    }
+    setAviso('Informe restaurado a la bandeja activa.');
+    await cargar();
+  };
+
+  const eliminar = async (row: InformeArchivo) => {
+    if (!puedeAnular || procesandoId) return;
+    setError('');
+    setAviso('');
+    setProcesandoId(row.id);
+    const r = await eliminarInformeArchivo(row.id, row.storagePath);
+    setProcesandoId(null);
+    setAccionPendiente(null);
+    if (!r.ok) {
+      setError(r.error ?? 'No se pudo eliminar. Requiere control total.');
+      return;
+    }
+    setAviso(`Informe «${row.titulo}» eliminado definitivamente.`);
     await cargar();
   };
 
@@ -181,26 +218,36 @@ export default function InformesSubidosPanel({ nombreSubida, puedeAnular }: Prop
         {!!uploaders.length && (
           <View style={{ gap: 6 }}>
             <Text style={{ fontSize: 12, color: colors.muted }}>Subido por:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={{ flexDirection: 'row', gap: 6 }}>
-                <TouchableOpacity onPress={() => setUploadedBy(null)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: !uploadedBy ? colors.primary : colors.border, backgroundColor: !uploadedBy ? colors.primary : colors.surface }}>
-                  <Text style={{ color: !uploadedBy ? colors.primaryContrast : colors.text, fontWeight: '700' }}>Todos</Text>
-                </TouchableOpacity>
-                {uploaders.map((u) => {
-                  const on = uploadedBy === u.id;
-                  return (
-                    <TouchableOpacity key={u.id} onPress={() => setUploadedBy(on ? null : u.id)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700' }}>{u.nombre}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </ScrollView>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              <TouchableOpacity onPress={() => setUploadedBy(null)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: !uploadedBy ? colors.primary : colors.border, backgroundColor: !uploadedBy ? colors.primary : colors.surface }}>
+                <Text style={{ color: !uploadedBy ? colors.primaryContrast : colors.text, fontWeight: '700' }}>Todos</Text>
+              </TouchableOpacity>
+              {uploaders.map((u) => {
+                const on = uploadedBy === u.id;
+                return (
+                  <TouchableOpacity key={u.id} onPress={() => setUploadedBy(on ? null : u.id)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700' }}>{u.nombre}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
         )}
-        <TouchableOpacity onPress={limpiarFiltros} disabled={!hayFiltros} style={{ alignSelf: 'flex-start', opacity: hayFiltros ? 1 : 0.4 }}>
-          <Text style={{ color: colors.primary, fontWeight: '700' }}>Limpiar filtros</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+          <TouchableOpacity onPress={limpiarFiltros} disabled={!hayFiltros} style={{ opacity: hayFiltros ? 1 : 0.4 }}>
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>Limpiar filtros</Text>
+          </TouchableOpacity>
+          {puedeAnular ? (
+            <TouchableOpacity
+              onPress={() => setVerAnulados((v) => !v)}
+              style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: verAnulados ? colors.warning : colors.border, backgroundColor: verAnulados ? colors.warning : colors.surface }}
+            >
+              <Text style={{ color: verAnulados ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 12 }}>
+                {verAnulados ? `👁️ Viendo también anulados (${anuladosCount})` : '👁️ Ver anulados'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
       {/* Lista */}
@@ -213,33 +260,104 @@ export default function InformesSubidosPanel({ nombreSubida, puedeAnular }: Prop
             <Text style={{ color: colors.muted, textAlign: 'center' }}>{filas.length ? 'No hay informes que coincidan con la búsqueda.' : 'Aún no hay informes subidos.'}</Text>
           </View>
         )}
-        {visibles.map((r) => (
-          <View key={r.id} style={{ padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 6 }}>
-            <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text }} numberOfLines={2}>{r.titulo}</Text>
-            <Text style={{ fontSize: 12, color: colors.muted }} numberOfLines={1}>📄 {r.fileName} · {tamanoLegible(r.sizeBytes)}</Text>
-            <Text style={{ fontSize: 12, color: colors.muted }}>
-              👤 {r.uploadedByNombre || 'Sin nombre'} · 🕒 {fechaLegible(r.createdAt)} · {diaCaracas(r.createdAt)}
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-              <TouchableOpacity onPress={() => abrir(r.publicUrl)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary }}>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>👁️ Abrir</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => descargar(r)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary }}>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>⬇️ Descargar</Text>
-              </TouchableOpacity>
-              {puedeAnular && (
-                <TouchableOpacity
-                  onPress={() => confirmarId === r.id ? anular(r.id) : setConfirmarId(r.id)}
-                  style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger, backgroundColor: confirmarId === r.id ? colors.danger : colors.surface }}
-                >
-                  <Text style={{ color: confirmarId === r.id ? colors.primaryContrast : colors.danger, fontWeight: '700' }}>
-                    {confirmarId === r.id ? 'Confirmar anular' : 'Anular'}
-                  </Text>
+        {visibles.map((r) => {
+          const esAnulado = !!r.anuladoAt;
+          const confirmandoAnular = accionPendiente?.id === r.id && accionPendiente.tipo === 'anular';
+          const confirmandoEliminar = accionPendiente?.id === r.id && accionPendiente.tipo === 'eliminar';
+          const ocupado = procesandoId === r.id;
+          return (
+            <View key={r.id} style={{ padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: esAnulado ? colors.warning : colors.border, backgroundColor: colors.surface, gap: 6, opacity: esAnulado ? 0.85 : 1 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text, flexShrink: 1 }} numberOfLines={2}>{r.titulo}</Text>
+                {esAnulado ? (
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.dangerSoftBorder }}>
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.dangerSoftText }}>🚫 ANULADO</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={{ fontSize: 12, color: colors.muted }} numberOfLines={1}>📄 {r.fileName} · {tamanoLegible(r.sizeBytes)}</Text>
+              <Text style={{ fontSize: 12, color: colors.muted }}>
+                👤 {r.uploadedByNombre || 'Sin nombre'} · 🕒 {fechaLegible(r.createdAt)} · {diaCaracas(r.createdAt)}
+              </Text>
+              {esAnulado ? (
+                <Text style={{ fontSize: 11.5, color: colors.danger, fontWeight: '600' }}>
+                  🚫 Anulado el {fechaLegible(r.anuladoAt!)}{r.anuladoPorNombre ? ` por ${r.anuladoPorNombre}` : ''}
+                </Text>
+              ) : null}
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                <TouchableOpacity onPress={() => abrir(r.publicUrl)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700' }}>👁️ Abrir</Text>
                 </TouchableOpacity>
-              )}
+                <TouchableOpacity onPress={() => descargar(r)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700' }}>⬇️ Descargar</Text>
+                </TouchableOpacity>
+                {puedeAnular && !esAnulado ? (
+                  <TouchableOpacity
+                    disabled={ocupado}
+                    onPress={() => setAccionPendiente(confirmandoAnular ? null : { id: r.id, tipo: 'anular' })}
+                    style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.warning, backgroundColor: confirmandoAnular ? colors.warning : colors.surface }}
+                  >
+                    <Text style={{ color: confirmandoAnular ? colors.primaryContrast : colors.warning, fontWeight: '700' }}>
+                      🚫 Anular
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                {puedeAnular && esAnulado ? (
+                  <TouchableOpacity
+                    disabled={ocupado}
+                    onPress={() => restaurar(r.id)}
+                    style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.success, backgroundColor: colors.surface }}
+                  >
+                    <Text style={{ color: colors.success, fontWeight: '700' }}>
+                      ↩️ Restaurar
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                {puedeAnular ? (
+                  <TouchableOpacity
+                    disabled={ocupado}
+                    onPress={() => setAccionPendiente(confirmandoEliminar ? null : { id: r.id, tipo: 'eliminar' })}
+                    style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger, backgroundColor: confirmandoEliminar ? colors.danger : colors.surface }}
+                  >
+                    <Text style={{ color: confirmandoEliminar ? '#fff' : colors.danger, fontWeight: '700' }}>
+                      🗑️ Eliminar
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {confirmandoAnular ? (
+                <View style={{ marginTop: 6, padding: 10, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surfaceAlt, gap: 8 }}>
+                  <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '700' }}>
+                    ¿Anular «{r.titulo}»? Dejará de verse en la bandeja activa, pero el archivo se conserva y podrás restaurarlo en «👁️ Ver anulados».
+                  </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    <TouchableOpacity disabled={ocupado} onPress={() => anular(r.id)} style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.warning }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{ocupado ? 'Anulando…' : '✅ Sí, anular'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity disabled={ocupado} onPress={() => setAccionPendiente(null)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.muted, fontWeight: '700' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
+              {confirmandoEliminar ? (
+                <View style={{ marginTop: 6, padding: 10, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoftBg, gap: 8 }}>
+                  <Text style={{ color: colors.dangerSoftText, fontSize: 12.5, fontWeight: '700' }}>
+                    ⚠️ ¿Eliminar definitivamente «{r.titulo}»? Se borrará de la bandeja y del almacenamiento (solo quedará constancia en Auditoría).
+                  </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    <TouchableOpacity disabled={ocupado} onPress={() => eliminar(r)} style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.danger }}>
+                      <Text style={{ color: '#fff', fontWeight: '800' }}>{ocupado ? 'Eliminando…' : '🗑️ Sí, eliminar definitivo'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity disabled={ocupado} onPress={() => setAccionPendiente(null)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                      <Text style={{ color: colors.muted, fontWeight: '700' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
             </View>
-          </View>
-        ))}
+          );
+        })}
       </View>
     </ScrollView>
   );

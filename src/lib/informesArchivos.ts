@@ -14,6 +14,8 @@ export type FiltroInformes = {
   hasta?: string;
   /** id del usuario que subió; '' o null = todos. */
   uploadedBy?: string | null;
+  /** Si es true, muestra también los informes anulados (solo para control total / admin). */
+  incluirAnulados?: boolean;
 };
 
 /** "AAAA-MM-DD" en America/Caracas de un instante ISO cualquiera. */
@@ -40,10 +42,10 @@ export function filtrarInformes(filas: InformeArchivo[], f: FiltroInformes): Inf
   const desde = (f.desde ?? '').trim();
   const hasta = (f.hasta ?? '').trim();
   const who = (f.uploadedBy ?? '').trim();
+  const verAnulados = f.incluirAnulados === true;
   return filas.filter((r) => {
-    // Doble seguro: la RLS ya oculta los anulados, pero si una lista vieja los
-    // trae, la bandejano debe mostrarlos nunca.
-    if (r.anuladoAt) return false;
+    // Por defecto la bandeja nunca muestra anulados, salvo que quien tiene control total active «Ver anulados».
+    if (!verAnulados && r.anuladoAt) return false;
     const dia = diaCaracas(r.createdAt);
     if (desde && (!dia || dia < desde)) return false;
     if (hasta && (!dia || dia > hasta)) return false;

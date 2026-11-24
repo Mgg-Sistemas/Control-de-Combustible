@@ -97,8 +97,10 @@ const todas = [juan, pedro, anulado];
 
 {
   eq('sin filtros devuelve los activos (no el anulado)', filtrarInformes(todas, {}).map((r) => r.id), ['id-1', 'id-2']);
-  eq('⭐ el anulado nunca aparece aunque venga en la lista',
+  eq('⭐ el anulado nunca aparece por defecto aunque venga en la lista',
     filtrarInformes([anulado], { query: 'valuacion' }).length, 0);
+  eq('⭐ con incluirAnulados=true (admin/full) sí aparece el anulado',
+    filtrarInformes(todas, { incluirAnulados: true }).map((r) => r.id), ['id-1', 'id-2', 'id-3']);
   eq('busca por título SIN tildes', filtrarInformes(todas, { query: 'valuacion' }).map((r) => r.id), ['id-1']);
   eq('busca por nombre real del archivo', filtrarInformes(todas, { query: 'ACTA.XLSX' }).map((r) => r.id), ['id-2']);
   eq('busca por usuario SIN tildes', filtrarInformes(todas, { query: 'juan perez' }).map((r) => r.id), ['id-1']);
@@ -162,6 +164,17 @@ const todas = [juan, pedro, anulado];
   const permisos = fs.readFileSync(path.join(ROOT, 'src/lib/permissions.ts'), 'utf8');
   ok('el módulo existe en la matriz de permisos', /\{ key: 'informes_archivos'/.test(permisos));
   ok('nace cerrado por defecto', /moduleKey === 'informes_archivos'\) return 'none'/.test(permisos));
+
+  const dbSrc = fs.readFileSync(path.join(ROOT, 'src/lib/informesArchivosDb.ts'), 'utf8');
+  ok('anular verifica filas afectadas con .select(\'id\')', /export async function anularInformeArchivo[\s\S]*?\.select\('id'\)/.test(dbSrc));
+  ok('existe eliminarInformeArchivo con .delete() y .select(\'id, storage_path\')', /export async function eliminarInformeArchivo[\s\S]*?\.delete\(\)[\s\S]*?\.select\('id, storage_path'\)/.test(dbSrc));
+  ok('existe restaurarInformeArchivo con .select(\'id\')', /export async function restaurarInformeArchivo[\s\S]*?\.select\('id'\)/.test(dbSrc));
+
+  const panelSrc = fs.readFileSync(path.join(ROOT, 'src/components/InformesSubidosPanel.tsx'), 'utf8');
+  ok('panel ofrece botones de Anular, Restaurar y Eliminar con confirmación',
+    panelSrc.includes('🚫 Anular') && panelSrc.includes('🗑️ Eliminar') && panelSrc.includes('↩️ Restaurar'));
+  ok('filtro Subido por usa flexWrap en vez de ScrollView horizontal rígido',
+    !/<ScrollView horizontal/.test(panelSrc) && /flexWrap: 'wrap'/.test(panelSrc));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-informes-subidos · ${pass} ok · ${fail} fallando`);

@@ -7,7 +7,7 @@ import { supabase } from './supabase';
 import type { InformeArchivo } from '../types/database';
 import { extensionDe, idCorto, rutaStorage } from './informesArchivos';
 
-const COLS = 'id, titulo, file_name, storage_path, public_url, mime_type, size_bytes, uploaded_by, uploaded_by_name, created_at, anulado_at';
+const COLS = 'id, titulo, file_name, storage_path, public_url, mime_type, size_bytes, uploaded_by, uploaded_by_name, created_at, anulado_at, anulado_por, anulado_por_nombre';
 
 function mapRow(r: any): InformeArchivo {
   return {
@@ -22,16 +22,19 @@ function mapRow(r: any): InformeArchivo {
     uploadedByNombre: r.uploaded_by_name ?? null,
     createdAt: String(r.created_at ?? new Date().toISOString()),
     anuladoAt: r.anulado_at ?? null,
+    anuladoPor: r.anulado_por ?? null,
+    anuladoPorNombre: r.anulado_por_nombre ?? null,
   };
 }
 
-/** Lista la bandeja activa, la más reciente primero. La RLS ya oculta anulados. */
-export async function listarInformesArchivos(): Promise<InformeArchivo[]> {
+/** Lista la bandeja, la más reciente primero. Con `incluirAnulados`, trae también anulados (solo full/admin en RLS). */
+export async function listarInformesArchivos(opts?: { incluirAnulados?: boolean }): Promise<InformeArchivo[]> {
   try {
-    const { data, error } = await supabase
+    let q = supabase
       .from('informes_archivos')
-      .select(COLS)
-      .is('anulado_at', null)
+      .select(COLS);
+    if (!opts?.incluirAnulados) q = q.is('anulado_at', null);
+    const { data, error } = await q
       .order('created_at', { ascending: false })
       .limit(5000);
     if (error) throw error;
@@ -120,16 +123,69 @@ async function quitarPaths(paths: string[]) {
   if (paths.length) await supabase.storage.from('machinery').remove(paths).catch(() => {});
 }
 
-/** Anula (no borra) una fila. Requiere nivel full en la base. */
-export async function anularInformeArchivo(id: string): Promise<{ ok: boolean; error?: string }> {
+/** Anula (no borra) una fila. Requiere nivel full/admin en la base y verifica con .select('id'). */
+export async function anularInformeArchivo(id: string, nombreAccion?: string | null): Promise<{ ok: boolean; error?: string }> {
   try {
-    const { error } = await supabase
+    let uid: string | null = null;
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      uid = authData?.user?.id ?? null;
+    } catch {}
+    const { data, error } = await supabase
       .from('informes_archivos')
-      .update({ anulado_at: new Date().toISOString() })
-      .eq('id', id);
+      .update({
+        anulado_at: new Date().toISOString(),
+        anulado_por: uid,
+        anulado_por_nombre: nombreAccion ?? null,
+      })
+      .eq('id', id)
+      .select('id');
     if (error) return { ok: false, error: error.message };
+    if (!Array.isArray(data) || data.length === 0) {
+      return { ok: false, error: 'No se pudo anular el informe (requiere permiso de Control total o Administrador).' };
+    }
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? 'Error de red al anular.' };
+  }
+}
+
+/** Restaura un informe previamente anulado. Requiere nivel full/admin en la base. */
+export async function restaurarInformeArchivo(id: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('informes_archivos')
+      .update({ anulado_at: null, anulado_por: null, anulado_por_nombre: null })
+      .eq('id', id)
+      .select('id');
+    if (error) return { ok: false, error: error.message };
+    if (!Array.isArray(data) || data.length === 0) {
+      return { ok: false, error: 'No se pudo restaurar el informe (requiere permiso de Control total o Administrador).' };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Error de red al restaurar.' };
+  }
+}
+
+/** Elimina definitivamente el registro (quedando rastro en audit_log) y quita el archivo de Storage. */
+export async function eliminarInformeArchivo(id: string, storagePath?: string | null): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('informes_archivos')
+      .delete()
+      .eq('id', id)
+      .select('id, storage_path');
+    if (error) return { ok: false, error: error.message };
+    if (!Array.isArray(data) || data.length === 0) {
+      return { ok: false, error: 'No se pudo eliminar el informe (requiere permiso de Control total o Administrador).' };
+    }
+    const pathFinal = String(storagePath || data[0]?.storage_path || '').trim();
+    if (pathFinal) {
+      await supabase.storage.from('machinery').remove([pathFinal]).catch(() => {});
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Error de red al eliminar.' };
   }
 }

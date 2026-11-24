@@ -2371,4 +2371,6 @@ export interface InformeArchivo {
   uploadedByNombre: string | null;
   createdAt: string;
   anuladoAt: string | null;
+  anuladoPor?: string | null;
+  anuladoPorNombre?: string | null;
 }
