@@ -437,9 +437,21 @@ export function ReporteConsolidadoCard() {
     const idx = indiceFrentesConsolidado(filas ?? [], viajesTon, opFull);
     const vistos = new Map<string, string>();
     for (const f of filas ?? []) {
-      const n = frenteDe(f);
-      const k = idx.clave(n);
-      if (!vistos.has(k)) vistos.set(k, idx.nombre(n));
+      const tieneAc = f.acarreoPorFrente && Object.keys(f.acarreoPorFrente).length > 0;
+      const tieneMaq = (f.montos.jornadas ?? 0) !== 0 || (f.montos.horometros ?? 0) !== 0
+        || (f.cant?.jornadas ?? 0) !== 0 || (f.cant?.horometros ?? 0) !== 0;
+      if (!tieneAc || tieneMaq) {
+        const n = frenteDe(f);
+        const k = idx.clave(n);
+        if (!vistos.has(k)) vistos.set(k, idx.nombre(n));
+      }
+      if (tieneAc) {
+        for (const fn of Object.keys(f.acarreoPorFrente!)) {
+          const n = fn || 'Sin frente';
+          const k = idx.clave(n);
+          if (!vistos.has(k)) vistos.set(k, idx.nombre(n));
+        }
+      }
     }
     return Array.from(vistos.values()).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
   }, [filas, viajesTon, opFull]);

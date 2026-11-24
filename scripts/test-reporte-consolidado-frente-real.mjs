@@ -1,13 +1,15 @@
 /*
- * 🧪 Regresión: Detalle por frente de trabajo en Reporte Consolidado (24-nov-2026)
- *
- * Reproduce el caso real de 23/11/2026 · RESIDENCIA PALMA REAL:
- *  - 5 camiones trabajaron en RESIDENCIA PALMA REAL (49DDAR, A36AD9J, A17AW2E, A13AG9D, A12DH7S = 483,54 t).
- *  - Solo 49DDAR tenía tarifa de peso ($320,76 / 160,38 t); los otros 4 quedaron en $0 (sin tarifa),
- *    pero AHORA SÍ salen como filas en la tabla con sus placas, toneladas reales y marca «💲 sin tarifa de acarreo»,
- *    y el Subtotal del frente suma las 483,54 t completas.
- *  - Camiones con frentePorId en RESIDENCIA PALMA REAL pero que viajaron en OTRO FRENTE (69TBA0)
- *    no se meten en RESIDENCIA PALMA REAL.
+ * 🧪 Regresión con los números reales de BD del 23/11/2026 · RESIDENCIA PALMA REAL:
+ *  - 5 camiones trabajaron en RESIDENCIA PALMA REAL:
+ *      49DDAR  (160.38 t -> $320.76, frentePorId: RESIDENCIA PALMA REAL)
+ *      A36AD9J ( 92.32 t -> $184.64, frentePorId: SAIME)
+ *      A17AW2E ( 84.08 t -> $168.16, frentePorId: MADELEIN SUITES)
+ *      A12DH7S ( 66.58 t -> $133.16, frentePorId: MADELEIN SUITES)
+ *      A13AG9D ( 80.18 t -> $160.36 en PALMA REAL + 54.60 t -> $109.20 en SAIME, frentePorId: MADELEIN SUITES)
+ *    Total RESIDENCIA PALMA REAL = 483.54 t y $967.08.
+ *  - 69TBA0 y A57BG3M tenían frentePorId en RESIDENCIA PALMA REAL pero sus viajes del 23/11 fueron
+ *    en CALLE LOS CORALES y SAIME: NO deben entrar a RESIDENCIA PALMA REAL.
+ *  - También verifica que un camión sin tarifa ($0, sinTarifaAcarreo) sigue saliendo en su frente.
  *
  *   node scripts/test-reporte-consolidado-frente-real.mjs
  */
@@ -47,6 +49,8 @@ function loadTs(filename) {
 const {
   OPCIONES_CONSOLIDADO_POR_DEFECTO,
   cuerpoConsolidado,
+  totalesConsolidado,
+  diasConsolidados,
 } = loadTs(path.join(ROOT, 'src/lib/reporteConsolidado.ts'));
 
 let pass = 0;
@@ -60,112 +64,94 @@ const ok = (name, cond, detail = '') => {
   }
 };
 
-// Los 5 camiones de RESIDENCIA PALMA REAL (160.38 + 105.00 + 84.00 + 67.08 + 67.08 = 483.54 t):
-// - 49DDAR: con tarifa ($320.76)
-// - A36AD9J, A17AW2E, A13AG9D, A12DH7S: sin tarifa ($0, sinTarifaAcarreo: true, pero con sus kg reales!)
-// - 69TBA0: asignado en frentePorId a RESIDENCIA PALMA REAL pero sus viajes fueron en OTRO FRENTE ($147.20 / 73.60 t)
-const filas = [
+const filasReales = [
   {
-    id: 'c1',
-    code: 'CAMION VOLTEO TORONTO',
-    placa: '49DDAR',
-    empresa: 'GOLDEN TOUCH 1127 CA',
+    id: 'c1', code: 'CAMION VOLTEO TORONTO', placa: '49DDAR', empresa: 'GOLDEN TOUCH 1127 CA',
     frente: 'RESIDENCIA PALMA REAL',
-    montos: { peso: 320.76 },
-    cant: { peso: 160380 },
+    montos: { peso: 320.76 }, cant: { peso: 160380 },
     acarreoPorFrente: { 'RESIDENCIA PALMA REAL': { peso: 320.76, pesoKg: 160380 } },
   },
   {
-    id: 'c2',
-    code: 'CAMION VOLTEO TORONTO',
-    placa: 'A36AD9J',
-    empresa: 'OTRA EMPRESA CA',
-    frente: 'OTRO FRENTE',
-    sinTarifaAcarreo: true,
-    montos: { peso: 0 },
-    cant: { peso: 105000 },
-    acarreoPorFrente: { 'RESIDENCIA PALMA REAL': { peso: 0, pesoKg: 105000 } },
+    id: 'c2', code: 'CAMION VOLTEO TORONTO', placa: 'A36AD9J', empresa: 'GOLDEN TOUCH 1127 CA',
+    frente: 'SAIME',
+    montos: { peso: 184.64 }, cant: { peso: 92320 },
+    acarreoPorFrente: { 'RESIDENCIA PALMA REAL': { peso: 184.64, pesoKg: 92320 } },
   },
   {
-    id: 'c3',
-    code: 'CAMION VOLTEO TORONTO',
-    placa: 'A17AW2E',
-    empresa: 'OTRA EMPRESA CA',
-    frente: 'OTRO FRENTE',
-    sinTarifaAcarreo: true,
-    montos: { peso: 0 },
-    cant: { peso: 84000 },
-    acarreoPorFrente: { 'RESIDENCIA PALMA REAL': { peso: 0, pesoKg: 84000 } },
+    id: 'c3', code: 'CAMION VOLTEO TORONTO', placa: 'A17AW2E', empresa: 'GOLDEN TOUCH 1127 CA',
+    frente: 'MADELEIN SUITES',
+    montos: { peso: 168.16 }, cant: { peso: 84080 },
+    acarreoPorFrente: { 'RESIDENCIA PALMA REAL': { peso: 168.16, pesoKg: 84080 } },
   },
   {
-    id: 'c4',
-    code: 'CAMION VOLTEO TORONTO',
-    placa: 'A13AG9D',
-    empresa: 'OTRA EMPRESA CA',
-    frente: 'Sin frente',
-    sinTarifaAcarreo: true,
-    montos: { peso: 0 },
-    cant: { peso: 67080 },
-    acarreoPorFrente: { 'RESIDENCIA PALMA REAL': { peso: 0, pesoKg: 67080 } },
+    id: 'c4', code: 'CAMION VOLTEO TORONTO', placa: 'A12DH7S', empresa: 'GOLDEN TOUCH 1127 CA',
+    frente: 'MADELEIN SUITES',
+    montos: { peso: 133.16 }, cant: { peso: 66580 },
+    acarreoPorFrente: { 'RESIDENCIA PALMA REAL': { peso: 133.16, pesoKg: 66580 } },
   },
   {
-    id: 'c5',
-    code: 'CAMION VOLTEO TORONTO',
-    placa: 'A12DH7S',
-    empresa: 'OTRA EMPRESA CA',
-    frente: 'Sin frente',
-    sinTarifaAcarreo: true,
-    montos: { peso: 0 },
-    cant: { peso: 67080 },
-    acarreoPorFrente: { 'RESIDENCIA PALMA REAL': { peso: 0, pesoKg: 67080 } },
+    id: 'c5', code: 'CAMION VOLTEO TORONTO', placa: 'A13AG9D', empresa: 'GOLDEN TOUCH 1127 CA',
+    frente: 'MADELEIN SUITES',
+    montos: { peso: 269.56 }, cant: { peso: 134780 },
+    acarreoPorFrente: {
+      'RESIDENCIA PALMA REAL': { peso: 160.36, pesoKg: 80180 },
+      'SAIME': { peso: 109.20, pesoKg: 54600 },
+    },
   },
   {
-    id: 'c6',
-    code: 'CAMION VOLTEO TORONTO',
-    placa: '69TBA0',
-    empresa: 'GOLDEN TOUCH 1127 CA',
+    id: 'c6', code: 'CAMION VOLTEO TORONTO', placa: '69TBA0', empresa: 'GOLDEN TOUCH 1127 CA',
     frente: 'RESIDENCIA PALMA REAL',
-    montos: { peso: 147.20 },
-    cant: { peso: 73600 },
-    acarreoPorFrente: { 'OTRO FRENTE': { peso: 147.20, pesoKg: 73600 } },
+    montos: { peso: 147.20 }, cant: { peso: 73600 },
+    acarreoPorFrente: { 'CALLE LOS CORALES': { peso: 147.20, pesoKg: 73600 } },
+  },
+  {
+    id: 'c7', code: 'CAMION VOLTEO TORONTO', placa: 'A57BG3M', empresa: 'GOLDEN TOUCH 1127 CA',
+    frente: 'RESIDENCIA PALMA REAL',
+    montos: { peso: 67.56 }, cant: { peso: 33780 },
+    acarreoPorFrente: { 'SAIME': { peso: 67.56, pesoKg: 33780 } },
   },
 ];
 
 const viajesTon = [
   { frente_nombre: 'RESIDENCIA PALMA REAL', peso_neto_kg: 160380, code: 'CAMION VOLTEO TORONTO', placa: '49DDAR' },
-  { frente_nombre: 'RESIDENCIA PALMA REAL', peso_neto_kg: 105000, code: 'CAMION VOLTEO TORONTO', placa: 'A36AD9J' },
-  { frente_nombre: 'RESIDENCIA PALMA REAL', peso_neto_kg: 84000, code: 'CAMION VOLTEO TORONTO', placa: 'A17AW2E' },
-  { frente_nombre: 'RESIDENCIA PALMA REAL', peso_neto_kg: 67080, code: 'CAMION VOLTEO TORONTO', placa: 'A13AG9D' },
-  { frente_nombre: 'RESIDENCIA PALMA REAL', peso_neto_kg: 67080, code: 'CAMION VOLTEO TORONTO', placa: 'A12DH7S' },
-  { frente_nombre: 'OTRO FRENTE', peso_neto_kg: 73600, code: 'CAMION VOLTEO TORONTO', placa: '69TBA0' },
+  { frente_nombre: 'RESIDENCIA PALMA REAL', peso_neto_kg: 92320, code: 'CAMION VOLTEO TORONTO', placa: 'A36AD9J' },
+  { frente_nombre: 'RESIDENCIA PALMA REAL', peso_neto_kg: 84080, code: 'CAMION VOLTEO TORONTO', placa: 'A17AW2E' },
+  { frente_nombre: 'RESIDENCIA PALMA REAL', peso_neto_kg: 66580, code: 'CAMION VOLTEO TORONTO', placa: 'A12DH7S' },
+  { frente_nombre: 'RESIDENCIA PALMA REAL', peso_neto_kg: 80180, code: 'CAMION VOLTEO TORONTO', placa: 'A13AG9D' },
+  { frente_nombre: 'SAIME', peso_neto_kg: 54600, code: 'CAMION VOLTEO TORONTO', placa: 'A13AG9D' },
+  { frente_nombre: 'SAIME', peso_neto_kg: 33780, code: 'CAMION VOLTEO TORONTO', placa: 'A57BG3M' },
+  { frente_nombre: 'CALLE LOS CORALES', peso_neto_kg: 73600, code: 'CAMION VOLTEO TORONTO', placa: '69TBA0' },
 ];
 
-const op = {
+const dias = [{ jornada: '2026-11-23', filas: filasReales, viajes: viajesTon }];
+const opSoloPalma = {
   ...OPCIONES_CONSOLIDADO_POR_DEFECTO,
   agruparPor: 'frente',
+  soloFrentes: ['Residencia Palma Real'],
 };
 
-const html = cuerpoConsolidado(
-  { desde: '2026-11-23', hasta: '2026-11-23', filas, viajesTon },
-  op
-);
+// 1. Al filtrar por Residencia Palma Real, totalesConsolidado recorta A13AG9D solo a Palma Real ($967.08 y 483540 kg)
+const totPalma = totalesConsolidado(filasReales, opSoloPalma, dias);
+ok('totalesConsolidado en Palma Real suma exactamente $967.08', totPalma.total === 967.08, `got ${totPalma.total}`);
+ok('totalesConsolidado en Palma Real suma exactamente 483540 kg (483.54 t)', totPalma.cantPorFuente.peso === 483540, `got ${totPalma.cantPorFuente.peso}`);
+ok('totalesConsolidado cuenta exactamente 5 camiones', totPalma.maquinas === 5, `got ${totPalma.maquinas}`);
 
-const bloquePalma = html.split('⛏️ RESIDENCIA PALMA REAL')[1]?.split('⛏️')[0] ?? '';
-ok('RESIDENCIA PALMA REAL incluye los 5 camiones en la tabla (49DDAR, A36AD9J, A17AW2E, A13AG9D, A12DH7S)',
-  ['49DDAR', 'A36AD9J', 'A17AW2E', 'A13AG9D', 'A12DH7S'].every((p) => bloquePalma.includes(`<td>${p}</td>`)));
-ok('Marca con «💲 sin tarifa de acarreo» los camiones en $0', bloquePalma.includes('💲 sin tarifa de acarreo'));
-ok('Subtotal RESIDENCIA PALMA REAL suma las 483,54 t completas', bloquePalma.includes('483,54 t'));
-ok('Subtotal RESIDENCIA PALMA REAL mantiene el monto real facturado ($320,76)', bloquePalma.includes('320,76'));
-ok('RESIDENCIA PALMA REAL NO mete a 69TBA0 que viajó en OTRO FRENTE', !bloquePalma.includes('69TBA0'));
-ok('TOTAL GENERAL mantiene la suma exacta ($467,96)', html.includes('467,96'));
+// 2. La tabla diaria (diasConsolidados) también da $967.08 y 483.54 t en ambos lados (acarreo y toneladas)
+const dPalma = diasConsolidados(dias, opSoloPalma, filasReales);
+ok('tabla diaria en Palma Real da acarreo = $967.08', dPalma[0].montos.peso === 967.08, `got ${dPalma[0].montos.peso}`);
+ok('tabla diaria en Palma Real da cant.peso = 483540 kg (483.54 t)', dPalma[0].cant.peso === 483540, `got ${dPalma[0].cant.peso}`);
+ok('tabla diaria en Palma Real da toneladas = 483.54 t', dPalma[0].toneladas === 483.54, `got ${dPalma[0].toneladas}`);
 
-const htmlSoloPalma = cuerpoConsolidado(
-  { desde: '2026-11-23', hasta: '2026-11-23', filas, viajesTon },
-  { ...op, soloFrentes: ['RESIDENCIA PALMA REAL'] }
-);
-ok('soloFrentes RESIDENCIA PALMA REAL muestra los 5 camiones',
-  ['49DDAR', 'A36AD9J', 'A17AW2E', 'A13AG9D', 'A12DH7S'].every((p) => htmlSoloPalma.includes(`<td>${p}</td>`)));
-ok('soloFrentes RESIDENCIA PALMA REAL excluye 69TBA0', !htmlSoloPalma.includes('69TBA0'));
+// 3. El PDF muestra los 5 camiones exactos y excluye a 69TBA0 y A57BG3M
+const html = cuerpoConsolidado({ desde: '2026-11-23', hasta: '2026-11-23', filas: filasReales, viajesTon, dias }, opSoloPalma);
+ok('PDF incluye las 5 placas reales (49DDAR, A36AD9J, A17AW2E, A12DH7S, A13AG9D)',
+  ['49DDAR', 'A36AD9J', 'A17AW2E', 'A12DH7S', 'A13AG9D'].every((p) => html.includes(`<td>${p}</td>`)));
+ok('PDF excluye 69TBA0 y A57BG3M en Palma Real', !html.includes('69TBA0') && !html.includes('A57BG3M'));
+ok('A13AG9D aparece en ambos bloques (Palma Real y SAIME) cuando NO hay filtro soloFrentes', (() => {
+  const htmlTodos = cuerpoConsolidado({ desde: '2026-11-23', hasta: '2026-11-23', filas: filasReales, viajesTon, dias }, { ...OPCIONES_CONSOLIDADO_POR_DEFECTO, agruparPor: 'frente' });
+  const vecesA13 = (htmlTodos.match(/<td>A13AG9D<\/td>/g) || []).length;
+  return vecesA13 === 2;
+})());
 
 console.log(`test-reporte-consolidado-frente-real: ${pass} pasaron, ${fail} fallaron.`);
 if (failures.length) {

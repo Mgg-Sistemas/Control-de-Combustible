@@ -1136,7 +1136,19 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                     </TouchableOpacity>
                   </View>
                   <Plegable titulo="📃 Lista por frente (con ✕ para quitar)" resumen={`${camionesAsignados} ${E.unidad}`}>
-                  {activos.filter((f) => asignaciones.some((a) => a.frenteId === f.id)).map((f) => (
+                  {(() => {
+                    const idsActivos = new Set(activos.map((f) => f.id));
+                    const extrasMap = new Map<string, { id: string; nombre: string }>();
+                    for (const a of asignaciones) {
+                      if (a.frenteId && !idsActivos.has(a.frenteId) && !extrasMap.has(a.frenteId)) {
+                        extrasMap.set(a.frenteId, { id: a.frenteId, nombre: a.frenteNombre || 'Frente' });
+                      }
+                    }
+                    const frentesConAsig = [
+                      ...activos.filter((f) => asignaciones.some((a) => a.frenteId === f.id)),
+                      ...Array.from(extrasMap.values()),
+                    ].sort((x, y) => cmpText(x.nombre, y.nombre));
+                    return frentesConAsig.map((f) => (
                     <View key={`g-${f.id}`} style={{ marginTop: 4 }}>
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>⛏️ {f.nombre}</Text>
                       {asignaciones.filter((a) => a.frenteId === f.id).map((a) => {
@@ -1160,7 +1172,8 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                         );
                       })}
                     </View>
-                  ))}
+                  ));
+                  })()}
 
                   </Plegable>
 

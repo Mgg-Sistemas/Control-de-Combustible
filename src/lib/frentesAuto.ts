@@ -1,4 +1,5 @@
 // ⛏️ EL FRENTE DEL DÍA SE TOMA SOLO (29-sep-2026).
+import { indiceFrentes } from './frentesNombre';
 //
 // PEDIDO, textual: «los frentes asignados para un día deben tomarlo
 // automáticamente los viajes de ese día, estén registrados o no estén
@@ -474,18 +475,22 @@ export function combinarMaquinariaConViajesCamiones(
   frentesCatalogo: readonly { id: string; nombre: string }[],
   esCamion: (machineryId: string) => boolean,
 ): AsignacionConOrigen[] {
-  const normNom = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
-  const idPorNombre = new Map<string, { id: string; nombre: string }>();
+  const todosNombres = [
+    ...(frentesCatalogo ?? []).map((f) => String(f?.nombre ?? '').trim()),
+    ...(asigsViajes ?? []).map((v) => String(v?.frenteNombre ?? '').trim()),
+  ].filter(Boolean);
+  const idx = indiceFrentes(todosNombres, (frentesCatalogo ?? []).map((f) => String(f?.nombre ?? '').trim()).filter(Boolean));
+  const idPorClave = new Map<string, { id: string; nombre: string }>();
   for (const f of frentesCatalogo ?? []) {
-    const k = normNom(f?.nombre);
-    if (k && f?.id && !idPorNombre.has(k)) idPorNombre.set(k, { id: f.id, nombre: f.nombre });
+    const k = idx.clave(f?.nombre ?? '');
+    if (k && f?.id && !idPorClave.has(k)) idPorClave.set(k, { id: f.id, nombre: f.nombre });
   }
 
   const camionesConViajes = new Set<string>();
   const viajesResueltos: AsignacionDia[] = [];
   for (const v of asigsViajes ?? []) {
     if (!v || !v.machineryId) continue;
-    const match = idPorNombre.get(normNom(v.frenteNombre));
+    const match = idPorClave.get(idx.clave(v.frenteNombre ?? ''));
     const fid = match?.id || v.frenteId;
     const fnom = match?.nombre || v.frenteNombre;
     if (!fid) continue;

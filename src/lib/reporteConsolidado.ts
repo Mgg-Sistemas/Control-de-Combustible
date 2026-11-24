@@ -164,6 +164,10 @@ function nombresDeFrente(
   for (const f of filas ?? []) {
     const n = String(f?.frente ?? '').trim();
     if (n) s.add(n);
+    for (const fn of Object.keys(f?.acarreoPorFrente ?? {})) {
+      const clean = String(fn ?? '').trim();
+      if (clean && clean.toLowerCase() !== SIN_FRENTE.toLowerCase()) s.add(clean);
+    }
   }
   for (const v of viajes ?? []) {
     const n = String(v?.frente_nombre ?? '').trim();
@@ -616,15 +620,64 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
     .filter((f) => marcadas.size === 0 || marcadas.has(f.id))
     .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
     .filter((f) => categorias.size === 0 || categorias.has(categoriaDe(f).toLowerCase()))
-    .filter((f) => {
-      if (frentes.size === 0) return true;
+    .map((f): FilaConsolidada | null => {
+      if (frentes.size === 0) return f;
       const tieneAcarreoFrente = f.acarreoPorFrente && Object.keys(f.acarreoPorFrente).length > 0;
-      if (!tieneAcarreoFrente) return frentes.has(idxF.clave(frenteDe(f)));
-      const tieneMaq = (f.montos.jornadas ?? 0) !== 0 || (f.montos.horometros ?? 0) !== 0
-        || (f.cant?.jornadas ?? 0) !== 0 || (f.cant?.horometros ?? 0) !== 0;
-      return (tieneMaq && frentes.has(idxF.clave(frenteDe(f))))
-        || Object.keys(f.acarreoPorFrente!).some((fr) => frentes.has(idxF.clave(fr)));
+      if (!tieneAcarreoFrente) return frentes.has(idxF.clave(frenteDe(f))) ? f : null;
+
+      const maqEnFrente = frentes.has(idxF.clave(frenteDe(f)));
+      const tieneMaq = maqEnFrente && (
+        (f.montos.jornadas ?? 0) !== 0 || (f.montos.horometros ?? 0) !== 0
+        || (f.cant?.jornadas ?? 0) !== 0 || (f.cant?.horometros ?? 0) !== 0
+      );
+
+      const descPesoViajes = (f.descartadoPorPeso?.viajes ?? 0) !== 0;
+      const descJor = (f.descartadoPorJornada?.peso ?? 0) !== 0 || (f.descartadoPorJornada?.viajes ?? 0) !== 0;
+      const nuevoAcarreo: NonNullable<FilaConsolidada['acarreoPorFrente']> = {};
+      let sumPeso = 0, sumPesoKg = 0, sumViajes = 0, sumViajesCant = 0;
+
+      for (const [fr, sl] of Object.entries(f.acarreoPorFrente!)) {
+        if (!frentes.has(idxF.clave(fr || SIN_FRENTE))) continue;
+        nuevoAcarreo[fr] = sl;
+        const mp = descJor ? 0 : r2(sl.peso ?? 0);
+        const cp = descJor ? 0 : r2(sl.pesoKg ?? 0);
+        const tienePesoEnFrente = mp !== 0 || cp !== 0;
+        const ocultarV = descPesoViajes || descJor || (op.seleccionAutomatica && op.fuentes.peso === 'suma' && tienePesoEnFrente);
+        const mv = ocultarV ? 0 : r2(sl.viajes ?? 0);
+        const cv = ocultarV ? 0 : Math.round(sl.viajesCant ?? 0);
+        sumPeso = r2(sumPeso + mp);
+        sumPesoKg = r2(sumPesoKg + cp);
+        sumViajes = r2(sumViajes + mv);
+        sumViajesCant += cv;
+      }
+
+      const hayAcarreo = Object.keys(nuevoAcarreo).length > 0 && (sumPeso !== 0 || sumPesoKg !== 0 || sumViajes !== 0 || sumViajesCant !== 0);
+      if (!tieneMaq && !hayAcarreo) return null;
+
+      const montos: Partial<Record<FuenteKey, number>> = {};
+      const cant: Partial<Record<FuenteKey, number>> = {};
+      if (tieneMaq) {
+        if (f.montos.jornadas != null) montos.jornadas = f.montos.jornadas;
+        if (f.montos.horometros != null) montos.horometros = f.montos.horometros;
+        if (f.cant?.jornadas != null) cant.jornadas = f.cant.jornadas;
+        if (f.cant?.horometros != null) cant.horometros = f.cant.horometros;
+      }
+      if (sumViajes !== 0) montos.viajes = sumViajes;
+      if (sumViajesCant !== 0) cant.viajes = sumViajesCant;
+      if (sumPeso !== 0) montos.peso = sumPeso;
+      if (sumPesoKg !== 0) cant.peso = sumPesoKg;
+
+      const primerFrente = Object.keys(nuevoAcarreo)[0];
+      return {
+        ...f,
+        frente: !tieneMaq && primerFrente ? primerFrente : f.frente,
+        sinTarifaAcarreo: f.sinTarifaAcarreo && sumPeso === 0 && sumViajes === 0,
+        montos,
+        cant: Object.keys(cant).length > 0 ? cant : undefined,
+        acarreoPorFrente: nuevoAcarreo,
+      };
     })
+    .filter((f): f is FilaConsolidada => f !== null)
     .filter((f) => encargados.size === 0 || encargados.has(encargadoDe(f).toLowerCase()))
     .filter((f) => estados.size === 0 || estados.has(String(f.estado ?? 'Operativa').trim().toLowerCase()))
     // 💲 Con plata O con horas/viajes (02-nov-2026): una máquina con jornada
