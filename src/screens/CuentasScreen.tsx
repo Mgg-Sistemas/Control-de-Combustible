@@ -18,6 +18,7 @@
 // administrador le dé el permiso desde Usuarios.
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
 import { NotasEsperaCuenta } from '../components/NotasEsperaCuenta';
 import { DesgloseProveedoresCxp } from '../components/DesgloseProveedoresCxp';
@@ -55,6 +56,9 @@ import {
   pasaFiltroEmpresas,
   calcularTotalesKpiCxp,
   calcularTarjetasFiltroCxp,
+  parsearTarjetasOcultasCxp,
+  alternarTarjetaOcultaCxp,
+  type TarjetaConfigurableCxp,
   fechaAprobacionSoloDiaDe,
   fmtFechaAprobacionLegible,
   agruparCuentasPorFechaAprobacion,
@@ -666,6 +670,39 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   // Filtro de estado prioritario en Por Pagar
   const [filtroEstadoCxp, setFiltroEstadoCxp] = useState<'todos' | 'esperando_aprobacion' | 'mayor_mil' | 'esperando_pago' | 'vencida' | 'prioridad_alta' | 'pagada'>('todos');
+
+  // 👁️ Tarjetas KPI ocultas individualmente por el usuario (persistidas localmente)
+  const storageKeyTarjetasCxp = `cxp_tarjetas_ocultas_${uid || 'anon'}`;
+  const [tarjetasOcultasCxp, setTarjetasOcultasCxp] = useState<TarjetaConfigurableCxp[]>([]);
+  const [configTarjetasOpen, setConfigTarjetasOpen] = useState(false);
+
+  useEffect(() => {
+    if (tipo !== 'por_pagar') return;
+    let vivo = true;
+    AsyncStorage.getItem(storageKeyTarjetasCxp)
+      .then((val) => {
+        if (!vivo) return;
+        setTarjetasOcultasCxp(parsearTarjetasOcultasCxp(val));
+      })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [tipo, storageKeyTarjetasCxp]);
+
+  const toggleTarjetaVisibleCxp = (key: TarjetaConfigurableCxp) => {
+    setTarjetasOcultasCxp((prev) => {
+      const { ocultas, nuevoFiltro } = alternarTarjetaOcultaCxp(prev, key, filtroEstadoCxp);
+      if (nuevoFiltro !== filtroEstadoCxp) setFiltroEstadoCxp(nuevoFiltro);
+      AsyncStorage.setItem(storageKeyTarjetasCxp, JSON.stringify(ocultas)).catch(() => {});
+      return ocultas;
+    });
+  };
+
+  const mostrarTodasTarjetasCxp = () => {
+    setTarjetasOcultasCxp([]);
+    AsyncStorage.removeItem(storageKeyTarjetasCxp).catch(() => {});
+  };
+
+  const ocultasCxpSet = useMemo(() => new Set(tarjetasOcultasCxp), [tarjetasOcultasCxp]);
 
   // 📅 Filtro por Fecha Específica o Rango de Fechas en Por Pagar
   const [modoFechaCxp, setModoFechaCxp] = useState<'todas' | 'dia' | 'rango'>('todas');
@@ -2779,9 +2816,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const inputStyle = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
-  const Quick = ({ label, value, color, sub }: { label: string; value: number; color: string; sub?: string }) => (
+  const Quick = ({ label, value, color, sub, onHide }: { label: string; value: number; color: string; sub?: string; onHide?: () => void }) => (
     <View style={{ flex: 1, minWidth: 100, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
-      <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700' }}>{label}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
+        <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700', flex: 1 }}>{label}</Text>
+        {onHide ? (
+          <TouchableOpacity onPress={onHide} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', opacity: 0.7 }}>✕</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
       <Text style={{ color, fontSize: 15, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>{usd(value)}</Text>
       {sub ? <Text style={{ color: colors.muted, fontSize: 10, marginTop: 1 }}>{sub}</Text> : null}
     </View>
@@ -2876,21 +2920,37 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       </View>
 
       {/* Totales — ajustados a las empresas seleccionadas y al estado filtrado en Por Pagar */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
-        <Quick
-          label={tot.etiquetaPrincipal}
-          value={tot.pendiente}
-          color={filtroEstadoCxp === 'pagada' && tipo === 'por_pagar' ? colors.successSoftText : colors.brandText}
-          sub={tot.nPrincipal != null ? `${tot.nPrincipal} cuenta(s)` : undefined}
-        />
-        <Quick label="VENCIDO" value={tot.vencido} color={colors.dangerSoftText} sub={tot.nVencidas ? `${tot.nVencidas} cuenta(s)` : undefined} />
-        <Quick
-          label={`POR VENCER (${DIAS_POR_VENCER} DÍAS)`}
-          value={tot.porVencer}
-          color={colors.warningSoftText}
-          sub={tot.nPrincipal != null && tot.nPorVencer ? `${tot.nPorVencer} cuenta(s)` : undefined}
-        />
-      </View>
+      {(tipo !== 'por_pagar' || !ocultasCxpSet.has('kpi_principal') || !ocultasCxpSet.has('kpi_vencido') || !ocultasCxpSet.has('kpi_por_vencer')) ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+          {(tipo !== 'por_pagar' || !ocultasCxpSet.has('kpi_principal')) ? (
+            <Quick
+              label={tot.etiquetaPrincipal}
+              value={tot.pendiente}
+              color={filtroEstadoCxp === 'pagada' && tipo === 'por_pagar' ? colors.successSoftText : colors.brandText}
+              sub={tot.nPrincipal != null ? `${tot.nPrincipal} cuenta(s)` : undefined}
+              onHide={tipo === 'por_pagar' ? () => toggleTarjetaVisibleCxp('kpi_principal') : undefined}
+            />
+          ) : null}
+          {(tipo !== 'por_pagar' || !ocultasCxpSet.has('kpi_vencido')) ? (
+            <Quick
+              label="VENCIDO"
+              value={tot.vencido}
+              color={colors.dangerSoftText}
+              sub={tot.nVencidas ? `${tot.nVencidas} cuenta(s)` : undefined}
+              onHide={tipo === 'por_pagar' ? () => toggleTarjetaVisibleCxp('kpi_vencido') : undefined}
+            />
+          ) : null}
+          {(tipo !== 'por_pagar' || !ocultasCxpSet.has('kpi_por_vencer')) ? (
+            <Quick
+              label={`POR VENCER (${DIAS_POR_VENCER} DÍAS)`}
+              value={tot.porVencer}
+              color={colors.warningSoftText}
+              sub={tot.nPrincipal != null && tot.nPorVencer ? `${tot.nPorVencer} cuenta(s)` : undefined}
+              onHide={tipo === 'por_pagar' ? () => toggleTarjetaVisibleCxp('kpi_por_vencer') : undefined}
+            />
+          ) : null}
+        </View>
+      ) : null}
 
       {/* 💱 BOTÓN ENORME GLOBAL: Tasa del día de hoy vs. Tasa de ese día (del requerimiento) */}
       {tipo === 'por_pagar' && tasaBcv ? (
@@ -3087,130 +3147,241 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         ) : null}
       </View>
 
-      {/* Tarjetas KPI interactivas por cada filtro prioritario de Por Pagar (monto en USD + cantidad de cuentas) */}
-      {tipo === 'por_pagar' ? (
-        <View
-          style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 4, marginBottom: spacing.xs, width: '100%' }}
-        >
-          {(
-            [
-              {
-                key: 'todos' as const,
-                label: '📋 TODAS PENDIENTES',
-                activeBorder: colors.brand,
-                activeBg: colors.infoSoftBg,
-                activeText: colors.brandText,
-                amountColor: colors.brandText,
-              },
-              {
-                key: 'esperando_aprobacion' as const,
-                label: `👔 ESPERANDO APROBACIÓN: ${aprobadoresLabel.toUpperCase()}`,
-                activeBorder: colors.warningSoftBorder,
-                activeBg: colors.warningSoftBg,
-                activeText: colors.warningSoftText,
-                amountColor: colors.warningSoftText,
-              },
-              {
-                key: 'mayor_mil' as const,
-                label: '💰 PAGO > $1,000 USD',
-                activeBorder: colors.dangerSoftBorder,
-                activeBg: colors.dangerSoftBg,
-                activeText: colors.dangerSoftText,
-                amountColor: colors.dangerSoftText,
-              },
-              {
-                key: 'esperando_pago' as const,
-                label: '⏳ ESPERANDO PAGO',
-                activeBorder: colors.infoSoftBorder,
-                activeBg: colors.infoSoftBg,
-                activeText: colors.infoSoftText,
-                amountColor: colors.brandText,
-              },
-              {
-                key: 'vencida' as const,
-                label: '🔴 VENCIDAS',
-                activeBorder: colors.danger,
-                activeBg: colors.dangerSoftBg,
-                activeText: colors.dangerSoftText,
-                amountColor: colors.dangerSoftText,
-              },
-              {
-                key: 'prioridad_alta' as const,
-                label: '🔺 PRIORIDAD ALTA',
-                activeBorder: colors.dangerSoftBorder,
-                activeBg: colors.dangerSoftBg,
-                activeText: colors.dangerSoftText,
-                amountColor: colors.dangerSoftText,
-              },
-              {
-                key: 'pagada' as const,
-                label: '✅ PAGADAS',
-                activeBorder: colors.successSoftBorder,
-                activeBg: colors.successSoftBg,
-                activeText: colors.successSoftText,
-                amountColor: colors.successSoftText,
-              },
-            ]
-          ).map((item) => {
-            const on = filtroEstadoCxp === item.key;
-            const info = tarjetasFiltroCxp[item.key];
-            return (
+      {/* Tarjetas KPI interactivas por cada filtro prioritario de Por Pagar (monto en USD + cantidad de cuentas + ocultar/mostrar) */}
+      {tipo === 'por_pagar' ? (() => {
+        const defsFiltro = [
+          {
+            key: 'todos' as const,
+            label: '📋 TODAS PENDIENTES',
+            shortLabel: '📋 Todas pendientes',
+            activeBorder: colors.brand,
+            activeBg: colors.infoSoftBg,
+            activeText: colors.brandText,
+            amountColor: colors.brandText,
+          },
+          {
+            key: 'esperando_aprobacion' as const,
+            label: `👔 ESPERANDO APROBACIÓN: ${aprobadoresLabel.toUpperCase()}`,
+            shortLabel: '👔 Esperando Aprobación',
+            activeBorder: colors.warningSoftBorder,
+            activeBg: colors.warningSoftBg,
+            activeText: colors.warningSoftText,
+            amountColor: colors.warningSoftText,
+          },
+          {
+            key: 'mayor_mil' as const,
+            label: '💰 PAGO > $1,000 USD',
+            shortLabel: '💰 Pago > $1,000 USD',
+            activeBorder: colors.dangerSoftBorder,
+            activeBg: colors.dangerSoftBg,
+            activeText: colors.dangerSoftText,
+            amountColor: colors.dangerSoftText,
+          },
+          {
+            key: 'esperando_pago' as const,
+            label: '⏳ ESPERANDO PAGO',
+            shortLabel: '⏳ Esperando Pago',
+            activeBorder: colors.infoSoftBorder,
+            activeBg: colors.infoSoftBg,
+            activeText: colors.infoSoftText,
+            amountColor: colors.brandText,
+          },
+          {
+            key: 'vencida' as const,
+            label: '🔴 VENCIDAS',
+            shortLabel: '🔴 Vencidas',
+            activeBorder: colors.danger,
+            activeBg: colors.dangerSoftBg,
+            activeText: colors.dangerSoftText,
+            amountColor: colors.dangerSoftText,
+          },
+          {
+            key: 'prioridad_alta' as const,
+            label: '🔺 PRIORIDAD ALTA',
+            shortLabel: '🔺 Prioridad Alta',
+            activeBorder: colors.dangerSoftBorder,
+            activeBg: colors.dangerSoftBg,
+            activeText: colors.dangerSoftText,
+            amountColor: colors.dangerSoftText,
+          },
+          {
+            key: 'pagada' as const,
+            label: '✅ PAGADAS',
+            shortLabel: '✅ Pagadas',
+            activeBorder: colors.successSoftBorder,
+            activeBg: colors.successSoftBg,
+            activeText: colors.successSoftText,
+            amountColor: colors.successSoftText,
+          },
+        ];
+        const defsSuperiores: { key: TarjetaConfigurableCxp; shortLabel: string }[] = [
+          { key: 'kpi_principal', shortLabel: '📊 Resumen: Total superior' },
+          { key: 'kpi_vencido', shortLabel: '📊 Resumen: Vencido superior' },
+          { key: 'kpi_por_vencer', shortLabel: `📊 Resumen: Por vencer (${DIAS_POR_VENCER}d)` },
+        ];
+        const tarjetasVisibles = defsFiltro.filter((d) => !ocultasCxpSet.has(d.key));
+        return (
+          <View style={{ marginBottom: spacing.xs, width: '100%', gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
               <TouchableOpacity
-                key={item.key}
-                activeOpacity={0.8}
-                onPress={() => {
-                  const next = on && item.key !== 'todos' ? 'todos' : item.key;
-                  setFiltroEstadoCxp(next);
-                  if (next === 'pagada') setVerPagadas(true);
-                }}
+                onPress={() => setConfigTarjetasOpen((v) => !v)}
                 style={{
-                  flexGrow: 1,
-                  flexBasis: 155,
-                  minWidth: 145,
-                  borderRadius: radius.md,
-                  borderWidth: on ? 2 : 1,
-                  borderColor: on ? item.activeBorder : colors.border,
-                  backgroundColor: on ? item.activeBg : colors.surfaceAlt,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5,
                   paddingHorizontal: 10,
-                  paddingVertical: 8,
+                  paddingVertical: 4,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: configTarjetasOpen || tarjetasOcultasCxp.length > 0 ? colors.brand : colors.border,
+                  backgroundColor: configTarjetasOpen ? colors.infoSoftBg : colors.surface,
                 }}
               >
-                <Text
-                  numberOfLines={2}
-                  style={{
-                    color: on ? item.activeText : colors.muted,
-                    fontWeight: '800',
-                    fontSize: 10.5,
-                  }}
-                >
-                  {item.label}
-                </Text>
-                <Text
-                  style={{
-                    color: item.amountColor,
-                    fontSize: 15,
-                    fontWeight: '900',
-                    marginTop: 3,
-                    fontVariant: ['tabular-nums'] as any,
-                  }}
-                >
-                  {usd(info.totalUsd)}
-                </Text>
-                <Text
-                  style={{
-                    color: on ? item.activeText : colors.muted,
-                    fontSize: 10,
-                    fontWeight: on ? '800' : '600',
-                    marginTop: 1,
-                  }}
-                >
-                  {info.count} cuenta(s){on ? ' · ✓ Activo' : ''}
+                <Text style={{ color: configTarjetasOpen || tarjetasOcultasCxp.length > 0 ? colors.brandText : colors.muted, fontSize: 11, fontWeight: '800' }}>
+                  👁️ {tarjetasOcultasCxp.length > 0
+                    ? `Tarjetas (${tarjetasOcultasCxp.length} oculta${tarjetasOcultasCxp.length === 1 ? '' : 's'})`
+                    : 'Elegir qué tarjetas ver'} {configTarjetasOpen ? '▲' : '▼'}
                 </Text>
               </TouchableOpacity>
-            );
-          })}
-        </View>
-      ) : null}
+              {tarjetasOcultasCxp.length > 0 ? (
+                <TouchableOpacity
+                  onPress={mostrarTodasTarjetasCxp}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surface,
+                  }}
+                >
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>
+                    ↺ Mostrar todas las tarjetas
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {configTarjetasOpen ? (
+              <View
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: radius.md,
+                  padding: spacing.xs + 2,
+                  gap: 6,
+                }}
+              >
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>
+                  Marca las tarjetas que quieras ver en tu pantalla (también puedes ocultar cualquiera tocando su ✕):
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {[...defsFiltro.map((d) => ({ key: d.key as TarjetaConfigurableCxp, shortLabel: d.shortLabel })), ...defsSuperiores].map((opT) => {
+                    const visible = !ocultasCxpSet.has(opT.key);
+                    return (
+                      <TouchableOpacity
+                        key={opT.key}
+                        onPress={() => toggleTarjetaVisibleCxp(opT.key)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: radius.pill,
+                          borderWidth: 1,
+                          borderColor: visible ? colors.brand : colors.border,
+                          backgroundColor: visible ? colors.surfaceAlt : colors.surface,
+                          opacity: visible ? 1 : 0.65,
+                        }}
+                      >
+                        <Text style={{ color: visible ? colors.text : colors.muted, fontSize: 11, fontWeight: '700' }}>
+                          {visible ? '☑️' : '⬜'} {opT.shortLabel}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {tarjetasVisibles.length > 0 ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 2, width: '100%' }}>
+                {tarjetasVisibles.map((item) => {
+                  const on = filtroEstadoCxp === item.key;
+                  const info = tarjetasFiltroCxp[item.key];
+                  return (
+                    <TouchableOpacity
+                      key={item.key}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        const next = on && item.key !== 'todos' ? 'todos' : item.key;
+                        setFiltroEstadoCxp(next);
+                        if (next === 'pagada') setVerPagadas(true);
+                      }}
+                      style={{
+                        flexGrow: 1,
+                        flexBasis: 155,
+                        minWidth: 145,
+                        borderRadius: radius.md,
+                        borderWidth: on ? 2 : 1,
+                        borderColor: on ? item.activeBorder : colors.border,
+                        backgroundColor: on ? item.activeBg : colors.surfaceAlt,
+                        paddingHorizontal: 10,
+                        paddingVertical: 8,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
+                        <Text
+                          numberOfLines={2}
+                          style={{
+                            color: on ? item.activeText : colors.muted,
+                            fontWeight: '800',
+                            fontSize: 10.5,
+                            flex: 1,
+                          }}
+                        >
+                          {item.label}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={(e: any) => {
+                            e?.stopPropagation?.();
+                            toggleTarjetaVisibleCxp(item.key);
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={{ color: on ? item.activeText : colors.muted, fontSize: 11, fontWeight: '800', opacity: 0.7 }}>
+                            ✕
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text
+                        style={{
+                          color: item.amountColor,
+                          fontSize: 15,
+                          fontWeight: '900',
+                          marginTop: 3,
+                          fontVariant: ['tabular-nums'] as any,
+                        }}
+                      >
+                        {usd(info.totalUsd)}
+                      </Text>
+                      <Text
+                        style={{
+                          color: on ? item.activeText : colors.muted,
+                          fontSize: 10,
+                          fontWeight: on ? '800' : '600',
+                          marginTop: 1,
+                        }}
+                      >
+                        {info.count} cuenta(s){on ? ' · ✓ Activo' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        );
+      })() : null}
 
       {/* Resumen interactivo por Fecha de Aprobación cuando está activo "Esperando Pago" o el filtro por aprobación */}
       {tipo === 'por_pagar' && (filtroEstadoCxp === 'esperando_pago' || campoFechaCxp === 'aprobacion') ? (() => {

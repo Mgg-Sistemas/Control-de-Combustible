@@ -25,7 +25,7 @@ require.extensions['.ts'] = (m, filename) => {
 
 const cargar = (rel) => require(path.join(ROOT, rel));
 
-const { calcularTotalesKpiCxp, calcularTarjetasFiltroCxp } = cargar('src/lib/cuentasEmpresa.ts');
+const { calcularTotalesKpiCxp, calcularTarjetasFiltroCxp, parsearTarjetasOcultasCxp, alternarTarjetaOcultaCxp } = cargar('src/lib/cuentasEmpresa.ts');
 const srcCuentas = fs.readFileSync(path.join(ROOT, 'src/screens/CuentasScreen.tsx'), 'utf8');
 
 let pass = 0;
@@ -115,6 +115,20 @@ eq('tarjeta vencida: cuenta y suma saldo', [t7.vencida.count, t7.vencida.totalUs
 eq('tarjeta prioridad_alta: solo abiertas de prioridad alta', [t7.prioridad_alta.count, t7.prioridad_alta.totalUsd], [3, 5100]);
 eq('tarjeta pagada: cuenta y suma monto pagado', [t7.pagada.count, t7.pagada.totalUsd], [1, 10000]);
 eq('CuentasScreen renderiza las 7 tarjetas con tarjetasFiltroCxp', /calcularTarjetasFiltroCxp/.test(srcCuentas) && /tarjetasFiltroCxp\[item\.key\]/.test(srcCuentas), true);
+
+// 8. Mostrar / ocultar tarjetas individualmente con persistencia segura y reseteo de filtro activo
+eq('parsearTarjetasOcultasCxp ignora basura y duplicados',
+  parsearTarjetasOcultasCxp('["pagada","invalida","pagada","kpi_por_vencer"]'),
+  ['pagada', 'kpi_por_vencer']);
+eq('parsearTarjetasOcultasCxp ante JSON roto devuelve []', parsearTarjetasOcultasCxp('{roto'), []);
+const rHideActiva = alternarTarjetaOcultaCxp([], 'mayor_mil', 'mayor_mil');
+eq('ocultar la tarjeta actualmente filtrada regresa nuevoFiltro a todos', [rHideActiva.ocultas, rHideActiva.nuevoFiltro], [['mayor_mil'], 'todos']);
+const rHideOtra = alternarTarjetaOcultaCxp([], 'pagada', 'esperando_pago');
+eq('ocultar otra tarjeta mantiene el filtro activo', [rHideOtra.ocultas, rHideOtra.nuevoFiltro], [['pagada'], 'esperando_pago']);
+const rUnhide = alternarTarjetaOcultaCxp(['pagada'], 'pagada', 'esperando_pago');
+eq('volver a tocar la reactiva', rUnhide.ocultas, []);
+eq('CuentasScreen expone Elegir qué tarjetas ver y Mostrar todas',
+  /Elegir qué tarjetas ver/.test(srcCuentas) && /Mostrar todas las tarjetas/.test(srcCuentas), true);
 
 console.log(`test-cuentas-kpi-filtro: ${pass} pasaron, ${fail} fallaron.`);
 if (failures.length) {

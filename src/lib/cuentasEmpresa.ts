@@ -265,6 +265,61 @@ export interface ResumenTarjetaFiltroCxp {
   totalUsd: number;
 }
 
+export type TarjetaConfigurableCxp =
+  | FiltroEstadoCxp
+  | 'kpi_principal'
+  | 'kpi_vencido'
+  | 'kpi_por_vencer';
+
+export const TARJETAS_CONFIGURABLES_CXP_KEYS: readonly TarjetaConfigurableCxp[] = [
+  'kpi_principal',
+  'kpi_vencido',
+  'kpi_por_vencer',
+  'todos',
+  'esperando_aprobacion',
+  'mayor_mil',
+  'esperando_pago',
+  'vencida',
+  'prioridad_alta',
+  'pagada',
+] as const;
+
+/** Parsea de forma segura la lista guardada de tarjetas ocultas por usuario. */
+export function parsearTarjetasOcultasCxp(raw: string | null | undefined): TarjetaConfigurableCxp[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    const validas = new Set<string>(TARJETAS_CONFIGURABLES_CXP_KEYS);
+    return Array.from(new Set(arr.filter((x): x is TarjetaConfigurableCxp => typeof x === 'string' && validas.has(x))));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Alterna la visibilidad de una tarjeta en Por Pagar.
+ * Si se oculta la tarjeta cuyo filtro estaba activo, devuelve `nuevoFiltro = 'todos'`
+ * para que la lista inferior nunca quede filtrada en silencio por una tarjeta oculta.
+ */
+export function alternarTarjetaOcultaCxp(
+  actuales: readonly TarjetaConfigurableCxp[],
+  key: TarjetaConfigurableCxp,
+  filtroActivo: FiltroEstadoCxp = 'todos'
+): { ocultas: TarjetaConfigurableCxp[]; nuevoFiltro: FiltroEstadoCxp } {
+  const set = new Set<TarjetaConfigurableCxp>(actuales);
+  let seOculto = false;
+  if (set.has(key)) {
+    set.delete(key);
+  } else {
+    set.add(key);
+    seOculto = true;
+  }
+  const nuevoFiltro: FiltroEstadoCxp =
+    seOculto && filtroActivo === key ? 'todos' : filtroActivo;
+  return { ocultas: Array.from(set), nuevoFiltro };
+}
+
 /**
  * Calcula cantidad y monto en USD para cada una de las 7 tarjetas de filtro de Por Pagar:
  * - `todos`: cuentas abiertas (!pagada && !anulada) sumando `saldo`.
