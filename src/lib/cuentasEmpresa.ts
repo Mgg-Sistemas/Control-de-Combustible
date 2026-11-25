@@ -250,6 +250,80 @@ export function calcularTotalesKpiCxp(
   return t;
 }
 
+export interface CuentaTarjetaFiltroMin {
+  situacion: string;
+  saldo: number;
+  monto?: number | string | null;
+  aprobacionEstado?: string | null;
+  esMayorAMil?: boolean | null;
+  prioridad?: string | null;
+}
+
+export interface ResumenTarjetaFiltroCxp {
+  key: FiltroEstadoCxp;
+  count: number;
+  totalUsd: number;
+}
+
+/**
+ * Calcula cantidad y monto en USD para cada una de las 7 tarjetas de filtro de Por Pagar:
+ * - `todos`: cuentas abiertas (!pagada && !anulada) sumando `saldo`.
+ * - `esperando_aprobacion`: abiertas en `esperando_aprobacion` sumando `saldo`.
+ * - `mayor_mil`: abiertas con `esMayorAMil` sumando `saldo`.
+ * - `esperando_pago`: abiertas en `esperando_pago` sumando `saldo`.
+ * - `vencida`: cuentas `vencida` sumando `saldo`.
+ * - `prioridad_alta`: abiertas con `prioridad === 'alta'` sumando `saldo`.
+ * - `pagada`: cuentas `pagada` sumando `monto` (porque `saldo` es 0 al estar saldadas).
+ */
+export function calcularTarjetasFiltroCxp(
+  cuentas: readonly CuentaTarjetaFiltroMin[]
+): Record<FiltroEstadoCxp, ResumenTarjetaFiltroCxp> {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const out: Record<FiltroEstadoCxp, ResumenTarjetaFiltroCxp> = {
+    todos: { key: 'todos', count: 0, totalUsd: 0 },
+    esperando_aprobacion: { key: 'esperando_aprobacion', count: 0, totalUsd: 0 },
+    mayor_mil: { key: 'mayor_mil', count: 0, totalUsd: 0 },
+    esperando_pago: { key: 'esperando_pago', count: 0, totalUsd: 0 },
+    vencida: { key: 'vencida', count: 0, totalUsd: 0 },
+    prioridad_alta: { key: 'prioridad_alta', count: 0, totalUsd: 0 },
+    pagada: { key: 'pagada', count: 0, totalUsd: 0 },
+  };
+
+  for (const c of cuentas || []) {
+    if (!c || c.situacion === 'anulada') continue;
+    if (c.situacion === 'pagada') {
+      out.pagada.count += 1;
+      out.pagada.totalUsd = r2(out.pagada.totalUsd + (Number(c.monto) || 0));
+      continue;
+    }
+    const saldo = Number(c.saldo) || 0;
+    out.todos.count += 1;
+    out.todos.totalUsd = r2(out.todos.totalUsd + saldo);
+
+    if (c.aprobacionEstado === 'esperando_aprobacion') {
+      out.esperando_aprobacion.count += 1;
+      out.esperando_aprobacion.totalUsd = r2(out.esperando_aprobacion.totalUsd + saldo);
+    }
+    if (c.esMayorAMil) {
+      out.mayor_mil.count += 1;
+      out.mayor_mil.totalUsd = r2(out.mayor_mil.totalUsd + saldo);
+    }
+    if (c.aprobacionEstado === 'esperando_pago') {
+      out.esperando_pago.count += 1;
+      out.esperando_pago.totalUsd = r2(out.esperando_pago.totalUsd + saldo);
+    }
+    if (c.situacion === 'vencida') {
+      out.vencida.count += 1;
+      out.vencida.totalUsd = r2(out.vencida.totalUsd + saldo);
+    }
+    if (c.prioridad === 'alta') {
+      out.prioridad_alta.count += 1;
+      out.prioridad_alta.totalUsd = r2(out.prioridad_alta.totalUsd + saldo);
+    }
+  }
+  return out;
+}
+
 export const SIN_FECHA_APROBACION = '__sin_fecha_aprobacion__';
 
 /** Extrae el día AAAA-MM-DD (hora Caracas UTC-4 si trae hora ISO) de aprobación de la cuenta. */

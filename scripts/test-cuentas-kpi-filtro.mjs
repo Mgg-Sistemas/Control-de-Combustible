@@ -25,7 +25,7 @@ require.extensions['.ts'] = (m, filename) => {
 
 const cargar = (rel) => require(path.join(ROOT, rel));
 
-const { calcularTotalesKpiCxp } = cargar('src/lib/cuentasEmpresa.ts');
+const { calcularTotalesKpiCxp, calcularTarjetasFiltroCxp } = cargar('src/lib/cuentasEmpresa.ts');
 const srcCuentas = fs.readFileSync(path.join(ROOT, 'src/screens/CuentasScreen.tsx'), 'utf8');
 
 let pass = 0;
@@ -96,6 +96,25 @@ eq('por_cobrar: mantiene pendiente general', Number(resCobrar.pendiente.toFixed(
 eq('CuentasScreen importa calcularTotalesKpiCxp', /calcularTotalesKpiCxp/.test(srcCuentas), true);
 eq('Quick usa tot.etiquetaPrincipal', /label=\{tot\.etiquetaPrincipal\}/.test(srcCuentas), true);
 eq('Quick muestra sub de nPrincipal', /tot\.nPrincipal\s*!=\s*null/.test(srcCuentas), true);
+
+// 7. Tarjetas individuales con monto en USD para cada uno de los 7 filtros de Por Pagar
+const muestra7 = [
+  { situacion: 'vencida', saldo: 500, monto: 500, aprobacionEstado: 'esperando_pago', esMayorAMil: false, prioridad: 'alta' },
+  { situacion: 'vencida', saldo: 257, monto: 300, aprobacionEstado: 'esperando_aprobacion', esMayorAMil: false, prioridad: 'media' },
+  { situacion: 'por_vencer', saldo: 1200, monto: 1200, aprobacionEstado: 'esperando_pago', esMayorAMil: true, prioridad: 'alta' },
+  { situacion: 'pendiente', saldo: 3400, monto: 3400, aprobacionEstado: 'esperando_aprobacion', esMayorAMil: true, prioridad: 'alta' },
+  { situacion: 'pagada', saldo: 0, monto: 10000, aprobacionEstado: 'pagada', esMayorAMil: true, prioridad: 'alta' },
+  { situacion: 'anulada', saldo: 999, monto: 999, aprobacionEstado: 'no_aplica', esMayorAMil: false, prioridad: 'alta' },
+];
+const t7 = calcularTarjetasFiltroCxp(muestra7);
+eq('tarjeta todos: abiertas (sin pagadas ni anuladas)', [t7.todos.count, t7.todos.totalUsd], [4, 5357]);
+eq('tarjeta esperando_aprobacion: cuenta y suma saldo', [t7.esperando_aprobacion.count, t7.esperando_aprobacion.totalUsd], [2, 3657]);
+eq('tarjeta mayor_mil: solo abiertas > $1,000 USD', [t7.mayor_mil.count, t7.mayor_mil.totalUsd], [2, 4600]);
+eq('tarjeta esperando_pago: cuenta y suma saldo', [t7.esperando_pago.count, t7.esperando_pago.totalUsd], [2, 1700]);
+eq('tarjeta vencida: cuenta y suma saldo', [t7.vencida.count, t7.vencida.totalUsd], [2, 757]);
+eq('tarjeta prioridad_alta: solo abiertas de prioridad alta', [t7.prioridad_alta.count, t7.prioridad_alta.totalUsd], [3, 5100]);
+eq('tarjeta pagada: cuenta y suma monto pagado', [t7.pagada.count, t7.pagada.totalUsd], [1, 10000]);
+eq('CuentasScreen renderiza las 7 tarjetas con tarjetasFiltroCxp', /calcularTarjetasFiltroCxp/.test(srcCuentas) && /tarjetasFiltroCxp\[item\.key\]/.test(srcCuentas), true);
 
 console.log(`test-cuentas-kpi-filtro: ${pass} pasaron, ${fail} fallaron.`);
 if (failures.length) {

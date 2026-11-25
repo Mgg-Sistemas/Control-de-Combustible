@@ -54,6 +54,7 @@ import {
   extraerEmpresaDeNota,
   pasaFiltroEmpresas,
   calcularTotalesKpiCxp,
+  calcularTarjetasFiltroCxp,
   fechaAprobacionSoloDiaDe,
   fmtFechaAprobacionLegible,
   agruparCuentasPorFechaAprobacion,
@@ -2146,7 +2147,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   };
 
   // ── Lista + totales con filtro por empresa (una o varias), fechas y estados de Por Pagar ──
-  const { lista, tot, empresaCounts, ordenadas, universo, porEmpresasCounts } = useMemo(() => {
+  const { lista, tot, empresaCounts, ordenadas, universo, porEmpresasCounts, tarjetasFiltroCxp } = useMemo(() => {
     const porCuenta = new Map<string, CuentaAbono[]>();
     abonos.forEach((a) => {
       const arr = porCuenta.get(a.cuenta_id) ?? [];
@@ -2303,9 +2304,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       if (campoFechaCxp === 'solicitud') return cumpleFecha(dSol);
       return cumpleFecha(dAprob) || cumpleFecha(dEnvio) || cumpleFecha(dSol);
     };
-    const vis = porEmpresas
-      .filter(pasaVerPagadas)
-      .filter(pasaFiltroEstadoCxp)
+    const basePreEstado = porEmpresas
       .filter((c) => tipo !== 'por_pagar' || monedaFiltroCxp === 'todas' || c.pagoResuelto?.monedaReal === monedaFiltroCxp)
       .filter(pasaFiltroFechaCxp)
       .filter((c) =>
@@ -2328,7 +2327,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
           c.traza.reqCode,
           c.infoPago.resumenCopiable
         )
-      )
+      );
+
+    const tarjetasCxp = calcularTarjetasFiltroCxp(basePreEstado);
+
+    const vis = basePreEstado
+      .filter(pasaVerPagadas)
+      .filter(pasaFiltroEstadoCxp)
       // Orden: lo más urgente arriba (ver `ordenUrgencia`).
       .sort(ordenUrgencia);
 
@@ -2341,7 +2346,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const ord = calc.slice().sort(ordenUrgencia);
     const uni = ord.filter(pasaVerPagadas);
 
-    return { lista: vis, tot: t, empresaCounts: arrEmpresas, ordenadas: ord, universo: uni, porEmpresasCounts: countsCxp };
+    return { lista: vis, tot: t, empresaCounts: arrEmpresas, ordenadas: ord, universo: uni, porEmpresasCounts: countsCxp, tarjetasFiltroCxp: tarjetasCxp };
   }, [todas, abonos, tipo, q, verPagadas, hoy, nombreDe, suppliers, tasaBcv, companies, requirements, orders, machinery, vehicles, empresaSel, configAprobacion, filtroEstadoCxp, modoFechaCxp, campoFechaCxp, fechaDesdeCxp, fechaHastaCxp, monedaFiltroCxp, usarTasaEseDiaGlobal, usarTasaEseDiaCuentasIds, tasasPorFecha]);
 
   const itemsVistaCuentas = useMemo<OrdenVistaItem<(typeof lista)[number]>[]>(() => {
@@ -3082,83 +3087,124 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         ) : null}
       </View>
 
-      {/* Filtros de estados prioritarios de Por Pagar (Esperando Aprobación, > $1,000 USD, Esperando Pago, Vencidas, Prioridad Alta, Pagadas) */}
+      {/* Tarjetas KPI interactivas por cada filtro prioritario de Por Pagar (monto en USD + cantidad de cuentas) */}
       {tipo === 'por_pagar' ? (
         <View
-          style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 4, marginBottom: spacing.xs, width: '100%' }}
+          style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 4, marginBottom: spacing.xs, width: '100%' }}
         >
           {(
             [
-              ['todos', `Todas (${porEmpresasCounts.abiertas})`, colors.brand, colors.brandContrast],
-              [
-                'esperando_aprobacion',
-                `👔 Esperando Aprobación: ${aprobadoresLabel} (${porEmpresasCounts.esperando_aprobacion})`,
-                colors.warningSoftBorder,
-                colors.warningSoftText,
-              ],
-              [
-                'mayor_mil',
-                `💰 Pago > $1,000 USD (${porEmpresasCounts.mayor_mil})`,
-                colors.dangerSoftBorder,
-                colors.dangerSoftText,
-              ],
-              [
-                'esperando_pago',
-                `⏳ Esperando Pago (${porEmpresasCounts.esperando_pago})`,
-                colors.infoSoftBorder,
-                colors.infoSoftText,
-              ],
-              [
-                'vencida',
-                `🔴 Vencidas (${porEmpresasCounts.vencida})`,
-                colors.danger,
-                colors.dangerSoftText,
-              ],
-              [
-                'prioridad_alta',
-                `🔺 Prioridad Alta (${porEmpresasCounts.prioridad_alta})`,
-                colors.dangerSoftBorder,
-                colors.dangerSoftText,
-              ],
-              [
-                'pagada',
-                `✅ Pagadas (${porEmpresasCounts.pagada})`,
-                colors.successSoftBorder,
-                colors.successSoftText,
-              ],
-            ] as const
-          ).map(([key, label, activeBorder, activeText]) => {
-            const on = filtroEstadoCxp === key;
+              {
+                key: 'todos' as const,
+                label: '📋 TODAS PENDIENTES',
+                activeBorder: colors.brand,
+                activeBg: colors.infoSoftBg,
+                activeText: colors.brandText,
+                amountColor: colors.brandText,
+              },
+              {
+                key: 'esperando_aprobacion' as const,
+                label: `👔 ESPERANDO APROBACIÓN: ${aprobadoresLabel.toUpperCase()}`,
+                activeBorder: colors.warningSoftBorder,
+                activeBg: colors.warningSoftBg,
+                activeText: colors.warningSoftText,
+                amountColor: colors.warningSoftText,
+              },
+              {
+                key: 'mayor_mil' as const,
+                label: '💰 PAGO > $1,000 USD',
+                activeBorder: colors.dangerSoftBorder,
+                activeBg: colors.dangerSoftBg,
+                activeText: colors.dangerSoftText,
+                amountColor: colors.dangerSoftText,
+              },
+              {
+                key: 'esperando_pago' as const,
+                label: '⏳ ESPERANDO PAGO',
+                activeBorder: colors.infoSoftBorder,
+                activeBg: colors.infoSoftBg,
+                activeText: colors.infoSoftText,
+                amountColor: colors.brandText,
+              },
+              {
+                key: 'vencida' as const,
+                label: '🔴 VENCIDAS',
+                activeBorder: colors.danger,
+                activeBg: colors.dangerSoftBg,
+                activeText: colors.dangerSoftText,
+                amountColor: colors.dangerSoftText,
+              },
+              {
+                key: 'prioridad_alta' as const,
+                label: '🔺 PRIORIDAD ALTA',
+                activeBorder: colors.dangerSoftBorder,
+                activeBg: colors.dangerSoftBg,
+                activeText: colors.dangerSoftText,
+                amountColor: colors.dangerSoftText,
+              },
+              {
+                key: 'pagada' as const,
+                label: '✅ PAGADAS',
+                activeBorder: colors.successSoftBorder,
+                activeBg: colors.successSoftBg,
+                activeText: colors.successSoftText,
+                amountColor: colors.successSoftText,
+              },
+            ]
+          ).map((item) => {
+            const on = filtroEstadoCxp === item.key;
+            const info = tarjetasFiltroCxp[item.key];
             return (
               <TouchableOpacity
-                key={key}
+                key={item.key}
+                activeOpacity={0.8}
                 onPress={() => {
-                  setFiltroEstadoCxp(key);
-                  if (key === 'pagada') setVerPagadas(true);
+                  const next = on && item.key !== 'todos' ? 'todos' : item.key;
+                  setFiltroEstadoCxp(next);
+                  if (next === 'pagada') setVerPagadas(true);
                 }}
                 style={{
-                  borderRadius: radius.pill,
-                  borderWidth: 1,
-                  borderColor: on ? activeBorder : colors.border,
-                  backgroundColor: on
-                    ? key === 'todos'
-                      ? colors.brand
-                      : colors.surfaceAlt
-                    : colors.surface,
-                  paddingHorizontal: spacing.sm,
-                  paddingVertical: 5,
-                  maxWidth: '100%',
-                  flexShrink: 1,
+                  flexGrow: 1,
+                  flexBasis: 155,
+                  minWidth: 145,
+                  borderRadius: radius.md,
+                  borderWidth: on ? 2 : 1,
+                  borderColor: on ? item.activeBorder : colors.border,
+                  backgroundColor: on ? item.activeBg : colors.surfaceAlt,
+                  paddingHorizontal: 10,
+                  paddingVertical: 8,
                 }}
               >
                 <Text
+                  numberOfLines={2}
                   style={{
-                    color: on ? (key === 'todos' ? colors.brandContrast : activeText) : colors.text,
+                    color: on ? item.activeText : colors.muted,
                     fontWeight: '800',
-                    fontSize: 11.5,
+                    fontSize: 10.5,
                   }}
                 >
-                  {label}
+                  {item.label}
+                </Text>
+                <Text
+                  style={{
+                    color: item.amountColor,
+                    fontSize: 15,
+                    fontWeight: '900',
+                    marginTop: 3,
+                    fontVariant: ['tabular-nums'] as any,
+                  }}
+                >
+                  {usd(info.totalUsd)}
+                </Text>
+                <Text
+                  style={{
+                    color: on ? item.activeText : colors.muted,
+                    fontSize: 10,
+                    fontWeight: on ? '800' : '600',
+                    marginTop: 1,
+                  }}
+                >
+                  {info.count} cuenta(s){on ? ' · ✓ Activo' : ''}
                 </Text>
               </TouchableOpacity>
             );
