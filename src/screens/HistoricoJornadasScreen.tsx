@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { DateField } from '../components/DateField';
@@ -68,27 +68,36 @@ export default function HistoricoJornadasScreen() {
     renace: false,
   });
 
+  const reqIdRef = useRef(0);
   const load = useCallback(async () => {
+    const reqId = ++reqIdRef.current;
     setLoading(true);
-    // Asignaciones inspector↔máquina POR FECHA Y TURNO (historial de `machine_inspector_history`)
-    // en 1 sola consulta para todo el rango `from..to` (cero N+1): así las reasignaciones de hoy
-    // NO mueven ni borran el trabajo de días pasados.
-    const { spans: assignSpans } = await listInspectorAssignmentsForRange(from, to);
+    try {
+    // Asignaciones inspector↔máquina POR FECHA Y TURNO (historial paginado de `machine_inspector_history`)
+    // en paralelo con rondas, mantenimiento y catálogo (sin waterfall y sin tope de 1,000 filas).
     const toPlus1 = (() => { const d = new Date(to + 'T12:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
-    const [rs, maintRows, machRows] = await Promise.all([
+    const [{ spans: assignSpans }, rs, maintRows, machRows] = await Promise.all([
+      listInspectorAssignmentsForRange(from, to),
       selectAllRows(
         'machine_rounds',
-        'id, machinery_id, round_date, day_hours, night_hours, horometro_inicial, horometro_final, jornada_start_at, jornada_shift, declared_day, declared_night, machine:machinery_id(code, serial, plate, company:company_id(name))',
+        'id, machinery_id, round_date, day_hours, night_hours, horometro_inicial, horometro_final, jornada_start_at, jornada_shift, declared_day, declared_night, inspector_day, inspector_night, machine:machinery_id(code, serial, plate, company:company_id(name))',
         (q) => q.gte('round_date', from).lte('round_date', to),
       ),
       selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, status, resolved_at', (q) => q.gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${toPlus1}T07:00:00-04:00`)),
       selectAllRows('machinery', 'id, code, serial, plate, company:company_id(name)', (q) => q),
     ]);
+    if (reqId !== reqIdRef.current) return;
     const allDatesInResult: string[] = [];
     ((rs ?? []) as any[]).forEach((r) => { if (r.round_date) allDatesInResult.push(r.round_date as string); });
     ((maintRows ?? []) as any[]).forEach((m) => { const bd = businessDayOf(m.created_at); if (bd >= from && bd <= to) allDatesInResult.push(bd); });
     const inspByKey = buildRangeInspectorMap(assignSpans, allDatesInResult);
     const inspOf = (mid: string, dateIso: string, sh: 'day' | 'night') => inspByKey.get(`${mid}|${dateIso}|${sh}`) || '';
+    const pickInsp = (fromHist: string, fromRound?: string | null) =>
+      !sinInspectorReal(fromHist)
+        ? fromHist
+        : !sinInspectorReal(fromRound)
+          ? (fromRound as string)
+          : fromHist || (fromRound ?? '');
     const machInfo = new Map<string, { code: string; serial: string | null; plate: string | null; company: string }>();
     ((machRows ?? []) as any[]).forEach((m) => machInfo.set(m.id, { code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: m.company?.name ?? 'Sin empresa' }));
     // Ronda por máquina+día (para la regla de reactivación: si la jornada de ESE turno
@@ -163,8 +172,8 @@ export default function HistoricoJornadasScreen() {
       };
       const avDia = estadoKey.has(`${r.machinery_id}|${r.round_date}|day`);
       const avNoche = estadoKey.has(`${r.machinery_id}|${r.round_date}|night`);
-      const dInsp = inspOf(r.machinery_id, r.round_date, 'day');
-      const nInsp = inspOf(r.machinery_id, r.round_date, 'night');
+      const dInsp = pickInsp(inspOf(r.machinery_id, r.round_date, 'day'), r.inspector_day);
+      const nInsp = pickInsp(inspOf(r.machinery_id, r.round_date, 'night'), r.inspector_night);
       if (dayH > 0 && !avDia) list.push({ ...base, id: `${r.id}:d`, inspector: dInsp, shift: 'day', dayH, nightH: 0, total: r2(dayH) });
       if (nightH > 0 && !avNoche) list.push({ ...base, id: `${r.id}:n`, inspector: nInsp, shift: 'night', dayH: 0, nightH, total: r2(nightH) });
       // ARRANCÓ la jornada del turno pero cerró con 0h (sin avería/parada marcada) → PARADA
@@ -183,7 +192,9 @@ export default function HistoricoJornadasScreen() {
     });
 
     setRows(list);
-    setLoading(false);
+    } finally {
+      if (reqId === reqIdRef.current) setLoading(false);
+    }
   }, [from, to]);
   useEffect(() => { load(); }, [load]);
   // Al finalizar/cerrar una jornada (o cambiar asignaciones), el histórico se
@@ -268,7 +279,7 @@ export default function HistoricoJornadasScreen() {
               <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>{b.l}</Text>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity onPress={exportarPDF} disabled={!rows.length} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: 5, opacity: rows.length ? 1 : 0.5 }}>
+          <TouchableOpacity onPress={exportarPDF} disabled={!byInspector.length} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: 5, opacity: byInspector.length ? 1 : 0.5 }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
           </TouchableOpacity>
         </View>

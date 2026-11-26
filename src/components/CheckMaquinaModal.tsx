@@ -752,7 +752,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>👮 Asignar inspector</Text>
-                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{af.code} · {af.companyName}</Text>
+                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{etiquetaMaquina(af) || af.code} · {af.companyName}</Text>
                     {af.tipo ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>🏷️ {af.tipo}</Text> : null}
                   </View>
                   <TouchableOpacity onPress={() => { setAssignFor(null); setPickShift(null); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>

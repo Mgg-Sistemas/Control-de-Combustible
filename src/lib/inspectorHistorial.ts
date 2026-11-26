@@ -1,26 +1,30 @@
-import { PLACEHOLDER_INSPECTOR_ID, sinInspectorReal, type Shift } from './machineInspectors';
-
 /**
- * Resolución HISTÓRICA pura (sin red) de asignaciones inspector ↔ máquina por
- * día de negocio y turno (Caracas UTC-4 fijo: Día 07:00–19:00, Noche 19:00–07:00+1).
+ * Resolución HISTÓRICA pura (sin red y sin imports circulares) de asignaciones
+ * inspector ↔ máquina por día de negocio y turno (Caracas UTC-4 fijo:
+ * Día 07:00–19:00, Noche 19:00–07:00+1).
  *
  * Fuente de verdad compartida entre `listInspectorAssignments(date)` /
  * `listInspectorAssignmentsForRange(from, to)` y las pruebas unitarias sin red
  * (`scripts/test-inspector-historial-turnos.mjs`).
  *
- * Reglas (consenso 25-nov-2026):
- *  1. Ventana por turno (NO día calendario): cada turno se evalúa de forma
- *     independiente. Si a las 19:37 se reasigna una máquina en "Día + Noche",
- *     el turno DÍA (07:00–19:00) sigue perteneciendo al inspector que estuvo
- *     en esa ventana, mientras el turno NOCHE (19:00–07:00+1) pasa al nuevo.
+ * Reglas (consenso 25-nov-2026 + auditoría 8 agentes):
+ *  1. Ventana semiabierta por turno `[startMs, endMs)` (NO día calendario):
+ *     - DÍA:   [selDay 07:00-04:00, selDay 19:00-04:00)
+ *     - NOCHE: [selDay 19:00-04:00, (selDay+1) 07:00-04:00)
+ *     Un tramo que arranca exactamente a las 19:00:00 (0 ms de solape) NO entra al turno DÍA.
  *  2. Exactamente 1 inspector ganador por `(machinery_id, shift)` para no
  *     duplicar máquinas ni horas si hubo reasignación a mitad de turno.
- *  3. Prioridad en empate / cambio de turno:
+ *  3. Prioridad en empate / cambio de turno (solo entre tramos con `overlapMs > 0`):
  *     (a) Inspector humano sobre el placeholder `MAQUINAS FALTANTES`.
  *     (b) Mayor duración cubierta dentro de la ventana del turno.
- *     (c) En empate exacto, el tramo más reciente (`valid_from` mayor).
+ *     (c) En empate exacto, el tramo más reciente (`valid_from`, luego `valid_to`, luego `id`).
  *  4. Re-guardar el mismo inspector ya activo NO debe pisar `assigned_at`.
  */
+
+export type Shift = 'day' | 'night';
+const PLACEHOLDER_INSPECTOR_ID = '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
+const SHIFT_DURATION_MS = 12 * 60 * 60 * 1000;
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type AssignmentSpan = {
   id?: string;
@@ -32,28 +36,21 @@ export type AssignmentSpan = {
   valid_to: string | null;
 };
 
-/** Ventana de trabajo del turno en milisegundos UTC (Caracas UTC-4 fijo):
- *  - DÍA:   [selDay 07:00-04:00, selDay 19:00-04:00]
- *  - NOCHE: [selDay 19:00-04:00, (selDay+1) 07:00-04:00] */
+/** Ventana de trabajo del turno en milisegundos UTC (Caracas UTC-4 fijo, sin DST):
+ *  - DÍA:   [selDay 07:00-04:00, selDay 19:00-04:00)
+ *  - NOCHE: [selDay 19:00-04:00, (selDay+1) 07:00-04:00)
+ *  Devuelve `{ startMs: NaN, endMs: NaN }` si `selDay` no es `YYYY-MM-DD` válido. */
 export function shiftWindowMs(selDay: string, shift: Shift): { startMs: number; endMs: number } {
-  if (shift === 'night') {
-    const d = new Date(`${selDay}T12:00:00-04:00`);
-    d.setUTCDate(d.getUTCDate() + 1);
-    const nextDay = d.toISOString().slice(0, 10);
-    return {
-      startMs: new Date(`${selDay}T19:00:00-04:00`).getTime(),
-      endMs: new Date(`${nextDay}T07:00:00-04:00`).getTime(),
-    };
-  }
-  return {
-    startMs: new Date(`${selDay}T07:00:00-04:00`).getTime(),
-    endMs: new Date(`${selDay}T19:00:00-04:00`).getTime(),
-  };
+  if (!selDay || !ISO_DAY_RE.test(selDay)) return { startMs: NaN, endMs: NaN };
+  const startMs = new Date(`${selDay}T${shift === 'night' ? '19' : '07'}:00:00-04:00`).getTime();
+  if (isNaN(startMs)) return { startMs: NaN, endMs: NaN };
+  return { startMs, endMs: startMs + SHIFT_DURATION_MS };
 }
 
 /** ¿Ya cerró la ventana de trabajo de ese turno? */
 export function isShiftClosed(selDay: string, shift: Shift, nowMs: number = Date.now()): boolean {
-  return nowMs >= shiftWindowMs(selDay, shift).endMs;
+  const { endMs } = shiftWindowMs(selDay, shift);
+  return !isNaN(endMs) && nowMs >= endMs;
 }
 
 /** ¿Conservar el `assigned_at` existente? true cuando se re-guarda al MISMO
@@ -68,7 +65,71 @@ export function shouldKeepAssignedAt(
 }
 
 function esPlaceholderSpan(s: Pick<AssignmentSpan, 'inspector_id' | 'inspector_name'>): boolean {
-  return s.inspector_id === PLACEHOLDER_INSPECTOR_ID || sinInspectorReal(s.inspector_name);
+  return s.inspector_id === PLACEHOLDER_INSPECTOR_ID || !s.inspector_name || /faltant/i.test(s.inspector_name);
+}
+
+type ParsedSpan<T extends AssignmentSpan> = {
+  span: T;
+  fromMs: number;
+  toMs: number | null;
+  isHuman: boolean;
+};
+
+function parseSpans<T extends AssignmentSpan>(spans: T[]): ParsedSpan<T>[] {
+  const out: ParsedSpan<T>[] = [];
+  for (const s of spans) {
+    const fromMs = new Date(s.valid_from).getTime();
+    if (isNaN(fromMs)) continue;
+    const toMs = s.valid_to != null ? new Date(s.valid_to).getTime() : null;
+    // Rechazar tramos con `valid_to` corrupto o invertido (`valid_to <= valid_from`)
+    if (toMs !== null && (isNaN(toMs) || toMs <= fromMs)) continue;
+    out.push({ span: s, fromMs, toMs, isHuman: !esPlaceholderSpan(s) });
+  }
+  return out;
+}
+
+function resolveParsedForWindow<T extends AssignmentSpan>(
+  parsed: ParsedSpan<T>[],
+  shift: Shift,
+  startMs: number,
+  endMs: number,
+  excludePlaceholder: boolean,
+): T[] {
+  if (isNaN(startMs) || isNaN(endMs)) return [];
+
+  type Candidate = { span: T; isHuman: boolean; overlapMs: number; fromMs: number; toRank: number };
+  const bestByMachine = new Map<string, Candidate>();
+
+  for (const p of parsed) {
+    if (p.span.shift !== shift) continue;
+    if (p.fromMs >= endMs) continue;
+    if (p.toMs !== null && p.toMs <= startMs) continue;
+    if (excludePlaceholder && !p.isHuman) continue;
+
+    const effStart = Math.max(p.fromMs, startMs);
+    const effEnd = p.toMs !== null ? Math.min(p.toMs, endMs) : endMs;
+    const overlapMs = effEnd - effStart;
+    if (overlapMs <= 0) continue;
+
+    const toRank = p.toMs ?? Number.POSITIVE_INFINITY;
+    const prev = bestByMachine.get(p.span.machinery_id);
+    if (!prev) {
+      bestByMachine.set(p.span.machinery_id, { span: p.span, isHuman: p.isHuman, overlapMs, fromMs: p.fromMs, toRank });
+      continue;
+    }
+    const beats =
+      (p.isHuman !== prev.isHuman ? p.isHuman : false) ||
+      (p.isHuman === prev.isHuman && overlapMs > prev.overlapMs) ||
+      (p.isHuman === prev.isHuman && overlapMs === prev.overlapMs && p.fromMs > prev.fromMs) ||
+      (p.isHuman === prev.isHuman && overlapMs === prev.overlapMs && p.fromMs === prev.fromMs && (
+        toRank > prev.toRank || (toRank === prev.toRank && (p.span.id ?? '') > (prev.span.id ?? ''))
+      ));
+    if (beats) {
+      bestByMachine.set(p.span.machinery_id, { span: p.span, isHuman: p.isHuman, overlapMs, fromMs: p.fromMs, toRank });
+    }
+  }
+
+  return Array.from(bestByMachine.values()).map((c) => c.span);
 }
 
 /** Resuelve el inspector ganador por máquina para UN turno de UN día de negocio.
@@ -82,39 +143,7 @@ export function resolveAssignmentsForShift<T extends AssignmentSpan>(params: {
   const { spans, selDay, shift, excludePlaceholder = false } = params;
   const { startMs, endMs } = shiftWindowMs(selDay, shift);
   if (isNaN(startMs) || isNaN(endMs)) return [];
-
-  type Candidate = { span: T; isHuman: boolean; overlapMs: number; fromMs: number };
-  const bestByMachine = new Map<string, Candidate>();
-
-  for (const s of spans) {
-    if (s.shift !== shift) continue;
-    const fromMs = new Date(s.valid_from).getTime();
-    if (isNaN(fromMs) || fromMs > endMs) continue;
-    const toMs = s.valid_to ? new Date(s.valid_to).getTime() : null;
-    if (toMs !== null && !isNaN(toMs) && toMs <= startMs) continue;
-
-    const isHuman = !esPlaceholderSpan(s);
-    if (excludePlaceholder && !isHuman) continue;
-
-    const effStart = Math.max(fromMs, startMs);
-    const effEnd = toMs !== null && !isNaN(toMs) ? Math.min(toMs, endMs) : endMs;
-    const overlapMs = Math.max(0, effEnd - effStart);
-
-    const prev = bestByMachine.get(s.machinery_id);
-    if (!prev) {
-      bestByMachine.set(s.machinery_id, { span: s, isHuman, overlapMs, fromMs });
-      continue;
-    }
-    const beats =
-      (isHuman !== prev.isHuman ? isHuman : false) ||
-      (isHuman === prev.isHuman && overlapMs > prev.overlapMs) ||
-      (isHuman === prev.isHuman && overlapMs === prev.overlapMs && fromMs > prev.fromMs);
-    if (beats) {
-      bestByMachine.set(s.machinery_id, { span: s, isHuman, overlapMs, fromMs });
-    }
-  }
-
-  return Array.from(bestByMachine.values()).map((c) => c.span);
+  return resolveParsedForWindow(parseSpans(spans), shift, startMs, endMs, excludePlaceholder);
 }
 
 /** Resuelve ambos turnos ('day' y 'night') de forma independiente para `selDay`. */
@@ -123,25 +152,40 @@ export function resolveAssignmentsForDate<T extends AssignmentSpan>(
   selDay: string,
   excludePlaceholder = false,
 ): T[] {
+  const parsed = parseSpans(spans);
+  const dWin = shiftWindowMs(selDay, 'day');
+  const nWin = shiftWindowMs(selDay, 'night');
   return [
-    ...resolveAssignmentsForShift({ spans, selDay, shift: 'day', excludePlaceholder }),
-    ...resolveAssignmentsForShift({ spans, selDay, shift: 'night', excludePlaceholder }),
+    ...resolveParsedForWindow(parsed, 'day', dWin.startMs, dWin.endMs, excludePlaceholder),
+    ...resolveParsedForWindow(parsed, 'night', nWin.startMs, nWin.endMs, excludePlaceholder),
   ];
 }
 
 /** Índice en memoria para reportes de rango de fechas (`HistoricoJornadasScreen`):
  *  clave `${machinery_id}|${date}|${shift}` → nombre del inspector en ese día y turno.
- *  Cero llamadas N+1: procesa en memoria los tramos traídos en 1 sola consulta. */
+ *  Pre-parsea fechas una sola vez (rápido incluso en rangos de 90 días en móvil). */
 export function buildRangeInspectorMap(
   spans: AssignmentSpan[],
   dates: string[],
 ): Map<string, string> {
   const out = new Map<string, string>();
-  const uniqueDates = Array.from(new Set(dates.filter(Boolean)));
+  const uniqueDates = Array.from(
+    new Set(dates.map((d) => (d || '').trim()).filter((d) => ISO_DAY_RE.test(d))),
+  );
+  if (uniqueDates.length === 0 || spans.length === 0) return out;
+
+  const parsed = parseSpans(spans);
+  const daySpans = parsed.filter((p) => p.span.shift === 'day');
+  const nightSpans = parsed.filter((p) => p.span.shift === 'night');
+
   for (const d of uniqueDates) {
-    const resolved = resolveAssignmentsForDate(spans, d, false);
-    for (const s of resolved) {
-      out.set(`${s.machinery_id}|${d}|${s.shift}`, s.inspector_name || '');
+    const dWin = shiftWindowMs(d, 'day');
+    for (const s of resolveParsedForWindow(daySpans, 'day', dWin.startMs, dWin.endMs, false)) {
+      out.set(`${s.machinery_id}|${d}|day`, s.inspector_name || '');
+    }
+    const nWin = shiftWindowMs(d, 'night');
+    for (const s of resolveParsedForWindow(nightSpans, 'night', nWin.startMs, nWin.endMs, false)) {
+      out.set(`${s.machinery_id}|${d}|night`, s.inspector_name || '');
     }
   }
   return out;

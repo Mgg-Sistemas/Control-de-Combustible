@@ -51,7 +51,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       {opts ? (
       <Modal visible transparent animationType="fade" onRequestClose={() => close(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
-          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
+          <View style={{ width: '100%', maxWidth: 460, alignSelf: 'center', backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
             <Text style={[typography.title, { fontSize: 18, marginBottom: spacing.sm }]}>
               {opts?.title ?? 'Confirmar'}
             </Text>
@@ -60,16 +60,16 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             </Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <TouchableOpacity
-                style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
+                style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt }}
                 onPress={() => close(false)}
               >
-                <Text style={{ color: colors.text, fontWeight: '700' }}>{opts?.cancelText ?? 'Cancelar'}</Text>
+                <Text style={{ color: colors.text, fontWeight: '700', textAlign: 'center' }}>{opts?.cancelText ?? 'Cancelar'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: opts?.danger ? colors.danger : colors.primary }}
+                style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: opts?.danger ? colors.danger : colors.primary }}
                 onPress={() => close(true)}
               >
-                <Text style={{ color: opts?.danger ? '#fff' : colors.primaryContrast, fontWeight: '700' }}>
+                <Text style={{ color: opts?.danger ? '#fff' : colors.primaryContrast, fontWeight: '700', textAlign: 'center' }}>
                   {opts?.confirmText ?? 'Aceptar'}
                 </Text>
               </TouchableOpacity>

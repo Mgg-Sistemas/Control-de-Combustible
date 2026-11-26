@@ -1,5 +1,5 @@
-import { supabase } from './supabase';
-import { resolveAssignmentsForDate, shouldKeepAssignedAt, type AssignmentSpan } from './inspectorHistorial';
+import { supabase, selectAllRows } from './supabase';
+import { resolveAssignmentsForDate, type AssignmentSpan } from './inspectorHistorial';
 
 /**
  * ASIGNACIÓN INSPECTOR ↔ MÁQUINA (el "CHECK MÁQUINA" del teléfono).
@@ -96,26 +96,16 @@ export async function myInspectorMachineIds(inspectorId: string): Promise<{ ids:
 
 /** Asigna una máquina al inspector en un TURNO (día/noche). Reemplaza al que
  *  tuviera ese turno en esa máquina (1 inspector por máquina+turno).
- *  Si ya estaba asignado el MISMO inspector activo en ese turno, conserva su
- *  `assigned_at` original para no hacer desaparecer el turno recién cerrado. */
+ *  El trigger atómico `trg_mi_preserve_assigned_at` (BEFORE UPDATE en Postgres)
+ *  conserva `assigned_at` si se re-guarda al mismo inspector activo, sin roundtrip extra. */
 export async function assignInspector(machineryId: string, inspectorId: string, inspectorName: string, shift: Shift): Promise<{ error?: string; missing?: boolean }> {
-  let assignedAt = new Date().toISOString();
-  const { data: existing } = await supabase
-    .from('machine_inspectors')
-    .select('inspector_id, active, assigned_at')
-    .eq('machinery_id', machineryId)
-    .eq('shift', shift)
-    .maybeSingle();
-  if (existing && shouldKeepAssignedAt(existing as any, inspectorId) && (existing as any).assigned_at) {
-    assignedAt = (existing as any).assigned_at as string;
-  }
   const { error } = await supabase
     .from('machine_inspectors')
     .upsert(
-      { machinery_id: machineryId, inspector_id: inspectorId, inspector_name: inspectorName, shift, active: true, assigned_at: assignedAt },
+      { machinery_id: machineryId, inspector_id: inspectorId, inspector_name: inspectorName, shift, active: true, assigned_at: new Date().toISOString() },
       { onConflict: 'machinery_id,shift' },
     );
-  if (error) return { error: error.message, missing: isMissingTable(error.message) };
+  if (error) return { error: error.message, missing: isMissingTable(error) };
   return {};
 }
 
@@ -183,31 +173,34 @@ function addOneDayIso(iso: string): string {
 export async function listInspectorAssignments(date?: string): Promise<{ rows: AssignmentRow[]; missing: boolean }> {
   if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
     const hist = await listInspectorAssignmentsForDate(date);
-    if (!hist.missing && hist.rows.length > 0) return hist;
+    if (!hist.missing) return hist;
   }
   const { data, error } = await supabase
     .from('machine_inspectors')
     .select('id, machinery_id, inspector_id, inspector_name, shift, assigned_at, machine:machinery_id(code, serial, plate, tipo, sector, referencia, encargado, latitude, longitude, active, operational, en_espera, company:company_id(name))')
     .eq('active', true)
     .order('assigned_at', { ascending: false });
-  if (error) return { rows: [], missing: isMissingTable(error.message) };
+  if (error) return { rows: [], missing: isMissingTable(error) };
   const raw = (data ?? []) as any[];
   const liveName = await fetchLiveInspectorNames(raw);
   return { rows: mapAssignmentRows(raw, liveName), missing: false };
 }
 
 /** Resuelve las asignaciones vigentes por turno para una fecha específica (`YYYY-MM-DD`)
- *  leyendo `public.machine_inspector_history` en 1 sola consulta + 1 de `profiles`. */
+ *  leyendo `public.machine_inspector_history` paginado con `selectAllRows` (sin tope de 1,000 filas). */
 export async function listInspectorAssignmentsForDate(date: string): Promise<{ rows: AssignmentRow[]; missing: boolean }> {
-  const dayStartIso = `${date}T07:00:00-04:00`;
-  const nightEndIso = `${addOneDayIso(date)}T07:00:00-04:00`;
-  const { data, error } = await supabase
-    .from('machine_inspector_history')
-    .select('id, machinery_id, inspector_id, inspector_name, shift, valid_from, valid_to, machine:machinery_id(code, serial, plate, tipo, sector, referencia, encargado, latitude, longitude, active, operational, en_espera, company:company_id(name))')
-    .lte('valid_from', nightEndIso)
-    .or(`valid_to.is.null,valid_to.gt.${dayStartIso}`);
-  if (error) return { rows: [], missing: isMissingTable(error.message) };
-  const raw = (data ?? []) as any[];
+  const dayStartUtc = new Date(`${date}T07:00:00-04:00`).toISOString();
+  const nightEndUtc = new Date(`${addOneDayIso(date)}T07:00:00-04:00`).toISOString();
+  let raw: any[];
+  try {
+    raw = await selectAllRows(
+      'machine_inspector_history',
+      'id, machinery_id, inspector_id, inspector_name, shift, valid_from, valid_to, machine:machinery_id(code, serial, plate, tipo, sector, referencia, encargado, latitude, longitude, active, operational, en_espera, company:company_id(name))',
+      (q) => q.lt('valid_from', nightEndUtc).or(`valid_to.is.null,valid_to.gt.${dayStartUtc}`),
+    );
+  } catch (err: any) {
+    return { rows: [], missing: isMissingTable(err) };
+  }
   if (raw.length === 0) return { rows: [], missing: false };
   const liveName = await fetchLiveInspectorNames(raw);
   const enriched = raw.map((r) => ({
@@ -220,45 +213,48 @@ export async function listInspectorAssignmentsForDate(date: string): Promise<{ r
   return { rows: mapAssignmentRows(winners, liveName), missing: false };
 }
 
-/** Tramos históricos que solapan un rango `[from..to]` en 1 sola consulta (cero N+1),
- *  pensado para `HistoricoJornadasScreen`. Si la tabla aún no existe, cae a la foto actual. */
+/** Tramos históricos que solapan un rango `[from..to]` paginados con `selectAllRows`
+ *  (evita el truncado silencioso de 1,000 filas en rangos de 30–90 días).
+ *  Solo cae a la foto actual si la tabla realmente no existe (`missing === true`). */
 export async function listInspectorAssignmentsForRange(
   from: string,
   to: string,
 ): Promise<{ spans: AssignmentSpan[]; missing: boolean }> {
-  const rangeStartIso = `${from}T07:00:00-04:00`;
-  const rangeEndIso = `${addOneDayIso(to)}T07:00:00-04:00`;
-  const { data, error } = await supabase
-    .from('machine_inspector_history')
-    .select('id, machinery_id, inspector_id, inspector_name, shift, valid_from, valid_to')
-    .lte('valid_from', rangeEndIso)
-    .or(`valid_to.is.null,valid_to.gt.${rangeStartIso}`);
-  if (!error && data && data.length > 0) {
-    const raw = data as any[];
-    const liveName = await fetchLiveInspectorNames(raw);
-    const spans: AssignmentSpan[] = raw.map((r) => ({
-      id: r.id as string,
-      machinery_id: r.machinery_id as string,
-      inspector_id: (r.inspector_id ?? null) as string | null,
-      inspector_name: ((r.inspector_id && liveName[r.inspector_id]) || r.inspector_name || '') as string,
-      shift: (r.shift === 'night' ? 'night' : 'day') as Shift,
-      valid_from: r.valid_from as string,
-      valid_to: (r.valid_to ?? null) as string | null,
+  const rangeStartUtc = new Date(`${from}T07:00:00-04:00`).toISOString();
+  const rangeEndUtc = new Date(`${addOneDayIso(to)}T07:00:00-04:00`).toISOString();
+  let raw: any[];
+  try {
+    raw = await selectAllRows(
+      'machine_inspector_history',
+      'id, machinery_id, inspector_id, inspector_name, shift, valid_from, valid_to',
+      (q) => q.lt('valid_from', rangeEndUtc).or(`valid_to.is.null,valid_to.gt.${rangeStartUtc}`),
+    );
+  } catch (err: any) {
+    if (!isMissingTable(err)) return { spans: [], missing: false };
+    const live = await listInspectorAssignments();
+    const fallbackSpans: AssignmentSpan[] = live.rows.map((r) => ({
+      id: r.id,
+      machinery_id: r.machinery_id,
+      inspector_id: r.inspector_id,
+      inspector_name: r.inspector_name,
+      shift: r.shift,
+      valid_from: '2020-01-01T00:00:00Z',
+      valid_to: null,
     }));
-    return { spans, missing: false };
+    return { spans: fallbackSpans, missing: live.missing };
   }
-  // Fallback defensivo: si no hay filas históricas o falta la tabla, usar foto actual
-  const live = await listInspectorAssignments();
-  const fallbackSpans: AssignmentSpan[] = live.rows.map((r) => ({
-    id: r.id,
-    machinery_id: r.machinery_id,
-    inspector_id: r.inspector_id,
-    inspector_name: r.inspector_name,
-    shift: r.shift,
-    valid_from: '2020-01-01T00:00:00Z',
-    valid_to: null,
+  if (raw.length === 0) return { spans: [], missing: false };
+  const liveName = await fetchLiveInspectorNames(raw);
+  const spans: AssignmentSpan[] = raw.map((r) => ({
+    id: r.id as string,
+    machinery_id: r.machinery_id as string,
+    inspector_id: (r.inspector_id ?? null) as string | null,
+    inspector_name: ((r.inspector_id && liveName[r.inspector_id]) || r.inspector_name || '') as string,
+    shift: (r.shift === 'night' ? 'night' : 'day') as Shift,
+    valid_from: r.valid_from as string,
+    valid_to: (r.valid_to ?? null) as string | null,
   }));
-  return { spans: fallbackSpans, missing: live.missing };
+  return { spans, missing: false };
 }
 
 /** Quita la asignación de una máquina al inspector en un turno (día/noche). */
@@ -269,11 +265,15 @@ export async function unassignInspector(machineryId: string, inspectorId: string
     .eq('machinery_id', machineryId)
     .eq('inspector_id', inspectorId)
     .eq('shift', shift);
-  if (error) return { error: error.message, missing: isMissingTable(error.message) };
+  if (error) return { error: error.message, missing: isMissingTable(error) };
   return {};
 }
 
-/** Detecta el error típico de "la tabla todavía no existe" (falta correr el SQL). */
-function isMissingTable(msg: string): boolean {
-  return /machine_inspectors|does not exist|relation|schema cache|could not find/i.test(msg || '');
+/** Detecta el error típico de "la tabla todavía no existe" (sin falsos positivos de RLS/FK/UNIQUE). */
+function isMissingTable(err: { code?: string; message?: string } | string | null | undefined): boolean {
+  if (!err) return false;
+  const code = typeof err === 'string' ? '' : (err.code || '');
+  if (code === '42P01' || code === 'PGRST205') return true;
+  const msg = typeof err === 'string' ? err : (err.message || '');
+  return /relation\s+"[^"]+"\s+does not exist|could not find the table\b|not in the schema cache/i.test(msg);
 }

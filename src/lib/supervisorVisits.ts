@@ -101,15 +101,16 @@ export async function listVisits(fromDate: string, toDate?: string): Promise<Vis
  *  CHECK del teléfono (machine_inspectors). Si no hay CHECK, cae al ÚLTIMO
  *  check-in (visita). Las de usuarios ADMIN se IGNORAN (pruebas de sistemas). */
 export type InspectorInfo = { name: string; date: string; status: VisitStatus; near: boolean | null };
-export async function latestInspectorByMachine(): Promise<Record<string, InspectorInfo>> {
+export async function latestInspectorByMachine(date?: string): Promise<Record<string, InspectorInfo>> {
   const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
   const adminIds = new Set(((admins ?? []) as any[]).map((a) => a.id as string));
-  // Solo necesitamos la ÚLTIMA visita por máquina: un check-in de hace meses ya no
-  // dice quién es el inspector "actual". Acotamos a los últimos 90 días para no
-  // descargar toda la tabla histórica (que crece sin límite). Además, la asignación
-  // explícita del CHECK (machine_inspectors, más abajo) manda por encima de esto.
-  const floor = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const rows = await selectAllRows('supervisor_visits', 'machinery_id, supervisor_id, supervisor_name, visit_date, visited_at, status, near', (q) => q.gte('visit_date', floor));
+  const refMs = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00-04:00`).getTime() : Date.now();
+  const floor = new Date(refMs - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const rows = await selectAllRows('supervisor_visits', 'machinery_id, supervisor_id, supervisor_name, visit_date, visited_at, status, near', (q) => {
+    let q2 = q.gte('visit_date', floor);
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) q2 = q2.lte('visit_date', date);
+    return q2;
+  });
   const acc: Record<string, InspectorInfo & { _ts: string }> = {};
   (rows ?? []).forEach((v: any) => {
     if (v.supervisor_id && adminIds.has(v.supervisor_id)) return; // ignora visitas de admin (pruebas)
@@ -121,14 +122,20 @@ export async function latestInspectorByMachine(): Promise<Record<string, Inspect
   const out: Record<string, InspectorInfo> = {};
   Object.entries(acc).forEach(([k, v]) => { out[k] = { name: v.name, date: v.date, status: v.status, near: v.near }; });
 
-  // Superpone la asignación EXPLÍCITA del CHECK (machine_inspectors): tiene
-  // prioridad sobre el último check-in. Cada máquina tiene inspector de DÍA (☀️)
-  // y de NOCHE (🌙); se muestran ambos. Si la tabla no existe, se ignora.
+  // Superpone la asignación EXPLÍCITA del CHECK (histórica para `date` si viene, o actual).
   try {
-    const { data: asg } = await supabase
-      .from('machine_inspectors')
-      .select('machinery_id, inspector_id, inspector_name, shift, assigned_at')
-      .eq('active', true);
+    let asg: any[] = [];
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const { listInspectorAssignments } = await import('./machineInspectors');
+      const res = await listInspectorAssignments(date);
+      asg = res.rows;
+    } else {
+      const { data } = await supabase
+        .from('machine_inspectors')
+        .select('machinery_id, inspector_id, inspector_name, shift, assigned_at')
+        .eq('active', true);
+      asg = (data ?? []) as any[];
+    }
     const per: Record<string, { day?: { name: string; ts: string }; night?: { name: string; ts: string } }> = {};
     ((asg ?? []) as any[]).forEach((a) => {
       // El CHECK es explícito: se respeta aunque sea de un usuario admin (no se filtra).

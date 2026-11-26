@@ -11,7 +11,7 @@ import { ordenarMaquinas, agruparMaquinas } from './ordenMaquinas';
 // TURNO de una avería/parada (día 7am–7pm · noche el resto). Se IMPORTA la única
 // implementación buena (src/lib/inspectorDaySets.ts) — NO se copia: ya hubo un bug
 // grave en este proyecto por tener tres copias de esta función con umbrales distintos.
-import { paradaShiftOf as paradaShiftIso } from './inspectorDaySets';
+import { paradaShiftOf as paradaShiftIso, assignmentCountsForShift } from './inspectorDaySets';
 
 /**
  * Reporte del DÍA por EMPRESA (PDF). Para las empresas elegidas (tipo check) y un
@@ -211,7 +211,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // 3) Inspector asignado (CHECK) por turno (`assigns`, traído arriba).
   const dayInsp = new Map<string, string>();
   const nightInsp = new Map<string, string>();
-  assigns.forEach((a) => { (a.shift === 'night' ? nightInsp : dayInsp).set(a.machinery_id, a.inspector_name || ''); });
+  assigns.forEach((a) => {
+    if (!assignmentCountsForShift(a, date, a.shift)) return;
+    (a.shift === 'night' ? nightInsp : dayInsp).set(a.machinery_id, a.inspector_name || '');
+  });
   // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): estas máquinas nunca muestran parada/avería
   // ni horas paradas en el reporte por empresa (se ignora su historial de mantenimiento).
   const siempreActivoIds = new Set<string>();

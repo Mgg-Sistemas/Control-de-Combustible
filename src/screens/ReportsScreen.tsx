@@ -2488,7 +2488,7 @@ export default function ReportsScreen({ route }: any) {
       const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
       const mach = await selectAllRows('machinery', 'id, code, tipo, serial, plate, active, latitude, longitude, zona, encargado, referencia, company:company_id(name)');
       const rounds = await selectAllRows('machine_rounds', 'machinery_id, day_hours, night_hours', (q) => q.eq('round_date', date));
-      const insp = await latestInspectorByMachine();
+      const insp = await latestInspectorByMachine(date);
       const hoursBy = new Map<string, { d: number; n: number }>();
       (rounds ?? []).forEach((r: any) => {
         const cur = hoursBy.get(r.machinery_id) ?? { d: 0, n: 0 };

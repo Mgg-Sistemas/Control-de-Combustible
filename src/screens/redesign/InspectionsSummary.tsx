@@ -324,19 +324,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   }, []);
   const fromDate = days[0];
 
+  const loadReqRef = useRef(0);
+  const [showAllInsp, setShowAllInsp] = useState(false);
   const load = useCallback(async () => {
-    // Red de respaldo del cierre automático de jornadas: el disparador de
-    // Supabase (pg_cron, cada 10 min) puede quedar sin correr en silencio por
-    // un rato (pasó el 06/08/2026 — el cron estaba bien configurado pero su
-    // historial de ejecuciones reales quedó vacío toda la tarde/noche, sin
-    // ningún error visible). En vez de depender 100% de esa infraestructura
-    // externa, cada vez que se abre este panel se llama TAMBIÉN a la misma
-    // función de cierre (`auto_close_jornadas`, ya con todos sus candados:
-    // solo cierra a las 7am/7pm exactas, nunca jornadas de +2 días) — así el
-    // sistema se autocorrige solo con el uso normal, sin depender de que el
-    // cron dispare a tiempo. Best-effort: si falla (función no existe, sin
-    // permiso), no debe romper la carga del panel.
-    supabase.rpc('auto_close_jornadas').then(() => {}, () => {});
+    const reqId = ++loadReqRef.current;
+    // Solo dispara cierre automático cuando se consulta el día actual (hoy).
+    if (selDay === caracasBusinessToday()) {
+      supabase.rpc('auto_close_jornadas').then(() => {}, () => {});
+    }
     // Cubre los 14 días de la gráfica y, si el día elegido es más antiguo, también ese
     // (para que los KPIs del día no queden en 0 al navegar a una fecha vieja).
     const minDate = selDay < fromDate ? selDay : fromDate;
@@ -365,6 +360,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // Nombres (full_name) por id → "Iniciada por / Finalizada por NOMBRE Y APELLIDO".
       supabase.from('profiles').select('id, full_name'),
     ]);
+    if (reqId !== loadReqRef.current) return;
     // Mapa id→nombre y, por máquina, quién INICIÓ la jornada vigente del día elegido
     // (machine_rounds.jornada_marked_by, que NO se pisa al finalizar).
     const nmById: Record<string, string> = {};
@@ -381,11 +377,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setMachList((machRows ?? []) as any);
     setAllHoursByMachine(allHoursMap);
     // Litros surtidos por máquina en el día elegido (misma fuente que SupervisionScreen).
-    loadFuelByMachine(selDay).then(setFuelDay).catch(() => setFuelDay({}));
+    loadFuelByMachine(selDay).then((f) => { if (reqId === loadReqRef.current) setFuelDay(f); }).catch(() => { if (reqId === loadReqRef.current) setFuelDay({}); });
     // Tramos trabajados del día (hora inicio/fin y horas por máquina), y la MISMA
     // información separada por turno (día/noche) — ver `segByShift` arriba.
     selectAllRows('machine_work_segments', 'machinery_id, shift, started_at, ended_at, hours, source, close_reason, recorded_by', (q) => q.eq('round_date', selDay))
       .then((rows) => {
+        if (reqId !== loadReqRef.current) return;
         const map: Record<string, { minStart: number; maxEnd: number; sum: number }> = {};
         const byShift: Record<string, { day?: { minStart: number; maxEnd: number; sum: number }; night?: { minStart: number; maxEnd: number; sum: number } }> = {};
         // Último tramo de CIERRE por turno (max ended_at entre los source que finalizan
@@ -453,8 +450,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   }, [role]);
 
   // Asigna una máquina "por asignar" (MAQUINAS FALTANTES) a un inspector real, en el
-  // turno elegido. Reemplaza la asignación automática (1 inspector por máquina+turno).
+  // turno elegido. Solo permitido en el día actual (hoy) para no pisar asignaciones vivas
+  // mientras se consulta una fecha histórica.
   const doAssign = async (machineryId: string, insp: { id: string; full_name: string }) => {
+    if (selDay !== caracasBusinessToday()) {
+      toast.error('Solo puedes asignar máquinas viendo el día de hoy.');
+      return;
+    }
     setAssignBusy(machineryId);
     const res = await assignInspector(machineryId, insp.id, insp.full_name, shift);
     setAssignBusy(null);
@@ -1973,36 +1975,51 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 (las paradas, averiadas y ya cerradas no entran ahí). Ahora cada barra dice
                 también cuántas tiene asignadas en el turno (📋), y esta leyenda lo explica. */}
             {selDay < caracasBusinessToday() ? (
-              <Text style={{ color: colors.infoSoftText, backgroundColor: colors.infoSoftBg, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5, fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-                📅 Viendo asignaciones históricas del {shortDate(selDay)} (reasignar hoy no borra ni mueve turnos cerrados).
-              </Text>
+              <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5, marginBottom: 6 }}>
+                <Text style={{ color: colors.infoSoftText, fontSize: 11, fontWeight: '700' }}>
+                  📅 Viendo asignaciones históricas del {shortDate(selDay)} (reasignar hoy no borra ni mueve turnos cerrados).
+                </Text>
+              </View>
             ) : null}
             <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
               ⚡ eficiencia · 🟢 trabajando ahora · 📋 asignadas en este turno (sin las inactivas ni las «en espera» del Catálogo)
             </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
-              {inspShown.map((ins) => {
-                const on = ins.name === selInsp;
-                // El medidor representa la EFICIENCIA (%): la barra se llena según el % y se
-                // colorea igual (verde/ámbar/rojo). Arriba el ⚡% y debajo cuántas están
-                // trabajando ahora (🟢 activas). Antes la barra usaba las jornadas ABIERTAS
-                // y no cuadraba con el % de abajo (barra casi vacía con % alto al cerrar).
-                const efi = ins.eficiencia;
-                const h = Math.max(6, ((efi ?? 0) / 100) * 96);
-                const barColor = efi === null ? colors.tankTrack : efiColor(efi);
-                return (
-                  <TouchableOpacity key={ins.name} onPress={() => setSelInsp(on ? null : ins.name)} activeOpacity={0.7} style={{ width: 64, alignItems: 'center' }}>
-                    <Text style={{ color: efiColor(efi), fontWeight: '900', fontSize: 12, marginBottom: 2, fontVariant: ['tabular-nums'] as any }}>{efi !== null ? `⚡${efi}%` : '—'}</Text>
-                    <View style={{ height: 96, width: 26, backgroundColor: colors.tankTrack, borderRadius: 6, justifyContent: 'flex-end', overflow: 'hidden', borderWidth: on ? 2 : 0, borderColor: colors.accent }}>
-                      <View style={{ height: h, width: '100%', backgroundColor: barColor }} />
-                    </View>
-                    <Text style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: '700', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>🟢 {ins.iniActivas.length}</Text>
-                    <Text style={{ color: on ? colors.brandText : colors.text, fontSize: 9.5, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>📋 {ins.total}</Text>
-                    <Text numberOfLines={2} style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: on ? '800' : '600', textAlign: 'center', marginTop: 2, height: 24 }}>{ins.name}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            {(() => {
+              const canCollapse = inspShown.length > 8 && !inspQ.trim();
+              const visibleInsp = canCollapse && !showAllInsp
+                ? inspShown.filter((ins, idx) => idx < 8 || ins.name === selInsp)
+                : inspShown;
+              return (
+                <>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
+                    {visibleInsp.map((ins) => {
+                      const on = ins.name === selInsp;
+                      const efi = ins.eficiencia;
+                      const h = Math.max(6, ((efi ?? 0) / 100) * 96);
+                      const barColor = efi === null ? colors.tankTrack : efiColor(efi);
+                      return (
+                        <TouchableOpacity key={ins.name} onPress={() => setSelInsp(on ? null : ins.name)} activeOpacity={0.7} style={{ width: 64, alignItems: 'center' }}>
+                          <Text style={{ color: efiColor(efi), fontWeight: '900', fontSize: 12, marginBottom: 2, fontVariant: ['tabular-nums'] as any }}>{efi !== null ? `⚡${efi}%` : '—'}</Text>
+                          <View style={{ height: 96, width: 26, backgroundColor: colors.tankTrack, borderRadius: 6, justifyContent: 'flex-end', overflow: 'hidden', borderWidth: on ? 2 : 0, borderColor: colors.accent }}>
+                            <View style={{ height: h, width: '100%', backgroundColor: barColor }} />
+                          </View>
+                          <Text style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: '700', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>🟢 {ins.iniActivas.length}</Text>
+                          <Text style={{ color: on ? colors.brandText : colors.text, fontSize: 9.5, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>📋 {ins.total}</Text>
+                          <Text numberOfLines={2} style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: on ? '800' : '600', textAlign: 'center', marginTop: 2, height: 24 }}>{ins.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  {canCollapse ? (
+                    <TouchableOpacity onPress={() => setShowAllInsp((v) => !v)} activeOpacity={0.7} style={{ alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, backgroundColor: colors.surface }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>
+                        {showAllInsp ? '▴ Mostrar menos inspectores' : `▾ Ver todos los inspectores (${inspShown.length})`}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </>
+              );
+            })()}
             </>
           )}
 
@@ -2060,13 +2077,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               </Text>
                             ) : null}
                           </View>
-                          <TouchableOpacity
-                            onPress={() => setAssignPickerFor(pickerOpen ? null : id)}
-                            disabled={busy}
-                            style={{ borderWidth: 1, borderColor: colors.accent, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4, opacity: busy ? 0.6 : 1 }}
-                          >
-                            <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 11.5 }}>{busy ? 'Asignando…' : pickerOpen ? 'Cerrar ▴' : 'Asignar ▾'}</Text>
-                          </TouchableOpacity>
+                          {bulkIsToday ? (
+                            <TouchableOpacity
+                              onPress={() => setAssignPickerFor(pickerOpen ? null : id)}
+                              disabled={busy}
+                              style={{ borderWidth: 1, borderColor: colors.accent, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4, opacity: busy ? 0.6 : 1 }}
+                            >
+                              <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 11.5 }}>{busy ? 'Asignando…' : pickerOpen ? 'Cerrar ▴' : 'Asignar ▾'}</Text>
+                            </TouchableOpacity>
+                          ) : (
+                            <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic' }}>Solo hoy</Text>
+                          )}
                         </View>
                         {pickerOpen ? (
                           <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs, gap: 4 }}>
