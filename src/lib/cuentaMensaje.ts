@@ -14,7 +14,7 @@
 // de «En Bs» se cambia por «Forma de pago» con cada parte, y de los datos bancarios
 // salen solo los de los métodos que el plan usa.
 import { pdfDocument } from './pdf';
-import { PartePlan, EstadoParte, lineaParte, bloquesBancoDelPlan } from './planPago';
+import { PartePlan, EstadoParte, lineaParte, bloquesBancoDelPlan, actualizarPlanABcv } from './planPago';
 
 export type PrioridadCuenta = 'alta' | 'media' | 'baja' | null | undefined;
 
@@ -88,6 +88,22 @@ export type DatosMensajeCuenta = {
   /** Estado de aprobación en Por Pagar */
   aprobacionEstado?: 'esperando_aprobacion' | 'esperando_pago' | 'pagada' | 'no_aplica' | null;
 };
+
+/**
+ * 💱 26-nov-2026: plan que debe viajar en el mensaje/PDF.
+ * Con la tasa del día (modo normal) se recalculan SOLO las partes en Bs marcadas
+ * BCV; con «tasa de ese día» se deja intacto lo guardado para consultar el
+ * histórico. Es solo presentación: no escribe nada en la base de datos.
+ */
+export function planParaMensaje(
+  plan: DatosMensajeCuenta['plan'],
+  usarTasaEseDia: boolean,
+  tasaBcvHoy?: number | null,
+): DatosMensajeCuenta['plan'] {
+  if (!plan || usarTasaEseDia) return plan;
+  const actualizado = actualizarPlanABcv({ partes: plan.partes }, tasaBcvHoy).plan;
+  return actualizado ? { ...plan, partes: actualizado.partes } : plan;
+}
 
 export type ModoMensajeCuenta = 'ficha' | 'tesoreria' | 'decision';
 

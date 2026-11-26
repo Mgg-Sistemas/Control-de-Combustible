@@ -9,12 +9,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { exportPdf } from '../lib/pdf';
+import { monedaDeMetodo } from '../lib/planPago';
 import {
   DatosMensajeCuenta,
   OpcionesMensajeCuenta,
   OPCIONES_MENSAJE_DEFECTO,
   normalizarOpcionesMensaje,
   construirMensajeCuentas,
+  planParaMensaje,
   mensajeCuentasHtml,
   urlWhatsappMensaje,
   ModoMensajeCuenta,
@@ -94,23 +96,46 @@ export function MensajeCuentaModal({
   });
   const [verOpciones, setVerOpciones] = useState(false);
   const [generando, setGenerando] = useState(false);
+  // 26-nov-2026: el default es SIEMPRE la tasa del día. La tasa guardada solo se
+  // usa si la persona toca el botón enorme «tasa de ese día».
   const [usarTasaEseDiaModal, setUsarTasaEseDiaModal] = useState<boolean>(
-    () => Boolean(usarTasaDeEseDiaInicial ?? datos.some((d) => Boolean(d.bsFijos))),
+    () => Boolean(usarTasaDeEseDiaInicial ?? false),
   );
 
   useEffect(() => {
-    setUsarTasaEseDiaModal(Boolean(usarTasaDeEseDiaInicial ?? datos.some((d) => Boolean(d.bsFijos))));
+    setUsarTasaEseDiaModal(Boolean(usarTasaDeEseDiaInicial ?? false));
   }, [usarTasaDeEseDiaInicial, datos]);
 
+  // Un plan con partes BCV guardadas también ofrece alternar a «esa día», aunque
+  // los Bs globales de la cuenta no estén escritos a mano.
+  const planTieneTasaGuardada = (d: DatosMensajeCuenta) =>
+    (d.plan?.partes ?? []).some((p) =>
+      monedaDeMetodo(p.metodo) === 'VES' &&
+      (p.tasa_tipo ?? 'bcv') === 'bcv' &&
+      Number(p.tasa) > 0 &&
+      Math.abs(Number(p.tasa) - (Number(d.tasaBsHoy) || 0)) > 0.005,
+    );
+
   const tieneAlgunaTasaEseDia = useMemo(
-    () => datos.some((d) => Boolean(d.tieneTasaEseDia) || (Number(d.totalBsEseDia) > 0)),
+    () => datos.some((d) => Boolean(d.tieneTasaEseDia) || (Number(d.totalBsEseDia) > 0) || planTieneTasaGuardada(d)),
+    [datos],
+  );
+
+  const faltaTasaHoyConPlan = useMemo(
+    () => datos.some((d) => !(Number(d.tasaBsHoy) > 0) &&
+      (d.plan?.partes ?? []).some((p) => monedaDeMetodo(p.metodo) === 'VES' && (p.tasa_tipo ?? 'bcv') === 'bcv')),
     [datos],
   );
 
   const datosEfectivos = useMemo<DatosMensajeCuenta[]>(() => {
     return datos.map((d) => {
-      if (!d.tieneTasaEseDia && !(Number(d.totalBsEseDia) > 0)) return d;
       const usarDia = usarTasaEseDiaModal;
+      // 26-nov-2026: la «Forma de pago» del mensaje y del PDF usa la tasa BCV de
+      // hoy salvo que la persona elija explícitamente la tasa guardada.
+      const plan = planParaMensaje(d.plan, usarDia, Number(d.tasaBsHoy) || null);
+      if (!d.tieneTasaEseDia && !(Number(d.totalBsEseDia) > 0)) {
+        return plan !== d.plan ? { ...d, plan } : d;
+      }
       const totalBs = usarDia
         ? (Number(d.totalBsEseDia) || Number(d.totalBs) || 0)
         : (Number(d.totalBsHoy) || Number(d.totalBs) || 0);
@@ -138,6 +163,7 @@ export function MensajeCuentaModal({
         tasaBs,
         bsFijos: usarDia,
         desgloseProveedores,
+        plan,
       };
     });
   }, [datos, usarTasaEseDiaModal]);
@@ -372,6 +398,13 @@ export function MensajeCuentaModal({
               );
             })}
           </View>
+
+          {/* 26-nov-2026: si no hay tasa de hoy, no inventamos: se dice en palabras simples. */}
+          {faltaTasaHoyConPlan ? (
+            <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800', marginTop: spacing.xs }}>
+              ⚠️ No hay tasa BCV de hoy: el mensaje y el PDF usarán la tasa guardada en el plan. Actualiza la tasa BCV antes de enviar.
+            </Text>
+          ) : null}
 
           {/* ── Botón enorme para alternar entre Tasa del Día de Hoy (BCV) y Tasa de Ese Día (Requerimiento) ── */}
           {tieneAlgunaTasaEseDia ? (

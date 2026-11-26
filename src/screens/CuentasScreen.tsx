@@ -142,7 +142,7 @@ import { ReporteCuentasModal } from '../components/ReporteCuentasModal';
 import { resolverPagoCuenta, type MonedaRealPago } from '../lib/cuentaPagoResuelto';
 import { MensajeCuentaModal } from '../components/MensajeCuentaModal';
 import { PlanPagoModal } from '../components/PlanPagoModal';
-import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, estadoPartes, lineaParte, tituloParte, advertenciaPlanGuardado } from '../lib/planPago';
+import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, estadoPartes, lineaParte, tituloParte, advertenciaPlanGuardado, actualizarPlanABcv } from '../lib/planPago';
 import { DatosMensajeCuenta, DesgloseProveedorMensaje, ModoMensajeCuenta } from '../lib/cuentaMensaje';
 import { desgloseProveedoresDeReq } from '../lib/requerimientoPdfDatos';
 import { quitarTodasLasMarcasDeTexto } from '../lib/requerimientoFlujo';
@@ -2264,7 +2264,12 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             })
             : null;
         const baseCalc = calcular(c, abonosCta, hoy, nomContraparte, empInfo, condYNota, traza, infoPago, desgloseIva, apEstado, apInfo);
-        const planCta = (c as any).plan_pago ?? (reqVincDesglose as any)?.plan_pago ?? null;
+        // 💱 26-nov-2026: el plan que se calcula en la tarjeta usa la tasa BCV de
+        // hoy; con «tasa de ese día» se conserva la guardada. Nada se escribe en BD.
+        const planCtaGuardado = normalizarPlan((c as any).plan_pago ?? (reqVincDesglose as any)?.plan_pago ?? null);
+        const planCta = usarEseDiaCta
+          ? planCtaGuardado
+          : (planCtaGuardado ? actualizarPlanABcv(planCtaGuardado, tasaBcv).plan : null);
         const notaEsp = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id))?.texto ?? null;
         const alicCta = (c as any).alicuota_iva != null ? Number((c as any).alicuota_iva) || null : (desgloseIva as any)?.alicuota ?? null;
         const pagoResuelto = resolverPagoCuenta({
@@ -2441,6 +2446,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     const req: any = c.traza?.req || c.traza?.reqVinculado || null;
     const delReq = normalizarPlan(req?.plan_pago);
     return delReq ? { plan: delReq, delReq: true } : null;
+  };
+  // 💱 26-nov-2026: el reporte y el PDF siempre se calculan con la tasa del día,
+  // sin modificar el plan guardado (el modo «tasa de ese día» sigue disponible
+  // dentro del modal de mensaje).
+  const planParaHoy = (c: CuentaCalc): PlanPago | null => {
+    const plan = planDeCuenta(c)?.plan ?? null;
+    return plan ? actualizarPlanABcv(plan, tasaBcv).plan : null;
   };
   const estadosPlanDe = (c: CuentaCalc, plan: PlanPago) =>
     estadoPartes(plan.partes, (abonos || []).filter((a) => a.cuenta_id === c.id) as any[]);
@@ -6861,7 +6873,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
         <ReporteCuentasModal
           tipo={tipo}
           lista={lista.map((c: any) => {
-            const plan = planDeCuenta(c)?.plan ?? null;
+            const plan = planParaHoy(c);
             const notaEspera = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id));
             const alicuotaIva = alicuotaDe(c);
             const mBs = bsDe(c);
@@ -6874,7 +6886,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             };
           })}
           todas={ordenadas.map((c: any) => {
-            const plan = planDeCuenta(c)?.plan ?? null;
+            const plan = planParaHoy(c);
             const notaEspera = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id));
             const alicuotaIva = alicuotaDe(c);
             const mBs = bsDe(c);
@@ -6887,7 +6899,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             };
           })}
           universo={universo.map((c: any) => {
-            const plan = planDeCuenta(c)?.plan ?? null;
+            const plan = planParaHoy(c);
             const notaEspera = ultimaNotaActiva(notasEsperaPorCuenta.get(c.id));
             const alicuotaIva = alicuotaDe(c);
             const mBs = bsDe(c);

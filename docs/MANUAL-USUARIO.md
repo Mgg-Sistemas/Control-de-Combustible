@@ -2405,6 +2405,17 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > escrita; el sistema calcula los Bs. **No deja guardar si las partes no suman el total.** Al abonar eliges a qué parte
 > va el abono y la cuenta muestra ✅ en las partes pagadas. El mensaje y el PDF de pago muestran **«💳 Forma de pago»**
 > con cada parte y solo los datos bancarios de los métodos que se usan. Una cuenta ya pagada no cambia de plan.
+>
+> **💱 La «Forma de pago» siempre usa la tasa del día** *(26/11/2026)*. Antes el WhatsApp y el PDF podían salir con la
+> tasa guardada el día anterior aunque la pantalla dijera «actualizado a hoy». Ahora, al abrir **«📲 Mensaje / PDF
+> de pago»**, las partes que se pagan en Bs con tasa **BCV** se recalculan solas con la tasa de hoy, y lo mismo se ve
+> en «Por pagar». No hay que entrar a Requerimiento ítem por ítem ni guardar nada: lo guardado queda intacto para
+> consultar después. Toca el botón enorme **«📅 USAR TASA DE ESE DÍA»** dentro del modal si necesitas ver el pago con
+> la tasa con que se armó el requerimiento. Solo se cambian las partes BCV: **USDT, Euro, otra tasa escrita a mano
+> y las partes en dólares no se tocan**. Si no hay tasa BCV de hoy, el modal lo dice y usa la guardada, sin inventar
+> números. En **Requerimientos** el botón **«🔄 Actualizar todos los ítems y plan BCV a hoy»** está siempre a la vista
+> cuando hay tasa. Al pasar requerimientos en lote, si la cuenta ya tenía plan propio en Por Pagar, **no se lo pisamos**
+> y el aviso lo dice.
 
 > **📊 Reporte de Compras · S.O.S La Guaira** *(13/11/2026)*. En **Compras**, el botón superior derecho **«📊 Reporte de Compras»**
 > genera el documento oficial ejecutivo con los colores institucionales de **S.O.S La Guaira** (`#0A2540` y `#0284C7`).

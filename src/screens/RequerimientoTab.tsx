@@ -3585,6 +3585,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       return toast.error('No se pudieron actualizar los requerimientos (sin permiso o no encontrados).');
     }
 
+    let planesConservados = 0;
     // Sincronizar monto con IVA, empresa, condiciones, plan de pago y trazabilidad en cuentas y órdenes
     try {
       for (const reqItem of reqsLote) {
@@ -3598,7 +3599,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         const empIdItem = reqItem.empresa_pagadora_id || reqItem.company_id || null;
         const empNameItem = reqItem.empresa_pagadora_nombre || (empIdItem ? companies.find((c) => c.id === empIdItem)?.name || null : null);
 
-        const { data: ctas } = await supabase.from('cuentas').select('id, nota, estado, tipo').eq('inventory_requirement_id', reqItem.id);
+        const { data: ctas } = await supabase.from('cuentas').select('id, nota, estado, tipo, plan_pago').eq('inventory_requirement_id', reqItem.id);
         for (const cta of ctas ?? []) {
           let notaCta = String((cta as any).nota || '');
           if (empIdItem && empNameItem) notaCta = inyectarEmpresaEnNota(notaCta, empIdItem, empNameItem) ?? notaCta;
@@ -3632,9 +3633,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           if ((reqItem as any).plan_pago) {
             const normP = normalizarPlan((reqItem as any).plan_pago);
             const { plan: planAct, cambio } = actualizarPlanABcv(normP, rate);
-            patch.plan_pago = planAct ?? (reqItem as any).plan_pago;
             if (cambio && planAct) {
               await supabase.from('inventory_requirements').update({ plan_pago: { ...planAct, actualizado_at: ahoraIso } } as any).eq('id', reqItem.id);
+            }
+            // 26-nov-2026: si Por Pagar ya tiene su propio plan (editado a mano),
+            // no se lo pisamos; el del requerimiento solo se hereda cuando la
+            // cuenta no tiene uno propio.
+            if (!normalizarPlan((cta as any).plan_pago)) {
+              patch.plan_pago = planAct ?? (reqItem as any).plan_pago;
+            } else {
+              planesConservados += 1;
             }
           }
           await supabase.from('cuentas').update(patch).eq('id', (cta as any).id);
@@ -3648,7 +3656,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setReqSelIds(new Set());
     refetch();
     refetchCuentas();
-    toast.success(`${ids.length} requerimiento(s) enviados a 💸 Por Pagar.`);
+    toast.success(`${ids.length} requerimiento(s) enviados a 💸 Por Pagar.` +
+      (planesConservados > 0 ? ` ${planesConservados} cuenta(s) conservaron su plan de Por Pagar.` : ''));
   };
 
   // ANULAR un requerimiento YA APROBADO: el mismo gerente lo rechaza. Pasa a
@@ -5923,14 +5932,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               <TouchableOpacity onPress={addBlank} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>＋ Producto nuevo</Text></TouchableOpacity>
             </View>
 
-            {rate && rate > 0 && (
-              rows.some((x) => {
-                const u = parseNum(x.total_usd || '0') || parseNum(x.price);
-                const b = parseNum(x.total_bs || '0') || parseNum(x.price_bs);
-                const ti = x.tasa_propia || (u > 0 && b > 0 ? b / u : 0);
-                return ti > 0 && Math.abs(ti - rate) > 0.05;
-              }) || actualizarPlanABcv(planForm, rate).cambio
-            ) ? (
+            {/* 26-nov-2026: el botón está siempre a la vista cuando hay tasa BCV;
+                antes solo aparecía si ya había detectado una diferencia y la
+                persona no sabía que podía actualizar. */}
+            {rate && rate > 0 ? (
               <TouchableOpacity
                 onPress={recomputarTodoDesdeBcv}
                 style={{
