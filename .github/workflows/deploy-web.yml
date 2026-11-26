@@ -51,7 +51,8 @@ jobs:
       - name: Publicar version.json (para el aviso de actualización)
         run: |
           mkdir -p dist
-          printf '{"v":"%s"}' "${{ github.sha }}" > dist/version.json
+          BUNDLE_NAME=$(grep -o 'index-[a-f0-9]\+\.js' dist/index.html | head -n 1)
+          printf '{"v":"%s","bundle":"%s"}' "${{ github.sha }}" "$BUNDLE_NAME" > dist/version.json
           echo "version.json → $(cat dist/version.json)"
 
       - name: Inyectar íconos de alta resolución en index.html (splash del acceso directo)
@@ -70,7 +71,10 @@ jobs:
             echo "Sin cambios en dist; nada que publicar."
             exit 0
           fi
-          git commit -m "build(web): dist automática [skip ci]"
+          # NOTA: NO incluir [skip ci] aquí porque DigitalOcean App Platform ignora
+          # los commits con [skip ci] y deja la web sin desplegar. El bucle infinito
+          # con GitHub Actions ya lo previene `paths-ignore: - 'dist/**'` arriba.
+          git commit -m "build(web): dist automática"
           # A veces alguien despliega a mano (npm run deploy) mientras este build
           # corre, y `main` avanza antes de que este paso pueda subir su propio
           # commit de dist. Antes eso hacía fallar el `git push` (non-fast-forward)
