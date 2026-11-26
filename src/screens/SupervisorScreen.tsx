@@ -653,6 +653,23 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         const ry = await getMachineRound(ci.id, yesterday);
         if (ry && ((ry as any)?.jornada_start_at || (!r && caracasBusinessToday() === yesterday))) { r = ry; rDate = yesterday; }
       }
+      // Si sigue sin jornada abierta en hoy/ayer pero hay una ronda rezagada abierta
+      // de días anteriores (ej. últimos 7 días que `reloadEstados` sí muestra en curso),
+      // rescátala para que el inspector/coordinador SIEMPRE tenga el botón de cerrarla.
+      if (!(r as any)?.jornada_start_at) {
+        const { data: rOld } = await supabase
+          .from('machine_rounds')
+          .select('*')
+          .eq('machinery_id', ci.id)
+          .not('jornada_start_at', 'is', null)
+          .order('round_date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (rOld && (rOld as any).jornada_start_at) {
+          r = rOld as any;
+          rDate = String((rOld as any).round_date || rDate);
+        }
+      }
       setCurRoundDate(rDate);
       setCurRoundHours({ day: Number((r as any)?.day_hours) || 0, night: Number((r as any)?.night_hours) || 0 });
       const open = (r as any)?.jornada_start_at ?? null;
@@ -2289,7 +2306,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const finResuelto = () => {
     const e = jornadaEndMs();
     if (!jornadaStart || e == null) return null;
-    return resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs: e, texto: finTime });
+    return resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs: e, texto: finTime, nowMs: ahoraParaCerrarRonda(e) });
   };
   const requiereMotivoCierre = (): boolean => {
     if (!ci) return false;
@@ -4241,6 +4258,24 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
                       </Text>
+                      {/* ⏰ Si es una jornada de un día anterior que quedó abierta, avisa claro
+                          cómo cerrarla (dejar hora vacía = cierra al fin de su turno) para que
+                          no escriban la hora de HOY por confusión y les rebote. */}
+                      {(() => {
+                        const e = jornadaEndMs();
+                        if (e == null || ahoraParaCerrarRonda(e, nowTick) >= nowTick - 60000) return null;
+                        const finNomTxt = jornadaShift === 'night' ? '07:00' : '19:00';
+                        return (
+                          <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                            <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>
+                              ⏰ Jornada abierta de otro día ({curRoundDate} · {jornadaShift === 'night' ? '🌙 Noche' : '☀️ Día'})
+                            </Text>
+                            <Text style={{ color: colors.warningSoftText, fontSize: 11.5, marginTop: 2 }}>
+                              Deja la hora en blanco y toca «Sí, finalizar» para cerrarla al fin de su turno ({finNomTxt}), o escribe una hora dentro de ESE turno.
+                            </Text>
+                          </View>
+                        );
+                      })()}
                       {/* 🕐 HORA DECLARADA DE FIN (20-oct-2026, a pedido urgente): si la
                           máquina paró antes, acá va la hora real y las horas se cuentan
                           hasta AHÍ. Vacío = ahora mismo (el cierre de siempre). */}
@@ -4258,12 +4293,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         Si la máquina paró antes, escribe esa hora (ej. 17:00): las horas se cuentan hasta ahí. Vacío = ahora mismo.
                       </Text>
                       {(() => {
-                        // Vista previa en vivo de lo que va a bancar con esa hora — o el
-                        // error antes de confirmar (hora futura, anterior al inicio, mal
-                        // escrita), para que no sorprenda al tocar «Sí, finalizar».
+                        // Vista previa en vivo con el MISMO ancla que `finalizarJornada`
+                        // (`ahoraParaCerrarRonda`), para que nunca diga que una hora vale si
+                        // al tocar «Sí, finalizar» la va a rechazar.
                         const e = jornadaEndMs();
                         if (!finTime.trim() || e == null || !jornadaStart) return null;
-                        const r = resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs: e, texto: finTime, nowMs: nowTick });
+                        const nowCierre = ahoraParaCerrarRonda(e, nowTick);
+                        const r = resolverFinJornada({ startMs: new Date(jornadaStart).getTime(), nominalEndMs: e, texto: finTime, nowMs: nowCierre });
                         if (!r.ok) {
                           return (
                             <View style={{ backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
@@ -4320,6 +4356,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         }
                         return <View style={{ marginBottom: spacing.sm }} />;
                       })()}
+                      {notice && notice.startsWith('❌') ? (
+                        <View style={{ backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                          <Text style={{ color: colors.dangerSoftText, fontWeight: '700', fontSize: 12 }}>{notice}</Text>
+                        </View>
+                      ) : null}
                       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                         <TouchableOpacity onPress={() => { setFinConfirm(false); setMotivoCierre(''); setCerrarSinFinal(false); setFinTime(''); }} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
                           <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
