@@ -6,7 +6,8 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { cmpText, norm } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
-import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
+import { listInspectorAssignmentsForRange, inspectorSiempreActivo } from '../lib/machineInspectors';
+import { buildRangeInspectorMap } from '../lib/inspectorHistorial';
 import { paradaShiftOf } from '../lib/inspectorDaySets';
 import { caracasParts } from '../lib/jornada';
 import { useTheme } from '../theme/ThemeContext';
@@ -69,19 +70,10 @@ export default function HistoricoJornadasScreen() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    // Asignaciones inspector↔máquina POR TURNO (CHECK) — la misma fuente que el
-    // teléfono. Un inspector distinto para el día y para la noche de una misma máquina.
-    const { rows: assigns } = await listInspectorAssignments();
-    const dayInsp = new Map<string, string>();
-    const nightInsp = new Map<string, string>();
-    assigns.forEach((a) => { (a.shift === 'night' ? nightInsp : dayInsp).set(a.machinery_id, a.inspector_name || ''); });
-    // Rondas del rango con horas (de día y/o de noche) + avería/parada marcada ESE DÍA
-    // (INCL. las ya resueltas: cada fecha muestra lo que pasó ese día, no cambia al
-    // resolverlas) + ficha de máquina (una máquina averiada que NO trabajó no tiene
-    // ronda, así que su código/empresa hay que traerlo aparte).
-    // La marca se acota por `created_at`: una marca aparece SOLO en su día de negocio,
-    // que va de las 7am de ese día a las 7am del siguiente (el turno noche cruza la
-    // medianoche), así que basta con created_at en [from 00:00, (to+1) 07:00).
+    // Asignaciones inspector↔máquina POR FECHA Y TURNO (historial de `machine_inspector_history`)
+    // en 1 sola consulta para todo el rango `from..to` (cero N+1): así las reasignaciones de hoy
+    // NO mueven ni borran el trabajo de días pasados.
+    const { spans: assignSpans } = await listInspectorAssignmentsForRange(from, to);
     const toPlus1 = (() => { const d = new Date(to + 'T12:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
     const [rs, maintRows, machRows] = await Promise.all([
       selectAllRows(
@@ -92,6 +84,11 @@ export default function HistoricoJornadasScreen() {
       selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, status, resolved_at', (q) => q.gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${toPlus1}T07:00:00-04:00`)),
       selectAllRows('machinery', 'id, code, serial, plate, company:company_id(name)', (q) => q),
     ]);
+    const allDatesInResult: string[] = [];
+    ((rs ?? []) as any[]).forEach((r) => { if (r.round_date) allDatesInResult.push(r.round_date as string); });
+    ((maintRows ?? []) as any[]).forEach((m) => { const bd = businessDayOf(m.created_at); if (bd >= from && bd <= to) allDatesInResult.push(bd); });
+    const inspByKey = buildRangeInspectorMap(assignSpans, allDatesInResult);
+    const inspOf = (mid: string, dateIso: string, sh: 'day' | 'night') => inspByKey.get(`${mid}|${dateIso}|${sh}`) || '';
     const machInfo = new Map<string, { code: string; serial: string | null; plate: string | null; company: string }>();
     ((machRows ?? []) as any[]).forEach((m) => machInfo.set(m.id, { code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: m.company?.name ?? 'Sin empresa' }));
     // Ronda por máquina+día (para la regla de reactivación: si la jornada de ESE turno
@@ -130,7 +127,7 @@ export default function HistoricoJornadasScreen() {
       const finDiaMs = new Date(`${finDia.toISOString().slice(0, 10)}T07:00:00-04:00`).getTime();
       const seMantuvo = m.status === 'pendiente' || (m.resolved_at && new Date(m.resolved_at).getTime() > finDiaMs);
       if (!seMantuvo) return;
-      const inspector = (shift === 'night' ? nightInsp : dayInsp).get(m.machinery_id) || '';
+      const inspector = inspOf(m.machinery_id, bday, shift);
       if (inspectorSiempreActivo(inspector)) return; // SOS LA GUAIRA: nunca averiada/parada
       const rmd = roundByMD.get(`${m.machinery_id}|${bday}`);
       if (rmd?.jStart && openShiftOf(rmd.jShift, rmd.jStart) === shift && new Date(rmd.jStart).getTime() >= new Date(m.created_at).getTime()) return; // reactivada → sí trabajó
@@ -166,13 +163,13 @@ export default function HistoricoJornadasScreen() {
       };
       const avDia = estadoKey.has(`${r.machinery_id}|${r.round_date}|day`);
       const avNoche = estadoKey.has(`${r.machinery_id}|${r.round_date}|night`);
-      if (dayH > 0 && !avDia) list.push({ ...base, id: `${r.id}:d`, inspector: dayInsp.get(r.machinery_id) || '', shift: 'day', dayH, nightH: 0, total: r2(dayH) });
-      if (nightH > 0 && !avNoche) list.push({ ...base, id: `${r.id}:n`, inspector: nightInsp.get(r.machinery_id) || '', shift: 'night', dayH: 0, nightH, total: r2(nightH) });
+      const dInsp = inspOf(r.machinery_id, r.round_date, 'day');
+      const nInsp = inspOf(r.machinery_id, r.round_date, 'night');
+      if (dayH > 0 && !avDia) list.push({ ...base, id: `${r.id}:d`, inspector: dInsp, shift: 'day', dayH, nightH: 0, total: r2(dayH) });
+      if (nightH > 0 && !avNoche) list.push({ ...base, id: `${r.id}:n`, inspector: nInsp, shift: 'night', dayH: 0, nightH, total: r2(nightH) });
       // ARRANCÓ la jornada del turno pero cerró con 0h (sin avería/parada marcada) → PARADA
       // (regla del cliente: 0 horas = parada). Mismo criterio que buildDaySets (jornada_shift
       // persiste tras el auto-cierre). SIEMPRE ACTIVO (SOS) nunca queda parada.
-      const dInsp = dayInsp.get(r.machinery_id) || '';
-      const nInsp = nightInsp.get(r.machinery_id) || '';
       // "Declaró" con señal DURABLE por-turno (declared_day/declared_night, no se pisan
       // entre turnos), con FALLBACK a jornada_shift si la fila no la trae (blindaje 14-ago).
       const declDay = r.declared_day == null ? r.jornada_shift === 'day' : r.declared_day === true;

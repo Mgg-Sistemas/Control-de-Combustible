@@ -355,7 +355,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // resolverse) y pueden superar las ~1000 filas que corta PostgREST por
       // consulta — igual que ya se cuidó arriba con machine_rounds/machinery.
       selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at, machine:machinery_id(code)', (q) => q.or(`status.eq.pendiente,resolved_at.gte.${nightEndBound}`)),
-      listInspectorAssignments(),
+      listInspectorAssignments(selDay),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
       selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, latitude, longitude, last_horometro, operational, active, en_espera, company_id, company:company_id(name)'),
       // Horas totales (histórico completo) por máquina, agregadas EN EL SERVIDOR
@@ -1972,10 +1972,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 asignadas»): el 🟢 de cada barra son las que TRABAJAN AHORA, no las asignadas
                 (las paradas, averiadas y ya cerradas no entran ahí). Ahora cada barra dice
                 también cuántas tiene asignadas en el turno (📋), y esta leyenda lo explica. */}
-            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>
+            {selDay < caracasBusinessToday() ? (
+              <Text style={{ color: colors.infoSoftText, backgroundColor: colors.infoSoftBg, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5, fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+                📅 Viendo asignaciones históricas del {shortDate(selDay)} (reasignar hoy no borra ni mueve turnos cerrados).
+              </Text>
+            ) : null}
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
               ⚡ eficiencia · 🟢 trabajando ahora · 📋 asignadas en este turno (sin las inactivas ni las «en espera» del Catálogo)
             </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
               {inspShown.map((ins) => {
                 const on = ins.name === selInsp;
                 // El medidor representa la EFICIENCIA (%): la barra se llena según el % y se
@@ -1986,7 +1991,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 const h = Math.max(6, ((efi ?? 0) / 100) * 96);
                 const barColor = efi === null ? colors.tankTrack : efiColor(efi);
                 return (
-                  <TouchableOpacity key={ins.name} onPress={() => setSelInsp(on ? null : ins.name)} activeOpacity={0.7} style={{ width: 58, alignItems: 'center' }}>
+                  <TouchableOpacity key={ins.name} onPress={() => setSelInsp(on ? null : ins.name)} activeOpacity={0.7} style={{ width: 64, alignItems: 'center' }}>
                     <Text style={{ color: efiColor(efi), fontWeight: '900', fontSize: 12, marginBottom: 2, fontVariant: ['tabular-nums'] as any }}>{efi !== null ? `⚡${efi}%` : '—'}</Text>
                     <View style={{ height: 96, width: 26, backgroundColor: colors.tankTrack, borderRadius: 6, justifyContent: 'flex-end', overflow: 'hidden', borderWidth: on ? 2 : 0, borderColor: colors.accent }}>
                       <View style={{ height: h, width: '100%', backgroundColor: barColor }} />
@@ -1997,7 +2002,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
+            </View>
             </>
           )}
 

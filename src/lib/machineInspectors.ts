@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { resolveAssignmentsForDate, shouldKeepAssignedAt, type AssignmentSpan } from './inspectorHistorial';
 
 /**
  * ASIGNACIÓN INSPECTOR ↔ MÁQUINA (el "CHECK MÁQUINA" del teléfono).
@@ -94,12 +95,24 @@ export async function myInspectorMachineIds(inspectorId: string): Promise<{ ids:
 }
 
 /** Asigna una máquina al inspector en un TURNO (día/noche). Reemplaza al que
- *  tuviera ese turno en esa máquina (1 inspector por máquina+turno). */
+ *  tuviera ese turno en esa máquina (1 inspector por máquina+turno).
+ *  Si ya estaba asignado el MISMO inspector activo en ese turno, conserva su
+ *  `assigned_at` original para no hacer desaparecer el turno recién cerrado. */
 export async function assignInspector(machineryId: string, inspectorId: string, inspectorName: string, shift: Shift): Promise<{ error?: string; missing?: boolean }> {
+  let assignedAt = new Date().toISOString();
+  const { data: existing } = await supabase
+    .from('machine_inspectors')
+    .select('inspector_id, active, assigned_at')
+    .eq('machinery_id', machineryId)
+    .eq('shift', shift)
+    .maybeSingle();
+  if (existing && shouldKeepAssignedAt(existing as any, inspectorId) && (existing as any).assigned_at) {
+    assignedAt = (existing as any).assigned_at as string;
+  }
   const { error } = await supabase
     .from('machine_inspectors')
     .upsert(
-      { machinery_id: machineryId, inspector_id: inspectorId, inspector_name: inspectorName, shift, active: true, assigned_at: new Date().toISOString() },
+      { machinery_id: machineryId, inspector_id: inspectorId, inspector_name: inspectorName, shift, active: true, assigned_at: assignedAt },
       { onConflict: 'machinery_id,shift' },
     );
   if (error) return { error: error.message, missing: isMissingTable(error.message) };
@@ -121,33 +134,14 @@ export type AssignmentRow = {
   machineEnEspera: boolean | null;
 };
 
-/** Todas las asignaciones ACTIVAS (CHECK) con datos de la máquina (incluye
- *  referencia y ubicación para agrupar por sector), para el módulo de
- *  Inspecciones. Más reciente primero. `missing` = falta correr el SQL. */
-export async function listInspectorAssignments(): Promise<{ rows: AssignmentRow[]; missing: boolean }> {
-  const { data, error } = await supabase
-    .from('machine_inspectors')
-    .select('id, machinery_id, inspector_id, inspector_name, shift, assigned_at, machine:machinery_id(code, serial, plate, tipo, sector, referencia, encargado, latitude, longitude, active, operational, en_espera, company:company_id(name))')
-    .eq('active', true)
-    .order('assigned_at', { ascending: false });
-  if (error) return { rows: [], missing: isMissingTable(error.message) };
-  // Nombre VIVO del inspector: `inspector_name` queda "congelado" al asignar (se guardó
-  // el full_name de ese momento), así que si luego lo renombran en Usuarios no cambia.
-  // Leemos el full_name actual de profiles por inspector_id y lo PREFERIMOS, para que
-  // el módulo/teléfono/PDF siempre muestren el nombre vigente. Fallback: el guardado.
-  const inspIds = Array.from(new Set(((data ?? []) as any[]).map((r) => r.inspector_id).filter(Boolean)));
-  const liveName: Record<string, string> = {};
-  if (inspIds.length) {
-    const { data: profs } = await supabase.from('profiles').select('id, full_name').in('id', inspIds);
-    ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) liveName[p.id] = p.full_name; });
-  }
-  const rows = ((data ?? []) as any[]).map((r) => ({
+function mapAssignmentRows(raw: any[], liveName: Record<string, string>): AssignmentRow[] {
+  return raw.map((r) => ({
     id: r.id as string,
     machinery_id: r.machinery_id as string,
     inspector_id: (r.inspector_id ?? null) as string | null,
     inspector_name: ((r.inspector_id && liveName[r.inspector_id]) || r.inspector_name || '—') as string,
     shift: (r.shift === 'night' ? 'night' : 'day') as Shift,
-    assigned_at: r.assigned_at as string,
+    assigned_at: (r.assigned_at ?? r.valid_from ?? '') as string,
     code: r.machine?.code ?? '—',
     serial: r.machine?.serial ?? null,
     plate: r.machine?.plate ?? null,
@@ -162,7 +156,109 @@ export async function listInspectorAssignments(): Promise<{ rows: AssignmentRow[
     machineOperational: (r.machine?.operational ?? null) as boolean | null,
     machineEnEspera: (r.machine?.en_espera ?? null) as boolean | null,
   }));
-  return { rows, missing: false };
+}
+
+async function fetchLiveInspectorNames(raw: any[]): Promise<Record<string, string>> {
+  const inspIds = Array.from(new Set(raw.map((r) => r.inspector_id).filter(Boolean)));
+  const liveName: Record<string, string> = {};
+  if (inspIds.length) {
+    const { data: profs } = await supabase.from('profiles').select('id, full_name').in('id', inspIds);
+    ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) liveName[p.id] = p.full_name; });
+  }
+  return liveName;
+}
+
+function addOneDayIso(iso: string): string {
+  const d = new Date(`${iso}T12:00:00-04:00`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Todas las asignaciones ACTIVAS (CHECK) con datos de la máquina (incluye
+ *  referencia y ubicación para agrupar por sector).
+ *  - Sin `date`: estado VIVO actual (`machine_inspectors`) — para teléfono y vistas en vivo.
+ *  - Con `date` (`YYYY-MM-DD`): resuelve el historial de `machine_inspector_history`
+ *    por ventana de turno Caracas (Día 07:00–19:00, Noche 19:00–07:00+1) para que
+ *    reasignar hoy NUNCA borre ni mueva turnos cerrados ni días pasados. */
+export async function listInspectorAssignments(date?: string): Promise<{ rows: AssignmentRow[]; missing: boolean }> {
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const hist = await listInspectorAssignmentsForDate(date);
+    if (!hist.missing && hist.rows.length > 0) return hist;
+  }
+  const { data, error } = await supabase
+    .from('machine_inspectors')
+    .select('id, machinery_id, inspector_id, inspector_name, shift, assigned_at, machine:machinery_id(code, serial, plate, tipo, sector, referencia, encargado, latitude, longitude, active, operational, en_espera, company:company_id(name))')
+    .eq('active', true)
+    .order('assigned_at', { ascending: false });
+  if (error) return { rows: [], missing: isMissingTable(error.message) };
+  const raw = (data ?? []) as any[];
+  const liveName = await fetchLiveInspectorNames(raw);
+  return { rows: mapAssignmentRows(raw, liveName), missing: false };
+}
+
+/** Resuelve las asignaciones vigentes por turno para una fecha específica (`YYYY-MM-DD`)
+ *  leyendo `public.machine_inspector_history` en 1 sola consulta + 1 de `profiles`. */
+export async function listInspectorAssignmentsForDate(date: string): Promise<{ rows: AssignmentRow[]; missing: boolean }> {
+  const dayStartIso = `${date}T07:00:00-04:00`;
+  const nightEndIso = `${addOneDayIso(date)}T07:00:00-04:00`;
+  const { data, error } = await supabase
+    .from('machine_inspector_history')
+    .select('id, machinery_id, inspector_id, inspector_name, shift, valid_from, valid_to, machine:machinery_id(code, serial, plate, tipo, sector, referencia, encargado, latitude, longitude, active, operational, en_espera, company:company_id(name))')
+    .lte('valid_from', nightEndIso)
+    .or(`valid_to.is.null,valid_to.gt.${dayStartIso}`);
+  if (error) return { rows: [], missing: isMissingTable(error.message) };
+  const raw = (data ?? []) as any[];
+  if (raw.length === 0) return { rows: [], missing: false };
+  const liveName = await fetchLiveInspectorNames(raw);
+  const enriched = raw.map((r) => ({
+    ...r,
+    inspector_name: ((r.inspector_id && liveName[r.inspector_id]) || r.inspector_name || '—') as string,
+    shift: (r.shift === 'night' ? 'night' : 'day') as Shift,
+    assigned_at: r.valid_from as string,
+  }));
+  const winners = resolveAssignmentsForDate(enriched, date, false);
+  return { rows: mapAssignmentRows(winners, liveName), missing: false };
+}
+
+/** Tramos históricos que solapan un rango `[from..to]` en 1 sola consulta (cero N+1),
+ *  pensado para `HistoricoJornadasScreen`. Si la tabla aún no existe, cae a la foto actual. */
+export async function listInspectorAssignmentsForRange(
+  from: string,
+  to: string,
+): Promise<{ spans: AssignmentSpan[]; missing: boolean }> {
+  const rangeStartIso = `${from}T07:00:00-04:00`;
+  const rangeEndIso = `${addOneDayIso(to)}T07:00:00-04:00`;
+  const { data, error } = await supabase
+    .from('machine_inspector_history')
+    .select('id, machinery_id, inspector_id, inspector_name, shift, valid_from, valid_to')
+    .lte('valid_from', rangeEndIso)
+    .or(`valid_to.is.null,valid_to.gt.${rangeStartIso}`);
+  if (!error && data && data.length > 0) {
+    const raw = data as any[];
+    const liveName = await fetchLiveInspectorNames(raw);
+    const spans: AssignmentSpan[] = raw.map((r) => ({
+      id: r.id as string,
+      machinery_id: r.machinery_id as string,
+      inspector_id: (r.inspector_id ?? null) as string | null,
+      inspector_name: ((r.inspector_id && liveName[r.inspector_id]) || r.inspector_name || '') as string,
+      shift: (r.shift === 'night' ? 'night' : 'day') as Shift,
+      valid_from: r.valid_from as string,
+      valid_to: (r.valid_to ?? null) as string | null,
+    }));
+    return { spans, missing: false };
+  }
+  // Fallback defensivo: si no hay filas históricas o falta la tabla, usar foto actual
+  const live = await listInspectorAssignments();
+  const fallbackSpans: AssignmentSpan[] = live.rows.map((r) => ({
+    id: r.id,
+    machinery_id: r.machinery_id,
+    inspector_id: r.inspector_id,
+    inspector_name: r.inspector_name,
+    shift: r.shift,
+    valid_from: '2020-01-01T00:00:00Z',
+    valid_to: null,
+  }));
+  return { spans: fallbackSpans, missing: live.missing };
 }
 
 /** Quita la asignación de una máquina al inspector en un turno (día/noche). */

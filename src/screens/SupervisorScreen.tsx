@@ -1548,6 +1548,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const assignBatch = async (mode: 'day' | 'night' | 'both' | 'remove') => {
     const target = checkInspector;
     if (!target || batchBusy || selIds.size === 0) return;
+    if (mode === 'both') {
+      const h = caracasParts(new Date()).hour;
+      const esNoche = h >= 19 || h < 7;
+      const okBoth = await confirm({
+        title: `¿Asignar Día + Noche a ${selIds.size} máquina(s)?`,
+        message: esNoche
+          ? `Se asignará ${target.name} a DÍA y NOCHE desde ahora (lo trabajado hoy de día por el inspector anterior queda guardado). Si solo quieres cambiar la noche, cancela y toca "🌙 Noche".`
+          : `Se asignará ${target.name} a AMBOS turnos (Día y Noche) desde ahora. Los turnos y días anteriores quedan intactos.`,
+        confirmText: 'Sí, ambos turnos',
+        cancelText: 'Cancelar',
+      });
+      if (!okBoth) return;
+    }
     setBatchBusy(true); setNotice(null);
     const ids = Array.from(selIds);
     const shifts: Shift[] = mode === 'day' ? ['day'] : mode === 'night' ? ['night'] : ['day', 'night'];
@@ -1741,6 +1754,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   //    máquina+turno (sobreescribe a quien la tuviera). Sincroniza en vivo y cierra.
   const doReassign = async (mode: 'day' | 'night' | 'both') => {
     if (!reassign || !reassignTo || reassignBusy) return;
+    if (mode === 'both') {
+      const h = caracasParts(new Date()).hour;
+      const esNoche = h >= 19 || h < 7;
+      const okBoth = await confirm({
+        title: `¿Reasignar Día + Noche de ${reassign.ids.length} máquina(s)?`,
+        message: esNoche
+          ? `Se pasará DÍA y NOCHE a ${reassignTo.name} desde ahora (lo trabajado hoy de día por el inspector anterior queda intacto en reportes). Si solo quieres cambiar la noche, cancela y toca "🌙 Noche".`
+          : `Se pasará DÍA y NOCHE a ${reassignTo.name} desde ahora. El historial de turnos y días anteriores se conserva intacto.`,
+        confirmText: 'Sí, reasignar ambos',
+        cancelText: 'Cancelar',
+      });
+      if (!okBoth) return;
+    }
     setReassignBusy(true); setNotice(null);
     const ids = reassign.ids;
     const shifts: Shift[] = mode === 'day' ? ['day'] : mode === 'night' ? ['night'] : ['day', 'night'];

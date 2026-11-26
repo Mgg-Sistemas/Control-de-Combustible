@@ -284,14 +284,15 @@ export default function SupervisionScreen({ navigation }: any) {
     return map;
   }, [assigns]);
   // Estado del modal de asignación (máquina elegida, turno activo, búsqueda…).
-  const [assignFor, setAssignFor] = useState<{ id: string; code: string; companyName: string } | null>(null);
+  const [assignFor, setAssignFor] = useState<{ id: string; code: string; plate?: string | null; serial?: string | null; companyName: string } | null>(null);
   const [assignShift, setAssignShift] = useState<Shift>('day');
   const [inspQuery, setInspQuery] = useState('');
   const [assignBusy, setAssignBusy] = useState(false);
   const [assignNotice, setAssignNotice] = useState<string | null>(null);
-  const openAssign = (a: { machinery_id: string; code: string; companyName: string }) => {
-    setAssignFor({ id: a.machinery_id, code: a.code, companyName: a.companyName });
-    setAssignShift('day'); setInspQuery(''); setAssignNotice(null);
+  const openAssign = (a: { machinery_id: string; code: string; plate?: string | null; serial?: string | null; companyName: string }) => {
+    const h = (new Date().getUTCHours() - 4 + 24) % 24;
+    setAssignFor({ id: a.machinery_id, code: a.code, plate: a.plate ?? null, serial: a.serial ?? null, companyName: a.companyName });
+    setAssignShift(h >= 7 && h < 19 ? 'day' : 'night'); setInspQuery(''); setAssignNotice(null);
   };
   // Inspectores a mostrar en el modal (A→Z natural, filtrados por la búsqueda).
   const inspShown = useMemo(() => {
@@ -316,8 +317,8 @@ export default function SupervisionScreen({ navigation }: any) {
     }
     await loadAssigns();
     setAssignNotice(insp
-      ? `✅ ${shiftIcon(shift)} ${shiftLabel(shift)} → ${insp.name}`
-      : `➖ ${shiftIcon(shift)} ${shiftLabel(shift)} quitado`);
+      ? `✅ ${shiftIcon(shift)} ${shiftLabel(shift)} → ${insp.name} (aplica desde ahora; lo trabajado antes queda intacto).`
+      : `➖ ${shiftIcon(shift)} ${shiftLabel(shift)} quitado (lo trabajado antes queda intacto).`);
   };
   // ── Filtros del reporte de asignaciones ──────────────────────────────────
   const [asgQuery, setAsgQuery] = useState('');                 // búsqueda libre

@@ -166,8 +166,8 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // "● en curso". Mismo criterio que SupervisorScreen para el círculo 🟢 del teléfono.
     selectAllRows('machine_rounds', roundsSelect, (q) => q.eq('round_date', addDaysISO(date, -1)).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null)),
     // 3) Asignaciones (CHECK): columna vertebral — TODAS las máquinas de cada inspector,
-    //    por turno (misma fuente que el selector de la pantalla).
-    listInspectorAssignments(),
+    //    por turno, según quién las tenía asignadas en `date` (historial por turno).
+    listInspectorAssignments(date),
     // Paradas VIGENTES (pendientes hasta ese día) + las RESUELTAS ese día (para la hora de
     // reactivación en la línea de tiempo). Igual patrón que porEmpresaReport.ts.
     selectAllRows('maintenance_requests', 'machinery_id, notes, created_at, status, resolved_at', (q) => q.eq('material', 'MÁQUINA PARADA').lte('created_at', nightEndBound).or(resolvedHoyFilter)),

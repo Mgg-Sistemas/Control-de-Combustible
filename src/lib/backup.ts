@@ -49,7 +49,7 @@ export const MAX_PAGINAS = 1000;
 
 /** La lista de siempre, por si la función de la base todavía no está creada. */
 const LISTA_DE_EMERGENCIA = [
-  'profiles', 'companies', 'employees', 'machinery', 'machine_rounds', 'machine_inspectors',
+  'profiles', 'companies', 'employees', 'machinery', 'machine_rounds', 'machine_inspectors', 'machine_inspector_history',
   'machine_work_segments', 'maintenance_requests', 'machinery_repairs', 'machine_guards',
   'supervisor_visits', 'operator_assignments', 'attendance', 'truck_attendance', 'truck_yard_logs',
   'fletes', 'company_payments', 'control_closures', 'stock_movements', 'tanks', 'fuel_intakes',

@@ -74,7 +74,7 @@ export async function generateInspectorTrazaReport(opts: {
 
   const [{ data }, { rows: asignaciones }, visitas, fichas] = await Promise.all([
     computeInspectorData(date, null),
-    listInspectorAssignments(),
+    listInspectorAssignments(date),
     selectAllRows('supervisor_visits', 'supervisor_name, machinery_id, visited_at', (q: any) => q.eq('visit_date', date)),
     // Marca, modelo y clasificación no vienen en la agregación: se leen del catálogo.
     selectAllRows('machinery', 'id, marca, modelo, tipo, clasificacion, encargado'),

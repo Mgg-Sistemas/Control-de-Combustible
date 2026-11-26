@@ -151,8 +151,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // 2b) Tramos trabajados del día (machine_work_segments) — CADA fila (no solo el
     //     agregado) para reconstruir la línea de tiempo y las horas paradas (span − trabajado).
     selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, hours, source, close_reason, recorded_by', (q) => q.eq('round_date', date).in('machinery_id', ids)),
-    // 3) Inspector asignado (CHECK) por turno.
-    listInspectorAssignments(),
+    // 3) Inspector asignado (CHECK) por turno vigente en `date` (historial por turno).
+    listInspectorAssignments(date),
     // 4) Avería/parada PENDIENTE vigente (arrastrada) + las RESUELTAS este día (para la
     //    hora de reactivación en la línea de tiempo). Para HOY el borde es futuro → solo pendientes.
     supabase.from('maintenance_requests')

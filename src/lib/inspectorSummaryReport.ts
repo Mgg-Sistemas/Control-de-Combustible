@@ -91,8 +91,10 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     //    borde es futuro → solo pendientes. Igual que InspectionsSummary. selectAllRows
     //    (pagina): con >1000 pendientes la consulta cruda se truncaba, perdiendo las más viejas.
     selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at', (q) => q.or(`status.eq.pendiente,resolved_at.gte.${nightEndBound}`).lte('created_at', nightEndBound)),
-    // 3) Asignaciones (CHECK) inspector ↔ máquina — la columna vertebral (AMBOS turnos).
-    listInspectorAssignments(),
+    // 3) Asignaciones (CHECK) inspector ↔ máquina — la columna vertebral (AMBOS turnos),
+    //    resueltas con el historial vigente en `date` para que reasignaciones posteriores
+    //    no borren ni muevan turnos cerrados o días pasados.
+    listInspectorAssignments(date),
   ]);
   // `buildDaySets` filtra por `round_date === selDay`: se remapean las filas de
   // "anoche" a `date` (representan la jornada de noche de ESTE día de negocio,
