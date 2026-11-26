@@ -1,5 +1,4 @@
 // ⛏️ EL FRENTE DEL DÍA SE TOMA SOLO (29-sep-2026).
-import { indiceFrentes } from './frentesNombre';
 //
 // PEDIDO, textual: «los frentes asignados para un día deben tomarlo
 // automáticamente los viajes de ese día, estén registrados o no estén
@@ -457,51 +456,4 @@ export function unirAsignacionesConViajes(
   }
 
   return Array.from(porClave.values());
-}
-
-/**
- * Combina la asignación vigente de maquinaria (`FRENTES_MAQUINARIA`) con los viajes
- * reales de los camiones en `camion_viajes` para la jornada:
- *  - Maquinaria pesada (`!esCamion(id)`): conserva su frente único de oficina.
- *  - Camiones (`esCamion(id)`): si tuvieron viajes reales ese día en uno o VARIOS
- *    frentes, mandan todos esos frentes reales (pudiendo repetirse el camión en
- *    varios frentes); si no viajaron ese día, conservan su asignación de oficina.
- *  - Mapea el nombre del frente al `id` del catálogo local (`frentesCatalogo`) cuando
- *    coincide, para que las listas de pantalla y los filtros funcionen sin duplicar UUIDs.
- */
-export function combinarMaquinariaConViajesCamiones(
-  asigsOficinaVigentes: AsignacionDia[],
-  asigsViajes: AsignacionDia[],
-  frentesCatalogo: readonly { id: string; nombre: string }[],
-  esCamion: (machineryId: string) => boolean,
-): AsignacionConOrigen[] {
-  const todosNombres = [
-    ...(frentesCatalogo ?? []).map((f) => String(f?.nombre ?? '').trim()),
-    ...(asigsViajes ?? []).map((v) => String(v?.frenteNombre ?? '').trim()),
-  ].filter(Boolean);
-  const idx = indiceFrentes(todosNombres, (frentesCatalogo ?? []).map((f) => String(f?.nombre ?? '').trim()).filter(Boolean));
-  const idPorClave = new Map<string, { id: string; nombre: string }>();
-  for (const f of frentesCatalogo ?? []) {
-    const k = idx.clave(f?.nombre ?? '');
-    if (k && f?.id && !idPorClave.has(k)) idPorClave.set(k, { id: f.id, nombre: f.nombre });
-  }
-
-  const camionesConViajes = new Set<string>();
-  const viajesResueltos: AsignacionDia[] = [];
-  for (const v of asigsViajes ?? []) {
-    if (!v || !v.machineryId) continue;
-    const match = idPorClave.get(idx.clave(v.frenteNombre ?? ''));
-    const fid = match?.id || v.frenteId;
-    const fnom = match?.nombre || v.frenteNombre;
-    if (!fid) continue;
-    camionesConViajes.add(v.machineryId);
-    viajesResueltos.push({ ...v, frenteId: fid, frenteNombre: fnom });
-  }
-
-  // Para camiones que SÍ registraron viajes ese día, mandan sus frentes reales de viaje
-  // (no la asignación pegajosa anterior). Los demás equipos conservan su asignación de oficina.
-  const ofiFiltrada = (asigsOficinaVigentes ?? []).filter(
-    (a) => !(esCamion(a.machineryId) && camionesConViajes.has(a.machineryId)),
-  );
-  return unirAsignacionesConViajes(ofiFiltrada, viajesResueltos);
 }

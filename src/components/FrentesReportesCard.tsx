@@ -122,9 +122,8 @@ export function FrentesReportesCard() {
     <View>
       <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>⛏️ Frentes de trabajo de la maquinaria</Text>
       <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.xs }}>
-        Dónde trabaja cada equipo cada día. No es la ubicación (eso lo marca el inspector y sale en 📍 Ubicaciones):
-        el frente lo asigna la oficina aquí, a una máquina, a varias o a toda una empresa, y sale en su hoja del día.
-        Es independiente de Viajes de camiones: lista de frentes y asignaciones propias.
+        No es la ubicación (eso sale en 📍 Ubicaciones): aquí solo aparece lo que asignes en esta pantalla (no trae camiones ni viajes de 🚛 Viajes).
+        Para ver juntos estos frentes con los camiones que acarrearon en Viajes, usa Reportes → 💰 Consolidado.
       </Text>
       {error ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>⚠️ {error}</Text> : null}
       <FrentesTrabajo

@@ -245,10 +245,11 @@ ok('y ofrece también los frentes activos sin asignación',
 
   const compM = leer('src/components/FrentesTrabajo.tsx');
   ok('⭐ el componente tiene `tipo` y arranca como camiones', /tipo\?: 'camiones' \| 'maquinas'/.test(compM) && /tipo = 'camiones'/.test(compM));
-  ok('⭐ las asignaciones y el historial se ACOTAN a la lista que recibe (ninguno pisa al otro)',
+  ok('⭐ las asignaciones y el historial se ACOTAN a la lista que recibe y Reportes→Frentes NO mezcla Viajes',
     compM.includes('r.asignaciones.filter((a) => idsLista.has(a.machineryId))')
     && compM.includes("const todasOfi = r.asignaciones.filter((a) => idsLista.has(a.machineryId) && (!esMaq || !!a.frenteId))")
-    && compM.includes('setAsignaciones(combinarMaquinariaConViajesCamiones(')
+    && !compM.includes('combinarMaquinariaConViajesCamiones')
+    && compM.includes('setAsignaciones(mias);')
     && compM.includes('rOfi.asignaciones\n          .filter((a) => idsLista.has(a.machineryId))')
     && compM.includes('rViajes.asignaciones.filter((a) => idsLista.has(a.machineryId))')
     && compM.includes('historialFrentes(mias)') && compM.includes('setAsigRango(mias)'));

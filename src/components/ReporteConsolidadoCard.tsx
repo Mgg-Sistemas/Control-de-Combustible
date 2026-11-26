@@ -13,6 +13,7 @@
 // QUIÉN LO VE: solo con el módulo «control_pagos» (nace cerrado): son montos de
 // facturación. Reportes está abierto a casi todos los roles y no sirve de candado.
 import React, { useMemo, useState } from 'react';
+import { esCamionDeViajes } from '../lib/equipos';
 import { View, Text, TouchableOpacity, TextInput, ScrollView } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -165,18 +166,31 @@ export function ReporteConsolidadoCard() {
         return 'Operativa';
       };
       const estadoPorId = new Map<string, string>((catalogo as any[]).map((m) => [String(m.id), estadoDe(m)]));
-      const frentePorId = new Map<string, string>(
-        vigentesAlDia((asigsFrente as any).asignaciones ?? [], hasta).map((a: any) => [String(a.machineryId), String(a.frenteNombre ?? '').trim()]),
-      );
-      // Los camiones de viajes: su asignación es DIARIA, así que «vigente» acá
-      // es la última anotada hasta el final del rango. La de maquinaria (si un
-      // mismo id tuviera las dos) manda, porque es la de Reportes → ⛏️ Frentes.
-      for (const a of vigentesAlDia((asigsFrenteViajes as any).asignaciones ?? [], hasta)) {
-        const id = String((a as any).machineryId);
-        if (!frentePorId.get(id)) frentePorId.set(id, String((a as any).frenteNombre ?? '').trim());
-      }
+      const codePorId = new Map<string, string>();
       const fichasV = (vDatos as any).fichas as Map<string, any> | undefined;
       const fichasP = (pDatos as any).fichas as Map<string, any> | undefined;
+      fichasV?.forEach((v: any, k: string) => { if (v?.code) codePorId.set(String(k), String(v.code)); });
+      fichasP?.forEach((v: any, k: string) => { if (v?.code && !codePorId.has(String(k))) codePorId.set(String(k), String(v.code)); });
+      const frenteMaqPorId = new Map<string, string>(
+        vigentesAlDia((asigsFrente as any).asignaciones ?? [], hasta).map((a: any) => [String(a.machineryId), String(a.frenteNombre ?? '').trim()]),
+      );
+      const frenteViajesPorId = new Map<string, string>(
+        vigentesAlDia((asigsFrenteViajes as any).asignaciones ?? [], hasta).map((a: any) => [String(a.machineryId), String(a.frenteNombre ?? '').trim()]),
+      );
+      // ⛏️🚛 Sincronización de frentes SOLO en el Consolidado (26-nov-2026):
+      //    - Maquinaria pesada: manda su asignación en Reportes → ⛏️ Frentes (`FRENTES_MAQUINARIA`).
+      //    - Camiones (`esCamionDeViajes`): manda su asignación en 🚛 Viajes (`FRENTES_VIAJES`),
+      //      con respaldo en `FRENTES_MAQUINARIA` si no tuviera en Viajes. Así una asignación
+      //      vieja en Maquinaria nunca pisa el frente real del camión en Viajes.
+      const frentePorId = new Map<string, string>();
+      for (const [id, nom] of frenteMaqPorId.entries()) {
+        if (nom) frentePorId.set(id, nom);
+      }
+      for (const [id, nom] of frenteViajesPorId.entries()) {
+        if (!nom) continue;
+        const code = codePorId.get(id) ?? '';
+        if (esCamionDeViajes(code) || !frentePorId.get(id)) frentePorId.set(id, nom);
+      }
       const nombresEmpresa = (id: string | null | undefined, deViajes: boolean): string => {
         const m = deViajes ? (vDatos as any).empresas : (pDatos as any).empresas;
         return (id && m?.get?.(id)) || 'Sin empresa';
@@ -285,7 +299,15 @@ export function ReporteConsolidadoCard() {
             (yaEnTabla.montos.jornadas ?? 0) !== 0 || (yaEnTabla.cant?.jornadas ?? 0) !== 0
             || (yaEnTabla.montos.horometros ?? 0) !== 0 || (yaEnTabla.cant?.horometros ?? 0) !== 0
             || (yaEnTabla.montos.viajes ?? 0) !== 0
-          )) continue;
+          )) {
+            // 🚛 Camión que cobra por jornada/horómetro (sin tarifa de peso) pero SÍ
+            //    hizo viajes reales en este frente: anotamos su presencia física en
+            //    `acarreoPorFrente` (monto $0) para que aparezca al filtrar por ese frente.
+            if ((yaEnTabla.montos.viajes ?? 0) === 0) {
+              addAcarreoFrente(yaEnTabla, l.viaje?.frente_nombre, { peso: 0, pesoKg: Number(l.kg) || 0, viajes: 0, viajesCant: 1 });
+            }
+            continue;
+          }
           const ficha = l.viaje?.machinery_id ? (fichasP?.get(l.viaje.machinery_id) ?? fichasV?.get(l.viaje.machinery_id)) : undefined;
           const empNom = l.viaje?.company_id ? nombresEmpresa(l.viaje.company_id, false) : 'Sin empresa';
           const cur = sinTarifaMap.get(idCam) ?? {
@@ -329,13 +351,20 @@ export function ReporteConsolidadoCard() {
         }
         // 🏷️⛏️👤⚙️ A cada fila se le pega su categoría, su frente, su encargado y su estado (vacío =
         //    «Sin clasificación» / «Sin frente» / «Sin encargado» / «Operativa», lo resuelve la lib).
-        return Array.from(porId.values()).map((f) => ({
-          ...f,
-          categoria: catPorId.get(f.id) || null,
-          frente: frentePorId.get(f.id) || null,
-          encargado: encargadoPorId.get(f.id) || fichasV?.get(f.id)?.encargado || fichasP?.get(f.id)?.encargado || null,
-          estado: estadoPorId.get(f.id) || 'Operativa',
-        }));
+        return Array.from(porId.values()).map((f) => {
+          const frenteAcarreoPrincipal = f.acarreoPorFrente
+            ? Object.entries(f.acarreoPorFrente)
+              .filter(([k]) => Boolean(k && k.trim()))
+              .sort((a, b) => ((b[1].pesoKg ?? 0) - (a[1].pesoKg ?? 0)) || ((b[1].viajesCant ?? 0) - (a[1].viajesCant ?? 0)))[0]?.[0] ?? null
+            : null;
+          return {
+            ...f,
+            categoria: catPorId.get(f.id) || null,
+            frente: frentePorId.get(f.id) || frenteAcarreoPrincipal || null,
+            encargado: encargadoPorId.get(f.id) || fichasV?.get(f.id)?.encargado || fichasP?.get(f.id)?.encargado || null,
+            estado: estadoPorId.get(f.id) || 'Operativa',
+          };
+        });
       };
 
       const filasNuevas = armar(desde, hasta);
@@ -360,8 +389,12 @@ export function ReporteConsolidadoCard() {
       // ⚖️ Los viajes del rango (frente congelado + peso de romana) para el costo
       //    por tonelada: TODOS los viajes, con o sin tarifa — misma regla del
       //    informe operativo (el que no se pesó cuenta y suma 0 t).
+      const frenteDeViaje = (v: any): string | null =>
+        String(v?.frente_nombre ?? '').trim()
+        || (v?.machinery_id ? frentePorId.get(String(v.machinery_id)) : '')
+        || null;
       setViajesTon(viajesEnRango((vDatos as any).viajes, desde, hasta)
-        .map((v: any) => ({ frente_nombre: v.frente_nombre ?? null, peso_neto_kg: v.peso_neto_kg ?? null, code: v.machine_code ?? null, placa: v.placa_snap ?? null })));
+        .map((v: any) => ({ frente_nombre: frenteDeViaje(v), peso_neto_kg: v.peso_neto_kg ?? null, code: v.machine_code ?? null, placa: v.placa_snap ?? null })));
       // 📅 EL DÍA POR DÍA (21-oct-2026, a pedido: «una tabla operativa diaria
       //    con un desglose del estilo del de viajes de camiones, y la gráfica»):
       //    se corre LA MISMA `armar` con el rango de UN SOLO día — ni una
@@ -376,7 +409,7 @@ export function ReporteConsolidadoCard() {
             jornada: dd,
             filas: armar(dd, dd),
             viajes: viajesEnRango((vDatos as any).viajes, dd, dd)
-              .map((v: any) => ({ frente_nombre: v.frente_nombre ?? null, peso_neto_kg: v.peso_neto_kg ?? null })),
+              .map((v: any) => ({ frente_nombre: frenteDeViaje(v), peso_neto_kg: v.peso_neto_kg ?? null })),
           });
         }
       } else {
@@ -640,6 +673,9 @@ export function ReporteConsolidadoCard() {
       {filas?.length ? (
         <View>
           <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ SOLO ESTOS FRENTES (vacío = todos)</Text>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+            Une automáticamente la maquinaria de Reportes → ⛏️ Frentes con los camiones que acarrearon en 🚛 Viajes.
+          </Text>
           <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
             <Pastilla on={(op.soloFrentes ?? []).length === 0} label="⬛ Todos" onPress={() => setOp((p) => ({ ...p, soloFrentes: [] }))} />
             {frentesParaPastillas.map((fr) => {
@@ -808,11 +844,11 @@ export function ReporteConsolidadoCard() {
             })}
           </View>
           {/* Tarjetas propias (ej. «menos anticipo: −$2.000») */}
-          <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs, alignItems: 'center' }}>
             <TextInput value={propiaTitulo} onChangeText={setPropiaTitulo} placeholder="Tarjeta propia: título…" placeholderTextColor={colors.muted}
-              style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text, fontSize: 12 }} />
+              style={{ flex: 1, minWidth: 150, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text, fontSize: 12 }} />
             <TextInput value={propiaValor} onChangeText={setPropiaValor} placeholder="Valor…" placeholderTextColor={colors.muted}
-              style={{ width: 110, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text, fontSize: 12 }} />
+              style={{ minWidth: 100, width: 110, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text, fontSize: 12 }} />
             <TouchableOpacity disabled={!propiaTitulo.trim() || !propiaValor.trim()} onPress={() => {
               const nueva: TarjetaPropia = { titulo: propiaTitulo.trim(), valor: propiaValor.trim() };
               setEdicion((e) => ({ ...e, propias: [...(e.propias ?? []), nueva] }));

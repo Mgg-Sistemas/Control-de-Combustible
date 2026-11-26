@@ -262,7 +262,7 @@ const DG = { filas: FG, desde: '2026-10-12', hasta: '2026-10-18' };
   ok('⭐ …y también la asignación de VIAJES para los camiones (sincronizadas)',
     /listAsignacionesHasta\(hasta, FRENTES_VIAJES\)/.test(card)
     && /vigentesAlDia\(\(asigsFrenteViajes as any\)\.asignaciones \?\? \[\], hasta\)/.test(card)
-    && /if \(!frentePorId\.get\(id\)\) frentePorId\.set\(id,/.test(card));
+    && /if \(esCamionDeViajes\(code\) \|\| !frentePorId\.get\(id\)\) frentePorId\.set\(id,/.test(card));
   // ⚙️ 27-oct-2026: filtro por estado de maquinaria (Operativa, En espera, Inoperativa / Parada, Inactiva)
   const F_EST = [
     { id: 'm1', code: 'M1', placa: 'P1', empresa: 'A', estado: 'Operativa', montos: { jornadas: 100 }, cant: { jornadas: 10 } },

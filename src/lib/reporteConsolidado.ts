@@ -670,12 +670,13 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
         sumViajesCant += cv;
       }
 
-      const hayAcarreo = Object.keys(nuevoAcarreo).length > 0 && (sumPeso !== 0 || sumPesoKg !== 0 || sumViajes !== 0 || sumViajesCant !== 0);
+      const tieneAcarreoEnFrente = Object.keys(nuevoAcarreo).length > 0;
+      const hayAcarreo = tieneAcarreoEnFrente && (sumPeso !== 0 || sumPesoKg !== 0 || sumViajes !== 0 || sumViajesCant !== 0 || descJor);
       if (!tieneMaq && !hayAcarreo) return null;
 
       const montos: Partial<Record<FuenteKey, number>> = {};
       const cant: Partial<Record<FuenteKey, number>> = {};
-      if (tieneMaq) {
+      if (tieneMaq || (descJor && tieneAcarreoEnFrente)) {
         if (f.montos.jornadas != null) montos.jornadas = f.montos.jornadas;
         if (f.montos.horometros != null) montos.horometros = f.montos.horometros;
         if (f.cant?.jornadas != null) cant.jornadas = f.cant.jornadas;
@@ -698,7 +699,7 @@ export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesCon
     })
     .filter((f): f is FilaConsolidada => f !== null)
     .filter((f) => encargados.size === 0 || encargados.has(encargadoDe(f).toLowerCase()) || (conCamiones && esFilaCamionAcarreo(f)))
-    .filter((f) => estados.size === 0 || estados.has(String(f.estado ?? 'Operativa').trim().toLowerCase()))
+    .filter((f) => estados.size === 0 || estados.has(String(f.estado ?? 'Operativa').trim().toLowerCase()) || (conCamiones && esFilaCamionAcarreo(f)))
     // 💲 Con plata O con horas/viajes (02-nov-2026): una máquina con jornada
     //    pero sin precio en Control salía en $0 y se botaba en silencio.
     .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0 || (f.cant?.[k] ?? 0) !== 0)
