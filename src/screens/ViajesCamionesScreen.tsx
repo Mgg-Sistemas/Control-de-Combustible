@@ -52,7 +52,7 @@ import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LI
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
-  PROYECTOS_OPERACION, proyectoOperacionValido, etiquetaProyectoOperacion, resolverProyectoOperacionDeRegistro, type ProyectoOperacion,
+  PROYECTOS_OPERACION, proyectoOperacionValido, etiquetaProyectoOperacion, resolverProyectoOperacionDeRegistro, motivoOperacionInvalida, type ProyectoOperacion,
 } from '../lib/ubicacionesObra';
 import { ViajesMaterialesBox } from '../components/ViajesMaterialesBox';
 import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique, SIN_DATO as SIN_DATO_TIQUE } from '../lib/tique';
@@ -1490,6 +1490,14 @@ export default function ViajesCamionesScreen() {
     try {
       if (!uid) { toast.error('Tu sesión todavía no está lista. Espera unos segundos y vuelve a intentar.'); return; }
 
+      // ── OPERACIÓN OBLIGATORIA (27-nov-2026): Miyamoto o TFI sin excepción
+      const opEfectivaCheck = resolverProyectoOperacionDeRegistro({
+        elegida: operacionSel,
+        obraOperacion: miObraId ? obras.find((o) => o.id === miObraId)?.proyecto_operacion : null,
+      });
+      const motivoOp = motivoOperacionInvalida(opEfectivaCheck, 'registrar');
+      if (motivoOp) { toast.error(`⚠️ ${motivoOp}`); return; }
+
       // ── EL PESO, PRIMERO (26-sep-2026). Obligatorio con su foto: sin los dos
       //    no hay viaje que registrar, y el aviso sale ANTES de tocar la red.
       //    Salvo que el camión esté marcado «🚫 no pasa por romana»: ese entra
@@ -2154,6 +2162,8 @@ export default function ViajesCamionesScreen() {
           queCambio.push(`material: ${row.materialNombre || 'sin material'} → ${matNuevo?.nombre || 'sin material'}`);
         }
         if (editing.proyectoOperacion !== (row.proyectoOperacion ?? null)) {
+          const motivoOpEdit = motivoOperacionInvalida(editing.proyectoOperacion, 'editar');
+          if (motivoOpEdit) { toast.error(motivoOpEdit); return; }
           cambios.proyectoOperacion = editing.proyectoOperacion;
           queCambio.push(`operación: ${etiquetaProyectoOperacion(row.proyectoOperacion)} → ${etiquetaProyectoOperacion(editing.proyectoOperacion)}`);
         }
@@ -2423,6 +2433,23 @@ export default function ViajesCamionesScreen() {
       const listero = listeros.find((l) => l.id === cargaListeroId) ?? { id: uid, full_name: listeroName };
       // CDT de la tanda: el que se eligió; si no se eligió, el del listero (como antes).
       const obraCarga = obraParaGrabar(cargaUbicacionId || (listeros.find((l) => l.id === listero.id)?.ubicacion_id ?? null), obras);
+
+      // ── OPERACIÓN OBLIGATORIA (27-nov-2026): Miyamoto o TFI sin excepción
+      const respPrevCarga = cargaTruckId
+        ? responsableCongeladoParaViaje(asignacionesResponsables, catalogoResponsables, cargaTruckId, `${cargaFecha}T12:00:00-04:00`).nombre
+        : null;
+      const fmtPrevCarga = cargaListeroId
+        ? resolverFormatoParaListero(formatosTique, asignacionesFormatos, cargaListeroId)?.nombre
+        : null;
+      const opCargaEfectiva = resolverProyectoOperacionDeRegistro({
+        elegida: cargaOperacion,
+        obraOperacion: obraCarga.ubicacionId ? obras.find((o) => o.id === obraCarga.ubicacionId)?.proyecto_operacion : null,
+        responsableNombre: respPrevCarga,
+        formatoNombre: fmtPrevCarga,
+      });
+      const motivoOpCarga = motivoOperacionInvalida(opCargaEfectiva, 'cargar');
+      if (motivoOpCarga) { toast.error(`⚠️ ${motivoOpCarga}`); return; }
+
       const horariosPedidos = horariosDeCarga(cargaFecha, hh, mm, cantidad);
 
       // ⛔ ¿ESOS HORARIOS YA TIENEN VIAJE? (29-sep-2026, reportado por la oficina:
@@ -4902,14 +4929,14 @@ export default function ViajesCamionesScreen() {
                   </View>
                 ) : null}
                 <View>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>🏗️ OPERACIÓN</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>🏗️ OPERACIÓN (OBLIGATORIA)</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                     {PROYECTOS_OPERACION.map((p) => {
                       const on = editing.proyectoOperacion === p.key;
                       return (
                         <TouchableOpacity
                           key={p.key}
-                          onPress={() => setEditing((e) => (e ? { ...e, proyectoOperacion: e.proyectoOperacion === p.key ? null : p.key } : e))}
+                          onPress={() => setEditing((e) => (e ? { ...e, proyectoOperacion: p.key } : e))}
                           style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? '#0284C7' : colors.border, backgroundColor: on ? '#0284C7' : colors.surface }}
                         >
                           <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 11.5 }}>🏗️ {p.label}</Text>
@@ -5308,42 +5335,63 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            <View style={{ gap: 6 }}>
-              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>🏗️ OPERACIÓN</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {(() => {
-                  const respPrevOp = selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID
-                    ? responsableCongeladoParaViaje(asignacionesResponsables, catalogoResponsables, selectedTruck.id, new Date().toISOString()).nombre
-                    : null;
-                  const fmtPrevOp = resolverFormatoParaListero(formatosTique, asignacionesFormatos, uid)?.nombre;
-                  const opEfectiva = resolverProyectoOperacionDeRegistro({
-                    elegida: operacionSel,
-                    obraOperacion: miObraId ? obras.find((o) => o.id === miObraId)?.proyecto_operacion : null,
-                    responsableNombre: respPrevOp,
-                    formatoNombre: fmtPrevOp,
-                  });
-                  return PROYECTOS_OPERACION.map((p) => {
-                    const on = opEfectiva === p.key;
-                    return (
-                      <TouchableOpacity
-                        key={p.key}
-                        onPress={() => cambiarOperacionSel(operacionSel === p.key ? null : p.key)}
-                        style={{
-                          paddingHorizontal: spacing.md,
-                          paddingVertical: 8,
-                          borderRadius: radius.pill,
-                          borderWidth: 1.5,
-                          borderColor: on ? '#0284C7' : colors.border,
-                          backgroundColor: on ? '#0284C7' : colors.surface,
-                        }}
-                      >
-                        <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>🏗️ {p.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  });
-                })()}
-              </View>
-            </View>
+            {(() => {
+              const respPrevOp = selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID
+                ? responsableCongeladoParaViaje(asignacionesResponsables, catalogoResponsables, selectedTruck.id, new Date().toISOString()).nombre
+                : null;
+              const fmtPrevOp = resolverFormatoParaListero(formatosTique, asignacionesFormatos, uid)?.nombre;
+              const opEfectiva = resolverProyectoOperacionDeRegistro({
+                elegida: operacionSel,
+                obraOperacion: miObraId ? obras.find((o) => o.id === miObraId)?.proyecto_operacion : null,
+                responsableNombre: respPrevOp,
+                formatoNombre: fmtPrevOp,
+              });
+              const sinOp = !opEfectiva;
+              return (
+                <View
+                  style={{
+                    gap: 6,
+                    padding: sinOp ? spacing.sm : 0,
+                    borderRadius: radius.md,
+                    backgroundColor: sinOp ? 'rgba(239, 68, 68, 0.08)' : 'transparent',
+                    borderWidth: sinOp ? 1.5 : 0,
+                    borderColor: sinOp ? '#EF4444' : 'transparent',
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                    <Text style={{ color: sinOp ? '#EF4444' : colors.muted, fontSize: 11, fontWeight: '800' }}>
+                      🏗️ OPERACIÓN (OBLIGATORIO: MIYAMOTO O TFI)
+                    </Text>
+                    {sinOp ? (
+                      <View style={{ backgroundColor: '#EF4444', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '900' }}>⚠️ SELECCIONA UNA</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {PROYECTOS_OPERACION.map((p) => {
+                      const on = opEfectiva === p.key;
+                      return (
+                        <TouchableOpacity
+                          key={p.key}
+                          onPress={() => cambiarOperacionSel(p.key)}
+                          style={{
+                            paddingHorizontal: spacing.md,
+                            paddingVertical: 8,
+                            borderRadius: radius.pill,
+                            borderWidth: 1.5,
+                            borderColor: on ? '#0284C7' : (sinOp ? '#EF4444' : colors.border),
+                            backgroundColor: on ? '#0284C7' : colors.surface,
+                          }}
+                        >
+                          <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>🏗️ {p.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })()}
 
             {/* ── ⛏️ FRENTE DE TRABAJO (selector listero blindado 21-nov-2026) ── */}
             {frentesActivos.length > 0 && selectedTruck ? (() => {
@@ -6571,41 +6619,62 @@ export default function ViajesCamionesScreen() {
               </>
             ) : null}
 
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
-              🏗️ OPERACIÓN
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              {(() => {
-                const respPrevCarga = cargaTruckId
-                  ? responsableCongeladoParaViaje(asignacionesResponsables, catalogoResponsables, cargaTruckId, `${cargaFecha}T12:00:00-04:00`).nombre
-                  : null;
-                const fmtPrevCarga = cargaListeroId
-                  ? resolverFormatoParaListero(formatosTique, asignacionesFormatos, cargaListeroId)?.nombre
-                  : null;
-                const opEfectivaCarga = resolverProyectoOperacionDeRegistro({
-                  elegida: cargaOperacion,
-                  obraOperacion: cargaUbicacionId ? obras.find((o) => o.id === cargaUbicacionId)?.proyecto_operacion : null,
-                  responsableNombre: respPrevCarga,
-                  formatoNombre: fmtPrevCarga,
-                });
-                return PROYECTOS_OPERACION.map((p) => {
-                  const activo = opEfectivaCarga === p.key;
-                  return (
-                    <TouchableOpacity
-                      key={p.key}
-                      onPress={() => setCargaOperacion((prev) => (prev === p.key ? null : p.key))}
-                      style={{
-                        paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
-                        borderWidth: 1, borderColor: activo ? '#0284C7' : colors.border,
-                        backgroundColor: activo ? '#0284C7' : colors.surface,
-                      }}
-                    >
-                      <Text style={{ color: activo ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>🏗️ {p.label}</Text>
-                    </TouchableOpacity>
-                  );
-                });
-              })()}
-            </View>
+            {(() => {
+              const respPrevCarga = cargaTruckId
+                ? responsableCongeladoParaViaje(asignacionesResponsables, catalogoResponsables, cargaTruckId, `${cargaFecha}T12:00:00-04:00`).nombre
+                : null;
+              const fmtPrevCarga = cargaListeroId
+                ? resolverFormatoParaListero(formatosTique, asignacionesFormatos, cargaListeroId)?.nombre
+                : null;
+              const opEfectivaCarga = resolverProyectoOperacionDeRegistro({
+                elegida: cargaOperacion,
+                obraOperacion: cargaUbicacionId ? obras.find((o) => o.id === cargaUbicacionId)?.proyecto_operacion : null,
+                responsableNombre: respPrevCarga,
+                formatoNombre: fmtPrevCarga,
+              });
+              const sinOp = !opEfectivaCarga;
+              return (
+                <View style={{
+                  marginTop: spacing.sm,
+                  marginBottom: spacing.xs,
+                  padding: sinOp ? spacing.sm : 0,
+                  borderRadius: radius.md,
+                  backgroundColor: sinOp ? 'rgba(239, 68, 68, 0.08)' : 'transparent',
+                  borderWidth: sinOp ? 1.5 : 0,
+                  borderColor: sinOp ? '#EF4444' : 'transparent',
+                  gap: 4,
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                    <Text style={{ color: sinOp ? '#EF4444' : colors.muted, fontSize: 11, fontWeight: '800' }}>
+                      🏗️ OPERACIÓN (OBLIGATORIO: MIYAMOTO O TFI)
+                    </Text>
+                    {sinOp ? (
+                      <View style={{ backgroundColor: '#EF4444', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '900' }}>⚠️ SELECCIONA UNA</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    {PROYECTOS_OPERACION.map((p) => {
+                      const activo = opEfectivaCarga === p.key;
+                      return (
+                        <TouchableOpacity
+                          key={p.key}
+                          onPress={() => setCargaOperacion(p.key)}
+                          style={{
+                            paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                            borderWidth: 1, borderColor: activo ? '#0284C7' : (sinOp ? '#EF4444' : colors.border),
+                            backgroundColor: activo ? '#0284C7' : colors.surface,
+                          }}
+                        >
+                          <Text style={{ color: activo ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>🏗️ {p.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })()}
 
             {/* 🧾 LA TARIFA DEL VIAJE (07-oct-2026, a pedido: «poder seleccionar
                 las tarifas (…) ya sea las tarifas por nombre o tarifas

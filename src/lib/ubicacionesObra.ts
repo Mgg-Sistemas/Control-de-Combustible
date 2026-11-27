@@ -82,6 +82,24 @@ export function resolverProyectoOperacionDeRegistro(opts: {
 }
 
 /**
+ * Valida que se haya seleccionado una operación obligatoria (Miyamoto o TFI).
+ * Devuelve el mensaje de error o null si es válido.
+ */
+export function motivoOperacionInvalida(v: unknown, contexto: 'registrar' | 'cargar' | 'editar' = 'registrar'): string | null {
+  const p = proyectoOperacionValido(v);
+  if (!p) {
+    if (contexto === 'cargar') {
+      return 'Debes seleccionar la OPERACIÓN (Miyamoto o TFI) para cargar los viajes.';
+    }
+    if (contexto === 'editar') {
+      return 'La operación no puede quedar vacía: debe ser Miyamoto o TFI.';
+    }
+    return 'Debes seleccionar la OPERACIÓN (Miyamoto o TFI) para registrar el viaje.';
+  }
+  return null;
+}
+
+/**
  * ZONA DE PAGO de una obra/CDT (14-sep-2026).
  *
  * Pedido del cliente: los camiones cobran por viaje una tarifa distinta según el CDT

@@ -40,7 +40,7 @@ require.extensions['.ts'] = (mod, filename) => {
   mod._compile(outputText, filename);
 };
 
-const { proyectoOperacionValido, etiquetaProyectoOperacion } = require(path.join(ROOT, 'src', 'lib', 'ubicacionesObra.ts'));
+const { proyectoOperacionValido, etiquetaProyectoOperacion, motivoOperacionInvalida } = require(path.join(ROOT, 'src', 'lib', 'ubicacionesObra.ts'));
 const { pasaFiltros } = require(path.join(ROOT, 'src', 'lib', 'viajesFiltros.ts'));
 const { columnasDetalle, OPCIONES_POR_DEFECTO } = require(path.join(ROOT, 'src', 'lib', 'cubicaje.ts'));
 const { CAMPOS_TIQUE } = require(path.join(ROOT, 'src', 'lib', 'tiqueConfig.ts'));
@@ -135,6 +135,20 @@ test('5. CAMPOS_TIQUE incluye sentido, material y operacion', () => {
   assert.ok(keys.has('sentido'));
   assert.ok(keys.has('material'));
   assert.ok(keys.has('operacion'));
+});
+
+test('6. motivoOperacionInvalida exige Miyamoto o TFI de forma obligatoria', () => {
+  assert.equal(motivoOperacionInvalida(null), 'Debes seleccionar la OPERACIÓN (Miyamoto o TFI) para registrar el viaje.');
+  assert.equal(motivoOperacionInvalida(undefined), 'Debes seleccionar la OPERACIÓN (Miyamoto o TFI) para registrar el viaje.');
+  assert.equal(motivoOperacionInvalida(''), 'Debes seleccionar la OPERACIÓN (Miyamoto o TFI) para registrar el viaje.');
+  assert.equal(motivoOperacionInvalida('otra'), 'Debes seleccionar la OPERACIÓN (Miyamoto o TFI) para registrar el viaje.');
+
+  assert.equal(motivoOperacionInvalida('miyamoto'), null);
+  assert.equal(motivoOperacionInvalida('tfi'), null);
+  assert.equal(motivoOperacionInvalida('TFI'), null);
+
+  assert.equal(motivoOperacionInvalida(null, 'cargar'), 'Debes seleccionar la OPERACIÓN (Miyamoto o TFI) para cargar los viajes.');
+  assert.equal(motivoOperacionInvalida(null, 'editar'), 'La operación no puede quedar vacía: debe ser Miyamoto o TFI.');
 });
 
 console.log(`\nResultado: ${passed} pruebas pasaron.\n`);
