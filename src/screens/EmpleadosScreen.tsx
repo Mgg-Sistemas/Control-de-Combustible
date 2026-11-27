@@ -617,13 +617,23 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const [constanciaFor, setConstanciaFor] = useState<Employee | null>(null);
   const [constanciaConMonto, setConstanciaConMonto] = useState(false);
   const [constanciaConCondiciones, setConstanciaConCondiciones] = useState(false);
+  const [constanciaConUbicacion, setConstanciaConUbicacion] = useState(false);
+  const [constanciaLugarTrabajo, setConstanciaLugarTrabajo] = useState('');
+  const [constanciaTelefono, setConstanciaTelefono] = useState('');
   // 🏢 Con qué MEMBRETE sale la constancia (15-oct-2026, a pedido: «poder
   //    sacarla con cualquier información o logo de todos los que tenemos, y que
   //    automáticamente modifique el pie de página»). Nace en SOS: sin tocar la
   //    pastilla, el papel sale idéntico al de siempre.
   const [constanciaMembrete, setConstanciaMembrete] = useState(MEMBRETE_POR_DEFECTO.key);
 
-  const imprimirConstanciaTrabajo = async (e: Employee, conMonto: boolean, conCondiciones: boolean = false) => {
+  const imprimirConstanciaTrabajo = async (
+    e: Employee,
+    conMonto: boolean,
+    conCondiciones: boolean = false,
+    conUbicacion: boolean = false,
+    lugarTrabajo: string = '',
+    telefono: string = ''
+  ) => {
     setBusy(e.id + '-const-trab');
     const memb = MEMBRETES_CONSTANCIA.find((x) => x.key === constanciaMembrete) ?? MEMBRETE_POR_DEFECTO;
     const html = constanciaTrabajoHtml({
@@ -639,6 +649,8 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       // El membrete elegido cambia solo el PAPEL (logo, nombre, firma y pie).
       membrete: memb,
       incluirCondiciones: conCondiciones,
+      lugarTrabajo: conUbicacion && lugarTrabajo.trim() ? lugarTrabajo.trim() : null,
+      telefonoContacto: conUbicacion && telefono.trim() ? telefono.trim() : null,
     });
     await exportPdf(html, `Constancia de trabajo - ${fullName(e)}${memb.key === MEMBRETE_POR_DEFECTO.key ? '' : ` - ${memb.nombre}`}`);
     setBusy(null);
@@ -2271,7 +2283,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                           onPress={() => setCartaBancoFor(e)}
                         />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
-                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); setConstanciaConCondiciones(false); }} />
+                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); setConstanciaConCondiciones(false); setConstanciaConUbicacion(false); setConstanciaLugarTrabajo(''); setConstanciaTelefono(e.phone ? String(e.phone).trim() : ''); }} />
                         <Btn
                           label={amonestCounts[e.id] ? `⚠️ Amonestación (${amonestCounts[e.id]})` : '⚠️ Amonestación'}
                           color="#B45309"
@@ -2431,25 +2443,77 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                     </View>
                   </TouchableOpacity>
 
+                  {/* 📍 Dirección / Lugar de trabajo y teléfono de contacto */}
+                  <TouchableOpacity
+                    onPress={() => setConstanciaConUbicacion((v) => !v)}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: spacing.md }}
+                  >
+                    <View style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: constanciaConUbicacion ? colors.primary : colors.border, backgroundColor: constanciaConUbicacion ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                      {constanciaConUbicacion ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 14 }}>✓</Text> : null}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📍 Incluir dirección / lugar de trabajo y teléfono de contacto</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                        Permite indicar en qué frente, sede o dirección está laborando y el número telefónico de contacto para verificaciones.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {constanciaConUbicacion ? (
+                    <View style={{ marginTop: spacing.sm, marginLeft: 32, gap: spacing.xs, backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                        📍 DIRECCIÓN O FRENTE DE TRABAJO (MANUAL):
+                      </Text>
+                      <TextInput
+                        value={constanciaLugarTrabajo}
+                        onChangeText={setConstanciaLugarTrabajo}
+                        placeholder="Ej: Frente Auraima, Residencia Parque Azul / Cantera Naiguatá…"
+                        placeholderTextColor={colors.muted}
+                        style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text, fontSize: 13 }}
+                      />
+
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: 4 }}>
+                        📞 TELÉFONO DE CONTACTO (EDITABLE):
+                      </Text>
+                      <TextInput
+                        value={constanciaTelefono}
+                        onChangeText={setConstanciaTelefono}
+                        placeholder="Ej: 0414-1234567 / 0424-9876543…"
+                        placeholderTextColor={colors.muted}
+                        style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text, fontSize: 13 }}
+                      />
+                    </View>
+                  ) : null}
+
                   <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
                     <TouchableOpacity onPress={() => setConstanciaFor(null)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       disabled={!!busy}
-                      onPress={() => constanciaFor && imprimirConstanciaTrabajo(constanciaFor, constanciaConMonto && hay, constanciaConCondiciones)}
+                      onPress={() => constanciaFor && imprimirConstanciaTrabajo(
+                        constanciaFor,
+                        constanciaConMonto && hay,
+                        constanciaConCondiciones,
+                        constanciaConUbicacion,
+                        constanciaLugarTrabajo,
+                        constanciaTelefono
+                      )}
                       style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: '#1E3A5F', opacity: busy ? 0.6 : 1 }}
                     >
                       <Text style={{ color: '#fff', fontWeight: '800' }}>
                         {busy
                           ? 'Generando…'
-                          : constanciaConMonto && hay && constanciaConCondiciones
-                          ? '📄 Generar CON monto y condiciones'
-                          : constanciaConMonto && hay
-                          ? '📄 Generar CON monto'
-                          : constanciaConCondiciones
-                          ? '📄 Generar con condiciones'
-                          : '📄 Generar sin monto'}
+                          : (() => {
+                              const extras: string[] = [];
+                              if (constanciaConMonto && hay) extras.push('monto');
+                              if (constanciaConCondiciones) extras.push('condiciones');
+                              if (constanciaConUbicacion && (constanciaLugarTrabajo.trim() || constanciaTelefono.trim())) extras.push('lugar/contacto');
+                              return extras.length > 0
+                                ? `📄 Generar CON ${extras.join(' + ')}`
+                                : '📄 Generar sin monto';
+                            })()}
                       </Text>
                     </TouchableOpacity>
                   </View>

@@ -172,6 +172,10 @@ export type ConstanciaTrabajoData = {
    *  y doble firma (empresa y trabajador en señal de conformidad). */
   incluirCondiciones?: boolean;
   textoCondiciones?: string | null;
+  /** 📍 Dirección, sede o frente de trabajo donde labora actualmente el trabajador. */
+  lugarTrabajo?: string | null;
+  /** 📞 Teléfono de contacto para verificación o comunicación con el trabajador. */
+  telefonoContacto?: string | null;
 };
 
 /**
@@ -206,6 +210,18 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
   const parrafoSueldo = monto
     ? `\n    <p>Asimismo, se hace constar que devenga una remuneración <b>quincenal</b> de <span class="fill">${esc(monto)}</span>.</p>`
     : '';
+
+  // 📍 Dirección / Frente de trabajo y 📞 Teléfono de contacto (opcionales).
+  const lugarTrab = String(d.lugarTrabajo ?? '').trim();
+  const telf = String(d.telefonoContacto ?? '').trim();
+  let parrafoUbicacion = '';
+  if (lugarTrab && telf) {
+    parrafoUbicacion = `\n    <p>Asimismo, se hace constar que actualmente desempeña sus labores en: <span class="fill">${esc(lugarTrab)}</span>, encontrándose disponible para cualquier verificación o contacto a través del número telefónico: <span class="fill">${esc(telf)}</span>.</p>`;
+  } else if (lugarTrab) {
+    parrafoUbicacion = `\n    <p>Asimismo, se hace constar que actualmente desempeña sus labores en: <span class="fill">${esc(lugarTrab)}</span>.</p>`;
+  } else if (telf) {
+    parrafoUbicacion = `\n    <p>Asimismo, se hace constar que para cualquier verificación o contacto se encuentra disponible a través del número telefónico: <span class="fill">${esc(telf)}</span>.</p>`;
+  }
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
@@ -254,7 +270,7 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
     <h1>Constancia de Trabajo</h1>
     <div class="dirigida">A quien pueda interesar</div>
 
-    <p>Por medio de la presente se hace constar que el(la) ciudadano(a) <span class="fill">${nombre}</span>, titular de la cédula de identidad N.° <span class="fill">${ci}</span>, presta sus servicios en esta empresa <span class="fill">${esc(empresa)}</span>,${m.sinFinesDeLucro ? ' institución <b>sin fines de lucro</b>,' : ''} desde el <span class="fill">${ingreso}</span>, desempeñando el cargo de <span class="fill">${cargo}</span>, cumpliendo cabalmente con sus funciones y responsabilidades.</p>${parrafoSueldo}
+    <p>Por medio de la presente se hace constar que el(la) ciudadano(a) <span class="fill">${nombre}</span>, titular de la cédula de identidad N.° <span class="fill">${ci}</span>, presta sus servicios en esta empresa <span class="fill">${esc(empresa)}</span>,${m.sinFinesDeLucro ? ' institución <b>sin fines de lucro</b>,' : ''} desde el <span class="fill">${ingreso}</span>, desempeñando el cargo de <span class="fill">${cargo}</span>, cumpliendo cabalmente con sus funciones y responsabilidades.</p>${parrafoSueldo}${parrafoUbicacion}
 
     ${esCond ? `
     <div class="condiciones-sec">

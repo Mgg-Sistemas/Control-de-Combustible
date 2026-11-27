@@ -117,6 +117,37 @@ console.log('--- Probando Constancia de Trabajo con Declaraciones y Condiciones 
   ok('EmpleadosScreen debe tener el estado constanciaConCondiciones', empCode.includes('constanciaConCondiciones'));
   ok('EmpleadosScreen debe pasar incluirCondiciones a imprimirConstanciaTrabajo', empCode.includes('incluirCondiciones: conCondiciones'));
   ok('EmpleadosScreen debe incluir el botón/casilla interactiva', empCode.includes('🤝 Incluir declaraciones y condiciones del servicio'));
+  ok('EmpleadosScreen debe tener el estado constanciaConUbicacion', empCode.includes('constanciaConUbicacion'));
+  ok('EmpleadosScreen debe tener inputs para lugar de trabajo y teléfono', empCode.includes('constanciaLugarTrabajo') && empCode.includes('constanciaTelefono'));
+}
+
+// 6. Lugar de trabajo y teléfono de contacto
+{
+  const htmlUbic = constanciaTrabajoHtml({
+    fullName: 'JESUS RAMON VARGAS',
+    cedula: '6489375',
+    cargo: 'OPERADOR DE MAQUINARIA',
+    lugarTrabajo: 'Frente Auraima, Residencia Parque Azul',
+    telefonoContacto: '0414-2050320',
+  });
+
+  ok('Debe contener el frente de trabajo', htmlUbic.includes('Frente Auraima, Residencia Parque Azul'));
+  ok('Debe contener el teléfono de contacto', htmlUbic.includes('0414-2050320'));
+  ok('Debe contener el texto de verificación telefónica', htmlUbic.includes('disponible para cualquier verificación o contacto'));
+
+  const htmlSoloLugar = constanciaTrabajoHtml({
+    fullName: 'JESUS RAMON VARGAS',
+    cedula: '6489375',
+    lugarTrabajo: 'Cantera Naiguatá',
+  });
+  ok('Debe permitir solo lugar de trabajo', htmlSoloLugar.includes('Cantera Naiguatá') && !htmlSoloLugar.includes('número telefónico'));
+
+  const htmlSoloTelf = constanciaTrabajoHtml({
+    fullName: 'JESUS RAMON VARGAS',
+    cedula: '6489375',
+    telefonoContacto: '0424-1112233',
+  });
+  ok('Debe permitir solo teléfono', htmlSoloTelf.includes('0424-1112233') && !htmlSoloTelf.includes('desempeña sus labores en:'));
 }
 
 console.log(`\nResultado: ${pass} pasaron, ${fail} fallaron.`);
