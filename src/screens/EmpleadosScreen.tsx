@@ -619,7 +619,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   const [constanciaConCondiciones, setConstanciaConCondiciones] = useState(false);
   const [constanciaConUbicacion, setConstanciaConUbicacion] = useState(false);
   const [constanciaLugarTrabajo, setConstanciaLugarTrabajo] = useState('');
-  const [constanciaTelefono, setConstanciaTelefono] = useState('');
+  const [constanciaTelefono, setConstanciaTelefono] = useState('0416-5658832');
   // 🏢 Con qué MEMBRETE sale la constancia (15-oct-2026, a pedido: «poder
   //    sacarla con cualquier información o logo de todos los que tenemos, y que
   //    automáticamente modifique el pie de página»). Nace en SOS: sin tocar la
@@ -2283,7 +2283,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                           onPress={() => setCartaBancoFor(e)}
                         />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
-                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); setConstanciaConCondiciones(false); setConstanciaConUbicacion(false); setConstanciaLugarTrabajo(''); setConstanciaTelefono(e.phone ? String(e.phone).trim() : ''); }} />
+                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); setConstanciaConCondiciones(false); setConstanciaConUbicacion(false); setConstanciaLugarTrabajo(''); setConstanciaTelefono('0416-5658832'); }} />
                         <Btn
                           label={amonestCounts[e.id] ? `⚠️ Amonestación (${amonestCounts[e.id]})` : '⚠️ Amonestación'}
                           color="#B45309"
@@ -2474,12 +2474,12 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                       />
 
                       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: 4 }}>
-                        📞 TELÉFONO DE CONTACTO (EDITABLE):
+                        📞 TELÉFONO DE CONTACTO / JEFA ADMINISTRATIVA (EDITABLE):
                       </Text>
                       <TextInput
                         value={constanciaTelefono}
                         onChangeText={setConstanciaTelefono}
-                        placeholder="Ej: 0414-1234567 / 0424-9876543…"
+                        placeholder="Ej: 0416-5658832"
                         placeholderTextColor={colors.muted}
                         style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text, fontSize: 13 }}
                       />

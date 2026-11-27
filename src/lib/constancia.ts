@@ -216,11 +216,11 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
   const telf = String(d.telefonoContacto ?? '').trim();
   let parrafoUbicacion = '';
   if (lugarTrab && telf) {
-    parrafoUbicacion = `\n    <p>Asimismo, se hace constar que actualmente desempeña sus labores en: <span class="fill">${esc(lugarTrab)}</span>, encontrándose disponible para cualquier verificación o contacto a través del número telefónico: <span class="fill">${esc(telf)}</span>.</p>`;
+    parrafoUbicacion = `\n    <p>Asimismo, se hace constar que actualmente desempeña sus labores en: <span class="fill">${esc(lugarTrab)}</span>, encontrándose disponible para cualquier verificación o contacto a través del número telefónico de Administración: <span class="fill">${esc(telf)}</span>.</p>`;
   } else if (lugarTrab) {
     parrafoUbicacion = `\n    <p>Asimismo, se hace constar que actualmente desempeña sus labores en: <span class="fill">${esc(lugarTrab)}</span>.</p>`;
   } else if (telf) {
-    parrafoUbicacion = `\n    <p>Asimismo, se hace constar que para cualquier verificación o contacto se encuentra disponible a través del número telefónico: <span class="fill">${esc(telf)}</span>.</p>`;
+    parrafoUbicacion = `\n    <p>Asimismo, se hace constar que para cualquier verificación o contacto se encuentra disponible el número telefónico de Administración: <span class="fill">${esc(telf)}</span>.</p>`;
   }
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>

@@ -119,6 +119,7 @@ console.log('--- Probando Constancia de Trabajo con Declaraciones y Condiciones 
   ok('EmpleadosScreen debe incluir el botón/casilla interactiva', empCode.includes('🤝 Incluir declaraciones y condiciones del servicio'));
   ok('EmpleadosScreen debe tener el estado constanciaConUbicacion', empCode.includes('constanciaConUbicacion'));
   ok('EmpleadosScreen debe tener inputs para lugar de trabajo y teléfono', empCode.includes('constanciaLugarTrabajo') && empCode.includes('constanciaTelefono'));
+  ok('EmpleadosScreen debe tener por defecto el teléfono de la Jefa Administrativa 0416-5658832', empCode.includes('0416-5658832'));
 }
 
 // 6. Lugar de trabajo y teléfono de contacto
@@ -128,12 +129,12 @@ console.log('--- Probando Constancia de Trabajo con Declaraciones y Condiciones 
     cedula: '6489375',
     cargo: 'OPERADOR DE MAQUINARIA',
     lugarTrabajo: 'Frente Auraima, Residencia Parque Azul',
-    telefonoContacto: '0414-2050320',
+    telefonoContacto: '0416-5658832',
   });
 
   ok('Debe contener el frente de trabajo', htmlUbic.includes('Frente Auraima, Residencia Parque Azul'));
-  ok('Debe contener el teléfono de contacto', htmlUbic.includes('0414-2050320'));
-  ok('Debe contener el texto de verificación telefónica', htmlUbic.includes('disponible para cualquier verificación o contacto'));
+  ok('Debe contener el teléfono de contacto', htmlUbic.includes('0416-5658832'));
+  ok('Debe contener el texto de verificación telefónica de Administración', htmlUbic.includes('número telefónico de Administración'));
 
   const htmlSoloLugar = constanciaTrabajoHtml({
     fullName: 'JESUS RAMON VARGAS',
