@@ -15,6 +15,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import * as ImagePicker from 'expo-image-picker';
 import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload, pickAndUploadDocFile, optimizarAssetADataUrl } from '../lib/photo';
 import { notaEntregaHtml, NotaItem, LogosConfig, NotaFoto } from '../lib/notaEntrega';
+import { guardarActaCompromiso } from '../lib/actasCompromisoDb';
 import { COMPANY_NAME } from '../lib/company';
 import { etiquetaVehiculo, textoBusquedaVehiculo, detalleVehiculoNota, ladoTrasladoEnPalabras, PASOS_SIN_MIGRACION, PASOS_SIN_MIGRACION_TRASLADO, quitarColumnas, quitarColumnasFila } from '../lib/salidaVehiculo';
 import { notaTrasladoHtml, TrasladoItem, TrasladoFoto } from '../lib/notaTraslado';
@@ -1427,18 +1428,20 @@ function MovimientosTab() {
     const logosCfg: LogosConfig = compName && /sos/i.test(compName)
       ? { sos: true }
       : { golden: true, sos: false };
+    const esCompromiso = Boolean(m.reason && m.reason.includes('CON ACTA DE COMPROMISO'));
 
     const html = notaEntregaHtml({
       fecha: dmy,
       empresa: null,
       empresaEmisora,
-      destino: m.reason ? m.reason.replace(/^NOTA DE SALIDA(\s*·\s*)?/, '').trim() || null : null,
+      destino: m.reason ? m.reason.replace(/^NOTA DE SALIDA(\s*·\s*)?/, '').replace(/\s*·\s*CON ACTA DE COMPROMISO/, '').trim() || null : null,
       maquina: macLabel,
       vehiculo: vehLabel,
       empleadosDetalle: empDet.length ? empDet : undefined,
       empleados: empDet.map((e: any) => e.name),
       items: itemsRows,
       logos: logosCfg,
+      incluirActaCompromiso: esCompromiso,
     });
 
     await exportPdf(html, `Nota de salida - ${dmy}`);
@@ -1793,6 +1796,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     bcv: false,
   });
   const [fotos, setFotos] = useState<NotaFoto[]>([]);
+  const [incluirCompromiso, setIncluirCompromiso] = useState(false);
 
   const handleTomarFoto = async () => {
     try {
@@ -1960,18 +1964,20 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     const logosCfg: LogosConfig = compName && /sos/i.test(compName)
       ? { sos: true }
       : { golden: true, sos: false };
+    const esCompromiso = Boolean(g.reason && g.reason.includes('CON ACTA DE COMPROMISO'));
 
     const html = notaEntregaHtml({
       fecha: dmy,
       empresa: null,
       empresaEmisora,
-      destino: g.reason.replace(/^NOTA DE SALIDA(\s*·\s*)?/, '').trim() || null,
+      destino: g.reason.replace(/^NOTA DE SALIDA(\s*·\s*)?/, '').replace(/\s*·\s*CON ACTA DE COMPROMISO/, '').trim() || null,
       maquina: mLabel,
       vehiculo: vLabel,
       empleadosDetalle: empDet.length ? empDet : undefined,
       empleados: empDet.map((e: any) => e.name),
       items: g.items.map((it) => ({ name: it.name, qty: it.qty, unit: it.unit })),
       logos: logosCfg,
+      incluirActaCompromiso: esCompromiso,
     });
 
     await exportPdf(html, `Nota de salida - ${dmy}`);
@@ -2035,7 +2041,8 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
         items,
         logos,
         fotos,
-      }), `Nota de salida - ${todayDMY()}`);
+        incluirActaCompromiso: incluirCompromiso,
+      }), `${incluirCompromiso ? 'Nota de salida y acta de compromiso' : 'Nota de salida'} - ${todayDMY()}`);
     } catch (e: any) {
       setBusy(false);
       return toast.error('No se pudo generar el PDF: ' + (e?.message ?? e));
@@ -2053,9 +2060,10 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
       const empresaTxt = empresaRegName || empresaLibre.trim();
       const detalleEmp = empresaTxt ? ` · EMPRESA: ${empresaTxt.toUpperCase()}` : '';
       const detallePers = personaLibre.trim() ? ` · RECIBE: ${personaLibre.trim().toUpperCase()}` : '';
+      const detalleCompromiso = incluirCompromiso ? ' · CON ACTA DE COMPROMISO' : '';
       const rows = cart.map((c) => ({
         item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
-        reason: `NOTA DE SALIDA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}${detalleVeh}${detalleEmp}${detallePers}`,
+        reason: `NOTA DE SALIDA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}${detalleVeh}${detalleEmp}${detallePers}${detalleCompromiso}`,
         // Empresa REGISTRADA elegida para la salida; si no, la del producto.
         company_id: salidaCompanyId ?? c.company_id, created_by: session?.user?.id ?? null,
         // Equipo destino: para el reporte de gasto por equipo (Mantenimiento).
@@ -2080,10 +2088,45 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
         ({ error } = await supabase.from('inventory_movements').insert(filas));
       }
       if (error) { setBusy(false); return toast.error(error.message); }
+
+      // Si se activó la cláusula de compromiso y hay empleados registrados seleccionados,
+      // se registra automáticamente el acta en el expediente del trabajador (employee_commitment_acts)
+      // para que no tengan que ir a la ficha de Empleados a generar una segunda hoja.
+      if (incluirCompromiso && empSel.length > 0) {
+        const actItems = cart.map((c) => ({
+          nombre: `${c.name}${c.unit ? ` (${c.unit})` : ''}`,
+          cantidad: c.qty,
+          estado: 'BUENO',
+        }));
+        const fechaEntregaIso = new Date().toISOString().slice(0, 10);
+        for (const e of empSel) {
+          try {
+            const empData = employees.find((x: any) => x.id === e.id);
+            await guardarActaCompromiso({
+              employee_id: e.id,
+              codigo: `AC-ALM-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
+              fecha_entrega: fechaEntregaIso,
+              cargo: (empData as any)?.cargo || null,
+              departamento: (empData as any)?.department || null,
+              items: actItems,
+              observaciones: `Generada automáticamente desde Nota de Salida de Almacén${destino.trim() ? ` · ${destino.trim().toUpperCase()}` : ''}`.trim(),
+              entregado_por: session?.user?.email || 'Almacén',
+              acepta_clausulas: true,
+              autoriza_deduccion: true,
+              tipo_acta: 'entrega',
+              uid: session?.user?.id ?? null,
+              userName: session?.user?.email ?? null,
+            });
+          } catch (errActa) {
+            console.warn('No se pudo registrar acta automática en expediente:', errActa);
+          }
+        }
+      }
     }
     setBusy(false);
     setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setVehicleId(''); setVehQuery(''); setVehOpen(false); setEmpSel([]); setEmpQuery(''); setEmpresaLibre(''); setPersonaLibre(''); setSalidaCompanyId(null); setCompanyOpen(false); setCompanyQuery('');
     setFotos([]);
+    setIncluirCompromiso(false);
     refetch();
     refetchMovs();
     toast.success('Nota generada. La salida se descontó del inventario.');
@@ -2347,8 +2390,50 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
               {/* Registro fotográfico */}
               <UploaderFotos fotos={fotos} onTomarFoto={handleTomarFoto} onGaleriaFoto={handleGaleriaFoto} onRemoveFoto={removeFoto} colors={colors} />
 
+              {/* Cláusula de compromiso y custodia (Acta de entrega de EPP / Herramientas) */}
+              <TouchableOpacity
+                onPress={() => setIncluirCompromiso((v) => !v)}
+                activeOpacity={0.8}
+                style={{
+                  marginTop: spacing.md,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.sm,
+                  backgroundColor: incluirCompromiso ? (colors.surfaceAlt || '#f0f5fa') : colors.surfaceAlt,
+                  borderWidth: 1.5,
+                  borderColor: incluirCompromiso ? '#2563EB' : colors.border,
+                  borderRadius: radius.md,
+                  padding: spacing.sm + 2,
+                }}
+              >
+                <View
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 5,
+                    borderWidth: 2,
+                    borderColor: incluirCompromiso ? '#2563EB' : colors.muted,
+                    backgroundColor: incluirCompromiso ? '#2563EB' : 'transparent',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {incluirCompromiso ? <Text style={{ color: '#2563EB', fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                    🤝 Incluir cláusula de compromiso y custodia (Acta EPP / Herramientas)
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>
+                    Agrega la cláusula de custodia, uso adecuado y descuento salarial en la misma hoja y la registra en el expediente del trabajador.
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
               <TouchableOpacity onPress={generar} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy ? 'Generando…' : '🧾 Generar nota de salida (PDF)'}</Text>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>
+                  {busy ? 'Generando…' : incluirCompromiso ? '🧾 Generar nota con compromiso (PDF)' : '🧾 Generar nota de salida (PDF)'}
+                </Text>
               </TouchableOpacity>
             </Card>
           ) : null}

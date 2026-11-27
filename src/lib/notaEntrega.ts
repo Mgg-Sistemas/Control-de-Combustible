@@ -33,6 +33,8 @@ export type NotaData = {
   fotos?: NotaFoto[];
   tituloDoc?: string | null;
   subtituloDoc?: string | null;
+  incluirActaCompromiso?: boolean;
+  textoClausulaCompromiso?: string | null;
 };
 
 function esc(s: any): string {
@@ -159,6 +161,10 @@ export function notaEntregaHtml(d: NotaData): string {
   const yaEnLogo = !!(d.logos?.golden && /golden\s*touch/i.test(empresaEmisoraNombre));
   const showCoBlock = !!empresaEmisoraNombre && !yaEnLogo;
 
+  const esCompromiso = Boolean(d.incluirActaCompromiso);
+  const tituloDoc = d.tituloDoc || (esCompromiso ? 'NOTA DE SALIDA Y ACTA DE COMPROMISO' : 'NOTA DE SALIDA');
+  const subtituloDoc = d.subtituloDoc || (esCompromiso ? 'Asignación de Implementos, Custodia y Despacho' : 'Comprobante Oficial de Recepción y Despacho');
+
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
     @page{ margin:1.8cm; size:letter }
@@ -207,6 +213,10 @@ export function notaEntregaHtml(d: NotaData): string {
     .foto-card img{ width:100%; max-height:220px; object-fit:contain; border-radius:4px; display:block; margin:0 auto }
     .foto-caption{ font-size:8.5pt; color:#475569; margin-top:5px; font-weight:700 }
 
+    .clausula-compromiso{ background:#f0f5fa; border:1px solid #b8cde3; border-left:4px solid #16324F; border-radius:5px; padding:6px 9px; margin-top:8px; margin-bottom:10px; font-size:8pt; line-height:1.35; color:#1e293b; page-break-inside:avoid }
+    .clausula-title{ font-weight:900; font-size:8.5pt; color:#16324F; margin-bottom:3px; letter-spacing:.3px }
+    .clausula-body b{ color:#0f2744 }
+
     .firmas{ margin-top:auto; padding-top:36px; display:flex; justify-content:space-around; gap:20px; page-break-inside:avoid }
     .firma-col{ width:260px; text-align:center }
     .firma-col .line{ border-top:1px solid #1a1a1a; padding-top:6px; font-weight:900; color:#16324F; font-size:10.5pt }
@@ -224,8 +234,8 @@ export function notaEntregaHtml(d: NotaData): string {
         </div>` : ''}
       </div>
       <div class="head-titles">
-        <h1>${esc(d.tituloDoc || 'NOTA DE SALIDA')}</h1>
-        <div class="sub">${esc(d.subtituloDoc || 'Comprobante Oficial de Recepción y Despacho')}</div>
+        <h1>${esc(tituloDoc)}</h1>
+        <div class="sub">${esc(subtituloDoc)}</div>
       </div>
       <div class="head-right">
         ${d.numero ? `<div class="nro">N° ${esc(d.numero)}</div>` : ''}
@@ -263,14 +273,28 @@ export function notaEntregaHtml(d: NotaData): string {
 
     ${fotosHtml}
 
-    <div class="firmas">
+    ${esCompromiso ? `
+      <div class="clausula-compromiso">
+        <div class="clausula-title">CLÁUSULA DE COMPROMISO, CUSTODIA Y RESPONSABILIDAD (EPP / HERRAMIENTAS)</div>
+        <div class="clausula-body">
+          ${d.textoClausulaCompromiso ? esc(d.textoClausulaCompromiso) : `
+            El (Los) trabajador(es) abajo firmante(s) declara(n) recibir en perfecto estado de funcionamiento y conservación los implementos, herramientas y/o equipos de protección personal (EPP) aquí descritos, asumiendo formalmente las siguientes obligaciones:
+            <br/><b>1. Uso Exclusivo:</b> Destinar los bienes única y exclusivamente al desempeño de las labores encomendadas por la empresa.
+            <br/><b>2. Custodia y Cuidado:</b> Mantenerlos bajo su resguardo responsable y devolverlos inmediatamente al cesar la labor o al ser requeridos por la administración.
+            <br/><b>3. Autorización Expresa:</b> En caso de pérdida, extravío, daño por negligencia, descuido o no devolución injustificada, autoriza expresamente a la empresa a deducir el valor de reposición de sus haberes salariales, asignaciones quincenales, beneficios o liquidación de prestaciones sociales conforme a la ley.
+          `}
+        </div>
+      </div>
+    ` : ''}
+
+    <div class="firmas" style="${esCompromiso ? 'padding-top:20px;' : ''}">
       <div class="firma-col">
         <div class="line">ENTREGADO CONFORME</div>
-        <div class="sub-line">Firma Emisor / Despachador</div>
+        <div class="sub-line">${esCompromiso ? 'Firma Emisor / Almacén' : 'Firma Emisor / Despachador'}</div>
       </div>
       <div class="firma-col">
-        <div class="line">RECIBIDO CONFORME</div>
-        <div class="sub-line">Firma Receptor / Responsable</div>
+        <div class="line">${esCompromiso ? 'RECIBIDO Y ACEPTADO' : 'RECIBIDO CONFORME'}</div>
+        <div class="sub-line">${esCompromiso ? 'Firma del Trabajador / Aceptación de Compromiso' : 'Firma Receptor / Responsable'}</div>
       </div>
     </div>
 
