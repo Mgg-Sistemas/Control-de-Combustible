@@ -6571,6 +6571,15 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > pesos ni pagos. Es **idempotente**: correrlo otra vez no marca nada. Necesita el **SQL aditivo en
 > Supabase** y su **respaldo previo** (tabla de copia de los viajes). Para corregir un viaje que ya
 > tiene responsable se usa **✏️ Editar viaje**, uno por uno, no esta herramienta.
+>
+> **🛡️ Operación persistente y respaldo automático (27-nov-2026).** El teléfono del listero guarda
+> en memoria su última elección de **🏗️ Operación (Miyamoto / TFI)** para que recargar la página o
+> aplicar una actualización no la deje en blanco. Si aun así no hay operación marcada y el CDT es
+> compartido, al registrar (o cargar a mano) se toma de respaldo automático el responsable vigente
+> del camión si es «Miyamoto» o «TFI», o el formato de tique asignado al listero si lleva ese
+> nombre. Además, la tarjeta **📑 Soporte de Medición / Valuación (Miyamoto)** muestra una alerta
+> amarilla cuando en el período existen viajes sin operación asignada (con sus folios y placas) para
+> que nunca falten viajes en silencio.
 
 ### Vista del listero
 

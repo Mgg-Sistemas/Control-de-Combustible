@@ -59,6 +59,29 @@ export function etiquetaProyectoOperacion(v: unknown): string {
 }
 
 /**
+ * Resuelve la operación (`'miyamoto' | 'tfi' | null`) al registrar o cargar un
+ * viaje, respetando la prioridad sin pisar una elección explícita:
+ *  1. Lo elegido o recordado en el teléfono del listero (`elegida`).
+ *  2. La operación por defecto configurada en el CDT (`obraOperacion`).
+ *  3. El responsable vigente del camión si es «Miyamoto» o «TFI» (`responsableNombre`).
+ *  4. El formato de tique asignado al listero si es «Miyamoto» o «TFI» (`formatoNombre`).
+ */
+export function resolverProyectoOperacionDeRegistro(opts: {
+  elegida?: unknown;
+  obraOperacion?: unknown;
+  responsableNombre?: unknown;
+  formatoNombre?: unknown;
+}): ProyectoOperacion | null {
+  return (
+    proyectoOperacionValido(opts.elegida) ??
+    proyectoOperacionValido(opts.obraOperacion) ??
+    proyectoOperacionValido(opts.responsableNombre) ??
+    proyectoOperacionValido(opts.formatoNombre) ??
+    null
+  );
+}
+
+/**
  * ZONA DE PAGO de una obra/CDT (14-sep-2026).
  *
  * Pedido del cliente: los camiones cobran por viaje una tarifa distinta según el CDT

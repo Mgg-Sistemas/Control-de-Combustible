@@ -12,6 +12,7 @@
 
 export type ViajeValuacion = {
   id: string;
+  folio?: string | null;
   registered_at: string;
   machinery_id: string | null;
   machine_code?: string | null;
@@ -248,6 +249,49 @@ export type DatosValuacion = {
   sitioInferido: string;
   totalPaginas: number;
 };
+
+export type ResumenSinOperacionValuacion = {
+  cantidad: number;
+  totalT: number;
+  ejemplos: string[];
+};
+
+/**
+ * Detecta viajes dentro de [desde, hasta] (jornada 7am→7am Caracas) cuyo
+ * `proyecto_operacion` quedó vacío o inválido, para advertir en la tarjeta de
+ * Valuación cuando se filtra por «Miyamoto» o «TFI» y evitar que falten viajes
+ * en silencio.
+ */
+export function resumenViajesSinOperacionValuacion(
+  viajes: readonly ViajeValuacion[],
+  desde: string,
+  hasta: string
+): ResumenSinOperacionValuacion {
+  const sinOp: ViajeValuacion[] = [];
+  (viajes ?? []).forEach((v) => {
+    if (!v?.id) return;
+    const j = jornadaDeInstante(v.registered_at);
+    if (!j || j < desde || j > hasta) return;
+    const op = String(v.proyecto_operacion ?? '').trim().toLowerCase();
+    if (op !== 'miyamoto' && op !== 'tfi') sinOp.push(v);
+  });
+  sinOp.sort((a, b) => String(a.registered_at).localeCompare(String(b.registered_at)));
+  const kg = sinOp.reduce((s, v) => s + num(v.peso_neto_kg), 0);
+  const ejemplos = sinOp.slice(0, 5).map((v) => {
+    const fol = String(v.folio ?? '').trim();
+    const pl = String(v.placa_snap ?? '').trim();
+    const hh = horaCaracas(v.registered_at);
+    if (fol && pl) return `${fol} (${pl})`;
+    if (fol) return fol;
+    if (pl) return `${pl} (${hh})`;
+    return hh;
+  });
+  return {
+    cantidad: sinOp.length,
+    totalT: r2(kg / 1000),
+    ejemplos,
+  };
+}
 
 export function construirDatosValuacion(
   viajes: readonly ViajeValuacion[],

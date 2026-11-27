@@ -24,13 +24,14 @@ import {
   fmtDec,
   generarHtmlValuacionPdf,
   jornadaDeInstante,
+  resumenViajesSinOperacionValuacion,
 } from '../lib/viajesValuacionPdf';
 
 const STORAGE_KEY = 'valuacion_viajes_cfg_v1';
 
 const COLS_BASE = 'id, registered_at, machinery_id, machine_code, chofer_name, shift, peso_tara_kg, peso_bruto_kg, peso_neto_kg, ubicacion_nombre, placa_snap, frente_id, frente_nombre';
 const COLS_OP = `${COLS_BASE}, proyecto_operacion, material_nombre, sentido`;
-const COLS_FULL = `${COLS_OP}, responsable_id, responsable_nombre`;
+const COLS_FULL = `${COLS_OP}, responsable_id, responsable_nombre, folio`;
 
 const sumarDias = (iso: string, n: number) => {
   const d = new Date(`${iso}T12:00:00Z`);
@@ -165,12 +166,8 @@ export function ValuacionViajesCard({ canVer }: Props) {
       .sort((a, b) => a.code.localeCompare(b.code, 'es') || a.placa.localeCompare(b.placa, 'es'));
   }, [viajes, maquinas, opFiltro, busqCamion, camionesSel, claveCamion]);
 
-  const viajesFiltrados = useMemo(() => {
+  const viajesContexto = useMemo(() => {
     return viajes.filter((v) => {
-      if (opFiltro !== 'todas') {
-        const op = String(v.proyecto_operacion ?? '').trim().toLowerCase();
-        if (op !== opFiltro) return false;
-      }
       if (obrasSel.size > 0) {
         const ub = String(v.ubicacion_nombre ?? '').trim();
         if (!obrasSel.has(ub)) return false;
@@ -184,7 +181,19 @@ export function ValuacionViajesCard({ canVer }: Props) {
       }
       return true;
     });
-  }, [viajes, opFiltro, obrasSel, frentesSel, camionesSel, claveCamion]);
+  }, [viajes, obrasSel, frentesSel, camionesSel, claveCamion]);
+
+  const viajesFiltrados = useMemo(() => {
+    if (opFiltro === 'todas') return viajesContexto;
+    return viajesContexto.filter(
+      (v) => String(v.proyecto_operacion ?? '').trim().toLowerCase() === opFiltro
+    );
+  }, [viajesContexto, opFiltro]);
+
+  const sinOperacion = useMemo(
+    () => resumenViajesSinOperacionValuacion(viajesContexto, desde, hasta),
+    [viajesContexto, desde, hasta]
+  );
 
   const datos = useMemo(
     () => construirDatosValuacion(viajesFiltrados, desde, hasta, cfg),
@@ -462,6 +471,18 @@ export function ValuacionViajesCard({ canVer }: Props) {
                 </View>
               </View>
             ))}
+          </View>
+        ) : null}
+
+        {!cargando && !error && opFiltro !== 'todas' && sinOperacion.cantidad > 0 ? (
+          <View style={{ padding: spacing.sm, borderRadius: radius.md, borderWidth: 1.5, borderColor: '#D97706', backgroundColor: '#FEF3C7', gap: 4 }}>
+            <Text style={{ color: '#92400E', fontWeight: '900', fontSize: 12 }}>
+              ⚠️ Hay {sinOperacion.cantidad} viaje(s) ({fmtDec(sinOperacion.totalT)} t) en este período SIN operación asignada
+              {sinOperacion.ejemplos.length ? `: ${sinOperacion.ejemplos.join(', ')}${sinOperacion.cantidad > sinOperacion.ejemplos.length ? '…' : ''}` : ''}.
+            </Text>
+            <Text style={{ color: '#92400E', fontSize: 11.5 }}>
+              No se incluyen en {opFiltro === 'miyamoto' ? 'Miyamoto' : 'TFI'} mientras tengan la operación vacía. Puedes marcarles su operación en Lista completa → ✏️ Editar o cambiar arriba a «Todas».
+            </Text>
           </View>
         ) : null}
 

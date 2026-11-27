@@ -52,7 +52,7 @@ import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LI
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
-  PROYECTOS_OPERACION, proyectoOperacionValido, etiquetaProyectoOperacion, type ProyectoOperacion,
+  PROYECTOS_OPERACION, proyectoOperacionValido, etiquetaProyectoOperacion, resolverProyectoOperacionDeRegistro, type ProyectoOperacion,
 } from '../lib/ubicacionesObra';
 import { ViajesMaterialesBox } from '../components/ViajesMaterialesBox';
 import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique, SIN_DATO as SIN_DATO_TIQUE } from '../lib/tique';
@@ -80,7 +80,7 @@ import { ValuacionViajesCard } from '../components/ValuacionViajesCard';
 import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
 import QrScanner from '../components/QrScanner';
 import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
-import { CONFIG_POR_DEFECTO, PAPELES, crearFormatoDefecto, resolverFormatoDeViaje, FORMATO_DEFECTO_ID, type TiqueConfig, type FormatoTique } from '../lib/tiqueConfig';
+import { CONFIG_POR_DEFECTO, PAPELES, crearFormatoDefecto, resolverFormatoDeViaje, resolverFormatoParaListero, FORMATO_DEFECTO_ID, type TiqueConfig, type FormatoTique } from '../lib/tiqueConfig';
 import { leerConfigTique, registrarFoliosFormatosEnBase, leerCombustibleTarasDia, guardarCombustibleTaraCamion, type CombustibleTaraEntry } from '../lib/tiqueConfigDatos';
 import { avisoDeCapacidad, documentoDeTiques, hojasQueSalen, medioDeImpresion, nombreArchivoTiques, type DatosTique, type TiqueParaImprimir } from '../lib/tiqueDocumento';
 import { contarEmisionesPendientes, contarEmisionesPorFolio, flushEmisionesPendientes, nuevoUuid, registrarEmisiones, type EmisionNueva } from '../lib/tiqueEmisiones';
@@ -837,6 +837,23 @@ export default function ViajesCamionesScreen() {
   const [sentidoSel, setSentidoSel] = useState<SentidoViaje | null>(null);
   const [materialSel, setMaterialSel] = useState<string | null>(null);
   const [operacionSel, setOperacionSel] = useState<ProyectoOperacion | null>(null);
+  const claveStorageOperacion = uid ? `viajes_operacion_sel_v1:${uid}` : '';
+  useEffect(() => {
+    if (!claveStorageOperacion) return;
+    let vivo = true;
+    AsyncStorage.getItem(claveStorageOperacion).then((raw) => {
+      if (!vivo) return;
+      const guardada = proyectoOperacionValido(raw);
+      if (guardada) setOperacionSel((prev) => prev ?? guardada);
+    }).catch(() => {});
+    return () => { vivo = false; };
+  }, [claveStorageOperacion]);
+  const cambiarOperacionSel = useCallback((nueva: ProyectoOperacion | null) => {
+    setOperacionSel(nueva);
+    if (!claveStorageOperacion) return;
+    if (nueva) AsyncStorage.setItem(claveStorageOperacion, nueva).catch(() => {});
+    else AsyncStorage.removeItem(claveStorageOperacion).catch(() => {});
+  }, [claveStorageOperacion]);
 
   // ── FRENTES DE TRABAJO (28-sep-2026, selector listero blindado 21-nov-2026):
   // La oficina asigna por jornada; además el listero puede elegir el frente
@@ -1621,7 +1638,12 @@ export default function ViajesCamionesScreen() {
         sentido: sentidoSel,
         materialId: materialSel ? (materialesActivos.find((m) => m.id === materialSel)?.id ?? null) : null,
         materialNombre: materialSel ? (materialesActivos.find((m) => m.id === materialSel)?.nombre ?? null) : null,
-        proyectoOperacion: operacionSel ?? proyectoOperacionValido((miObraId ? obras.find((o) => o.id === miObraId)?.proyecto_operacion : null)) ?? null,
+        proyectoOperacion: resolverProyectoOperacionDeRegistro({
+          elegida: operacionSel,
+          obraOperacion: miObraId ? obras.find((o) => o.id === miObraId)?.proyecto_operacion : null,
+          responsableNombre: respCongelado.nombre,
+          formatoNombre: resolverFormatoParaListero(formatosTique, asignacionesFormatos, uid)?.nombre,
+        }),
       };
 
       // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
@@ -1902,7 +1924,7 @@ export default function ViajesCamionesScreen() {
     setMiCdtAbierto(false);
     const obra = obras.find((o) => o.id === obraId);
     if (obra?.proyecto_operacion) {
-      setOperacionSel(proyectoOperacionValido(obra.proyecto_operacion));
+      cambiarOperacionSel(proyectoOperacionValido(obra.proyecto_operacion));
     }
     if (uid) {
       setCambiandoCdt(true);
@@ -2533,7 +2555,12 @@ export default function ViajesCamionesScreen() {
           sentido: cargaSentido,
           materialId: cargaMaterialId ? (materialesActivos.find((m) => m.id === cargaMaterialId)?.id ?? null) : null,
           materialNombre: cargaMaterialId ? (materialesActivos.find((m) => m.id === cargaMaterialId)?.nombre ?? null) : null,
-          proyectoOperacion: cargaOperacion ?? proyectoOperacionValido((obraCarga.ubicacionId ? obras.find((o) => o.id === obraCarga.ubicacionId)?.proyecto_operacion : null)) ?? null,
+          proyectoOperacion: resolverProyectoOperacionDeRegistro({
+            elegida: cargaOperacion,
+            obraOperacion: obraCarga.ubicacionId ? obras.find((o) => o.id === obraCarga.ubicacionId)?.proyecto_operacion : null,
+            responsableNombre: respCarga.nombre,
+            formatoNombre: resolverFormatoParaListero(formatosTique, asignacionesFormatos, listero.id)?.nombre,
+          }),
           registeredAt: iso,
           // La obra del LISTERO ELEGIDO, no la de quien está cargando: el viaje
           // va a quedar a nombre de él, y contarlo en la obra de la jefa diría
@@ -5284,25 +5311,37 @@ export default function ViajesCamionesScreen() {
             <View style={{ gap: 6 }}>
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>🏗️ OPERACIÓN</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {PROYECTOS_OPERACION.map((p) => {
-                  const on = (operacionSel ?? proyectoOperacionValido(miObraId ? obras.find((o) => o.id === miObraId)?.proyecto_operacion : null)) === p.key;
-                  return (
-                    <TouchableOpacity
-                      key={p.key}
-                      onPress={() => setOperacionSel((prev) => (prev === p.key ? null : p.key))}
-                      style={{
-                        paddingHorizontal: spacing.md,
-                        paddingVertical: 8,
-                        borderRadius: radius.pill,
-                        borderWidth: 1.5,
-                        borderColor: on ? '#0284C7' : colors.border,
-                        backgroundColor: on ? '#0284C7' : colors.surface,
-                      }}
-                    >
-                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>🏗️ {p.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {(() => {
+                  const respPrevOp = selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID
+                    ? responsableCongeladoParaViaje(asignacionesResponsables, catalogoResponsables, selectedTruck.id, new Date().toISOString()).nombre
+                    : null;
+                  const fmtPrevOp = resolverFormatoParaListero(formatosTique, asignacionesFormatos, uid)?.nombre;
+                  const opEfectiva = resolverProyectoOperacionDeRegistro({
+                    elegida: operacionSel,
+                    obraOperacion: miObraId ? obras.find((o) => o.id === miObraId)?.proyecto_operacion : null,
+                    responsableNombre: respPrevOp,
+                    formatoNombre: fmtPrevOp,
+                  });
+                  return PROYECTOS_OPERACION.map((p) => {
+                    const on = opEfectiva === p.key;
+                    return (
+                      <TouchableOpacity
+                        key={p.key}
+                        onPress={() => cambiarOperacionSel(operacionSel === p.key ? null : p.key)}
+                        style={{
+                          paddingHorizontal: spacing.md,
+                          paddingVertical: 8,
+                          borderRadius: radius.pill,
+                          borderWidth: 1.5,
+                          borderColor: on ? '#0284C7' : colors.border,
+                          backgroundColor: on ? '#0284C7' : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>🏗️ {p.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  });
+                })()}
               </View>
             </View>
 
@@ -6536,22 +6575,36 @@ export default function ViajesCamionesScreen() {
               🏗️ OPERACIÓN
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              {PROYECTOS_OPERACION.map((p) => {
-                const activo = (cargaOperacion ?? proyectoOperacionValido(cargaUbicacionId ? obras.find((o) => o.id === cargaUbicacionId)?.proyecto_operacion : null)) === p.key;
-                return (
-                  <TouchableOpacity
-                    key={p.key}
-                    onPress={() => setCargaOperacion((prev) => (prev === p.key ? null : p.key))}
-                    style={{
-                      paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
-                      borderWidth: 1, borderColor: activo ? '#0284C7' : colors.border,
-                      backgroundColor: activo ? '#0284C7' : colors.surface,
-                    }}
-                  >
-                    <Text style={{ color: activo ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>🏗️ {p.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
+              {(() => {
+                const respPrevCarga = cargaTruckId
+                  ? responsableCongeladoParaViaje(asignacionesResponsables, catalogoResponsables, cargaTruckId, `${cargaFecha}T12:00:00-04:00`).nombre
+                  : null;
+                const fmtPrevCarga = cargaListeroId
+                  ? resolverFormatoParaListero(formatosTique, asignacionesFormatos, cargaListeroId)?.nombre
+                  : null;
+                const opEfectivaCarga = resolverProyectoOperacionDeRegistro({
+                  elegida: cargaOperacion,
+                  obraOperacion: cargaUbicacionId ? obras.find((o) => o.id === cargaUbicacionId)?.proyecto_operacion : null,
+                  responsableNombre: respPrevCarga,
+                  formatoNombre: fmtPrevCarga,
+                });
+                return PROYECTOS_OPERACION.map((p) => {
+                  const activo = opEfectivaCarga === p.key;
+                  return (
+                    <TouchableOpacity
+                      key={p.key}
+                      onPress={() => setCargaOperacion((prev) => (prev === p.key ? null : p.key))}
+                      style={{
+                        paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                        borderWidth: 1, borderColor: activo ? '#0284C7' : colors.border,
+                        backgroundColor: activo ? '#0284C7' : colors.surface,
+                      }}
+                    >
+                      <Text style={{ color: activo ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>🏗️ {p.label}</Text>
+                    </TouchableOpacity>
+                  );
+                });
+              })()}
             </View>
 
             {/* 🧾 LA TARIFA DEL VIAJE (07-oct-2026, a pedido: «poder seleccionar
