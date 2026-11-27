@@ -103,12 +103,34 @@ const ok = (name, cond) => eq(name, !!cond, true);
 // ── 5) SIN NADA: null, y NO se inventa un número ───────────────────────────
 {
   eq('ficha sin sueldos', montoQuincenal({}), null);
-  eq('todo nulo', montoQuincenal({ precio_quincena: null, precio_semana: null, precio_mes: null }), null);
+  eq('todo nulo', montoQuincenal({ precio_quincena: null, precio_semana: null, precio_mes: null, base_salary: null, precio_dia: null }), null);
   eq('sin empleado', montoQuincenal(null), null);
   eq('indefinido', montoQuincenal(undefined), null);
   eq('texto formateado cuando no hay', montoQuincenalTexto({}), null);
-  // `base_salary` NO se usa: no dice si es semanal, quincenal o mensual.
-  eq('⭐ base_salary no se toma como quincena', montoQuincenal({ base_salary: 400 }), null);
+}
+
+// ── 5b) ⭐ SALARIO SEMANAL (base_salary) Y TURNO (precio_dia) DE LA FICHA ──
+{
+  // El formulario de Empleados guarda el salario semanal en `base_salary`:
+  const rBase = montoQuincenal({ base_salary: 472.50 });
+  eq('base_salary semanal × 2 = quincenal', rBase.monto, 945);
+  eq('origen semana', rBase.origen, 'semana');
+  ok('detalle menciona salario semanal', /semanal/i.test(rBase.detalle));
+
+  // Turno diurno (por día × 14):
+  const rDia = montoQuincenal({ precio_dia: 67.50 });
+  eq('precio_dia × 14 = quincenal', rDia.monto, 945);
+  eq('origen dia', rDia.origen, 'dia');
+  ok('detalle menciona turno diurno', /diurno/i.test(rDia.detalle));
+
+  // Ficha con ambos (como Jesús Ramón Vargas en producción):
+  const rBoth = montoQuincenal({ base_salary: 472.50, precio_dia: 67.50 });
+  eq('con ambos da exactamente 945', rBoth.monto, 945);
+
+  // Turno nocturno (por noche × 14):
+  const rNoche = montoQuincenal({ precio_noche: 80 });
+  eq('precio_noche × 14', rNoche.monto, 1120);
+  eq('origen noche', rNoche.origen, 'noche');
 }
 
 // ── 6) TEXTO PARA EL PDF ───────────────────────────────────────────────────

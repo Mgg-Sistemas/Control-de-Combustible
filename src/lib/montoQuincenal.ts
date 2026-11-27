@@ -14,27 +14,29 @@
 //   1) `precio_quincena` — el monto EXACTO, si está cargado. No se calcula nada.
 //   2) `precio_semana` × 2 — una quincena son DOS semanas en este sistema
 //      (`spanDias` en PagoPorPersona: semanal = 6 días, quincenal = 14).
-//   3) `precio_mes` ÷ 2 — un mes son dos quincenas (mensual = 29 días).
+//   3) `base_salary` × 2 — el campo «Salario Semanal» de la ficha del empleado
+//      (en EmpleadosScreen el formulario guarda el sueldo semanal en `base_salary`).
+//   4) `precio_mes` ÷ 2 — un mes son dos quincenas (mensual = 29 días).
+//   5) `precio_dia` × 14 — turno diurno por 14 días (2 semanas).
+//   6) `precio_noche` × 14 — turno nocturno por 14 días (2 semanas).
 //
-// Si no hay ninguno de los tres, devuelve `null`: NO se inventa un monto y la
-// pantalla lo dice. Poner una cifra equivocada en un papel que va al banco es
-// peor que no ponerla.
-//
-// `base_salary` NO se usa a propósito: esa columna no dice si es semanal,
-// quincenal o mensual, así que cualquier conversión sería adivinar.
+// Si no hay ninguno, devuelve `null`: NO se inventa un monto y la pantalla lo dice.
 //
 // `scripts/test-monto-quincenal.mjs` amarra estas reglas.
 // ============================================================================
 
 /** Lo mínimo que se necesita del empleado para sacar la quincena. */
 export type EmpleadoSueldo = {
-  precio_quincena?: number | null;
-  precio_semana?: number | null;
-  precio_mes?: number | null;
+  precio_quincena?: number | string | null;
+  precio_semana?: number | string | null;
+  precio_mes?: number | string | null;
+  base_salary?: number | string | null;
+  precio_dia?: number | string | null;
+  precio_noche?: number | string | null;
 };
 
 /** De dónde salió el número: si fue exacto o de qué se convirtió. */
-export type OrigenMonto = 'quincena' | 'semana' | 'mes';
+export type OrigenMonto = 'quincena' | 'semana' | 'mes' | 'dia' | 'noche';
 
 export type MontoQuincenal = {
   /** El monto de la quincena, ya redondeado a 2 decimales. */
@@ -47,8 +49,8 @@ export type MontoQuincenal = {
 };
 
 const num = (v: any): number => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+  const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 };
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const money = (n: number) =>
@@ -64,7 +66,10 @@ export function montoQuincenal(e: EmpleadoSueldo | null | undefined): MontoQuinc
   if (!e) return null;
   const quincena = num(e.precio_quincena);
   const semana = num(e.precio_semana);
+  const baseSalary = num(e.base_salary);
   const mes = num(e.precio_mes);
+  const dia = num(e.precio_dia);
+  const noche = num(e.precio_noche);
 
   if (quincena > 0) {
     return { monto: r2(quincena), origen: 'quincena', exacto: true, detalle: 'Monto quincenal cargado en su ficha.' };
@@ -75,10 +80,28 @@ export function montoQuincenal(e: EmpleadoSueldo | null | undefined): MontoQuinc
       detalle: `Calculado del sueldo semanal: ${money(semana)} × 2 semanas.`,
     };
   }
+  if (baseSalary > 0) {
+    return {
+      monto: r2(baseSalary * 2), origen: 'semana', exacto: false,
+      detalle: `Calculado del salario semanal: ${money(baseSalary)} × 2 semanas.`,
+    };
+  }
   if (mes > 0) {
     return {
       monto: r2(mes / 2), origen: 'mes', exacto: false,
       detalle: `Calculado del sueldo mensual: ${money(mes)} ÷ 2 quincenas.`,
+    };
+  }
+  if (dia > 0) {
+    return {
+      monto: r2(dia * 14), origen: 'dia', exacto: false,
+      detalle: `Calculado del turno diurno: ${money(dia)} × 14 días.`,
+    };
+  }
+  if (noche > 0) {
+    return {
+      monto: r2(noche * 14), origen: 'noche', exacto: false,
+      detalle: `Calculado del turno nocturno: ${money(noche)} × 14 días.`,
     };
   }
   return null;
