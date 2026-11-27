@@ -958,6 +958,9 @@ export interface RequirementLine {
   modo_precio?: 'unidad' | 'total'; // 🎯 Modo de captura del precio: por unidad (c/u) o total por los objetos
   total_usd?: number;               // Precio total explícito en USD para todos los objetos del renglón
   total_bs?: number;                // Precio total explícito en Bolívares para todos los objetos del renglón
+  // 26-nov-2026: presupuesto con el que se armó el requerimiento (tasa y fecha del día).
+  // Se guarda aparte para que actualizar a la tasa de hoy no borre el histórico.
+  presupuesto_original?: { price_bs: number; total_bs: number; tasa: number | null; fecha: string | null } | null;
 }
 
 export type RequirementStatus = 'pendiente' | 'aprobado' | 'esperando_recepcion' | 'rechazado' | 'recibido' | 'aclaratoria_solicitada' | 'pagado';

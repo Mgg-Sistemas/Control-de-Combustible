@@ -34,7 +34,14 @@ export type PartePlan = {
   tasa?: number | null;
 };
 
-export type PlanPago = { partes: PartePlan[]; nota?: string | null; actualizado_por?: string | null; actualizado_at?: string | null };
+export type PlanPago = {
+  partes: PartePlan[];
+  nota?: string | null;
+  actualizado_por?: string | null;
+  actualizado_at?: string | null;
+  /** 26-nov-2026: plan original cuando se actualizó a la tasa de hoy; se conserva al guardar. */
+  original?: PlanPago | null;
+};
 
 export const METODOS_PARTE: { key: MetodoParte; label: string; moneda: 'VES' | 'USD' | 'USDT' }[] = [
   { key: 'transferencia_bs', label: '🏦 Transferencia Bs', moneda: 'VES' },
@@ -193,7 +200,13 @@ export function normalizarPlan(raw: any): PlanPago | null {
       tasa: Number(p.tasa) > 0 ? Number(p.tasa) : null,
     }));
   if (partes.length === 0) return null;
-  return { partes, nota: raw?.nota ?? null, actualizado_por: raw?.actualizado_por ?? null, actualizado_at: raw?.actualizado_at ?? null };
+  return {
+    partes,
+    nota: raw?.nota ?? null,
+    actualizado_por: raw?.actualizado_por ?? null,
+    actualizado_at: raw?.actualizado_at ?? null,
+    original: raw?.original ? normalizarPlan(raw.original) : null,
+  };
 }
 
 export type EstadoParte = { parte: PartePlan; abonadoUsd: number; faltaUsd: number; pagada: boolean };

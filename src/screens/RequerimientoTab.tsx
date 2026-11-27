@@ -65,6 +65,8 @@ import {
 } from '../lib/requerimientoExpediente';
 import { PlanPagoModal } from '../components/PlanPagoModal';
 import { PLAN_PAGO_ACTIVO, PlanPago, normalizarPlan, lineaParte, validarPlan, advertenciaPlanGuardado, actualizarPlanABcv } from '../lib/planPago';
+import { capturarPresupuestoDeFila, itemConTasaDeHoy, presupuestoOriginalDeItem, type PresupuestoOriginalItem } from '../lib/requerimientoTasa';
+import { caracasPartsOf } from '../lib/caracasDay';
 import { EditarSoporteReqModal, type TipoSoporteReq } from '../components/EditarSoporteReqModal';
 import { machineLabel, machineMatches } from '../lib/machineLabel';
 // 👤 Quién solicitó / quién autorizó, para qué (vehículo o maquinaria), a qué
@@ -219,6 +221,7 @@ type ReqRow = {
   tasa_propia?: number;   // Tasa Bs/$ personalizada del ítem
   tasa_manual?: string;   // Texto editable cuando el usuario escribe la tasa del ítem directamente
   tasa_abierta?: boolean; // true cuando está desplegado el editor rápido de tasa del ítem
+  presupuesto_original?: PresupuestoOriginalItem | null; // 26-nov-2026: histórico, nunca se pisa
 };
 const REQ_STATUS: Record<string, { label: string; color: string; short: string }> = {
   pendiente: { label: '⏳ Pendiente', color: '#D97706', short: 'Pendiente' },
@@ -1592,11 +1595,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const recomputarTodoDesdeBcv = () => {
     if (!rate || rate <= 0) return toast.info('No hay tasa BCV activa para convertir.');
     setRows((prev) => prev.map((x) => {
+      // 26-nov-2026: antes de sobrescribir, apartamos el presupuesto con el que estaba.
+      const capturado = capturarPresupuestoDeFila(x, rate, null);
+      const historial = capturado ?? x.presupuesto_original;
       const q = Math.max(0.0001, parseNum(x.qty) || 1);
       const modo = x.modo_precio || 'unidad';
       if (modo === 'total') {
         const tU = parseNum(x.total_usd || '0') || (parseNum(x.price) * q);
-        if (!(tU > 0)) return { ...x, bs_manual: false, tasa_propia: undefined, tasa_manual: undefined };
+        if (!(tU > 0)) return { ...x, bs_manual: false, tasa_propia: undefined, tasa_manual: undefined, presupuesto_original: historial };
         return {
           ...x,
           total_bs: fmtClean(tU * rate),
@@ -1605,10 +1611,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           bs_manual: false,
           tasa_propia: undefined,
           tasa_manual: undefined,
+          presupuesto_original: historial,
         };
       }
       const u = parseNum(x.price);
-      if (!(u > 0)) return { ...x, bs_manual: false, tasa_propia: undefined, tasa_manual: undefined };
+      if (!(u > 0)) return { ...x, bs_manual: false, tasa_propia: undefined, tasa_manual: undefined, presupuesto_original: historial };
       return {
         ...x,
         price_bs: fmtClean(u * rate),
@@ -1617,13 +1624,14 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         bs_manual: false,
         tasa_propia: undefined,
         tasa_manual: undefined,
+        presupuesto_original: historial,
       };
     }));
     if (planForm) {
       const { plan: planAct, cambio } = actualizarPlanABcv(planForm, rate);
-      if (cambio && planAct) setPlanForm(planAct);
+      if (cambio && planAct) setPlanForm(planAct.original ? planAct : { ...planAct, original: planForm });
     }
-    toast.success(`🔄 Ítems y plan BCV actualizados a ${rate.toFixed(2)} Bs/$.`);
+    toast.success(`🔄 Ítems y plan BCV actualizados a ${rate.toFixed(2)} Bs/$. El presupuesto original se conserva.`);
   };
 
   // 📋 Cotizaciones / Presupuestos alternativos por renglón (uno o varios presupuestos por ítem)
@@ -2881,6 +2889,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           nota: (c.nota || '').trim() || null,
         })),
         metodo_pago: x.metodo_pago || null,
+        presupuesto_original: x.presupuesto_original ?? null,
       };
     });
     if (items.length === 0) { const m = 'Agrega al menos un producto (del inventario o nuevo) antes de guardar.'; setFormErr(m); return toast.error(m); }
@@ -3170,7 +3179,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   };
 
   // Abrir el formulario para EDITAR: precarga título, nota e ítems del requerimiento.
-  const abrirEditar = (r: InventoryRequirement) => {
+  const abrirEditar = async (r: InventoryRequirement) => {
     setEditId(r.id);
     setTitle(r.title ?? '');
     setNote(r.note ?? '');
@@ -3193,12 +3202,28 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setAreaLibre(false);
     setCondicionesPago(extraerCondicionesPago(r.observaciones));
     setObservaciones(limpiarObservacionesUsuario(r.observaciones ?? ''));
-    const planGuardado = normalizarPlan((r as any).plan_pago);
+    const planOriginalGuardado = normalizarPlan((r as any).plan_pago);
+    // 26-nov-2026: al abrir se ve el plan con la tasa de hoy, pero el plan original
+    // viaja dentro de `original` para no perderlo si se guarda el requerimiento.
+    const planDeHoy = actualizarPlanABcv(planOriginalGuardado, rate).plan;
+    const planGuardado = planDeHoy && planDeHoy !== planOriginalGuardado
+      ? { ...planDeHoy, original: planOriginalGuardado }
+      : planOriginalGuardado;
     setPlanForm(planGuardado);
     setPlanFormAntes(JSON.stringify(planGuardado ? { partes: planGuardado.partes, nota: planGuardado.nota ?? null } : null));
     const alicEditar = r.iva_alicuota != null ? String(r.iva_alicuota) : String(resolverAlicuotaIvaRequerimiento(r));
     setAlicuotaIva(alicEditar);
     setFormatos(extraerFormatosAdjuntos(r));
+    // 26-nov-2026: si algún renglón no trae precio en $, buscamos la tasa BCV que
+    // estaba guardada el día de creación (hora Caracas) para mostrar el histórico.
+    let tasaCreacion: number | null = null;
+    if (r.created_at && r.items.some((it) => !(Number(it.price_usd ?? it.est_price) > 0) && Number(it.price_bs) > 0)) {
+      const fechaCreacion = caracasPartsOf(new Date(r.created_at)).iso;
+      const { data: tasasBD, error: errTasa } = await supabase.from('bcv_rates').select('rate').eq('rate_date', fechaCreacion).limit(1);
+      if (errTasa) toast.error('No se pudo consultar la tasa del día de creación; se mostrará «sin tasa registrada».');
+      const t = Number(tasasBD?.[0]?.rate);
+      if (t > 0) tasaCreacion = t;
+    }
     let s = 0;
     // ⚠️ 31-oct-2026: una línea en Bs sin precio en $ se pasa a $ con la tasa con la que
     //    se registró la compra (la que la base anotó en la cuenta), no con la de hoy. Con
@@ -3219,6 +3244,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // Si es menor al 50% de BCV (ej. 72.13 Bs/$ por el bug antiguo del primer dígito), no bloquear bs_manual.
       const minTasaValida = rate && rate > 0 ? rate * 0.5 : 10;
       const tieneTasaPropia = tasaImpl >= minTasaValida && (!rate || Math.abs(tasaImpl - rate) > 0.05);
+      // 💱 26-nov-2026: al entrar se muestra la tasa de hoy, pero el presupuesto
+      // original (con su tasa y fecha) se aparta para no borrarlo al guardar.
+      const presupuestoOriginal = presupuestoOriginalDeItem(it, r.created_at ?? null, tasaCreacion);
+      const bsHoy = itemConTasaDeHoy(it, rate);
       return {
         key: `${Date.now()}-${s++}`,
         product_id: it.product_id,
@@ -3227,9 +3256,9 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         qty: String(it.qty),
         modo_precio: it.modo_precio || 'unidad',
         price: String(pUsdNum),
-        price_bs: String(pBsNum),
+        price_bs: bsHoy ? String(bsHoy.price_bs) : String(pBsNum),
         total_usd: String(totUsdNum),
-        total_bs: String(totBsNum),
+        total_bs: bsHoy ? String(bsHoy.total_bs) : String(totBsNum),
         currency: 'USD',
         note: it.note ?? '',
         image_url: resolverFotoReferenciaItem(it, r) ?? '',
@@ -3238,9 +3267,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         metodo_pago: (it as any).metodo_pago || null,
         exento: Boolean(it.exento),
         usd_manual: pUsdNum > 0,
-        bs_manual: tieneTasaPropia,
-        tasa_propia: tieneTasaPropia ? tasaImpl : undefined,
-        tasa_manual: tieneTasaPropia ? fmtClean(tasaImpl) : undefined,
+        bs_manual: !bsHoy && tieneTasaPropia,
+        tasa_propia: !bsHoy && tieneTasaPropia ? tasaImpl : undefined,
+        tasa_manual: !bsHoy && tieneTasaPropia ? fmtClean(tasaImpl) : undefined,
+        presupuesto_original: presupuestoOriginal,
         presupuestos: Array.isArray(it.cotizaciones) ? it.cotizaciones.map((c: any, ci: number) => {
           const cUnitUsd = Number(c.precio_usd ?? c.price ?? 0);
           const cUnitBs = Number(c.precio_bs && Number(c.precio_bs) > 0 ? c.precio_bs : (rate && rate > 0 ? Math.round(cUnitUsd * rate * 100) / 100 : 0));
@@ -6142,6 +6172,23 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     );
                   })()}
 
+                  {/* 📌 26-nov-2026: el presupuesto con el que se armó queda visible
+                      aunque los campos de Bs ya muestren la tasa de hoy. */}
+                  {x.presupuesto_original ? (
+                    <View style={{ marginTop: 5, paddingVertical: 4, paddingHorizontal: 8, borderRadius: radius.sm, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#F59E0B' }}>
+                      <Text style={{ fontSize: 11, color: '#92400E', fontWeight: '800' }}>
+                        📌 Presupuesto original: {fmtBs(x.presupuesto_original.total_bs)}
+                        {x.presupuesto_original.tasa ? ` · tasa ${x.presupuesto_original.tasa.toFixed(2)} Bs/$` : ' · sin tasa registrada'}
+                        {x.presupuesto_original.fecha ? ` · ${dmyOf(x.presupuesto_original.fecha)}` : ''}
+                      </Text>
+                      {rate && rate > 0 ? (
+                        <Text style={{ fontSize: 11, color: colors.brandText, fontWeight: '800' }}>
+                          🇻🇪 Hoy: {fmtBs(rowBs(x))} · tasa {rate.toFixed(2)} Bs/$
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+
                   {/* Indicador y Editor Interactivo de Tasa del Renglón */}
                   {(() => {
                     const u = parseNum(x.price);
@@ -6873,6 +6920,16 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     {planForm.partes.map((pp, i) => (
                       <Text key={pp.id} style={{ color: colors.text, fontSize: 12 }}>{i + 1}) {lineaParte(pp, createAlicuotaNum)}</Text>
                     ))}
+                    {/* 📌 26-nov-2026: si se actualizó a hoy, se dice qué tasa tenía antes. */}
+                    {(() => {
+                      const pOrig = (planForm.original?.partes || []).find((p) => (p.tasa_tipo ?? 'bcv') === 'bcv' && Number(p.tasa) > 0);
+                      if (!pOrig) return null;
+                      return (
+                        <Text style={{ color: '#92400E', fontSize: 11, fontWeight: '800' }}>
+                          📌 Plan original: tasa BCV {Number(pOrig.tasa).toFixed(2)} Bs/$ · se conserva al guardar.
+                        </Text>
+                      );
+                    })()}
                     {validarPlan(planForm.partes, createTotalUsd) ? (
                       <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>
                         ⚠️ {validarPlan(planForm.partes, createTotalUsd)} Edítalo: el total cambió.

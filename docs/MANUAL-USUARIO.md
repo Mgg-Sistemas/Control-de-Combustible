@@ -2416,6 +2416,15 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > números. En **Requerimientos** el botón **«🔄 Actualizar todos los ítems y plan BCV a hoy»** está siempre a la vista
 > cuando hay tasa. Al pasar requerimientos en lote, si la cuenta ya tenía plan propio en Por Pagar, **no se lo pisamos**
 > y el aviso lo dice.
+>
+> **🔄 Requerimientos: tasa de hoy al entrar, presupuesto original guardado** *(26/11/2026)*. Al abrir un
+> requerimiento para editarlo, los precios en Bs de cada renglón **ya aparecen calculados con la tasa BCV del día**,
+> sin entrar ítem por ítem ni tocar el botón. Debajo de cada renglón, en amarillo, sale **«📌 Presupuesto original»**
+> con el monto, **la tasa con que se armó y la fecha**; así puedes consultar cuándo se hizo y con qué tasa. Si el plan
+> de pago tenía otra tasa BCV, también sale **«📌 Plan original»** y se conserva al guardar. El botón enorme
+> **«🔄 Actualizar todos los ítems y plan BCV a hoy»** sigue sirviendo para recalcular de un toque; antes de cambiar
+> los Bs **aparta el presupuesto anterior**. Abrir el requerimiento **no escribe nada en la base**: solo se guarda
+> cuando tocas **«💾 Guardar cambios»**.
 
 > **📊 Reporte de Compras · S.O.S La Guaira** *(13/11/2026)*. En **Compras**, el botón superior derecho **«📊 Reporte de Compras»**
 > genera el documento oficial ejecutivo con los colores institucionales de **S.O.S La Guaira** (`#0A2540` y `#0284C7`).
