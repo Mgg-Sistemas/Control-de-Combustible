@@ -168,6 +168,10 @@ export type ConstanciaTrabajoData = {
   /** 🏢 Con qué identidad sale el papel (logo, nombre, firma y pie). Sin pasar
    *  nada: SOS LA GUAIRA, idéntica a la de siempre. */
   membrete?: MembreteConstancia | null;
+  /** 🤝 Incluye bloque de declaraciones y condiciones del servicio (destajo / conformidad)
+   *  y doble firma (empresa y trabajador en señal de conformidad). */
+  incluirCondiciones?: boolean;
+  textoCondiciones?: string | null;
 };
 
 /**
@@ -195,6 +199,7 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
   const lugar = esc([d.city, d.state].filter(Boolean).join(', ') || 'La Guaira, Venezuela');
   const fecha = esc(hoyLargo());
   const impreso = esc(selloImpresion());
+  const esCond = Boolean(d.incluirCondiciones);
   // Renglón del sueldo. Va como párrafo aparte y SOLO si se pidió: así la
   // constancia sin monto queda IDÉNTICA a la de siempre, sin un hueco ni un "—".
   const monto = String(d.montoQuincenal ?? '').trim();
@@ -204,27 +209,42 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
-    @page{ margin:2cm; size:letter }
+    @page{ margin:${esCond ? '1.5cm' : '2cm'}; size:letter }
     *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact }
     html,body{ margin:0; padding:0 }
-    body{ font-family:Tahoma, Geneva, Verdana, sans-serif; color:#1a1a1a; font-size:11pt; line-height:1.5; display:flex; flex-direction:column; min-height:100vh }
+    body{ font-family:Tahoma, Geneva, Verdana, sans-serif; color:#1a1a1a; font-size:${esCond ? '10pt' : '11pt'}; line-height:${esCond ? '1.34' : '1.5'}; display:flex; flex-direction:column; min-height:100vh }
     @media screen{ body{ padding:20px 30px; background:#fff } }
-    .head{ text-align:center; border-bottom:2.5px solid #1E3A5F; padding-bottom:7px; margin-bottom:16px }
-    .head img{ height:62px; width:auto }
-    .head .co{ color:#1E3A5F; font-weight:700; font-size:11pt; letter-spacing:.2px; margin-top:3px }
-    h1{ font-size:14pt; text-align:center; color:#1E3A5F; margin:8px 0 2px; text-transform:uppercase; letter-spacing:1px }
-    .dirigida{ text-align:center; color:#333; font-size:11pt; font-weight:700; margin:14px 0 18px }
-    p{ text-align:justify; margin:12px 0 }
+    .head{ text-align:center; border-bottom:2.5px solid #1E3A5F; padding-bottom:${esCond ? '5px' : '7px'}; margin-bottom:${esCond ? '10px' : '16px'} }
+    .head img{ height:${esCond ? '50px' : '62px'}; width:auto }
+    .head .co{ color:#1E3A5F; font-weight:700; font-size:${esCond ? '10pt' : '11pt'}; letter-spacing:.2px; margin-top:2px }
+    h1{ font-size:${esCond ? '12.5pt' : '14pt'}; text-align:center; color:#1E3A5F; margin:${esCond ? '4px 0 2px' : '8px 0 2px'}; text-transform:uppercase; letter-spacing:1px }
+    .dirigida{ text-align:center; color:#333; font-size:${esCond ? '10pt' : '11pt'}; font-weight:700; margin:${esCond ? '8px 0 10px' : '14px 0 18px'} }
+    p{ text-align:justify; margin:${esCond ? '7px 0' : '12px 0'} }
     .fill{ font-weight:700 }
-    .cierre{ margin-top:14px }
-    /* Firma CENTRADA al pie (Jefa de Administración). */
-    .sign-block{ margin-top:auto; padding-top:40px }
+    .cierre{ margin-top:${esCond ? '8px' : '14px'} }
+
+    .condiciones-sec{ margin-top:10px; margin-bottom:6px; border-top:1px solid #d7e3f4; padding-top:8px }
+    .condiciones-sec h2{ font-size:10pt; color:#1E3A5F; margin:0 0 5px; text-transform:none; letter-spacing:.2px }
+    .condiciones-sec ol{ margin:3px 0; padding-left:18px; font-size:9pt; line-height:1.32 }
+    .condiciones-sec ol li{ margin:3px 0; text-align:justify }
+    .cond-cierre{ font-size:9pt; margin-top:6px; margin-bottom:2px; font-style:italic; color:#333 }
+
+    /* Firma CENTRADA al pie (Jefa de Administración) o DUAL si lleva condiciones. */
+    .sign-block{ margin-top:auto; padding-top:${esCond ? '20px' : '40px'} }
     .firma-final{ text-align:center }
     .firma-final .line{ width:280px; margin:0 auto; border-top:1px solid #1a1a1a; padding-top:6px }
     .firma-final .rol{ font-weight:700; color:#1E3A5F; font-size:11pt; text-transform:uppercase; letter-spacing:.3px }
     .firma-final .emp{ color:#555; font-size:10pt; margin-top:1px }
     .firma-final .sello{ color:#9aa4b2; font-size:9pt; font-style:italic; margin-top:2px }
-    .foot{ margin-top:20px; text-align:center; color:#9aa4b2; font-size:8pt; border-top:1px solid #e5e7eb; padding-top:6px }
+
+    .firmas-grid{ display:flex; justify-content:space-between; gap:20px; text-align:center }
+    .firma-col{ flex:1; text-align:center }
+    .firma-col .line{ width:100%; max-width:240px; margin:0 auto; border-top:1px solid #1a1a1a; padding-top:5px }
+    .firma-col .rol{ font-weight:700; color:#1E3A5F; font-size:9.5pt; text-transform:uppercase; letter-spacing:.2px }
+    .firma-col .emp{ color:#333; font-size:9pt; margin-top:2px }
+    .firma-col .sello{ color:#64748b; font-size:8.5pt; margin-top:2px }
+
+    .foot{ margin-top:16px; text-align:center; color:#9aa4b2; font-size:8pt; border-top:1px solid #e5e7eb; padding-top:5px }
   </style></head><body>
     <div class="head">
       <img src="${m.logo}" style="object-fit:contain;background:#fff"/>
@@ -236,9 +256,41 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
 
     <p>Por medio de la presente se hace constar que el(la) ciudadano(a) <span class="fill">${nombre}</span>, titular de la cédula de identidad N.° <span class="fill">${ci}</span>, presta sus servicios en esta empresa <span class="fill">${esc(empresa)}</span>,${m.sinFinesDeLucro ? ' institución <b>sin fines de lucro</b>,' : ''} desde el <span class="fill">${ingreso}</span>, desempeñando el cargo de <span class="fill">${cargo}</span>, cumpliendo cabalmente con sus funciones y responsabilidades.</p>${parrafoSueldo}
 
+    ${esCond ? `
+    <div class="condiciones-sec">
+      <h2>Declaraciones y condiciones del servicio</h2>
+      ${d.textoCondiciones ? `<div style="font-size:9pt;line-height:1.32;text-align:justify;">${esc(d.textoCondiciones)}</div>` : `
+      <ol>
+        <li><b>Modalidad de pago a destajo:</b> Ambas partes acuerdan que la remuneración se regirá bajo la modalidad de pago a destajo, calculada por unidad de obra, tarea o servicio efectivamente realizado y entregado. El pago corresponde exclusivamente al trabajo concluido y aceptado.</li>
+        <li><b>Cálculo de la remuneración:</b> El monto a pagar por cada unidad de obra, tarea o servicio será el previamente acordado entre las partes. Manifiesto ser consciente de que mis ingresos dependerán directamente de la cantidad de trabajo que realice y entregue conforme.</li>
+        <li><b>Uso del carnet:</b> El carnet entregado es de uso personal e intransferible. Su único propósito es la identificación visual y el control de acceso a las instalaciones o áreas de trabajo para la ejecución de las tareas asignadas.</li>
+      </ol>
+      <p class="cond-cierre">Leído y firmado en señal de total conformidad por el colaborador:</p>
+      `}
+    </div>
+    ` : ''}
+
     <p class="cierre">Constancia que se expide a solicitud de la parte interesada, en ${lugar}, a la fecha ${fecha}.</p>
 
     <div class="sign-block">
+      ${esCond ? `
+      <div class="firmas-grid">
+        <div class="firma-col">
+          <div class="line">
+            <div class="rol">Jefa de Administración</div>
+            <div class="emp">${esc(empresa)}</div>
+            <div class="sello">Firma y sello</div>
+          </div>
+        </div>
+        <div class="firma-col">
+          <div class="line">
+            <div class="rol">Firma del Colaborador</div>
+            <div class="emp"><b>Nombre:</b> ${nombre}</div>
+            <div class="sello"><b>C.I.:</b> ${ci}</div>
+          </div>
+        </div>
+      </div>
+      ` : `
       <div class="firma-final">
         <div class="line">
           <div class="rol">Jefa de Administración</div>
@@ -246,6 +298,7 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
           <div class="sello">Firma y sello</div>
         </div>
       </div>
+      `}
     </div>
 
     ${'' /* 🏢 El PIE también sigue al membrete elegido (pedido 15-oct-2026). */}

@@ -594,13 +594,14 @@ export default function EmpleadosScreen({ navigation, route }: any) {
   // sueldo). null = cerrado. `conMonto` recuerda la casilla mientras está abierto.
   const [constanciaFor, setConstanciaFor] = useState<Employee | null>(null);
   const [constanciaConMonto, setConstanciaConMonto] = useState(false);
+  const [constanciaConCondiciones, setConstanciaConCondiciones] = useState(false);
   // 🏢 Con qué MEMBRETE sale la constancia (15-oct-2026, a pedido: «poder
   //    sacarla con cualquier información o logo de todos los que tenemos, y que
   //    automáticamente modifique el pie de página»). Nace en SOS: sin tocar la
   //    pastilla, el papel sale idéntico al de siempre.
   const [constanciaMembrete, setConstanciaMembrete] = useState(MEMBRETE_POR_DEFECTO.key);
 
-  const imprimirConstanciaTrabajo = async (e: Employee, conMonto: boolean) => {
+  const imprimirConstanciaTrabajo = async (e: Employee, conMonto: boolean, conCondiciones: boolean = false) => {
     setBusy(e.id + '-const-trab');
     const memb = MEMBRETES_CONSTANCIA.find((x) => x.key === constanciaMembrete) ?? MEMBRETE_POR_DEFECTO;
     const html = constanciaTrabajoHtml({
@@ -615,6 +616,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
       montoQuincenal: conMonto ? montoQuincenalTexto(e as any) : null,
       // El membrete elegido cambia solo el PAPEL (logo, nombre, firma y pie).
       membrete: memb,
+      incluirCondiciones: conCondiciones,
     });
     await exportPdf(html, `Constancia de trabajo - ${fullName(e)}${memb.key === MEMBRETE_POR_DEFECTO.key ? '' : ` - ${memb.nombre}`}`);
     setBusy(null);
@@ -2239,7 +2241,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                           onPress={() => setCartaBancoFor(e)}
                         />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
-                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); }} />
+                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); setConstanciaConCondiciones(false); }} />
                         <Btn
                           label={amonestCounts[e.id] ? `⚠️ Amonestación (${amonestCounts[e.id]})` : '⚠️ Amonestación'}
                           color="#B45309"
@@ -2382,17 +2384,42 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                     </View>
                   </TouchableOpacity>
 
+                  {/* 🤝 Declaraciones y condiciones del servicio (Destajo / Conformidad) */}
+                  <TouchableOpacity
+                    onPress={() => setConstanciaConCondiciones((v) => !v)}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: spacing.md }}
+                  >
+                    <View style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: constanciaConCondiciones ? colors.primary : colors.border, backgroundColor: constanciaConCondiciones ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                      {constanciaConCondiciones ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 14 }}>✓</Text> : null}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🤝 Incluir declaraciones y condiciones del servicio</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                        Agrega las 3 cláusulas de modalidad a destajo, cálculo de remuneración y uso de carnet, con firma de conformidad del colaborador.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
                   <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
                     <TouchableOpacity onPress={() => setConstanciaFor(null)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       disabled={!!busy}
-                      onPress={() => constanciaFor && imprimirConstanciaTrabajo(constanciaFor, constanciaConMonto && hay)}
+                      onPress={() => constanciaFor && imprimirConstanciaTrabajo(constanciaFor, constanciaConMonto && hay, constanciaConCondiciones)}
                       style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: '#1E3A5F', opacity: busy ? 0.6 : 1 }}
                     >
                       <Text style={{ color: '#fff', fontWeight: '800' }}>
-                        {busy ? 'Generando…' : constanciaConMonto && hay ? '📄 Generar CON monto' : '📄 Generar sin monto'}
+                        {busy
+                          ? 'Generando…'
+                          : constanciaConMonto && hay && constanciaConCondiciones
+                          ? '📄 Generar CON monto y condiciones'
+                          : constanciaConMonto && hay
+                          ? '📄 Generar CON monto'
+                          : constanciaConCondiciones
+                          ? '📄 Generar con condiciones'
+                          : '📄 Generar sin monto'}
                       </Text>
                     </TouchableOpacity>
                   </View>
