@@ -60,6 +60,8 @@ export type OpcionesReporteEmpleados = {
   resumenCargo: boolean;
   /** 🗂️ Tabla superior de «Resumen por departamento». */
   resumenDepartamento: boolean;
+  /** 💵 Mostrar montos salariales (mensual/diario) en la tabla de «Resumen por departamento». */
+  salarioPorDepartamento?: boolean;
   /** 👥 Tabla principal con el listado de trabajadores. */
   listadoPersonas: boolean;
   /** 📝 Línea institucional en texto y pie del sistema en el membrete PDF. */
@@ -106,6 +108,7 @@ export const OPCIONES_REPORTE_EMPLEADOS_DEFECTO: OpcionesReporteEmpleados = {
   cabeceraFiltros: true,
   resumenCargo: true,
   resumenDepartamento: false,
+  salarioPorDepartamento: true,
   listadoPersonas: true,
   marcaTexto: true,
   firmas: false,
@@ -572,6 +575,10 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
   const porCargoSalariosListaMap = new Map<string, SalariosEmpleadoReporte[]>();
   // Agrupación para el resumen por departamento (SOLO department, nunca grupo/dirección)
   const porDeptoMap = new Map<string, number>();
+  const porDeptoSalariosMap = new Map<
+    string,
+    { diario: number; nocturno: number; semanal: number; quincenal: number; mensual: number }
+  >();
   const empresasSet = new Set<string>();
   let totalSalarioDiario = 0;
   let totalSalarioNocturno = 0;
@@ -606,17 +613,46 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     }
     arrSals.push(sals);
 
-    if (sals.diario !== null) totalSalarioDiario += sals.diario;
-    if (sals.nocturno !== null) totalSalarioNocturno += sals.nocturno;
-    if (sals.semanal !== null) totalSalarioSemanal += sals.semanal;
-    if (sals.quincenal !== null) totalSalarioQuincenal += sals.quincenal;
-    if (sals.mensual !== null) totalSalarioMensual += sals.mensual;
+    let depSals = porDeptoSalariosMap.get(d);
+    if (!depSals) {
+      depSals = { diario: 0, nocturno: 0, semanal: 0, quincenal: 0, mensual: 0 };
+      porDeptoSalariosMap.set(d, depSals);
+    }
+
+    if (sals.diario !== null) {
+      totalSalarioDiario += sals.diario;
+      depSals.diario += sals.diario;
+    }
+    if (sals.nocturno !== null) {
+      totalSalarioNocturno += sals.nocturno;
+      depSals.nocturno += sals.nocturno;
+    }
+    if (sals.semanal !== null) {
+      totalSalarioSemanal += sals.semanal;
+      depSals.semanal += sals.semanal;
+    }
+    if (sals.quincenal !== null) {
+      totalSalarioQuincenal += sals.quincenal;
+      depSals.quincenal += sals.quincenal;
+    }
+    if (sals.mensual !== null) {
+      totalSalarioMensual += sals.mensual;
+      depSals.mensual += sals.mensual;
+    }
   }
   totalSalarioDiario = Math.round(totalSalarioDiario * 100) / 100;
   totalSalarioNocturno = Math.round(totalSalarioNocturno * 100) / 100;
   totalSalarioSemanal = Math.round(totalSalarioSemanal * 100) / 100;
   totalSalarioQuincenal = Math.round(totalSalarioQuincenal * 100) / 100;
   totalSalarioMensual = Math.round(totalSalarioMensual * 100) / 100;
+
+  for (const depSals of porDeptoSalariosMap.values()) {
+    depSals.diario = Math.round(depSals.diario * 100) / 100;
+    depSals.nocturno = Math.round(depSals.nocturno * 100) / 100;
+    depSals.semanal = Math.round(depSals.semanal * 100) / 100;
+    depSals.quincenal = Math.round(depSals.quincenal * 100) / 100;
+    depSals.mensual = Math.round(depSals.mensual * 100) / 100;
+  }
 
   const totalSalarioDiarioTxt = formatearMontoSalarioReporte(totalSalarioDiario);
   const totalSalarioNocturnoTxt = formatearMontoSalarioReporte(totalSalarioNocturno);
@@ -657,26 +693,38 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     if (op.cargo || op.resumenCargo) {
       tiles.push(`<div class="tile"><div class="t">${resumen.length}</div><div class="s">Cargo(s)</div></div>`);
     }
-    if (op.departamento || op.resumenDepartamento || (input.departamentoTxt && input.departamentoTxt !== 'Todos')) {
-      tiles.push(`<div class="tile"><div class="t">${resumenDepto.length}</div><div class="s">Departamento(s)</div></div>`);
+    const deptoFiltrado = Boolean(
+      input.departamentoTxt &&
+        input.departamentoTxt !== 'Todos' &&
+        input.departamentoTxt !== 'Todos los departamentos'
+    );
+    if (op.departamento || op.resumenDepartamento || deptoFiltrado) {
+      const labelDepto = deptoFiltrado && resumenDepto.length === 1 ? esc(resumenDepto[0][0]) : `${resumenDepto.length}`;
+      const subDepto = deptoFiltrado && resumenDepto.length === 1 ? 'Departamento' : 'Departamento(s)';
+      tiles.push(`<div class="tile"><div class="t">${labelDepto}</div><div class="s">${subDepto}</div></div>`);
     }
     if (op.empresa && empresasSet.size > 0) {
       tiles.push(`<div class="tile"><div class="t">${empresasSet.size}</div><div class="s">Empresa(s) nómina</div></div>`);
     }
     if (op.salarioDiario && totalSalarioDiario > 0) {
-      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioDiarioTxt)}</div><div class="s">Total Por Día</div></div>`);
+      const subDiario = deptoFiltrado ? `Total Por Día (${esc(input.departamentoTxt!)})` : 'Total Por Día';
+      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioDiarioTxt)}</div><div class="s">${subDiario}</div></div>`);
     }
     if (op.salarioNocturno && totalSalarioNocturno > 0) {
-      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioNocturnoTxt)}</div><div class="s">Total Por Noche</div></div>`);
+      const subNoche = deptoFiltrado ? `Total Por Noche (${esc(input.departamentoTxt!)})` : 'Total Por Noche';
+      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioNocturnoTxt)}</div><div class="s">${subNoche}</div></div>`);
     }
     if (op.salarioSemanal && totalSalarioSemanal > 0) {
-      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioSemanalTxt)}</div><div class="s">Total Por Semana</div></div>`);
+      const subSem = deptoFiltrado ? `Total Por Semana (${esc(input.departamentoTxt!)})` : 'Total Por Semana';
+      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioSemanalTxt)}</div><div class="s">${subSem}</div></div>`);
     }
     if (op.salarioQuincenal && totalSalarioQuincenal > 0) {
-      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioQuincenalTxt)}</div><div class="s">Total Quincenal</div></div>`);
+      const subQuin = deptoFiltrado ? `Total Quincenal (${esc(input.departamentoTxt!)})` : 'Total Quincenal';
+      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioQuincenalTxt)}</div><div class="s">${subQuin}</div></div>`);
     }
     if (op.salarioMensual && totalSalarioMensual > 0) {
-      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioMensualTxt)}</div><div class="s">Total Mensual</div></div>`);
+      const subMensual = deptoFiltrado ? `Total Mensual (${esc(input.departamentoTxt!)})` : 'Total Mensual';
+      tiles.push(`<div class="tile"><div class="t">${esc(totalSalarioMensualTxt)}</div><div class="s">${subMensual}</div></div>`);
     }
     tilesHtml = `<div class="tiles">${tiles.join('')}</div>`;
   }
@@ -812,10 +860,68 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
     }
   }
   if (op.resumenDepartamento && resumenDepto.length > 0) {
-    const deptoRows = resumenDepto
-      .map(([d, n]) => `<tr><td>${esc(d)}</td><td class="r nw"><b>${n}</b></td></tr>`)
-      .join('');
-    cajasResumen.push(`
+    const mostrarSalarioDepto = Boolean(
+      op.salarioPorDepartamento !== false &&
+      (hayColumnaSalario || op.salarioMensual || op.salarioDiario || op.salarioSemanal || op.salarioQuincenal)
+    );
+
+    if (mostrarSalarioDepto) {
+      const thsDepto: string[] = ['<th>Departamento</th>', '<th class="r nw" style="width:90px">Personas</th>'];
+      if (op.salarioDiario) thsDepto.push('<th class="r nw" style="width:110px">Total Por Día</th>');
+      if (op.salarioSemanal) thsDepto.push('<th class="r nw" style="width:110px">Total Por Semana</th>');
+      if (op.salarioQuincenal) thsDepto.push('<th class="r nw" style="width:110px">Total Quincenal</th>');
+      if (op.salarioMensual || (!op.salarioDiario && !op.salarioSemanal && !op.salarioQuincenal)) {
+        thsDepto.push('<th class="r nw" style="width:120px">Total Mensual</th>');
+      }
+
+      const deptoRows = resumenDepto
+        .map(([d, n]) => {
+          const ds = porDeptoSalariosMap.get(d) ?? { diario: 0, nocturno: 0, semanal: 0, quincenal: 0, mensual: 0 };
+          const tds: string[] = [`<td><b>${esc(d)}</b></td>`, `<td class="r nw"><b>${n}</b></td>`];
+          if (op.salarioDiario) {
+            tds.push(`<td class="r nw">${ds.diario > 0 ? esc(formatearMontoSalarioReporte(ds.diario)) : '—'}</td>`);
+          }
+          if (op.salarioSemanal) {
+            tds.push(`<td class="r nw">${ds.semanal > 0 ? esc(formatearMontoSalarioReporte(ds.semanal)) : '—'}</td>`);
+          }
+          if (op.salarioQuincenal) {
+            tds.push(`<td class="r nw">${ds.quincenal > 0 ? esc(formatearMontoSalarioReporte(ds.quincenal)) : '—'}</td>`);
+          }
+          if (op.salarioMensual || (!op.salarioDiario && !op.salarioSemanal && !op.salarioQuincenal)) {
+            tds.push(`<td class="r nw"><b>${ds.mensual > 0 ? esc(formatearMontoSalarioReporte(ds.mensual)) : '—'}</b></td>`);
+          }
+          return `<tr>${tds.join('')}</tr>`;
+        })
+        .join('');
+
+      const tfootCells: string[] = ['<td>TOTAL</td>', `<td class="r nw"><b>${lista.length}</b></td>`];
+      if (op.salarioDiario) {
+        tfootCells.push(`<td class="r nw"><b>${totalSalarioDiario > 0 ? esc(formatearMontoSalarioReporte(totalSalarioDiario)) : '—'}</b></td>`);
+      }
+      if (op.salarioSemanal) {
+        tfootCells.push(`<td class="r nw"><b>${totalSalarioSemanal > 0 ? esc(formatearMontoSalarioReporte(totalSalarioSemanal)) : '—'}</b></td>`);
+      }
+      if (op.salarioQuincenal) {
+        tfootCells.push(`<td class="r nw"><b>${totalSalarioQuincenal > 0 ? esc(formatearMontoSalarioReporte(totalSalarioQuincenal)) : '—'}</b></td>`);
+      }
+      if (op.salarioMensual || (!op.salarioDiario && !op.salarioSemanal && !op.salarioQuincenal)) {
+        tfootCells.push(`<td class="r nw"><b>${totalSalarioMensual > 0 ? esc(formatearMontoSalarioReporte(totalSalarioMensual)) : '—'}</b></td>`);
+      }
+
+      cajasResumen.push(`
+      <div class="sec-box">
+        <h3 class="sec">Resumen por departamento (${resumenDepto.length})</h3>
+        <table class="sum">
+          <thead><tr>${thsDepto.join('')}</tr></thead>
+          <tbody>${deptoRows}</tbody>
+          <tfoot><tr>${tfootCells.join('')}</tr></tfoot>
+        </table>
+      </div>`);
+    } else {
+      const deptoRows = resumenDepto
+        .map(([d, n]) => `<tr><td>${esc(d)}</td><td class="r nw"><b>${n}</b></td></tr>`)
+        .join('');
+      cajasResumen.push(`
       <div class="sec-box">
         <h3 class="sec">Resumen por departamento (${resumenDepto.length})</h3>
         <table class="sum">
@@ -824,6 +930,7 @@ export function cuerpoReporteEmpleados(input: EntradaReporteEmpleados): {
           <tfoot><tr><td>TOTAL</td><td class="r nw">${lista.length}</td></tr></tfoot>
         </table>
       </div>`);
+    }
   }
   const resumenHtml = cajasResumen.length > 0 ? `<div class="sec-grid">${cajasResumen.join('')}</div>` : '';
 

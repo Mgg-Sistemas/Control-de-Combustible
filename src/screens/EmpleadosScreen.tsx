@@ -25,6 +25,7 @@ import {
   calcularSalariosEmpleadoReporte,
   formatearMontoSalarioReporte,
   leerSalarioSemanalEmpleado,
+  leerSalarioMensualEmpleado,
   formatearSalarioSemanalReporte,
   pasaFiltroFechaIngreso,
   fmtFechaCortaDMY,
@@ -395,6 +396,27 @@ export default function EmpleadosScreen({ navigation, route }: any) {
     () => empresaFiltered.filter((e) => deptoSel.size === 0 || deptoSel.has(deptoLabel(e))),
     [empresaFiltered, deptoSel]
   );
+
+  // Totales salariales por departamento (monto mensual) para mostrar en los chips y selector
+  const deptoSalariosStats = useMemo(() => {
+    const mapSalMes = new Map<string, number>();
+    let totalMesEmpresa = 0;
+    empresaFiltered.forEach((e) => {
+      const k = deptoLabel(e);
+      const salMes = leerSalarioMensualEmpleado(e as any) ?? 0;
+      mapSalMes.set(k, (mapSalMes.get(k) ?? 0) + salMes);
+      totalMesEmpresa += salMes;
+    });
+    let totalMesBase = 0;
+    baseFiltered.forEach((e) => {
+      totalMesBase += (leerSalarioMensualEmpleado(e as any) ?? 0);
+    });
+    return {
+      mapSalMes,
+      totalMesEmpresa: Math.round(totalMesEmpresa * 100) / 100,
+      totalMesBase: Math.round(totalMesBase * 100) / 100,
+    };
+  }, [empresaFiltered, baseFiltered]);
 
   // Conteo total por estado (independiente del filtro, para las etiquetas de los chips).
   // REGLA DE AISLAMIENTO: Los empleados INACTIVOS se descuentan SIEMPRE primero
@@ -1358,7 +1380,9 @@ export default function EmpleadosScreen({ navigation, route }: any) {
           style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: deptoSel.size ? colors.brand : colors.border, backgroundColor: deptoSel.size ? colors.brand : colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}
         >
           <Text style={{ color: deptoSel.size ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
-            🗂️ {deptoSel.size === 0 ? `Todos · ${empresaFiltered.length}` : `${deptoSel.size} depto(s): ${Array.from(deptoSel).sort().join(', ')} · ${baseFiltered.length}`}
+            🗂️ {deptoSel.size === 0
+              ? `Todos · ${empresaFiltered.length}${deptoSalariosStats.totalMesEmpresa > 0 ? ` · ${formatearMontoSalarioReporte(deptoSalariosStats.totalMesEmpresa)}/mes` : ''}`
+              : `${deptoSel.size} depto(s): ${Array.from(deptoSel).sort().join(', ')} · ${baseFiltered.length}${deptoSalariosStats.totalMesBase > 0 ? ` · ${formatearMontoSalarioReporte(deptoSalariosStats.totalMesBase)}/mes` : ''}`}
           </Text>
           <Text style={{ color: deptoSel.size ? colors.brandContrast : colors.brandText, fontWeight: '800', fontSize: 11 }}>{deptosOpen ? '▲' : '▼'}</Text>
         </TouchableOpacity>
@@ -1383,12 +1407,16 @@ export default function EmpleadosScreen({ navigation, route }: any) {
               onPress={() => setDeptoSel(new Set())}
               style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: deptoSel.size === 0 ? colors.brand : colors.border, backgroundColor: deptoSel.size === 0 ? colors.brand : colors.surface }}
             >
-              <Text style={{ color: deptoSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>Todos ({empresaFiltered.length})</Text>
+              <Text style={{ color: deptoSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+                Todos ({empresaFiltered.length}){deptoSalariosStats.totalMesEmpresa > 0 ? ` · ${formatearMontoSalarioReporte(deptoSalariosStats.totalMesEmpresa)}/mes` : ''}
+              </Text>
             </TouchableOpacity>
             {deptoCounts
               .filter(([d]) => !deptoQ.trim() || d.toLowerCase().includes(deptoQ.trim().toLowerCase()))
               .map(([d, n]) => {
                 const on = deptoSel.has(d);
+                const mMes = deptoSalariosStats.mapSalMes.get(d) ?? 0;
+                const mTxt = mMes > 0 ? ` · ${formatearMontoSalarioReporte(mMes)}/mes` : '';
                 return (
                   <TouchableOpacity
                     key={d}
@@ -1400,7 +1428,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                     }}
                     style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}
                   >
-                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{on ? '✓ ' : ''}{d} · {n}</Text>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{on ? '✓ ' : ''}{d} · {n}{mTxt}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -1531,6 +1559,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                         cuadrosResumen: true,
                         resumenCargo: true,
                         resumenDepartamento: true,
+                        salarioPorDepartamento: true,
                         listadoPersonas: true,
                         marcaTexto: true,
                         firmas: opReporte.firmas,
@@ -1647,6 +1676,7 @@ export default function EmpleadosScreen({ navigation, route }: any) {
                   ['cuadrosResumen', '🧱 Cuadros superiores de resumen'],
                   ['resumenCargo', '📊 Cuadro resumen por cargo'],
                   ['resumenDepartamento', '🗂️ Cuadro resumen por departamento'],
+                  ['salarioPorDepartamento', '💵 Monto mensual en resumen por departamento'],
                   ['listadoPersonas', '👥 Tabla de listado de personas'],
                   ['cabeceraFiltros', '🔎 Cabecera de filtros aplicados'],
                   ['marcaTexto', '📝 Marca de empresa en texto y pie'],
