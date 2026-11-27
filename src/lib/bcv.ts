@@ -2,9 +2,10 @@
 // Fuente automática: ve.dolarapi.com (dólar oficial/BCV). La tasa del día se guarda
 // en la tabla `bcv_rates` (una fila por día, compartida por toda la app, con
 // histórico) y se puede AJUSTAR A MANO si el servicio falla o se quiere fijar otra.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { caracasParts } from './jornada';
+import type { BcvTasaDiaria } from '../types/database';
 
 export type BcvRate = { rate_date: string; rate: number; source: string | null; created_at?: string };
 
@@ -34,10 +35,56 @@ export async function upsertRate(rate_date: string, rate: number, source: string
   await supabase.from('bcv_rates').upsert({ rate_date, rate, source }, { onConflict: 'rate_date' });
 }
 
-/** Asegura la tasa de HOY: si ya está guardada la devuelve; si no, la baja del BCV
- *  y la guarda. Si el API falla, cae a la última tasa conocida. */
+/**
+ * 26-nov-2026: lee las 5 tasas del BCV guardadas para hoy. Si aún no están y
+ * nadie fijó una tasa manual, manda a la función de la base a consultar el BCV.
+ * Si falla, devuelve el error en texto para que la pantalla lo diga, sin inventar.
+ */
+async function cargarTasasBcvHoy(): Promise<{ tasas: BcvTasaDiaria[]; error: string | null }> {
+  const hoy = todayIsoVE();
+  const { data: manual, error: errManual } = await supabase
+    .from('bcv_rates').select('source').eq('rate_date', hoy).limit(1);
+  if (errManual) return { tasas: [], error: errManual.message };
+
+  const leer = () => supabase
+    .from('bcv_tasas_diarias')
+    .select('rate_date, moneda, tasa, fecha_valor, source')
+    .eq('rate_date', hoy)
+    .order('moneda');
+
+  let { data, error } = await leer();
+  if (!error && (!data || data.length === 0) && manual?.[0]?.source !== 'manual') {
+    const rpc = await supabase.rpc('actualizar_tasas_bcv');
+    if (rpc.error) return { tasas: [], error: rpc.error.message };
+    ({ data, error } = await leer());
+  }
+  if (error) return { tasas: [], error: error.message };
+  return { tasas: (data ?? []) as BcvTasaDiaria[], error: null };
+}
+
+/** Hook de las 5 tasas BCV del día, para mostrarlas como referencia. */
+export function useTasasBcv() {
+  const [tasas, setTasas] = useState<BcvTasaDiaria[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const recargar = useCallback(async () => {
+    setLoading(true);
+    const r = await cargarTasasBcvHoy();
+    setTasas(r.tasas);
+    setError(r.error);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void recargar(); }, [recargar]);
+  return { tasas, loading, error, recargar };
+}
+
+/** Asegura la tasa de HOY: primero manda a sincronizar el BCV, y si no hay,
+ *  usa la guardada / la API intermedia. Nunca deja de avisar si falló. */
 export async function ensureTodayRate(): Promise<BcvRate | null> {
   const today = todayIsoVE();
+  await cargarTasasBcvHoy();
   const { data } = await supabase.from('bcv_rates').select('rate_date, rate, source').eq('rate_date', today).limit(1);
   if (data && data[0]) return data[0] as BcvRate;
   try {

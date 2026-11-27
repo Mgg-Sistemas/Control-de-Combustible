@@ -77,7 +77,8 @@ import {
   DESTINOS, SIN_PERSONA, faltaColumnaNueva,
   type PersonaElegida, type PersonaNomina,
 } from '../lib/requerimientoPersonas';
-import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
+import { useBcvRate, useTasasBcv, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
+import { formatearTasasBcv, fechaBcvLegible } from '../lib/bcvTasas';
 import { ComprasViewToggle, useComprasVista } from '../components/compras/ComprasViewToggle';
 import { ComprasKanbanBoard } from '../components/compras/ComprasKanbanBoard';
 import { ComprasListaTable } from '../components/compras/ComprasListaTable';
@@ -472,6 +473,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const canReceive = isAdmin || levelMeets(moduleLevel('inventario'), 'full');
   const uid = session?.user?.id ?? null;
   const { rate } = useBcvRate();
+  const { tasas: tasasBcv, error: errorTasasBcv } = useTasasBcv();
   const { data: allReqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
   // 🔗 FLUJO ESTRICTO: Cualquier Solicitud es primero una Solicitud en `📥 Solicitudes`;
   // recién cuando se convierte en Requerimiento aparece en `📝 Requerimiento`.
@@ -5982,6 +5984,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   🔄 Actualizar todos los ítems y plan BCV a hoy ({rate.toFixed(2)} Bs/$)
                 </Text>
               </TouchableOpacity>
+            ) : null}
+
+            {/* 💱 26-nov-2026: las 5 tasas del BCV quedan a la vista como referencia. */}
+            {tasasBcv.length > 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
+                Tasas BCV{fechaBcvLegible(tasasBcv[0]?.fecha_valor) ? ` (valor ${fechaBcvLegible(tasasBcv[0]?.fecha_valor)})` : ''}: {formatearTasasBcv(tasasBcv)}
+              </Text>
+            ) : errorTasasBcv ? (
+              <Text style={{ color: colors.danger, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
+                ⚠️ No se pudieron cargar las tasas del BCV: {errorTasasBcv}
+              </Text>
             ) : null}
 
             {pickOpen ? (

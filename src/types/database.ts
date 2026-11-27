@@ -936,6 +936,16 @@ export interface BcvRate {
   created_at?: string;
 }
 
+/** 26-nov-2026: tasas del BCV (Bs por 1 unidad) para USD, EUR, CNY, TRY y RUB. */
+export interface BcvTasaDiaria {
+  rate_date: string;                // día de la app (hora Caracas)
+  moneda: string;
+  tasa: number;
+  fecha_valor: string | null;       // fecha "Valor" que publica el BCV
+  source: string | null;
+  created_at?: string;
+}
+
 /** Renglón de un requerimiento de compra (guardado en JSONB). */
 export interface RequirementLine {
   product_id: string | null;        // producto del inventario, o null si es NUEVO

@@ -2425,6 +2425,14 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **«🔄 Actualizar todos los ítems y plan BCV a hoy»** sigue sirviendo para recalcular de un toque; antes de cambiar
 > los Bs **aparta el presupuesto anterior**. Abrir el requerimiento **no escribe nada en la base**: solo se guarda
 > cuando tocas **«💾 Guardar cambios»**.
+>
+> **💱 Tasas del BCV: USD, euro, yuan, lira y rublo** *(26/11/2026)*. La tasa que manda en **Requerimientos**, mensajes,
+> PDF y **Por pagar** es la que publica el **BCV (www.bcv.org.ve)**. El 26/11 pasó de **924,35** a **926,3592 Bs/$**.
+> Las otras cuatro tasas (**EUR 1.016,86449384**, **CNY 139,10968284**, **TRY 18,28126443** y **RUB 11,27635342**
+> Bs por unidad) se guardan cada día y aparecen como referencia en el formulario de Requerimientos, junto al botón
+> **«🔄 Actualizar todos»**. La fecha **«Valor»** que publica el BCV puede ser del día siguiente: se muestra tal cual,
+> sin desplazarla. Si alguien fijó una **tasa manual**, se respeta y no se sobrescribe. Si no se puede consultar el BCV,
+> la pantalla lo dice en letras claras y sigue usando la última tasa guardada; nunca inventa un número.
 
 > **📊 Reporte de Compras · S.O.S La Guaira** *(13/11/2026)*. En **Compras**, el botón superior derecho **«📊 Reporte de Compras»**
 > genera el documento oficial ejecutivo con los colores institucionales de **S.O.S La Guaira** (`#0A2540` y `#0284C7`).
