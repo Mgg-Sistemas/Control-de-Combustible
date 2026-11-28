@@ -200,7 +200,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
 
   const priceRow = (d: Draft, set: (d: Draft) => void) => (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
-      {([['semana', 'Sueldo semana ($)'], ['quincena', 'Sueldo quincena ($)'], ['mes', 'Sueldo mes ($)'], ['dia', '☀️ Precio día ($)'], ['noche', '🌙 Precio noche ($)'], ['hora', 'Precio hora ($)']] as const).map(([k, label]) => (
+      {([['semana', 'Sueldo semana ($)'], ['quincena', 'Sueldo quincena ($)'], ['mes', 'Sueldo mes ($)'], ['dia', '☀️ Precio día ($)'], ['noche', '🌙 Precio noche ($)'], ['hora', '⏱️ Precio hora / extra ($)']] as const).map(([k, label]) => (
         <View key={k} style={{ flexGrow: 1, flexBasis: '47%' }}>
           <Text style={{ color: colors.muted, fontSize: 11 }}>{label}</Text>
           <TextInput value={(d as any)[k]} onChangeText={(t) => set({ ...d, [k]: onlyDecimal(t) })} keyboardType="numeric" editable={canEdit} placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, opacity: canEdit ? 1 : 0.6 }} />
@@ -256,7 +256,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{t.cargo}</Text>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>
-                        {t.departamento ? `${t.departamento} · ` : ''}Sem {usd(t.precio_semana)} · Qna {usd(t.precio_quincena)} · Mes {usd(t.precio_mes)} · ☀️ {usd(t.precio_dia)} · 🌙 {usd(t.precio_noche)} · {n} empleado(s)
+                        {t.departamento ? `${t.departamento} · ` : ''}Sem {usd(t.precio_semana)} · Qna {usd(t.precio_quincena)} · Mes {usd(t.precio_mes)} · ☀️ {usd(t.precio_dia)} · 🌙 {usd(t.precio_noche)}{Number(t.precio_hora) > 0 ? ` · ⏱️ Hora ${usd(t.precio_hora)}` : ''} · {n} empleado(s)
                       </Text>
                     </View>
                     <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 16 }}>{on ? '▲' : '▼'}</Text>

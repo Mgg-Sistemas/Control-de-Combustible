@@ -46,15 +46,26 @@ import { PAGO_STATUS_META } from '../lib/statusMeta';
 //    persona dentro del período. No tocan montos y se pueden subir aun PAGADO.
 import { listarSoportesPeriodo, agruparSoportes, type SoportePago } from '../lib/nominaSoportes';
 import { SoportesPagoBox } from '../components/SoportesPagoBox';
+import { leerNumero } from '../lib/numeros';
+import {
+  devengadoBaseOf,
+  devengadoTotalOf,
+  totalRenglonOf,
+  horasExtrasEfectivas,
+  precioHoraExtraOf,
+  montoHorasExtrasOf,
+  horasInicialesEditor,
+  esHorasAutoSinTocar,
+  desgloseBaseTexto,
+  desgloseDevengadoTexto,
+  escHtmlNomina,
+  type StatusPeriodoNomina,
+} from '../lib/horasExtrasNomina';
 
 // ── Formato / utilidades ──────────────────────────────────────────────────────
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const usd = (n: number) => `$${round2(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-// `onlyDecimal` (lib/text.ts) ya deja como mucho UN separador decimal (. o ,,
-// el primero que se tipeó) — acá solo hace falta pasar la coma a punto, NUNCA
-// borrar puntos (si no, "150.50" se leía como 15050: el monto quedaba 100x
-// inflado).
-const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
+const parseNum = (t: string): number => leerNumero(t);
 const sumLines = (l: StaffPayLine[]) => (l || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
 /** Fecha y hora de un timestamp, en hora de acá. Para el «editado por X el …». */
@@ -107,18 +118,15 @@ const priceOf = (it: StaffPayItem, mode: Mode) => Number(mode === 'hora' ? it.pr
 // Jornadas de NOCHE y su precio (solo aplica al modo "Por día").
 const nightQty = (it: StaffPayItem) => Number(it.dias_noche) || 0;
 const nightPrice = (it: StaffPayItem) => Number(it.precio_noche) || 0;
-// Devengado: en "Por día" = (jornadas de DÍA × precio día) + (jornadas de NOCHE × precio noche).
-// En "Por hora"/"Por semana" = cantidad × precio (un solo precio).
-const devengadoOf = (it: StaffPayItem, mode: Mode) =>
-  mode === 'dia'
-    ? round2((Number(it.dias) || 0) * (Number(it.precio_dia) || 0) + nightQty(it) * nightPrice(it))
-    : round2(qtyOf(it, mode) * priceOf(it, mode));
-const totalOf = (it: StaffPayItem, mode: Mode) => round2(devengadoOf(it, mode) + sumLines(it.bonos) - sumLines(it.deducciones));
-// Desglose legible del devengado: en "Por día" separa ☀️ día y 🌙 noche; si no, cantidad × precio.
-const devDesc = (it: StaffPayItem, mode: Mode): string =>
-  mode === 'dia'
-    ? `☀️ ${Number(it.dias) || 0} × ${usd(Number(it.precio_dia) || 0)} · 🌙 ${nightQty(it)} × ${usd(nightPrice(it))}`
-    : `${qtyOf(it, mode)} ${UNIT[mode]} × ${usd(priceOf(it, mode))}`;
+// Devengado: suma la modalidad base (día+noche / semana / hora) MÁS las horas extras
+// cargadas en "Por día" o "Por semana" (`horas × precio_hora`), respetando períodos cerrados.
+const devengadoOf = (it: StaffPayItem, mode: Mode, status: StatusPeriodoNomina = 'borrador') =>
+  devengadoTotalOf(it, mode, status);
+const totalOf = (it: StaffPayItem, mode: Mode, status: StatusPeriodoNomina = 'borrador') =>
+  totalRenglonOf(it, mode, status);
+// Desglose legible del devengado: incluye ☀️ día, 🌙 noche y ⏱️ horas extras cuando aplican.
+const devDesc = (it: StaffPayItem, mode: Mode, status: StatusPeriodoNomina = 'borrador'): string =>
+  desgloseDevengadoTexto(it, mode, usd, status);
 
 // Agregación de jornadas por cédula: DÍA/NOCHE separadas (validadas y todas), horas y semanas.
 type AutoAgg = { diaV: number; nocheV: number; diaAll: number; nocheAll: number; horasV: number; horasAll: number; val: number; pend: number; weeksV: Set<string>; weeksAll: Set<string> };
@@ -411,19 +419,23 @@ export default function PagoPersonalScreen() {
             ps !== (Number(it.precio_semana) || 0)
           );
           const metaCambia = (liveCargo ?? '') !== (it.cargo ?? '') || liveName !== it.person_name || (liveCedula ?? '') !== (it.cedula ?? '');
-          if (metaCambia || preciosCambian) {
-            const nextIt: StaffPayItem = {
-              ...it,
-              cargo: liveCargo,
-              person_name: liveName,
-              cedula: liveCedula,
-              precio_hora: ph,
-              precio_dia: pd,
-              precio_noche: pn,
-              precio_semana: ps,
-            };
-            const dev = devengadoOf(nextIt, p.mode);
-            const tot = totalOf(nextIt, p.mode);
+          const horasLimpias = esHorasAutoSinTocar({ ...it, precio_hora: ph }, p.mode) ? 0 : (Number(it.horas) || 0);
+          const nextIt: StaffPayItem = {
+            ...it,
+            cargo: liveCargo,
+            person_name: liveName,
+            cedula: liveCedula,
+            precio_hora: ph,
+            precio_dia: pd,
+            precio_noche: pn,
+            precio_semana: ps,
+            horas: horasLimpias,
+          };
+          const dev = devengadoOf(nextIt, p.mode, 'borrador');
+          const tot = totalOf(nextIt, p.mode, 'borrador');
+          const montosCambian = dev !== round2(Number(it.devengado) || 0) || tot !== round2(Number(it.total) || 0);
+          const horasCambian = horasLimpias !== (Number(it.horas) || 0);
+          if (metaCambia || preciosCambian || montosCambian || horasCambian) {
             nextIt.devengado = dev;
             nextIt.total = tot;
             await supabase.from('staff_pay_items').update({
@@ -434,16 +446,27 @@ export default function PagoPersonalScreen() {
               precio_dia: pd,
               precio_noche: pn,
               precio_semana: ps,
+              horas: horasLimpias,
               devengado: dev,
               total: tot,
             }).eq('id', it.id);
-            if (tot !== Number(it.total)) huboCambioMonto = true;
+            if (tot !== round2(Number(it.total) || 0)) huboCambioMonto = true;
             syncedList.push(nextIt);
             continue;
           }
           syncedList.push({ ...it, cargo: liveCargo, person_name: liveName, cedula: liveCedula });
         } else {
-          syncedList.push(it);
+          const horasLimpias = esHorasAutoSinTocar(it, p.mode) ? 0 : (Number(it.horas) || 0);
+          const nextIt: StaffPayItem = { ...it, horas: horasLimpias };
+          const dev = devengadoOf(nextIt, p.mode, 'borrador');
+          const tot = totalOf(nextIt, p.mode, 'borrador');
+          if (dev !== round2(Number(it.devengado) || 0) || tot !== round2(Number(it.total) || 0) || horasLimpias !== (Number(it.horas) || 0)) {
+            nextIt.devengado = dev;
+            nextIt.total = tot;
+            await supabase.from('staff_pay_items').update({ horas: horasLimpias, devengado: dev, total: tot }).eq('id', it.id);
+            if (tot !== round2(Number(it.total) || 0)) huboCambioMonto = true;
+          }
+          syncedList.push(nextIt);
         }
       }
       finalList = syncedList.sort((a, b) => cmpText(a.person_name, b.person_name));
@@ -515,10 +538,11 @@ export default function PagoPersonalScreen() {
     const source = g ? 'auto' : 'manual';
     const dias = g ? (onlyValidated ? g.diaV : g.diaAll) : 0;        // jornadas de DÍA
     const dias_noche = g ? (onlyValidated ? g.nocheV : g.nocheAll) : 0; // jornadas de NOCHE
-    const horas = g ? (onlyValidated ? g.horasV : g.horasAll) : 0;
+    // En "Por día" y "Por semana", `horas` queda reservado para HORAS EXTRAS manuales (arranca en 0).
+    const horas = mode === 'hora' ? (g ? (onlyValidated ? g.horasV : g.horasAll) : 0) : 0;
     const semanas = g ? (onlyValidated ? g.weeksV.size : g.weeksAll.size) : 0;
-    const base = { precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas } as StaffPayItem;
-    const dev = devengadoOf(base, mode);
+    const base = { source, overridden: false, precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas } as StaffPayItem;
+    const dev = devengadoOf(base, mode, 'borrador');
     return {
       period_id: pid, employee_id: e.id, cedula: e.cedula, person_name: `${e.first_name} ${e.last_name}`.trim(),
       cargo: e.cargo ?? null, source, precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas,
@@ -580,11 +604,11 @@ export default function PagoPersonalScreen() {
         const g = byCed.get(it.cedula ?? '');
         const dias = g ? (sel.only_validated ? g.diaV : g.diaAll) : 0;
         const dias_noche = g ? (sel.only_validated ? g.nocheV : g.nocheAll) : 0;
-        const horas = g ? (sel.only_validated ? g.horasV : g.horasAll) : 0;
+        const horas = sel.mode === 'hora' ? (g ? (sel.only_validated ? g.horasV : g.horasAll) : 0) : 0;
         const semanas = g ? (sel.only_validated ? g.weeksV.size : g.weeksAll.size) : 0;
         const merged = { ...it, dias, dias_noche, horas, semanas, jornadas_validadas: g ? g.val : 0, jornadas_pendientes: g ? g.pend : 0 };
-        const dev = devengadoOf(merged, sel.mode);
-        const tot = totalOf(merged, sel.mode);
+        const dev = devengadoOf(merged, sel.mode, 'borrador');
+        const tot = totalOf(merged, sel.mode, 'borrador');
         const row = { ...merged, devengado: dev, total: tot };
         await supabase.from('staff_pay_items').update({
           dias, dias_noche, horas, semanas, jornadas_validadas: row.jornadas_validadas, jornadas_pendientes: row.jornadas_pendientes,
@@ -732,7 +756,7 @@ export default function PagoPersonalScreen() {
     setEPSemana(String(it.precio_semana ?? 0));
     setEDias(String(it.dias ?? 0));
     setEDiasNoche(String(it.dias_noche ?? 0));
-    setEHoras(String(it.horas ?? 0));
+    setEHoras(String(sel ? horasInicialesEditor(it, sel.mode, sel.status) : (it.horas ?? 0)));
     setESemanas(String(it.semanas ?? 0));
     setEBonos(Array.isArray(it.bonos) ? it.bonos : []);
     setEDed(Array.isArray(it.deducciones) ? it.deducciones : []);
@@ -747,10 +771,10 @@ export default function PagoPersonalScreen() {
     const dias = parseNum(eDias); const dias_noche = parseNum(eDiasNoche); const horas = parseNum(eHoras); const semanas = parseNum(eSemanas);
     const bonos = eBonos.filter((l) => l.label?.trim() || l.amount);
     const ded = eDed.filter((l) => l.label?.trim() || l.amount);
-    const overridden = editItem.overridden || dias !== Number(editItem.dias) || dias_noche !== Number(editItem.dias_noche) || horas !== Number(editItem.horas) || semanas !== Number(editItem.semanas);
-    const merged: StaffPayItem = { ...editItem, precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas, bonos, deducciones: ded };
-    const dev = devengadoOf(merged, sel.mode);
-    const tot = totalOf(merged, sel.mode);
+    const overridden = editItem.overridden || dias !== Number(editItem.dias) || dias_noche !== Number(editItem.dias_noche) || (sel.mode !== 'hora' && horas > 0) || horas !== Number(editItem.horas) || semanas !== Number(editItem.semanas);
+    const merged: StaffPayItem = { ...editItem, overridden, precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas, bonos, deducciones: ded };
+    const dev = devengadoOf(merged, sel.mode, 'borrador');
+    const tot = totalOf(merged, sel.mode, 'borrador');
     const { error } = await supabase.from('staff_pay_items').update({
       precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas, overridden,
       bonos, deducciones: ded, devengado: dev, total: tot, nota: eNote.trim() || null,
@@ -952,10 +976,14 @@ export default function PagoPersonalScreen() {
     const bimo = (m: number) => (tasaP ? `${usd(m)} (${fmtMontoVes(calcularVesDesdeUsd(m, tasaP))})` : usd(m));
     const pagado = paidOf(it.id); const saldo = saldoOf(it);
     const abonos = pays.filter((p) => p.item_id === it.id).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
-    const dev = devengadoOf(it, sel.mode);
+    const devBase = devengadoBaseOf(it, sel.mode);
+    const hExt = horasExtrasEfectivas(it, sel.mode, sel.status);
+    const pExt = precioHoraExtraOf(it);
+    const mExt = montoHorasExtrasOf(it, sel.mode, sel.status);
+    const dev = devengadoOf(it, sel.mode, sel.status);
     const html = pdfDocument({
       title: 'Recibo de pago a personal',
-      subtitle: `${it.person_name} · ${companyName(sel.company_id)} · ${sel.name}${tasaP ? ` · Tasa: ${fmtTasaCambio(tasaP)}/US$` : ''}`,
+      subtitle: `${escHtmlNomina(it.person_name)} · ${escHtmlNomina(companyName(sel.company_id))} · ${escHtmlNomina(sel.name)}${tasaP ? ` · Tasa: ${fmtTasaCambio(tasaP)}/US$` : ''}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
         th,td{border:1px solid #ccc;padding:6px 8px} th{background:#1E3A5F;color:#fff;text-align:left}
         .tot{font-weight:800;background:#EEF2F7} .net{font-size:20px;font-weight:800;color:#1E3A5F;text-align:right;margin-top:12px}
@@ -965,10 +993,10 @@ export default function PagoPersonalScreen() {
         .firmas .firma .s{color:#777;font-size:10px;margin-top:1px}`,
       body: `
         <table><tbody>
-          <tr><td>Persona</td><td style="text-align:right">${it.person_name}</td></tr>
-          <tr><td>Cargo</td><td style="text-align:right">${it.cargo ?? '—'}</td></tr>
-          <tr><td>Cédula</td><td style="text-align:right">${it.cedula ?? '—'}</td></tr>
-          <tr><td>Empresa</td><td style="text-align:right">${companyName(sel.company_id)}</td></tr>
+          <tr><td>Persona</td><td style="text-align:right">${escHtmlNomina(it.person_name)}</td></tr>
+          <tr><td>Cargo</td><td style="text-align:right">${escHtmlNomina(it.cargo || '—')}</td></tr>
+          <tr><td>Cédula</td><td style="text-align:right">${escHtmlNomina(it.cedula || '—')}</td></tr>
+          <tr><td>Empresa</td><td style="text-align:right">${escHtmlNomina(companyName(sel.company_id))}</td></tr>
           <tr><td>Período</td><td style="text-align:right">${TYPE_LABEL[sel.period_type]} · ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)}</td></tr>
           <tr><td>Pago</td><td style="text-align:right">${MODE_LABEL[sel.mode]}</td></tr>
           ${tasaP ? `<tr><td>Tasa de cambio aplicada</td><td style="text-align:right"><b>${fmtTasaCambio(tasaP)} / US$</b></td></tr>` : ''}
@@ -977,13 +1005,18 @@ export default function PagoPersonalScreen() {
                <tr><td>Jornadas ☀️ día / 🌙 noche</td><td style="text-align:right">${Number(it.dias) || 0} / ${nightQty(it)}</td></tr>`
             : `<tr><td>Precio (${MODE_LABEL[sel.mode].toLowerCase()})</td><td style="text-align:right">${usd(priceOf(it, sel.mode))}</td></tr>
                <tr><td>Cantidad</td><td style="text-align:right">${qtyOf(it, sel.mode)} ${UNIT[sel.mode]}</td></tr>`}
+          ${mExt > 0 ? `<tr><td>Precio ⏱️ hora extra</td><td style="text-align:right">${usd(pExt)}</td></tr>
+            <tr><td>Cantidad ⏱️ horas extras</td><td style="text-align:right">${hExt} h</td></tr>` : ''}
           ${it.source === 'auto' ? `<tr><td>Jornadas validadas / pendientes</td><td style="text-align:right">${it.jornadas_validadas} / ${it.jornadas_pendientes}</td></tr>` : ''}
         </tbody></table>
         <table><thead><tr><th>Concepto</th><th style="text-align:right">Monto (USD / Bs)</th></tr></thead>
         <tbody>
-          <tr><td>Devengado (${devDesc(it, sel.mode)})</td><td style="text-align:right">${bimo(dev)}</td></tr>
-          ${(it.bonos || []).map((l) => `<tr><td>+ Bono: ${l.label || '—'}</td><td style="text-align:right">${bimo(l.amount)}</td></tr>`).join('')}
-          ${(it.deducciones || []).map((l) => `<tr><td>− Deducción: ${l.label || '—'}</td><td style="text-align:right">−${bimo(l.amount)}</td></tr>`).join('')}
+          ${mExt > 0
+            ? `<tr><td>Devengado base (${escHtmlNomina(desgloseBaseTexto(it, sel.mode, usd))})</td><td style="text-align:right">${bimo(devBase)}</td></tr>
+               <tr><td>+ ⏱️ Horas extras (${hExt} h × ${usd(pExt)})</td><td style="text-align:right">${bimo(mExt)}</td></tr>`
+            : `<tr><td>Devengado (${escHtmlNomina(devDesc(it, sel.mode, sel.status))})</td><td style="text-align:right">${bimo(dev)}</td></tr>`}
+          ${(it.bonos || []).map((l) => `<tr><td>+ Bono: ${escHtmlNomina(l.label || '—')}</td><td style="text-align:right">${bimo(l.amount)}</td></tr>`).join('')}
+          ${(it.deducciones || []).map((l) => `<tr><td>− Deducción: ${escHtmlNomina(l.label || '—')}</td><td style="text-align:right">−${bimo(l.amount)}</td></tr>`).join('')}
           <tr class="tot"><td>Total a pagar</td><td style="text-align:right">${bimo(it.total)}</td></tr>
         </tbody></table>
         ${abonos.length ? `<table><thead><tr><th>Abono</th><th>Fecha</th><th>Método</th><th style="text-align:right">Monto</th></tr></thead>
@@ -1010,16 +1043,29 @@ export default function PagoPersonalScreen() {
     const base = baseDocumentos();
     const rowFor = (it: StaffPayItem) => {
       const pagado = paidOf(it.id); const saldo = saldoOf(it);
-      const precioCell = sel.mode === 'dia'
+      const hExt = horasExtrasEfectivas(it, sel.mode, sel.status);
+      const pExt = precioHoraExtraOf(it);
+      const mExt = montoHorasExtrasOf(it, sel.mode, sel.status);
+      const dev = devengadoOf(it, sel.mode, sel.status);
+      const basePrecioCell = sel.mode === 'dia'
         ? `☀️ ${usd(Number(it.precio_dia) || 0)}<br/>🌙 ${usd(nightPrice(it))}`
         : usd(priceOf(it, sel.mode));
-      const cantCell = sel.mode === 'dia'
+      const baseCantCell = sel.mode === 'dia'
         ? `☀️ ${Number(it.dias) || 0}<br/>🌙 ${nightQty(it)}`
         : `${qtyOf(it, sel.mode)} ${UNIT[sel.mode]}`;
-      return `<tr><td>${it.person_name}</td><td>${it.cargo ?? '—'}</td>` +
+      const precioCell = mExt > 0
+        ? `${basePrecioCell}<br/><span style="color:#0369A1;font-weight:700">⏱️ H.Ext: ${usd(pExt)}</span>`
+        : basePrecioCell;
+      const cantCell = mExt > 0
+        ? `${baseCantCell}<br/><span style="color:#0369A1;font-weight:700">⏱️ ${hExt} h ext.</span>`
+        : baseCantCell;
+      const devCell = mExt > 0
+        ? `${cellBimo(dev)}<br/><span style="font-size:9px;color:#0369A1;font-weight:700">incl. H.Ext: ${usd(mExt)}</span>`
+        : cellBimo(dev);
+      return `<tr><td>${escHtmlNomina(it.person_name)}</td><td>${escHtmlNomina(it.cargo || '—')}</td>` +
         `<td style="text-align:right">${precioCell}</td>` +
         `<td style="text-align:center">${cantCell}</td>` +
-        `<td style="text-align:right">${cellBimo(devengadoOf(it, sel.mode))}</td>` +
+        `<td style="text-align:right">${devCell}</td>` +
         `<td style="text-align:right">${usd(sumLines(it.bonos))}</td>` +
         `<td style="text-align:right">${usd(sumLines(it.deducciones))}</td>` +
         `<td style="text-align:right;font-weight:800">${cellBimo(it.total)}</td>` +
@@ -1122,8 +1168,11 @@ export default function PagoPersonalScreen() {
         departamento: deptoDe(it),
         nombre: it.person_name, cedula: it.cedula ?? '', cargo: it.cargo ?? '',
         ...bancoDe(it),
-        dias: Number(it.dias) || 0, dias_noche: Number(it.dias_noche) || 0, horas: Number(it.horas) || 0, semanas: Number(it.semanas) || 0,
-        devengado: devengadoOf(it, sel.mode), bonos: sumLines(it.bonos), deducciones: sumLines(it.deducciones),
+        dias: Number(it.dias) || 0,
+        dias_noche: Number(it.dias_noche) || 0,
+        horas: sel.mode === 'hora' ? (Number(it.horas) || 0) : horasExtrasEfectivas(it, sel.mode, sel.status),
+        semanas: Number(it.semanas) || 0,
+        devengado: devengadoOf(it, sel.mode, sel.status), bonos: sumLines(it.bonos), deducciones: sumLines(it.deducciones),
         total: Number(it.total) || 0, pagado: paidOf(it.id), saldo: saldoOf(it),
       })),
       tasaDePeriodo(sel),
@@ -1310,6 +1359,7 @@ export default function PagoPersonalScreen() {
   // Vista previa del renglón en edición.
   const previewItem: StaffPayItem | null = editItem && sel ? {
     ...editItem,
+    overridden: editItem.overridden || parseNum(eDias) !== Number(editItem.dias) || parseNum(eDiasNoche) !== Number(editItem.dias_noche) || (sel.mode !== 'hora' && parseNum(eHoras) > 0) || parseNum(eHoras) !== Number(editItem.horas) || parseNum(eSemanas) !== Number(editItem.semanas),
     precio_hora: puedeTarifa ? parseNum(ePHora) : editItem.precio_hora,
     precio_dia: puedeTarifa ? parseNum(ePDia) : editItem.precio_dia,
     precio_noche: puedeTarifa ? parseNum(ePNoche) : editItem.precio_noche,
@@ -2036,8 +2086,8 @@ export default function PagoPersonalScreen() {
                             })()}
                           </View>
                           <Text style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}>
-                            {devDesc(it, sel.mode)} = {usd(devengadoOf(it, sel.mode))}
-                            {tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(devengadoOf(it, sel.mode), tasaDePeriodo(sel)))})` : ''}
+                            {devDesc(it, sel.mode, sel.status)} = {usd(devengadoOf(it, sel.mode, sel.status))}
+                            {tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(devengadoOf(it, sel.mode, sel.status), tasaDePeriodo(sel)))})` : ''}
                             {sumLines(it.bonos) ? ` · +${usd(sumLines(it.bonos))}` : ''}{sumLines(it.deducciones) ? ` · −${usd(sumLines(it.deducciones))}` : ''}
                           </Text>
                           {it.source === 'auto' && it.jornadas_pendientes > 0 ? (
@@ -2150,10 +2200,17 @@ export default function PagoPersonalScreen() {
                   {[editItem.cargo, editItem.source === 'auto' ? 'operador (auto)' : 'manual'].filter(Boolean).join(' · ')}
                 </Text>
 
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Precios del trabajador{!puedeTarifa ? ' — solo lectura' : ''}{sel.mode === 'dia' ? ' · en "Por día" se usan precio DÍA y precio NOCHE' : ''}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  Precios del trabajador{!puedeTarifa ? ' — solo lectura' : ''}
+                  {sel.mode === 'dia' ? ' · en "Por día" suman ☀️ Día, 🌙 Noche y ⏱️ Horas extras' : sel.mode === 'semana' ? ' · en "Por semana" suman Semana y ⏱️ Horas extras' : ''}
+                </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
                   <View style={{ flexGrow: 1, flexBasis: '47%' }}>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>Precio hora ($){sel.mode === 'hora' ? ' ✓' : ''}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>
+                      {sel.mode === 'hora'
+                        ? 'Precio hora ($) ✓'
+                        : `⏱️ Precio hora extra ($)${parseNum(ePHora) > 0 && parseNum(eHoras) > 0 ? ' ✓' : ''}`}
+                    </Text>
                     <TextInput value={ePHora} onChangeText={(t) => setEPHora(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly && puedeTarifa} style={{ ...input, opacity: puedeTarifa ? 1 : 0.6 }} />
                   </View>
                   <View style={{ flexGrow: 1, flexBasis: '47%' }}>
@@ -2174,7 +2231,11 @@ export default function PagoPersonalScreen() {
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Cantidad trabajada</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
                   <View style={{ flexGrow: 1, flexBasis: '47%' }}>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>Horas{sel.mode === 'hora' ? ' ✓' : ''}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>
+                      {sel.mode === 'hora'
+                        ? 'Horas ✓'
+                        : `⏱️ Horas extras${parseNum(eHoras) > 0 ? ' ✓' : ''}`}
+                    </Text>
                     <TextInput value={eHoras} onChangeText={(t) => setEHoras(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly} style={input} />
                   </View>
                   <View style={{ flexGrow: 1, flexBasis: '47%' }}>
@@ -2190,6 +2251,16 @@ export default function PagoPersonalScreen() {
                     <TextInput value={eDiasNoche} onChangeText={(t) => setEDiasNoche(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly} style={input} />
                   </View>
                 </View>
+                {sel.mode !== 'hora' && parseNum(eHoras) > 0 && parseNum(ePHora) <= 0 ? (
+                  <Text style={{ color: colors.warning, fontSize: 11.5, fontWeight: '700', marginTop: 4 }}>
+                    ⚠️ Cargaste {parseNum(eHoras)} hora(s) extra, pero el precio de hora extra está en $0. Coloca el monto en «⏱️ Precio hora extra ($)» arriba para que sume al total.
+                  </Text>
+                ) : null}
+                {sel.mode !== 'hora' && parseNum(eHoras) > 0 && parseNum(ePHora) > 0 ? (
+                  <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '800', marginTop: 4 }}>
+                    ✓ Horas extras activas: {parseNum(eHoras)} h × {usd(parseNum(ePHora))} = +{usd(round2(parseNum(eHoras) * parseNum(ePHora)))} sumados al devengado.
+                  </Text>
+                ) : null}
                 {editItem.source === 'auto' ? (
                   <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Auto: {editItem.jornadas_validadas} validada(s) · {editItem.jornadas_pendientes} pendiente(s). Si editas la cantidad, queda como ajuste manual.</Text>
                 ) : null}
@@ -2201,24 +2272,57 @@ export default function PagoPersonalScreen() {
                 <TextInput value={eNote} onChangeText={setENote} editable={!readOnly} placeholder="Observación…" placeholderTextColor={colors.muted} style={input} />
 
                 <View style={{ marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>Devengado: {devDesc(previewItem, sel.mode)}</Text>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>
-                      {usd(devengadoOf(previewItem, sel.mode))}
-                      {tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(devengadoOf(previewItem, sel.mode), tasaDePeriodo(sel)))})` : ''}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                    <Text style={{ color: colors.text, fontWeight: '800' }}>Total a pagar</Text>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(totalOf(previewItem, sel.mode))}</Text>
-                      {tasaDePeriodo(sel) ? (
-                        <Text style={{ color: '#0F766E', fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>
-                          {fmtMontoVes(calcularVesDesdeUsd(totalOf(previewItem, sel.mode), tasaDePeriodo(sel)))}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
+                  {(() => {
+                    const pSt: StatusPeriodoNomina = readOnly ? sel.status : 'borrador';
+                    const mExtPrev = montoHorasExtrasOf(previewItem, sel.mode, pSt);
+                    const hExtPrev = horasExtrasEfectivas(previewItem, sel.mode, pSt);
+                    const pExtPrev = precioHoraExtraOf(previewItem);
+                    const devBasePrev = devengadoBaseOf(previewItem, sel.mode);
+                    const devTotPrev = devengadoOf(previewItem, sel.mode, pSt);
+                    const totPrev = totalOf(previewItem, sel.mode, pSt);
+                    return (
+                      <>
+                        {mExtPrev > 0 ? (
+                          <>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                              <Text style={{ color: colors.muted, fontSize: 12.5 }}>Jornadas base: {desgloseBaseTexto(previewItem, sel.mode, usd)}</Text>
+                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>
+                                {usd(devBasePrev)}
+                                {tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(devBasePrev, tasaDePeriodo(sel)))})` : ''}
+                              </Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                              <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '700' }}>⏱️ Horas extras: {hExtPrev} h × {usd(pExtPrev)}</Text>
+                              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12.5 }}>
+                                +{usd(mExtPrev)}
+                                {tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(mExtPrev, tasaDePeriodo(sel)))})` : ''}
+                              </Text>
+                            </View>
+                          </>
+                        ) : null}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginTop: mExtPrev > 0 ? 3 : 0 }}>
+                          <Text style={{ color: colors.muted, fontSize: 13 }}>
+                            {mExtPrev > 0 ? 'Devengado total:' : `Devengado: ${devDesc(previewItem, sel.mode, pSt)}`}
+                          </Text>
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>
+                            {usd(devTotPrev)}
+                            {tasaDePeriodo(sel) ? ` (${fmtMontoVes(calcularVesDesdeUsd(devTotPrev, tasaDePeriodo(sel)))})` : ''}
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                          <Text style={{ color: colors.text, fontWeight: '800' }}>Total a pagar</Text>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(totPrev)}</Text>
+                            {tasaDePeriodo(sel) ? (
+                              <Text style={{ color: '#0F766E', fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>
+                                {fmtMontoVes(calcularVesDesdeUsd(totPrev, tasaDePeriodo(sel)))}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </View>
+                      </>
+                    );
+                  })()}
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
